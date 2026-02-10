@@ -1,7 +1,7 @@
 if(CONFIG_DEVICE_T_GLASSES_P4)
     set(
         project_path
-        "./scr/"
+        "./"
         "./device/t-glasses-p4/"
     )
 endif()
