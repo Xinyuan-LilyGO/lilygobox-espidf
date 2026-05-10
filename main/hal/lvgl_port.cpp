@@ -1,0 +1,192 @@
+/*
+ * @Description: None
+ * @Author: LILYGO_L
+ * @Date: 2026-05-10 13:27:05
+ * @LastEditTime: 2026-05-10 23:41:00
+ * @License: GPL 3.0
+ */
+#include "hal/lvgl_port.h"
+
+#include <algorithm>
+
+#include "base/logger.h"
+#include "esp_heap_caps.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+namespace lilygo_box::hal {
+namespace {
+
+constexpr int kLvglTickPeriodMs = 1;
+constexpr int kLvglTaskStackBytes = 16 * 1024;
+constexpr UBaseType_t kLvglTaskPriority = 1;
+constexpr uint32_t kMinimumHandlerDelayMs = 10;
+LvglPort* g_active_port = nullptr;
+
+}  // namespace
+
+bool LvglPort::Init(ScreenDevice* screen) {
+  if (screen == nullptr) {
+    return false;
+  }
+
+  screen_ = screen;
+  g_active_port = this;
+  lv_init();
+
+  lvgl_display_ = lv_display_create(screen_->width(), screen_->height());
+  if (lvgl_display_ == nullptr) {
+    return false;
+  }
+
+  lv_display_set_user_data(lvgl_display_, this);
+  lv_display_set_color_format(lvgl_display_, ColorFormat());
+
+  void* buffer = heap_caps_malloc(DrawBufferSize(), MALLOC_CAP_SPIRAM);
+  if (buffer == nullptr) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "LVGL draw buffer allocation failed\n");
+    return false;
+  }
+
+  lv_display_set_buffers(lvgl_display_, buffer, nullptr, DrawBufferSize(),
+      LV_DISPLAY_RENDER_MODE_PARTIAL);
+  lv_display_set_flush_cb(lvgl_display_, FlushCallback);
+
+  input_device_ = lv_indev_create();
+  if (input_device_ == nullptr) {
+    return false;
+  }
+  lv_indev_set_type(input_device_, LV_INDEV_TYPE_POINTER);
+  lv_indev_set_read_cb(input_device_, TouchReadCallback);
+
+  if (!screen_->RegisterFlushReadyCallback(FlushReadyCallback, this)) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "ScreenDevice::RegisterFlushReadyCallback failed\n");
+    return false;
+  }
+
+  const esp_timer_create_args_t tick_timer_args = {
+      .callback = TickCallback,
+      .arg = this,
+      .dispatch_method = ESP_TIMER_TASK,
+      .name = "lvgl_tick",
+      .skip_unhandled_events = false,
+  };
+  esp_timer_handle_t tick_timer = nullptr;
+  int result = esp_timer_create(&tick_timer_args, &tick_timer);
+  if (result != 0) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "esp_timer_create failed (error code: %#X)\n", result);
+    return false;
+  }
+
+  result = esp_timer_start_periodic(tick_timer, kLvglTickPeriodMs * 1000);
+  if (result != 0) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "esp_timer_start_periodic failed (error code: %#X)\n", result);
+    return false;
+  }
+  return true;
+}
+
+bool LvglPort::Start() {
+  const BaseType_t result = xTaskCreate(
+      TaskEntry, "lvgl", kLvglTaskStackBytes, this, kLvglTaskPriority, nullptr);
+  return result == pdPASS;
+}
+
+void LvglPort::Lock() { _lock_acquire(&lock_); }
+
+void LvglPort::Unlock() { _lock_release(&lock_); }
+
+void LvglPort::FlushCallback(
+    lv_display_t* lvgl_display, const lv_area_t* area, uint8_t* pixel_map) {
+  auto* self = static_cast<LvglPort*>(lv_display_get_user_data(lvgl_display));
+  if (self == nullptr || self->screen_ == nullptr) {
+    lv_display_flush_ready(lvgl_display);
+    return;
+  }
+
+  const bool result = self->screen_->WritePixels(
+      area->x1, area->y1, area->x2 + 1, area->y2 + 1, pixel_map);
+  if (!result) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "ScreenDevice::WritePixels failed\n");
+    lv_display_flush_ready(lvgl_display);
+  }
+}
+
+void LvglPort::FlushReadyCallback(void* context) {
+  auto* self = static_cast<LvglPort*>(context);
+  if (self != nullptr && self->lvgl_display_ != nullptr) {
+    lv_display_flush_ready(self->lvgl_display_);
+  }
+}
+
+void LvglPort::TouchReadCallback(lv_indev_t*, lv_indev_data_t* data) {
+  if (g_active_port == nullptr || g_active_port->screen_ == nullptr) {
+    data->state = LV_INDEV_STATE_REL;
+    return;
+  }
+
+  TouchPoint point;
+  const bool result = g_active_port->screen_->ReadTouch(&point);
+  if (result) {
+    data->state = LV_INDEV_STATE_PR;
+    data->point.x = point.x;
+    data->point.y = point.y;
+    return;
+  }
+
+  data->state = LV_INDEV_STATE_REL;
+}
+
+void LvglPort::TickCallback(void*) { lv_tick_inc(kLvglTickPeriodMs); }
+
+void LvglPort::TaskEntry(void* arg) {
+  auto* self = static_cast<LvglPort*>(arg);
+  self->TaskLoop();
+}
+
+lv_color_format_t LvglPort::ColorFormat() const {
+  switch (screen_->bits_per_pixel()) {
+    case 16:
+      return LV_COLOR_FORMAT_RGB565;
+    case 24:
+      return LV_COLOR_FORMAT_RGB888;
+    default:
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Unsupported color depth %d, falling back to RGB565\n",
+          screen_->bits_per_pixel());
+      return LV_COLOR_FORMAT_RGB565;
+  }
+}
+
+size_t LvglPort::DrawBufferSize() const {
+  const int rows = DrawBufferRows();
+  const size_t bytes_per_pixel = screen_->bits_per_pixel() / 8;
+  return static_cast<size_t>(screen_->width()) * rows * bytes_per_pixel;
+}
+
+int LvglPort::DrawBufferRows() const {
+  if (CONFIG_LILYGO_BOX_LVGL_DRAW_BUFFER_ROWS == 0) {
+    return screen_->height();
+  }
+  return std::clamp(
+      CONFIG_LILYGO_BOX_LVGL_DRAW_BUFFER_ROWS, 1, screen_->height());
+}
+
+void LvglPort::TaskLoop() {
+  while (true) {
+    Lock();
+    uint32_t delay_ms = lv_timer_handler();
+    Unlock();
+
+    delay_ms = std::max(delay_ms, kMinimumHandlerDelayMs);
+    vTaskDelay(pdMS_TO_TICKS(delay_ms));
+  }
+}
+
+}  // namespace lilygo_box::hal

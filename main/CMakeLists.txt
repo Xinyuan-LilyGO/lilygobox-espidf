@@ -1,15 +1,27 @@
-if(CONFIG_DEVICE_T_GLASSES_P4)
-    set(
-        project_path
-        "./"
-        "./device/t-glasses-p4/"
-    )
-endif()
-        
-idf_component_register(SRC_DIRS ${project_path} 
-                        INCLUDE_DIRS ${project_path})
+set(src_dirs
+    "."
+    "app"
+    "base"
+    "hal"
+    "ui"
+    "ui/font"
+    "ui/icon"
+    "ui/view")
 
-# target_compile_options(
-#     ${COMPONENT_LIB}
-#     PRIVATE -Wno-error=unused-const-variable -Wno-error=delete-non-virtual-dtor
-#             -Wno-error=implicit-function-declaration -fpermissive)
+if(CONFIG_LILYGO_BOX_DEVICE_T_DISPLAY_P4)
+    list(APPEND src_dirs "hal/device/t_display_p4")
+endif()
+
+idf_component_register(
+    SRC_DIRS ${src_dirs}
+    INCLUDE_DIRS "."
+    REQUIRES
+        esp_lcd
+        esp_timer
+        lvgl
+        lilygo_device_driver
+    PRIV_REQUIRES
+        esp_common
+        esp_system
+        freertos
+        heap)
