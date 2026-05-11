@@ -8,7 +8,9 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
+#include "freertos/FreeRTOS.h"
 #include "hal/screen_device.h"
 #include "lvgl.h"
 #include "sys/lock.h"
@@ -57,6 +59,11 @@ class LvglPort final {
   void Unlock();
 
  private:
+  static constexpr int kLvglTickPeriodMs = 1;
+  static constexpr int kLvglTaskStackBytes = 16 * 1024;
+  static constexpr UBaseType_t kLvglTaskPriority = 1;
+  static constexpr uint32_t kMinimumHandlerDelayMs = 10;
+
   /**
    * @brief 处理 LVGL flush 回调
    * @param lvgl_display LVGL 显示对象
@@ -107,13 +114,6 @@ class LvglPort final {
    * @Date 2026-05-10 13:01:03
    */
   lv_color_format_t ColorFormat() const;
-
-  /**
-   * @brief 获取绘制缓冲区行数
-   * @return 绘制缓冲区行数
-   * @Date 2026-05-10 13:01:03
-   */
-  int DrawBufferRows() const;
 
   /**
    * @brief 获取绘制缓冲区字节数

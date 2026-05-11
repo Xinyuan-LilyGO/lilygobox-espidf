@@ -14,28 +14,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-namespace {
-
-constexpr int kScreenReadyTimeoutMs = 5000;
-constexpr int kScreenReadyPollMs = 20;
-
-bool OnScreenColorTransferDone(esp_lcd_panel_handle_t,
-    esp_lcd_dpi_panel_event_data_t*, void* user_context) {
-  auto* handler =
-      static_cast<lilygo_box::hal::ScreenFlushReadyHandler*>(user_context);
-  if (handler != nullptr && handler->callback != nullptr) {
-    handler->callback(handler->context);
-  }
-  return false;
-}
-
-bool OnScreenRefreshDone(
-    esp_lcd_panel_handle_t, esp_lcd_dpi_panel_event_data_t*, void*) {
-  return false;
-}
-
-}  // namespace
-
 namespace lilygo_box::hal {
 
 TDisplayP4Device::TDisplayP4Device()
@@ -69,8 +47,18 @@ bool TDisplayP4Device::RegisterFlushReadyCallback(
   flush_ready_handler_.context = callback_context;
 
   esp_lcd_dpi_panel_event_callbacks_t panel_callbacks = {
-      .on_color_trans_done = OnScreenColorTransferDone,
-      .on_refresh_done = OnScreenRefreshDone,
+      .on_color_trans_done =
+          [](esp_lcd_panel_handle_t, esp_lcd_dpi_panel_event_data_t*,
+              void* user_context) -> bool {
+        auto* handler = static_cast<ScreenFlushReadyHandler*>(user_context);
+        if (handler != nullptr && handler->callback != nullptr) {
+          handler->callback(handler->context);
+        }
+        return false;
+      },
+      .on_refresh_done =
+          [](esp_lcd_panel_handle_t, esp_lcd_dpi_panel_event_data_t*,
+              void*) -> bool { return false; },
   };
 
   const auto screen_bus = driver_.bus().screen_mipi_bus;

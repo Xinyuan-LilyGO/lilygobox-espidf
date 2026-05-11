@@ -6,6 +6,7 @@ menu "LilygoBox Configuration"
 
         config LILYGO_BOX_DEVICE_T_DISPLAY_P4
             bool "T-Display-P4"
+            select LILYGO_DEVICE_DRIVER_T_DISPLAY_P4
     endchoice
 
     choice T_DISPLAY_P4_DEVICE_TYPE
@@ -82,16 +83,6 @@ menu "LilygoBox Configuration"
         config CAMERA_PIXEL_FORMAT_RGB888
             bool "RGB888"
     endchoice
-
-    config LILYGO_BOX_LVGL_DRAW_BUFFER_ROWS
-        int "LVGL draw buffer row count"
-        range 0 2048
-        default 0
-        help
-            Number of display rows allocated for the LVGL partial draw buffer.
-            Use 0 to allocate a full-height draw buffer in PSRAM. T-Display-P4
-            defaults to a full-height buffer to match the original LVGL example
-            and keep full-screen refreshes in one large flush chunk.
 
     choice LILYGO_BOX_LOG_LEVEL
         prompt "Select LilygoBox log level"

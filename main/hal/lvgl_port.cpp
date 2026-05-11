@@ -16,15 +16,6 @@
 #include "freertos/task.h"
 
 namespace lilygo_box::hal {
-namespace {
-
-constexpr int kLvglTickPeriodMs = 1;
-constexpr int kLvglTaskStackBytes = 16 * 1024;
-constexpr UBaseType_t kLvglTaskPriority = 1;
-constexpr uint32_t kMinimumHandlerDelayMs = 10;
-LvglPort* g_active_port = nullptr;
-
-}  // namespace
 
 bool LvglPort::Init(ScreenDevice* screen) {
   if (screen == nullptr) {
@@ -32,7 +23,6 @@ bool LvglPort::Init(ScreenDevice* screen) {
   }
 
   screen_ = screen;
-  g_active_port = this;
   lv_init();
 
   lvgl_display_ = lv_display_create(screen_->width(), screen_->height());
@@ -59,6 +49,7 @@ bool LvglPort::Init(ScreenDevice* screen) {
     return false;
   }
   lv_indev_set_type(input_device_, LV_INDEV_TYPE_POINTER);
+  lv_indev_set_user_data(input_device_, this);
   lv_indev_set_read_cb(input_device_, TouchReadCallback);
 
   if (!screen_->RegisterFlushReadyCallback(FlushReadyCallback, this)) {
@@ -125,14 +116,15 @@ void LvglPort::FlushReadyCallback(void* context) {
   }
 }
 
-void LvglPort::TouchReadCallback(lv_indev_t*, lv_indev_data_t* data) {
-  if (g_active_port == nullptr || g_active_port->screen_ == nullptr) {
+void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
+  auto* self = static_cast<LvglPort*>(lv_indev_get_user_data(indev));
+  if (self == nullptr || self->screen_ == nullptr) {
     data->state = LV_INDEV_STATE_REL;
     return;
   }
 
   TouchPoint point;
-  const bool result = g_active_port->screen_->ReadTouch(&point);
+  const bool result = self->screen_->ReadTouch(&point);
   if (result) {
     data->state = LV_INDEV_STATE_PR;
     data->point.x = point.x;
@@ -165,17 +157,9 @@ lv_color_format_t LvglPort::ColorFormat() const {
 }
 
 size_t LvglPort::DrawBufferSize() const {
-  const int rows = DrawBufferRows();
   const size_t bytes_per_pixel = screen_->bits_per_pixel() / 8;
-  return static_cast<size_t>(screen_->width()) * rows * bytes_per_pixel;
-}
-
-int LvglPort::DrawBufferRows() const {
-  if (CONFIG_LILYGO_BOX_LVGL_DRAW_BUFFER_ROWS == 0) {
-    return screen_->height();
-  }
-  return std::clamp(
-      CONFIG_LILYGO_BOX_LVGL_DRAW_BUFFER_ROWS, 1, screen_->height());
+  return static_cast<size_t>(screen_->width()) * screen_->height() *
+         bytes_per_pixel;
 }
 
 void LvglPort::TaskLoop() {

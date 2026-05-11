@@ -108,6 +108,9 @@ class TDisplayP4Device final : public ScreenDevice,
   void StartBacklight() override;
 
  private:
+  static constexpr int kScreenReadyTimeoutMs = 5000;
+  static constexpr int kScreenReadyPollMs = 20;
+
   /**
    * @brief 等待异步屏幕初始化进入可用状态
    * @return 屏幕可用返回 true，否则返回 false
