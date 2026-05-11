@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-11 13:36:10
+ * @LastEditTime: 2026-05-11 18:36:38
  * @License: GPL 3.0
  */
 #include "ui/ui_manager.h"
@@ -36,7 +36,7 @@ constexpr int kInnerImageOffsetX = -1;
 constexpr int kInnerImageOffsetY = -3;
 constexpr uint32_t kIconPressAnimationMs = 90;
 constexpr uint32_t kIconReleaseAnimationMs = 120;
-constexpr int kIconLabelGap = 3;
+constexpr int kIconLabelGap = 6;
 constexpr int kIconLabelHeight = 34;
 constexpr int kHomeAppColumns = 4;
 constexpr int kDockColumns = 3;
@@ -412,14 +412,17 @@ lv_obj_t* CreateToneCircle(lv_obj_t* parent, int size, int x, int y,
 
 void CreateWallpaperObjects(lv_obj_t* parent) {
   CreateToneCircle(
-      parent, 1120, 0, 22, LV_ALIGN_TOP_MID, 0xD2D2D2, LV_OPA_COVER);
+      parent, 1120, 0, 70, LV_ALIGN_TOP_MID, 0xD2D2D2, LV_OPA_COVER);
   CreateToneCircle(
-      parent, 1060, 0, 60, LV_ALIGN_TOP_MID, 0xE6E6E6, LV_OPA_COVER);
+      parent, 1060, 0, 110, LV_ALIGN_TOP_MID, 0xE6E6E6, LV_OPA_COVER);
   CreateToneCircle(
-      parent, 1000, 0, 90, LV_ALIGN_TOP_MID, 0xD2D2D2, LV_OPA_COVER);
+      parent, 1000, 0, 140, LV_ALIGN_TOP_MID, 0xD2D2D2, LV_OPA_COVER);
 
   CreateToneCircle(
-      parent, 1040, 0, 612, LV_ALIGN_BOTTOM_MID, 0xB4B4B4, LV_OPA_COVER);
+      parent, 940, 0, 300, LV_ALIGN_TOP_MID, 0xC3C3C3, LV_OPA_COVER);
+
+  CreateToneCircle(
+      parent, 1040, 0, 640, LV_ALIGN_BOTTOM_MID, 0xB4B4B4, LV_OPA_COVER);
 }
 
 }  // namespace

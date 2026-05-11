@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-11 00:05:30
+ * @LastEditTime: 2026-05-11 17:38:45
  * @License: GPL 3.0
  */
 #include "ui/view/cit_view.h"
@@ -15,23 +15,33 @@
 #include "hal/device_diagnostics.h"
 #include "hal/screen_device.h"
 #include "ui/font/font_assets.h"
+#include "ui/font/material_symbols_assets.h"
 
 namespace lilygo_box::ui {
 namespace {
 
-constexpr int kViewRadius = 0;
-constexpr int kButtonRadius = 12;
-constexpr int kViewPadding = 22;
-constexpr int kBackButtonWidth = 190;
-constexpr int kBackButtonHeight = 70;
-constexpr int kStatusRowHeight = 54;
-constexpr int kStatusRowGap = 8;
+constexpr int kStatusBarHeight = 50;
+constexpr int kTitleTop = 70;
+constexpr int kTitleLeft = 20;
+constexpr int kListTop = 136;
+constexpr int kListHorizontalPadding = 20;
+constexpr int kListTopPadding = 20;
+constexpr int kRowHeight = 76;
+constexpr int kRowIconWidth = 50;
+constexpr int kRowContentOffsetY = -7;
 constexpr int kCitRefreshPeriodMs = 200;
 constexpr int kDiagnosticsRefreshPeriodMs = 1000;
+constexpr uint32_t kCitBackgroundColor = 0xFF7F58;
+constexpr uint32_t kListBackgroundColor = 0xF6E4DE;
+constexpr uint32_t kRowDividerColor = 0xD8C8C0;
+constexpr uint32_t kReadyColor = 0x138A3D;
+constexpr uint32_t kWaitingColor = 0x202020;
+constexpr uint32_t kPendingColor = 0xF28C00;
 
 struct CitStatusRow {
   const app::CitTestEntry* entry = nullptr;
-  lv_obj_t* status_label = nullptr;
+  lv_obj_t* icon_label = nullptr;
+  lv_obj_t* name_label = nullptr;
 };
 
 struct CitViewState {
@@ -53,7 +63,13 @@ void SetTextStyle(lv_obj_t* object, lv_color_t color, const lv_font_t* font) {
 
 const lv_font_t* Font24() { return &lvgl_font_google_sans_flex_24; }
 
+const lv_font_t* Font32() { return &lvgl_font_google_sans_flex_32; }
+
 const lv_font_t* Font48() { return &lvgl_font_google_sans_flex_48; }
+
+const lv_font_t* MaterialIconFont28() { return &lvgl_font_material_symbols_28; }
+
+const lv_font_t* MaterialIconFont32() { return &lvgl_font_material_symbols_32; }
 
 lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color,
     const lv_font_t* font) {
@@ -67,33 +83,6 @@ lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color,
   return label;
 }
 
-lv_obj_t* CreateBackButton(lv_obj_t* parent, const AppViewConfig& config) {
-  lv_obj_t* button = lv_button_create(parent);
-  if (button == nullptr) {
-    return nullptr;
-  }
-
-  lv_obj_set_size(button, kBackButtonWidth, kBackButtonHeight);
-  lv_obj_set_style_radius(button, kButtonRadius, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(button, lv_color_hex(0x2D3C48), LV_PART_MAIN);
-  lv_obj_align(button, LV_ALIGN_BOTTOM_LEFT, 0, 0);
-
-  if (config.back_callback != nullptr) {
-    lv_obj_add_event_cb(
-        button, config.back_callback, LV_EVENT_CLICKED, config.back_context);
-  }
-
-  lv_obj_t* label =
-      CreateLabel(button, "Back", lv_color_hex(0xF5F7FA), Font24());
-  if (label == nullptr) {
-    lv_obj_delete(button);
-    return nullptr;
-  }
-
-  lv_obj_center(label);
-  return button;
-}
-
 bool IsEntryId(const app::CitTestEntry& entry, const char* id) {
   if (entry.id == nullptr || id == nullptr) {
     return false;
@@ -104,22 +93,43 @@ bool IsEntryId(const app::CitTestEntry& entry, const char* id) {
 lv_color_t GetStatusColor(app::CitTestStatus status) {
   switch (status) {
     case app::CitTestStatus::kReady:
-      return lv_color_hex(0x51D88A);
+      return lv_color_hex(kReadyColor);
     case app::CitTestStatus::kWaiting:
-      return lv_color_hex(0x5FB3FF);
+      return lv_color_hex(kWaitingColor);
     case app::CitTestStatus::kPending:
-      return lv_color_hex(0xF4C95D);
+      return lv_color_hex(kPendingColor);
   }
-  return lv_color_hex(0xF4C95D);
+  return lv_color_hex(kPendingColor);
 }
 
-int CalculateRowsHeight(size_t entry_count) {
-  if (entry_count == 0) {
-    return 0;
+const char* GetStatusIcon(app::CitTestStatus status) {
+  switch (status) {
+    case app::CitTestStatus::kReady:
+      return icon::kCheckCircle;
+    case app::CitTestStatus::kWaiting:
+      return "R";
+    case app::CitTestStatus::kPending:
+      return icon::kWarning;
   }
-  const size_t row_height = kStatusRowHeight * entry_count;
-  const size_t gap_height = kStatusRowGap * (entry_count - 1);
-  return static_cast<int>(row_height + gap_height);
+  return icon::kWarning;
+}
+
+void AlignStatusLabels(lv_obj_t* icon_label, lv_obj_t* name_label) {
+  if (icon_label == nullptr || name_label == nullptr) {
+    return;
+  }
+
+  lv_obj_set_width(icon_label, kRowIconWidth);
+  lv_obj_set_style_text_align(icon_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_align(icon_label, LV_ALIGN_LEFT_MID, 0, kRowContentOffsetY);
+  lv_obj_align(name_label, LV_ALIGN_LEFT_MID, kRowIconWidth, kRowContentOffsetY);
+}
+
+const lv_font_t* GetStatusIconFont(app::CitTestStatus status) {
+  if (status == app::CitTestStatus::kWaiting) {
+    return Font32();
+  }
+  return MaterialIconFont32();
 }
 
 void RefreshTouchState(CitViewState* state) {
@@ -151,6 +161,10 @@ void RefreshDiagnosticsState(CitViewState* state) {
 
 app::CitTestStatus GetRuntimeStatus(
     const CitViewState& state, const app::CitTestEntry& entry) {
+  if (IsEntryId(entry, "version")) {
+    return app::CitTestStatus::kReady;
+  }
+
   if (IsEntryId(entry, "screen")) {
     if (state.screen == nullptr) {
       return app::CitTestStatus::kPending;
@@ -186,12 +200,18 @@ app::CitTestStatus GetRuntimeStatus(
   return entry.status;
 }
 
-void UpdateStatusLabel(lv_obj_t* label, app::CitTestStatus status) {
-  if (label == nullptr) {
+void UpdateStatusRow(lv_obj_t* icon_label, lv_obj_t* name_label,
+    app::CitTestStatus status) {
+  if (icon_label == nullptr || name_label == nullptr) {
     return;
   }
-  lv_label_set_text(label, app::GetCitTestStatusText(status));
-  lv_obj_set_style_text_color(label, GetStatusColor(status), LV_PART_MAIN);
+
+  const lv_color_t color = GetStatusColor(status);
+  lv_label_set_text(icon_label, GetStatusIcon(status));
+  lv_obj_set_style_text_color(icon_label, color, LV_PART_MAIN);
+  lv_obj_set_style_text_font(icon_label, GetStatusIconFont(status), LV_PART_MAIN);
+  lv_obj_set_style_text_color(name_label, color, LV_PART_MAIN);
+  AlignStatusLabels(icon_label, name_label);
 }
 
 void RefreshCitRows(CitViewState* state) {
@@ -207,7 +227,7 @@ void RefreshCitRows(CitViewState* state) {
       continue;
     }
     const app::CitTestStatus status = GetRuntimeStatus(*state, *row.entry);
-    UpdateStatusLabel(row.status_label, status);
+    UpdateStatusRow(row.icon_label, row.name_label, status);
   }
 }
 
@@ -233,6 +253,50 @@ void CitViewDeleteCallback(lv_event_t* event) {
   delete state;
 }
 
+lv_obj_t* CreateCitStatusBar(lv_obj_t* parent, int width) {
+  lv_obj_t* status_bar = lv_obj_create(parent);
+  if (status_bar == nullptr) {
+    return nullptr;
+  }
+
+  lv_obj_remove_flag(status_bar, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(status_bar, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(status_bar, width, kStatusBarHeight);
+  lv_obj_align(status_bar, LV_ALIGN_TOP_MID, 0, 0);
+  lv_obj_set_style_bg_color(status_bar, lv_color_hex(0x000000), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(status_bar, LV_OPA_20, LV_PART_MAIN);
+  lv_obj_set_style_border_width(status_bar, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(status_bar, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_hor(status_bar, 24, LV_PART_MAIN);
+
+  lv_obj_t* time_label =
+      CreateLabel(status_bar, "09:15", lv_color_hex(0xFFFFFF), Font24());
+  if (time_label == nullptr) {
+    lv_obj_delete(status_bar);
+    return nullptr;
+  }
+  lv_obj_align(time_label, LV_ALIGN_LEFT_MID, 0, 0);
+
+  lv_obj_t* battery_label =
+      CreateLabel(status_bar, icon::kBatteryAndroid3, lv_color_hex(0xFFFFFF),
+          MaterialIconFont28());
+  if (battery_label == nullptr) {
+    lv_obj_delete(status_bar);
+    return nullptr;
+  }
+  lv_obj_align(battery_label, LV_ALIGN_RIGHT_MID, 0, 0);
+
+  lv_obj_t* wifi_label =
+      CreateLabel(status_bar, icon::kWifi, lv_color_hex(0xFFFFFF),
+          MaterialIconFont28());
+  if (wifi_label == nullptr) {
+    lv_obj_delete(status_bar);
+    return nullptr;
+  }
+  lv_obj_align_to(wifi_label, battery_label, LV_ALIGN_OUT_LEFT_MID, -6, 0);
+  return status_bar;
+}
+
 lv_obj_t* CreateStatusRow(
     lv_obj_t* parent, const app::CitTestEntry& entry, CitViewState* state) {
   if (state == nullptr || state->row_count >= state->rows.size()) {
@@ -245,27 +309,34 @@ lv_obj_t* CreateStatusRow(
   }
 
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(row, LV_PCT(100), kStatusRowHeight);
+  lv_obj_set_size(row, LV_PCT(100), kRowHeight);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
+  lv_obj_set_style_border_width(row, 1, LV_PART_MAIN);
+  lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN);
+  lv_obj_set_style_border_color(row, lv_color_hex(kRowDividerColor), LV_PART_MAIN);
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
-  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
-      LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_left(row, 0, LV_PART_MAIN);
 
-  lv_obj_t* name_label =
-      CreateLabel(row, entry.name, lv_color_hex(0xF5F7FA), Font24());
   const app::CitTestStatus status = GetRuntimeStatus(*state, entry);
-  lv_obj_t* status_label = CreateLabel(
-      row, app::GetCitTestStatusText(status), GetStatusColor(status), Font24());
-  if (name_label == nullptr || status_label == nullptr) {
+  lv_obj_t* icon_label = CreateLabel(
+      row, GetStatusIcon(status), GetStatusColor(status), GetStatusIconFont(status));
+  if (icon_label == nullptr) {
     lv_obj_delete(row);
     return nullptr;
   }
 
+  lv_obj_t* name_label =
+      CreateLabel(row, entry.name, GetStatusColor(status), Font32());
+  if (name_label == nullptr) {
+    lv_obj_delete(row);
+    return nullptr;
+  }
+  AlignStatusLabels(icon_label, name_label);
+
   state->rows[state->row_count] = {
       .entry = &entry,
-      .status_label = status_label,
+      .icon_label = icon_label,
+      .name_label = name_label,
   };
   ++state->row_count;
   return row;
@@ -310,52 +381,58 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
   lv_obj_add_event_cb(container, CitViewDeleteCallback, LV_EVENT_DELETE, state);
 
   lv_obj_remove_flag(container, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(container, lv_color_hex(0x121820), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(container, 245, LV_PART_MAIN);
-  lv_obj_set_style_radius(container, kViewRadius, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      container, lv_color_hex(kCitBackgroundColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(container, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_radius(container, 0, LV_PART_MAIN);
   lv_obj_set_style_border_width(container, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(container, kViewPadding, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(container, 0, LV_PART_MAIN);
   lv_obj_set_size(container, config.width, config.height);
   lv_obj_align(container, LV_ALIGN_CENTER, 0, 0);
 
+  if (CreateCitStatusBar(container, config.width) == nullptr) {
+    lv_obj_delete(container);
+    return nullptr;
+  }
+
+  lv_obj_t* title_weight =
+      CreateLabel(container, app_entry.title, lv_color_hex(0xFFFFFF), Font48());
+  if (title_weight == nullptr) {
+    lv_obj_delete(container);
+    return nullptr;
+  }
+  lv_obj_set_size(title_weight, config.width - 2 * kTitleLeft, 58);
+  lv_obj_align(title_weight, LV_ALIGN_TOP_LEFT, kTitleLeft + 1, kTitleTop);
+
   lv_obj_t* title =
-      CreateLabel(container, app_entry.title, lv_color_hex(0xF5F7FA), Font48());
+      CreateLabel(container, app_entry.title, lv_color_hex(0xFFFFFF), Font48());
   if (title == nullptr) {
     lv_obj_delete(container);
     return nullptr;
   }
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 0, 0);
-
-  lv_obj_t* subtitle = CreateLabel(
-      container, app_entry.subtitle, lv_color_hex(0xAAB2BD), Font24());
-  if (subtitle == nullptr) {
-    lv_obj_delete(container);
-    return nullptr;
-  }
-  lv_obj_align_to(subtitle, title, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 12);
+  lv_obj_set_size(title, config.width - 2 * kTitleLeft, 58);
+  lv_obj_align(title, LV_ALIGN_TOP_LEFT, kTitleLeft, kTitleTop);
 
   const app::CitTestCatalog& catalog = app::GetCitTestCatalog();
-  lv_obj_t* row_group = lv_obj_create(container);
-  if (row_group == nullptr) {
+  lv_obj_t* list = lv_obj_create(container);
+  if (list == nullptr) {
     lv_obj_delete(container);
     return nullptr;
   }
-  lv_obj_remove_flag(row_group, LV_OBJ_FLAG_SCROLLABLE);
-  const int rows_height = CalculateRowsHeight(catalog.entry_count);
-  lv_obj_set_size(row_group, LV_PCT(100), rows_height);
-  lv_obj_set_style_bg_opa(row_group, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_border_width(row_group, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(row_group, 0, LV_PART_MAIN);
-  lv_obj_set_flex_flow(row_group, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(row_group, kStatusRowGap, LV_PART_MAIN);
-  lv_obj_align_to(row_group, subtitle, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 18);
+  lv_obj_set_size(list, config.width, config.height - kListTop);
+  lv_obj_align(list, LV_ALIGN_TOP_MID, 0, kListTop);
+  lv_obj_set_style_bg_color(list, lv_color_hex(kListBackgroundColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(list, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(list, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(list, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_left(list, kListHorizontalPadding, LV_PART_MAIN);
+  lv_obj_set_style_pad_right(list, kListHorizontalPadding, LV_PART_MAIN);
+  lv_obj_set_style_pad_top(list, kListTopPadding, LV_PART_MAIN);
+  lv_obj_set_style_pad_bottom(list, 0, LV_PART_MAIN);
+  lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_ACTIVE);
 
-  if (!AddCitRows(row_group, catalog, state)) {
-    lv_obj_delete(container);
-    return nullptr;
-  }
-
-  if (CreateBackButton(container, config) == nullptr) {
+  if (!AddCitRows(list, catalog, state)) {
     lv_obj_delete(container);
     return nullptr;
   }

@@ -11,7 +11,7 @@
 
 namespace lilygo_box::app {
 
-constexpr size_t kMaxCitTestEntryCount = 8;
+constexpr size_t kMaxCitTestEntryCount = 16;
 
 enum class CitTestStatus {
   kReady,
