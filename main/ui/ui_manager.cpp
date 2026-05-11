@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-11 00:35:05
+ * @LastEditTime: 2026-05-11 11:04:28
  * @License: GPL 3.0
  */
 #include "ui/ui_manager.h"
@@ -107,9 +107,9 @@ void SetTextStyle(lv_obj_t* object, lv_color_t color, const lv_font_t* font) {
   lv_obj_set_style_text_font(object, font, LV_PART_MAIN);
 }
 
-const lv_font_t* Font22() { return &lvgl_font_google_sans_22; }
+const lv_font_t* Font22() { return &lvgl_font_google_sans_flex_22; }
 
-const lv_font_t* Font24() { return &lvgl_font_google_sans_24; }
+const lv_font_t* Font24() { return &lvgl_font_google_sans_flex_24; }
 
 const lv_font_t* MaterialIconFont28() { return &lvgl_font_material_symbols_28; }
 
@@ -386,75 +386,75 @@ IconStyle GetIconStyle(const app::AppEntry& app_entry) {
   };
 }
 
-lv_obj_t* CreateDecorCircle(lv_obj_t* parent, int size, int x, int y,
-    uint32_t color, lv_opa_t opacity) {
+lv_obj_t* CreateCircle(lv_obj_t* parent, int size, int x, int y,
+    lv_align_t align, uint32_t color, lv_opa_t opacity) {
   lv_obj_t* circle = lv_obj_create(parent);
   if (circle == nullptr) {
     return nullptr;
   }
 
   lv_obj_remove_flag(circle, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(circle, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(circle, size, size);
   lv_obj_set_style_radius(circle, size / 2, LV_PART_MAIN);
   lv_obj_set_style_bg_color(circle, lv_color_hex(color), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(circle, opacity, LV_PART_MAIN);
   lv_obj_set_style_border_width(circle, 0, LV_PART_MAIN);
-  lv_obj_align(circle, LV_ALIGN_CENTER, x, y);
+  lv_obj_set_style_pad_all(circle, 0, LV_PART_MAIN);
+  lv_obj_align(circle, align, x, y);
   return circle;
 }
 
-lv_obj_t* CreatePlantStem(lv_obj_t* parent, int x, int height, int bottom) {
-  lv_obj_t* stem = lv_obj_create(parent);
-  if (stem == nullptr) {
+lv_obj_t* CreateToneCircle(lv_obj_t* parent, int size, int x, int y,
+    lv_align_t align, uint32_t color, lv_opa_t opacity) {
+  return CreateCircle(parent, size, x, y, align, color, opacity);
+}
+
+lv_obj_t* CreateToneShade(lv_obj_t* parent, int width, int height, int x, int y,
+    lv_align_t align, uint32_t color, lv_opa_t opacity) {
+  lv_obj_t* shade = lv_obj_create(parent);
+  if (shade == nullptr) {
     return nullptr;
   }
 
-  lv_obj_remove_flag(stem, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(stem, 3, height);
-  lv_obj_set_style_radius(stem, 2, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(stem, lv_color_hex(0x806097), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(stem, 160, LV_PART_MAIN);
-  lv_obj_set_style_border_width(stem, 0, LV_PART_MAIN);
-  lv_obj_align(stem, LV_ALIGN_BOTTOM_MID, x, -bottom);
-  return stem;
+  lv_obj_remove_flag(shade, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(shade, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(shade, width, height);
+  lv_obj_set_style_radius(shade, height / 2, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(shade, lv_color_hex(color), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(shade, opacity, LV_PART_MAIN);
+  lv_obj_set_style_border_width(shade, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(shade, 0, LV_PART_MAIN);
+  lv_obj_align(shade, align, x, y);
+  return shade;
 }
 
 void CreateWallpaperObjects(lv_obj_t* parent) {
-  CreatePlantStem(parent, -42, 184, 300);
-  CreatePlantStem(parent, -12, 236, 300);
-  CreatePlantStem(parent, 28, 172, 300);
-  CreatePlantStem(parent, 58, 210, 300);
+  CreateToneCircle(
+      parent, 1120, 0, 22, LV_ALIGN_TOP_MID, 0xD2D2D2, LV_OPA_COVER);
+  CreateToneCircle(
+      parent, 1060, 0, 60, LV_ALIGN_TOP_MID, 0xE6E6E6, LV_OPA_COVER);
+  CreateToneCircle(
+      parent, 1000, 0, 90, LV_ALIGN_TOP_MID, 0xD2D2D2, LV_OPA_COVER);
 
-  CreateDecorCircle(parent, 28, -52, -238, 0xA9419D, 165);
-  CreateDecorCircle(parent, 22, -26, -292, 0xCB5FB6, 155);
-  CreateDecorCircle(parent, 24, 8, -338, 0x7A3A91, 150);
-  CreateDecorCircle(parent, 30, 42, -268, 0xBD4DA4, 160);
-  CreateDecorCircle(parent, 20, 72, -312, 0x8E3C96, 145);
-  CreateDecorCircle(parent, 18, 36, -370, 0xD16FBF, 145);
+  CreateToneShade(parent, 320, 92, 0, -276, LV_ALIGN_CENTER, 0xC3C3C3, 74);
+  CreateToneShade(parent, 260, 66, 0, -276, LV_ALIGN_CENTER, 0xC8C8C8, 58);
+  CreateToneShade(parent, 210, 46, 0, -276, LV_ALIGN_CENTER, 0xD2D2D2, 44);
+  CreateToneShade(parent, 160, 30, 0, -276, LV_ALIGN_CENTER, 0xE6E6E6, 34);
 
-  lv_obj_t* pot = lv_obj_create(parent);
-  if (pot == nullptr) {
+  CreateToneCircle(
+      parent, 1040, 0, 612, LV_ALIGN_BOTTOM_MID, 0xB4B4B4, LV_OPA_COVER);
+
+  lv_obj_t* brand_label = lv_label_create(parent);
+  if (brand_label == nullptr) {
     return;
   }
-  lv_obj_remove_flag(pot, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(pot, 154, 124);
-  lv_obj_set_style_radius(pot, 26, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(pot, lv_color_hex(0xF6E4EA), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(pot, 238, LV_PART_MAIN);
-  lv_obj_set_style_border_width(pot, 0, LV_PART_MAIN);
-  lv_obj_align(pot, LV_ALIGN_BOTTOM_MID, 0, -218);
 
-  lv_obj_t* pot_lip = lv_obj_create(parent);
-  if (pot_lip == nullptr) {
-    return;
-  }
-  lv_obj_remove_flag(pot_lip, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(pot_lip, 176, 24);
-  lv_obj_set_style_radius(pot_lip, 12, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(pot_lip, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(pot_lip, 210, LV_PART_MAIN);
-  lv_obj_set_style_border_width(pot_lip, 0, LV_PART_MAIN);
-  lv_obj_align_to(pot_lip, pot, LV_ALIGN_OUT_TOP_MID, 0, 10);
+  lv_label_set_text(brand_label, "LilygoBox");
+  SetTextStyle(brand_label, lv_color_hex(0xFFFFFF), Font24());
+  lv_obj_set_style_text_letter_space(brand_label, 3, LV_PART_MAIN);
+  lv_obj_set_style_text_opa(brand_label, 235, LV_PART_MAIN);
+  lv_obj_align(brand_label, LV_ALIGN_CENTER, 0, -276);
 }
 
 }  // namespace
@@ -471,7 +471,8 @@ bool UiManager::Init(hal::ScreenDevice* screen) {
   }
 
   lv_obj_remove_flag(root_screen_, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(root_screen_, lv_color_hex(0xD6A4D8), LV_PART_MAIN);
+  lv_obj_add_flag(root_screen_, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+  lv_obj_set_style_bg_color(root_screen_, lv_color_hex(0xE6E6E6), LV_PART_MAIN);
   lv_obj_set_style_border_width(root_screen_, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(root_screen_, 0, LV_PART_MAIN);
   lv_obj_add_event_cb(
@@ -993,8 +994,10 @@ lv_obj_t* UiManager::CreatePageIndicator(lv_obj_t* parent) {
   lv_obj_set_size(indicator, 48, 18);
   lv_obj_align(indicator, LV_ALIGN_BOTTOM_MID, 0, -kPageIndicatorBottom);
 
-  first_page_dot_ = CreateDecorCircle(indicator, 12, -10, 0, 0xFFFFFF, 240);
-  second_page_dot_ = CreateDecorCircle(indicator, 12, 10, 0, 0xFFFFFF, 110);
+  first_page_dot_ =
+      CreateCircle(indicator, 12, -10, 0, LV_ALIGN_CENTER, 0xFFFFFF, 240);
+  second_page_dot_ =
+      CreateCircle(indicator, 12, 10, 0, LV_ALIGN_CENTER, 0xFFFFFF, 110);
   if (first_page_dot_ == nullptr || second_page_dot_ == nullptr) {
     lv_obj_delete(indicator);
     first_page_dot_ = nullptr;

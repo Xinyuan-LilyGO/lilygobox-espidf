@@ -51,9 +51,9 @@ void SetTextStyle(lv_obj_t* object, lv_color_t color, const lv_font_t* font) {
   lv_obj_set_style_text_font(object, font, LV_PART_MAIN);
 }
 
-const lv_font_t* Font24() { return &lvgl_font_google_sans_24; }
+const lv_font_t* Font24() { return &lvgl_font_google_sans_flex_24; }
 
-const lv_font_t* Font48() { return &lvgl_font_google_sans_48; }
+const lv_font_t* Font48() { return &lvgl_font_google_sans_flex_48; }
 
 lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color,
     const lv_font_t* font) {

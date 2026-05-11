@@ -15,9 +15,9 @@ extern "C" {
 
 extern const lv_font_t lvgl_font_lineseedkr_rg_120;
 extern const lv_font_t lvgl_font_lineseedkr_th_60;
-extern const lv_font_t lvgl_font_google_sans_22;
-extern const lv_font_t lvgl_font_google_sans_24;
-extern const lv_font_t lvgl_font_google_sans_48;
+extern const lv_font_t lvgl_font_google_sans_flex_22;
+extern const lv_font_t lvgl_font_google_sans_flex_24;
+extern const lv_font_t lvgl_font_google_sans_flex_48;
 extern const lv_font_t lvgl_font_material_symbols_28;
 extern const lv_font_t lvgl_font_material_symbols_56;
 
