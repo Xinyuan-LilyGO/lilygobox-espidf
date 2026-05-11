@@ -19,7 +19,7 @@
 namespace lilygo_box::ui {
 namespace {
 
-constexpr int kStatusBarHeight = 48;
+constexpr int kStatusBarHeight = 50;
 constexpr int kHorizontalPadding = 10;
 constexpr int kClockTop = 90;
 constexpr int kAppIconSize = 98;
@@ -611,10 +611,14 @@ lv_obj_t* UiManager::CreateStatusBar(lv_obj_t* parent) {
   }
 
   lv_obj_remove_flag(status_bar, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_flag(status_bar, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_remove_flag(status_bar, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(status_bar, LV_OBJ_FLAG_GESTURE_BUBBLE);
   MakeTransparent(status_bar);
   lv_obj_set_size(status_bar, LV_PCT(100), kStatusBarHeight);
   lv_obj_align(status_bar, LV_ALIGN_TOP_MID, 0, 0);
+  lv_obj_set_style_bg_color(status_bar, lv_color_hex(0x000000), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(status_bar, LV_OPA_10, LV_PART_MAIN);
+  lv_obj_set_style_radius(status_bar, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_hor(status_bar, 24, LV_PART_MAIN);
 
   lv_obj_t* time_label =
