@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-11 17:38:45
+ * @LastEditTime: 2026-05-12 00:11:41
  * @License: GPL 3.0
  */
 #include "ui/view/cit_view.h"
@@ -32,7 +32,7 @@ constexpr int kRowContentOffsetY = -7;
 constexpr int kCitRefreshPeriodMs = 200;
 constexpr int kDiagnosticsRefreshPeriodMs = 1000;
 constexpr uint32_t kCitBackgroundColor = 0xFF7F58;
-constexpr uint32_t kListBackgroundColor = 0xF6E4DE;
+constexpr uint32_t kListBackgroundColor = 0xFBF4E4;
 constexpr uint32_t kRowDividerColor = 0xD8C8C0;
 constexpr uint32_t kReadyColor = 0x138A3D;
 constexpr uint32_t kWaitingColor = 0x202020;

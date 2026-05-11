@@ -2,12 +2,13 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-11 21:12:27
+ * @LastEditTime: 2026-05-12 00:50:10
  * @License: GPL 3.0
  */
 #include "ui/ui_manager.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 
 #include "app/app_catalog.h"
@@ -35,7 +36,7 @@ constexpr int kInnerIconSurfaceRadius = kIconRadius - kInnerIconSurfaceInset;
 constexpr int kInnerImageOffsetX = -1;
 constexpr int kInnerImageOffsetY = -3;
 constexpr uint32_t kIconPressAnimationMs = 90;
-constexpr uint32_t kIconReleaseAnimationMs = 120;
+constexpr uint32_t kIconReleaseAnimationMs = 100;
 constexpr int kIconLabelGap = 6;
 constexpr int kIconLabelHeight = 34;
 constexpr int kHomeAppColumns = 4;
@@ -54,6 +55,9 @@ constexpr lv_opa_t kIconPressedGlowOpacity = 136;
 constexpr int kDockTopPadding = 10;
 constexpr int kDockInsetExtra = 40;
 constexpr int kPageIndicatorBottom = kDockHeight + 8;
+constexpr uint32_t kAppOpenFadeInMs = 45;
+constexpr uint32_t kAppOpenFadeOutMs = 50;
+constexpr uint32_t kAppOpenFadeCoverColor = 0xE2E2E2;
 
 struct IconStyle {
   const char* symbol;
@@ -425,6 +429,12 @@ void CreateWallpaperObjects(lv_obj_t* parent) {
 
 }  // namespace
 
+struct UiManager::AppOpenTransitionState {
+  UiManager* manager = nullptr;
+  const app::AppEntry* app_entry = nullptr;
+  lv_obj_t* cover = nullptr;
+};
+
 bool UiManager::Init(hal::ScreenDevice* screen) {
   if (screen == nullptr) {
     return false;
@@ -460,6 +470,24 @@ void UiManager::AppButtonEventCallback(lv_event_t* event) {
   }
 
   auto* context = static_cast<AppButtonContext*>(lv_event_get_user_data(event));
+  if (context == nullptr || context->manager == nullptr ||
+      context->app_entry == nullptr) {
+    return;
+  }
+
+  lv_timer_t* timer = lv_timer_create(
+      AppButtonOpenDelayCallback, kIconReleaseAnimationMs, context);
+  if (timer == nullptr) {
+    context->manager->ShowAppView(*context->app_entry);
+    return;
+  }
+
+  lv_timer_set_repeat_count(timer, 1);
+}
+
+void UiManager::AppButtonOpenDelayCallback(lv_timer_t* timer) {
+  auto* context =
+      static_cast<AppButtonContext*>(lv_timer_get_user_data(timer));
   if (context == nullptr || context->manager == nullptr ||
       context->app_entry == nullptr) {
     return;
@@ -519,6 +547,116 @@ void UiManager::PageScrollEventCallback(lv_event_t* event) {
       static_cast<int>(lv_obj_get_scroll_x(self->page_scroller_));
   const size_t page_index = scroll_x >= self->screen_->width() / 2 ? 1 : 0;
   self->UpdatePageIndicator(page_index);
+}
+
+void UiManager::SetAppOpenCoverOpacity(void* user_data, int32_t opacity) {
+  auto* state = static_cast<AppOpenTransitionState*>(user_data);
+  if (state == nullptr || state->cover == nullptr) {
+    return;
+  }
+
+  lv_obj_set_style_opa(state->cover, opacity, LV_PART_MAIN);
+}
+
+void UiManager::AppOpenFadeInCompletedCallback(lv_anim_t* animation) {
+  auto* state = static_cast<AppOpenTransitionState*>(
+      lv_anim_get_user_data(animation));
+  if (state == nullptr || state->manager == nullptr) {
+    return;
+  }
+
+  UiManager* self = state->manager;
+  if (self->app_open_transition_state_ != state) {
+    return;
+  }
+
+  if (!self->CreateActiveAppView(*state->app_entry)) {
+    self->ShowLauncher();
+    return;
+  }
+
+  if (self->launcher_container_ != nullptr) {
+    lv_obj_add_flag(self->launcher_container_, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  if (state->cover != nullptr) {
+    lv_obj_move_to_index(state->cover, -1);
+  }
+
+  if (!self->StartAppOpenCoverFade(state, LV_OPA_COVER, LV_OPA_TRANSP,
+          kAppOpenFadeOutMs, AppOpenFadeOutCompletedCallback)) {
+    self->FinishAppOpenTransition(state);
+  }
+}
+
+void UiManager::AppOpenFadeOutCompletedCallback(lv_anim_t* animation) {
+  auto* state = static_cast<AppOpenTransitionState*>(
+      lv_anim_get_user_data(animation));
+  if (state == nullptr || state->manager == nullptr) {
+    return;
+  }
+
+  state->manager->FinishAppOpenTransition(state);
+}
+
+void UiManager::AppCloseFadeInCompletedCallback(lv_anim_t* animation) {
+  auto* state = static_cast<AppOpenTransitionState*>(
+      lv_anim_get_user_data(animation));
+  if (state == nullptr || state->manager == nullptr) {
+    return;
+  }
+
+  UiManager* self = state->manager;
+  if (self->app_open_transition_state_ != state) {
+    return;
+  }
+
+  if (self->active_view_container_ != nullptr) {
+    lv_obj_delete(self->active_view_container_);
+    self->active_view_container_ = nullptr;
+  }
+
+  if (self->launcher_container_ != nullptr) {
+    lv_obj_remove_flag(self->launcher_container_, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  if (state->cover != nullptr) {
+    lv_obj_move_to_index(state->cover, -1);
+  }
+
+  if (!self->StartAppOpenCoverFade(state, LV_OPA_COVER, LV_OPA_TRANSP,
+          kAppOpenFadeOutMs, AppCloseFadeOutCompletedCallback)) {
+    self->CancelAppOpenTransition();
+  }
+}
+
+void UiManager::AppCloseFadeOutCompletedCallback(lv_anim_t* animation) {
+  auto* state = static_cast<AppOpenTransitionState*>(
+      lv_anim_get_user_data(animation));
+  if (state == nullptr || state->manager == nullptr) {
+    return;
+  }
+
+  state->manager->CancelAppOpenTransition();
+}
+
+void UiManager::FinishAppOpenTransition(AppOpenTransitionState* state) {
+  if (state == nullptr || app_open_transition_state_ != state) {
+    return;
+  }
+
+  if (root_screen_ != nullptr && active_view_container_ != nullptr) {
+    lv_obj_set_pos(active_view_container_, 0, 0);
+    lv_obj_set_size(
+        active_view_container_, screen_->width(), screen_->height());
+    lv_obj_move_to_index(active_view_container_, -1);
+  }
+
+  if (launcher_container_ != nullptr && active_view_container_ != nullptr) {
+    lv_obj_add_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  CancelAppOpenTransition();
 }
 
 lv_obj_t* UiManager::CreateLauncher(lv_obj_t* parent) {
@@ -979,17 +1117,67 @@ lv_obj_t* UiManager::CreatePageIndicator(lv_obj_t* parent) {
   return indicator;
 }
 
-bool UiManager::ShowAppView(const app::AppEntry& app_entry) {
-  if (root_screen_ == nullptr || launcher_container_ == nullptr) {
+void UiManager::CancelAppOpenTransition() {
+  if (app_open_transition_state_ == nullptr) {
+    return;
+  }
+
+  lv_anim_delete(app_open_transition_state_, SetAppOpenCoverOpacity);
+
+  if (app_open_transition_state_->cover != nullptr) {
+    lv_obj_delete(app_open_transition_state_->cover);
+    app_open_transition_state_->cover = nullptr;
+  }
+
+  delete app_open_transition_state_;
+  app_open_transition_state_ = nullptr;
+}
+
+bool UiManager::StartAppOpenCoverFade(AppOpenTransitionState* state,
+    int start_opacity, int end_opacity, uint32_t duration_ms,
+    lv_anim_completed_cb_t completed_callback) {
+  if (state == nullptr || state->cover == nullptr) {
     return false;
   }
 
-  lv_obj_add_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
-  if (active_view_container_ != nullptr) {
-    lv_obj_delete(active_view_container_);
-    active_view_container_ = nullptr;
+  lv_anim_t animation;
+  lv_anim_init(&animation);
+  lv_anim_set_var(&animation, state);
+  lv_anim_set_user_data(&animation, state);
+  lv_anim_set_values(&animation, start_opacity, end_opacity);
+  lv_anim_set_duration(&animation, duration_ms);
+  lv_anim_set_exec_cb(&animation, SetAppOpenCoverOpacity);
+  lv_anim_set_completed_cb(&animation, completed_callback);
+  lv_anim_t* result = lv_anim_start(&animation);
+  return result != nullptr;
+}
+
+lv_obj_t* UiManager::CreateAppTransitionCover() {
+  if (root_screen_ == nullptr || screen_ == nullptr) {
+    return nullptr;
   }
 
+  lv_obj_t* cover = lv_obj_create(root_screen_);
+  if (cover == nullptr) {
+    return nullptr;
+  }
+
+  lv_obj_remove_flag(cover, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(cover, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(cover, screen_->width(), screen_->height());
+  lv_obj_set_pos(cover, 0, 0);
+  lv_obj_set_style_bg_color(
+      cover, lv_color_hex(kAppOpenFadeCoverColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(cover, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(cover, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(cover, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(cover, 0, LV_PART_MAIN);
+  lv_obj_set_style_opa(cover, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_move_to_index(cover, -1);
+  return cover;
+}
+
+bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   AppViewConfig config;
   config.width = screen_->width();
   config.height = screen_->height();
@@ -1000,22 +1188,84 @@ bool UiManager::ShowAppView(const app::AppEntry& app_entry) {
 
   active_view_container_ = CreateAppView(root_screen_, app_entry, config);
   if (active_view_container_ == nullptr) {
-    lv_obj_remove_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
     return false;
   }
+
+  lv_obj_set_pos(active_view_container_, 0, 0);
+  lv_obj_set_size(active_view_container_, screen_->width(), screen_->height());
   lv_obj_add_flag(active_view_container_, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_add_event_cb(
       active_view_container_, GestureEventCallback, LV_EVENT_GESTURE, this);
   return true;
 }
 
-void UiManager::ShowLauncher() {
+bool UiManager::ShowAppView(const app::AppEntry& app_entry) {
+  if (root_screen_ == nullptr || launcher_container_ == nullptr) {
+    return false;
+  }
+
+  CancelAppOpenTransition();
+  lv_obj_remove_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_set_style_opa(launcher_container_, LV_OPA_COVER, LV_PART_MAIN);
   if (active_view_container_ != nullptr) {
     lv_obj_delete(active_view_container_);
     active_view_container_ = nullptr;
   }
 
-  if (launcher_container_ != nullptr) {
+  auto* state = new AppOpenTransitionState;
+  state->manager = this;
+  state->app_entry = &app_entry;
+  state->cover = CreateAppTransitionCover();
+  if (state->cover == nullptr) {
+    delete state;
+    return false;
+  }
+
+  app_open_transition_state_ = state;
+
+  if (!StartAppOpenCoverFade(state, LV_OPA_TRANSP, LV_OPA_COVER,
+          kAppOpenFadeInMs, AppOpenFadeInCompletedCallback)) {
+    if (!CreateActiveAppView(app_entry)) {
+      CancelAppOpenTransition();
+      return false;
+    }
+    if (launcher_container_ != nullptr) {
+      lv_obj_add_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
+    }
+    FinishAppOpenTransition(state);
+  }
+
+  return true;
+}
+
+void UiManager::ShowLauncher() {
+  CancelAppOpenTransition();
+
+  if (active_view_container_ == nullptr || root_screen_ == nullptr ||
+      launcher_container_ == nullptr) {
+    if (launcher_container_ != nullptr) {
+      lv_obj_remove_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
+    }
+    return;
+  }
+
+  auto* state = new AppOpenTransitionState;
+  state->manager = this;
+  state->cover = CreateAppTransitionCover();
+  if (state->cover == nullptr) {
+    delete state;
+    lv_obj_delete(active_view_container_);
+    active_view_container_ = nullptr;
+    lv_obj_remove_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+
+  app_open_transition_state_ = state;
+  if (!StartAppOpenCoverFade(state, LV_OPA_TRANSP, LV_OPA_COVER,
+          kAppOpenFadeInMs, AppCloseFadeInCompletedCallback)) {
+    CancelAppOpenTransition();
+    lv_obj_delete(active_view_container_);
+    active_view_container_ = nullptr;
     lv_obj_remove_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
   }
 }
