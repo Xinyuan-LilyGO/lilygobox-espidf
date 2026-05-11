@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-12 00:28:46
+ * @LastEditTime: 2026-05-12 01:08:42
  * @License: GPL 3.0
  */
 #pragma once
@@ -14,6 +14,7 @@
 #include "app/app_catalog.h"
 #include "hal/screen_device.h"
 #include "lvgl.h"
+#include "ui/shell/status_bar.h"
 
 namespace lilygo_box::ui {
 
@@ -180,14 +181,6 @@ class UiManager final {
   lv_obj_t* CreatePageScroller(lv_obj_t* parent);
 
   /**
-   * @brief 创建状态栏
-   * @param parent 父对象
-   * @return 创建成功返回对象指针，否则返回 nullptr
-   * @Date 2026-05-10 13:01:03
-   */
-  lv_obj_t* CreateStatusBar(lv_obj_t* parent);
-
-  /**
    * @brief 创建主屏时间日期区域
    * @param parent 父对象
    * @return 创建成功返回对象指针，否则返回 nullptr
@@ -266,6 +259,7 @@ class UiManager final {
 
   hal::ScreenDevice* screen_ = nullptr;
   lv_obj_t* root_screen_ = nullptr;
+  StatusBar status_bar_;
   lv_obj_t* launcher_container_ = nullptr;
   lv_obj_t* page_scroller_ = nullptr;
   lv_obj_t* home_page_ = nullptr;

@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-11 00:05:30
+ * @LastEditTime: 2026-05-12 01:08:42
  * @License: GPL 3.0
  */
 #include "ui/app_view_factory.h"
@@ -18,6 +18,7 @@ namespace {
 constexpr int kViewRadius = 0;
 constexpr int kButtonRadius = 12;
 constexpr int kViewPadding = 22;
+constexpr int kViewTopPadding = 70;
 constexpr int kBackButtonWidth = 190;
 constexpr int kBackButtonHeight = 70;
 
@@ -89,6 +90,7 @@ lv_obj_t* CreatePlaceholderAppView(lv_obj_t* parent,
   lv_obj_set_style_radius(container, kViewRadius, LV_PART_MAIN);
   lv_obj_set_style_border_width(container, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(container, kViewPadding, LV_PART_MAIN);
+  lv_obj_set_style_pad_top(container, kViewTopPadding, LV_PART_MAIN);
   lv_obj_set_size(container, config.width, config.height);
   lv_obj_align(container, LV_ALIGN_CENTER, 0, 0);
 

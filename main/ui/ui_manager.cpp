@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-12 00:50:10
+ * @LastEditTime: 2026-05-12 01:08:42
  * @License: GPL 3.0
  */
 #include "ui/ui_manager.h"
@@ -20,7 +20,6 @@
 namespace lilygo_box::ui {
 namespace {
 
-constexpr int kStatusBarHeight = 50;
 constexpr int kHorizontalPadding = 10;
 constexpr int kClockTop = 90;
 constexpr int kAppIconSize = 98;
@@ -114,8 +113,6 @@ void SetTextStyle(lv_obj_t* object, lv_color_t color, const lv_font_t* font) {
 const lv_font_t* Font22() { return &lvgl_font_google_sans_flex_22; }
 
 const lv_font_t* Font24() { return &lvgl_font_google_sans_flex_24; }
-
-const lv_font_t* MaterialIconFont28() { return &lvgl_font_material_symbols_28; }
 
 const lv_font_t* MaterialIconFont56() { return &lvgl_font_material_symbols_56; }
 
@@ -460,6 +457,11 @@ bool UiManager::Init(hal::ScreenDevice* screen) {
     return false;
   }
 
+  if (!status_bar_.Init(root_screen_, screen_->width())) {
+    return false;
+  }
+  status_bar_.MoveToTop();
+
   lv_screen_load(root_screen_);
   return true;
 }
@@ -581,6 +583,7 @@ void UiManager::AppOpenFadeInCompletedCallback(lv_anim_t* animation) {
 
   if (state->cover != nullptr) {
     lv_obj_move_to_index(state->cover, -1);
+    self->status_bar_.MoveToTop();
   }
 
   if (!self->StartAppOpenCoverFade(state, LV_OPA_COVER, LV_OPA_TRANSP,
@@ -622,6 +625,7 @@ void UiManager::AppCloseFadeInCompletedCallback(lv_anim_t* animation) {
 
   if (state->cover != nullptr) {
     lv_obj_move_to_index(state->cover, -1);
+    self->status_bar_.MoveToTop();
   }
 
   if (!self->StartAppOpenCoverFade(state, LV_OPA_COVER, LV_OPA_TRANSP,
@@ -650,6 +654,7 @@ void UiManager::FinishAppOpenTransition(AppOpenTransitionState* state) {
     lv_obj_set_size(
         active_view_container_, screen_->width(), screen_->height());
     lv_obj_move_to_index(active_view_container_, -1);
+    status_bar_.MoveToTop();
   }
 
   if (launcher_container_ != nullptr && active_view_container_ != nullptr) {
@@ -677,7 +682,7 @@ lv_obj_t* UiManager::CreateLauncher(lv_obj_t* parent) {
     return nullptr;
   }
 
-  if (CreateStatusBar(launcher) == nullptr || CreateDock(launcher) == nullptr) {
+  if (CreateDock(launcher) == nullptr) {
     lv_obj_delete(launcher);
     return nullptr;
   }
@@ -741,52 +746,6 @@ lv_obj_t* UiManager::CreatePageScroller(lv_obj_t* parent) {
 
   lv_obj_update_snap(scroller, LV_ANIM_OFF);
   return scroller;
-}
-
-lv_obj_t* UiManager::CreateStatusBar(lv_obj_t* parent) {
-  lv_obj_t* status_bar = lv_obj_create(parent);
-  if (status_bar == nullptr) {
-    return nullptr;
-  }
-
-  lv_obj_remove_flag(status_bar, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(status_bar, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_remove_flag(status_bar, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  MakeTransparent(status_bar);
-  lv_obj_set_size(status_bar, LV_PCT(100), kStatusBarHeight);
-  lv_obj_align(status_bar, LV_ALIGN_TOP_MID, 0, 0);
-  lv_obj_set_style_bg_color(status_bar, lv_color_hex(0x000000), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(status_bar, LV_OPA_10, LV_PART_MAIN);
-  lv_obj_set_style_radius(status_bar, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_hor(status_bar, 24, LV_PART_MAIN);
-
-  lv_obj_t* time_label =
-      CreateLabel(status_bar, "09:15", lv_color_hex(0xFFFFFF));
-  if (time_label == nullptr) {
-    lv_obj_delete(status_bar);
-    return nullptr;
-  }
-  SetTextStyle(time_label, lv_color_hex(0xFFFFFF), Font24());
-  lv_obj_align(time_label, LV_ALIGN_LEFT_MID, 0, 0);
-
-  lv_obj_t* battery_label =
-      CreateLabel(status_bar, icon::kBatteryAndroid3, lv_color_hex(0xFFFFFF));
-  if (battery_label == nullptr) {
-    lv_obj_delete(status_bar);
-    return nullptr;
-  }
-  SetTextStyle(battery_label, lv_color_hex(0xFFFFFF), MaterialIconFont28());
-  lv_obj_align(battery_label, LV_ALIGN_RIGHT_MID, 0, 0);
-
-  lv_obj_t* wifi_label =
-      CreateLabel(status_bar, icon::kWifi, lv_color_hex(0xFFFFFF));
-  if (wifi_label == nullptr) {
-    lv_obj_delete(status_bar);
-    return nullptr;
-  }
-  SetTextStyle(wifi_label, lv_color_hex(0xFFFFFF), MaterialIconFont28());
-  lv_obj_align_to(wifi_label, battery_label, LV_ALIGN_OUT_LEFT_MID, -6, 0);
-  return status_bar;
 }
 
 lv_obj_t* UiManager::CreateClockGroup(lv_obj_t* parent) {
@@ -1174,6 +1133,7 @@ lv_obj_t* UiManager::CreateAppTransitionCover() {
   lv_obj_set_style_radius(cover, 0, LV_PART_MAIN);
   lv_obj_set_style_opa(cover, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_move_to_index(cover, -1);
+  status_bar_.MoveToTop();
   return cover;
 }
 
@@ -1196,6 +1156,7 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   lv_obj_add_flag(active_view_container_, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_add_event_cb(
       active_view_container_, GestureEventCallback, LV_EVENT_GESTURE, this);
+  status_bar_.MoveToTop();
   return true;
 }
 

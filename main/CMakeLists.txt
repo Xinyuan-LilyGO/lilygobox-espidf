@@ -6,6 +6,7 @@ set(src_dirs
     "ui"
     "ui/font"
     "ui/icon"
+    "ui/shell"
     "ui/view")
 
 if(CONFIG_LILYGO_BOX_DEVICE_T_DISPLAY_P4)
