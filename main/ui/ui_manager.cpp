@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-11 18:36:38
+ * @LastEditTime: 2026-05-11 21:12:27
  * @License: GPL 3.0
  */
 #include "ui/ui_manager.h"
@@ -412,17 +412,15 @@ lv_obj_t* CreateToneCircle(lv_obj_t* parent, int size, int x, int y,
 
 void CreateWallpaperObjects(lv_obj_t* parent) {
   CreateToneCircle(
-      parent, 1120, 0, 70, LV_ALIGN_TOP_MID, 0xD2D2D2, LV_OPA_COVER);
+      parent, 1120, 0, 70, LV_ALIGN_TOP_MID, 0xDCDCDC, LV_OPA_COVER);
   CreateToneCircle(
-      parent, 1060, 0, 110, LV_ALIGN_TOP_MID, 0xE6E6E6, LV_OPA_COVER);
-  CreateToneCircle(
-      parent, 1000, 0, 140, LV_ALIGN_TOP_MID, 0xD2D2D2, LV_OPA_COVER);
+      parent, 1000, 0, 140, LV_ALIGN_TOP_MID, 0xC8C8C8, LV_OPA_COVER);
 
   CreateToneCircle(
-      parent, 940, 0, 300, LV_ALIGN_TOP_MID, 0xC3C3C3, LV_OPA_COVER);
+      parent, 940, 0, 300, LV_ALIGN_TOP_MID, 0xB7B7B7, LV_OPA_COVER);
 
   CreateToneCircle(
-      parent, 1040, 0, 640, LV_ALIGN_BOTTOM_MID, 0xB4B4B4, LV_OPA_COVER);
+      parent, 1040, 0, 640, LV_ALIGN_BOTTOM_MID, 0x9F9F9F, LV_OPA_COVER);
 }
 
 }  // namespace
@@ -440,7 +438,7 @@ bool UiManager::Init(hal::ScreenDevice* screen) {
 
   lv_obj_remove_flag(root_screen_, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(root_screen_, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
-  lv_obj_set_style_bg_color(root_screen_, lv_color_hex(0xE6E6E6), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(root_screen_, lv_color_hex(0xE2E2E2), LV_PART_MAIN);
   lv_obj_set_style_border_width(root_screen_, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(root_screen_, 0, LV_PART_MAIN);
   lv_obj_add_event_cb(
