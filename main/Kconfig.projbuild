@@ -6,7 +6,6 @@ menu "LilygoBox Configuration"
 
         config LILYGO_BOX_DEVICE_T_DISPLAY_P4
             bool "T-Display-P4"
-            select LILYGO_DEVICE_DRIVER_T_DISPLAY_P4
     endchoice
 
     choice T_DISPLAY_P4_DEVICE_TYPE
@@ -103,25 +102,5 @@ menu "LilygoBox Configuration"
         config LILYGO_BOX_LOG_LEVEL_NONE
             bool "None"
     endchoice
-
-    config LV_DPI_DEF
-        int "Default LVGL dots per inch"
-        default 300
-
-    config LV_DEF_REFR_PERIOD
-        int "Default LVGL refresh period"
-        default 30
-
-    config LV_MEM_SIZE_KILOBYTES
-        int "LVGL heap size in kilobytes"
-        default 64
-
-    config LV_FS_STDIO_LETTER
-        int "LVGL stdio drive letter"
-        default 65
-
-    config LV_CACHE_DEF_SIZE
-        int "LVGL image cache size"
-        default 2799104
 
 endmenu

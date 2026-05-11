@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-11 11:04:28
+ * @LastEditTime: 2026-05-11 13:36:10
  * @License: GPL 3.0
  */
 #include "ui/ui_manager.h"
@@ -36,7 +36,7 @@ constexpr int kInnerImageOffsetX = -1;
 constexpr int kInnerImageOffsetY = -3;
 constexpr uint32_t kIconPressAnimationMs = 90;
 constexpr uint32_t kIconReleaseAnimationMs = 120;
-constexpr int kIconLabelGap = 8;
+constexpr int kIconLabelGap = 3;
 constexpr int kIconLabelHeight = 34;
 constexpr int kHomeAppColumns = 4;
 constexpr int kDockColumns = 3;
@@ -410,25 +410,6 @@ lv_obj_t* CreateToneCircle(lv_obj_t* parent, int size, int x, int y,
   return CreateCircle(parent, size, x, y, align, color, opacity);
 }
 
-lv_obj_t* CreateToneShade(lv_obj_t* parent, int width, int height, int x, int y,
-    lv_align_t align, uint32_t color, lv_opa_t opacity) {
-  lv_obj_t* shade = lv_obj_create(parent);
-  if (shade == nullptr) {
-    return nullptr;
-  }
-
-  lv_obj_remove_flag(shade, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_flag(shade, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_size(shade, width, height);
-  lv_obj_set_style_radius(shade, height / 2, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(shade, lv_color_hex(color), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(shade, opacity, LV_PART_MAIN);
-  lv_obj_set_style_border_width(shade, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(shade, 0, LV_PART_MAIN);
-  lv_obj_align(shade, align, x, y);
-  return shade;
-}
-
 void CreateWallpaperObjects(lv_obj_t* parent) {
   CreateToneCircle(
       parent, 1120, 0, 22, LV_ALIGN_TOP_MID, 0xD2D2D2, LV_OPA_COVER);
@@ -437,24 +418,8 @@ void CreateWallpaperObjects(lv_obj_t* parent) {
   CreateToneCircle(
       parent, 1000, 0, 90, LV_ALIGN_TOP_MID, 0xD2D2D2, LV_OPA_COVER);
 
-  CreateToneShade(parent, 320, 92, 0, -276, LV_ALIGN_CENTER, 0xC3C3C3, 74);
-  CreateToneShade(parent, 260, 66, 0, -276, LV_ALIGN_CENTER, 0xC8C8C8, 58);
-  CreateToneShade(parent, 210, 46, 0, -276, LV_ALIGN_CENTER, 0xD2D2D2, 44);
-  CreateToneShade(parent, 160, 30, 0, -276, LV_ALIGN_CENTER, 0xE6E6E6, 34);
-
   CreateToneCircle(
       parent, 1040, 0, 612, LV_ALIGN_BOTTOM_MID, 0xB4B4B4, LV_OPA_COVER);
-
-  lv_obj_t* brand_label = lv_label_create(parent);
-  if (brand_label == nullptr) {
-    return;
-  }
-
-  lv_label_set_text(brand_label, "LilygoBox");
-  SetTextStyle(brand_label, lv_color_hex(0xFFFFFF), Font24());
-  lv_obj_set_style_text_letter_space(brand_label, 3, LV_PART_MAIN);
-  lv_obj_set_style_text_opa(brand_label, 235, LV_PART_MAIN);
-  lv_obj_align(brand_label, LV_ALIGN_CENTER, 0, -276);
 }
 
 }  // namespace
@@ -539,7 +504,7 @@ void UiManager::GestureEventCallback(lv_event_t* event) {
 
 void UiManager::PageScrollEventCallback(lv_event_t* event) {
   const lv_event_code_t code = lv_event_get_code(event);
-  if (code != LV_EVENT_SCROLL && code != LV_EVENT_SCROLL_END) {
+  if (code != LV_EVENT_SCROLL_END) {
     return;
   }
 
@@ -602,7 +567,8 @@ lv_obj_t* UiManager::CreatePageScroller(lv_obj_t* parent) {
   lv_obj_set_scrollbar_mode(scroller, LV_SCROLLBAR_MODE_OFF);
   lv_obj_add_flag(scroller, LV_OBJ_FLAG_SCROLL_ONE);
   lv_obj_remove_flag(scroller, LV_OBJ_FLAG_SCROLL_ELASTIC);
-  lv_obj_add_event_cb(scroller, PageScrollEventCallback, LV_EVENT_SCROLL, this);
+  lv_obj_remove_flag(scroller, LV_OBJ_FLAG_SCROLL_MOMENTUM);
+  lv_obj_set_style_anim_duration(scroller, 120, LV_PART_MAIN);
   lv_obj_add_event_cb(
       scroller, PageScrollEventCallback, LV_EVENT_SCROLL_END, this);
 
