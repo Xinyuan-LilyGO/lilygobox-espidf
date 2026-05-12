@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-12 01:08:42
+ * @LastEditTime: 2026-05-12 21:20:00
  * @License: GPL 3.0
  */
 #include "ui/ui_manager.h"
@@ -14,6 +14,7 @@
 #include "app/app_catalog.h"
 #include "ui/app_view_gesture_flags.h"
 #include "ui/app_view_factory.h"
+#include "ui/edge_back_gesture.h"
 #include "ui/font/font_assets.h"
 #include "ui/font/material_symbols_assets.h"
 #include "ui/icon/icon_assets.h"
@@ -516,7 +517,8 @@ void UiManager::GestureEventCallback(lv_event_t* event) {
   }
 
   auto* self = static_cast<UiManager*>(lv_event_get_user_data(event));
-  if (self == nullptr || self->active_view_container_ == nullptr) {
+  if (self == nullptr || self->active_view_container_ == nullptr ||
+      self->screen_ == nullptr) {
     return;
   }
 
@@ -527,6 +529,12 @@ void UiManager::GestureEventCallback(lv_event_t* event) {
 
   const lv_dir_t direction = lv_indev_get_gesture_dir(indev);
   if (direction != LV_DIR_LEFT && direction != LV_DIR_RIGHT) {
+    return;
+  }
+
+  BackGestureInfo gesture;
+  if (!ReadBackGestureInfo(indev, &gesture) ||
+      !IsBackGestureFromEdge(gesture, self->screen_->width())) {
     return;
   }
 

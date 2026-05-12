@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-12 20:58:06
+ * @LastEditTime: 2026-05-12 22:44:23
  * @License: GPL 3.0
  */
 #include "ui/view/cit_view.h"
@@ -24,6 +24,7 @@
 #include "hal/screen_device.h"
 #include "sdkconfig.h"
 #include "ui/app_view_gesture_flags.h"
+#include "ui/edge_back_gesture.h"
 #include "ui/font/font_assets.h"
 #include "ui/font/material_symbols_assets.h"
 
@@ -53,6 +54,10 @@ constexpr lv_opa_t kBottomPageDimOpacity = 84;
 constexpr uint32_t kCitBackgroundColor = 0xFF7F58;
 constexpr uint32_t kListBackgroundColor = 0xFBF4E4;
 constexpr uint32_t kRowDividerColor = 0xD8C8C0;
+constexpr uint32_t kRowPressedColor = 0xEEDBD1;
+constexpr lv_opa_t kRowPressedOpacity = 170;
+constexpr int kRowPressedHeight = kRowHeight - 4;
+constexpr int kRowPressedRadius = 12;
 constexpr uint32_t kReadyColor = 0x138A3D;
 constexpr uint32_t kFailedColor = 0xEE2C2C;
 constexpr uint32_t kPendingColor = 0xF28C00;
@@ -67,6 +72,7 @@ struct CitStatusRow {
   CitViewState* state = nullptr;
   lv_obj_t* icon_label = nullptr;
   lv_obj_t* name_label = nullptr;
+  lv_obj_t* pressed_background = nullptr;
   size_t index = 0;
 };
 
@@ -96,6 +102,7 @@ struct CitViewState {
 
 void ShowCitList(CitViewState* state);
 bool ShowCitTest(CitViewState* state, size_t index);
+void TestPageGestureEventCallback(lv_event_t* event);
 
 void SetTextStyle(lv_obj_t* object, lv_color_t color, const lv_font_t* font) {
   lv_obj_set_style_text_color(object, color, LV_PART_MAIN);
@@ -505,17 +512,38 @@ void CitViewDeleteCallback(lv_event_t* event) {
   delete state;
 }
 
-void CitRowEventCallback(lv_event_t* event) {
-  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+void SetCitRowPressed(CitStatusRow* row, bool pressed) {
+  if (row == nullptr || row->pressed_background == nullptr) {
     return;
   }
 
+  if (pressed) {
+    lv_obj_remove_flag(row->pressed_background, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+
+  lv_obj_add_flag(row->pressed_background, LV_OBJ_FLAG_HIDDEN);
+}
+
+void CitRowEventCallback(lv_event_t* event) {
   auto* row = static_cast<CitStatusRow*>(lv_event_get_user_data(event));
   if (row == nullptr || row->entry == nullptr) {
     return;
   }
 
-  ShowCitTest(row->state, row->index);
+  const lv_event_code_t code = lv_event_get_code(event);
+  if (code == LV_EVENT_PRESSED) {
+    SetCitRowPressed(row, true);
+    return;
+  }
+  if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+    SetCitRowPressed(row, false);
+    return;
+  }
+  if (code == LV_EVENT_CLICKED) {
+    SetCitRowPressed(row, false);
+    ShowCitTest(row->state, row->index);
+  }
 }
 
 void TestPassButtonEventCallback(lv_event_t* event) {
@@ -577,6 +605,12 @@ void TestPageGestureEventCallback(lv_event_t* event) {
 
   const lv_dir_t direction = lv_indev_get_gesture_dir(indev);
   if (direction != LV_DIR_LEFT && direction != LV_DIR_RIGHT) {
+    return;
+  }
+
+  BackGestureInfo gesture;
+  if (!ReadBackGestureInfo(indev, &gesture) ||
+      !IsBackGestureFromEdge(gesture, state->width)) {
     return;
   }
 
@@ -1283,6 +1317,26 @@ lv_obj_t* CreateStatusRow(
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_left(row, 0, LV_PART_MAIN);
 
+  lv_obj_t* pressed_background = lv_obj_create(row);
+  if (pressed_background == nullptr) {
+    lv_obj_delete(row);
+    return nullptr;
+  }
+  lv_obj_remove_flag(pressed_background, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(pressed_background, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(pressed_background, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_set_size(pressed_background, LV_PCT(100), kRowPressedHeight);
+  lv_obj_align(
+      pressed_background, LV_ALIGN_CENTER, 0, kRowContentOffsetY);
+  lv_obj_set_style_bg_color(
+      pressed_background, lv_color_hex(kRowPressedColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(
+      pressed_background, kRowPressedOpacity, LV_PART_MAIN);
+  lv_obj_set_style_border_width(pressed_background, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(
+      pressed_background, kRowPressedRadius, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(pressed_background, 0, LV_PART_MAIN);
+
   const size_t row_index = state->row_count;
   const app::CitTestStatus status = GetRuntimeStatus(*state, row_index);
   lv_obj_t* icon_label = CreateLabel(
@@ -1305,9 +1359,10 @@ lv_obj_t* CreateStatusRow(
       .state = state,
       .icon_label = icon_label,
       .name_label = name_label,
+      .pressed_background = pressed_background,
       .index = row_index,
   };
-  lv_obj_add_event_cb(row, CitRowEventCallback, LV_EVENT_CLICKED,
+  lv_obj_add_event_cb(row, CitRowEventCallback, LV_EVENT_ALL,
       &state->rows[state->row_count]);
   ++state->row_count;
   return row;
