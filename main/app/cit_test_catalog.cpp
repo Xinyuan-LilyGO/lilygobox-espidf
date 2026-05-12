@@ -59,8 +59,6 @@ const char* GetCitTestStatusText(CitTestStatus status) {
   switch (status) {
     case CitTestStatus::kReady:
       return "Ready";
-    case CitTestStatus::kWaiting:
-      return "Waiting";
     case CitTestStatus::kFailed:
       return "Failed";
     case CitTestStatus::kPending:

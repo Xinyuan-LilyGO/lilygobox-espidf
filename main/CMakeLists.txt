@@ -22,7 +22,10 @@ idf_component_register(
         lvgl
         lilygo_device_driver
     PRIV_REQUIRES
+        esp_app_format
         esp_common
+        esp_hw_support
         esp_system
         freertos
-        heap)
+        heap
+        spi_flash)

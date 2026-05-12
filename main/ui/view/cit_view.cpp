@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-12 17:18:46
+ * @LastEditTime: 2026-05-12 18:35:53
  * @License: GPL 3.0
  */
 #include "ui/view/cit_view.h"
@@ -13,8 +13,16 @@
 #include <new>
 
 #include "app/cit_test_catalog.h"
+#include "esp_app_desc.h"
+#include "esp_chip_info.h"
+#include "esp_err.h"
+#include "esp_flash.h"
+#include "esp_heap_caps.h"
+#include "esp_mac.h"
+#include "esp_system.h"
 #include "hal/device_diagnostics.h"
 #include "hal/screen_device.h"
+#include "sdkconfig.h"
 #include "ui/app_view_gesture_flags.h"
 #include "ui/font/font_assets.h"
 #include "ui/font/material_symbols_assets.h"
@@ -34,8 +42,7 @@ constexpr int kTestButtonBarHeight = 140;
 constexpr int kTestButtonWidth = 200;
 constexpr int kTestButtonHeight = 60;
 constexpr int kTestButtonGap = 60;
-constexpr int kTestButtonCenterOffset =
-    (kTestButtonWidth + kTestButtonGap) / 2;
+constexpr int kTestButtonCenterOffset = (kTestButtonWidth + kTestButtonGap) / 2;
 constexpr int kTestStartButtonWidth = 240;
 constexpr int kTestStartButtonHeight = 78;
 constexpr int kCitRefreshPeriodMs = 200;
@@ -47,7 +54,6 @@ constexpr uint32_t kCitBackgroundColor = 0xFF7F58;
 constexpr uint32_t kListBackgroundColor = 0xFBF4E4;
 constexpr uint32_t kRowDividerColor = 0xD8C8C0;
 constexpr uint32_t kReadyColor = 0x138A3D;
-constexpr uint32_t kWaitingColor = 0x202020;
 constexpr uint32_t kFailedColor = 0xEE2C2C;
 constexpr uint32_t kPendingColor = 0xF28C00;
 constexpr uint32_t kPassButtonColor = 0x2F80ED;
@@ -184,9 +190,8 @@ void TestPageCloseCompletedCallback(lv_anim_t* animation) {
   FinishTestPageClose(state);
 }
 
-bool StartTestPageSlideAnimation(lv_obj_t* page, int32_t start_x,
-    int32_t end_x, CitViewState* state,
-    lv_anim_completed_cb_t completed_callback) {
+bool StartTestPageSlideAnimation(lv_obj_t* page, int32_t start_x, int32_t end_x,
+    CitViewState* state, lv_anim_completed_cb_t completed_callback) {
   if (page == nullptr) {
     return false;
   }
@@ -323,8 +328,6 @@ lv_color_t GetStatusColor(app::CitTestStatus status) {
   switch (status) {
     case app::CitTestStatus::kReady:
       return lv_color_hex(kReadyColor);
-    case app::CitTestStatus::kWaiting:
-      return lv_color_hex(kWaitingColor);
     case app::CitTestStatus::kFailed:
       return lv_color_hex(kFailedColor);
     case app::CitTestStatus::kPending:
@@ -337,8 +340,6 @@ const char* GetStatusIcon(app::CitTestStatus status) {
   switch (status) {
     case app::CitTestStatus::kReady:
       return icon::kCheckCircle;
-    case app::CitTestStatus::kWaiting:
-      return "R";
     case app::CitTestStatus::kFailed:
       return icon::kCancel;
     case app::CitTestStatus::kPending:
@@ -359,12 +360,7 @@ void AlignStatusLabels(lv_obj_t* icon_label, lv_obj_t* name_label) {
       name_label, LV_ALIGN_LEFT_MID, kRowIconWidth, kRowContentOffsetY);
 }
 
-const lv_font_t* GetStatusIconFont(app::CitTestStatus status) {
-  if (status == app::CitTestStatus::kWaiting) {
-    return Font32();
-  }
-  return MaterialIconFont32();
-}
+const lv_font_t* GetStatusIconFont() { return MaterialIconFont32(); }
 
 void RefreshTouchState(CitViewState* state) {
   if (state == nullptr || state->screen == nullptr || state->touch_was_seen) {
@@ -400,8 +396,8 @@ app::CitTestStatus GetRuntimeStatus(const CitViewState& state, size_t index) {
   return app::CitTestStatus::kPending;
 }
 
-void UpdateStatusRow(lv_obj_t* icon_label, lv_obj_t* name_label,
-    app::CitTestStatus status) {
+void UpdateStatusRow(
+    lv_obj_t* icon_label, lv_obj_t* name_label, app::CitTestStatus status) {
   if (icon_label == nullptr || name_label == nullptr) {
     return;
   }
@@ -409,8 +405,7 @@ void UpdateStatusRow(lv_obj_t* icon_label, lv_obj_t* name_label,
   const lv_color_t color = GetStatusColor(status);
   lv_label_set_text(icon_label, GetStatusIcon(status));
   lv_obj_set_style_text_color(icon_label, color, LV_PART_MAIN);
-  lv_obj_set_style_text_font(
-      icon_label, GetStatusIconFont(status), LV_PART_MAIN);
+  lv_obj_set_style_text_font(icon_label, GetStatusIconFont(), LV_PART_MAIN);
   lv_obj_set_style_text_color(name_label, color, LV_PART_MAIN);
   AlignStatusLabels(icon_label, name_label);
 }
@@ -438,8 +433,7 @@ void RefreshActiveTestData(CitViewState* state) {
     return;
   }
 
-  const app::CitTestEntry* entry =
-      state->rows[state->current_test_index].entry;
+  const app::CitTestEntry* entry = state->rows[state->current_test_index].entry;
   if (entry == nullptr) {
     return;
   }
@@ -526,8 +520,7 @@ void TestPassButtonEventCallback(lv_event_t* event) {
     return;
   }
 
-  state->test_statuses[state->current_test_index] =
-      app::CitTestStatus::kReady;
+  state->test_statuses[state->current_test_index] = app::CitTestStatus::kReady;
   RefreshCitRows(state);
 
   const size_t next_index = state->current_test_index + 1;
@@ -544,8 +537,7 @@ void FailCurrentTestAndShowList(CitViewState* state) {
     return;
   }
 
-  state->test_statuses[state->current_test_index] =
-      app::CitTestStatus::kFailed;
+  state->test_statuses[state->current_test_index] = app::CitTestStatus::kFailed;
   RefreshCitRows(state);
   ShowCitList(state);
 }
@@ -604,9 +596,8 @@ void ScreenColorStartButtonEventCallback(lv_event_t* event) {
       0xFFFFFF,
       kListBackgroundColor,
   };
-  state->screen_color_index =
-      (state->screen_color_index + 1) %
-      (sizeof(kColorList) / sizeof(kColorList[0]));
+  state->screen_color_index = (state->screen_color_index + 1) %
+                              (sizeof(kColorList) / sizeof(kColorList[0]));
   lv_obj_set_style_bg_color(state->test_content,
       lv_color_hex(kColorList[state->screen_color_index]), LV_PART_MAIN);
 }
@@ -622,8 +613,7 @@ void GenericStartButtonEventCallback(lv_event_t* event) {
     return;
   }
 
-  const app::CitTestEntry* entry =
-      state->rows[state->current_test_index].entry;
+  const app::CitTestEntry* entry = state->rows[state->current_test_index].entry;
   if (entry == nullptr) {
     return;
   }
@@ -658,8 +648,7 @@ lv_obj_t* CreateTestActionButton(lv_obj_t* parent, const char* text,
   lv_obj_add_event_cb(
       button, TestPageGestureEventCallback, LV_EVENT_GESTURE, state);
 
-  lv_obj_t* label =
-      CreateLabel(button, text, lv_color_hex(0xFFFFFF), Font28());
+  lv_obj_t* label = CreateLabel(button, text, lv_color_hex(0xFFFFFF), Font28());
   if (label == nullptr) {
     lv_obj_delete(button);
     return nullptr;
@@ -689,8 +678,7 @@ lv_obj_t* CreateCenterButton(lv_obj_t* parent, const char* text,
   lv_obj_add_event_cb(
       button, TestPageGestureEventCallback, LV_EVENT_GESTURE, state);
 
-  lv_obj_t* label =
-      CreateLabel(button, text, lv_color_hex(0xFFFFFF), Font28());
+  lv_obj_t* label = CreateLabel(button, text, lv_color_hex(0xFFFFFF), Font28());
   if (label == nullptr) {
     lv_obj_delete(button);
     return nullptr;
@@ -721,8 +709,8 @@ lv_obj_t* CreateTestButtonBar(lv_obj_t* parent, CitViewState* state) {
           LV_ALIGN_CENTER, -kTestButtonCenterOffset,
           TestFailButtonEventCallback, state) == nullptr ||
       CreateTestActionButton(button_bar, "PASS", kPassButtonColor,
-          LV_ALIGN_CENTER, kTestButtonCenterOffset,
-          TestPassButtonEventCallback, state) == nullptr) {
+          LV_ALIGN_CENTER, kTestButtonCenterOffset, TestPassButtonEventCallback,
+          state) == nullptr) {
     lv_obj_delete(button_bar);
     return nullptr;
   }
@@ -771,8 +759,7 @@ const char* GetTestHint(const app::CitTestEntry& entry) {
 }
 
 lv_obj_t* CreateDataLabel(lv_obj_t* parent, const char* text) {
-  lv_obj_t* label =
-      CreateLabel(parent, text, lv_color_hex(0x202020), Font28());
+  lv_obj_t* label = CreateLabel(parent, text, lv_color_hex(0x202020), Font28());
   if (label == nullptr) {
     return nullptr;
   }
@@ -783,14 +770,198 @@ lv_obj_t* CreateDataLabel(lv_obj_t* parent, const char* text) {
   return label;
 }
 
+const char* ConfiguredChipModel() {
+#if defined(CONFIG_IDF_TARGET)
+  return CONFIG_IDF_TARGET;
+#else
+  return "unknown";
+#endif
+}
+
+const char* ConfiguredTargetArch() {
+#if defined(CONFIG_IDF_TARGET_ARCH)
+  return CONFIG_IDF_TARGET_ARCH;
+#else
+  return "unknown";
+#endif
+}
+
+const char* ConfiguredDeviceName() {
+#if defined(CONFIG_BOARD_TYPE_T_DISPLAY_P4_KEYBOARD)
+  return "t-display-p4-keyboard";
+#elif defined(CONFIG_BOARD_TYPE_T_DISPLAY_P4)
+#if defined(CONFIG_BOARD_VERSION_T_DISPLAY_P4_V1_0)
+  return "t-display-p4_v1.0";
+#elif defined(CONFIG_BOARD_VERSION_T_DISPLAY_P4_V2_0)
+  return "t-display-p4_v2.0";
+#else
+  return "t-display-p4";
+#endif
+#elif defined(CONFIG_LILYGO_BOX_DEVICE_T_DISPLAY_P4)
+  return "t-display-p4";
+#else
+  return "unknown";
+#endif
+}
+
+const char* ConfiguredScreenType() {
+#if defined(CONFIG_SCREEN_TYPE_HI8561)
+  return "hi8561";
+#elif defined(CONFIG_SCREEN_TYPE_RM69A10)
+  return "rm69a10";
+#else
+  return "unknown";
+#endif
+}
+
+const char* ConfiguredCameraType() {
+#if defined(CONFIG_CAMERA_TYPE_SC2336)
+  return "sc2336";
+#elif defined(CONFIG_CAMERA_TYPE_OV2710)
+  return "ov2710";
+#elif defined(CONFIG_CAMERA_TYPE_OV5645)
+  return "ov5645";
+#else
+  return "unknown";
+#endif
+}
+
+const char* ConfiguredCameraPixelFormat() {
+#if defined(CONFIG_CAMERA_PIXEL_FORMAT_RGB565)
+  return "rgb565";
+#elif defined(CONFIG_CAMERA_PIXEL_FORMAT_RGB888)
+  return "rgb888";
+#else
+  return "unknown";
+#endif
+}
+
+const char* ScreenPixelFormat(int bits_per_pixel) {
+#if defined(CONFIG_SCREEN_PIXEL_FORMAT_RGB565)
+  return "rgb565";
+#elif defined(CONFIG_SCREEN_PIXEL_FORMAT_RGB888)
+  return "rgb888";
+#else
+  switch (bits_per_pixel) {
+    case 16:
+      return "rgb565";
+    case 24:
+    case 32:
+      return "rgb888";
+    default:
+      return "unknown";
+  }
+#endif
+}
+
+const char* KnownString(const char* text) {
+  return (text == nullptr || text[0] == '\0') ? "unknown" : text;
+}
+
+void FormatMacAddress(char* buffer, size_t size) {
+  if (buffer == nullptr || size == 0) {
+    return;
+  }
+
+  uint8_t mac[6] = {};
+  if (esp_efuse_mac_get_default(mac) != ESP_OK) {
+    std::snprintf(buffer, size, "unknown");
+    return;
+  }
+
+  std::snprintf(buffer, size, "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1],
+      mac[2], mac[3], mac[4], mac[5]);
+}
+
 bool AddVersionContent(lv_obj_t* content, CitViewState* state) {
-  char text[256] = {};
+  esp_chip_info_t chip_info = {};
+  esp_chip_info(&chip_info);
+
+  const esp_app_desc_t* app_description = esp_app_get_description();
+
+  char mac_address[18] = {};
+  FormatMacAddress(mac_address, sizeof(mac_address));
+
+  uint32_t flash_size = 0;
+  const bool flash_size_read =
+      esp_flash_get_size(nullptr, &flash_size) == ESP_OK;
+
+  const int screen_width = state->screen->width();
+  const int screen_height = state->screen->height();
+  const int screen_bpp = state->screen->bits_per_pixel();
+  const char* app_project_name = KnownString(
+      app_description == nullptr ? nullptr : app_description->project_name);
+  const char* app_version = KnownString(
+      app_description == nullptr ? nullptr : app_description->version);
+  const char* app_build_date =
+      KnownString(app_description == nullptr ? nullptr : app_description->date);
+  const char* app_build_time =
+      KnownString(app_description == nullptr ? nullptr : app_description->time);
+
+  char text[2048] = {};
   std::snprintf(text, sizeof(text),
-      "chip model: ESP32-P4\nscreen size: %d x %d\ncolor depth: %d bpp\n"
-      "lvgl: 9.5.0\ntarget: T-Display-P4",
-      state->screen == nullptr ? 0 : state->screen->width(),
-      state->screen == nullptr ? 0 : state->screen->height(),
-      state->screen == nullptr ? 0 : state->screen->bits_per_pixel());
+      "[Chip]\n"
+      "model: %s\n"
+      "efuse mac:\n"
+      "     %s\n"
+      "revision: v%d.%d\n"
+      "cores: %d\n"
+      "flash size:\n"
+      "     %lu bytes (%lu MB)\n"
+      "flash features: %s\n"
+      "\n"
+      "[Memory]\n"
+      "free heap:\n"
+      "     %lu bytes\n"
+      "internal heap free / total:\n"
+      "     %lu / %lu bytes\n"
+      "psram free / total:\n"
+      "     %lu / %lu bytes\n"
+      "\n"
+      "[Software]\n"
+      "company: lilygo\n"
+      "device name: %s\n"
+      "software name: %s\n"
+      "software version: %s\n"
+      "software build date:\n"
+      "     %s %s\n"
+      "esp-idf version:\n"
+      "     %s\n"
+      "target arch: %s\n"
+      "\n"
+      "[Display]\n"
+      "screen type: %s\n"
+      "screen size: %d x %d\n"
+      "screen pixel format: %s\n"
+      "screen color depth: %d bpp\n"
+      "\n"
+      "[Camera]\n"
+      "camera type: %s\n"
+      "camera pixel format: %s\n"
+      "\n"
+      "[Lvgl]\n"
+      "lvgl version: %d.%d.%d%s",
+      ConfiguredChipModel(), mac_address, chip_info.revision / 100,
+      chip_info.revision % 100, chip_info.cores,
+      flash_size_read ? static_cast<unsigned long>(flash_size) : 0UL,
+      flash_size_read ? static_cast<unsigned long>(flash_size / 1024 / 1024)
+                      : 0UL,
+      (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external",
+      static_cast<unsigned long>(esp_get_free_heap_size()),
+      static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+      static_cast<unsigned long>(heap_caps_get_total_size(MALLOC_CAP_INTERNAL)),
+      static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)),
+      static_cast<unsigned long>(heap_caps_get_total_size(MALLOC_CAP_SPIRAM)),
+      ConfiguredDeviceName(), app_project_name, app_version, app_build_date,
+      app_build_time, esp_get_idf_version(), ConfiguredTargetArch(),
+      ConfiguredScreenType(), screen_width, screen_height,
+      ScreenPixelFormat(screen_bpp), screen_bpp, ConfiguredCameraType(),
+      ConfiguredCameraPixelFormat(), LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR,
+      LVGL_VERSION_PATCH, LVGL_VERSION_INFO);
+
+  lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(content, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_ACTIVE);
   return CreateDataLabel(content, text) != nullptr;
 }
 
@@ -811,8 +982,8 @@ bool AddTouchContent(lv_obj_t* content, CitViewState* state) {
   lv_obj_set_style_border_width(touch_area, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(touch_area, 0, LV_PART_MAIN);
 
-  lv_obj_t* label = CreateLabel(
-      touch_area, "Touch Area", lv_color_hex(0x606060), Font28());
+  lv_obj_t* label =
+      CreateLabel(touch_area, "Touch Area", lv_color_hex(0x606060), Font28());
   if (label == nullptr) {
     return false;
   }
@@ -822,15 +993,14 @@ bool AddTouchContent(lv_obj_t* content, CitViewState* state) {
 
 bool AddScreenColorContent(lv_obj_t* content, CitViewState* state) {
   state->screen_color_index = 4;
-  lv_obj_t* hint =
-      CreateDataLabel(content, "Tap START COLOR to cycle red, green, blue, "
-                               "white, and normal background.");
+  lv_obj_t* hint = CreateDataLabel(content,
+      "Tap START COLOR to cycle red, green, blue, "
+      "white, and normal background.");
   if (hint == nullptr) {
     return false;
   }
-  return CreateCenterButton(
-             content, "START COLOR", ScreenColorStartButtonEventCallback,
-             state) != nullptr;
+  return CreateCenterButton(content, "START COLOR",
+             ScreenColorStartButtonEventCallback, state) != nullptr;
 }
 
 bool AddStartButtonContent(lv_obj_t* content, CitViewState* state,
@@ -839,9 +1009,8 @@ bool AddStartButtonContent(lv_obj_t* content, CitViewState* state,
   if (state->test_data_label == nullptr) {
     return false;
   }
-  return CreateCenterButton(
-             content, button_text, GenericStartButtonEventCallback, state) !=
-         nullptr;
+  return CreateCenterButton(content, button_text,
+             GenericStartButtonEventCallback, state) != nullptr;
 }
 
 bool AddMicrophoneContent(lv_obj_t* content) {
@@ -859,9 +1028,8 @@ bool AddMicrophoneContent(lv_obj_t* content) {
   lv_scale_set_angle_range(scale, 270);
   lv_scale_set_rotation(scale, 135);
 
-  lv_obj_t* label = CreateLabel(
-      content, "microphone data:\nlevel: waiting", lv_color_hex(0x202020),
-      Font28());
+  lv_obj_t* label = CreateLabel(content, "microphone data:\nlevel: waiting",
+      lv_color_hex(0x202020), Font28());
   if (label == nullptr) {
     return false;
   }
@@ -883,8 +1051,8 @@ bool AddMicrophoneContent(lv_obj_t* content) {
   return true;
 }
 
-bool AddDiagnosticsContent(lv_obj_t* content, CitViewState* state,
-    const app::CitTestEntry& entry) {
+bool AddDiagnosticsContent(
+    lv_obj_t* content, CitViewState* state, const app::CitTestEntry& entry) {
   const char* initial_text = "diagnostics data:";
   if (IsEntryId(entry, "imu")) {
     initial_text = "imu data:";
@@ -915,14 +1083,13 @@ bool AddPlainDataContent(lv_obj_t* content, const app::CitTestEntry& entry) {
   }
   if (IsEntryId(entry, "esp32c6")) {
     return CreateDataLabel(
-               content, "esp32c6 at data:\nwaiting for AT response") !=
-           nullptr;
+               content, "esp32c6 at data:\nwaiting for AT response") != nullptr;
   }
   return CreateDataLabel(content, GetTestHint(entry)) != nullptr;
 }
 
-bool PopulateTestContent(lv_obj_t* content, CitViewState* state,
-    const app::CitTestEntry& entry) {
+bool PopulateTestContent(
+    lv_obj_t* content, CitViewState* state, const app::CitTestEntry& entry) {
   if (IsEntryId(entry, "version")) {
     return AddVersionContent(content, state);
   }
@@ -933,12 +1100,10 @@ bool PopulateTestContent(lv_obj_t* content, CitViewState* state,
     return AddScreenColorContent(content, state);
   }
   if (IsEntryId(entry, "vibration")) {
-    return AddStartButtonContent(
-        content, state, "vibration data:", "START F0");
+    return AddStartButtonContent(content, state, "vibration data:", "START F0");
   }
   if (IsEntryId(entry, "speaker")) {
-    return AddStartButtonContent(
-        content, state, "speaker data:", "START PLAY");
+    return AddStartButtonContent(content, state, "speaker data:", "START PLAY");
   }
   if (IsEntryId(entry, "microphone")) {
     return AddMicrophoneContent(content);
@@ -999,9 +1164,8 @@ bool ShowCitTest(CitViewState* state, size_t index) {
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
 
-  lv_obj_t* title =
-      CreateLabel(page, TestTitle(*row.entry), lv_color_hex(0xFFFFFF),
-          Font48());
+  lv_obj_t* title = CreateLabel(
+      page, TestTitle(*row.entry), lv_color_hex(0xFFFFFF), Font48());
   if (title == nullptr) {
     DeleteTestPageAndDimOverlay(state);
     return false;
@@ -1019,8 +1183,7 @@ bool ShowCitTest(CitViewState* state, size_t index) {
   lv_obj_add_event_cb(
       content, TestPageGestureEventCallback, LV_EVENT_GESTURE, state);
   lv_obj_set_size(
-      content, LV_PCT(100), state->height - kListTop -
-                                kTestButtonBarHeight);
+      content, LV_PCT(100), state->height - kListTop - kTestButtonBarHeight);
   lv_obj_set_style_bg_color(
       content, lv_color_hex(kListBackgroundColor), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(content, LV_OPA_COVER, LV_PART_MAIN);
@@ -1113,8 +1276,8 @@ lv_obj_t* CreateStatusRow(
 
   const size_t row_index = state->row_count;
   const app::CitTestStatus status = GetRuntimeStatus(*state, row_index);
-  lv_obj_t* icon_label = CreateLabel(row, GetStatusIcon(status),
-      GetStatusColor(status), GetStatusIconFont(status));
+  lv_obj_t* icon_label = CreateLabel(
+      row, GetStatusIcon(status), GetStatusColor(status), GetStatusIconFont());
   if (icon_label == nullptr) {
     lv_obj_delete(row);
     return nullptr;
