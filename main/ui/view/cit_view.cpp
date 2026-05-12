@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-12 18:35:53
+ * @LastEditTime: 2026-05-12 20:58:06
  * @License: GPL 3.0
  */
 #include "ui/view/cit_view.h"
@@ -288,31 +288,40 @@ bool StartDimOverlayAnimation(lv_obj_t* overlay, int32_t start_opacity,
 
 const char* TestTitle(const app::CitTestEntry& entry) {
   if (IsEntryId(entry, "version")) {
-    return "Version Info";
+    return "Version Info Test";
   }
   if (IsEntryId(entry, "touch")) {
-    return "Touch";
+    return "Touch Test";
   }
   if (IsEntryId(entry, "screen")) {
-    return "Screen Color";
+    return "Screen Color Test";
   }
   if (IsEntryId(entry, "vibration")) {
-    return "Vibration";
+    return "Vibration Test";
   }
   if (IsEntryId(entry, "speaker")) {
-    return "Speaker";
+    return "Speaker Test";
   }
   if (IsEntryId(entry, "microphone")) {
-    return "Microphone";
+    return "Microphone Test";
   }
   if (IsEntryId(entry, "imu")) {
-    return "IMU";
+    return "IMU Test";
   }
-  if (IsEntryId(entry, "power")) {
-    return "Battery";
+  if (IsEntryId(entry, "battery")) {
+    return "Battery Health Test";
   }
-  if (IsEntryId(entry, "esp32c6")) {
-    return "ESP32-C6 AT";
+  if (IsEntryId(entry, "gps")) {
+    return "GPS Test";
+  }
+  if (IsEntryId(entry, "ethernet")) {
+    return "Ethernet Test";
+  }
+  if (IsEntryId(entry, "rtc")) {
+    return "RTC Test";
+  }
+  if (IsEntryId(entry, "wifi")) {
+    return "WIFI Get Time Test";
   }
   return entry.name;
 }
@@ -461,7 +470,7 @@ void RefreshActiveTestData(CitViewState* state) {
     return;
   }
 
-  if (IsEntryId(*entry, "power")) {
+  if (IsEntryId(*entry, "battery")) {
     const hal::PowerDiagnostics& power = state->diagnostics.power;
     std::snprintf(text, sizeof(text),
         "battery health data:\nready: %s\nbattery: %s\ncharging: %s\n"
@@ -726,7 +735,7 @@ const char* GetTestHint(const app::CitTestEntry& entry) {
     return "Touch the screen and confirm the touch point is detected.";
   }
   if (IsEntryId(entry, "screen")) {
-    return "Check the display color and visible area.";
+    return "Check the screen color and visible area.";
   }
   if (IsEntryId(entry, "vibration")) {
     return "Confirm the vibration motor response.";
@@ -740,20 +749,20 @@ const char* GetTestHint(const app::CitTestEntry& entry) {
   if (IsEntryId(entry, "imu")) {
     return "Move the device and confirm motion data is available.";
   }
-  if (IsEntryId(entry, "power")) {
+  if (IsEntryId(entry, "battery")) {
     return "Confirm battery and power diagnostics.";
   }
   if (IsEntryId(entry, "gps")) {
     return "Confirm GPS test requirements.";
   }
   if (IsEntryId(entry, "ethernet")) {
-    return "Confirm ethernet connectivity test requirements.";
+    return "Confirm Ethernet connectivity test requirements.";
   }
   if (IsEntryId(entry, "rtc")) {
     return "Confirm RTC time keeping.";
   }
-  if (IsEntryId(entry, "esp32c6")) {
-    return "Confirm ESP32-C6 AT communication.";
+  if (IsEntryId(entry, "wifi")) {
+    return "Confirm WIFI time acquisition.";
   }
   return "Run the hardware test and choose PASS or FAIL.";
 }
@@ -929,7 +938,7 @@ bool AddVersionContent(lv_obj_t* content, CitViewState* state) {
       "     %s\n"
       "target arch: %s\n"
       "\n"
-      "[Display]\n"
+      "[Screen]\n"
       "screen type: %s\n"
       "screen size: %d x %d\n"
       "screen pixel format: %s\n"
@@ -939,7 +948,7 @@ bool AddVersionContent(lv_obj_t* content, CitViewState* state) {
       "camera type: %s\n"
       "camera pixel format: %s\n"
       "\n"
-      "[Lvgl]\n"
+      "[LVGL]\n"
       "lvgl version: %d.%d.%d%s",
       ConfiguredChipModel(), mac_address, chip_info.revision / 100,
       chip_info.revision % 100, chip_info.cores,
@@ -1056,7 +1065,7 @@ bool AddDiagnosticsContent(
   const char* initial_text = "diagnostics data:";
   if (IsEntryId(entry, "imu")) {
     initial_text = "imu data:";
-  } else if (IsEntryId(entry, "power")) {
+  } else if (IsEntryId(entry, "battery")) {
     initial_text = "battery health data:";
   }
 
@@ -1070,20 +1079,20 @@ bool AddDiagnosticsContent(
 
 bool AddPlainDataContent(lv_obj_t* content, const app::CitTestEntry& entry) {
   if (IsEntryId(entry, "gps")) {
-    return CreateDataLabel(content, "gps data:\nwaiting for module data") !=
+    return CreateDataLabel(content, "GPS data:\nwaiting for module data") !=
            nullptr;
   }
   if (IsEntryId(entry, "ethernet")) {
-    return CreateDataLabel(content, "ethernet data:\nwaiting for link data") !=
+    return CreateDataLabel(content, "Ethernet data:\nwaiting for link data") !=
            nullptr;
   }
   if (IsEntryId(entry, "rtc")) {
-    return CreateDataLabel(content, "rtc data:\nwaiting for time data") !=
+    return CreateDataLabel(content, "RTC data:\nwaiting for time data") !=
            nullptr;
   }
-  if (IsEntryId(entry, "esp32c6")) {
+  if (IsEntryId(entry, "wifi")) {
     return CreateDataLabel(
-               content, "esp32c6 at data:\nwaiting for AT response") != nullptr;
+               content, "WIFI time data:\nwaiting for time data") != nullptr;
   }
   return CreateDataLabel(content, GetTestHint(entry)) != nullptr;
 }
@@ -1108,7 +1117,7 @@ bool PopulateTestContent(
   if (IsEntryId(entry, "microphone")) {
     return AddMicrophoneContent(content);
   }
-  if (IsEntryId(entry, "imu") || IsEntryId(entry, "power")) {
+  if (IsEntryId(entry, "imu") || IsEntryId(entry, "battery")) {
     return AddDiagnosticsContent(content, state, entry);
   }
   return AddPlainDataContent(content, entry);

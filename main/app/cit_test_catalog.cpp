@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-10 23:28:36
+ * @LastEditTime: 2026-05-12 20:58:06
  * @License: GPL 3.0
  */
 #include "app/cit_test_catalog.h"
@@ -12,32 +12,32 @@ namespace {
 
 constexpr CitTestEntry kCitTestEntries[] = {
     {.id = "version",
-        .name = "version information test",
+        .name = "Version Info Test",
         .status = CitTestStatus::kPending},
-    {.id = "touch", .name = "touch test", .status = CitTestStatus::kPending},
+    {.id = "touch", .name = "Touch Test", .status = CitTestStatus::kPending},
     {.id = "screen",
-        .name = "screen color test",
+        .name = "Screen Color Test",
         .status = CitTestStatus::kPending},
     {.id = "vibration",
-        .name = "vibration test",
+        .name = "Vibration Test",
         .status = CitTestStatus::kPending},
     {.id = "speaker",
-        .name = "speaker test",
+        .name = "Speaker Test",
         .status = CitTestStatus::kPending},
     {.id = "microphone",
-        .name = "microphone test",
+        .name = "Microphone Test",
         .status = CitTestStatus::kPending},
-    {.id = "imu", .name = "imu test", .status = CitTestStatus::kPending},
-    {.id = "power",
-        .name = "battery health test",
+    {.id = "imu", .name = "IMU Test", .status = CitTestStatus::kPending},
+    {.id = "battery",
+        .name = "Battery Health Test",
         .status = CitTestStatus::kPending},
-    {.id = "gps", .name = "gps test", .status = CitTestStatus::kPending},
+    {.id = "gps", .name = "GPS Test", .status = CitTestStatus::kPending},
     {.id = "ethernet",
-        .name = "ethernet test",
+        .name = "Ethernet Test",
         .status = CitTestStatus::kPending},
-    {.id = "rtc", .name = "rtc test", .status = CitTestStatus::kPending},
-    {.id = "esp32c6",
-        .name = "esp32c6 at test",
+    {.id = "rtc", .name = "RTC Test", .status = CitTestStatus::kPending},
+    {.id = "wifi",
+        .name = "WIFI Get Time Test",
         .status = CitTestStatus::kPending},
 };
 
