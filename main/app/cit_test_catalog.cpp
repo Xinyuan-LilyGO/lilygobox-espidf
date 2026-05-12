@@ -14,10 +14,10 @@ constexpr CitTestEntry kCitTestEntries[] = {
     {.id = "version",
         .name = "version information test",
         .status = CitTestStatus::kPending},
-    {.id = "touch", .name = "touch test", .status = CitTestStatus::kWaiting},
+    {.id = "touch", .name = "touch test", .status = CitTestStatus::kPending},
     {.id = "screen",
         .name = "screen color test",
-        .status = CitTestStatus::kReady},
+        .status = CitTestStatus::kPending},
     {.id = "vibration",
         .name = "vibration test",
         .status = CitTestStatus::kPending},
@@ -61,6 +61,8 @@ const char* GetCitTestStatusText(CitTestStatus status) {
       return "Ready";
     case CitTestStatus::kWaiting:
       return "Waiting";
+    case CitTestStatus::kFailed:
+      return "Failed";
     case CitTestStatus::kPending:
       return "Pending";
   }

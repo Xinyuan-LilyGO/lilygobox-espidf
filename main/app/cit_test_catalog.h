@@ -16,6 +16,7 @@ constexpr size_t kMaxCitTestEntryCount = 16;
 enum class CitTestStatus {
   kReady,
   kWaiting,
+  kFailed,
   kPending,
 };
 

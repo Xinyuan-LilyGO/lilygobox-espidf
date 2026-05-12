@@ -12,6 +12,7 @@
 #include <cstring>
 
 #include "app/app_catalog.h"
+#include "ui/app_view_gesture_flags.h"
 #include "ui/app_view_factory.h"
 #include "ui/font/font_assets.h"
 #include "ui/font/material_symbols_assets.h"
@@ -526,6 +527,22 @@ void UiManager::GestureEventCallback(lv_event_t* event) {
 
   const lv_dir_t direction = lv_indev_get_gesture_dir(indev);
   if (direction != LV_DIR_LEFT && direction != LV_DIR_RIGHT) {
+    return;
+  }
+
+  if (lv_obj_has_flag(
+          self->active_view_container_, kBlockLauncherGestureFlag)) {
+    lv_event_stop_bubbling(event);
+    lv_event_stop_processing(event);
+    return;
+  }
+
+  if (lv_obj_has_flag(
+          self->active_view_container_, kSuppressNextLauncherGestureFlag)) {
+    lv_obj_remove_flag(
+        self->active_view_container_, kSuppressNextLauncherGestureFlag);
+    lv_event_stop_bubbling(event);
+    lv_event_stop_processing(event);
     return;
   }
 

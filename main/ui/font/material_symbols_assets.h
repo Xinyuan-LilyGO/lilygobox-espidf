@@ -22,6 +22,7 @@ inline constexpr char kBatteryAndroid6[] = "\xEF\x8C\x87";
 inline constexpr char kBatteryAndroidFull[] = "\xEF\x8C\x84";
 inline constexpr char kBluetooth[] = "\xEE\x86\xA7";
 inline constexpr char kCamera[] = "\xEE\x90\x92";
+inline constexpr char kCancel[] = "\xEE\xA2\x88";
 inline constexpr char kCellTower[] = "\xEE\xAE\xBA";
 inline constexpr char kCheckCircle[] = "\xEE\xA1\xAC";
 inline constexpr char kFile[] = "\xEE\x99\xAD";
