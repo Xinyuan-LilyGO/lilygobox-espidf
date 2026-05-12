@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-12 21:20:00
+ * @LastEditTime: 2026-05-12 23:01:06
  * @License: GPL 3.0
  */
 #pragma once
@@ -18,7 +18,6 @@
 
 namespace lilygo_box::ui {
 
-// Creates the first local UI surface shown after device startup.
 class UiManager final {
  public:
   UiManager() = default;

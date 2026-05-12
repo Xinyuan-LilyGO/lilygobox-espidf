@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-10 23:46:34
+ * @LastEditTime: 2026-05-12 23:00:02
  * @License: GPL 3.0
  */
 #pragma once
@@ -13,7 +13,7 @@ namespace lilygo_box::hal {
 
 class DeviceDiagnosticsProvider;
 
-// Logical touch coordinate in screen pixels.
+// 屏幕像素坐标系中的逻辑触摸点
 struct TouchPoint {
   int16_t x = 0;
   int16_t y = 0;
@@ -21,13 +21,12 @@ struct TouchPoint {
 
 using ScreenFlushReadyCallback = void (*)(void* context);
 
-// Callback payload kept by the concrete screen implementation.
+// 具体屏幕实现保存的 flush 完成回调信息
 struct ScreenFlushReadyHandler {
   ScreenFlushReadyCallback callback = nullptr;
   void* context = nullptr;
 };
 
-// Hardware-neutral screen contract used by the application and LVGL port.
 class ScreenDevice {
  public:
   virtual ~ScreenDevice() = default;

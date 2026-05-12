@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-10 23:29:15
+ * @LastEditTime: 2026-05-12 22:55:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -44,7 +44,14 @@ enum class LogLevel {
   kError,
 };
 
-// Writes a formatted LilygoBox log line without depending on ESP-IDF logging.
+/**
+ * @brief 写入 LilygoBox 格式化日志
+ * @param level 日志等级
+ * @param file_name 源文件名
+ * @param line_number 源文件行号
+ * @param format 格式化字符串
+ * @Date 2026-05-12 22:55:00
+ */
 void LogMessage(LogLevel level, const char* file_name, size_t line_number,
     const char* format, ...);
 

@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-10 23:51:34
+ * @LastEditTime: 2026-05-12 22:59:35
  * @License: GPL 3.0
  */
 #pragma once
@@ -17,7 +17,6 @@
 
 namespace lilygo_box::hal {
 
-// Bridges LVGL rendering and input callbacks to a ScreenDevice.
 class LvglPort final {
  public:
   LvglPort() = default;

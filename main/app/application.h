@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-10 23:51:34
+ * @LastEditTime: 2026-05-12 23:05:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -15,8 +15,6 @@
 
 namespace lilygo_box {
 
-// Owns the top-level startup sequence for the selected device, LVGL port, and
-// initial UI. Platform-specific details stay behind the HAL objects.
 class Application final {
  public:
   Application();

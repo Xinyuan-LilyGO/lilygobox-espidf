@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-10 13:27:05
+ * @LastEditTime: 2026-05-12 22:55:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -13,7 +13,14 @@
 
 namespace lilygo_box::ui {
 
-// Creates the active page for one launcher entry.
+/**
+ * @brief 创建 launcher app 对应的活动页面
+ * @param parent 父对象
+ * @param app_entry launcher app 入口
+ * @param config app 页面配置
+ * @return 创建成功返回页面对象指针，否则返回 nullptr
+ * @Date 2026-05-12 22:55:00
+ */
 lv_obj_t* CreateAppView(lv_obj_t* parent, const app::AppEntry& app_entry,
     const AppViewConfig& config);
 
