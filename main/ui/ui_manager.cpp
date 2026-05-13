@@ -685,11 +685,23 @@ struct UiManager::AppOpenTransitionState {
   lv_obj_t* cover = nullptr;
 };
 
-bool UiManager::Init(hal::ScreenDevice* screen) {
+bool UiManager::Init(hal::ScreenProvider* screen,
+    hal::DeviceDiagnosticsProvider* diagnostics,
+    hal::GpsProvider* gps,
+    hal::AudioProvider* audio,
+    hal::HapticProvider* haptic,
+    hal::BmuProvider* bmu,
+    hal::ImuProvider* imu) {
   if (screen == nullptr) {
     return false;
   }
   screen_ = screen;
+  diagnostics_provider_ = diagnostics;
+  gps_provider_ = gps;
+  audio_provider_ = audio;
+  haptic_provider_ = haptic;
+  bmu_provider_ = bmu;
+  imu_provider_ = imu;
 
   root_screen_ = lv_obj_create(nullptr);
   if (root_screen_ == nullptr) {
@@ -1418,7 +1430,12 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   config.width = screen_->width();
   config.height = screen_->height();
   config.screen = screen_;
-  config.diagnostics = screen_->diagnostics_provider();
+  config.diagnostics = diagnostics_provider_;
+  config.gps = gps_provider_;
+  config.audio = audio_provider_;
+  config.haptic = haptic_provider_;
+  config.bmu = bmu_provider_;
+  config.imu = imu_provider_;
   config.back_callback = BackButtonEventCallback;
   config.back_context = this;
 

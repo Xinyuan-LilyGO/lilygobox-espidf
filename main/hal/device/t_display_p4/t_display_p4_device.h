@@ -10,14 +10,24 @@
 #include <atomic>
 #include <cstddef>
 
+#include "hal/audio_provider.h"
+#include "hal/bmu_provider.h"
 #include "hal/device_diagnostics.h"
-#include "hal/screen_device.h"
+#include "hal/gps_provider.h"
+#include "hal/haptic_provider.h"
+#include "hal/imu_provider.h"
+#include "hal/screen_provider.h"
 #include "t_display_p4_driver.h"
 
 namespace lilygo_box::hal {
 
-class TDisplayP4Device final : public ScreenDevice,
-                               public DeviceDiagnosticsProvider {
+class TDisplayP4Device final : public ScreenProvider,
+                               public DeviceDiagnosticsProvider,
+                               public GpsProvider,
+                               public ImuProvider,
+                               public AudioProvider,
+                               public HapticProvider,
+                               public BmuProvider {
  public:
   TDisplayP4Device();
 
@@ -57,56 +67,49 @@ class TDisplayP4Device final : public ScreenDevice,
   int bits_per_pixel() const override { return SCREEN_BITS_PER_PIXEL; }
 
   /**
-   * @brief 获取设备诊断提供者
-   * @return 设备诊断提供者指针
-   * @Date 2026-05-10 13:01:03
-   */
-  DeviceDiagnosticsProvider* diagnostics_provider() override { return this; }
-
-  /**
-   * @brief 播放 AW86224 RAM 振动测试波形
+   * @brief 播放 AW86224 RAM 振动波形
    * @param waveform_count 实际播放的 RAM 波形数量输出地址
    * @return 播放成功返回 true，否则返回 false
    * @Date 2026-05-13 18:20:00
    */
-  bool PlayVibrationTest(uint8_t* waveform_count) override;
+  bool PlayHapticWaveform(uint8_t* waveform_count) override;
 
   /**
-   * @brief 播放 ES8311 扬声器测试音频
+   * @brief 播放 ES8311 扬声器音频提示
    * @param bytes_written 实际写入 I2S 的字节数输出地址
    * @return 播放成功返回 true，否则返回 false
    * @Date 2026-05-13 16:55:00
    */
-  bool PlaySpeakerTest(size_t* bytes_written) override;
+  bool PlaySpeakerTone(size_t* bytes_written) override;
 
   /**
-   * @brief 创建后台任务播放 ES8311 扬声器测试音频
+   * @brief 创建后台任务播放 ES8311 扬声器音频
    * @return 任务创建成功返回 true，否则返回 false
    * @Date 2026-05-13 21:00:00
    */
-  bool StartSpeakerTest() override;
+  bool StartSpeakerTone() override;
 
   /**
-   * @brief 读取 ES8311 扬声器测试播放状态
+   * @brief 读取 ES8311 扬声器播放状态
    * @param status 播放状态输出地址
    * @return 读取成功返回 true，否则返回 false
    * @Date 2026-05-13 21:00:00
    */
-  bool ReadSpeakerTestStatus(SpeakerTestPlaybackStatus* status) override;
+  bool ReadSpeakerToneStatus(SpeakerPlaybackStatus* status) override;
 
   /**
-   * @brief 创建后台任务读取 ES8311 麦克风测试数据
+   * @brief 创建后台任务读取 ES8311 麦克风采样数据
    * @return 任务创建成功返回 true，否则返回 false
    * @Date 2026-05-13 21:20:00
    */
-  bool StartMicrophoneTest() override;
+  bool StartMicrophone() override;
 
   /**
-   * @brief 停止 ES8311 麦克风测试并关闭 ADC 到 DAC 直通
+   * @brief 停止 ES8311 麦克风采样并关闭 ADC 到 DAC 直通
    * @return 停止命令发送成功返回 true，否则返回 false
    * @Date 2026-05-13 21:20:00
    */
-  bool StopMicrophoneTest() override;
+  bool StopMicrophone() override;
 
   /**
    * @brief 设置 ES8311 麦克风 ADC 数据是否直通到 DAC
@@ -114,29 +117,29 @@ class TDisplayP4Device final : public ScreenDevice,
    * @return 设置成功返回 true，否则返回 false
    * @Date 2026-05-13 21:20:00
    */
-  bool SetMicrophoneAdcToDac(bool enable) override;
+  bool SetAdcToDac(bool enable) override;
 
   /**
-   * @brief 读取 ES8311 麦克风测试状态
-   * @param status 麦克风测试状态输出地址
+   * @brief 读取 ES8311 麦克风状态
+   * @param status 麦克风状态输出地址
    * @return 读取成功返回 true，否则返回 false
    * @Date 2026-05-13 21:20:00
    */
-  bool ReadMicrophoneTestStatus(MicrophoneTestStatus* status) override;
+  bool ReadMicrophoneStatus(MicrophoneStatus* status) override;
 
   /**
    * @brief 启动 L76K GPS 测试并唤醒模块
    * @return 启动成功返回 true，否则返回 false
    * @Date 2026-05-13 23:20:00
    */
-  bool StartGpsTest() override;
+  bool StartGps() override;
 
   /**
    * @brief 停止 L76K GPS 测试并让模块进入睡眠
    * @return 停止成功返回 true，否则返回 false
    * @Date 2026-05-13 23:20:00
    */
-  bool StopGpsTest() override;
+  bool StopGps() override;
 
   /**
    * @brief 读取 L76K GPS 测试状态和最新 RMC 解析数据
@@ -144,7 +147,7 @@ class TDisplayP4Device final : public ScreenDevice,
    * @return 读取成功返回 true，否则返回 false
    * @Date 2026-05-13 23:20:00
    */
-  bool ReadGpsTestStatus(GpsTestStatus* status) override;
+  bool ReadGpsStatus(GpsStatus* status) override;
 
   /**
    * @brief 注册屏幕 flush 完成回调
@@ -154,7 +157,8 @@ class TDisplayP4Device final : public ScreenDevice,
    * @Date 2026-05-10 13:01:03
    */
   bool RegisterFlushReadyCallback(
-      ScreenFlushReadyCallback callback, void* callback_context) override;
+      ScreenProviderFlushReadyCallback callback,
+      void* callback_context) override;
 
   /**
    * @brief 写入指定屏幕区域的像素数据
@@ -197,6 +201,22 @@ class TDisplayP4Device final : public ScreenDevice,
   bool ReadDiagnostics(DeviceDiagnostics* diagnostics) override;
 
   /**
+   * @brief 读取 BMU 电池管理状态
+   * @param status BMU 状态输出地址
+   * @return 读取到有效 BMU 状态返回 true，否则返回 false
+   * @Date 2026-05-14 00:20:00
+   */
+  bool ReadBmuStatus(BmuStatus* status) override;
+
+  /**
+   * @brief 读取 ICM20948 IMU 运动状态
+   * @param status IMU 状态输出地址
+   * @return 读取到有效 IMU 状态返回 true，否则返回 false
+   * @Date 2026-05-14 00:20:00
+   */
+  bool ReadImuStatus(ImuStatus* status) override;
+
+  /**
    * @brief 启动屏幕背光
    * @return
    * @Date 2026-05-10 13:01:03
@@ -236,22 +256,22 @@ class TDisplayP4Device final : public ScreenDevice,
   bool IsGpsReady() const;
 
   /**
-   * @brief 扬声器测试播放任务入口
+   * @brief 扬声器播放任务入口
    * @param context 设备对象指针
    * @return
    * @Date 2026-05-13 21:00:00
    */
-  static void SpeakerTestTaskEntry(void* context);
+  static void SpeakerToneTaskEntry(void* context);
 
   /**
-   * @brief 执行后台扬声器测试播放
+   * @brief 执行后台扬声器播放
    * @return
    * @Date 2026-05-13 21:00:00
    */
-  void RunSpeakerTestTask();
+  void RunSpeakerToneTask();
 
   /**
-   * @brief 麦克风测试读取任务入口
+   * @brief 麦克风采样读取任务入口
    * @param context 设备对象指针
    * @return
    * @Date 2026-05-13 21:20:00
@@ -259,38 +279,38 @@ class TDisplayP4Device final : public ScreenDevice,
   static void MicrophoneTestTaskEntry(void* context);
 
   /**
-   * @brief 执行后台麦克风测试读取
+   * @brief 执行后台麦克风采样读取
    * @return
    * @Date 2026-05-13 21:20:00
    */
   void RunMicrophoneTestTask();
 
   lilygo_device_driver::TDisplayP4Driver& driver_;
-  ScreenFlushReadyHandler flush_ready_handler_;
-  // 扬声器测试任务是否正在播放
+  ScreenProviderFlushReadyHandler flush_ready_handler_;
+  // 扬声器任务是否正在播放
   std::atomic<bool> speaker_test_running_{false};
-  // 扬声器测试任务是否已经完成过一次
+  // 扬声器任务是否已经完成过一次
   std::atomic<bool> speaker_test_completed_{false};
-  // 扬声器测试最近一次播放是否成功
+  // 扬声器最近一次播放是否成功
   std::atomic<bool> speaker_test_success_{false};
-  // 扬声器测试最近一次写入的字节数
+  // 扬声器最近一次写入的字节数
   std::atomic<size_t> speaker_test_bytes_written_{0};
-  // 扬声器测试音频总字节数
+  // 扬声器音频总字节数
   std::atomic<size_t> speaker_test_total_bytes_{0};
-  // 麦克风测试任务是否正在读取
+  // 麦克风采样任务是否正在读取
   std::atomic<bool> microphone_test_running_{false};
-  // 麦克风测试任务是否请求停止
+  // 麦克风采样任务是否请求停止
   std::atomic<bool> microphone_test_stop_requested_{false};
   // 麦克风 ADC 数据是否直通到 DAC
   std::atomic<bool> microphone_adc_to_dac_enabled_{false};
-  // 麦克风测试当前音量百分比
+  // 麦克风当前音量百分比
   std::atomic<int> microphone_level_percent_{0};
-  // 麦克风测试当前峰值采样
+  // 麦克风当前峰值采样
   std::atomic<int> microphone_peak_sample_{0};
-  // 麦克风测试累计读取字节数
+  // 麦克风累计读取字节数
   std::atomic<size_t> microphone_bytes_read_{0};
-  bool gps_test_running_ = false;
-  GpsTestStatus gps_test_status_;
+  bool gps_running_ = false;
+  GpsStatus gps_status_;
 };
 
 }  // namespace lilygo_box::hal

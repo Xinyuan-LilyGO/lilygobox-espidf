@@ -11,7 +11,7 @@
 #include <cstdint>
 
 #include "freertos/FreeRTOS.h"
-#include "hal/screen_device.h"
+#include "hal/screen_provider.h"
 #include "lvgl.h"
 #include "sys/lock.h"
 
@@ -27,7 +27,7 @@ class LvglPort final {
    * @return 初始化成功返回 true，否则返回 false
    * @Date 2026-05-10 13:01:03
    */
-  bool Init(ScreenDevice* screen);
+  bool Init(ScreenProvider* screen);
 
   /**
    * @brief 启动 LVGL 任务
@@ -128,7 +128,7 @@ class LvglPort final {
    */
   void TaskLoop();
 
-  ScreenDevice* screen_ = nullptr;
+  ScreenProvider* screen_ = nullptr;
   lv_display_t* lvgl_display_ = nullptr;
   lv_indev_t* input_device_ = nullptr;
   _lock_t lock_ = nullptr;

@@ -17,7 +17,7 @@
 
 namespace lilygo_box::hal {
 
-bool LvglPort::Init(ScreenDevice* screen) {
+bool LvglPort::Init(ScreenProvider* screen) {
   if (screen == nullptr) {
     return false;
   }
@@ -54,7 +54,7 @@ bool LvglPort::Init(ScreenDevice* screen) {
 
   if (!screen_->RegisterFlushReadyCallback(FlushReadyCallback, this)) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "ScreenDevice::RegisterFlushReadyCallback failed\n");
+        "ScreenProvider::RegisterFlushReadyCallback failed\n");
     return false;
   }
 
@@ -104,7 +104,7 @@ void LvglPort::FlushCallback(
       area->x1, area->y1, area->x2 + 1, area->y2 + 1, pixel_map);
   if (!result) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "ScreenDevice::WritePixels failed\n");
+        "ScreenProvider::WritePixels failed\n");
     lv_display_flush_ready(lvgl_display);
   }
 }

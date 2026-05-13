@@ -65,7 +65,7 @@ bool TDisplayP4Device::Init() {
 }
 
 bool TDisplayP4Device::RegisterFlushReadyCallback(
-    ScreenFlushReadyCallback callback, void* callback_context) {
+    ScreenProviderFlushReadyCallback callback, void* callback_context) {
   if (!IsScreenReady()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Screen is not ready for flush callback registration\n");
@@ -79,7 +79,8 @@ bool TDisplayP4Device::RegisterFlushReadyCallback(
       .on_color_trans_done =
           [](esp_lcd_panel_handle_t, esp_lcd_dpi_panel_event_data_t*,
               void* user_context) -> bool {
-        auto* handler = static_cast<ScreenFlushReadyHandler*>(user_context);
+        auto* handler =
+            static_cast<ScreenProviderFlushReadyHandler*>(user_context);
         if (handler != nullptr && handler->callback != nullptr) {
           handler->callback(handler->context);
         }
@@ -226,7 +227,7 @@ bool TDisplayP4Device::ReadTouchPoints(
   return false;
 }
 
-bool TDisplayP4Device::PlayVibrationTest(uint8_t* waveform_count) {
+bool TDisplayP4Device::PlayHapticWaveform(uint8_t* waveform_count) {
   if (waveform_count != nullptr) {
     *waveform_count = 0;
   }
@@ -279,7 +280,7 @@ bool TDisplayP4Device::PlayVibrationTest(uint8_t* waveform_count) {
   return true;
 }
 
-bool TDisplayP4Device::PlaySpeakerTest(size_t* bytes_written) {
+bool TDisplayP4Device::PlaySpeakerTone(size_t* bytes_written) {
   if (bytes_written != nullptr) {
     *bytes_written = 0;
   }
@@ -330,7 +331,7 @@ bool TDisplayP4Device::PlaySpeakerTest(size_t* bytes_written) {
   return true;
 }
 
-bool TDisplayP4Device::StartSpeakerTest() {
+bool TDisplayP4Device::StartSpeakerTone() {
   bool expected = false;
   if (!speaker_test_running_.compare_exchange_strong(expected, true)) {
     return false;
@@ -341,7 +342,7 @@ bool TDisplayP4Device::StartSpeakerTest() {
   speaker_test_bytes_written_.store(0);
   speaker_test_total_bytes_.store(sizeof(c2_b16_s44100));
 
-  const BaseType_t result = xTaskCreate(SpeakerTestTaskEntry,
+  const BaseType_t result = xTaskCreate(SpeakerToneTaskEntry,
       "cit_speaker", kSpeakerTestTaskStackBytes, this,
       kSpeakerTestTaskPriority, nullptr);
   if (result != pdPASS) {
@@ -353,8 +354,8 @@ bool TDisplayP4Device::StartSpeakerTest() {
   return true;
 }
 
-bool TDisplayP4Device::ReadSpeakerTestStatus(
-    SpeakerTestPlaybackStatus* status) {
+bool TDisplayP4Device::ReadSpeakerToneStatus(
+    SpeakerPlaybackStatus* status) {
   if (status == nullptr) {
     return false;
   }
@@ -367,24 +368,24 @@ bool TDisplayP4Device::ReadSpeakerTestStatus(
   return true;
 }
 
-void TDisplayP4Device::SpeakerTestTaskEntry(void* context) {
+void TDisplayP4Device::SpeakerToneTaskEntry(void* context) {
   auto* self = static_cast<TDisplayP4Device*>(context);
   if (self != nullptr) {
-    self->RunSpeakerTestTask();
+    self->RunSpeakerToneTask();
   }
   vTaskDelete(nullptr);
 }
 
-void TDisplayP4Device::RunSpeakerTestTask() {
+void TDisplayP4Device::RunSpeakerToneTask() {
   size_t bytes_written = 0;
-  const bool played = PlaySpeakerTest(&bytes_written);
+  const bool played = PlaySpeakerTone(&bytes_written);
   speaker_test_bytes_written_.store(bytes_written);
   speaker_test_success_.store(played);
   speaker_test_completed_.store(true);
   speaker_test_running_.store(false);
 }
 
-bool TDisplayP4Device::StartMicrophoneTest() {
+bool TDisplayP4Device::StartMicrophone() {
   if (!driver_.status().es8311.init_flag && !driver_.InitEs8311()) {
     LogMessage(
         LogLevel::kWarning, __FILE__, __LINE__, "Es8311 init retry failed\n");
@@ -400,7 +401,7 @@ bool TDisplayP4Device::StartMicrophoneTest() {
   microphone_level_percent_.store(0);
   microphone_peak_sample_.store(0);
   microphone_bytes_read_.store(0);
-  if (!SetMicrophoneAdcToDac(false)) {
+  if (!SetAdcToDac(false)) {
     microphone_test_running_.store(false);
     return false;
   }
@@ -417,7 +418,7 @@ bool TDisplayP4Device::StartMicrophoneTest() {
   return true;
 }
 
-bool TDisplayP4Device::StopMicrophoneTest() {
+bool TDisplayP4Device::StopMicrophone() {
   microphone_test_stop_requested_.store(true);
   microphone_level_percent_.store(0);
   microphone_peak_sample_.store(0);
@@ -425,10 +426,10 @@ bool TDisplayP4Device::StopMicrophoneTest() {
     microphone_adc_to_dac_enabled_.store(false);
     return true;
   }
-  return SetMicrophoneAdcToDac(false);
+  return SetAdcToDac(false);
 }
 
-bool TDisplayP4Device::SetMicrophoneAdcToDac(bool enable) {
+bool TDisplayP4Device::SetAdcToDac(bool enable) {
   if (!driver_.status().es8311.init_flag) {
     return false;
   }
@@ -443,8 +444,8 @@ bool TDisplayP4Device::SetMicrophoneAdcToDac(bool enable) {
   return true;
 }
 
-bool TDisplayP4Device::ReadMicrophoneTestStatus(
-    MicrophoneTestStatus* status) {
+bool TDisplayP4Device::ReadMicrophoneStatus(
+    MicrophoneStatus* status) {
   if (status == nullptr) {
     return false;
   }
@@ -457,7 +458,7 @@ bool TDisplayP4Device::ReadMicrophoneTestStatus(
   return true;
 }
 
-bool TDisplayP4Device::StartGpsTest() {
+bool TDisplayP4Device::StartGps() {
   if (!IsGpsReady() && !driver_.InitL76k()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "TDisplayP4Driver::InitL76k failed\n");
@@ -469,25 +470,25 @@ bool TDisplayP4Device::StartGpsTest() {
     return false;
   }
 
-  gps_test_status_ = GpsTestStatus();
-  gps_test_running_ = true;
-  gps_test_status_.running = true;
+  gps_status_ = GpsStatus();
+  gps_running_ = true;
+  gps_status_.running = true;
 
   bool result = driver_.chip().l76k->ClearRxBufferData();
   result &= driver_.chip().l76k->Sleep(false);
   if (!result) {
-    gps_test_running_ = false;
-    gps_test_status_.running = false;
+    gps_running_ = false;
+    gps_status_.running = false;
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "TDisplayP4Device::StartGpsTest failed\n");
+        "TDisplayP4Device::StartGps failed\n");
     return false;
   }
   return true;
 }
 
-bool TDisplayP4Device::StopGpsTest() {
-  gps_test_running_ = false;
-  gps_test_status_.running = false;
+bool TDisplayP4Device::StopGps() {
+  gps_running_ = false;
+  gps_status_.running = false;
   if (!IsGpsReady()) {
     return true;
   }
@@ -495,19 +496,19 @@ bool TDisplayP4Device::StopGpsTest() {
   const bool result = driver_.chip().l76k->Sleep(true);
   if (!result) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "TDisplayP4Device::StopGpsTest failed\n");
+        "TDisplayP4Device::StopGps failed\n");
   }
   return result;
 }
 
-bool TDisplayP4Device::ReadGpsTestStatus(GpsTestStatus* status) {
+bool TDisplayP4Device::ReadGpsStatus(GpsStatus* status) {
   if (status == nullptr) {
     return false;
   }
 
-  gps_test_status_.running = gps_test_running_;
-  *status = gps_test_status_;
-  if (!gps_test_running_) {
+  gps_status_.running = gps_running_;
+  *status = gps_status_;
+  if (!gps_running_) {
     return true;
   }
   if (!IsGpsReady()) {
@@ -537,7 +538,7 @@ bool TDisplayP4Device::ReadGpsTestStatus(GpsTestStatus* status) {
       std::min(static_cast<size_t>(read_length), buffer_length);
   buffer[data_length] = '\0';
 
-  GpsTestStatus next_status = gps_test_status_;
+  GpsStatus next_status = gps_status_;
   next_status.running = true;
   next_status.data_ready = true;
   next_status.bytes_read = data_length;
@@ -593,8 +594,8 @@ bool TDisplayP4Device::ReadGpsTestStatus(GpsTestStatus* status) {
         (next_status.latitude.ready && next_status.longitude.ready);
   }
 
-  gps_test_status_ = next_status;
-  *status = gps_test_status_;
+  gps_status_ = next_status;
+  *status = gps_status_;
   return true;
 }
 
@@ -659,58 +660,77 @@ bool TDisplayP4Device::ReadDiagnostics(DeviceDiagnostics* diagnostics) {
   }
 
   *diagnostics = DeviceDiagnostics();
-  bool result = false;
+  const bool bmu_result = ReadBmuStatus(&diagnostics->bmu);
+  const bool imu_result = ReadImuStatus(&diagnostics->imu);
+  return bmu_result || imu_result;
+}
+
+bool TDisplayP4Device::ReadBmuStatus(BmuStatus* status) {
+  if (status == nullptr) {
+    return false;
+  }
+
+  *status = BmuStatus();
 
   if (driver_.status().bq27220.init_flag && driver_.chip().bq27220 != nullptr) {
-    cpp_bus_driver::Bq27220::BatteryStatus battery_status;
-    const bool battery_status_ok =
-        driver_.chip().bq27220->GetBatteryStatus(battery_status);
+    cpp_bus_driver::Bq27220::BatteryStatus bmu_status_flags;
+    const bool bmu_status_ok =
+        driver_.chip().bq27220->GetBatteryStatus(bmu_status_flags);
     const uint16_t voltage_mv = driver_.chip().bq27220->GetVoltage();
     const int16_t current_ma = driver_.chip().bq27220->GetCurrent();
     const uint16_t charge_percent = driver_.chip().bq27220->GetStatusOfCharge();
 
     if (voltage_mv > 0 && voltage_mv != UINT16_MAX) {
-      diagnostics->power.ready = true;
-      diagnostics->power.voltage_mv = voltage_mv;
-      diagnostics->power.current_ma = current_ma;
-      diagnostics->power.average_current_ma =
+      status->ready = true;
+      status->voltage_mv = voltage_mv;
+      status->current_ma = current_ma;
+      status->average_current_ma =
           driver_.chip().bq27220->GetAverageCurrent();
-      diagnostics->power.average_power_mw =
+      status->average_bmu_mw =
           driver_.chip().bq27220->GetAveragePower();
-      diagnostics->power.charge_percent =
-          charge_percent == UINT16_MAX ? 0 : charge_percent;
-      diagnostics->power.health_percent =
-          driver_.chip().bq27220->GetStatusOfHealth();
-      diagnostics->power.design_capacity_mah =
+      status->charge_percent = charge_percent == UINT16_MAX ? 0
+                                                            : charge_percent;
+      status->health_percent = driver_.chip().bq27220->GetStatusOfHealth();
+      status->design_capacity_mah =
           driver_.chip().bq27220->GetDesignCapacity();
-      diagnostics->power.remaining_capacity_mah =
+      status->remaining_capacity_mah =
           driver_.chip().bq27220->GetRemainingCapacity();
-      diagnostics->power.full_charge_capacity_mah =
+      status->full_charge_capacity_mah =
           driver_.chip().bq27220->GetFullChargeCapacity();
-      diagnostics->power.time_to_empty_min =
+      status->time_to_empty_min =
           driver_.chip().bq27220->GetTimeToEmpty();
-      diagnostics->power.time_to_full_min =
+      status->time_to_full_min =
           driver_.chip().bq27220->GetTimeToFull();
-      diagnostics->power.cycle_count = driver_.chip().bq27220->GetCycleCount();
-      diagnostics->power.battery_temperature_c =
+      status->cycle_count = driver_.chip().bq27220->GetCycleCount();
+      status->pack_temperature_c =
           driver_.chip().bq27220->GetTemperatureCelsius();
-      diagnostics->power.gauge_temperature_c =
+      status->gauge_temperature_c =
           driver_.chip().bq27220->GetChipTemperatureCelsius();
-      diagnostics->power.battery_present =
-          battery_status_ok && battery_status.flag.battery_present;
-      diagnostics->power.discharging =
-          battery_status_ok ? battery_status.flag.discharging : current_ma > 0;
-      diagnostics->power.charging =
-          battery_status_ok ? (!battery_status.flag.discharging &&
+      status->pack_present =
+          bmu_status_ok && bmu_status_flags.flag.battery_present;
+      status->discharging =
+          bmu_status_ok ? bmu_status_flags.flag.discharging : current_ma > 0;
+      status->charging =
+          bmu_status_ok ? (!bmu_status_flags.flag.discharging &&
                                   current_ma < 0)
                             : current_ma < 0;
-      diagnostics->power.full_charged =
-          battery_status_ok && battery_status.flag.full_charged;
-      diagnostics->power.full_discharged =
-          battery_status_ok && battery_status.flag.full_discharged;
-      result = true;
+      status->full_charged = bmu_status_ok &&
+                             bmu_status_flags.flag.full_charged;
+      status->full_discharged =
+          bmu_status_ok && bmu_status_flags.flag.full_discharged;
+      return true;
     }
   }
+
+  return false;
+}
+
+bool TDisplayP4Device::ReadImuStatus(ImuStatus* status) {
+  if (status == nullptr) {
+    return false;
+  }
+
+  *status = ImuStatus();
 
   if (driver_.status().icm20948.init_flag &&
       driver_.chip().icm20948 != nullptr) {
@@ -718,14 +738,14 @@ bool TDisplayP4Device::ReadDiagnostics(DeviceDiagnostics* diagnostics) {
     driver_.chip().icm20948->readSensor();
     driver_.chip().icm20948->getGValues(&acceleration);
 
-    diagnostics->motion.ready = true;
-    diagnostics->motion.acceleration_x_g = acceleration.x;
-    diagnostics->motion.acceleration_y_g = acceleration.y;
-    diagnostics->motion.acceleration_z_g = acceleration.z;
-    result = true;
+    status->ready = true;
+    status->acceleration_x_g = acceleration.x;
+    status->acceleration_y_g = acceleration.y;
+    status->acceleration_z_g = acceleration.z;
+    return true;
   }
 
-  return result;
+  return false;
 }
 
 void TDisplayP4Device::StartBacklight() {

@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-13 23:20:00
+ * @LastEditTime: 2026-05-14 00:04:59
  * @License: GPL 3.0
  */
 #include "ui/view/cit_view.h"
@@ -22,8 +22,13 @@
 #include "esp_heap_caps.h"
 #include "esp_mac.h"
 #include "esp_system.h"
+#include "hal/audio_provider.h"
+#include "hal/bmu_provider.h"
 #include "hal/device_diagnostics.h"
-#include "hal/screen_device.h"
+#include "hal/gps_provider.h"
+#include "hal/haptic_provider.h"
+#include "hal/imu_provider.h"
+#include "hal/screen_provider.h"
 #include "sdkconfig.h"
 #include "ui/app_view_gesture_flags.h"
 #include "ui/edge_back_gesture.h"
@@ -105,8 +110,13 @@ struct CitViewState {
   std::array<lv_obj_t*, kTouchDisplayPointCount> touch_point_markers = {};
   int width = 0;
   int height = 0;
-  hal::ScreenDevice* screen = nullptr;
+  hal::ScreenProvider* screen = nullptr;
   hal::DeviceDiagnosticsProvider* diagnostics_provider = nullptr;
+  hal::GpsProvider* gps = nullptr;
+  hal::AudioProvider* audio = nullptr;
+  hal::HapticProvider* haptic = nullptr;
+  hal::BmuProvider* bmu = nullptr;
+  hal::ImuProvider* imu = nullptr;
   hal::DeviceDiagnostics diagnostics;
   int diagnostics_elapsed_ms = kDiagnosticsRefreshPeriodMs;
   bool diagnostics_read = false;
@@ -290,17 +300,17 @@ void RestoreCitListGestures(CitViewState* state) {
  * @Date 2026-05-13 21:20:00
  */
 void StopActiveTestHardware(CitViewState* state) {
-  if (state == nullptr || state->screen == nullptr ||
-      state->current_test_index >= state->row_count) {
+  if (state == nullptr || state->current_test_index >= state->row_count) {
     return;
   }
 
   const app::CitTestEntry* entry = state->rows[state->current_test_index].entry;
-  if (entry != nullptr && IsEntryId(*entry, "microphone")) {
-    state->screen->StopMicrophoneTest();
+  if (entry != nullptr && IsEntryId(*entry, "microphone") &&
+      state->audio != nullptr) {
+    state->audio->StopMicrophone();
   }
-  if (entry != nullptr && IsEntryId(*entry, "gps")) {
-    state->screen->StopGpsTest();
+  if (entry != nullptr && IsEntryId(*entry, "gps") && state->gps != nullptr) {
+    state->gps->StopGps();
   }
 }
 
@@ -524,8 +534,8 @@ const char* TestTitle(const app::CitTestEntry& entry) {
   if (IsEntryId(entry, "imu")) {
     return "IMU Test";
   }
-  if (IsEntryId(entry, "battery")) {
-    return "Battery Health Test";
+  if (IsEntryId(entry, "bmu")) {
+    return "BMU Test";
   }
   if (IsEntryId(entry, "gps")) {
     return "GPS Test";
@@ -607,8 +617,8 @@ void AlignStatusLabels(lv_obj_t* icon_label, lv_obj_t* name_label) {
   lv_obj_set_width(icon_label, kRowIconWidth);
   lv_obj_set_style_text_align(icon_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_align(icon_label, LV_ALIGN_LEFT_MID, kListHorizontalPadding, 0);
-  lv_obj_align(name_label, LV_ALIGN_LEFT_MID,
-      kListHorizontalPadding + kRowIconWidth, 0);
+  lv_obj_align(
+      name_label, LV_ALIGN_LEFT_MID, kListHorizontalPadding + kRowIconWidth, 0);
 }
 
 /**
@@ -654,8 +664,8 @@ void AppendFormatted(
 
   va_list args;
   va_start(args, format);
-  const int written = std::vsnprintf(text + *used, text_size - *used, format,
-      args);
+  const int written =
+      std::vsnprintf(text + *used, text_size - *used, format, args);
   va_end(args);
 
   if (written <= 0) {
@@ -722,9 +732,8 @@ void RefreshTouchTestData(CitViewState* state) {
 
   std::array<hal::TouchPoint, kTouchDisplayPointCount> points = {};
   size_t point_count = 0;
-  if (state->screen != nullptr &&
-      state->screen->ReadTouchPoints(
-          points.data(), points.size(), &point_count)) {
+  if (state->screen != nullptr && state->screen->ReadTouchPoints(points.data(),
+                                      points.size(), &point_count)) {
     state->touch_was_seen = point_count > 0;
   }
 
@@ -746,8 +755,7 @@ void RefreshTouchTestData(CitViewState* state) {
           static_cast<unsigned>(points[i].pressure));
     } else {
       AppendFormatted(text, sizeof(text), &used,
-          "P%02u id:-- x:---- y:---- p:---\n",
-          static_cast<unsigned>(i + 1));
+          "P%02u id:-- x:---- y:---- p:---\n", static_cast<unsigned>(i + 1));
     }
   }
 
@@ -765,11 +773,11 @@ void RefreshSpeakerTestData(CitViewState* state) {
     return;
   }
 
-  hal::SpeakerTestPlaybackStatus status;
-  if (state->screen == nullptr ||
-      !state->screen->ReadSpeakerTestStatus(&status)) {
-    lv_label_set_text(state->test_data_label,
-        "speaker data:\nstatus: unsupported");
+  hal::SpeakerPlaybackStatus status;
+  if (state->audio == nullptr ||
+      !state->audio->ReadSpeakerToneStatus(&status)) {
+    lv_label_set_text(
+        state->test_data_label, "speaker data:\nstatus: unsupported");
     return;
   }
 
@@ -802,11 +810,10 @@ void RefreshMicrophoneTestData(CitViewState* state) {
     return;
   }
 
-  hal::MicrophoneTestStatus status;
-  if (state->screen == nullptr ||
-      !state->screen->ReadMicrophoneTestStatus(&status)) {
-    lv_label_set_text(state->test_data_label,
-        "microphone data:\nstatus: unsupported");
+  hal::MicrophoneStatus status;
+  if (state->audio == nullptr || !state->audio->ReadMicrophoneStatus(&status)) {
+    lv_label_set_text(
+        state->test_data_label, "microphone data:\nstatus: unsupported");
     return;
   }
 
@@ -845,8 +852,8 @@ void RefreshGpsTestData(CitViewState* state) {
     return;
   }
 
-  hal::GpsTestStatus status;
-  if (state->screen == nullptr || !state->screen->ReadGpsTestStatus(&status)) {
+  hal::GpsStatus status;
+  if (state->gps == nullptr || !state->gps->ReadGpsStatus(&status)) {
     lv_label_set_text(state->test_data_label, "GPS data:\nstatus: read failed");
     return;
   }
@@ -870,15 +877,12 @@ void RefreshGpsTestData(CitViewState* state) {
   char text[1024] = {};
   size_t used = 0;
   AppendFormatted(text, sizeof(text), &used,
-      "GPS data:\nstatus: %s\n%s: %d s\nread bytes: %u\n",
-      status_text,
-      state->gps_positioned ? "location found time"
-                            : "getting location time",
+      "GPS data:\nstatus: %s\n%s: %d s\nread bytes: %u\n", status_text,
+      state->gps_positioned ? "location found time" : "getting location time",
       (state->gps_elapsed_ms + 999) / 1000,
       static_cast<unsigned int>(status.bytes_read));
   AppendFormatted(text, sizeof(text), &used, "location status: %s\n\n",
-      status.location_status[0] == '\0' ? "unknown"
-                                        : status.location_status);
+      status.location_status[0] == '\0' ? "unknown" : status.location_status);
 
   if (status.utc.ready) {
     AppendFormatted(text, sizeof(text), &used, "utc: %02u:%02u:%05.2f\n",
@@ -931,7 +935,7 @@ void RefreshGpsTestData(CitViewState* state) {
  * @Date 2026-05-13 09:55:00
  */
 void RefreshDiagnosticsState(CitViewState* state) {
-  if (state == nullptr || state->diagnostics_provider == nullptr) {
+  if (state == nullptr) {
     return;
   }
   if (state->diagnostics_elapsed_ms < kDiagnosticsRefreshPeriodMs) {
@@ -939,8 +943,17 @@ void RefreshDiagnosticsState(CitViewState* state) {
     return;
   }
 
-  const bool result =
-      state->diagnostics_provider->ReadDiagnostics(&state->diagnostics);
+  state->diagnostics = hal::DeviceDiagnostics();
+  bool result = false;
+  if (state->bmu != nullptr) {
+    result |= state->bmu->ReadBmuStatus(&state->diagnostics.bmu);
+  }
+  if (state->imu != nullptr) {
+    result |= state->imu->ReadImuStatus(&state->diagnostics.imu);
+  }
+  if (!result && state->diagnostics_provider != nullptr) {
+    result = state->diagnostics_provider->ReadDiagnostics(&state->diagnostics);
+  }
   state->diagnostics_read = result;
   state->diagnostics_elapsed_ms = 0;
 }
@@ -1043,23 +1056,23 @@ void RefreshActiveTestData(CitViewState* state) {
   }
 
   if (IsEntryId(*entry, "imu")) {
-    const hal::MotionDiagnostics& motion = state->diagnostics.motion;
+    const hal::ImuStatus& imu = state->diagnostics.imu;
     std::snprintf(text, sizeof(text),
         "imu data:\nready: %s\nx: %.2f g\ny: %.2f g\nz: %.2f g",
-        motion.ready ? "yes" : "no", motion.acceleration_x_g,
-        motion.acceleration_y_g, motion.acceleration_z_g);
+        imu.ready ? "yes" : "no", imu.acceleration_x_g, imu.acceleration_y_g,
+        imu.acceleration_z_g);
     lv_label_set_text(state->test_data_label, text);
     return;
   }
 
-  if (IsEntryId(*entry, "power")) {
-    const hal::PowerDiagnostics& power = state->diagnostics.power;
+  if (IsEntryId(*entry, "bmu")) {
+    const hal::BmuStatus& bmu = state->diagnostics.bmu;
     std::snprintf(text, sizeof(text),
-        "battery health data:\nready: %s\nbattery: %s\ncharging: %s\n"
+        "BMU data:\nready: %s\npack: %s\ncharging: %s\n"
         "discharging: %s\nfull: %s\nempty: %s\n"
         "\n"
         "voltage: %d mV\ncurrent: %d mA\naverage current: %d mA\n"
-        "average power: %d mW\n"
+        "average BMU: %d mW\n"
         "\n"
         "charge: %d%%\nhealth: %d%%\ncycle count: %d\n"
         "capacity:\n"
@@ -1072,18 +1085,17 @@ void RefreshActiveTestData(CitViewState* state) {
         "     full: %d min\n"
         "\n"
         "temperature:\n"
-        "     battery: %.2f C\n"
+        "     pack: %.2f C\n"
         "     gauge: %.2f C",
-        power.ready ? "yes" : "no", power.battery_present ? "present" : "none",
-        power.charging ? "yes" : "no", power.discharging ? "yes" : "no",
-        power.full_charged ? "yes" : "no",
-        power.full_discharged ? "yes" : "no", power.voltage_mv,
-        power.current_ma, power.average_current_ma, power.average_power_mw,
-        power.charge_percent, power.health_percent, power.cycle_count,
-        power.remaining_capacity_mah, power.full_charge_capacity_mah,
-        power.design_capacity_mah, power.time_to_empty_min,
-        power.time_to_full_min, power.battery_temperature_c,
-        power.gauge_temperature_c);
+        bmu.ready ? "yes" : "no", bmu.pack_present ? "present" : "none",
+        bmu.charging ? "yes" : "no", bmu.discharging ? "yes" : "no",
+        bmu.full_charged ? "yes" : "no", bmu.full_discharged ? "yes" : "no",
+        bmu.voltage_mv, bmu.current_ma, bmu.average_current_ma,
+        bmu.average_bmu_mw, bmu.charge_percent, bmu.health_percent,
+        bmu.cycle_count, bmu.remaining_capacity_mah,
+        bmu.full_charge_capacity_mah, bmu.design_capacity_mah,
+        bmu.time_to_empty_min, bmu.time_to_full_min, bmu.pack_temperature_c,
+        bmu.gauge_temperature_c);
     lv_label_set_text(state->test_data_label, text);
   }
 }
@@ -1482,8 +1494,10 @@ void AddTouchTraceEventCallbacks(lv_obj_t* object, CitViewState* state) {
 
   lv_obj_add_flag(object, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(object, TouchTraceEventCallback, LV_EVENT_PRESSED, state);
-  lv_obj_add_event_cb(object, TouchTraceEventCallback, LV_EVENT_PRESSING, state);
-  lv_obj_add_event_cb(object, TouchTraceEventCallback, LV_EVENT_RELEASED, state);
+  lv_obj_add_event_cb(
+      object, TouchTraceEventCallback, LV_EVENT_PRESSING, state);
+  lv_obj_add_event_cb(
+      object, TouchTraceEventCallback, LV_EVENT_RELEASED, state);
   lv_obj_add_event_cb(
       object, TouchTraceEventCallback, LV_EVENT_PRESS_LOST, state);
 }
@@ -1618,8 +1632,8 @@ void GenericStartButtonEventCallback(lv_event_t* event) {
     lv_refr_now(nullptr);
 
     uint8_t waveform_count = 0;
-    const bool played = state->screen != nullptr &&
-                        state->screen->PlayVibrationTest(&waveform_count);
+    const bool played = state->haptic != nullptr &&
+                        state->haptic->PlayHapticWaveform(&waveform_count);
     char text[160] = {};
     std::snprintf(text, sizeof(text),
         "vibration data:\n"
@@ -1633,18 +1647,17 @@ void GenericStartButtonEventCallback(lv_event_t* event) {
     return;
   }
   if (IsEntryId(*entry, "speaker")) {
-    if (state->screen != nullptr && state->screen->StartSpeakerTest()) {
+    if (state->audio != nullptr && state->audio->StartSpeakerTone()) {
       RefreshSpeakerTestData(state);
       return;
     }
 
-    hal::SpeakerTestPlaybackStatus status;
-    const bool status_read = state->screen != nullptr &&
-                             state->screen->ReadSpeakerTestStatus(&status);
+    hal::SpeakerPlaybackStatus status;
+    const bool status_read =
+        state->audio != nullptr && state->audio->ReadSpeakerToneStatus(&status);
     lv_label_set_text(state->test_data_label,
-        status_read && status.running
-            ? "speaker data:\nstatus: already playing"
-            : "speaker data:\nstatus: start failed");
+        status_read && status.running ? "speaker data:\nstatus: already playing"
+                                      : "speaker data:\nstatus: start failed");
   }
 }
 
@@ -1795,8 +1808,8 @@ const char* GetTestHint(const app::CitTestEntry& entry) {
   if (IsEntryId(entry, "imu")) {
     return "Move the device and confirm motion data is available.";
   }
-  if (IsEntryId(entry, "battery")) {
-    return "Confirm battery and power diagnostics.";
+  if (IsEntryId(entry, "bmu")) {
+    return "Confirm BMU diagnostics.";
   }
   if (IsEntryId(entry, "gps")) {
     return "Confirm GPS test requirements.";
@@ -1858,15 +1871,14 @@ bool CreateTouchPointMarkers(CitViewState* state) {
     lv_obj_set_style_bg_color(
         marker, lv_color_hex(kPassButtonColor), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(marker, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_color(
-        marker, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_border_color(marker, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_set_style_border_width(marker, 2, LV_PART_MAIN);
     lv_obj_set_style_shadow_width(marker, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(marker, 0, LV_PART_MAIN);
 
     char marker_text[4] = {};
-    std::snprintf(marker_text, sizeof(marker_text), "%u",
-        static_cast<unsigned>(i + 1));
+    std::snprintf(
+        marker_text, sizeof(marker_text), "%u", static_cast<unsigned>(i + 1));
     lv_obj_t* label =
         CreateLabel(marker, marker_text, lv_color_hex(0xFFFFFF), Font28());
     if (label == nullptr) {
@@ -2096,7 +2108,6 @@ bool AddVersionContent(lv_obj_t* content, CitViewState* state) {
       "screen type: %s\n"
       "screen size: %d x %d\n"
       "screen pixel format: %s\n"
-      "screen color depth: %d bpp\n"
       "\n"
       "[Camera]\n"
       "camera type: %s\n"
@@ -2118,7 +2129,7 @@ bool AddVersionContent(lv_obj_t* content, CitViewState* state) {
       ConfiguredDeviceName(), app_project_name, app_version, app_build_date,
       app_build_time, esp_get_idf_version(), ConfiguredTargetArch(),
       ConfiguredScreenType(), screen_width, screen_height,
-      ScreenPixelFormat(screen_bpp), screen_bpp, ConfiguredCameraType(),
+      ScreenPixelFormat(screen_bpp), ConfiguredCameraType(),
       ConfiguredCameraPixelFormat(), LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR,
       LVGL_VERSION_PATCH, LVGL_VERSION_INFO);
 
@@ -2242,8 +2253,7 @@ void MicrophoneAdcToDacSwitchEventCallback(lv_event_t* event) {
   }
 
   const bool enable = lv_obj_has_state(switch_object, LV_STATE_CHECKED);
-  if (state->screen == nullptr ||
-      !state->screen->SetMicrophoneAdcToDac(enable)) {
+  if (state->audio == nullptr || !state->audio->SetAdcToDac(enable)) {
     lv_obj_remove_state(switch_object, LV_STATE_CHECKED);
   }
   RefreshMicrophoneTestData(state);
@@ -2318,7 +2328,7 @@ bool AddMicrophoneContent(lv_obj_t* content, CitViewState* state) {
   lv_obj_add_event_cb(switch_object, MicrophoneAdcToDacSwitchEventCallback,
       LV_EVENT_VALUE_CHANGED, state);
 
-  if (state->screen == nullptr || !state->screen->StartMicrophoneTest()) {
+  if (state->audio == nullptr || !state->audio->StartMicrophone()) {
     lv_label_set_text(
         state->test_data_label, "microphone data:\nstatus: start failed");
     return true;
@@ -2340,8 +2350,8 @@ bool AddDiagnosticsContent(
   const char* initial_text = "diagnostics data:";
   if (IsEntryId(entry, "imu")) {
     initial_text = "imu data:";
-  } else if (IsEntryId(entry, "battery")) {
-    initial_text = "battery health data:";
+  } else if (IsEntryId(entry, "bmu")) {
+    initial_text = "BMU data:";
     lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(content, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_ACTIVE);
@@ -2378,7 +2388,7 @@ bool AddGpsContent(lv_obj_t* content, CitViewState* state) {
     return false;
   }
 
-  if (state->screen == nullptr || !state->screen->StartGpsTest()) {
+  if (state->gps == nullptr || !state->gps->StartGps()) {
     lv_label_set_text(
         state->test_data_label, "GPS data:\nstatus: start failed");
     return true;
@@ -2404,8 +2414,8 @@ bool AddPlainDataContent(lv_obj_t* content, const app::CitTestEntry& entry) {
            nullptr;
   }
   if (IsEntryId(entry, "wifi")) {
-    return CreateDataLabel(
-               content, "WIFI time data:\nwaiting for time data") != nullptr;
+    return CreateDataLabel(content, "WIFI time data:\nwaiting for time data") !=
+           nullptr;
   }
   return CreateDataLabel(content, GetTestHint(entry)) != nullptr;
 }
@@ -2442,7 +2452,7 @@ bool PopulateTestContent(
   if (IsEntryId(entry, "gps")) {
     return AddGpsContent(content, state);
   }
-  if (IsEntryId(entry, "imu") || IsEntryId(entry, "battery")) {
+  if (IsEntryId(entry, "imu") || IsEntryId(entry, "bmu")) {
     return AddDiagnosticsContent(content, state, entry);
   }
   return AddPlainDataContent(content, entry);
@@ -2661,11 +2671,9 @@ lv_obj_t* CreateStatusRow(
   lv_obj_align(pressed_background, LV_ALIGN_TOP_MID, 0, 0);
   lv_obj_set_style_bg_color(
       pressed_background, lv_color_hex(kRowPressedColor), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(
-      pressed_background, kRowPressedOpacity, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(pressed_background, kRowPressedOpacity, LV_PART_MAIN);
   lv_obj_set_style_border_width(pressed_background, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(
-      pressed_background, kRowPressedRadius, LV_PART_MAIN);
+  lv_obj_set_style_radius(pressed_background, kRowPressedRadius, LV_PART_MAIN);
   lv_obj_set_style_pad_all(pressed_background, 0, LV_PART_MAIN);
 
   const size_t row_index = state->row_count;
@@ -2693,8 +2701,8 @@ lv_obj_t* CreateStatusRow(
       .pressed_background = pressed_background,
       .index = row_index,
   };
-  lv_obj_add_event_cb(row, CitRowEventCallback, LV_EVENT_ALL,
-      &state->rows[state->row_count]);
+  lv_obj_add_event_cb(
+      row, CitRowEventCallback, LV_EVENT_ALL, &state->rows[state->row_count]);
   ++state->row_count;
   return row;
 }
@@ -2744,6 +2752,11 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
   }
   state->screen = config.screen;
   state->diagnostics_provider = config.diagnostics;
+  state->gps = config.gps;
+  state->audio = config.audio;
+  state->haptic = config.haptic;
+  state->bmu = config.bmu;
+  state->imu = config.imu;
   state->root = container;
   state->width = config.width;
   state->height = config.height;

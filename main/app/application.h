@@ -7,10 +7,8 @@
  */
 #pragma once
 
-#include <memory>
-
 #include "hal/lvgl_port.h"
-#include "hal/screen_device.h"
+#include "hal/device_provider_factory.h"
 #include "ui/ui_manager.h"
 
 namespace lilygo_box {
@@ -34,7 +32,7 @@ class Application final {
   void Run();
 
  private:
-  std::unique_ptr<hal::ScreenDevice> screen_device_;
+  hal::DeviceProviderContext device_provider_context_;
   hal::LvglPort lvgl_port_;
   ui::UiManager ui_manager_;
 };

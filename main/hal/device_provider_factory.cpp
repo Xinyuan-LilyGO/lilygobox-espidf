@@ -1,0 +1,35 @@
+/*
+ * @Description: None
+ * @Author: LILYGO_L
+ * @Date: 2026-05-10 13:27:05
+ * @LastEditTime: 2026-05-14 00:45:00
+ * @License: GPL 3.0
+ */
+#include "hal/device_provider_factory.h"
+
+#include "sdkconfig.h"
+
+#if defined(CONFIG_LILYGO_BOX_DEVICE_T_DISPLAY_P4)
+#include "hal/device/t_display_p4/t_display_p4_device.h"
+#endif
+
+namespace lilygo_box::hal {
+
+DeviceProviderContext CreateDeviceProviderContext() {
+#if defined(CONFIG_LILYGO_BOX_DEVICE_T_DISPLAY_P4)
+  auto device = std::make_unique<TDisplayP4Device>();
+  DeviceProviderContext context;
+  context.diagnostics = device.get();
+  context.gps = device.get();
+  context.imu = device.get();
+  context.audio = device.get();
+  context.haptic = device.get();
+  context.bmu = device.get();
+  context.screen = std::move(device);
+  return context;
+#else
+  return DeviceProviderContext();
+#endif
+}
+
+}  // namespace lilygo_box::hal

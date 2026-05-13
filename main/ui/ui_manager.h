@@ -12,9 +12,18 @@
 #include <cstdint>
 
 #include "app/app_catalog.h"
-#include "hal/screen_device.h"
+#include "hal/screen_provider.h"
 #include "lvgl.h"
 #include "ui/shell/status_bar.h"
+
+namespace lilygo_box::hal {
+class AudioProvider;
+class BmuProvider;
+class DeviceDiagnosticsProvider;
+class GpsProvider;
+class HapticProvider;
+class ImuProvider;
+}  // namespace lilygo_box::hal
 
 namespace lilygo_box::ui {
 
@@ -25,10 +34,22 @@ class UiManager final {
   /**
    * @brief 初始化 launcher 和根屏幕 UI
    * @param screen 屏幕设备对象
+   * @param diagnostics 设备诊断提供者指针
+   * @param gps GPS 提供者指针
+   * @param audio 音频提供者指针
+   * @param haptic 振动提供者指针
+   * @param bmu BMU 电池管理提供者指针
+   * @param imu IMU 提供者指针
    * @return 初始化成功返回 true，否则返回 false
    * @Date 2026-05-10 13:01:03
    */
-  bool Init(hal::ScreenDevice* screen);
+  bool Init(hal::ScreenProvider* screen,
+      hal::DeviceDiagnosticsProvider* diagnostics,
+      hal::GpsProvider* gps,
+      hal::AudioProvider* audio,
+      hal::HapticProvider* haptic,
+      hal::BmuProvider* bmu,
+      hal::ImuProvider* imu);
 
  private:
   struct AppButtonContext {
@@ -256,7 +277,13 @@ class UiManager final {
    */
   void ShowLauncher();
 
-  hal::ScreenDevice* screen_ = nullptr;
+  hal::ScreenProvider* screen_ = nullptr;
+  hal::DeviceDiagnosticsProvider* diagnostics_provider_ = nullptr;
+  hal::GpsProvider* gps_provider_ = nullptr;
+  hal::AudioProvider* audio_provider_ = nullptr;
+  hal::HapticProvider* haptic_provider_ = nullptr;
+  hal::BmuProvider* bmu_provider_ = nullptr;
+  hal::ImuProvider* imu_provider_ = nullptr;
   lv_obj_t* root_screen_ = nullptr;
   StatusBar status_bar_;
   lv_obj_t* launcher_container_ = nullptr;

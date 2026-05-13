@@ -42,7 +42,7 @@ class StatusBar final {
   lv_obj_t* object_ = nullptr;
   lv_obj_t* time_label_ = nullptr;
   lv_obj_t* wifi_label_ = nullptr;
-  lv_obj_t* battery_label_ = nullptr;
+  lv_obj_t* bmu_label_ = nullptr;
 };
 
 }  // namespace lilygo_box::ui

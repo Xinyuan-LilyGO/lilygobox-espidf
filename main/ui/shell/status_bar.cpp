@@ -116,15 +116,15 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
   }
   lv_obj_align(time_label_, LV_ALIGN_LEFT_MID, 0, 0);
 
-  battery_label_ =
+  bmu_label_ =
       CreateLabel(object_, icon::kBatteryAndroid3,
           lv_color_hex(kStatusBarTextColor), MaterialIconFont28());
-  if (battery_label_ == nullptr) {
+  if (bmu_label_ == nullptr) {
     lv_obj_delete(object_);
     object_ = nullptr;
     return false;
   }
-  lv_obj_align(battery_label_, LV_ALIGN_RIGHT_MID, 0, 0);
+  lv_obj_align(bmu_label_, LV_ALIGN_RIGHT_MID, 0, 0);
 
   wifi_label_ = CreateLabel(object_, icon::kWifi,
       lv_color_hex(kStatusBarTextColor), MaterialIconFont28());
@@ -134,7 +134,7 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
     return false;
   }
   lv_obj_align_to(
-      wifi_label_, battery_label_, LV_ALIGN_OUT_LEFT_MID, kStatusBarIconGap, 0);
+      wifi_label_, bmu_label_, LV_ALIGN_OUT_LEFT_MID, kStatusBarIconGap, 0);
   return true;
 }
 

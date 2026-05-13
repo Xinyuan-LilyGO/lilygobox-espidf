@@ -11,35 +11,39 @@
 #include "freertos/task.h"
 
 #include "base/logger.h"
-#include "hal/screen_device_factory.h"
+#include "hal/device_provider_factory.h"
 
 namespace lilygo_box {
 
 Application::Application()
-    : screen_device_(hal::CreateScreenDevice()) {}
+    : device_provider_context_(hal::CreateDeviceProviderContext()) {}
 
 bool Application::Init() {
-  if (screen_device_ == nullptr) {
+  hal::ScreenProvider* screen = device_provider_context_.screen.get();
+  if (screen == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-               "No screen device selected\n");
+               "No screen provider selected\n");
     return false;
   }
 
-  bool result = screen_device_->Init();
+  bool result = screen->Init();
   if (!result) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-               "ScreenDevice::Init failed\n");
+               "ScreenProvider::Init failed\n");
     return false;
   }
 
-  result = lvgl_port_.Init(screen_device_.get());
+  result = lvgl_port_.Init(screen);
   if (!result) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
                "LvglPort::Init failed\n");
     return false;
   }
 
-  result = ui_manager_.Init(screen_device_.get());
+  result = ui_manager_.Init(screen, device_provider_context_.diagnostics,
+      device_provider_context_.gps, device_provider_context_.audio,
+      device_provider_context_.haptic, device_provider_context_.bmu,
+      device_provider_context_.imu);
   if (!result) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
                "UiManager::Init failed\n");
@@ -52,10 +56,10 @@ bool Application::Init() {
                "LvglPort::Start failed\n");
     return false;
   }
-  screen_device_->StartBacklight();
+  screen->StartBacklight();
 
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-             "LilygoBox initialized on %s\n", screen_device_->name());
+             "LilygoBox initialized on %s\n", screen->name());
   return true;
 }
 
