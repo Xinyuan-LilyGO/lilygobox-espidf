@@ -22,15 +22,42 @@ constexpr int kViewTopPadding = 70;
 constexpr int kBackButtonWidth = 190;
 constexpr int kBackButtonHeight = 70;
 
+/**
+ * @brief 设置文本对象的颜色和字体
+ * @param object LVGL 对象
+ * @param color 文本颜色
+ * @param font 文本字体
+ * @return
+ * @Date 2026-05-13 09:55:00
+ */
 void SetTextStyle(lv_obj_t* object, lv_color_t color, const lv_font_t* font) {
   lv_obj_set_style_text_color(object, color, LV_PART_MAIN);
   lv_obj_set_style_text_font(object, font, LV_PART_MAIN);
 }
 
+/**
+ * @brief 获取 24 号 Google Sans 字体
+ * @return 字体指针
+ * @Date 2026-05-13 09:55:00
+ */
 const lv_font_t* Font24() { return &lvgl_font_google_sans_flex_24; }
 
+/**
+ * @brief 获取 48 号 Google Sans 字体
+ * @return 字体指针
+ * @Date 2026-05-13 09:55:00
+ */
 const lv_font_t* Font48() { return &lvgl_font_google_sans_flex_48; }
 
+/**
+ * @brief 创建文本标签
+ * @param parent 父对象
+ * @param text 显示文本
+ * @param color 文本颜色
+ * @param font 文本字体
+ * @return 创建成功返回对象指针，否则返回 nullptr
+ * @Date 2026-05-13 09:55:00
+ */
 lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color,
     const lv_font_t* font) {
   lv_obj_t* label = lv_label_create(parent);
@@ -43,6 +70,13 @@ lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color,
   return label;
 }
 
+/**
+ * @brief 创建占位应用视图的返回按钮
+ * @param parent 父对象
+ * @param config 应用视图配置
+ * @return 创建成功返回对象指针，否则返回 nullptr
+ * @Date 2026-05-13 09:55:00
+ */
 lv_obj_t* CreateBackButton(lv_obj_t* parent, const AppViewConfig& config) {
   lv_obj_t* button = lv_button_create(parent);
   if (button == nullptr) {
@@ -70,6 +104,13 @@ lv_obj_t* CreateBackButton(lv_obj_t* parent, const AppViewConfig& config) {
   return button;
 }
 
+/**
+ * @brief 判断应用 ID 是否匹配
+ * @param app_entry 应用条目
+ * @param id 目标 ID
+ * @return 匹配返回 true，否则返回 false
+ * @Date 2026-05-13 09:55:00
+ */
 bool IsAppId(const app::AppEntry& app_entry, const char* id) {
   if (app_entry.id == nullptr || id == nullptr) {
     return false;
@@ -77,6 +118,14 @@ bool IsAppId(const app::AppEntry& app_entry, const char* id) {
   return std::strcmp(app_entry.id, id) == 0;
 }
 
+/**
+ * @brief 创建尚未实现的占位应用视图
+ * @param parent 父对象
+ * @param app_entry 应用条目
+ * @param config 应用视图配置
+ * @return 创建成功返回对象指针，否则返回 nullptr
+ * @Date 2026-05-13 09:55:00
+ */
 lv_obj_t* CreatePlaceholderAppView(lv_obj_t* parent,
     const app::AppEntry& app_entry, const AppViewConfig& config) {
   lv_obj_t* container = lv_obj_create(parent);

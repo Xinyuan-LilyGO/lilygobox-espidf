@@ -22,15 +22,42 @@ constexpr int kStatusBarIconGap = -6;
 constexpr uint32_t kStatusBarBackgroundColor = 0x000000;
 constexpr uint32_t kStatusBarTextColor = 0xFFFFFF;
 
+/**
+ * @brief 设置文本对象的颜色和字体
+ * @param object LVGL 对象
+ * @param color 文本颜色
+ * @param font 文本字体
+ * @return
+ * @Date 2026-05-13 09:55:00
+ */
 void SetTextStyle(lv_obj_t* object, lv_color_t color, const lv_font_t* font) {
   lv_obj_set_style_text_color(object, color, LV_PART_MAIN);
   lv_obj_set_style_text_font(object, font, LV_PART_MAIN);
 }
 
+/**
+ * @brief 获取 24 号 Google Sans 字体
+ * @return 字体指针
+ * @Date 2026-05-13 09:55:00
+ */
 const lv_font_t* Font24() { return &lvgl_font_google_sans_flex_24; }
 
+/**
+ * @brief 获取 28 号 Material Symbols 字体
+ * @return 字体指针
+ * @Date 2026-05-13 09:55:00
+ */
 const lv_font_t* MaterialIconFont28() { return &lvgl_font_material_symbols_28; }
 
+/**
+ * @brief 创建状态栏文本标签
+ * @param parent 父对象
+ * @param text 显示文本
+ * @param color 文本颜色
+ * @param font 文本字体
+ * @return 创建成功返回对象指针，否则返回 nullptr
+ * @Date 2026-05-13 09:55:00
+ */
 lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color,
     const lv_font_t* font) {
   lv_obj_t* label = lv_label_create(parent);
@@ -43,6 +70,12 @@ lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color,
   return label;
 }
 
+/**
+ * @brief 清除对象背景、边框和内边距
+ * @param object LVGL 对象
+ * @return
+ * @Date 2026-05-13 09:55:00
+ */
 void MakeTransparent(lv_obj_t* object) {
   lv_obj_set_style_bg_opa(object, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_border_width(object, 0, LV_PART_MAIN);

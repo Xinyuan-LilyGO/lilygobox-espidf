@@ -8,6 +8,11 @@
 #include "app/application.h"
 #include "base/logger.h"
 
+/**
+ * @brief 应用入口，初始化并运行 LilygoBox 应用
+ * @return
+ * @Date 2026-05-13 09:55:00
+ */
 extern "C" void app_main() {
   lilygo_box::Application app;
   const bool result = app.Init();

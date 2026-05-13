@@ -100,6 +100,13 @@ constexpr DockIconEntry kDockIconEntries[] = {
             }},
 };
 
+/**
+ * @brief 判断两个 ID 字符串是否相同
+ * @param left 左侧 ID
+ * @param right 右侧 ID
+ * @return 相同返回 true，否则返回 false
+ * @Date 2026-05-13 09:55:00
+ */
 bool IsId(const char* left, const char* right) {
   if (left == nullptr || right == nullptr) {
     return false;
@@ -107,27 +114,77 @@ bool IsId(const char* left, const char* right) {
   return std::strcmp(left, right) == 0;
 }
 
+/**
+ * @brief 设置文本对象的颜色和字体
+ * @param object LVGL 对象
+ * @param color 文本颜色
+ * @param font 文本字体
+ * @return
+ * @Date 2026-05-13 09:55:00
+ */
 void SetTextStyle(lv_obj_t* object, lv_color_t color, const lv_font_t* font) {
   lv_obj_set_style_text_color(object, color, LV_PART_MAIN);
   lv_obj_set_style_text_font(object, font, LV_PART_MAIN);
 }
 
+/**
+ * @brief 获取 22 号 Google Sans 字体
+ * @return 字体指针
+ * @Date 2026-05-13 09:55:00
+ */
 const lv_font_t* Font22() { return &lvgl_font_google_sans_flex_22; }
 
+/**
+ * @brief 获取 24 号 Google Sans 字体
+ * @return 字体指针
+ * @Date 2026-05-13 09:55:00
+ */
 const lv_font_t* Font24() { return &lvgl_font_google_sans_flex_24; }
 
+/**
+ * @brief 获取 56 号 Material Symbols 字体
+ * @return 字体指针
+ * @Date 2026-05-13 09:55:00
+ */
 const lv_font_t* MaterialIconFont56() { return &lvgl_font_material_symbols_56; }
 
+/**
+ * @brief 获取桌面时间字体
+ * @return 字体指针
+ * @Date 2026-05-13 09:55:00
+ */
 const lv_font_t* HomeTimeFont() { return &lvgl_font_lineseedkr_rg_120; }
 
+/**
+ * @brief 获取桌面日期字体
+ * @return 字体指针
+ * @Date 2026-05-13 09:55:00
+ */
 const lv_font_t* HomeDateFont() { return &lvgl_font_lineseedkr_th_60; }
 
+/**
+ * @brief 计算应用图标单元格宽度
+ * @return 单元格宽度
+ * @Date 2026-05-13 09:55:00
+ */
 int IconCellWidth() { return kAppIconSize + kIconCellExtraWidth; }
 
+/**
+ * @brief 计算应用图标单元格高度
+ * @return 单元格高度
+ * @Date 2026-05-13 09:55:00
+ */
 int IconCellHeight() {
   return kIconPressedMargin + kAppIconSize + kIconLabelGap + kIconLabelHeight;
 }
 
+/**
+ * @brief 根据项目数量和列数计算行数
+ * @param item_count 项目数量
+ * @param columns 列数
+ * @return 行数
+ * @Date 2026-05-13 09:55:00
+ */
 int RowCount(size_t item_count, int columns) {
   if (item_count == 0) {
     return 0;
@@ -137,10 +194,26 @@ int RowCount(size_t item_count, int columns) {
   return (count + columns - 1) / columns;
 }
 
+/**
+ * @brief 根据屏幕尺寸计算边缘缩进
+ * @param screen_width 屏幕宽度
+ * @param screen_height 屏幕高度
+ * @return 边缘缩进
+ * @Date 2026-05-13 09:55:00
+ */
 int ScreenEdgeInset(int screen_width, int screen_height) {
   return std::max(8, std::min(screen_width, screen_height) / 25);
 }
 
+/**
+ * @brief 限制图标网格水平缩进不超过可用空间
+ * @param screen_width 屏幕宽度
+ * @param requested_inset 请求缩进
+ * @param columns 列数
+ * @param cell_width 单元格宽度
+ * @return 限制后的缩进
+ * @Date 2026-05-13 09:55:00
+ */
 int ClampInset(
     int screen_width, int requested_inset, int columns, int cell_width) {
   const int minimum_width = columns * cell_width;
@@ -151,6 +224,15 @@ int ClampInset(
   return std::min(requested_inset, (screen_width - minimum_width) / 2);
 }
 
+/**
+ * @brief 计算图标网格列间距
+ * @param screen_width 屏幕宽度
+ * @param inset_x 水平缩进
+ * @param columns 列数
+ * @param cell_width 单元格宽度
+ * @return 列间距
+ * @Date 2026-05-13 09:55:00
+ */
 int ColumnGap(int screen_width, int inset_x, int columns, int cell_width) {
   if (columns <= 1) {
     return 0;
@@ -160,13 +242,32 @@ int ColumnGap(int screen_width, int inset_x, int columns, int cell_width) {
   return std::max(0, (screen_width - used_width) / (columns - 1));
 }
 
+/**
+ * @brief 计算桌面应用网格顶部位置
+ * @param screen_height 屏幕高度
+ * @return 顶部 Y 坐标
+ * @Date 2026-05-13 09:55:00
+ */
 int HomeGridTop(int screen_height) { return screen_height * 35 / 100; }
 
+/**
+ * @brief 组合 LVGL 样式选择器
+ * @param part LVGL 部件
+ * @param state LVGL 状态
+ * @return 样式选择器
+ * @Date 2026-05-13 09:55:00
+ */
 constexpr lv_style_selector_t StyleSelector(lv_part_t part, lv_state_t state) {
   return static_cast<lv_style_selector_t>(part) |
          static_cast<lv_style_selector_t>(state);
 }
 
+/**
+ * @brief 清除对象背景、边框和内边距
+ * @param object LVGL 对象
+ * @return
+ * @Date 2026-05-13 09:55:00
+ */
 void MakeTransparent(lv_obj_t* object) {
   const lv_style_selector_t pressed_selector =
       StyleSelector(LV_PART_MAIN, LV_STATE_PRESSED);
@@ -179,6 +280,13 @@ void MakeTransparent(lv_obj_t* object) {
   lv_obj_set_style_pad_all(object, 0, pressed_selector);
 }
 
+/**
+ * @brief 设置图标外壳阴影样式
+ * @param object LVGL 对象
+ * @param opacity 阴影透明度
+ * @return
+ * @Date 2026-05-13 09:55:00
+ */
 void SetIconGlowStyle(lv_obj_t* object, lv_opa_t opacity) {
   lv_obj_set_style_shadow_width(object, kIconGlowWidth, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(
@@ -199,42 +307,107 @@ void SetIconGlowStyle(lv_obj_t* object, lv_opa_t opacity) {
       object, kIconPressedGlowOpacity, LV_STATE_PRESSED);
 }
 
+/**
+ * @brief 清除主题默认的按下变形效果
+ * @param object LVGL 对象
+ * @return
+ * @Date 2026-05-13 09:55:00
+ */
 void ClearThemePressedGrow(lv_obj_t* object) {
   lv_obj_set_style_transform_width(object, 0, LV_STATE_PRESSED);
   lv_obj_set_style_transform_height(object, 0, LV_STATE_PRESSED);
 }
 
+/**
+ * @brief 根据收缩值计算按下状态尺寸
+ * @param normal_size 正常尺寸
+ * @param shrink_size 收缩尺寸
+ * @return 按下状态尺寸
+ * @Date 2026-05-13 09:55:00
+ */
 int PressedSize(int normal_size, int shrink_size) {
   return normal_size - shrink_size;
 }
 
+/**
+ * @brief 计算尺寸变化后的中心偏移
+ * @param normal_size 正常尺寸
+ * @param pressed_size 按下状态尺寸
+ * @return 中心偏移
+ * @Date 2026-05-13 09:55:00
+ */
 int CenterOffset(int normal_size, int pressed_size) {
   return (normal_size - pressed_size) / 2;
 }
 
+/**
+ * @brief 设置图标按钮尺寸并保持视觉居中
+ * @param object LVGL 对象
+ * @param normal_size 正常尺寸
+ * @param size 目标尺寸
+ * @return
+ * @Date 2026-05-13 09:55:00
+ */
 void SetIconButtonSize(lv_obj_t* object, int normal_size, int size) {
   const int offset = CenterOffset(normal_size, size);
   lv_obj_set_size(object, size, size);
   lv_obj_align(object, LV_ALIGN_TOP_MID, 0, kIconPressedMargin + offset);
 }
 
+/**
+ * @brief 设置内部图像背景面的尺寸
+ * @param surface 内部图像背景面
+ * @param size 目标尺寸
+ * @return
+ * @Date 2026-05-13 09:55:00
+ */
 void SetInnerImageSurfaceSize(lv_obj_t* surface, int size) {
   lv_obj_set_size(surface, size, size);
   lv_obj_center(surface);
 }
 
+/**
+ * @brief 应用图标按钮尺寸动画回调
+ * @param object LVGL 对象
+ * @param size 目标尺寸
+ * @return
+ * @Date 2026-05-13 09:55:00
+ */
 void AppIconButtonSizeAnimCallback(void* object, int32_t size) {
   SetIconButtonSize(static_cast<lv_obj_t*>(object), kAppIconSize, size);
 }
 
+/**
+ * @brief Dock 图标按钮尺寸动画回调
+ * @param object LVGL 对象
+ * @param size 目标尺寸
+ * @return
+ * @Date 2026-05-13 09:55:00
+ */
 void DockIconButtonSizeAnimCallback(void* object, int32_t size) {
   SetIconButtonSize(static_cast<lv_obj_t*>(object), kDockIconSize, size);
 }
 
+/**
+ * @brief 内部图像背景面尺寸动画回调
+ * @param object LVGL 对象
+ * @param size 目标尺寸
+ * @return
+ * @Date 2026-05-13 09:55:00
+ */
 void InnerImageSurfaceSizeAnimCallback(void* object, int32_t size) {
   SetInnerImageSurfaceSize(static_cast<lv_obj_t*>(object), size);
 }
 
+/**
+ * @brief 启动尺寸动画
+ * @param object LVGL 对象
+ * @param target_size 目标尺寸
+ * @param callback 动画执行回调
+ * @param pressed 是否为按下状态
+ * @return
+ * @Date 2026-05-13 09:55:00
+ */
 void StartSizeAnimation(lv_obj_t* object, int target_size,
     lv_anim_exec_xcb_t callback, bool pressed) {
   const int current_size = lv_obj_get_width(object);
@@ -254,6 +427,14 @@ void StartSizeAnimation(lv_obj_t* object, int target_size,
   lv_anim_start(&animation);
 }
 
+/**
+ * @brief 根据按压事件刷新图标按下反馈
+ * @param event LVGL 事件
+ * @param normal_size 正常尺寸
+ * @param icon_callback 图标尺寸动画回调
+ * @return
+ * @Date 2026-05-13 09:55:00
+ */
 void UpdatePressedFeedback(
     lv_event_t* event, int normal_size, lv_anim_exec_xcb_t icon_callback) {
   const lv_event_code_t code = lv_event_get_code(event);
@@ -283,14 +464,33 @@ void UpdatePressedFeedback(
   }
 }
 
+/**
+ * @brief 应用图标按压事件回调
+ * @param event LVGL 事件
+ * @return
+ * @Date 2026-05-13 09:55:00
+ */
 void AppIconPressedEventCallback(lv_event_t* event) {
   UpdatePressedFeedback(event, kAppIconSize, AppIconButtonSizeAnimCallback);
 }
 
+/**
+ * @brief Dock 图标按压事件回调
+ * @param event LVGL 事件
+ * @return
+ * @Date 2026-05-13 09:55:00
+ */
 void DockIconPressedEventCallback(lv_event_t* event) {
   UpdatePressedFeedback(event, kDockIconSize, DockIconButtonSizeAnimCallback);
 }
 
+/**
+ * @brief 设置内部图像图标外壳样式
+ * @param object LVGL 对象
+ * @param style 图标样式
+ * @return
+ * @Date 2026-05-13 09:55:00
+ */
 void SetInnerImageShellStyle(lv_obj_t* object, const IconStyle& style) {
   lv_obj_set_style_radius(object, kIconRadius, LV_PART_MAIN);
   lv_obj_set_style_radius(object, kIconRadius, LV_STATE_PRESSED);
@@ -307,6 +507,13 @@ void SetInnerImageShellStyle(lv_obj_t* object, const IconStyle& style) {
   lv_obj_set_style_pad_all(object, 0, LV_STATE_PRESSED);
 }
 
+/**
+ * @brief 创建内部图像背景面
+ * @param parent 父对象
+ * @param color 背景颜色
+ * @return 创建成功返回对象指针，否则返回 nullptr
+ * @Date 2026-05-13 09:55:00
+ */
 lv_obj_t* CreateInnerImageSurface(lv_obj_t* parent, uint32_t color) {
   lv_obj_t* surface = lv_obj_create(parent);
   if (surface == nullptr) {
@@ -330,6 +537,14 @@ lv_obj_t* CreateInnerImageSurface(lv_obj_t* parent, uint32_t color) {
   return surface;
 }
 
+/**
+ * @brief 创建默认字体文本标签
+ * @param parent 父对象
+ * @param text 显示文本
+ * @param color 文本颜色
+ * @return 创建成功返回对象指针，否则返回 nullptr
+ * @Date 2026-05-13 09:55:00
+ */
 lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color) {
   lv_obj_t* label = lv_label_create(parent);
   if (label == nullptr) {
@@ -341,6 +556,12 @@ lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color) {
   return label;
 }
 
+/**
+ * @brief 根据应用条目获取图标样式
+ * @param app_entry 应用条目
+ * @return 图标样式
+ * @Date 2026-05-13 09:55:00
+ */
 IconStyle GetIconStyle(const app::AppEntry& app_entry) {
   if (IsId(app_entry.id, "cit")) {
     return {
@@ -389,6 +610,18 @@ IconStyle GetIconStyle(const app::AppEntry& app_entry) {
   };
 }
 
+/**
+ * @brief 创建圆形装饰对象
+ * @param parent 父对象
+ * @param size 圆形尺寸
+ * @param x X 偏移
+ * @param y Y 偏移
+ * @param align 对齐方式
+ * @param color 填充颜色
+ * @param opacity 透明度
+ * @return 创建成功返回对象指针，否则返回 nullptr
+ * @Date 2026-05-13 09:55:00
+ */
 lv_obj_t* CreateCircle(lv_obj_t* parent, int size, int x, int y,
     lv_align_t align, uint32_t color, lv_opa_t opacity) {
   lv_obj_t* circle = lv_obj_create(parent);
@@ -408,11 +641,29 @@ lv_obj_t* CreateCircle(lv_obj_t* parent, int size, int x, int y,
   return circle;
 }
 
+/**
+ * @brief 创建壁纸层级圆形对象
+ * @param parent 父对象
+ * @param size 圆形尺寸
+ * @param x X 偏移
+ * @param y Y 偏移
+ * @param align 对齐方式
+ * @param color 填充颜色
+ * @param opacity 透明度
+ * @return 创建成功返回对象指针，否则返回 nullptr
+ * @Date 2026-05-13 09:55:00
+ */
 lv_obj_t* CreateToneCircle(lv_obj_t* parent, int size, int x, int y,
     lv_align_t align, uint32_t color, lv_opa_t opacity) {
   return CreateCircle(parent, size, x, y, align, color, opacity);
 }
 
+/**
+ * @brief 创建桌面壁纸对象
+ * @param parent 父对象
+ * @return
+ * @Date 2026-05-13 09:55:00
+ */
 void CreateWallpaperObjects(lv_obj_t* parent) {
   CreateToneCircle(
       parent, 1120, 0, 70, LV_ALIGN_TOP_MID, 0xDCDCDC, LV_OPA_COVER);
