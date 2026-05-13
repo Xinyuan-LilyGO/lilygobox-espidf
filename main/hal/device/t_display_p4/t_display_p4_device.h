@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-12 22:59:30
+ * @LastEditTime: 2026-05-13 23:20:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -125,6 +125,28 @@ class TDisplayP4Device final : public ScreenDevice,
   bool ReadMicrophoneTestStatus(MicrophoneTestStatus* status) override;
 
   /**
+   * @brief 启动 L76K GPS 测试并唤醒模块
+   * @return 启动成功返回 true，否则返回 false
+   * @Date 2026-05-13 23:20:00
+   */
+  bool StartGpsTest() override;
+
+  /**
+   * @brief 停止 L76K GPS 测试并让模块进入睡眠
+   * @return 停止成功返回 true，否则返回 false
+   * @Date 2026-05-13 23:20:00
+   */
+  bool StopGpsTest() override;
+
+  /**
+   * @brief 读取 L76K GPS 测试状态和最新 RMC 解析数据
+   * @param status GPS 测试状态输出地址
+   * @return 读取成功返回 true，否则返回 false
+   * @Date 2026-05-13 23:20:00
+   */
+  bool ReadGpsTestStatus(GpsTestStatus* status) override;
+
+  /**
    * @brief 注册屏幕 flush 完成回调
    * @param callback flush 完成时调用的回调函数
    * @param callback_context 回调上下文
@@ -207,6 +229,13 @@ class TDisplayP4Device final : public ScreenDevice,
   bool IsTouchReady() const;
 
   /**
+   * @brief 判断 L76K GPS 模块是否已经初始化完成
+   * @return GPS 模块可用返回 true，否则返回 false
+   * @Date 2026-05-13 23:20:00
+   */
+  bool IsGpsReady() const;
+
+  /**
    * @brief 扬声器测试播放任务入口
    * @param context 设备对象指针
    * @return
@@ -260,6 +289,8 @@ class TDisplayP4Device final : public ScreenDevice,
   std::atomic<int> microphone_peak_sample_{0};
   // 麦克风测试累计读取字节数
   std::atomic<size_t> microphone_bytes_read_{0};
+  bool gps_test_running_ = false;
+  GpsTestStatus gps_test_status_;
 };
 
 }  // namespace lilygo_box::hal

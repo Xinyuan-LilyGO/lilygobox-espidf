@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-13 09:55:00
+ * @LastEditTime: 2026-05-13 23:20:00
  * @License: GPL 3.0
  */
 #include "hal/screen_device.h"
@@ -36,14 +36,22 @@ bool ScreenDevice::StartMicrophoneTest() { return false; }
 
 bool ScreenDevice::StopMicrophoneTest() { return false; }
 
-bool ScreenDevice::SetMicrophoneAdcToDac(bool enable) {
-  (void)enable;
-  return false;
-}
+bool ScreenDevice::SetMicrophoneAdcToDac(bool) { return false; }
 
 bool ScreenDevice::ReadMicrophoneTestStatus(MicrophoneTestStatus* status) {
   if (status != nullptr) {
     *status = MicrophoneTestStatus();
+  }
+  return false;
+}
+
+bool ScreenDevice::StartGpsTest() { return false; }
+
+bool ScreenDevice::StopGpsTest() { return false; }
+
+bool ScreenDevice::ReadGpsTestStatus(GpsTestStatus* status) {
+  if (status != nullptr) {
+    *status = GpsTestStatus();
   }
   return false;
 }

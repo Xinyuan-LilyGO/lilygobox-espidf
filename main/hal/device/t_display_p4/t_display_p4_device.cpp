@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-10 23:29:22
+ * @LastEditTime: 2026-05-13 23:20:00
  * @License: GPL 3.0
  */
 #include "hal/device/t_display_p4/t_display_p4_device.h"
@@ -10,7 +10,10 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdio>
 #include <cstdint>
+#include <memory>
+#include <new>
 
 #include "audio/new_notification_010_c2_b16_s44100.h"
 #include "base/logger.h"
@@ -38,6 +41,7 @@ constexpr uint32_t kMicrophoneReadDelayMs = 40;
 constexpr int kMicrophoneLevelFullScale = 1000;
 constexpr int kMicrophoneLevelRiseDivisor = 4;
 constexpr int kMicrophoneLevelFallDivisor = 8;
+constexpr size_t kGpsMaxReadBufferBytes = 4096;
 
 }  // namespace
 
@@ -453,6 +457,147 @@ bool TDisplayP4Device::ReadMicrophoneTestStatus(
   return true;
 }
 
+bool TDisplayP4Device::StartGpsTest() {
+  if (!IsGpsReady() && !driver_.InitL76k()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "TDisplayP4Driver::InitL76k failed\n");
+    return false;
+  }
+  if (!IsGpsReady()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "L76k is not ready for GPS test\n");
+    return false;
+  }
+
+  gps_test_status_ = GpsTestStatus();
+  gps_test_running_ = true;
+  gps_test_status_.running = true;
+
+  bool result = driver_.chip().l76k->ClearRxBufferData();
+  result &= driver_.chip().l76k->Sleep(false);
+  if (!result) {
+    gps_test_running_ = false;
+    gps_test_status_.running = false;
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "TDisplayP4Device::StartGpsTest failed\n");
+    return false;
+  }
+  return true;
+}
+
+bool TDisplayP4Device::StopGpsTest() {
+  gps_test_running_ = false;
+  gps_test_status_.running = false;
+  if (!IsGpsReady()) {
+    return true;
+  }
+
+  const bool result = driver_.chip().l76k->Sleep(true);
+  if (!result) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "TDisplayP4Device::StopGpsTest failed\n");
+  }
+  return result;
+}
+
+bool TDisplayP4Device::ReadGpsTestStatus(GpsTestStatus* status) {
+  if (status == nullptr) {
+    return false;
+  }
+
+  gps_test_status_.running = gps_test_running_;
+  *status = gps_test_status_;
+  if (!gps_test_running_) {
+    return true;
+  }
+  if (!IsGpsReady()) {
+    return false;
+  }
+
+  const size_t rx_buffer_length = driver_.chip().l76k->GetRxBufferLength();
+  if (rx_buffer_length == 0) {
+    return true;
+  }
+
+  const size_t buffer_length =
+      std::min(rx_buffer_length, kGpsMaxReadBufferBytes);
+  std::unique_ptr<uint8_t[]> buffer(
+      new (std::nothrow) uint8_t[buffer_length + 1]);
+  if (buffer == nullptr) {
+    return false;
+  }
+
+  const uint32_t read_length = driver_.chip().l76k->ReadData(
+      buffer.get(), static_cast<uint32_t>(buffer_length));
+  if (read_length == 0) {
+    return true;
+  }
+
+  const size_t data_length =
+      std::min(static_cast<size_t>(read_length), buffer_length);
+  buffer[data_length] = '\0';
+
+  GpsTestStatus next_status = gps_test_status_;
+  next_status.running = true;
+  next_status.data_ready = true;
+  next_status.bytes_read = data_length;
+
+  cpp_bus_driver::Gnss::Rmc rmc;
+  next_status.parse_success =
+      driver_.chip().l76k->ParseRmcInfo(buffer.get(), data_length, rmc);
+  if (next_status.parse_success) {
+    std::snprintf(next_status.location_status,
+        sizeof(next_status.location_status), "%s",
+        rmc.location_status.c_str());
+
+    if (rmc.utc.update_flag) {
+      next_status.utc.ready = true;
+      next_status.utc.hour = rmc.utc.hour;
+      next_status.utc.minute = rmc.utc.minute;
+      next_status.utc.second = rmc.utc.second;
+    }
+
+    if (rmc.data.update_flag) {
+      next_status.date.ready = true;
+      next_status.date.day = rmc.data.day;
+      next_status.date.month = rmc.data.month;
+      next_status.date.year = rmc.data.year;
+    }
+
+    if (rmc.location.lat.update_flag &&
+        rmc.location.lat.direction_update_flag) {
+      next_status.latitude.ready = true;
+      next_status.latitude.degrees = rmc.location.lat.degrees;
+      next_status.latitude.minutes = rmc.location.lat.minutes;
+      next_status.latitude.degrees_minutes =
+          rmc.location.lat.degrees_minutes;
+      std::snprintf(next_status.latitude.direction,
+          sizeof(next_status.latitude.direction), "%s",
+          rmc.location.lat.direction.c_str());
+    }
+
+    if (rmc.location.lon.update_flag &&
+        rmc.location.lon.direction_update_flag) {
+      next_status.longitude.ready = true;
+      next_status.longitude.degrees = rmc.location.lon.degrees;
+      next_status.longitude.minutes = rmc.location.lon.minutes;
+      next_status.longitude.degrees_minutes =
+          rmc.location.lon.degrees_minutes;
+      std::snprintf(next_status.longitude.direction,
+          sizeof(next_status.longitude.direction), "%s",
+          rmc.location.lon.direction.c_str());
+    }
+
+    next_status.positioned =
+        next_status.positioned ||
+        (next_status.latitude.ready && next_status.longitude.ready);
+  }
+
+  gps_test_status_ = next_status;
+  *status = gps_test_status_;
+  return true;
+}
+
 void TDisplayP4Device::MicrophoneTestTaskEntry(void* context) {
   auto* self = static_cast<TDisplayP4Device*>(context);
   if (self != nullptr) {
@@ -632,6 +777,10 @@ bool TDisplayP4Device::IsTouchReady() const {
   return driver_.status().gt9895.init_flag && driver_.chip().gt9895 != nullptr;
 #endif
   return false;
+}
+
+bool TDisplayP4Device::IsGpsReady() const {
+  return driver_.status().l76k.init_flag && driver_.chip().l76k != nullptr;
 }
 
 }  // namespace lilygo_box::hal

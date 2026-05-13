@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-13 09:55:00
+ * @LastEditTime: 2026-05-13 23:20:00
  * @License: GPL 3.0
  */
 #include "ui/view/cit_view.h"
@@ -116,6 +116,8 @@ struct CitViewState {
   size_t current_test_index = 0;
   size_t screen_color_index = 0;
   bool touch_was_seen = false;
+  int gps_elapsed_ms = 0;
+  bool gps_positioned = false;
   int microphone_display_level = 0;
   std::array<lv_point_precise_t, kTouchTraceMaxPointCount> touch_trace_points;
   size_t touch_trace_point_count = 0;
@@ -297,6 +299,9 @@ void StopActiveTestHardware(CitViewState* state) {
   if (entry != nullptr && IsEntryId(*entry, "microphone")) {
     state->screen->StopMicrophoneTest();
   }
+  if (entry != nullptr && IsEntryId(*entry, "gps")) {
+    state->screen->StopGpsTest();
+  }
 }
 
 /**
@@ -321,6 +326,8 @@ void ClearTestPageState(CitViewState* state) {
   state->microphone_adc_to_dac_switch = nullptr;
   state->touch_point_markers.fill(nullptr);
   state->touch_trace_point_count = 0;
+  state->gps_elapsed_ms = 0;
+  state->gps_positioned = false;
   state->microphone_display_level = 0;
   state->test_page_closing = false;
 }
@@ -828,6 +835,96 @@ void RefreshMicrophoneTestData(CitViewState* state) {
 }
 
 /**
+ * @brief 刷新 GPS 测试页面的 RMC 定位数据
+ * @param state CIT 页面状态
+ * @return
+ * @Date 2026-05-13 23:20:00
+ */
+void RefreshGpsTestData(CitViewState* state) {
+  if (state == nullptr || state->test_data_label == nullptr) {
+    return;
+  }
+
+  hal::GpsTestStatus status;
+  if (state->screen == nullptr || !state->screen->ReadGpsTestStatus(&status)) {
+    lv_label_set_text(state->test_data_label, "GPS data:\nstatus: read failed");
+    return;
+  }
+
+  if (status.running && !state->gps_positioned) {
+    state->gps_elapsed_ms += kCitRefreshPeriodMs;
+    if (status.positioned) {
+      state->gps_positioned = true;
+    }
+  }
+
+  const char* status_text = "waiting for module data";
+  if (!status.running) {
+    status_text = "stopped";
+  } else if (status.data_ready && status.parse_success) {
+    status_text = "RMC parsed";
+  } else if (status.data_ready) {
+    status_text = "waiting for valid RMC data";
+  }
+
+  char text[1024] = {};
+  size_t used = 0;
+  AppendFormatted(text, sizeof(text), &used,
+      "GPS data:\nstatus: %s\n%s: %d s\nread bytes: %u\n",
+      status_text,
+      state->gps_positioned ? "location found time"
+                            : "getting location time",
+      (state->gps_elapsed_ms + 999) / 1000,
+      static_cast<unsigned int>(status.bytes_read));
+  AppendFormatted(text, sizeof(text), &used, "location status: %s\n\n",
+      status.location_status[0] == '\0' ? "unknown"
+                                        : status.location_status);
+
+  if (status.utc.ready) {
+    AppendFormatted(text, sizeof(text), &used, "utc: %02u:%02u:%05.2f\n",
+        static_cast<unsigned int>(status.utc.hour),
+        static_cast<unsigned int>(status.utc.minute), status.utc.second);
+  } else {
+    AppendFormatted(text, sizeof(text), &used, "utc: unknown\n");
+  }
+
+  if (status.date.ready) {
+    AppendFormatted(text, sizeof(text), &used, "date: 20%02u-%02u-%02u\n",
+        static_cast<unsigned int>(status.date.year),
+        static_cast<unsigned int>(status.date.month),
+        static_cast<unsigned int>(status.date.day));
+  } else {
+    AppendFormatted(text, sizeof(text), &used, "date: unknown\n");
+  }
+
+  if (status.latitude.ready) {
+    AppendFormatted(text, sizeof(text), &used,
+        "\nlat degrees: %u\nlat minutes: %.6f\n"
+        "lat degrees_minutes: %.8f\nlat direction: %s\n",
+        static_cast<unsigned int>(status.latitude.degrees),
+        status.latitude.minutes, status.latitude.degrees_minutes,
+        status.latitude.direction[0] == '\0' ? "unknown"
+                                             : status.latitude.direction);
+  } else {
+    AppendFormatted(text, sizeof(text), &used, "\nlat: unknown\n");
+  }
+
+  if (status.longitude.ready) {
+    AppendFormatted(text, sizeof(text), &used,
+        "\nlon degrees: %u\nlon minutes: %.6f\n"
+        "lon degrees_minutes: %.8f\nlon direction: %s",
+        static_cast<unsigned int>(status.longitude.degrees),
+        status.longitude.minutes, status.longitude.degrees_minutes,
+        status.longitude.direction[0] == '\0' ? "unknown"
+                                              : status.longitude.direction);
+  } else {
+    AppendFormatted(text, sizeof(text), &used, "\nlon: unknown");
+  }
+
+  lv_label_set_text(state->test_data_label, text);
+}
+
+/**
  * @brief 按固定周期刷新诊断数据
  * @param state CIT 页面状态
  * @return
@@ -937,6 +1034,11 @@ void RefreshActiveTestData(CitViewState* state) {
 
   if (IsEntryId(*entry, "microphone")) {
     RefreshMicrophoneTestData(state);
+    return;
+  }
+
+  if (IsEntryId(*entry, "gps")) {
+    RefreshGpsTestData(state);
     return;
   }
 
@@ -2254,6 +2356,38 @@ bool AddDiagnosticsContent(
 }
 
 /**
+ * @brief 添加 GPS 测试内容并启动 L76K 读取
+ * @param content 内容容器
+ * @param state CIT 页面状态
+ * @return 成功返回 true，否则返回 false
+ * @Date 2026-05-13 23:20:00
+ */
+bool AddGpsContent(lv_obj_t* content, CitViewState* state) {
+  if (state == nullptr) {
+    return false;
+  }
+
+  lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(content, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_ACTIVE);
+
+  state->gps_elapsed_ms = 0;
+  state->gps_positioned = false;
+  state->test_data_label = CreateDataLabel(content, "GPS data:\nstatus: start");
+  if (state->test_data_label == nullptr) {
+    return false;
+  }
+
+  if (state->screen == nullptr || !state->screen->StartGpsTest()) {
+    lv_label_set_text(
+        state->test_data_label, "GPS data:\nstatus: start failed");
+    return true;
+  }
+  RefreshGpsTestData(state);
+  return true;
+}
+
+/**
  * @brief 添加普通数据展示类测试内容
  * @param content 内容容器
  * @param entry 测试项
@@ -2261,10 +2395,6 @@ bool AddDiagnosticsContent(
  * @Date 2026-05-13 09:55:00
  */
 bool AddPlainDataContent(lv_obj_t* content, const app::CitTestEntry& entry) {
-  if (IsEntryId(entry, "gps")) {
-    return CreateDataLabel(content, "GPS data:\nwaiting for module data") !=
-           nullptr;
-  }
   if (IsEntryId(entry, "ethernet")) {
     return CreateDataLabel(content, "Ethernet data:\nwaiting for link data") !=
            nullptr;
@@ -2308,6 +2438,9 @@ bool PopulateTestContent(
   }
   if (IsEntryId(entry, "microphone")) {
     return AddMicrophoneContent(content, state);
+  }
+  if (IsEntryId(entry, "gps")) {
+    return AddGpsContent(content, state);
   }
   if (IsEntryId(entry, "imu") || IsEntryId(entry, "battery")) {
     return AddDiagnosticsContent(content, state, entry);

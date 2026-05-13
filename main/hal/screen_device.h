@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-12 23:00:02
+ * @LastEditTime: 2026-05-13 23:20:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -46,6 +46,41 @@ struct MicrophoneTestStatus {
   int level_percent = 0;
   int peak_sample = 0;
   size_t bytes_read = 0;
+};
+
+struct GpsTime {
+  bool ready = false;
+  uint8_t hour = 0;
+  uint8_t minute = 0;
+  float second = 0.0F;
+};
+
+struct GpsDate {
+  bool ready = false;
+  uint8_t day = 0;
+  uint8_t month = 0;
+  uint8_t year = 0;
+};
+
+struct GpsCoordinate {
+  bool ready = false;
+  uint8_t degrees = 0;
+  float minutes = 0.0F;
+  double degrees_minutes = 0.0;
+  char direction[3] = {};
+};
+
+struct GpsTestStatus {
+  bool running = false;
+  bool data_ready = false;
+  bool parse_success = false;
+  bool positioned = false;
+  size_t bytes_read = 0;
+  char location_status[8] = {};
+  GpsTime utc;
+  GpsDate date;
+  GpsCoordinate latitude;
+  GpsCoordinate longitude;
 };
 
 class ScreenDevice {
@@ -154,6 +189,28 @@ class ScreenDevice {
    * @Date 2026-05-13 21:20:00
    */
   virtual bool ReadMicrophoneTestStatus(MicrophoneTestStatus* status);
+
+  /**
+   * @brief 启动 GPS 测试并唤醒定位模块
+   * @return 启动成功返回 true，否则返回 false
+   * @Date 2026-05-13 23:20:00
+   */
+  virtual bool StartGpsTest();
+
+  /**
+   * @brief 停止 GPS 测试并让定位模块进入睡眠
+   * @return 停止成功返回 true，否则返回 false
+   * @Date 2026-05-13 23:20:00
+   */
+  virtual bool StopGpsTest();
+
+  /**
+   * @brief 读取 GPS 测试状态和最新 RMC 解析数据
+   * @param status GPS 测试状态输出地址
+   * @return 读取成功返回 true，否则返回 false
+   * @Date 2026-05-13 23:20:00
+   */
+  virtual bool ReadGpsTestStatus(GpsTestStatus* status);
 
   /**
    * @brief 注册屏幕 flush 完成回调
