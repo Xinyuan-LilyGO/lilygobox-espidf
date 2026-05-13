@@ -32,6 +32,22 @@ bool ScreenDevice::ReadSpeakerTestStatus(SpeakerTestPlaybackStatus* status) {
   return false;
 }
 
+bool ScreenDevice::StartMicrophoneTest() { return false; }
+
+bool ScreenDevice::StopMicrophoneTest() { return false; }
+
+bool ScreenDevice::SetMicrophoneAdcToDac(bool enable) {
+  (void)enable;
+  return false;
+}
+
+bool ScreenDevice::ReadMicrophoneTestStatus(MicrophoneTestStatus* status) {
+  if (status != nullptr) {
+    *status = MicrophoneTestStatus();
+  }
+  return false;
+}
+
 bool ScreenDevice::ReadTouchPoints(
     TouchPoint* points, size_t max_points, size_t* point_count) {
   if (point_count != nullptr) {

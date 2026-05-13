@@ -39,6 +39,15 @@ struct SpeakerTestPlaybackStatus {
   size_t total_bytes = 0;
 };
 
+// 麦克风测试读取状态
+struct MicrophoneTestStatus {
+  bool running = false;
+  bool adc_to_dac_enabled = false;
+  int level_percent = 0;
+  int peak_sample = 0;
+  size_t bytes_read = 0;
+};
+
 class ScreenDevice {
  public:
   virtual ~ScreenDevice() = default;
@@ -115,6 +124,36 @@ class ScreenDevice {
    * @Date 2026-05-13 21:00:00
    */
   virtual bool ReadSpeakerTestStatus(SpeakerTestPlaybackStatus* status);
+
+  /**
+   * @brief 创建后台任务读取麦克风测试数据
+   * @return 任务创建成功返回 true，否则返回 false
+   * @Date 2026-05-13 21:20:00
+   */
+  virtual bool StartMicrophoneTest();
+
+  /**
+   * @brief 停止麦克风测试并关闭 ADC 到 DAC 直通
+   * @return 停止命令发送成功返回 true，否则返回 false
+   * @Date 2026-05-13 21:20:00
+   */
+  virtual bool StopMicrophoneTest();
+
+  /**
+   * @brief 设置麦克风 ADC 数据是否直通到 DAC
+   * @param enable true 表示打开直通，false 表示关闭直通
+   * @return 设置成功返回 true，否则返回 false
+   * @Date 2026-05-13 21:20:00
+   */
+  virtual bool SetMicrophoneAdcToDac(bool enable);
+
+  /**
+   * @brief 读取麦克风测试状态
+   * @param status 麦克风测试状态输出地址
+   * @return 读取成功返回 true，否则返回 false
+   * @Date 2026-05-13 21:20:00
+   */
+  virtual bool ReadMicrophoneTestStatus(MicrophoneTestStatus* status);
 
   /**
    * @brief 注册屏幕 flush 完成回调

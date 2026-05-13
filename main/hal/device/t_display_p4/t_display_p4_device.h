@@ -8,6 +8,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstddef>
 
 #include "hal/device_diagnostics.h"
 #include "hal/screen_device.h"
@@ -92,6 +93,36 @@ class TDisplayP4Device final : public ScreenDevice,
    * @Date 2026-05-13 21:00:00
    */
   bool ReadSpeakerTestStatus(SpeakerTestPlaybackStatus* status) override;
+
+  /**
+   * @brief 创建后台任务读取 ES8311 麦克风测试数据
+   * @return 任务创建成功返回 true，否则返回 false
+   * @Date 2026-05-13 21:20:00
+   */
+  bool StartMicrophoneTest() override;
+
+  /**
+   * @brief 停止 ES8311 麦克风测试并关闭 ADC 到 DAC 直通
+   * @return 停止命令发送成功返回 true，否则返回 false
+   * @Date 2026-05-13 21:20:00
+   */
+  bool StopMicrophoneTest() override;
+
+  /**
+   * @brief 设置 ES8311 麦克风 ADC 数据是否直通到 DAC
+   * @param enable true 表示打开直通，false 表示关闭直通
+   * @return 设置成功返回 true，否则返回 false
+   * @Date 2026-05-13 21:20:00
+   */
+  bool SetMicrophoneAdcToDac(bool enable) override;
+
+  /**
+   * @brief 读取 ES8311 麦克风测试状态
+   * @param status 麦克风测试状态输出地址
+   * @return 读取成功返回 true，否则返回 false
+   * @Date 2026-05-13 21:20:00
+   */
+  bool ReadMicrophoneTestStatus(MicrophoneTestStatus* status) override;
 
   /**
    * @brief 注册屏幕 flush 完成回调
@@ -190,6 +221,21 @@ class TDisplayP4Device final : public ScreenDevice,
    */
   void RunSpeakerTestTask();
 
+  /**
+   * @brief 麦克风测试读取任务入口
+   * @param context 设备对象指针
+   * @return
+   * @Date 2026-05-13 21:20:00
+   */
+  static void MicrophoneTestTaskEntry(void* context);
+
+  /**
+   * @brief 执行后台麦克风测试读取
+   * @return
+   * @Date 2026-05-13 21:20:00
+   */
+  void RunMicrophoneTestTask();
+
   lilygo_device_driver::TDisplayP4Driver& driver_;
   ScreenFlushReadyHandler flush_ready_handler_;
   // 扬声器测试任务是否正在播放
@@ -202,6 +248,18 @@ class TDisplayP4Device final : public ScreenDevice,
   std::atomic<size_t> speaker_test_bytes_written_{0};
   // 扬声器测试音频总字节数
   std::atomic<size_t> speaker_test_total_bytes_{0};
+  // 麦克风测试任务是否正在读取
+  std::atomic<bool> microphone_test_running_{false};
+  // 麦克风测试任务是否请求停止
+  std::atomic<bool> microphone_test_stop_requested_{false};
+  // 麦克风 ADC 数据是否直通到 DAC
+  std::atomic<bool> microphone_adc_to_dac_enabled_{false};
+  // 麦克风测试当前音量百分比
+  std::atomic<int> microphone_level_percent_{0};
+  // 麦克风测试当前峰值采样
+  std::atomic<int> microphone_peak_sample_{0};
+  // 麦克风测试累计读取字节数
+  std::atomic<size_t> microphone_bytes_read_{0};
 };
 
 }  // namespace lilygo_box::hal

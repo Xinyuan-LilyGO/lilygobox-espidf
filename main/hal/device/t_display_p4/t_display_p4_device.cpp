@@ -8,6 +8,7 @@
 #include "hal/device/t_display_p4/t_display_p4_device.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -30,6 +31,13 @@ constexpr UBaseType_t kSpeakerTestTaskPriority = 3;
 constexpr uint32_t kSpeakerTestSampleRateHz = 44100;
 constexpr uint8_t kSpeakerTestChannelCount = 2;
 constexpr uint8_t kSpeakerTestBitsPerSample = 16;
+constexpr uint32_t kMicrophoneTestTaskStackBytes = 4 * 1024;
+constexpr UBaseType_t kMicrophoneTestTaskPriority = 3;
+constexpr size_t kMicrophoneReadSampleCount = 128;
+constexpr uint32_t kMicrophoneReadDelayMs = 40;
+constexpr int kMicrophoneLevelFullScale = 1000;
+constexpr int kMicrophoneLevelRiseDivisor = 4;
+constexpr int kMicrophoneLevelFallDivisor = 8;
 
 }  // namespace
 
@@ -370,6 +378,134 @@ void TDisplayP4Device::RunSpeakerTestTask() {
   speaker_test_success_.store(played);
   speaker_test_completed_.store(true);
   speaker_test_running_.store(false);
+}
+
+bool TDisplayP4Device::StartMicrophoneTest() {
+  if (!driver_.status().es8311.init_flag && !driver_.InitEs8311()) {
+    LogMessage(
+        LogLevel::kWarning, __FILE__, __LINE__, "Es8311 init retry failed\n");
+    return false;
+  }
+
+  bool expected = false;
+  if (!microphone_test_running_.compare_exchange_strong(expected, true)) {
+    return !microphone_test_stop_requested_.load();
+  }
+
+  microphone_test_stop_requested_.store(false);
+  microphone_level_percent_.store(0);
+  microphone_peak_sample_.store(0);
+  microphone_bytes_read_.store(0);
+  if (!SetMicrophoneAdcToDac(false)) {
+    microphone_test_running_.store(false);
+    return false;
+  }
+
+  const BaseType_t result = xTaskCreate(MicrophoneTestTaskEntry,
+      "cit_microphone", kMicrophoneTestTaskStackBytes, this,
+      kMicrophoneTestTaskPriority, nullptr);
+  if (result != pdPASS) {
+    microphone_test_running_.store(false);
+    microphone_test_stop_requested_.store(true);
+    return false;
+  }
+
+  return true;
+}
+
+bool TDisplayP4Device::StopMicrophoneTest() {
+  microphone_test_stop_requested_.store(true);
+  microphone_level_percent_.store(0);
+  microphone_peak_sample_.store(0);
+  if (!driver_.status().es8311.init_flag) {
+    microphone_adc_to_dac_enabled_.store(false);
+    return true;
+  }
+  return SetMicrophoneAdcToDac(false);
+}
+
+bool TDisplayP4Device::SetMicrophoneAdcToDac(bool enable) {
+  if (!driver_.status().es8311.init_flag) {
+    return false;
+  }
+
+  if (!driver_.chip().es8311->SetAdcDataToDac(enable)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Es8311 SetAdcDataToDac failed\n");
+    return false;
+  }
+
+  microphone_adc_to_dac_enabled_.store(enable);
+  return true;
+}
+
+bool TDisplayP4Device::ReadMicrophoneTestStatus(
+    MicrophoneTestStatus* status) {
+  if (status == nullptr) {
+    return false;
+  }
+
+  status->running = microphone_test_running_.load();
+  status->adc_to_dac_enabled = microphone_adc_to_dac_enabled_.load();
+  status->level_percent = microphone_level_percent_.load();
+  status->peak_sample = microphone_peak_sample_.load();
+  status->bytes_read = microphone_bytes_read_.load();
+  return true;
+}
+
+void TDisplayP4Device::MicrophoneTestTaskEntry(void* context) {
+  auto* self = static_cast<TDisplayP4Device*>(context);
+  if (self != nullptr) {
+    self->RunMicrophoneTestTask();
+  }
+  vTaskDelete(nullptr);
+}
+
+void TDisplayP4Device::RunMicrophoneTestTask() {
+  std::array<int16_t, kMicrophoneReadSampleCount> samples = {};
+  while (!microphone_test_stop_requested_.load()) {
+    const size_t read_bytes =
+        driver_.chip().es8311->ReadI2s(samples.data(),
+            samples.size() * sizeof(samples[0]));
+    if (read_bytes > 0) {
+      microphone_bytes_read_.fetch_add(read_bytes);
+
+      int peak_sample = 0;
+      int64_t absolute_sum = 0;
+      const size_t sample_count = read_bytes / sizeof(samples[0]);
+      for (size_t i = 0; i < sample_count && i < samples.size(); ++i) {
+        const int sample = samples[i];
+        const int absolute_sample = sample < 0 ? -sample : sample;
+        absolute_sum += absolute_sample;
+        peak_sample = std::max(peak_sample, absolute_sample);
+      }
+
+      const int average_sample =
+          sample_count == 0 ? 0 : absolute_sum / static_cast<int>(sample_count);
+      const int target_level_percent = std::min(
+          100, (average_sample * 100) / kMicrophoneLevelFullScale);
+      const int current_level_percent = microphone_level_percent_.load();
+      const int difference = target_level_percent - current_level_percent;
+      const int divisor = difference > 0 ? kMicrophoneLevelRiseDivisor
+                                         : kMicrophoneLevelFallDivisor;
+      int level_percent = current_level_percent + difference / divisor;
+      if (level_percent == current_level_percent && difference != 0) {
+        level_percent += difference > 0 ? 1 : -1;
+      }
+      microphone_peak_sample_.store(peak_sample);
+      microphone_level_percent_.store(level_percent);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(kMicrophoneReadDelayMs));
+  }
+
+  if (microphone_adc_to_dac_enabled_.load()) {
+    driver_.chip().es8311->SetAdcDataToDac(false);
+    microphone_adc_to_dac_enabled_.store(false);
+  }
+  microphone_level_percent_.store(0);
+  microphone_peak_sample_.store(0);
+  microphone_test_running_.store(false);
 }
 
 bool TDisplayP4Device::ReadDiagnostics(DeviceDiagnostics* diagnostics) {

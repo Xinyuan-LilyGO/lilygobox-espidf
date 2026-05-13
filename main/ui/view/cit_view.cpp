@@ -55,6 +55,7 @@ constexpr size_t kTouchTraceMaxPointCount = 100;
 constexpr size_t kTouchDisplayPointCount = 10;
 constexpr uint32_t kGestureSuppressTimeoutMs = 500;
 constexpr uint32_t kPageSlideAnimationMs = 180;
+constexpr uint32_t kMicrophoneNeedleAnimationMs = 180;
 constexpr lv_opa_t kBottomPageDimOpacity = 84;
 constexpr uint32_t kCitBackgroundColor = 0xFF7F58;
 constexpr uint32_t kListBackgroundColor = 0xFBF4E4;
@@ -98,6 +99,9 @@ struct CitViewState {
   lv_obj_t* screen_color_overlay = nullptr;
   lv_obj_t* touch_trace_surface = nullptr;
   lv_obj_t* touch_trace_line = nullptr;
+  lv_obj_t* microphone_scale = nullptr;
+  lv_obj_t* microphone_needle = nullptr;
+  lv_obj_t* microphone_adc_to_dac_switch = nullptr;
   std::array<lv_obj_t*, kTouchDisplayPointCount> touch_point_markers = {};
   int width = 0;
   int height = 0;
@@ -112,6 +116,7 @@ struct CitViewState {
   size_t current_test_index = 0;
   size_t screen_color_index = 0;
   bool touch_was_seen = false;
+  int microphone_display_level = 0;
   std::array<lv_point_precise_t, kTouchTraceMaxPointCount> touch_trace_points;
   size_t touch_trace_point_count = 0;
   bool test_page_closing = false;
@@ -243,6 +248,25 @@ void SetDimOverlayOpacity(void* object, int32_t opacity) {
 }
 
 /**
+ * @brief 设置麦克风测试指针数值
+ * @param context CIT 页面状态
+ * @param value 指针数值
+ * @return
+ * @Date 2026-05-13 21:40:00
+ */
+void SetMicrophoneNeedleValue(void* context, int32_t value) {
+  auto* state = static_cast<CitViewState*>(context);
+  if (state == nullptr || state->microphone_scale == nullptr ||
+      state->microphone_needle == nullptr) {
+    return;
+  }
+
+  state->microphone_display_level = value;
+  lv_scale_set_line_needle_value(
+      state->microphone_scale, state->microphone_needle, 150, value);
+}
+
+/**
  * @brief 恢复 CIT 列表页面的手势处理
  * @param state CIT 页面状态
  * @return
@@ -255,6 +279,24 @@ void RestoreCitListGestures(CitViewState* state) {
 
   lv_obj_remove_flag(state->root, kBlockLauncherGestureFlag);
   lv_obj_add_flag(state->root, LV_OBJ_FLAG_GESTURE_BUBBLE);
+}
+
+/**
+ * @brief 停止当前测试页面关联的硬件任务
+ * @param state CIT 页面状态
+ * @return
+ * @Date 2026-05-13 21:20:00
+ */
+void StopActiveTestHardware(CitViewState* state) {
+  if (state == nullptr || state->screen == nullptr ||
+      state->current_test_index >= state->row_count) {
+    return;
+  }
+
+  const app::CitTestEntry* entry = state->rows[state->current_test_index].entry;
+  if (entry != nullptr && IsEntryId(*entry, "microphone")) {
+    state->screen->StopMicrophoneTest();
+  }
 }
 
 /**
@@ -274,8 +316,12 @@ void ClearTestPageState(CitViewState* state) {
   state->screen_color_overlay = nullptr;
   state->touch_trace_surface = nullptr;
   state->touch_trace_line = nullptr;
+  state->microphone_scale = nullptr;
+  state->microphone_needle = nullptr;
+  state->microphone_adc_to_dac_switch = nullptr;
   state->touch_point_markers.fill(nullptr);
   state->touch_trace_point_count = 0;
+  state->microphone_display_level = 0;
   state->test_page_closing = false;
 }
 
@@ -739,6 +785,49 @@ void RefreshSpeakerTestData(CitViewState* state) {
 }
 
 /**
+ * @brief 刷新麦克风测试数据和指针
+ * @param state CIT 页面状态
+ * @return
+ * @Date 2026-05-13 21:20:00
+ */
+void RefreshMicrophoneTestData(CitViewState* state) {
+  if (state == nullptr || state->test_data_label == nullptr) {
+    return;
+  }
+
+  hal::MicrophoneTestStatus status;
+  if (state->screen == nullptr ||
+      !state->screen->ReadMicrophoneTestStatus(&status)) {
+    lv_label_set_text(state->test_data_label,
+        "microphone data:\nstatus: unsupported");
+    return;
+  }
+
+  if (state->microphone_scale != nullptr &&
+      state->microphone_needle != nullptr) {
+    lv_anim_delete(state, SetMicrophoneNeedleValue);
+    lv_anim_t animation;
+    lv_anim_init(&animation);
+    lv_anim_set_var(&animation, state);
+    lv_anim_set_exec_cb(&animation, SetMicrophoneNeedleValue);
+    lv_anim_set_values(
+        &animation, state->microphone_display_level, status.level_percent);
+    lv_anim_set_time(&animation, kMicrophoneNeedleAnimationMs);
+    lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
+    lv_anim_start(&animation);
+  }
+
+  char text[192] = {};
+  std::snprintf(text, sizeof(text),
+      "microphone data:\n"
+      "status: %s  level: %d%%\n"
+      "peak: %d",
+      status.running ? "listening" : "stopped", status.level_percent,
+      status.peak_sample);
+  lv_label_set_text(state->test_data_label, text);
+}
+
+/**
  * @brief 按固定周期刷新诊断数据
  * @param state CIT 页面状态
  * @return
@@ -846,6 +935,11 @@ void RefreshActiveTestData(CitViewState* state) {
     return;
   }
 
+  if (IsEntryId(*entry, "microphone")) {
+    RefreshMicrophoneTestData(state);
+    return;
+  }
+
   if (IsEntryId(*entry, "imu")) {
     const hal::MotionDiagnostics& motion = state->diagnostics.motion;
     std::snprintf(text, sizeof(text),
@@ -924,6 +1018,7 @@ void CitViewDeleteCallback(lv_event_t* event) {
     lv_timer_delete(state->refresh_timer);
     state->refresh_timer = nullptr;
   }
+  StopActiveTestHardware(state);
   delete state;
 }
 
@@ -2028,31 +2123,80 @@ bool AddStartButtonContent(lv_obj_t* content, CitViewState* state,
 }
 
 /**
+ * @brief 处理麦克风 ADC 到 DAC 直通开关事件
+ * @param event LVGL 事件
+ * @return
+ * @Date 2026-05-13 21:20:00
+ */
+void MicrophoneAdcToDacSwitchEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED) {
+    return;
+  }
+
+  auto* state = static_cast<CitViewState*>(lv_event_get_user_data(event));
+  lv_obj_t* switch_object = lv_event_get_target_obj(event);
+  if (state == nullptr || switch_object == nullptr) {
+    return;
+  }
+
+  const bool enable = lv_obj_has_state(switch_object, LV_STATE_CHECKED);
+  if (state->screen == nullptr ||
+      !state->screen->SetMicrophoneAdcToDac(enable)) {
+    lv_obj_remove_state(switch_object, LV_STATE_CHECKED);
+  }
+  RefreshMicrophoneTestData(state);
+}
+
+/**
  * @brief 添加麦克风测试内容
  * @param content 内容容器
+ * @param state CIT 页面状态
  * @return 成功返回 true，否则返回 false
  * @Date 2026-05-13 09:55:00
  */
-bool AddMicrophoneContent(lv_obj_t* content) {
+bool AddMicrophoneContent(lv_obj_t* content, CitViewState* state) {
+  if (state == nullptr) {
+    return false;
+  }
+
   lv_obj_t* scale = lv_scale_create(content);
   if (scale == nullptr) {
     return false;
   }
+  state->microphone_scale = scale;
   lv_obj_set_size(scale, 360, 360);
   lv_obj_align(scale, LV_ALIGN_TOP_MID, 0, 36);
   lv_scale_set_mode(scale, LV_SCALE_MODE_ROUND_INNER);
+  lv_obj_set_style_bg_opa(scale, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(scale, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_set_style_radius(scale, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_clip_corner(scale, true, LV_PART_MAIN);
   lv_scale_set_label_show(scale, true);
   lv_scale_set_total_tick_count(scale, 51);
   lv_scale_set_major_tick_every(scale, 5);
+  lv_obj_set_style_length(scale, 5, LV_PART_ITEMS);
+  lv_obj_set_style_length(scale, 10, LV_PART_INDICATOR);
   lv_scale_set_range(scale, 0, 100);
   lv_scale_set_angle_range(scale, 270);
   lv_scale_set_rotation(scale, 135);
+
+  lv_obj_t* needle = lv_line_create(scale);
+  if (needle == nullptr) {
+    return false;
+  }
+  state->microphone_needle = needle;
+  lv_obj_set_style_line_width(needle, 3, LV_PART_MAIN);
+  lv_obj_set_style_line_rounded(needle, true, LV_PART_MAIN);
+  lv_scale_set_line_needle_value(scale, needle, 150, 0);
 
   lv_obj_t* label = CreateLabel(content, "microphone data:\nlevel: waiting",
       lv_color_hex(0x202020), Font28());
   if (label == nullptr) {
     return false;
   }
+  state->test_data_label = label;
+  lv_obj_set_width(label, LV_PCT(100));
+  lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 420);
 
   lv_obj_t* switch_label =
@@ -2060,14 +2204,24 @@ bool AddMicrophoneContent(lv_obj_t* content) {
   if (switch_label == nullptr) {
     return false;
   }
-  lv_obj_align(switch_label, LV_ALIGN_TOP_MID, 0, 500);
+  lv_obj_align(switch_label, LV_ALIGN_TOP_MID, 0, 560);
 
   lv_obj_t* switch_object = lv_switch_create(content);
   if (switch_object == nullptr) {
     return false;
   }
+  state->microphone_adc_to_dac_switch = switch_object;
   lv_obj_set_size(switch_object, 90, 50);
-  lv_obj_align(switch_object, LV_ALIGN_TOP_MID, 0, 550);
+  lv_obj_align(switch_object, LV_ALIGN_TOP_MID, 0, 610);
+  lv_obj_add_event_cb(switch_object, MicrophoneAdcToDacSwitchEventCallback,
+      LV_EVENT_VALUE_CHANGED, state);
+
+  if (state->screen == nullptr || !state->screen->StartMicrophoneTest()) {
+    lv_label_set_text(
+        state->test_data_label, "microphone data:\nstatus: start failed");
+    return true;
+  }
+  RefreshMicrophoneTestData(state);
   return true;
 }
 
@@ -2153,7 +2307,7 @@ bool PopulateTestContent(
     return AddStartButtonContent(content, state, "speaker data:", "START PLAY");
   }
   if (IsEntryId(entry, "microphone")) {
-    return AddMicrophoneContent(content);
+    return AddMicrophoneContent(content, state);
   }
   if (IsEntryId(entry, "imu") || IsEntryId(entry, "battery")) {
     return AddDiagnosticsContent(content, state, entry);
@@ -2172,6 +2326,8 @@ void DeleteTestPage(CitViewState* state) {
     return;
   }
 
+  StopActiveTestHardware(state);
+  lv_anim_delete(state, SetMicrophoneNeedleValue);
   lv_anim_delete(state->test_page, SetPageX);
   lv_obj_delete(state->test_page);
   ClearTestPageState(state);
@@ -2315,6 +2471,7 @@ void ShowCitList(CitViewState* state) {
     return;
   }
 
+  StopActiveTestHardware(state);
   state->test_page_closing = true;
   if (state->list_dim_overlay != nullptr &&
       lv_obj_is_valid(state->list_dim_overlay)) {
