@@ -91,6 +91,14 @@ class TDisplayP4Device final : public ScreenDevice,
    */
   bool ReadTouch(TouchPoint* point) override;
 
+  /**
+   * @brief 读取当前多个触摸点
+   * @param points 触摸点输出数组
+   * @param max_points 输出数组可容纳的最大触点数量
+   * @param point_count 实际读取到的触点数量输出地址
+   * @return 读取到至少一个触摸点返回 true，否则返回 false
+   * @Date 2026-05-13 09:55:00
+   */
   bool ReadTouchPoints(
       TouchPoint* points, size_t max_points, size_t* point_count) override;
 
