@@ -38,9 +38,8 @@ constexpr int kTitleLeft = 20;
 constexpr int kListTop = 136;
 constexpr int kListHorizontalPadding = 20;
 constexpr int kListTopPadding = 20;
-constexpr int kRowHeight = 76;
+constexpr int kRowHeight = 82;
 constexpr int kRowIconWidth = 50;
-constexpr int kRowContentOffsetY = -7;
 constexpr int kTestButtonBarHeight = 140;
 constexpr int kTestButtonWidth = 200;
 constexpr int kTestButtonHeight = 60;
@@ -59,11 +58,10 @@ constexpr uint32_t kPageSlideAnimationMs = 180;
 constexpr lv_opa_t kBottomPageDimOpacity = 84;
 constexpr uint32_t kCitBackgroundColor = 0xFF7F58;
 constexpr uint32_t kListBackgroundColor = 0xFBF4E4;
-constexpr uint32_t kRowDividerColor = 0xD8C8C0;
 constexpr uint32_t kRowPressedColor = 0xEEDBD1;
 constexpr lv_opa_t kRowPressedOpacity = 170;
-constexpr int kRowPressedHeight = kRowHeight - 4;
-constexpr int kRowPressedRadius = 12;
+constexpr int kRowPressedHeight = kRowHeight;
+constexpr int kRowPressedRadius = 0;
 constexpr uint32_t kReadyColor = 0x138A3D;
 constexpr uint32_t kFailedColor = 0xEE2C2C;
 constexpr uint32_t kPendingColor = 0xF28C00;
@@ -86,6 +84,7 @@ struct CitStatusRow {
   lv_obj_t* icon_label = nullptr;
   lv_obj_t* name_label = nullptr;
   lv_obj_t* pressed_background = nullptr;
+  bool press_cancelled = false;
   size_t index = 0;
 };
 
@@ -554,9 +553,9 @@ void AlignStatusLabels(lv_obj_t* icon_label, lv_obj_t* name_label) {
 
   lv_obj_set_width(icon_label, kRowIconWidth);
   lv_obj_set_style_text_align(icon_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-  lv_obj_align(icon_label, LV_ALIGN_LEFT_MID, 0, kRowContentOffsetY);
-  lv_obj_align(
-      name_label, LV_ALIGN_LEFT_MID, kRowIconWidth, kRowContentOffsetY);
+  lv_obj_align(icon_label, LV_ALIGN_LEFT_MID, kListHorizontalPadding, 0);
+  lv_obj_align(name_label, LV_ALIGN_LEFT_MID,
+      kListHorizontalPadding + kRowIconWidth, 0);
 }
 
 /**
@@ -863,6 +862,31 @@ void CitViewDeleteCallback(lv_event_t* event) {
 }
 
 /**
+ * @brief 判断当前触摸点是否仍在对象区域内
+ * @param object LVGL 对象
+ * @return 在对象区域内返回 true，否则返回 false
+ * @Date 2026-05-13 09:55:00
+ */
+bool IsActivePointerInsideObject(lv_obj_t* object) {
+  if (object == nullptr) {
+    return false;
+  }
+
+  lv_indev_t* indev = lv_indev_active();
+  if (indev == nullptr) {
+    return false;
+  }
+
+  lv_point_t point = {};
+  lv_indev_get_point(indev, &point);
+
+  lv_area_t coords = {};
+  lv_obj_get_coords(object, &coords);
+  return point.x >= coords.x1 && point.x <= coords.x2 && point.y >= coords.y1 &&
+         point.y <= coords.y2;
+}
+
+/**
  * @brief 设置列表行按下背景的显示状态
  * @param row 状态行
  * @param pressed 是否按下
@@ -896,7 +920,16 @@ void CitRowEventCallback(lv_event_t* event) {
 
   const lv_event_code_t code = lv_event_get_code(event);
   if (code == LV_EVENT_PRESSED) {
+    row->press_cancelled = false;
     SetCitRowPressed(row, true);
+    return;
+  }
+  if (code == LV_EVENT_PRESSING) {
+    auto* target = static_cast<lv_obj_t*>(lv_event_get_current_target(event));
+    if (!IsActivePointerInsideObject(target)) {
+      row->press_cancelled = true;
+      SetCitRowPressed(row, false);
+    }
     return;
   }
   if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
@@ -904,7 +937,14 @@ void CitRowEventCallback(lv_event_t* event) {
     return;
   }
   if (code == LV_EVENT_CLICKED) {
+    auto* target = static_cast<lv_obj_t*>(lv_event_get_current_target(event));
+    const bool click_cancelled =
+        row->press_cancelled || !IsActivePointerInsideObject(target);
+    row->press_cancelled = false;
     SetCitRowPressed(row, false);
+    if (click_cancelled) {
+      return;
+    }
     ShowCitTest(row->state, row->index);
   }
 }
@@ -2220,10 +2260,7 @@ lv_obj_t* CreateStatusRow(
   lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(row, LV_PCT(100), kRowHeight);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_border_width(row, 1, LV_PART_MAIN);
-  lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN);
-  lv_obj_set_style_border_color(
-      row, lv_color_hex(kRowDividerColor), LV_PART_MAIN);
+  lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_left(row, 0, LV_PART_MAIN);
 
@@ -2236,8 +2273,7 @@ lv_obj_t* CreateStatusRow(
   lv_obj_remove_flag(pressed_background, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_flag(pressed_background, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_size(pressed_background, LV_PCT(100), kRowPressedHeight);
-  lv_obj_align(
-      pressed_background, LV_ALIGN_CENTER, 0, kRowContentOffsetY);
+  lv_obj_align(pressed_background, LV_ALIGN_TOP_MID, 0, 0);
   lv_obj_set_style_bg_color(
       pressed_background, lv_color_hex(kRowPressedColor), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(
@@ -2373,10 +2409,11 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
   lv_obj_set_style_bg_opa(list, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(list, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(list, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_left(list, kListHorizontalPadding, LV_PART_MAIN);
-  lv_obj_set_style_pad_right(list, kListHorizontalPadding, LV_PART_MAIN);
+  lv_obj_set_style_pad_left(list, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_right(list, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_top(list, kListTopPadding, LV_PART_MAIN);
   lv_obj_set_style_pad_bottom(list, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_row(list, 0, LV_PART_MAIN);
   lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_ACTIVE);
 
