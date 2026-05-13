@@ -7,6 +7,7 @@
  */
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace lilygo_box::hal {
@@ -15,8 +16,10 @@ class DeviceDiagnosticsProvider;
 
 // 屏幕像素坐标系中的逻辑触摸点
 struct TouchPoint {
+  uint8_t id = 0;
   int16_t x = 0;
   int16_t y = 0;
+  uint8_t pressure = 0;
 };
 
 using ScreenFlushReadyCallback = void (*)(void* context);
@@ -103,6 +106,9 @@ class ScreenDevice {
    * @Date 2026-05-10 13:01:03
    */
   virtual bool ReadTouch(TouchPoint* point) = 0;
+
+  virtual bool ReadTouchPoints(
+      TouchPoint* points, size_t max_points, size_t* point_count);
 
   /**
    * @brief 启动屏幕背光

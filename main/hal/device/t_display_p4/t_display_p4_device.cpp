@@ -7,6 +7,7 @@
  */
 #include "hal/device/t_display_p4/t_display_p4_device.h"
 
+#include <algorithm>
 #include <cstdint>
 
 #include "base/logger.h"
@@ -119,8 +120,10 @@ bool TDisplayP4Device::ReadTouch(TouchPoint* point) {
   if (!result || touch_point.info.empty()) {
     return false;
   }
+  point->id = 1;
   point->x = touch_point.info[0].x;
   point->y = touch_point.info[0].y;
+  point->pressure = touch_point.info[0].pressure_value;
   return true;
 #elif defined(CONFIG_SCREEN_TYPE_RM69A10)
   cpp_bus_driver::Gt9895::TouchPoint touch_point;
@@ -128,9 +131,69 @@ bool TDisplayP4Device::ReadTouch(TouchPoint* point) {
   if (!result || touch_point.info.empty()) {
     return false;
   }
+  point->id = touch_point.info[0].finger_id;
   point->x = touch_point.info[0].x;
   point->y = touch_point.info[0].y;
+  point->pressure = touch_point.info[0].pressure_value;
   return true;
+#endif
+  return false;
+}
+
+bool TDisplayP4Device::ReadTouchPoints(
+    TouchPoint* points, size_t max_points, size_t* point_count) {
+  if (point_count != nullptr) {
+    *point_count = 0;
+  }
+  if (points == nullptr || max_points == 0 || point_count == nullptr) {
+    return false;
+  }
+
+  if (!IsTouchReady()) {
+    return false;
+  }
+
+#if defined(CONFIG_SCREEN_TYPE_HI8561)
+  cpp_bus_driver::Hi8561Touch::TouchPoint touch_point;
+  const bool result =
+      driver_.chip().hi8561_touch->GetMultipleTouchPoint(touch_point);
+  if (!result || touch_point.info.empty()) {
+    return false;
+  }
+
+  const size_t count = std::min(max_points, touch_point.info.size());
+  for (size_t i = 0; i < count; ++i) {
+    if (touch_point.info[i].x == UINT16_MAX &&
+        touch_point.info[i].y == UINT16_MAX) {
+      continue;
+    }
+    points[*point_count].id = static_cast<uint8_t>(i + 1);
+    points[*point_count].x = touch_point.info[i].x;
+    points[*point_count].y = touch_point.info[i].y;
+    points[*point_count].pressure = touch_point.info[i].pressure_value;
+    ++(*point_count);
+  }
+  return *point_count > 0;
+#elif defined(CONFIG_SCREEN_TYPE_RM69A10)
+  cpp_bus_driver::Gt9895::TouchPoint touch_point;
+  const bool result = driver_.chip().gt9895->GetMultipleTouchPoint(touch_point);
+  if (!result || touch_point.info.empty()) {
+    return false;
+  }
+
+  const size_t count = std::min(max_points, touch_point.info.size());
+  for (size_t i = 0; i < count; ++i) {
+    if (touch_point.info[i].x == UINT16_MAX &&
+        touch_point.info[i].y == UINT16_MAX) {
+      continue;
+    }
+    points[*point_count].id = touch_point.info[i].finger_id;
+    points[*point_count].x = touch_point.info[i].x;
+    points[*point_count].y = touch_point.info[i].y;
+    points[*point_count].pressure = touch_point.info[i].pressure_value;
+    ++(*point_count);
+  }
+  return *point_count > 0;
 #endif
   return false;
 }

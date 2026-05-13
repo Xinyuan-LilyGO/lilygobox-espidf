@@ -2,12 +2,14 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-12 22:44:23
+ * @LastEditTime: 2026-05-13 09:55:00
  * @License: GPL 3.0
  */
 #include "ui/view/cit_view.h"
 
+#include <algorithm>
 #include <array>
+#include <cstdarg>
 #include <cstdio>
 #include <cstring>
 #include <new>
@@ -46,8 +48,12 @@ constexpr int kTestButtonGap = 60;
 constexpr int kTestButtonCenterOffset = (kTestButtonWidth + kTestButtonGap) / 2;
 constexpr int kTestStartButtonWidth = 240;
 constexpr int kTestStartButtonHeight = 78;
+constexpr int kTouchTraceLineWidth = 6;
+constexpr int kTouchMarkerSize = 42;
 constexpr int kCitRefreshPeriodMs = 200;
 constexpr int kDiagnosticsRefreshPeriodMs = 1000;
+constexpr size_t kTouchTraceMaxPointCount = 100;
+constexpr size_t kTouchDisplayPointCount = 10;
 constexpr uint32_t kGestureSuppressTimeoutMs = 500;
 constexpr uint32_t kPageSlideAnimationMs = 180;
 constexpr lv_opa_t kBottomPageDimOpacity = 84;
@@ -83,6 +89,9 @@ struct CitViewState {
   lv_obj_t* test_page = nullptr;
   lv_obj_t* test_content = nullptr;
   lv_obj_t* test_data_label = nullptr;
+  lv_obj_t* touch_trace_surface = nullptr;
+  lv_obj_t* touch_trace_line = nullptr;
+  std::array<lv_obj_t*, kTouchDisplayPointCount> touch_point_markers = {};
   int width = 0;
   int height = 0;
   hal::ScreenDevice* screen = nullptr;
@@ -96,6 +105,8 @@ struct CitViewState {
   size_t current_test_index = 0;
   int screen_color_index = 0;
   bool touch_was_seen = false;
+  std::array<lv_point_precise_t, kTouchTraceMaxPointCount> touch_trace_points;
+  size_t touch_trace_point_count = 0;
   bool test_page_closing = false;
   lv_timer_t* refresh_timer = nullptr;
 };
@@ -177,6 +188,10 @@ void ClearTestPageState(CitViewState* state) {
   state->test_page = nullptr;
   state->test_content = nullptr;
   state->test_data_label = nullptr;
+  state->touch_trace_surface = nullptr;
+  state->touch_trace_line = nullptr;
+  state->touch_point_markers.fill(nullptr);
+  state->touch_trace_point_count = 0;
   state->test_page_closing = false;
 }
 
@@ -390,6 +405,101 @@ void RefreshTouchState(CitViewState* state) {
   }
 }
 
+void AppendFormatted(
+    char* text, size_t text_size, size_t* used, const char* format, ...) {
+  if (text == nullptr || text_size == 0 || used == nullptr ||
+      *used >= text_size) {
+    return;
+  }
+
+  va_list args;
+  va_start(args, format);
+  const int written = std::vsnprintf(text + *used, text_size - *used, format,
+      args);
+  va_end(args);
+
+  if (written <= 0) {
+    return;
+  }
+
+  const size_t remaining = text_size - *used;
+  *used += std::min(static_cast<size_t>(written), remaining - 1);
+}
+
+void UpdateTouchPointMarkers(
+    CitViewState* state, const hal::TouchPoint* points, size_t point_count) {
+  if (state == nullptr || state->touch_trace_surface == nullptr) {
+    return;
+  }
+
+  const int32_t surface_width = lv_obj_get_width(state->touch_trace_surface);
+  const int32_t surface_height = lv_obj_get_height(state->touch_trace_surface);
+  if (surface_width <= 0 || surface_height <= 0) {
+    return;
+  }
+
+  const int32_t max_x = std::max<int32_t>(0, surface_width - kTouchMarkerSize);
+  const int32_t max_y = std::max<int32_t>(0, surface_height - kTouchMarkerSize);
+  for (size_t i = 0; i < state->touch_point_markers.size(); ++i) {
+    lv_obj_t* marker = state->touch_point_markers[i];
+    if (marker == nullptr) {
+      continue;
+    }
+
+    if (points == nullptr || i >= point_count) {
+      lv_obj_add_flag(marker, LV_OBJ_FLAG_HIDDEN);
+      continue;
+    }
+
+    int32_t x = points[i].x - kTouchMarkerSize / 2;
+    int32_t y = points[i].y - kTouchMarkerSize / 2;
+    x = std::min(std::max<int32_t>(x, 0), max_x);
+    y = std::min(std::max<int32_t>(y, 0), max_y);
+
+    lv_obj_remove_flag(marker, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_pos(marker, x, y);
+  }
+}
+
+void RefreshTouchTestData(CitViewState* state) {
+  if (state == nullptr || state->test_data_label == nullptr) {
+    return;
+  }
+
+  std::array<hal::TouchPoint, kTouchDisplayPointCount> points = {};
+  size_t point_count = 0;
+  if (state->screen != nullptr &&
+      state->screen->ReadTouchPoints(
+          points.data(), points.size(), &point_count)) {
+    state->touch_was_seen = point_count > 0;
+  }
+
+  UpdateTouchPointMarkers(state, points.data(), point_count);
+
+  char text[768] = {};
+  size_t used = 0;
+  AppendFormatted(text, sizeof(text), &used,
+      "touch data:\nactive: %u/%u  p=pressure\ntrace: %u\n",
+      static_cast<unsigned>(point_count),
+      static_cast<unsigned>(kTouchDisplayPointCount),
+      static_cast<unsigned>(state->touch_trace_point_count));
+  for (size_t i = 0; i < kTouchDisplayPointCount; ++i) {
+    if (i < point_count) {
+      AppendFormatted(text, sizeof(text), &used,
+          "P%02u id:%02u x:%4d y:%4d p:%3u\n", static_cast<unsigned>(i + 1),
+          static_cast<unsigned>(points[i].id), static_cast<int>(points[i].x),
+          static_cast<int>(points[i].y),
+          static_cast<unsigned>(points[i].pressure));
+    } else {
+      AppendFormatted(text, sizeof(text), &used,
+          "P%02u id:-- x:---- y:---- p:---\n",
+          static_cast<unsigned>(i + 1));
+    }
+  }
+
+  lv_label_set_text(state->test_data_label, text);
+}
+
 void RefreshDiagnosticsState(CitViewState* state) {
   if (state == nullptr || state->diagnostics_provider == nullptr) {
     return;
@@ -456,14 +566,7 @@ void RefreshActiveTestData(CitViewState* state) {
 
   char text[256] = {};
   if (IsEntryId(*entry, "touch")) {
-    hal::TouchPoint point;
-    if (state->screen != nullptr && state->screen->ReadTouch(&point)) {
-      std::snprintf(text, sizeof(text),
-          "touch data:\nstate: pressed\nx: %d\ny: %d", point.x, point.y);
-    } else {
-      std::snprintf(text, sizeof(text), "touch data:\nstate: released");
-    }
-    lv_label_set_text(state->test_data_label, text);
+    RefreshTouchTestData(state);
     return;
   }
 
@@ -622,6 +725,143 @@ void TestPageGestureEventCallback(lv_event_t* event) {
   ShowCitList(state);
 }
 
+bool ReadTouchTracePoint(CitViewState* state, lv_point_t* local_point) {
+  if (state == nullptr || state->touch_trace_surface == nullptr ||
+      local_point == nullptr) {
+    return false;
+  }
+
+  lv_indev_t* indev = lv_indev_active();
+  if (indev == nullptr) {
+    return false;
+  }
+
+  lv_point_t screen_point = {};
+  lv_indev_get_point(indev, &screen_point);
+
+  lv_area_t surface_area = {};
+  lv_obj_get_coords(state->touch_trace_surface, &surface_area);
+  local_point->x = screen_point.x - surface_area.x1;
+  local_point->y = screen_point.y - surface_area.y1;
+
+  const int32_t surface_width = lv_obj_get_width(state->touch_trace_surface);
+  const int32_t surface_height = lv_obj_get_height(state->touch_trace_surface);
+  if (surface_width <= 0 || surface_height <= 0) {
+    return false;
+  }
+
+  const int32_t max_x = surface_width - 1;
+  const int32_t max_y = surface_height - 1;
+  if (local_point->x < 0) {
+    local_point->x = 0;
+  } else if (local_point->x > max_x) {
+    local_point->x = max_x;
+  }
+  if (local_point->y < 0) {
+    local_point->y = 0;
+  } else if (local_point->y > max_y) {
+    local_point->y = max_y;
+  }
+  return true;
+}
+
+void RefreshTouchTraceLine(CitViewState* state) {
+  if (state == nullptr || state->touch_trace_line == nullptr) {
+    return;
+  }
+
+  if (state->touch_trace_point_count < 2) {
+    lv_obj_add_flag(state->touch_trace_line, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+
+  lv_obj_remove_flag(state->touch_trace_line, LV_OBJ_FLAG_HIDDEN);
+  lv_line_set_points(state->touch_trace_line, state->touch_trace_points.data(),
+      static_cast<uint32_t>(state->touch_trace_point_count));
+}
+
+void ClearTouchTrace(CitViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+
+  state->touch_trace_point_count = 0;
+  RefreshTouchTraceLine(state);
+}
+
+void AppendTouchTracePoint(CitViewState* state, const lv_point_t& point) {
+  if (state == nullptr) {
+    return;
+  }
+
+  if (state->touch_trace_point_count > 0) {
+    const lv_point_precise_t& last =
+        state->touch_trace_points[state->touch_trace_point_count - 1];
+    if (static_cast<int32_t>(last.x) == point.x &&
+        static_cast<int32_t>(last.y) == point.y) {
+      return;
+    }
+  }
+
+  if (state->touch_trace_point_count >= state->touch_trace_points.size()) {
+    std::memmove(state->touch_trace_points.data(),
+        state->touch_trace_points.data() + 1,
+        (state->touch_trace_points.size() - 1) * sizeof(lv_point_precise_t));
+    state->touch_trace_point_count = state->touch_trace_points.size() - 1;
+  }
+
+  lv_point_precise_t& next =
+      state->touch_trace_points[state->touch_trace_point_count++];
+  next.x = point.x;
+  next.y = point.y;
+  RefreshTouchTraceLine(state);
+}
+
+void TouchTraceEventCallback(lv_event_t* event) {
+  const lv_event_code_t code = lv_event_get_code(event);
+  if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING &&
+      code != LV_EVENT_RELEASED && code != LV_EVENT_PRESS_LOST) {
+    return;
+  }
+
+  auto* state = static_cast<CitViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->touch_trace_surface == nullptr) {
+    return;
+  }
+
+  if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+    RefreshTouchTestData(state);
+    return;
+  }
+
+  lv_point_t point = {};
+  if (!ReadTouchTracePoint(state, &point)) {
+    return;
+  }
+
+  if (code == LV_EVENT_PRESSED) {
+    ClearTouchTrace(state);
+  }
+
+  state->touch_was_seen = true;
+  AppendTouchTracePoint(state, point);
+  RefreshTouchTestData(state);
+}
+
+void AddTouchTraceEventCallbacks(lv_obj_t* object, CitViewState* state) {
+  if (object == nullptr || state == nullptr ||
+      state->touch_trace_surface == nullptr) {
+    return;
+  }
+
+  lv_obj_add_flag(object, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(object, TouchTraceEventCallback, LV_EVENT_PRESSED, state);
+  lv_obj_add_event_cb(object, TouchTraceEventCallback, LV_EVENT_PRESSING, state);
+  lv_obj_add_event_cb(object, TouchTraceEventCallback, LV_EVENT_RELEASED, state);
+  lv_obj_add_event_cb(
+      object, TouchTraceEventCallback, LV_EVENT_PRESS_LOST, state);
+}
+
 void ScreenColorStartButtonEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
@@ -690,6 +930,7 @@ lv_obj_t* CreateTestActionButton(lv_obj_t* parent, const char* text,
   lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, state);
   lv_obj_add_event_cb(
       button, TestPageGestureEventCallback, LV_EVENT_GESTURE, state);
+  AddTouchTraceEventCallbacks(button, state);
 
   lv_obj_t* label = CreateLabel(button, text, lv_color_hex(0xFFFFFF), Font28());
   if (label == nullptr) {
@@ -739,6 +980,7 @@ lv_obj_t* CreateTestButtonBar(lv_obj_t* parent, CitViewState* state) {
   lv_obj_remove_flag(button_bar, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_event_cb(
       button_bar, TestPageGestureEventCallback, LV_EVENT_GESTURE, state);
+  AddTouchTraceEventCallbacks(button_bar, state);
   lv_obj_set_size(button_bar, LV_PCT(100), kTestButtonBarHeight);
   lv_obj_align(button_bar, LV_ALIGN_BOTTOM_MID, 0, 0);
   lv_obj_set_style_bg_color(
@@ -811,6 +1053,45 @@ lv_obj_t* CreateDataLabel(lv_obj_t* parent, const char* text) {
   lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
   lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 0);
   return label;
+}
+
+bool CreateTouchPointMarkers(CitViewState* state) {
+  if (state == nullptr || state->touch_trace_surface == nullptr) {
+    return false;
+  }
+
+  for (size_t i = 0; i < state->touch_point_markers.size(); ++i) {
+    lv_obj_t* marker = lv_obj_create(state->touch_trace_surface);
+    if (marker == nullptr) {
+      return false;
+    }
+
+    state->touch_point_markers[i] = marker;
+    lv_obj_add_flag(marker, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(marker, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(marker, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(marker, kTouchMarkerSize, kTouchMarkerSize);
+    lv_obj_set_style_radius(marker, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(
+        marker, lv_color_hex(kPassButtonColor), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(marker, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_color(
+        marker, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_border_width(marker, 2, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(marker, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(marker, 0, LV_PART_MAIN);
+
+    char marker_text[4] = {};
+    std::snprintf(marker_text, sizeof(marker_text), "%u",
+        static_cast<unsigned>(i + 1));
+    lv_obj_t* label =
+        CreateLabel(marker, marker_text, lv_color_hex(0xFFFFFF), Font28());
+    if (label == nullptr) {
+      return false;
+    }
+    lv_obj_center(label);
+  }
+  return true;
 }
 
 const char* ConfiguredChipModel() {
@@ -1009,28 +1290,53 @@ bool AddVersionContent(lv_obj_t* content, CitViewState* state) {
 }
 
 bool AddTouchContent(lv_obj_t* content, CitViewState* state) {
-  state->test_data_label = CreateDataLabel(content, "touch data:\nstate: idle");
+  if (state == nullptr || state->test_page == nullptr) {
+    return false;
+  }
+
+  state->touch_trace_point_count = 0;
+  state->touch_trace_surface = nullptr;
+  state->touch_trace_line = nullptr;
+  state->touch_point_markers.fill(nullptr);
+
+  lv_obj_t* trace_surface = lv_obj_create(state->test_page);
+  if (trace_surface == nullptr) {
+    return false;
+  }
+  state->touch_trace_surface = trace_surface;
+  lv_obj_set_size(trace_surface, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_pos(trace_surface, 0, 0);
+  lv_obj_remove_flag(trace_surface, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(trace_surface, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(trace_surface, LV_OBJ_FLAG_FLOATING);
+  lv_obj_set_style_bg_opa(trace_surface, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_border_width(trace_surface, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(trace_surface, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(trace_surface, 0, LV_PART_MAIN);
+  AddTouchTraceEventCallbacks(state->test_page, state);
+  AddTouchTraceEventCallbacks(content, state);
+
+  state->touch_trace_line = lv_line_create(trace_surface);
+  if (state->touch_trace_line == nullptr) {
+    return false;
+  }
+  lv_obj_add_flag(state->touch_trace_line, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_remove_flag(state->touch_trace_line, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_line_color(
+      state->touch_trace_line, lv_color_hex(kFailedColor), LV_PART_MAIN);
+  lv_obj_set_style_line_width(
+      state->touch_trace_line, kTouchTraceLineWidth, LV_PART_MAIN);
+  lv_obj_set_style_line_rounded(state->touch_trace_line, true, LV_PART_MAIN);
+
+  if (!CreateTouchPointMarkers(state)) {
+    return false;
+  }
+
+  state->test_data_label = CreateDataLabel(content, "");
   if (state->test_data_label == nullptr) {
     return false;
   }
-
-  lv_obj_t* touch_area = lv_obj_create(content);
-  if (touch_area == nullptr) {
-    return false;
-  }
-  lv_obj_set_size(touch_area, LV_PCT(100), 260);
-  lv_obj_align(touch_area, LV_ALIGN_BOTTOM_MID, 0, 0);
-  lv_obj_set_style_bg_color(touch_area, lv_color_hex(0xD9D9D9), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(touch_area, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(touch_area, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(touch_area, 0, LV_PART_MAIN);
-
-  lv_obj_t* label =
-      CreateLabel(touch_area, "Touch Area", lv_color_hex(0x606060), Font28());
-  if (label == nullptr) {
-    return false;
-  }
-  lv_obj_center(label);
+  RefreshTouchTestData(state);
   return true;
 }
 
@@ -1235,10 +1541,18 @@ bool ShowCitTest(CitViewState* state, size_t index) {
   lv_obj_set_style_pad_all(content, 24, LV_PART_MAIN);
   lv_obj_align(content, LV_ALIGN_TOP_MID, 0, kListTop);
 
-  if (!PopulateTestContent(content, state, *row.entry) ||
-      CreateTestButtonBar(page, state) == nullptr) {
+  if (!PopulateTestContent(content, state, *row.entry)) {
     DeleteTestPageAndDimOverlay(state);
     return false;
+  }
+
+  if (CreateTestButtonBar(page, state) == nullptr) {
+    DeleteTestPageAndDimOverlay(state);
+    return false;
+  }
+
+  if (state->touch_trace_surface != nullptr) {
+    lv_obj_move_to_index(state->touch_trace_surface, -1);
   }
 
   bool dim_overlay_created = false;

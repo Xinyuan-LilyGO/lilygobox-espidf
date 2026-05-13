@@ -91,6 +91,9 @@ class TDisplayP4Device final : public ScreenDevice,
    */
   bool ReadTouch(TouchPoint* point) override;
 
+  bool ReadTouchPoints(
+      TouchPoint* points, size_t max_points, size_t* point_count) override;
+
   /**
    * @brief 读取设备诊断快照
    * @param diagnostics 诊断数据输出地址
