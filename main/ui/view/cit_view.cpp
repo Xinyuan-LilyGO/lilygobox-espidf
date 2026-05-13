@@ -70,6 +70,13 @@ constexpr uint32_t kPendingColor = 0xF28C00;
 constexpr uint32_t kPassButtonColor = 0x2F80ED;
 constexpr uint32_t kFailButtonColor = 0x8A8A8A;
 constexpr uint32_t kStartButtonColor = 0xE9785C;
+constexpr std::array<uint32_t, 5> kScreenColorTestColors = {
+    0xFF0000,
+    0x00FF00,
+    0x0000FF,
+    0xFFFFFF,
+    0x000000,
+};
 
 struct CitViewState;
 
@@ -89,6 +96,7 @@ struct CitViewState {
   lv_obj_t* test_page = nullptr;
   lv_obj_t* test_content = nullptr;
   lv_obj_t* test_data_label = nullptr;
+  lv_obj_t* screen_color_overlay = nullptr;
   lv_obj_t* touch_trace_surface = nullptr;
   lv_obj_t* touch_trace_line = nullptr;
   std::array<lv_obj_t*, kTouchDisplayPointCount> touch_point_markers = {};
@@ -103,7 +111,7 @@ struct CitViewState {
   std::array<app::CitTestStatus, app::kMaxCitTestEntryCount> test_statuses;
   size_t row_count = 0;
   size_t current_test_index = 0;
-  int screen_color_index = 0;
+  size_t screen_color_index = 0;
   bool touch_was_seen = false;
   std::array<lv_point_precise_t, kTouchTraceMaxPointCount> touch_trace_points;
   size_t touch_trace_point_count = 0;
@@ -114,6 +122,7 @@ struct CitViewState {
 void ShowCitList(CitViewState* state);
 bool ShowCitTest(CitViewState* state, size_t index);
 void TestPageGestureEventCallback(lv_event_t* event);
+void ScreenColorOverlayEventCallback(lv_event_t* event);
 
 /**
  * @brief 设置对象的文本颜色和字体
@@ -263,6 +272,7 @@ void ClearTestPageState(CitViewState* state) {
   state->test_page = nullptr;
   state->test_content = nullptr;
   state->test_data_label = nullptr;
+  state->screen_color_overlay = nullptr;
   state->touch_trace_surface = nullptr;
   state->touch_trace_line = nullptr;
   state->touch_point_markers.fill(nullptr);
@@ -1176,6 +1186,89 @@ void AddTouchTraceEventCallbacks(lv_obj_t* object, CitViewState* state) {
 }
 
 /**
+ * @brief 更新全屏色彩测试浮层颜色
+ * @param state CIT 页面状态
+ * @return
+ * @Date 2026-05-13 09:55:00
+ */
+void UpdateScreenColorOverlayColor(CitViewState* state) {
+  if (state == nullptr || state->screen_color_overlay == nullptr ||
+      state->screen_color_index >= kScreenColorTestColors.size()) {
+    return;
+  }
+
+  lv_obj_set_style_bg_color(state->screen_color_overlay,
+      lv_color_hex(kScreenColorTestColors[state->screen_color_index]),
+      LV_PART_MAIN);
+}
+
+/**
+ * @brief 显示全屏色彩测试浮层
+ * @param state CIT 页面状态
+ * @return 成功返回 true，否则返回 false
+ * @Date 2026-05-13 09:55:00
+ */
+bool ShowScreenColorOverlay(CitViewState* state) {
+  if (state == nullptr || state->test_page == nullptr) {
+    return false;
+  }
+
+  if (state->screen_color_overlay == nullptr) {
+    lv_obj_t* overlay = lv_obj_create(state->test_page);
+    if (overlay == nullptr) {
+      return false;
+    }
+
+    state->screen_color_overlay = overlay;
+    lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_pos(overlay, 0, 0);
+    lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(overlay, LV_OBJ_FLAG_FLOATING);
+    lv_obj_remove_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(overlay, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(overlay, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(overlay, 0, LV_PART_MAIN);
+    lv_obj_add_event_cb(
+        overlay, ScreenColorOverlayEventCallback, LV_EVENT_CLICKED, state);
+    lv_obj_add_event_cb(
+        overlay, TestPageGestureEventCallback, LV_EVENT_GESTURE, state);
+  }
+
+  state->screen_color_index = 0;
+  UpdateScreenColorOverlayColor(state);
+  lv_obj_remove_flag(state->screen_color_overlay, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_move_to_index(state->screen_color_overlay, -1);
+  return true;
+}
+
+/**
+ * @brief 处理全屏色彩测试浮层点击事件
+ * @param event LVGL 事件
+ * @return
+ * @Date 2026-05-13 09:55:00
+ */
+void ScreenColorOverlayEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+
+  auto* state = static_cast<CitViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->screen_color_overlay == nullptr) {
+    return;
+  }
+
+  lv_event_stop_bubbling(event);
+  if (state->screen_color_index + 1 >= kScreenColorTestColors.size()) {
+    lv_obj_add_flag(state->screen_color_overlay, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+
+  ++state->screen_color_index;
+  UpdateScreenColorOverlayColor(state);
+}
+
+/**
  * @brief 处理屏幕颜色测试按钮点击事件
  * @param event LVGL 事件
  * @return
@@ -1187,21 +1280,11 @@ void ScreenColorStartButtonEventCallback(lv_event_t* event) {
   }
 
   auto* state = static_cast<CitViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->test_content == nullptr) {
+  if (state == nullptr || state->test_page == nullptr) {
     return;
   }
 
-  constexpr uint32_t kColorList[] = {
-      0xFF0000,
-      0x00FF00,
-      0x0000FF,
-      0xFFFFFF,
-      kListBackgroundColor,
-  };
-  state->screen_color_index = (state->screen_color_index + 1) %
-                              (sizeof(kColorList) / sizeof(kColorList[0]));
-  lv_obj_set_style_bg_color(state->test_content,
-      lv_color_hex(kColorList[state->screen_color_index]), LV_PART_MAIN);
+  ShowScreenColorOverlay(state);
 }
 
 /**
@@ -1783,10 +1866,10 @@ bool AddTouchContent(lv_obj_t* content, CitViewState* state) {
  * @Date 2026-05-13 09:55:00
  */
 bool AddScreenColorContent(lv_obj_t* content, CitViewState* state) {
-  state->screen_color_index = 4;
+  state->screen_color_index = 0;
   lv_obj_t* hint = CreateDataLabel(content,
-      "Tap START COLOR to cycle red, green, blue, "
-      "white, and normal background.");
+      "Tap START COLOR for full-screen red, green, "
+      "blue, white, and black test.\nTap screen to switch colors.");
   if (hint == nullptr) {
     return false;
   }
