@@ -9,6 +9,13 @@
 
 namespace lilygo_box::hal {
 
+bool ScreenDevice::PlayVibrationTest(uint8_t* waveform_count) {
+  if (waveform_count != nullptr) {
+    *waveform_count = 0;
+  }
+  return false;
+}
+
 bool ScreenDevice::ReadTouchPoints(
     TouchPoint* points, size_t max_points, size_t* point_count) {
   if (point_count != nullptr) {

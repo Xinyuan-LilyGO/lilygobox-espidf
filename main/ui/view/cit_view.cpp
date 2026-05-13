@@ -798,7 +798,7 @@ void RefreshActiveTestData(CitViewState* state) {
     return;
   }
 
-  char text[256] = {};
+  char text[640] = {};
   if (IsEntryId(*entry, "touch")) {
     RefreshTouchTestData(state);
     return;
@@ -814,14 +814,38 @@ void RefreshActiveTestData(CitViewState* state) {
     return;
   }
 
-  if (IsEntryId(*entry, "battery")) {
+  if (IsEntryId(*entry, "power")) {
     const hal::PowerDiagnostics& power = state->diagnostics.power;
     std::snprintf(text, sizeof(text),
         "battery health data:\nready: %s\nbattery: %s\ncharging: %s\n"
-        "voltage: %d mV\ncurrent: %d mA\ncharge: %d%%",
+        "discharging: %s\nfull: %s\nempty: %s\n"
+        "\n"
+        "voltage: %d mV\ncurrent: %d mA\naverage current: %d mA\n"
+        "average power: %d mW\n"
+        "\n"
+        "charge: %d%%\nhealth: %d%%\ncycle count: %d\n"
+        "capacity:\n"
+        "     remaining: %d mAh\n"
+        "     full: %d mAh\n"
+        "     design: %d mAh\n"
+        "\n"
+        "time:\n"
+        "     empty: %d min\n"
+        "     full: %d min\n"
+        "\n"
+        "temperature:\n"
+        "     battery: %.2f C\n"
+        "     gauge: %.2f C",
         power.ready ? "yes" : "no", power.battery_present ? "present" : "none",
-        power.charging ? "yes" : "no", power.voltage_mv, power.current_ma,
-        power.charge_percent);
+        power.charging ? "yes" : "no", power.discharging ? "yes" : "no",
+        power.full_charged ? "yes" : "no",
+        power.full_discharged ? "yes" : "no", power.voltage_mv,
+        power.current_ma, power.average_current_ma, power.average_power_mw,
+        power.charge_percent, power.health_percent, power.cycle_count,
+        power.remaining_capacity_mah, power.full_charge_capacity_mah,
+        power.design_capacity_mah, power.time_to_empty_min,
+        power.time_to_full_min, power.battery_temperature_c,
+        power.gauge_temperature_c);
     lv_label_set_text(state->test_data_label, text);
   }
 }
@@ -1350,8 +1374,23 @@ void GenericStartButtonEventCallback(lv_event_t* event) {
   }
 
   if (IsEntryId(*entry, "vibration")) {
-    lv_label_set_text(state->test_data_label,
-        "vibration data:\nSTART F0 requested\nconfirm motor response");
+    lv_label_set_text(
+        state->test_data_label, "vibration data:\nplaying RAM waveforms...");
+    lv_refr_now(nullptr);
+
+    uint8_t waveform_count = 0;
+    const bool played = state->screen != nullptr &&
+                        state->screen->PlayVibrationTest(&waveform_count);
+    char text[160] = {};
+    std::snprintf(text, sizeof(text),
+        "vibration data:\n"
+        "status: %s\n"
+        "played waveforms: %u\n"
+        "gain: 255\n"
+        "loop count: 15",
+        played ? "played all RAM waveforms" : "playback failed",
+        static_cast<unsigned int>(waveform_count));
+    lv_label_set_text(state->test_data_label, text);
     return;
   }
   if (IsEntryId(*entry, "speaker")) {
@@ -1496,7 +1535,7 @@ const char* GetTestHint(const app::CitTestEntry& entry) {
     return "Check the screen color and visible area.";
   }
   if (IsEntryId(entry, "vibration")) {
-    return "Confirm the vibration motor response.";
+    return "Tap START VIB to play all RAM waveforms at max strength.";
   }
   if (IsEntryId(entry, "speaker")) {
     return "Confirm the speaker output.";
@@ -1995,6 +2034,9 @@ bool AddDiagnosticsContent(
     initial_text = "imu data:";
   } else if (IsEntryId(entry, "battery")) {
     initial_text = "battery health data:";
+    lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(content, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_ACTIVE);
   }
 
   state->test_data_label = CreateDataLabel(content, initial_text);
@@ -2052,7 +2094,8 @@ bool PopulateTestContent(
     return AddScreenColorContent(content, state);
   }
   if (IsEntryId(entry, "vibration")) {
-    return AddStartButtonContent(content, state, "vibration data:", "START F0");
+    return AddStartButtonContent(
+        content, state, "vibration data:", "START VIB");
   }
   if (IsEntryId(entry, "speaker")) {
     return AddStartButtonContent(content, state, "speaker data:", "START PLAY");

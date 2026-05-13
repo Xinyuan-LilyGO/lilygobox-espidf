@@ -16,6 +16,14 @@
 #include "freertos/task.h"
 
 namespace lilygo_box::hal {
+namespace {
+
+constexpr uint8_t kVibrationTestGain = 255;
+constexpr uint8_t kVibrationTestLoopCount = 15;
+constexpr uint32_t kVibrationTestPlayMs = 220;
+constexpr uint32_t kVibrationTestStopMs = 180;
+
+}  // namespace
 
 TDisplayP4Device::TDisplayP4Device()
     : driver_(lilygo_device_driver::TDisplayP4Driver::GetInstance()) {}
@@ -198,6 +206,59 @@ bool TDisplayP4Device::ReadTouchPoints(
   return false;
 }
 
+bool TDisplayP4Device::PlayVibrationTest(uint8_t* waveform_count) {
+  if (waveform_count != nullptr) {
+    *waveform_count = 0;
+  }
+
+  if (!driver_.status().aw86224.init_flag && !driver_.InitAw86224()) {
+    LogMessage(
+        LogLevel::kWarning, __FILE__, __LINE__, "Aw86224 init retry failed\n");
+    return false;
+  }
+
+  const auto& info = driver_.status().aw86224.ram_waveform_selection.info;
+  if (info.waveform_count == 0) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Aw86224 RAM waveform count is zero\n");
+    return false;
+  }
+
+  LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+      "Aw86224 CIT vibration test: library=%s count=%u gain=%u\n",
+      info.name == nullptr ? "unknown" : info.name,
+      static_cast<unsigned int>(info.waveform_count),
+      static_cast<unsigned int>(kVibrationTestGain));
+
+  for (uint8_t sequence = 1; sequence <= info.waveform_count; ++sequence) {
+    if (!driver_.chip().aw86224->PlayRamWaveform(
+            sequence, kVibrationTestLoopCount, kVibrationTestGain)) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Aw86224 PlayRamWaveform failed, sequence=%u\n",
+          static_cast<unsigned int>(sequence));
+      driver_.chip().aw86224->StopRamPlaybackWaveform();
+      return false;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(kVibrationTestPlayMs));
+
+    if (!driver_.chip().aw86224->StopRamPlaybackWaveform()) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Aw86224 StopRamPlaybackWaveform failed, sequence=%u\n",
+          static_cast<unsigned int>(sequence));
+      return false;
+    }
+
+    if (waveform_count != nullptr) {
+      *waveform_count = sequence;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(kVibrationTestStopMs));
+  }
+
+  return true;
+}
+
 bool TDisplayP4Device::ReadDiagnostics(DeviceDiagnostics* diagnostics) {
   if (diagnostics == nullptr) {
     return false;
@@ -207,8 +268,9 @@ bool TDisplayP4Device::ReadDiagnostics(DeviceDiagnostics* diagnostics) {
   bool result = false;
 
   if (driver_.status().bq27220.init_flag && driver_.chip().bq27220 != nullptr) {
-    cpp_bus_driver::Bq27220xxxx::BatteryStatus battery_status;
-    const bool ret = driver_.chip().bq27220->GetBatteryStatus(battery_status);
+    cpp_bus_driver::Bq27220::BatteryStatus battery_status;
+    const bool battery_status_ok =
+        driver_.chip().bq27220->GetBatteryStatus(battery_status);
     const uint16_t voltage_mv = driver_.chip().bq27220->GetVoltage();
     const int16_t current_ma = driver_.chip().bq27220->GetCurrent();
     const uint16_t charge_percent = driver_.chip().bq27220->GetStatusOfCharge();
@@ -217,10 +279,41 @@ bool TDisplayP4Device::ReadDiagnostics(DeviceDiagnostics* diagnostics) {
       diagnostics->power.ready = true;
       diagnostics->power.voltage_mv = voltage_mv;
       diagnostics->power.current_ma = current_ma;
+      diagnostics->power.average_current_ma =
+          driver_.chip().bq27220->GetAverageCurrent();
+      diagnostics->power.average_power_mw =
+          driver_.chip().bq27220->GetAveragePower();
       diagnostics->power.charge_percent =
           charge_percent == UINT16_MAX ? 0 : charge_percent;
-      diagnostics->power.charging = current_ma > 0;
-      diagnostics->power.battery_present = ret && battery_status.flag.battpres;
+      diagnostics->power.health_percent =
+          driver_.chip().bq27220->GetStatusOfHealth();
+      diagnostics->power.design_capacity_mah =
+          driver_.chip().bq27220->GetDesignCapacity();
+      diagnostics->power.remaining_capacity_mah =
+          driver_.chip().bq27220->GetRemainingCapacity();
+      diagnostics->power.full_charge_capacity_mah =
+          driver_.chip().bq27220->GetFullChargeCapacity();
+      diagnostics->power.time_to_empty_min =
+          driver_.chip().bq27220->GetTimeToEmpty();
+      diagnostics->power.time_to_full_min =
+          driver_.chip().bq27220->GetTimeToFull();
+      diagnostics->power.cycle_count = driver_.chip().bq27220->GetCycleCount();
+      diagnostics->power.battery_temperature_c =
+          driver_.chip().bq27220->GetTemperatureCelsius();
+      diagnostics->power.gauge_temperature_c =
+          driver_.chip().bq27220->GetChipTemperatureCelsius();
+      diagnostics->power.battery_present =
+          battery_status_ok && battery_status.flag.battery_present;
+      diagnostics->power.discharging =
+          battery_status_ok ? battery_status.flag.discharging : current_ma > 0;
+      diagnostics->power.charging =
+          battery_status_ok ? (!battery_status.flag.discharging &&
+                                  current_ma < 0)
+                            : current_ma < 0;
+      diagnostics->power.full_charged =
+          battery_status_ok && battery_status.flag.full_charged;
+      diagnostics->power.full_discharged =
+          battery_status_ok && battery_status.flag.full_discharged;
       result = true;
     }
   }

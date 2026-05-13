@@ -77,6 +77,14 @@ class ScreenDevice {
   virtual DeviceDiagnosticsProvider* diagnostics_provider() { return nullptr; }
 
   /**
+   * @brief 播放振动测试波形
+   * @param waveform_count 实际播放的 RAM 波形数量输出地址
+   * @return 播放成功返回 true，否则返回 false
+   * @Date 2026-05-13 18:20:00
+   */
+  virtual bool PlayVibrationTest(uint8_t* waveform_count);
+
+  /**
    * @brief 注册屏幕 flush 完成回调
    * @param callback flush 完成时调用的回调函数
    * @param callback_context 回调上下文
