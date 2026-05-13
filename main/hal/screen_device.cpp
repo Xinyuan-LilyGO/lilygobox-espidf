@@ -16,6 +16,22 @@ bool ScreenDevice::PlayVibrationTest(uint8_t* waveform_count) {
   return false;
 }
 
+bool ScreenDevice::PlaySpeakerTest(size_t* bytes_written) {
+  if (bytes_written != nullptr) {
+    *bytes_written = 0;
+  }
+  return false;
+}
+
+bool ScreenDevice::StartSpeakerTest() { return false; }
+
+bool ScreenDevice::ReadSpeakerTestStatus(SpeakerTestPlaybackStatus* status) {
+  if (status != nullptr) {
+    *status = SpeakerTestPlaybackStatus();
+  }
+  return false;
+}
+
 bool ScreenDevice::ReadTouchPoints(
     TouchPoint* points, size_t max_points, size_t* point_count) {
   if (point_count != nullptr) {

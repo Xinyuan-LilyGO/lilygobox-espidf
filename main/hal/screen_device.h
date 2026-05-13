@@ -30,6 +30,15 @@ struct ScreenFlushReadyHandler {
   void* context = nullptr;
 };
 
+// 扬声器测试播放状态
+struct SpeakerTestPlaybackStatus {
+  bool running = false;
+  bool completed = false;
+  bool success = false;
+  size_t bytes_written = 0;
+  size_t total_bytes = 0;
+};
+
 class ScreenDevice {
  public:
   virtual ~ScreenDevice() = default;
@@ -83,6 +92,29 @@ class ScreenDevice {
    * @Date 2026-05-13 18:20:00
    */
   virtual bool PlayVibrationTest(uint8_t* waveform_count);
+
+  /**
+   * @brief 播放扬声器测试音频
+   * @param bytes_written 实际写入 I2S 的字节数输出地址
+   * @return 播放成功返回 true，否则返回 false
+   * @Date 2026-05-13 16:55:00
+   */
+  virtual bool PlaySpeakerTest(size_t* bytes_written);
+
+  /**
+   * @brief 创建后台任务播放扬声器测试音频
+   * @return 任务创建成功返回 true，否则返回 false
+   * @Date 2026-05-13 21:00:00
+   */
+  virtual bool StartSpeakerTest();
+
+  /**
+   * @brief 读取扬声器测试播放状态
+   * @param status 播放状态输出地址
+   * @return 读取成功返回 true，否则返回 false
+   * @Date 2026-05-13 21:00:00
+   */
+  virtual bool ReadSpeakerTestStatus(SpeakerTestPlaybackStatus* status);
 
   /**
    * @brief 注册屏幕 flush 完成回调

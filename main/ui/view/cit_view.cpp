@@ -702,6 +702,43 @@ void RefreshTouchTestData(CitViewState* state) {
 }
 
 /**
+ * @brief 刷新扬声器测试播放状态
+ * @param state CIT 页面状态
+ * @return
+ * @Date 2026-05-13 21:00:00
+ */
+void RefreshSpeakerTestData(CitViewState* state) {
+  if (state == nullptr || state->test_data_label == nullptr) {
+    return;
+  }
+
+  hal::SpeakerTestPlaybackStatus status;
+  if (state->screen == nullptr ||
+      !state->screen->ReadSpeakerTestStatus(&status)) {
+    lv_label_set_text(state->test_data_label,
+        "speaker data:\nstatus: unsupported");
+    return;
+  }
+
+  const char* state_text = "ready";
+  if (status.running) {
+    state_text = "playing built-in notification audio";
+  } else if (status.completed) {
+    state_text = status.success ? "playback complete" : "playback failed";
+  }
+
+  char text[192] = {};
+  std::snprintf(text, sizeof(text),
+      "speaker data:\n"
+      "status: %s\n"
+      "audio: 44.1 kHz / 16-bit / stereo\n"
+      "written: %u/%u bytes",
+      state_text, static_cast<unsigned int>(status.bytes_written),
+      static_cast<unsigned int>(status.total_bytes));
+  lv_label_set_text(state->test_data_label, text);
+}
+
+/**
  * @brief 按固定周期刷新诊断数据
  * @param state CIT 页面状态
  * @return
@@ -801,6 +838,11 @@ void RefreshActiveTestData(CitViewState* state) {
   char text[640] = {};
   if (IsEntryId(*entry, "touch")) {
     RefreshTouchTestData(state);
+    return;
+  }
+
+  if (IsEntryId(*entry, "speaker")) {
+    RefreshSpeakerTestData(state);
     return;
   }
 
@@ -1394,8 +1436,18 @@ void GenericStartButtonEventCallback(lv_event_t* event) {
     return;
   }
   if (IsEntryId(*entry, "speaker")) {
+    if (state->screen != nullptr && state->screen->StartSpeakerTest()) {
+      RefreshSpeakerTestData(state);
+      return;
+    }
+
+    hal::SpeakerTestPlaybackStatus status;
+    const bool status_read = state->screen != nullptr &&
+                             state->screen->ReadSpeakerTestStatus(&status);
     lv_label_set_text(state->test_data_label,
-        "speaker data:\nSTART PLAY requested\nconfirm audio output");
+        status_read && status.running
+            ? "speaker data:\nstatus: already playing"
+            : "speaker data:\nstatus: start failed");
   }
 }
 
@@ -1538,7 +1590,7 @@ const char* GetTestHint(const app::CitTestEntry& entry) {
     return "Tap START VIB to play all RAM waveforms at max strength.";
   }
   if (IsEntryId(entry, "speaker")) {
-    return "Confirm the speaker output.";
+    return "Tap START PLAY to play the built-in notification audio.";
   }
   if (IsEntryId(entry, "microphone")) {
     return "Confirm the microphone input.";

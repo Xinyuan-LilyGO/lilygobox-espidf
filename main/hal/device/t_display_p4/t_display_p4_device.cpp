@@ -8,8 +8,10 @@
 #include "hal/device/t_display_p4/t_display_p4_device.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 
+#include "audio/new_notification_010_c2_b16_s44100.h"
 #include "base/logger.h"
 #include "esp_lcd_mipi_dsi.h"
 #include "freertos/FreeRTOS.h"
@@ -22,6 +24,12 @@ constexpr uint8_t kVibrationTestGain = 255;
 constexpr uint8_t kVibrationTestLoopCount = 15;
 constexpr uint32_t kVibrationTestPlayMs = 220;
 constexpr uint32_t kVibrationTestStopMs = 180;
+constexpr size_t kSpeakerTestChunkBytes = 4096;
+constexpr uint32_t kSpeakerTestTaskStackBytes = 4 * 1024;
+constexpr UBaseType_t kSpeakerTestTaskPriority = 3;
+constexpr uint32_t kSpeakerTestSampleRateHz = 44100;
+constexpr uint8_t kSpeakerTestChannelCount = 2;
+constexpr uint8_t kSpeakerTestBitsPerSample = 16;
 
 }  // namespace
 
@@ -257,6 +265,111 @@ bool TDisplayP4Device::PlayVibrationTest(uint8_t* waveform_count) {
   }
 
   return true;
+}
+
+bool TDisplayP4Device::PlaySpeakerTest(size_t* bytes_written) {
+  if (bytes_written != nullptr) {
+    *bytes_written = 0;
+  }
+
+  if (!driver_.status().es8311.init_flag && !driver_.InitEs8311()) {
+    LogMessage(
+        LogLevel::kWarning, __FILE__, __LINE__, "Es8311 init retry failed\n");
+    return false;
+  }
+
+  const auto* audio_data =
+      reinterpret_cast<const uint8_t*>(c2_b16_s44100);
+  const size_t audio_size = sizeof(c2_b16_s44100);
+  speaker_test_total_bytes_.store(audio_size);
+  const size_t frame_size =
+      (kSpeakerTestBitsPerSample / 8) * kSpeakerTestChannelCount;
+  const size_t duration_ms =
+      ((audio_size / frame_size) * 1000U) / kSpeakerTestSampleRateHz;
+
+  LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+      "ES8311 CIT speaker test: bytes=%u, sample_rate=%u, channels=%u, "
+      "duration=%u ms\n",
+      static_cast<unsigned int>(audio_size),
+      static_cast<unsigned int>(kSpeakerTestSampleRateHz),
+      static_cast<unsigned int>(kSpeakerTestChannelCount),
+      static_cast<unsigned int>(duration_ms));
+
+  size_t total_written = 0;
+  while (total_written < audio_size) {
+    const size_t write_size =
+        std::min(kSpeakerTestChunkBytes, audio_size - total_written);
+    const size_t written = driver_.chip().es8311->WriteI2s(
+        audio_data + total_written, write_size);
+    if (written == 0) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "ES8311 WriteI2s failed, written=%u/%u\n",
+          static_cast<unsigned int>(total_written),
+          static_cast<unsigned int>(audio_size));
+      return false;
+    }
+    total_written += written;
+    if (bytes_written != nullptr) {
+      *bytes_written = total_written;
+    }
+    speaker_test_bytes_written_.store(total_written);
+  }
+
+  return true;
+}
+
+bool TDisplayP4Device::StartSpeakerTest() {
+  bool expected = false;
+  if (!speaker_test_running_.compare_exchange_strong(expected, true)) {
+    return false;
+  }
+
+  speaker_test_completed_.store(false);
+  speaker_test_success_.store(false);
+  speaker_test_bytes_written_.store(0);
+  speaker_test_total_bytes_.store(sizeof(c2_b16_s44100));
+
+  const BaseType_t result = xTaskCreate(SpeakerTestTaskEntry,
+      "cit_speaker", kSpeakerTestTaskStackBytes, this,
+      kSpeakerTestTaskPriority, nullptr);
+  if (result != pdPASS) {
+    speaker_test_running_.store(false);
+    speaker_test_completed_.store(true);
+    return false;
+  }
+
+  return true;
+}
+
+bool TDisplayP4Device::ReadSpeakerTestStatus(
+    SpeakerTestPlaybackStatus* status) {
+  if (status == nullptr) {
+    return false;
+  }
+
+  status->running = speaker_test_running_.load();
+  status->completed = speaker_test_completed_.load();
+  status->success = speaker_test_success_.load();
+  status->bytes_written = speaker_test_bytes_written_.load();
+  status->total_bytes = speaker_test_total_bytes_.load();
+  return true;
+}
+
+void TDisplayP4Device::SpeakerTestTaskEntry(void* context) {
+  auto* self = static_cast<TDisplayP4Device*>(context);
+  if (self != nullptr) {
+    self->RunSpeakerTestTask();
+  }
+  vTaskDelete(nullptr);
+}
+
+void TDisplayP4Device::RunSpeakerTestTask() {
+  size_t bytes_written = 0;
+  const bool played = PlaySpeakerTest(&bytes_written);
+  speaker_test_bytes_written_.store(bytes_written);
+  speaker_test_success_.store(played);
+  speaker_test_completed_.store(true);
+  speaker_test_running_.store(false);
 }
 
 bool TDisplayP4Device::ReadDiagnostics(DeviceDiagnostics* diagnostics) {
