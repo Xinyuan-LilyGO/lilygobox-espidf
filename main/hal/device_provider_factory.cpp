@@ -25,6 +25,7 @@ DeviceProviderContext CreateDeviceProviderContext() {
   context.audio = device.get();
   context.haptic = device.get();
   context.bmu = device.get();
+  context.ethernet = device.get();
   context.screen = std::move(device);
   return context;
 #else

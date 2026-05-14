@@ -20,6 +20,7 @@ namespace lilygo_box::hal {
 class AudioProvider;
 class BmuProvider;
 class DeviceDiagnosticsProvider;
+class EthernetProvider;
 class GpsProvider;
 class HapticProvider;
 class ImuProvider;
@@ -40,6 +41,7 @@ class UiManager final {
    * @param haptic 振动提供者指针
    * @param bmu BMU 电池管理提供者指针
    * @param imu IMU 提供者指针
+   * @param ethernet 以太网提供者指针
    * @return 初始化成功返回 true，否则返回 false
    * @Date 2026-05-10 13:01:03
    */
@@ -49,7 +51,8 @@ class UiManager final {
       hal::AudioProvider* audio,
       hal::HapticProvider* haptic,
       hal::BmuProvider* bmu,
-      hal::ImuProvider* imu);
+      hal::ImuProvider* imu,
+      hal::EthernetProvider* ethernet);
 
  private:
   struct AppButtonContext {
@@ -284,6 +287,7 @@ class UiManager final {
   hal::HapticProvider* haptic_provider_ = nullptr;
   hal::BmuProvider* bmu_provider_ = nullptr;
   hal::ImuProvider* imu_provider_ = nullptr;
+  hal::EthernetProvider* ethernet_provider_ = nullptr;
   lv_obj_t* root_screen_ = nullptr;
   StatusBar status_bar_;
   lv_obj_t* launcher_container_ = nullptr;

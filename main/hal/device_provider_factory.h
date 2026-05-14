@@ -12,6 +12,7 @@
 #include "hal/audio_provider.h"
 #include "hal/bmu_provider.h"
 #include "hal/device_diagnostics.h"
+#include "hal/ethernet_provider.h"
 #include "hal/gps_provider.h"
 #include "hal/haptic_provider.h"
 #include "hal/imu_provider.h"
@@ -27,6 +28,7 @@ struct DeviceProviderContext {
   AudioProvider* audio = nullptr;
   HapticProvider* haptic = nullptr;
   BmuProvider* bmu = nullptr;
+  EthernetProvider* ethernet = nullptr;
 };
 
 /**

@@ -25,6 +25,7 @@
 #include "hal/audio_provider.h"
 #include "hal/bmu_provider.h"
 #include "hal/device_diagnostics.h"
+#include "hal/ethernet_provider.h"
 #include "hal/gps_provider.h"
 #include "hal/haptic_provider.h"
 #include "hal/imu_provider.h"
@@ -117,6 +118,7 @@ struct CitViewState {
   hal::HapticProvider* haptic = nullptr;
   hal::BmuProvider* bmu = nullptr;
   hal::ImuProvider* imu = nullptr;
+  hal::EthernetProvider* ethernet = nullptr;
   hal::DeviceDiagnostics diagnostics;
   int diagnostics_elapsed_ms = kDiagnosticsRefreshPeriodMs;
   bool diagnostics_read = false;
@@ -929,6 +931,132 @@ void RefreshGpsTestData(CitViewState* state) {
 }
 
 /**
+ * @brief 格式化打包后的 MAC 地址
+ * @param mac_address 打包后的 MAC 地址
+ * @param buffer 输出缓冲区
+ * @param size 输出缓冲区大小
+ * @return
+ * @Date 2026-05-14 00:20:00
+ */
+void FormatPackedMacAddress(uint64_t mac_address, char* buffer, size_t size) {
+  if (buffer == nullptr || size == 0) {
+    return;
+  }
+
+  if (mac_address == 0) {
+    std::snprintf(buffer, size, "waiting");
+    return;
+  }
+
+  std::snprintf(buffer, size, "%02X:%02X:%02X:%02X:%02X:%02X",
+      static_cast<unsigned int>((mac_address >> 40) & 0xFF),
+      static_cast<unsigned int>((mac_address >> 32) & 0xFF),
+      static_cast<unsigned int>((mac_address >> 24) & 0xFF),
+      static_cast<unsigned int>((mac_address >> 16) & 0xFF),
+      static_cast<unsigned int>((mac_address >> 8) & 0xFF),
+      static_cast<unsigned int>(mac_address & 0xFF));
+}
+
+/**
+ * @brief 格式化 ESP IPv4 地址
+ * @param address IPv4 地址原始值
+ * @param buffer 输出缓冲区
+ * @param size 输出缓冲区大小
+ * @return
+ * @Date 2026-05-14 00:20:00
+ */
+void FormatIpv4Address(uint32_t address, char* buffer, size_t size) {
+  if (buffer == nullptr || size == 0) {
+    return;
+  }
+
+  if (address == 0) {
+    std::snprintf(buffer, size, "--");
+    return;
+  }
+
+  std::snprintf(buffer, size, "%u.%u.%u.%u",
+      static_cast<unsigned int>(address & 0xFF),
+      static_cast<unsigned int>((address >> 8) & 0xFF),
+      static_cast<unsigned int>((address >> 16) & 0xFF),
+      static_cast<unsigned int>((address >> 24) & 0xFF));
+}
+
+/**
+ * @brief 刷新以太网链路和 DHCP 状态
+ * @param state CIT 页面状态
+ * @return
+ * @Date 2026-05-14 00:20:00
+ */
+void RefreshEthernetTestData(CitViewState* state) {
+  if (state == nullptr || state->test_data_label == nullptr) {
+    return;
+  }
+
+  hal::EthernetStatus status;
+  if (state->ethernet == nullptr ||
+      !state->ethernet->ReadEthernetStatus(&status)) {
+    lv_label_set_text(
+        state->test_data_label, "Ethernet data:\nstatus: unsupported");
+    return;
+  }
+
+  const char* status_text = "idle";
+  if (status.initializing) {
+    status_text = "initializing";
+  } else if (status.start_failed) {
+    status_text = "start failed";
+  } else if (status.running) {
+    status_text = "started";
+  } else if (status.initialized) {
+    status_text = "driver ready";
+  }
+
+  const char* dhcp_text = "no link";
+  if (status.got_ip) {
+    dhcp_text = "got ip";
+  } else if (status.link_up) {
+    dhcp_text = "waiting";
+  }
+
+  char mac_address[24] = {};
+  char ip_address[20] = {};
+  char netmask[20] = {};
+  char gateway[20] = {};
+  FormatPackedMacAddress(
+      status.mac_address, mac_address, sizeof(mac_address));
+  FormatIpv4Address(status.ip_address, ip_address, sizeof(ip_address));
+  FormatIpv4Address(status.netmask, netmask, sizeof(netmask));
+  FormatIpv4Address(status.gateway, gateway, sizeof(gateway));
+
+  char text[640] = {};
+  size_t used = 0;
+  AppendFormatted(text, sizeof(text), &used,
+      "Ethernet data:\n"
+      "status: %s\n"
+      "port count: %d\n"
+      "cable: %s\n"
+      "dhcp: %s\n"
+      "\n"
+      "mac:\n"
+      "     %s\n"
+      "ip:\n"
+      "     %s\n"
+      "mask:\n"
+      "     %s\n"
+      "gateway:\n"
+      "     %s",
+      status_text, status.port_count, status.link_up ? "inserted" : "removed",
+      dhcp_text, mac_address, ip_address, netmask, gateway);
+  if (status.start_failed && status.last_error != ESP_OK) {
+    AppendFormatted(text, sizeof(text), &used, "\nerror: %#X",
+        static_cast<unsigned int>(status.last_error));
+  }
+
+  lv_label_set_text(state->test_data_label, text);
+}
+
+/**
  * @brief 按固定周期刷新诊断数据
  * @param state CIT 页面状态
  * @return
@@ -1052,6 +1180,11 @@ void RefreshActiveTestData(CitViewState* state) {
 
   if (IsEntryId(*entry, "gps")) {
     RefreshGpsTestData(state);
+    return;
+  }
+
+  if (IsEntryId(*entry, "ethernet")) {
+    RefreshEthernetTestData(state);
     return;
   }
 
@@ -1815,7 +1948,7 @@ const char* GetTestHint(const app::CitTestEntry& entry) {
     return "Confirm GPS test requirements.";
   }
   if (IsEntryId(entry, "ethernet")) {
-    return "Confirm Ethernet connectivity test requirements.";
+    return "Plug or unplug the Ethernet cable and wait for DHCP IP.";
   }
   if (IsEntryId(entry, "rtc")) {
     return "Confirm RTC time keeping.";
@@ -2398,6 +2531,34 @@ bool AddGpsContent(lv_obj_t* content, CitViewState* state) {
 }
 
 /**
+ * @brief 添加以太网测试内容并异步启动检测
+ * @param content 内容容器
+ * @param state CIT 页面状态
+ * @return 成功返回 true，否则返回 false
+ * @Date 2026-05-14 00:20:00
+ */
+bool AddEthernetContent(lv_obj_t* content, CitViewState* state) {
+  if (state == nullptr) {
+    return false;
+  }
+
+  state->test_data_label =
+      CreateDataLabel(content, "Ethernet data:\nstatus: starting");
+  if (state->test_data_label == nullptr) {
+    return false;
+  }
+
+  if (state->ethernet == nullptr || !state->ethernet->StartEthernet()) {
+    lv_label_set_text(
+        state->test_data_label, "Ethernet data:\nstatus: start failed");
+    return true;
+  }
+
+  RefreshEthernetTestData(state);
+  return true;
+}
+
+/**
  * @brief 添加普通数据展示类测试内容
  * @param content 内容容器
  * @param entry 测试项
@@ -2405,10 +2566,6 @@ bool AddGpsContent(lv_obj_t* content, CitViewState* state) {
  * @Date 2026-05-13 09:55:00
  */
 bool AddPlainDataContent(lv_obj_t* content, const app::CitTestEntry& entry) {
-  if (IsEntryId(entry, "ethernet")) {
-    return CreateDataLabel(content, "Ethernet data:\nwaiting for link data") !=
-           nullptr;
-  }
   if (IsEntryId(entry, "rtc")) {
     return CreateDataLabel(content, "RTC data:\nwaiting for time data") !=
            nullptr;
@@ -2451,6 +2608,9 @@ bool PopulateTestContent(
   }
   if (IsEntryId(entry, "gps")) {
     return AddGpsContent(content, state);
+  }
+  if (IsEntryId(entry, "ethernet")) {
+    return AddEthernetContent(content, state);
   }
   if (IsEntryId(entry, "imu") || IsEntryId(entry, "bmu")) {
     return AddDiagnosticsContent(content, state, entry);
@@ -2757,6 +2917,7 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
   state->haptic = config.haptic;
   state->bmu = config.bmu;
   state->imu = config.imu;
+  state->ethernet = config.ethernet;
   state->root = container;
   state->width = config.width;
   state->height = config.height;

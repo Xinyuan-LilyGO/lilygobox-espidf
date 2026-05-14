@@ -9,10 +9,12 @@
 
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 
 #include "hal/audio_provider.h"
 #include "hal/bmu_provider.h"
 #include "hal/device_diagnostics.h"
+#include "hal/ethernet_provider.h"
 #include "hal/gps_provider.h"
 #include "hal/haptic_provider.h"
 #include "hal/imu_provider.h"
@@ -27,7 +29,8 @@ class TDisplayP4Device final : public ScreenProvider,
                                public ImuProvider,
                                public AudioProvider,
                                public HapticProvider,
-                               public BmuProvider {
+                               public BmuProvider,
+                               public EthernetProvider {
  public:
   TDisplayP4Device();
 
@@ -217,6 +220,21 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ReadImuStatus(ImuStatus* status) override;
 
   /**
+   * @brief 异步启动 IP101 以太网链路检测
+   * @return 启动命令发送成功返回 true，否则返回 false
+   * @Date 2026-05-14 00:20:00
+   */
+  bool StartEthernet() override;
+
+  /**
+   * @brief 读取 IP101 以太网链路和 DHCP 状态
+   * @param status 以太网状态输出地址
+   * @return 读取成功返回 true，否则返回 false
+   * @Date 2026-05-14 00:20:00
+   */
+  bool ReadEthernetStatus(EthernetStatus* status) override;
+
+  /**
    * @brief 启动屏幕背光
    * @return
    * @Date 2026-05-10 13:01:03
@@ -285,6 +303,60 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   void RunMicrophoneTestTask();
 
+  /**
+   * @brief 以太网初始化任务入口
+   * @param context 设备对象指针
+   * @return
+   * @Date 2026-05-14 00:20:00
+   */
+  static void EthernetInitTaskEntry(void* context);
+
+  /**
+   * @brief 执行 IP101 以太网异步初始化
+   * @return
+   * @Date 2026-05-14 00:20:00
+   */
+  void RunEthernetInitTask();
+
+  /**
+   * @brief 初始化 ESP-IDF 以太网驱动和 netif
+   * @return 初始化成功返回 ESP_OK，否则返回错误码
+   * @Date 2026-05-14 00:20:00
+   */
+  int InitializeEthernetStack();
+
+  /**
+   * @brief 记录以太网初始化失败状态
+   * @param error 错误码
+   * @return
+   * @Date 2026-05-14 00:20:00
+   */
+  void SetEthernetFailure(int error);
+
+  /**
+   * @brief 处理以太网链路事件
+   * @param arg 设备对象指针
+   * @param event_base 事件类型
+   * @param event_id 事件 ID
+   * @param event_data 事件数据
+   * @return
+   * @Date 2026-05-14 00:20:00
+   */
+  static void EthernetEventHandler(
+      void* arg, const char* event_base, int32_t event_id, void* event_data);
+
+  /**
+   * @brief 处理以太网 DHCP 获取 IP 事件
+   * @param arg 设备对象指针
+   * @param event_base 事件类型
+   * @param event_id 事件 ID
+   * @param event_data 事件数据
+   * @return
+   * @Date 2026-05-14 00:20:00
+   */
+  static void EthernetGotIpEventHandler(
+      void* arg, const char* event_base, int32_t event_id, void* event_data);
+
   lilygo_device_driver::TDisplayP4Driver& driver_;
   ScreenProviderFlushReadyHandler flush_ready_handler_;
   // 扬声器任务是否正在播放
@@ -309,6 +381,32 @@ class TDisplayP4Device final : public ScreenProvider,
   std::atomic<int> microphone_peak_sample_{0};
   // 麦克风累计读取字节数
   std::atomic<size_t> microphone_bytes_read_{0};
+  // 以太网初始化任务是否正在运行
+  std::atomic<bool> ethernet_initializing_{false};
+  // 以太网驱动是否已经初始化完成
+  std::atomic<bool> ethernet_initialized_{false};
+  // 以太网驱动是否已经启动
+  std::atomic<bool> ethernet_running_{false};
+  // 以太网链路是否已经连接
+  std::atomic<bool> ethernet_link_up_{false};
+  // 以太网是否已经获取 DHCP 地址
+  std::atomic<bool> ethernet_got_ip_{false};
+  // 以太网启动是否失败
+  std::atomic<bool> ethernet_start_failed_{false};
+  // 以太网端口数量
+  std::atomic<int> ethernet_port_count_{0};
+  // 以太网最近一次错误码
+  std::atomic<int> ethernet_last_error_{0};
+  // 以太网 MAC 地址打包值
+  std::atomic<uint64_t> ethernet_mac_address_{0};
+  // 以太网 DHCP IP 地址
+  std::atomic<uint32_t> ethernet_ip_address_{0};
+  // 以太网 DHCP 子网掩码
+  std::atomic<uint32_t> ethernet_netmask_{0};
+  // 以太网 DHCP 网关
+  std::atomic<uint32_t> ethernet_gateway_{0};
+  // ESP-IDF 以太网驱动句柄
+  void* ethernet_handle_ = nullptr;
   bool gps_running_ = false;
   GpsStatus gps_status_;
 };

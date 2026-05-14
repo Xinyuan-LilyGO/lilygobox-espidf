@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-13 23:20:00
+ * @LastEditTime: 2026-05-14 17:25:45
  * @License: GPL 3.0
  */
 #include "hal/device/t_display_p4/t_display_p4_device.h"
@@ -10,14 +10,20 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
-#include <cstdio>
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 #include <new>
 
 #include "audio/new_notification_010_c2_b16_s44100.h"
 #include "base/logger.h"
+#include "esp_err.h"
+#include "esp_eth.h"
+#include "esp_eth_mac.h"
+#include "esp_eth_phy_802_3.h"
+#include "esp_event.h"
 #include "esp_lcd_mipi_dsi.h"
+#include "esp_netif.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -42,6 +48,28 @@ constexpr int kMicrophoneLevelFullScale = 1000;
 constexpr int kMicrophoneLevelRiseDivisor = 4;
 constexpr int kMicrophoneLevelFallDivisor = 8;
 constexpr size_t kGpsMaxReadBufferBytes = 4096;
+constexpr int kEthernetPhyAddress = 1;
+constexpr int kEthernetPhyResetGpio = -1;
+constexpr uint32_t kEthernetInitTaskStackBytes = 6 * 1024;
+constexpr UBaseType_t kEthernetInitTaskPriority = 3;
+
+/**
+ * @brief 将 6 字节 MAC 地址打包为整数
+ * @param mac_address MAC 地址数组
+ * @return 打包后的 MAC 地址
+ * @Date 2026-05-14 00:20:00
+ */
+uint64_t PackMacAddress(const uint8_t* mac_address) {
+  if (mac_address == nullptr) {
+    return 0;
+  }
+
+  uint64_t packed = 0;
+  for (size_t i = 0; i < 6; ++i) {
+    packed = (packed << 8) | mac_address[i];
+  }
+  return packed;
+}
 
 }  // namespace
 
@@ -64,6 +92,58 @@ bool TDisplayP4Device::Init() {
   return true;
 }
 
+bool TDisplayP4Device::StartEthernet() {
+  if (ethernet_initialized_.load()) {
+    if (!ethernet_running_.load() && ethernet_handle_ != nullptr) {
+      const esp_err_t result =
+          esp_eth_start(reinterpret_cast<esp_eth_handle_t>(ethernet_handle_));
+      if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
+        SetEthernetFailure(result);
+        return false;
+      }
+      ethernet_running_.store(true);
+      ethernet_start_failed_.store(false);
+      ethernet_last_error_.store(ESP_OK);
+    }
+    return true;
+  }
+
+  bool expected = false;
+  if (!ethernet_initializing_.compare_exchange_strong(expected, true)) {
+    return true;
+  }
+
+  ethernet_start_failed_.store(false);
+  ethernet_last_error_.store(ESP_OK);
+  const BaseType_t result = xTaskCreate(EthernetInitTaskEntry, "cit_ethernet",
+      kEthernetInitTaskStackBytes, this, kEthernetInitTaskPriority, nullptr);
+  if (result != pdPASS) {
+    SetEthernetFailure(ESP_ERR_NO_MEM);
+    return false;
+  }
+  return true;
+}
+
+bool TDisplayP4Device::ReadEthernetStatus(EthernetStatus* status) {
+  if (status == nullptr) {
+    return false;
+  }
+
+  status->initializing = ethernet_initializing_.load();
+  status->initialized = ethernet_initialized_.load();
+  status->running = ethernet_running_.load();
+  status->link_up = ethernet_link_up_.load();
+  status->got_ip = ethernet_got_ip_.load();
+  status->start_failed = ethernet_start_failed_.load();
+  status->port_count = ethernet_port_count_.load();
+  status->last_error = ethernet_last_error_.load();
+  status->mac_address = ethernet_mac_address_.load();
+  status->ip_address = ethernet_ip_address_.load();
+  status->netmask = ethernet_netmask_.load();
+  status->gateway = ethernet_gateway_.load();
+  return true;
+}
+
 bool TDisplayP4Device::RegisterFlushReadyCallback(
     ScreenProviderFlushReadyCallback callback, void* callback_context) {
   if (!IsScreenReady()) {
@@ -76,9 +156,9 @@ bool TDisplayP4Device::RegisterFlushReadyCallback(
   flush_ready_handler_.context = callback_context;
 
   esp_lcd_dpi_panel_event_callbacks_t panel_callbacks = {
-      .on_color_trans_done =
-          [](esp_lcd_panel_handle_t, esp_lcd_dpi_panel_event_data_t*,
-              void* user_context) -> bool {
+      .on_color_trans_done = [](esp_lcd_panel_handle_t,
+                                 esp_lcd_dpi_panel_event_data_t*,
+                                 void* user_context) -> bool {
         auto* handler =
             static_cast<ScreenProviderFlushReadyHandler*>(user_context);
         if (handler != nullptr && handler->callback != nullptr) {
@@ -86,9 +166,9 @@ bool TDisplayP4Device::RegisterFlushReadyCallback(
         }
         return false;
       },
-      .on_refresh_done =
-          [](esp_lcd_panel_handle_t, esp_lcd_dpi_panel_event_data_t*,
-              void*) -> bool { return false; },
+      .on_refresh_done = [](esp_lcd_panel_handle_t,
+                             esp_lcd_dpi_panel_event_data_t*,
+                             void*) -> bool { return false; },
   };
 
   const auto screen_bus = driver_.bus().screen_mipi_bus;
@@ -291,8 +371,7 @@ bool TDisplayP4Device::PlaySpeakerTone(size_t* bytes_written) {
     return false;
   }
 
-  const auto* audio_data =
-      reinterpret_cast<const uint8_t*>(c2_b16_s44100);
+  const auto* audio_data = reinterpret_cast<const uint8_t*>(c2_b16_s44100);
   const size_t audio_size = sizeof(c2_b16_s44100);
   speaker_test_total_bytes_.store(audio_size);
   const size_t frame_size =
@@ -312,8 +391,8 @@ bool TDisplayP4Device::PlaySpeakerTone(size_t* bytes_written) {
   while (total_written < audio_size) {
     const size_t write_size =
         std::min(kSpeakerTestChunkBytes, audio_size - total_written);
-    const size_t written = driver_.chip().es8311->WriteI2s(
-        audio_data + total_written, write_size);
+    const size_t written =
+        driver_.chip().es8311->WriteI2s(audio_data + total_written, write_size);
     if (written == 0) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "ES8311 WriteI2s failed, written=%u/%u\n",
@@ -342,9 +421,8 @@ bool TDisplayP4Device::StartSpeakerTone() {
   speaker_test_bytes_written_.store(0);
   speaker_test_total_bytes_.store(sizeof(c2_b16_s44100));
 
-  const BaseType_t result = xTaskCreate(SpeakerToneTaskEntry,
-      "cit_speaker", kSpeakerTestTaskStackBytes, this,
-      kSpeakerTestTaskPriority, nullptr);
+  const BaseType_t result = xTaskCreate(SpeakerToneTaskEntry, "cit_speaker",
+      kSpeakerTestTaskStackBytes, this, kSpeakerTestTaskPriority, nullptr);
   if (result != pdPASS) {
     speaker_test_running_.store(false);
     speaker_test_completed_.store(true);
@@ -354,8 +432,7 @@ bool TDisplayP4Device::StartSpeakerTone() {
   return true;
 }
 
-bool TDisplayP4Device::ReadSpeakerToneStatus(
-    SpeakerPlaybackStatus* status) {
+bool TDisplayP4Device::ReadSpeakerToneStatus(SpeakerPlaybackStatus* status) {
   if (status == nullptr) {
     return false;
   }
@@ -444,8 +521,7 @@ bool TDisplayP4Device::SetAdcToDac(bool enable) {
   return true;
 }
 
-bool TDisplayP4Device::ReadMicrophoneStatus(
-    MicrophoneStatus* status) {
+bool TDisplayP4Device::ReadMicrophoneStatus(MicrophoneStatus* status) {
   if (status == nullptr) {
     return false;
   }
@@ -548,8 +624,7 @@ bool TDisplayP4Device::ReadGpsStatus(GpsStatus* status) {
       driver_.chip().l76k->ParseRmcInfo(buffer.get(), data_length, rmc);
   if (next_status.parse_success) {
     std::snprintf(next_status.location_status,
-        sizeof(next_status.location_status), "%s",
-        rmc.location_status.c_str());
+        sizeof(next_status.location_status), "%s", rmc.location_status.c_str());
 
     if (rmc.utc.update_flag) {
       next_status.utc.ready = true;
@@ -570,8 +645,7 @@ bool TDisplayP4Device::ReadGpsStatus(GpsStatus* status) {
       next_status.latitude.ready = true;
       next_status.latitude.degrees = rmc.location.lat.degrees;
       next_status.latitude.minutes = rmc.location.lat.minutes;
-      next_status.latitude.degrees_minutes =
-          rmc.location.lat.degrees_minutes;
+      next_status.latitude.degrees_minutes = rmc.location.lat.degrees_minutes;
       std::snprintf(next_status.latitude.direction,
           sizeof(next_status.latitude.direction), "%s",
           rmc.location.lat.direction.c_str());
@@ -582,8 +656,7 @@ bool TDisplayP4Device::ReadGpsStatus(GpsStatus* status) {
       next_status.longitude.ready = true;
       next_status.longitude.degrees = rmc.location.lon.degrees;
       next_status.longitude.minutes = rmc.location.lon.minutes;
-      next_status.longitude.degrees_minutes =
-          rmc.location.lon.degrees_minutes;
+      next_status.longitude.degrees_minutes = rmc.location.lon.degrees_minutes;
       std::snprintf(next_status.longitude.direction,
           sizeof(next_status.longitude.direction), "%s",
           rmc.location.lon.direction.c_str());
@@ -610,9 +683,8 @@ void TDisplayP4Device::MicrophoneTestTaskEntry(void* context) {
 void TDisplayP4Device::RunMicrophoneTestTask() {
   std::array<int16_t, kMicrophoneReadSampleCount> samples = {};
   while (!microphone_test_stop_requested_.load()) {
-    const size_t read_bytes =
-        driver_.chip().es8311->ReadI2s(samples.data(),
-            samples.size() * sizeof(samples[0]));
+    const size_t read_bytes = driver_.chip().es8311->ReadI2s(
+        samples.data(), samples.size() * sizeof(samples[0]));
     if (read_bytes > 0) {
       microphone_bytes_read_.fetch_add(read_bytes);
 
@@ -628,8 +700,8 @@ void TDisplayP4Device::RunMicrophoneTestTask() {
 
       const int average_sample =
           sample_count == 0 ? 0 : absolute_sum / static_cast<int>(sample_count);
-      const int target_level_percent = std::min(
-          100, (average_sample * 100) / kMicrophoneLevelFullScale);
+      const int target_level_percent =
+          std::min(100, (average_sample * 100) / kMicrophoneLevelFullScale);
       const int current_level_percent = microphone_level_percent_.load();
       const int difference = target_level_percent - current_level_percent;
       const int divisor = difference > 0 ? kMicrophoneLevelRiseDivisor
@@ -652,6 +724,226 @@ void TDisplayP4Device::RunMicrophoneTestTask() {
   microphone_level_percent_.store(0);
   microphone_peak_sample_.store(0);
   microphone_test_running_.store(false);
+}
+
+void TDisplayP4Device::EthernetInitTaskEntry(void* context) {
+  auto* self = static_cast<TDisplayP4Device*>(context);
+  if (self != nullptr) {
+    self->RunEthernetInitTask();
+  }
+  vTaskDelete(nullptr);
+}
+
+void TDisplayP4Device::RunEthernetInitTask() {
+  const int result = InitializeEthernetStack();
+  if (result != ESP_OK) {
+    SetEthernetFailure(result);
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Ethernet init failed (error code: %#X)\n", result);
+  }
+  ethernet_initializing_.store(false);
+}
+
+int TDisplayP4Device::InitializeEthernetStack() {
+  if (ethernet_handle_ != nullptr) {
+    const esp_err_t start_result =
+        esp_eth_start(reinterpret_cast<esp_eth_handle_t>(ethernet_handle_));
+    if (start_result != ESP_OK && start_result != ESP_ERR_INVALID_STATE) {
+      return start_result;
+    }
+    ethernet_initialized_.store(true);
+    ethernet_running_.store(true);
+    ethernet_start_failed_.store(false);
+    ethernet_last_error_.store(ESP_OK);
+    return ESP_OK;
+  }
+
+  esp_err_t result = esp_netif_init();
+  if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
+    return result;
+  }
+
+  result = esp_event_loop_create_default();
+  if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
+    return result;
+  }
+
+  eth_mac_config_t mac_config = ETH_MAC_DEFAULT_CONFIG();
+  eth_phy_config_t phy_config = ETH_PHY_DEFAULT_CONFIG();
+  phy_config.phy_addr = kEthernetPhyAddress;
+  phy_config.reset_gpio_num = kEthernetPhyResetGpio;
+
+  eth_esp32_emac_config_t emac_config = {};
+  emac_config.smi_gpio.mdc_num = ETHERNET_MDC;
+  emac_config.smi_gpio.mdio_num = ETHERNET_MDIO;
+  emac_config.interface = EMAC_DATA_INTERFACE_RMII;
+  emac_config.clock_config.rmii.clock_mode = EMAC_CLK_EXT_IN;
+  emac_config.clock_config.rmii.clock_gpio =
+      static_cast<emac_rmii_clock_gpio_t>(50);
+  emac_config.dma_burst_len = ETH_DMA_BURST_LEN_32;
+  emac_config.intr_priority = 0;
+#if SOC_EMAC_USE_MULTI_IO_MUX || SOC_EMAC_MII_USE_GPIO_MATRIX
+  emac_config.emac_dataif_gpio.rmii.tx_en_num = 49;
+  emac_config.emac_dataif_gpio.rmii.txd0_num = 34;
+  emac_config.emac_dataif_gpio.rmii.txd1_num = 35;
+  emac_config.emac_dataif_gpio.rmii.crs_dv_num = 28;
+  emac_config.emac_dataif_gpio.rmii.rxd0_num = 29;
+  emac_config.emac_dataif_gpio.rmii.rxd1_num = 30;
+#endif
+#if !SOC_EMAC_RMII_CLK_OUT_INTERNAL_LOOPBACK
+  emac_config.clock_config_out_in.rmii.clock_mode = EMAC_CLK_EXT_IN;
+  emac_config.clock_config_out_in.rmii.clock_gpio =
+      static_cast<emac_rmii_clock_gpio_t>(-1);
+#endif
+  emac_config.mdc_freq_hz = 0;
+
+  esp_eth_mac_t* mac = esp_eth_mac_new_esp32(&emac_config, &mac_config);
+  if (mac == nullptr) {
+    return ESP_ERR_NO_MEM;
+  }
+
+  esp_eth_phy_t* phy = esp_eth_phy_new_ip101(&phy_config);
+  if (phy == nullptr) {
+    mac->del(mac);
+    return ESP_ERR_NO_MEM;
+  }
+
+  esp_eth_handle_t handle = nullptr;
+  esp_eth_config_t config = ETH_DEFAULT_CONFIG(mac, phy);
+  result = esp_eth_driver_install(&config, &handle);
+  if (result != ESP_OK) {
+    mac->del(mac);
+    phy->del(phy);
+    return result;
+  }
+
+  esp_netif_inherent_config_t inherent_config = *ESP_NETIF_BASE_DEFAULT_ETH;
+  esp_netif_config_t netif_config = {
+      .base = &inherent_config,
+      .driver = nullptr,
+      .stack = ESP_NETIF_NETSTACK_DEFAULT_ETH,
+  };
+  esp_netif_t* netif = esp_netif_new(&netif_config);
+  if (netif == nullptr) {
+    return ESP_ERR_NO_MEM;
+  }
+
+  auto glue = esp_eth_new_netif_glue(handle);
+  if (glue == nullptr) {
+    return ESP_ERR_NO_MEM;
+  }
+
+  result = esp_netif_attach(netif, glue);
+  if (result != ESP_OK) {
+    return result;
+  }
+
+  result = esp_event_handler_register(
+      ETH_EVENT, ESP_EVENT_ANY_ID, EthernetEventHandler, this);
+  if (result != ESP_OK) {
+    return result;
+  }
+
+  result = esp_event_handler_register(
+      IP_EVENT, IP_EVENT_ETH_GOT_IP, EthernetGotIpEventHandler, this);
+  if (result != ESP_OK) {
+    return result;
+  }
+
+  ethernet_handle_ = handle;
+  ethernet_port_count_.store(1);
+
+  result = esp_eth_start(handle);
+  if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
+    return result;
+  }
+
+  ethernet_initialized_.store(true);
+  ethernet_running_.store(true);
+  ethernet_start_failed_.store(false);
+  ethernet_last_error_.store(ESP_OK);
+  return ESP_OK;
+}
+
+void TDisplayP4Device::SetEthernetFailure(int error) {
+  ethernet_initializing_.store(false);
+  ethernet_initialized_.store(ethernet_handle_ != nullptr);
+  ethernet_running_.store(false);
+  ethernet_link_up_.store(false);
+  ethernet_got_ip_.store(false);
+  ethernet_start_failed_.store(true);
+  ethernet_last_error_.store(error);
+  ethernet_ip_address_.store(0);
+  ethernet_netmask_.store(0);
+  ethernet_gateway_.store(0);
+}
+
+void TDisplayP4Device::EthernetEventHandler(
+    void* arg, const char* event_base, int32_t event_id, void* event_data) {
+  (void)event_base;
+  auto* self = static_cast<TDisplayP4Device*>(arg);
+  if (self == nullptr) {
+    return;
+  }
+
+  switch (event_id) {
+    case ETHERNET_EVENT_CONNECTED: {
+      self->ethernet_running_.store(true);
+      self->ethernet_link_up_.store(true);
+      self->ethernet_got_ip_.store(false);
+      self->ethernet_ip_address_.store(0);
+      self->ethernet_netmask_.store(0);
+      self->ethernet_gateway_.store(0);
+
+      if (event_data != nullptr) {
+        esp_eth_handle_t handle = *static_cast<esp_eth_handle_t*>(event_data);
+        uint8_t mac_address[6] = {};
+        if (esp_eth_ioctl(handle, ETH_CMD_G_MAC_ADDR, mac_address) == ESP_OK) {
+          self->ethernet_mac_address_.store(PackMacAddress(mac_address));
+        }
+      }
+      break;
+    }
+    case ETHERNET_EVENT_DISCONNECTED:
+      self->ethernet_link_up_.store(false);
+      self->ethernet_got_ip_.store(false);
+      self->ethernet_ip_address_.store(0);
+      self->ethernet_netmask_.store(0);
+      self->ethernet_gateway_.store(0);
+      break;
+    case ETHERNET_EVENT_START:
+      self->ethernet_running_.store(true);
+      self->ethernet_start_failed_.store(false);
+      self->ethernet_last_error_.store(ESP_OK);
+      break;
+    case ETHERNET_EVENT_STOP:
+      self->ethernet_running_.store(false);
+      self->ethernet_link_up_.store(false);
+      self->ethernet_got_ip_.store(false);
+      self->ethernet_ip_address_.store(0);
+      self->ethernet_netmask_.store(0);
+      self->ethernet_gateway_.store(0);
+      break;
+    default:
+      break;
+  }
+}
+
+void TDisplayP4Device::EthernetGotIpEventHandler(
+    void* arg, const char* event_base, int32_t event_id, void* event_data) {
+  (void)event_base;
+  (void)event_id;
+  auto* self = static_cast<TDisplayP4Device*>(arg);
+  auto* event = static_cast<ip_event_got_ip_t*>(event_data);
+  if (self == nullptr || event == nullptr) {
+    return;
+  }
+
+  self->ethernet_link_up_.store(true);
+  self->ethernet_got_ip_.store(true);
+  self->ethernet_ip_address_.store(event->ip_info.ip.addr);
+  self->ethernet_netmask_.store(event->ip_info.netmask.addr);
+  self->ethernet_gateway_.store(event->ip_info.gw.addr);
 }
 
 bool TDisplayP4Device::ReadDiagnostics(DeviceDiagnostics* diagnostics) {
@@ -684,23 +976,18 @@ bool TDisplayP4Device::ReadBmuStatus(BmuStatus* status) {
       status->ready = true;
       status->voltage_mv = voltage_mv;
       status->current_ma = current_ma;
-      status->average_current_ma =
-          driver_.chip().bq27220->GetAverageCurrent();
-      status->average_bmu_mw =
-          driver_.chip().bq27220->GetAveragePower();
-      status->charge_percent = charge_percent == UINT16_MAX ? 0
-                                                            : charge_percent;
+      status->average_current_ma = driver_.chip().bq27220->GetAverageCurrent();
+      status->average_bmu_mw = driver_.chip().bq27220->GetAveragePower();
+      status->charge_percent =
+          charge_percent == UINT16_MAX ? 0 : charge_percent;
       status->health_percent = driver_.chip().bq27220->GetStatusOfHealth();
-      status->design_capacity_mah =
-          driver_.chip().bq27220->GetDesignCapacity();
+      status->design_capacity_mah = driver_.chip().bq27220->GetDesignCapacity();
       status->remaining_capacity_mah =
           driver_.chip().bq27220->GetRemainingCapacity();
       status->full_charge_capacity_mah =
           driver_.chip().bq27220->GetFullChargeCapacity();
-      status->time_to_empty_min =
-          driver_.chip().bq27220->GetTimeToEmpty();
-      status->time_to_full_min =
-          driver_.chip().bq27220->GetTimeToFull();
+      status->time_to_empty_min = driver_.chip().bq27220->GetTimeToEmpty();
+      status->time_to_full_min = driver_.chip().bq27220->GetTimeToFull();
       status->cycle_count = driver_.chip().bq27220->GetCycleCount();
       status->pack_temperature_c =
           driver_.chip().bq27220->GetTemperatureCelsius();
@@ -711,11 +998,10 @@ bool TDisplayP4Device::ReadBmuStatus(BmuStatus* status) {
       status->discharging =
           bmu_status_ok ? bmu_status_flags.flag.discharging : current_ma > 0;
       status->charging =
-          bmu_status_ok ? (!bmu_status_flags.flag.discharging &&
-                                  current_ma < 0)
-                            : current_ma < 0;
-      status->full_charged = bmu_status_ok &&
-                             bmu_status_flags.flag.full_charged;
+          bmu_status_ok ? (!bmu_status_flags.flag.discharging && current_ma < 0)
+                        : current_ma < 0;
+      status->full_charged =
+          bmu_status_ok && bmu_status_flags.flag.full_charged;
       status->full_discharged =
           bmu_status_ok && bmu_status_flags.flag.full_discharged;
       return true;

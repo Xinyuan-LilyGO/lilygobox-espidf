@@ -24,7 +24,10 @@ idf_component_register(
     PRIV_REQUIRES
         esp_app_format
         esp_common
+        esp_eth
+        esp_event
         esp_hw_support
+        esp_netif
         esp_system
         freertos
         heap
