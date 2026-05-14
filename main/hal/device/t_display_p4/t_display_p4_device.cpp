@@ -28,6 +28,7 @@
 #include "freertos/task.h"
 
 namespace lilygo_box::hal {
+namespace gpio = lilygo_device_driver::t_display_p4::gpio;
 namespace {
 
 constexpr uint8_t kVibrationTestGain = 255;
@@ -183,8 +184,8 @@ bool TDisplayP4Device::RegisterFlushReadyCallback(
 
   esp_lcd_panel_handle_t panel = screen_bus->device_handle();
   if (panel == nullptr) {
-    LogMessage(
-        LogLevel::kError, __FILE__, __LINE__, "Screen panel handle is empty\n");
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Screen panel handle is empty\n");
     return false;
   }
 
@@ -288,7 +289,8 @@ bool TDisplayP4Device::ReadTouchPoints(
   return *point_count > 0;
 #elif defined(CONFIG_SCREEN_TYPE_RM69A10)
   cpp_bus_driver::Gt9895::TouchPoint touch_point;
-  const bool result = driver_.chip().gt9895->GetMultipleTouchPoint(touch_point);
+  const bool result =
+      driver_.chip().gt9895->GetMultipleTouchPoint(touch_point);
   if (!result || touch_point.info.empty()) {
     return false;
   }
@@ -394,8 +396,8 @@ bool TDisplayP4Device::PlaySpeakerTone(size_t* bytes_written) {
   while (total_written < audio_size) {
     const size_t write_size =
         std::min(kSpeakerTestChunkBytes, audio_size - total_written);
-    const size_t written =
-        driver_.chip().es8311->WriteI2s(audio_data + total_written, write_size);
+    const size_t written = driver_.chip().es8311->WriteI2s(
+        audio_data + total_written, write_size);
     if (written == 0) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "ES8311 WriteI2s failed, written=%u/%u\n",
@@ -627,7 +629,8 @@ bool TDisplayP4Device::ReadGpsStatus(GpsStatus* status) {
       driver_.chip().l76k->ParseRmcInfo(buffer.get(), data_length, rmc);
   if (next_status.parse_success) {
     std::snprintf(next_status.location_status,
-        sizeof(next_status.location_status), "%s", rmc.location_status.c_str());
+        sizeof(next_status.location_status), "%s",
+        rmc.location_status.c_str());
 
     if (rmc.utc.update_flag) {
       next_status.utc.ready = true;
@@ -701,8 +704,10 @@ void TDisplayP4Device::RunMicrophoneTestTask() {
         peak_sample = std::max(peak_sample, absolute_sample);
       }
 
-      const int average_sample =
-          sample_count == 0 ? 0 : absolute_sum / static_cast<int>(sample_count);
+      const int average_sample = sample_count == 0
+                                     ? 0
+                                     : absolute_sum /
+                                           static_cast<int>(sample_count);
       const int target_level_percent =
           std::min(100, (average_sample * 100) / kMicrophoneLevelFullScale);
       const int current_level_percent = microphone_level_percent_.load();
@@ -773,30 +778,30 @@ int TDisplayP4Device::InitializeEthernetStack() {
 
   eth_mac_config_t mac_config = ETH_MAC_DEFAULT_CONFIG();
   eth_phy_config_t phy_config = ETH_PHY_DEFAULT_CONFIG();
-  phy_config.phy_addr = ETHERNET_PHY_ADDRESS;
-  phy_config.reset_gpio_num = ETHERNET_PHY_RST;
+  phy_config.phy_addr = device::kEthernetPhyAddress;
+  phy_config.reset_gpio_num = gpio::kEthernetPhyRst;
 
   eth_esp32_emac_config_t emac_config = {};
-  emac_config.smi_gpio.mdc_num = ETHERNET_MDC;
-  emac_config.smi_gpio.mdio_num = ETHERNET_MDIO;
+  emac_config.smi_gpio.mdc_num = gpio::kEthernetMdc;
+  emac_config.smi_gpio.mdio_num = gpio::kEthernetMdio;
   emac_config.interface = EMAC_DATA_INTERFACE_RMII;
   emac_config.clock_config.rmii.clock_mode = EMAC_CLK_EXT_IN;
   emac_config.clock_config.rmii.clock_gpio =
-      static_cast<emac_rmii_clock_gpio_t>(ETHERNET_RMII_REF_CLK);
+      static_cast<emac_rmii_clock_gpio_t>(gpio::kEthernetRmiiRefClk);
   emac_config.dma_burst_len = ETH_DMA_BURST_LEN_32;
   emac_config.intr_priority = 0;
 #if SOC_EMAC_USE_MULTI_IO_MUX || SOC_EMAC_MII_USE_GPIO_MATRIX
-  emac_config.emac_dataif_gpio.rmii.tx_en_num = ETHERNET_RMII_TX_EN;
-  emac_config.emac_dataif_gpio.rmii.txd0_num = ETHERNET_RMII_TXD0;
-  emac_config.emac_dataif_gpio.rmii.txd1_num = ETHERNET_RMII_TXD1;
-  emac_config.emac_dataif_gpio.rmii.crs_dv_num = ETHERNET_RMII_CRS_DV;
-  emac_config.emac_dataif_gpio.rmii.rxd0_num = ETHERNET_RMII_RXD0;
-  emac_config.emac_dataif_gpio.rmii.rxd1_num = ETHERNET_RMII_RXD1;
+  emac_config.emac_dataif_gpio.rmii.tx_en_num = gpio::kEthernetRmiiTxEn;
+  emac_config.emac_dataif_gpio.rmii.txd0_num = gpio::kEthernetRmiiTxd0;
+  emac_config.emac_dataif_gpio.rmii.txd1_num = gpio::kEthernetRmiiTxd1;
+  emac_config.emac_dataif_gpio.rmii.crs_dv_num = gpio::kEthernetRmiiCrsDv;
+  emac_config.emac_dataif_gpio.rmii.rxd0_num = gpio::kEthernetRmiiRxd0;
+  emac_config.emac_dataif_gpio.rmii.rxd1_num = gpio::kEthernetRmiiRxd1;
 #endif
 #if !SOC_EMAC_RMII_CLK_OUT_INTERNAL_LOOPBACK
   emac_config.clock_config_out_in.rmii.clock_mode = EMAC_CLK_EXT_IN;
   emac_config.clock_config_out_in.rmii.clock_gpio =
-      static_cast<emac_rmii_clock_gpio_t>(ETHERNET_RMII_CLK_OUT);
+      static_cast<emac_rmii_clock_gpio_t>(gpio::kEthernetRmiiClkOut);
 #endif
   emac_config.mdc_freq_hz = 0;
 
@@ -967,13 +972,15 @@ bool TDisplayP4Device::ReadBmuStatus(BmuStatus* status) {
 
   *status = BmuStatus();
 
-  if (driver_.status().bq27220.init_flag && driver_.chip().bq27220 != nullptr) {
+  if (driver_.status().bq27220.init_flag &&
+      driver_.chip().bq27220 != nullptr) {
     cpp_bus_driver::Bq27220::BatteryStatus bmu_status_flags;
     const bool bmu_status_ok =
         driver_.chip().bq27220->GetBatteryStatus(bmu_status_flags);
     const uint16_t voltage_mv = driver_.chip().bq27220->GetVoltage();
     const int16_t current_ma = driver_.chip().bq27220->GetCurrent();
-    const uint16_t charge_percent = driver_.chip().bq27220->GetStatusOfCharge();
+    const uint16_t charge_percent =
+        driver_.chip().bq27220->GetStatusOfCharge();
 
     if (voltage_mv > 0 && voltage_mv != UINT16_MAX) {
       status->ready = true;
@@ -984,7 +991,8 @@ bool TDisplayP4Device::ReadBmuStatus(BmuStatus* status) {
       status->charge_percent =
           charge_percent == UINT16_MAX ? 0 : charge_percent;
       status->health_percent = driver_.chip().bq27220->GetStatusOfHealth();
-      status->design_capacity_mah = driver_.chip().bq27220->GetDesignCapacity();
+      status->design_capacity_mah =
+          driver_.chip().bq27220->GetDesignCapacity();
       status->remaining_capacity_mah =
           driver_.chip().bq27220->GetRemainingCapacity();
       status->full_charge_capacity_mah =
@@ -1000,9 +1008,10 @@ bool TDisplayP4Device::ReadBmuStatus(BmuStatus* status) {
           bmu_status_ok && bmu_status_flags.flag.battery_present;
       status->discharging =
           bmu_status_ok ? bmu_status_flags.flag.discharging : current_ma > 0;
-      status->charging =
-          bmu_status_ok ? (!bmu_status_flags.flag.discharging && current_ma < 0)
-                        : current_ma < 0;
+      status->charging = bmu_status_ok
+                             ? (!bmu_status_flags.flag.discharging &&
+                                   current_ma < 0)
+                             : current_ma < 0;
       status->full_charged =
           bmu_status_ok && bmu_status_flags.flag.full_charged;
       status->full_discharged =
