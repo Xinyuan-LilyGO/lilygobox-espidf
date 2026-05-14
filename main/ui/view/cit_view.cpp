@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-14 00:04:59
+ * @LastEditTime: 2026-05-14 20:51:00
  * @License: GPL 3.0
  */
 #include "ui/view/cit_view.h"
@@ -744,7 +744,7 @@ void RefreshTouchTestData(CitViewState* state) {
   char text[768] = {};
   size_t used = 0;
   AppendFormatted(text, sizeof(text), &used,
-      "touch data:\nactive: %u/%u  p=pressure\ntrace: %u\n",
+      "touch data:\nactive: %u/%u\ntrace: %u\n",
       static_cast<unsigned>(point_count),
       static_cast<unsigned>(kTouchDisplayPointCount),
       static_cast<unsigned>(state->touch_trace_point_count));
