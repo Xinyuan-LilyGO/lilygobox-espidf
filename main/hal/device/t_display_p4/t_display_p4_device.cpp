@@ -28,6 +28,7 @@
 #include "freertos/task.h"
 
 namespace lilygo_box::hal {
+namespace device = lilygo_device_driver::t_display_p4::device;
 namespace gpio = lilygo_device_driver::t_display_p4::gpio;
 namespace {
 
@@ -94,6 +95,22 @@ bool TDisplayP4Device::Init() {
     return false;
   }
   return true;
+}
+
+int TDisplayP4Device::width() const {
+  return driver_.screen_info().width;
+}
+
+int TDisplayP4Device::height() const {
+  return driver_.screen_info().height;
+}
+
+int TDisplayP4Device::bits_per_pixel() const {
+  return driver_.screen_info().bits_per_pixel;
+}
+
+const char* TDisplayP4Device::screen_type() const {
+  return driver_.screen_info().name;
 }
 
 bool TDisplayP4Device::StartEthernet() {
@@ -207,13 +224,16 @@ bool TDisplayP4Device::WritePixels(
     return false;
   }
 
-#if defined(CONFIG_SCREEN_TYPE_HI8561)
-  return driver_.chip().hi8561->SendColorStreamCoordinate(
-      x_start, y_start, x_end, y_end, pixels);
-#elif defined(CONFIG_SCREEN_TYPE_RM69A10)
-  return driver_.chip().rm69a10->SendColorStreamCoordinate(
-      x_start, y_start, x_end, y_end, pixels);
-#endif
+  switch (driver_.screen_type()) {
+    case device::ScreenType::kHi8561:
+      return driver_.chip().hi8561->SendColorStreamCoordinate(
+          x_start, y_start, x_end, y_end, pixels);
+    case device::ScreenType::kRm69a10:
+      return driver_.chip().rm69a10->SendColorStreamCoordinate(
+          x_start, y_start, x_end, y_end, pixels);
+    default:
+      break;
+  }
   return false;
 }
 
@@ -226,30 +246,36 @@ bool TDisplayP4Device::ReadTouch(TouchPoint* point) {
     return false;
   }
 
-#if defined(CONFIG_SCREEN_TYPE_HI8561)
-  cpp_bus_driver::Hi8561Touch::TouchPoint touch_point;
-  const bool result =
-      driver_.chip().hi8561_touch->GetSingleTouchPoint(touch_point);
-  if (!result || touch_point.info.empty()) {
-    return false;
+  switch (driver_.screen_type()) {
+    case device::ScreenType::kHi8561: {
+      cpp_bus_driver::Hi8561Touch::TouchPoint touch_point;
+      const bool result =
+          driver_.chip().hi8561_touch->GetSingleTouchPoint(touch_point);
+      if (!result || touch_point.info.empty()) {
+        return false;
+      }
+      point->id = 1;
+      point->x = touch_point.info[0].x;
+      point->y = touch_point.info[0].y;
+      point->pressure = touch_point.info[0].pressure_value;
+      return true;
+    }
+    case device::ScreenType::kRm69a10: {
+      cpp_bus_driver::Gt9895::TouchPoint touch_point;
+      const bool result =
+          driver_.chip().gt9895->GetSingleTouchPoint(touch_point);
+      if (!result || touch_point.info.empty()) {
+        return false;
+      }
+      point->id = touch_point.info[0].finger_id;
+      point->x = touch_point.info[0].x;
+      point->y = touch_point.info[0].y;
+      point->pressure = touch_point.info[0].pressure_value;
+      return true;
+    }
+    default:
+      break;
   }
-  point->id = 1;
-  point->x = touch_point.info[0].x;
-  point->y = touch_point.info[0].y;
-  point->pressure = touch_point.info[0].pressure_value;
-  return true;
-#elif defined(CONFIG_SCREEN_TYPE_RM69A10)
-  cpp_bus_driver::Gt9895::TouchPoint touch_point;
-  const bool result = driver_.chip().gt9895->GetSingleTouchPoint(touch_point);
-  if (!result || touch_point.info.empty()) {
-    return false;
-  }
-  point->id = touch_point.info[0].finger_id;
-  point->x = touch_point.info[0].x;
-  point->y = touch_point.info[0].y;
-  point->pressure = touch_point.info[0].pressure_value;
-  return true;
-#endif
   return false;
 }
 
@@ -266,49 +292,54 @@ bool TDisplayP4Device::ReadTouchPoints(
     return false;
   }
 
-#if defined(CONFIG_SCREEN_TYPE_HI8561)
-  cpp_bus_driver::Hi8561Touch::TouchPoint touch_point;
-  const bool result =
-      driver_.chip().hi8561_touch->GetMultipleTouchPoint(touch_point);
-  if (!result || touch_point.info.empty()) {
-    return false;
-  }
+  switch (driver_.screen_type()) {
+    case device::ScreenType::kHi8561: {
+      cpp_bus_driver::Hi8561Touch::TouchPoint touch_point;
+      const bool result =
+          driver_.chip().hi8561_touch->GetMultipleTouchPoint(touch_point);
+      if (!result || touch_point.info.empty()) {
+        return false;
+      }
 
-  const size_t count = std::min(max_points, touch_point.info.size());
-  for (size_t i = 0; i < count; ++i) {
-    if (touch_point.info[i].x == UINT16_MAX &&
-        touch_point.info[i].y == UINT16_MAX) {
-      continue;
+      const size_t count = std::min(max_points, touch_point.info.size());
+      for (size_t i = 0; i < count; ++i) {
+        if (touch_point.info[i].x == UINT16_MAX &&
+            touch_point.info[i].y == UINT16_MAX) {
+          continue;
+        }
+        points[*point_count].id = static_cast<uint8_t>(i + 1);
+        points[*point_count].x = touch_point.info[i].x;
+        points[*point_count].y = touch_point.info[i].y;
+        points[*point_count].pressure = touch_point.info[i].pressure_value;
+        ++(*point_count);
+      }
+      return *point_count > 0;
     }
-    points[*point_count].id = static_cast<uint8_t>(i + 1);
-    points[*point_count].x = touch_point.info[i].x;
-    points[*point_count].y = touch_point.info[i].y;
-    points[*point_count].pressure = touch_point.info[i].pressure_value;
-    ++(*point_count);
-  }
-  return *point_count > 0;
-#elif defined(CONFIG_SCREEN_TYPE_RM69A10)
-  cpp_bus_driver::Gt9895::TouchPoint touch_point;
-  const bool result =
-      driver_.chip().gt9895->GetMultipleTouchPoint(touch_point);
-  if (!result || touch_point.info.empty()) {
-    return false;
-  }
+    case device::ScreenType::kRm69a10: {
+      cpp_bus_driver::Gt9895::TouchPoint touch_point;
+      const bool result =
+          driver_.chip().gt9895->GetMultipleTouchPoint(touch_point);
+      if (!result || touch_point.info.empty()) {
+        return false;
+      }
 
-  const size_t count = std::min(max_points, touch_point.info.size());
-  for (size_t i = 0; i < count; ++i) {
-    if (touch_point.info[i].x == UINT16_MAX &&
-        touch_point.info[i].y == UINT16_MAX) {
-      continue;
+      const size_t count = std::min(max_points, touch_point.info.size());
+      for (size_t i = 0; i < count; ++i) {
+        if (touch_point.info[i].x == UINT16_MAX &&
+            touch_point.info[i].y == UINT16_MAX) {
+          continue;
+        }
+        points[*point_count].id = touch_point.info[i].finger_id;
+        points[*point_count].x = touch_point.info[i].x;
+        points[*point_count].y = touch_point.info[i].y;
+        points[*point_count].pressure = touch_point.info[i].pressure_value;
+        ++(*point_count);
+      }
+      return *point_count > 0;
     }
-    points[*point_count].id = touch_point.info[i].finger_id;
-    points[*point_count].x = touch_point.info[i].x;
-    points[*point_count].y = touch_point.info[i].y;
-    points[*point_count].pressure = touch_point.info[i].pressure_value;
-    ++(*point_count);
+    default:
+      break;
   }
-  return *point_count > 0;
-#endif
   return false;
 }
 
@@ -778,30 +809,30 @@ int TDisplayP4Device::InitializeEthernetStack() {
 
   eth_mac_config_t mac_config = ETH_MAC_DEFAULT_CONFIG();
   eth_phy_config_t phy_config = ETH_PHY_DEFAULT_CONFIG();
-  phy_config.phy_addr = device::kEthernetPhyAddress;
-  phy_config.reset_gpio_num = gpio::kEthernetPhyRst;
+  phy_config.phy_addr = device::ip101::kPhyAddress;
+  phy_config.reset_gpio_num = gpio::ip101::kPhyRst;
 
   eth_esp32_emac_config_t emac_config = {};
-  emac_config.smi_gpio.mdc_num = gpio::kEthernetMdc;
-  emac_config.smi_gpio.mdio_num = gpio::kEthernetMdio;
+  emac_config.smi_gpio.mdc_num = gpio::ip101::kRmiiMdc;
+  emac_config.smi_gpio.mdio_num = gpio::ip101::kRmiiMdio;
   emac_config.interface = EMAC_DATA_INTERFACE_RMII;
   emac_config.clock_config.rmii.clock_mode = EMAC_CLK_EXT_IN;
   emac_config.clock_config.rmii.clock_gpio =
-      static_cast<emac_rmii_clock_gpio_t>(gpio::kEthernetRmiiRefClk);
+      static_cast<emac_rmii_clock_gpio_t>(gpio::ip101::kRmiiRefClk);
   emac_config.dma_burst_len = ETH_DMA_BURST_LEN_32;
   emac_config.intr_priority = 0;
 #if SOC_EMAC_USE_MULTI_IO_MUX || SOC_EMAC_MII_USE_GPIO_MATRIX
-  emac_config.emac_dataif_gpio.rmii.tx_en_num = gpio::kEthernetRmiiTxEn;
-  emac_config.emac_dataif_gpio.rmii.txd0_num = gpio::kEthernetRmiiTxd0;
-  emac_config.emac_dataif_gpio.rmii.txd1_num = gpio::kEthernetRmiiTxd1;
-  emac_config.emac_dataif_gpio.rmii.crs_dv_num = gpio::kEthernetRmiiCrsDv;
-  emac_config.emac_dataif_gpio.rmii.rxd0_num = gpio::kEthernetRmiiRxd0;
-  emac_config.emac_dataif_gpio.rmii.rxd1_num = gpio::kEthernetRmiiRxd1;
+  emac_config.emac_dataif_gpio.rmii.tx_en_num = gpio::ip101::kRmiiTxEn;
+  emac_config.emac_dataif_gpio.rmii.txd0_num = gpio::ip101::kRmiiTxd0;
+  emac_config.emac_dataif_gpio.rmii.txd1_num = gpio::ip101::kRmiiTxd1;
+  emac_config.emac_dataif_gpio.rmii.crs_dv_num = gpio::ip101::kRmiiCrsDv;
+  emac_config.emac_dataif_gpio.rmii.rxd0_num = gpio::ip101::kRmiiRxd0;
+  emac_config.emac_dataif_gpio.rmii.rxd1_num = gpio::ip101::kRmiiRxd1;
 #endif
 #if !SOC_EMAC_RMII_CLK_OUT_INTERNAL_LOOPBACK
   emac_config.clock_config_out_in.rmii.clock_mode = EMAC_CLK_EXT_IN;
   emac_config.clock_config_out_in.rmii.clock_gpio =
-      static_cast<emac_rmii_clock_gpio_t>(gpio::kEthernetRmiiClkOut);
+      static_cast<emac_rmii_clock_gpio_t>(gpio::ip101::kRmiiClkOut);
 #endif
   emac_config.mdc_freq_hz = 0;
 
@@ -1047,18 +1078,27 @@ bool TDisplayP4Device::ReadImuStatus(ImuStatus* status) {
 }
 
 void TDisplayP4Device::StartBacklight() {
-#if defined(CONFIG_SCREEN_TYPE_HI8561)
-  if (driver_.status().hi8561_backlight.init_flag) {
-    driver_.chip().hi8561_backlight->StartGradientTime(100, 500);
+  if (!WaitForScreenReady()) {
+    return;
   }
-#elif defined(CONFIG_SCREEN_TYPE_RM69A10)
-  if (driver_.status().rm69a10.init_flag) {
-    for (uint8_t brightness = 0; brightness < 180; brightness += 5) {
-      driver_.chip().rm69a10->SetBrightness(brightness);
-      vTaskDelay(pdMS_TO_TICKS(10));
-    }
+
+  switch (driver_.screen_type()) {
+    case device::ScreenType::kHi8561:
+      if (driver_.status().hi8561_backlight.init_flag) {
+        driver_.chip().hi8561_backlight->StartGradientTime(100, 500);
+      }
+      break;
+    case device::ScreenType::kRm69a10:
+      if (driver_.status().rm69a10.init_flag) {
+        for (uint8_t brightness = 0; brightness < 180; brightness += 5) {
+          driver_.chip().rm69a10->SetBrightness(brightness);
+          vTaskDelay(pdMS_TO_TICKS(10));
+        }
+      }
+      break;
+    default:
+      break;
   }
-#endif
 }
 
 bool TDisplayP4Device::WaitForScreenReady() {
@@ -1078,22 +1118,31 @@ bool TDisplayP4Device::IsScreenReady() const {
     return false;
   }
 
-#if defined(CONFIG_SCREEN_TYPE_HI8561)
-  return driver_.status().hi8561.init_flag && driver_.chip().hi8561 != nullptr;
-#elif defined(CONFIG_SCREEN_TYPE_RM69A10)
-  return driver_.status().rm69a10.init_flag &&
-         driver_.chip().rm69a10 != nullptr;
-#endif
+  switch (driver_.screen_type()) {
+    case device::ScreenType::kHi8561:
+      return driver_.status().hi8561.init_flag &&
+             driver_.status().hi8561_backlight.init_flag &&
+             driver_.chip().hi8561 != nullptr;
+    case device::ScreenType::kRm69a10:
+      return driver_.status().rm69a10.init_flag &&
+             driver_.chip().rm69a10 != nullptr;
+    default:
+      break;
+  }
   return false;
 }
 
 bool TDisplayP4Device::IsTouchReady() const {
-#if defined(CONFIG_SCREEN_TYPE_HI8561)
-  return driver_.status().hi8561_touch.init_flag &&
-         driver_.chip().hi8561_touch != nullptr;
-#elif defined(CONFIG_SCREEN_TYPE_RM69A10)
-  return driver_.status().gt9895.init_flag && driver_.chip().gt9895 != nullptr;
-#endif
+  switch (driver_.screen_type()) {
+    case device::ScreenType::kHi8561:
+      return driver_.status().hi8561_touch.init_flag &&
+             driver_.chip().hi8561_touch != nullptr;
+    case device::ScreenType::kRm69a10:
+      return driver_.status().gt9895.init_flag &&
+             driver_.chip().gt9895 != nullptr;
+    default:
+      break;
+  }
   return false;
 }
 

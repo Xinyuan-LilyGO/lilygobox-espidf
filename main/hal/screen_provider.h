@@ -45,6 +45,13 @@ class ScreenProvider {
   virtual const char* name() const = 0;
 
   /**
+   * @brief 获取当前屏幕类型名称
+   * @return 屏幕类型名称字符串，未知时返回 unknown
+   * @Date 2026-05-15 00:00:00
+   */
+  virtual const char* screen_type() const { return "unknown"; }
+
+  /**
    * @brief 获取屏幕宽度
    * @return 屏幕宽度，单位为像素
    * @Date 2026-05-10 13:01:03

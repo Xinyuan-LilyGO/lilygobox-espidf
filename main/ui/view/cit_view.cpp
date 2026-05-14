@@ -2076,14 +2076,8 @@ const char* ConfiguredDeviceName() {
  * @return 字符串指针
  * @Date 2026-05-13 09:55:00
  */
-const char* ConfiguredScreenType() {
-#if defined(CONFIG_SCREEN_TYPE_HI8561)
-  return "hi8561";
-#elif defined(CONFIG_SCREEN_TYPE_RM69A10)
-  return "rm69a10";
-#else
-  return "unknown";
-#endif
+const char* ConfiguredScreenType(hal::ScreenProvider* screen) {
+  return screen == nullptr ? "unknown" : screen->screen_type();
 }
 
 /**
@@ -2261,7 +2255,7 @@ bool AddVersionContent(lv_obj_t* content, CitViewState* state) {
       static_cast<unsigned long>(heap_caps_get_total_size(MALLOC_CAP_SPIRAM)),
       ConfiguredDeviceName(), app_project_name, app_version, app_build_date,
       app_build_time, esp_get_idf_version(), ConfiguredTargetArch(),
-      ConfiguredScreenType(), screen_width, screen_height,
+      ConfiguredScreenType(state->screen), screen_width, screen_height,
       ScreenPixelFormat(screen_bpp), ConfiguredCameraType(),
       ConfiguredCameraPixelFormat(), LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR,
       LVGL_VERSION_PATCH, LVGL_VERSION_INFO);

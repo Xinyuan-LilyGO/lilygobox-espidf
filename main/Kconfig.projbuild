@@ -32,18 +32,6 @@ menu "LilygoBox Configuration"
             bool "T-Display-P4 V2.0"
     endchoice
 
-    choice SCREEN_TYPE
-        prompt "T-Display-P4 screen type"
-        depends on LILYGO_BOX_DEVICE_T_DISPLAY_P4
-        default SCREEN_TYPE_HI8561
-
-        config SCREEN_TYPE_HI8561
-            bool "HI8561"
-
-        config SCREEN_TYPE_RM69A10
-            bool "RM69A10"
-    endchoice
-
     choice SCREEN_PIXEL_FORMAT
         prompt "Screen color format"
         depends on LILYGO_BOX_DEVICE_T_DISPLAY_P4

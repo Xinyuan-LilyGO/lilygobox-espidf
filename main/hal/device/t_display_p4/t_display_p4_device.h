@@ -22,8 +22,6 @@
 #include "t_display_p4_driver.h"
 
 namespace lilygo_box::hal {
-namespace device = lilygo_device_driver::t_display_p4::device;
-
 class TDisplayP4Device final : public ScreenProvider,
                                public DeviceDiagnosticsProvider,
                                public GpsProvider,
@@ -54,27 +52,28 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 屏幕宽度，单位为像素
    * @Date 2026-05-10 13:01:03
    */
-  int width() const override {
-    return device::kScreenWidth;
-  }
+  int width() const override;
 
   /**
    * @brief 获取屏幕高度
    * @return 屏幕高度，单位为像素
    * @Date 2026-05-10 13:01:03
    */
-  int height() const override {
-    return device::kScreenHeight;
-  }
+  int height() const override;
 
   /**
    * @brief 获取单个像素的位数
    * @return 单个像素的位数
    * @Date 2026-05-10 13:01:03
    */
-  int bits_per_pixel() const override {
-    return device::kScreenBitsPerPixel;
-  }
+  int bits_per_pixel() const override;
+
+  /**
+   * @brief 获取当前自动识别到的屏幕类型名称
+   * @return 屏幕类型名称字符串
+   * @Date 2026-05-15 00:00:00
+   */
+  const char* screen_type() const override;
 
   /**
    * @brief 播放 AW86224 RAM 振动波形
