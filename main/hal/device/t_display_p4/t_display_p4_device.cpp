@@ -48,8 +48,6 @@ constexpr int kMicrophoneLevelFullScale = 1000;
 constexpr int kMicrophoneLevelRiseDivisor = 4;
 constexpr int kMicrophoneLevelFallDivisor = 8;
 constexpr size_t kGpsMaxReadBufferBytes = 4096;
-constexpr int kEthernetPhyAddress = 1;
-constexpr int kEthernetPhyResetGpio = -1;
 constexpr uint32_t kEthernetInitTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kEthernetInitTaskPriority = 3;
 
@@ -84,6 +82,11 @@ bool TDisplayP4Device::Init() {
         "TDisplayP4Driver::Init failed\n");
   }
 
+  if (!StartEthernet()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "TDisplayP4Device::StartEthernet failed\n");
+  }
+
   if (!WaitForScreenReady()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "TDisplayP4Device::WaitForScreenReady failed\n");
@@ -115,7 +118,7 @@ bool TDisplayP4Device::StartEthernet() {
 
   ethernet_start_failed_.store(false);
   ethernet_last_error_.store(ESP_OK);
-  const BaseType_t result = xTaskCreate(EthernetInitTaskEntry, "cit_ethernet",
+  const BaseType_t result = xTaskCreate(EthernetInitTaskEntry, "ethernet",
       kEthernetInitTaskStackBytes, this, kEthernetInitTaskPriority, nullptr);
   if (result != pdPASS) {
     SetEthernetFailure(ESP_ERR_NO_MEM);
@@ -770,8 +773,8 @@ int TDisplayP4Device::InitializeEthernetStack() {
 
   eth_mac_config_t mac_config = ETH_MAC_DEFAULT_CONFIG();
   eth_phy_config_t phy_config = ETH_PHY_DEFAULT_CONFIG();
-  phy_config.phy_addr = kEthernetPhyAddress;
-  phy_config.reset_gpio_num = kEthernetPhyResetGpio;
+  phy_config.phy_addr = ETHERNET_PHY_ADDRESS;
+  phy_config.reset_gpio_num = ETHERNET_PHY_RST;
 
   eth_esp32_emac_config_t emac_config = {};
   emac_config.smi_gpio.mdc_num = ETHERNET_MDC;
@@ -779,21 +782,21 @@ int TDisplayP4Device::InitializeEthernetStack() {
   emac_config.interface = EMAC_DATA_INTERFACE_RMII;
   emac_config.clock_config.rmii.clock_mode = EMAC_CLK_EXT_IN;
   emac_config.clock_config.rmii.clock_gpio =
-      static_cast<emac_rmii_clock_gpio_t>(50);
+      static_cast<emac_rmii_clock_gpio_t>(ETHERNET_RMII_REF_CLK);
   emac_config.dma_burst_len = ETH_DMA_BURST_LEN_32;
   emac_config.intr_priority = 0;
 #if SOC_EMAC_USE_MULTI_IO_MUX || SOC_EMAC_MII_USE_GPIO_MATRIX
-  emac_config.emac_dataif_gpio.rmii.tx_en_num = 49;
-  emac_config.emac_dataif_gpio.rmii.txd0_num = 34;
-  emac_config.emac_dataif_gpio.rmii.txd1_num = 35;
-  emac_config.emac_dataif_gpio.rmii.crs_dv_num = 28;
-  emac_config.emac_dataif_gpio.rmii.rxd0_num = 29;
-  emac_config.emac_dataif_gpio.rmii.rxd1_num = 30;
+  emac_config.emac_dataif_gpio.rmii.tx_en_num = ETHERNET_RMII_TX_EN;
+  emac_config.emac_dataif_gpio.rmii.txd0_num = ETHERNET_RMII_TXD0;
+  emac_config.emac_dataif_gpio.rmii.txd1_num = ETHERNET_RMII_TXD1;
+  emac_config.emac_dataif_gpio.rmii.crs_dv_num = ETHERNET_RMII_CRS_DV;
+  emac_config.emac_dataif_gpio.rmii.rxd0_num = ETHERNET_RMII_RXD0;
+  emac_config.emac_dataif_gpio.rmii.rxd1_num = ETHERNET_RMII_RXD1;
 #endif
 #if !SOC_EMAC_RMII_CLK_OUT_INTERNAL_LOOPBACK
   emac_config.clock_config_out_in.rmii.clock_mode = EMAC_CLK_EXT_IN;
   emac_config.clock_config_out_in.rmii.clock_gpio =
-      static_cast<emac_rmii_clock_gpio_t>(-1);
+      static_cast<emac_rmii_clock_gpio_t>(ETHERNET_RMII_CLK_OUT);
 #endif
   emac_config.mdc_freq_hz = 0;
 
