@@ -5,7 +5,7 @@
  * @LastEditTime: 2026-05-12 22:15:00
  * @License: GPL 3.0
  */
-#include "ui/edge_back_gesture.h"
+#include "ui/input/edge_back_gesture.h"
 
 #include "lvgl_private.h"
 

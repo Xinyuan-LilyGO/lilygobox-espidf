@@ -14,7 +14,7 @@
 #include "app/app_catalog.h"
 #include "hal/screen_provider.h"
 #include "lvgl.h"
-#include "ui/shell/status_bar.h"
+#include "ui/widgets/status_bar.h"
 
 namespace lilygo_box::hal {
 class AudioProvider;

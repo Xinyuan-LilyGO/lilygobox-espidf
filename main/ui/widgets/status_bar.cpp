@@ -5,7 +5,7 @@
  * @LastEditTime: 2026-05-12 01:08:42
  * @License: GPL 3.0
  */
-#include "ui/shell/status_bar.h"
+#include "ui/widgets/status_bar.h"
 
 #include <cstdint>
 

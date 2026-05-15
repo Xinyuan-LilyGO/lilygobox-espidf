@@ -12,13 +12,13 @@
 #include <cstring>
 
 #include "app/app_catalog.h"
-#include "ui/app_view_gesture_flags.h"
 #include "ui/app_view_factory.h"
-#include "ui/edge_back_gesture.h"
 #include "ui/font/font_assets.h"
 #include "ui/font/material_symbols_assets.h"
 #include "ui/icon/icon_assets.h"
-#include "ui/press_cancel.h"
+#include "ui/input/app_view_gesture_flags.h"
+#include "ui/input/edge_back_gesture.h"
+#include "ui/input/press_cancel.h"
 
 namespace lilygo_box::ui {
 namespace {

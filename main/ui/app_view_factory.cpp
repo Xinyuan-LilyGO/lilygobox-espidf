@@ -10,7 +10,7 @@
 #include <cstring>
 
 #include "ui/font/font_assets.h"
-#include "ui/view/cit_view.h"
+#include "ui/views/cit_view.h"
 
 namespace lilygo_box::ui {
 namespace {

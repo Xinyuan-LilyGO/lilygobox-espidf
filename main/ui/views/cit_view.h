@@ -9,7 +9,7 @@
 
 #include "app/app_catalog.h"
 #include "lvgl.h"
-#include "ui/view/app_view_config.h"
+#include "ui/views/app_view_config.h"
 
 namespace lilygo_box::ui {
 

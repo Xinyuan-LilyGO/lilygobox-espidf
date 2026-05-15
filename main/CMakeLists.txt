@@ -6,8 +6,9 @@ set(src_dirs
     "ui"
     "ui/font"
     "ui/icon"
-    "ui/shell"
-    "ui/view")
+    "ui/input"
+    "ui/views"
+    "ui/widgets")
 
 if(CONFIG_LILYGO_BOX_DEVICE_T_DISPLAY_P4)
     list(APPEND src_dirs "hal/device/t_display_p4")

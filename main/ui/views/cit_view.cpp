@@ -5,7 +5,7 @@
  * @LastEditTime: 2026-05-15 10:16:17
  * @License: GPL 3.0
  */
-#include "ui/view/cit_view.h"
+#include "ui/views/cit_view.h"
 
 #include <algorithm>
 #include <array>
@@ -34,11 +34,11 @@
 #include "hal/screen_provider.h"
 #include "hal/wifi_provider.h"
 #include "sdkconfig.h"
-#include "ui/app_view_gesture_flags.h"
-#include "ui/edge_back_gesture.h"
+#include "ui/input/app_view_gesture_flags.h"
+#include "ui/input/edge_back_gesture.h"
 #include "ui/font/font_assets.h"
 #include "ui/font/material_symbols_assets.h"
-#include "ui/press_cancel.h"
+#include "ui/input/press_cancel.h"
 
 namespace lilygo_box::ui {
 namespace {
