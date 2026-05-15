@@ -16,6 +16,7 @@
 #include "hal/gps_provider.h"
 #include "hal/haptic_provider.h"
 #include "hal/imu_provider.h"
+#include "hal/rtc_provider.h"
 #include "hal/screen_provider.h"
 
 namespace lilygo_box::hal {
@@ -28,6 +29,7 @@ struct DeviceProviderContext {
   AudioProvider* audio = nullptr;
   HapticProvider* haptic = nullptr;
   BmuProvider* bmu = nullptr;
+  RtcProvider* rtc = nullptr;
   EthernetProvider* ethernet = nullptr;
 };
 

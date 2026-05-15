@@ -17,6 +17,7 @@ class EthernetProvider;
 class GpsProvider;
 class HapticProvider;
 class ImuProvider;
+class RtcProvider;
 class ScreenProvider;
 }  // namespace lilygo_box::hal
 
@@ -31,6 +32,7 @@ struct AppViewConfig {
   hal::AudioProvider* audio = nullptr;
   hal::HapticProvider* haptic = nullptr;
   hal::BmuProvider* bmu = nullptr;
+  hal::RtcProvider* rtc = nullptr;
   hal::ImuProvider* imu = nullptr;
   hal::EthernetProvider* ethernet = nullptr;
   lv_event_cb_t back_callback = nullptr;

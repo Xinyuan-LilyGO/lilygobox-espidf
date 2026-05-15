@@ -24,6 +24,7 @@ class EthernetProvider;
 class GpsProvider;
 class HapticProvider;
 class ImuProvider;
+class RtcProvider;
 }  // namespace lilygo_box::hal
 
 namespace lilygo_box::ui {
@@ -40,6 +41,7 @@ class UiManager final {
    * @param audio 音频提供者指针
    * @param haptic 振动提供者指针
    * @param bmu BMU 电池管理提供者指针
+   * @param rtc RTC 提供者指针
    * @param imu IMU 提供者指针
    * @param ethernet 以太网提供者指针
    * @return 初始化成功返回 true，否则返回 false
@@ -51,6 +53,7 @@ class UiManager final {
       hal::AudioProvider* audio,
       hal::HapticProvider* haptic,
       hal::BmuProvider* bmu,
+      hal::RtcProvider* rtc,
       hal::ImuProvider* imu,
       hal::EthernetProvider* ethernet);
 
@@ -286,6 +289,7 @@ class UiManager final {
   hal::AudioProvider* audio_provider_ = nullptr;
   hal::HapticProvider* haptic_provider_ = nullptr;
   hal::BmuProvider* bmu_provider_ = nullptr;
+  hal::RtcProvider* rtc_provider_ = nullptr;
   hal::ImuProvider* imu_provider_ = nullptr;
   hal::EthernetProvider* ethernet_provider_ = nullptr;
   lv_obj_t* root_screen_ = nullptr;

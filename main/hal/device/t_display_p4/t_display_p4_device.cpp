@@ -1043,6 +1043,36 @@ bool TDisplayP4Device::ReadBmuStatus(BmuStatus* status) {
   return false;
 }
 
+bool TDisplayP4Device::ReadRtcStatus(RtcStatus* status) {
+  if (status == nullptr) {
+    return false;
+  }
+
+  *status = RtcStatus();
+
+  if (!driver_.status().pcf8563.init_flag && !driver_.InitPcf8563()) {
+    LogMessage(
+        LogLevel::kWarning, __FILE__, __LINE__, "Pcf8563 init retry failed\n");
+    return false;
+  }
+
+  cpp_bus_driver::Pcf8563x::Time time;
+  if (!driver_.chip().pcf8563->GetTime(time)) {
+    return false;
+  }
+
+  status->ready = true;
+  status->clock_integrity = driver_.chip().pcf8563->CheckClockIntegrityFlag();
+  status->year = static_cast<uint16_t>(time.year) + 2000;
+  status->month = time.month;
+  status->day = time.day;
+  status->week = static_cast<uint8_t>(time.week);
+  status->hour = time.hour;
+  status->minute = time.minute;
+  status->second = time.second;
+  return true;
+}
+
 bool TDisplayP4Device::ReadImuStatus(ImuStatus* status) {
   if (status == nullptr) {
     return false;

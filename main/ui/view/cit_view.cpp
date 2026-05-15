@@ -29,6 +29,7 @@
 #include "hal/gps_provider.h"
 #include "hal/haptic_provider.h"
 #include "hal/imu_provider.h"
+#include "hal/rtc_provider.h"
 #include "hal/screen_provider.h"
 #include "sdkconfig.h"
 #include "ui/app_view_gesture_flags.h"
@@ -120,6 +121,7 @@ struct CitViewState {
   hal::AudioProvider* audio = nullptr;
   hal::HapticProvider* haptic = nullptr;
   hal::BmuProvider* bmu = nullptr;
+  hal::RtcProvider* rtc = nullptr;
   hal::ImuProvider* imu = nullptr;
   hal::EthernetProvider* ethernet = nullptr;
   hal::DeviceDiagnostics diagnostics;
@@ -934,6 +936,75 @@ void RefreshGpsTestData(CitViewState* state) {
 }
 
 /**
+ * @brief 将 RTC 星期数字转换为显示文本
+ * @param week 星期数字
+ * @return 星期文本
+ * @Date 2026-05-15 10:40:00
+ */
+const char* RtcWeekName(uint8_t week) {
+  switch (week) {
+    case 0:
+      return "Sun";
+    case 1:
+      return "Mon";
+    case 2:
+      return "Tue";
+    case 3:
+      return "Wed";
+    case 4:
+      return "Thu";
+    case 5:
+      return "Fri";
+    case 6:
+      return "Sat";
+    default:
+      return "unknown";
+  }
+}
+
+/**
+ * @brief 刷新 PCF8563 RTC 日期时间和完整性状态
+ * @param state CIT 页面状态
+ * @return
+ * @Date 2026-05-15 10:40:00
+ */
+void RefreshRtcTestData(CitViewState* state) {
+  if (state == nullptr || state->test_data_label == nullptr) {
+    return;
+  }
+
+  hal::RtcStatus status;
+  if (state->rtc == nullptr) {
+    lv_label_set_text(state->test_data_label, "RTC data:\nstatus: unsupported");
+    return;
+  }
+
+  if (!state->rtc->ReadRtcStatus(&status)) {
+    lv_label_set_text(state->test_data_label, "RTC data:\nstatus: read failed");
+    return;
+  }
+
+  char text[320] = {};
+  std::snprintf(text, sizeof(text),
+      "RTC data:\n"
+      "status: %s\n"
+      "clock integrity: %s\n"
+      "\n"
+      "date: %04u/%02u/%02u\n"
+      "time: %02u:%02u:%02u\n"
+      "week: %s",
+      status.ready ? "ready" : "not ready",
+      status.clock_integrity ? "valid" : "not guaranteed",
+      static_cast<unsigned int>(status.year),
+      static_cast<unsigned int>(status.month),
+      static_cast<unsigned int>(status.day),
+      static_cast<unsigned int>(status.hour),
+      static_cast<unsigned int>(status.minute),
+      static_cast<unsigned int>(status.second), RtcWeekName(status.week));
+  lv_label_set_text(state->test_data_label, text);
+}
+
+/**
  * @brief 格式化打包后的 MAC 地址
  * @param mac_address 打包后的 MAC 地址
  * @param buffer 输出缓冲区
@@ -1188,6 +1259,11 @@ void RefreshActiveTestData(CitViewState* state) {
 
   if (IsEntryId(*entry, "ethernet")) {
     RefreshEthernetTestData(state);
+    return;
+  }
+
+  if (IsEntryId(*entry, "rtc")) {
+    RefreshRtcTestData(state);
     return;
   }
 
@@ -2566,6 +2642,28 @@ bool AddEthernetContent(lv_obj_t* content, CitViewState* state) {
 }
 
 /**
+ * @brief 添加 RTC 测试内容并刷新 PCF8563 时间数据
+ * @param content 内容容器
+ * @param state CIT 页面状态
+ * @return 成功返回 true，否则返回 false
+ * @Date 2026-05-15 10:40:00
+ */
+bool AddRtcContent(lv_obj_t* content, CitViewState* state) {
+  if (state == nullptr) {
+    return false;
+  }
+
+  state->test_data_label =
+      CreateDataLabel(content, "RTC data:\nstatus: starting");
+  if (state->test_data_label == nullptr) {
+    return false;
+  }
+
+  RefreshRtcTestData(state);
+  return true;
+}
+
+/**
  * @brief 添加普通数据展示类测试内容
  * @param content 内容容器
  * @param entry 测试项
@@ -2573,10 +2671,6 @@ bool AddEthernetContent(lv_obj_t* content, CitViewState* state) {
  * @Date 2026-05-13 09:55:00
  */
 bool AddPlainDataContent(lv_obj_t* content, const app::CitTestEntry& entry) {
-  if (IsEntryId(entry, "rtc")) {
-    return CreateDataLabel(content, "RTC data:\nwaiting for time data") !=
-           nullptr;
-  }
   if (IsEntryId(entry, "wifi")) {
     return CreateDataLabel(content, "WIFI time data:\nwaiting for time data") !=
            nullptr;
@@ -2618,6 +2712,9 @@ bool PopulateTestContent(
   }
   if (IsEntryId(entry, "ethernet")) {
     return AddEthernetContent(content, state);
+  }
+  if (IsEntryId(entry, "rtc")) {
+    return AddRtcContent(content, state);
   }
   if (IsEntryId(entry, "imu") || IsEntryId(entry, "bmu")) {
     return AddDiagnosticsContent(content, state, entry);
@@ -2928,6 +3025,7 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
   state->audio = config.audio;
   state->haptic = config.haptic;
   state->bmu = config.bmu;
+  state->rtc = config.rtc;
   state->imu = config.imu;
   state->ethernet = config.ethernet;
   state->root = container;

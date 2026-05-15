@@ -695,6 +695,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
     hal::AudioProvider* audio,
     hal::HapticProvider* haptic,
     hal::BmuProvider* bmu,
+    hal::RtcProvider* rtc,
     hal::ImuProvider* imu,
     hal::EthernetProvider* ethernet) {
   if (screen == nullptr) {
@@ -706,6 +707,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   audio_provider_ = audio;
   haptic_provider_ = haptic;
   bmu_provider_ = bmu;
+  rtc_provider_ = rtc;
   imu_provider_ = imu;
   ethernet_provider_ = ethernet;
 
@@ -1449,6 +1451,7 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   config.audio = audio_provider_;
   config.haptic = haptic_provider_;
   config.bmu = bmu_provider_;
+  config.rtc = rtc_provider_;
   config.imu = imu_provider_;
   config.ethernet = ethernet_provider_;
   config.back_callback = BackButtonEventCallback;
