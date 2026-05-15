@@ -94,6 +94,7 @@ struct CitViewState;
 struct CitStatusRow {
   const app::CitTestEntry* entry = nullptr;
   CitViewState* state = nullptr;
+  lv_obj_t* row_object = nullptr;
   lv_obj_t* icon_label = nullptr;
   lv_obj_t* name_label = nullptr;
   lv_obj_t* pressed_background = nullptr;
@@ -134,6 +135,7 @@ struct CitViewState {
   std::array<app::CitTestStatus, app::kMaxCitTestEntryCount> test_statuses;
   size_t row_count = 0;
   size_t current_test_index = 0;
+  size_t pending_test_index = app::kMaxCitTestEntryCount;
   size_t screen_color_index = 0;
   bool touch_was_seen = false;
   int gps_elapsed_ms = 0;
@@ -147,6 +149,8 @@ struct CitViewState {
 
 void ShowCitList(CitViewState* state);
 bool ShowCitTest(CitViewState* state, size_t index);
+void RefreshCitRows(CitViewState* state);
+void SetCitRowsClickable(CitViewState* state, bool enabled);
 void TestPageGestureEventCallback(lv_event_t* event);
 void ScreenColorOverlayEventCallback(lv_event_t* event);
 
@@ -352,6 +356,7 @@ void ClearTestPageState(CitViewState* state) {
   state->gps_elapsed_ms = 0;
   state->gps_positioned = false;
   state->microphone_display_level = 0;
+  state->pending_test_index = app::kMaxCitTestEntryCount;
   state->test_page_closing = false;
 }
 
@@ -366,11 +371,22 @@ void FinishTestPageClose(CitViewState* state) {
     return;
   }
 
+  const size_t next_index = state->pending_test_index;
+  state->pending_test_index = app::kMaxCitTestEntryCount;
   if (state->test_page != nullptr) {
     lv_obj_delete(state->test_page);
   }
   ClearTestPageState(state);
   RestoreCitListGestures(state);
+  RefreshCitRows(state);
+
+  if (next_index < state->row_count) {
+    SetCitRowsClickable(state, false);
+    ShowCitTest(state, next_index);
+    return;
+  }
+
+  SetCitRowsClickable(state, true);
 }
 
 /**
@@ -1528,6 +1544,46 @@ void SetCitRowPressed(CitStatusRow* row, bool pressed) {
 }
 
 /**
+ * @brief 判断 CIT 列表当前是否允许点击
+ * @param state CIT 页面状态
+ * @return 允许点击返回 true，否则返回 false
+ * @Date 2026-05-15 17:20:00
+ */
+bool IsCitListClickable(const CitViewState* state) {
+  return state != nullptr && state->test_page == nullptr &&
+         !state->test_page_closing &&
+         state->pending_test_index >= state->row_count;
+}
+
+/**
+ * @brief 设置 CIT 列表行是否可以点击
+ * @param state CIT 页面状态
+ * @param enabled 是否允许点击
+ * @return
+ * @Date 2026-05-15 17:20:00
+ */
+void SetCitRowsClickable(CitViewState* state, bool enabled) {
+  if (state == nullptr) {
+    return;
+  }
+
+  for (size_t i = 0; i < state->row_count; ++i) {
+    CitStatusRow& row = state->rows[i];
+    if (row.row_object == nullptr) {
+      continue;
+    }
+
+    row.press_cancelled = true;
+    SetCitRowPressed(&row, false);
+    if (enabled) {
+      lv_obj_add_flag(row.row_object, LV_OBJ_FLAG_CLICKABLE);
+      continue;
+    }
+    lv_obj_remove_flag(row.row_object, LV_OBJ_FLAG_CLICKABLE);
+  }
+}
+
+/**
  * @brief 处理 CIT 列表行事件
  * @param event LVGL 事件
  * @return
@@ -1540,6 +1596,12 @@ void CitRowEventCallback(lv_event_t* event) {
   }
 
   const lv_event_code_t code = lv_event_get_code(event);
+  if (!IsCitListClickable(row->state)) {
+    row->press_cancelled = true;
+    SetCitRowPressed(row, false);
+    return;
+  }
+
   if (code == LV_EVENT_PRESSED) {
     row->press_cancelled = false;
     SetCitRowPressed(row, true);
@@ -1588,11 +1650,11 @@ void TestPassButtonEventCallback(lv_event_t* event) {
   }
 
   state->test_statuses[state->current_test_index] = app::CitTestStatus::kReady;
-  RefreshCitRows(state);
 
   const size_t next_index = state->current_test_index + 1;
   if (next_index < state->row_count) {
-    ShowCitTest(state, next_index);
+    state->pending_test_index = next_index;
+    ShowCitList(state);
     return;
   }
 
@@ -2928,6 +2990,7 @@ bool ShowCitTest(CitViewState* state, size_t index) {
     return false;
   }
 
+  SetCitRowsClickable(state, false);
   DeleteTestPage(state);
   state->test_content = nullptr;
   state->test_data_label = nullptr;
@@ -3037,12 +3100,14 @@ void ShowCitList(CitViewState* state) {
   if (state->test_page == nullptr) {
     DeleteListDimOverlay(state);
     RestoreCitListGestures(state);
+    SetCitRowsClickable(state, true);
     return;
   }
   if (state->test_page_closing) {
     return;
   }
 
+  SetCitRowsClickable(state, false);
   StopActiveTestHardware(state);
   state->test_page_closing = true;
   if (state->list_dim_overlay != nullptr &&
@@ -3125,6 +3190,7 @@ lv_obj_t* CreateStatusRow(
   state->rows[state->row_count] = {
       .entry = &entry,
       .state = state,
+      .row_object = row,
       .icon_label = icon_label,
       .name_label = name_label,
       .pressed_background = pressed_background,
