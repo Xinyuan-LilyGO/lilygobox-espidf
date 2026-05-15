@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-13 23:20:00
+ * @LastEditTime: 2026-05-15 09:49:03
  * @License: GPL 3.0
  */
 #pragma once
@@ -165,17 +165,16 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 注册成功返回 true，否则返回 false
    * @Date 2026-05-10 13:01:03
    */
-  bool RegisterFlushReadyCallback(
-      ScreenProviderFlushReadyCallback callback,
+  bool RegisterFlushReadyCallback(ScreenProviderFlushReadyCallback callback,
       void* callback_context) override;
 
   /**
-   * @brief 写入指定屏幕区域的像素数据
+   * @brief 写入屏幕像素区域
    * @param x_start 起始 X 坐标
    * @param y_start 起始 Y 坐标
    * @param x_end 结束 X 坐标
    * @param y_end 结束 Y 坐标
-   * @param pixels 像素数据地址
+   * @param pixels 像素数据
    * @return 写入成功返回 true，否则返回 false
    * @Date 2026-05-10 13:01:03
    */
