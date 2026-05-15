@@ -18,6 +18,7 @@
 #include "ui/font/font_assets.h"
 #include "ui/font/material_symbols_assets.h"
 #include "ui/icon/icon_assets.h"
+#include "ui/press_cancel.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -438,15 +439,18 @@ void StartSizeAnimation(lv_obj_t* object, int target_size,
 void UpdatePressedFeedback(
     lv_event_t* event, int normal_size, lv_anim_exec_xcb_t icon_callback) {
   const lv_event_code_t code = lv_event_get_code(event);
-  const bool pressed = code == LV_EVENT_PRESSED;
-  const bool released =
-      code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST;
-  if (!pressed && !released) {
+  lv_obj_t* object = lv_event_get_target_obj(event);
+  if (object == nullptr) {
     return;
   }
 
-  lv_obj_t* object = lv_event_get_target_obj(event);
-  if (object == nullptr) {
+  const bool pressed = code == LV_EVENT_PRESSED;
+  const bool press_cancelled =
+      code == LV_EVENT_PRESSING && !IsPointerInsideObject(object);
+  const bool released =
+      code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST ||
+      press_cancelled;
+  if (!pressed && !released) {
     return;
   }
 
@@ -1164,6 +1168,10 @@ lv_obj_t* UiManager::CreateAppIcon(
   SetInnerImageShellStyle(button, style);
   SetIconGlowStyle(button, kAppIconGlowOpacity);
   lv_obj_align(button, LV_ALIGN_TOP_MID, 0, kIconPressedMargin);
+  if (!AddPressCancelOnLeave(button)) {
+    lv_obj_delete(cell);
+    return nullptr;
+  }
   lv_obj_add_event_cb(
       button, AppButtonEventCallback, LV_EVENT_CLICKED, context);
 
@@ -1289,6 +1297,10 @@ lv_obj_t* UiManager::CreateDockIcon(
   SetInnerImageShellStyle(icon_box, style);
   SetIconGlowStyle(icon_box, kDockIconGlowOpacity);
   lv_obj_align(icon_box, LV_ALIGN_TOP_MID, 0, kIconPressedMargin);
+  if (!AddPressCancelOnLeave(icon_box)) {
+    lv_obj_delete(cell);
+    return nullptr;
+  }
 
   lv_obj_t* icon_parent = icon_box;
   if (style.image != nullptr) {

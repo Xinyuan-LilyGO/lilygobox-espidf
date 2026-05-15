@@ -35,6 +35,7 @@
 #include "ui/edge_back_gesture.h"
 #include "ui/font/font_assets.h"
 #include "ui/font/material_symbols_assets.h"
+#include "ui/press_cancel.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -1824,6 +1825,10 @@ lv_obj_t* CreateTestActionButton(lv_obj_t* parent, const char* text,
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
+  if (!AddPressCancelOnLeave(button)) {
+    lv_obj_delete(button);
+    return nullptr;
+  }
   lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, state);
   lv_obj_add_event_cb(
       button, TestPageGestureEventCallback, LV_EVENT_GESTURE, state);
@@ -1863,6 +1868,10 @@ lv_obj_t* CreateCenterButton(lv_obj_t* parent, const char* text,
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
+  if (!AddPressCancelOnLeave(button)) {
+    lv_obj_delete(button);
+    return nullptr;
+  }
   if (callback != nullptr) {
     lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, state);
   }
@@ -2859,6 +2868,11 @@ lv_obj_t* CreateStatusRow(
       .pressed_background = pressed_background,
       .index = row_index,
   };
+  if (!AddPressCancelOnLeave(row)) {
+    lv_obj_delete(row);
+    state->rows[state->row_count] = {};
+    return nullptr;
+  }
   lv_obj_add_event_cb(
       row, CitRowEventCallback, LV_EVENT_ALL, &state->rows[state->row_count]);
   ++state->row_count;
