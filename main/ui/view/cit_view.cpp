@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-14 20:51:00
+ * @LastEditTime: 2026-05-15 10:16:17
  * @License: GPL 3.0
  */
 #include "ui/view/cit_view.h"
@@ -72,8 +72,10 @@ constexpr int kRowPressedRadius = 0;
 constexpr uint32_t kReadyColor = 0x138A3D;
 constexpr uint32_t kFailedColor = 0xEE2C2C;
 constexpr uint32_t kPendingColor = 0xF28C00;
-constexpr uint32_t kPassButtonColor = 0x2F80ED;
-constexpr uint32_t kFailButtonColor = 0x8A8A8A;
+constexpr uint32_t kPassButtonColor = 0x3383FF;
+constexpr uint32_t kFailButtonColor = 0xF1EADA;
+constexpr uint32_t kPassButtonTextColor = 0xFFFFFF;
+constexpr uint32_t kFailButtonTextColor = 0x000000;
 constexpr uint32_t kStartButtonColor = 0xE9785C;
 constexpr std::array<uint32_t, 5> kScreenColorTestColors = {
     0xFF0000,
@@ -1798,7 +1800,8 @@ void GenericStartButtonEventCallback(lv_event_t* event) {
  * @brief 创建测试页面底部的操作按钮
  * @param parent 父对象
  * @param text 显示文本
- * @param color 文本颜色
+ * @param color 背景颜色
+ * @param text_color 文本颜色
  * @param align 对齐方式
  * @param x X 坐标
  * @param callback 事件回调
@@ -1807,8 +1810,8 @@ void GenericStartButtonEventCallback(lv_event_t* event) {
  * @Date 2026-05-13 09:55:00
  */
 lv_obj_t* CreateTestActionButton(lv_obj_t* parent, const char* text,
-    uint32_t color, lv_align_t align, int x, lv_event_cb_t callback,
-    CitViewState* state) {
+    uint32_t color, uint32_t text_color, lv_align_t align, int x,
+    lv_event_cb_t callback, CitViewState* state) {
   lv_obj_t* button = lv_button_create(parent);
   if (button == nullptr) {
     return nullptr;
@@ -1826,7 +1829,8 @@ lv_obj_t* CreateTestActionButton(lv_obj_t* parent, const char* text,
       button, TestPageGestureEventCallback, LV_EVENT_GESTURE, state);
   AddTouchTraceEventCallbacks(button, state);
 
-  lv_obj_t* label = CreateLabel(button, text, lv_color_hex(0xFFFFFF), Font28());
+  lv_obj_t* label =
+      CreateLabel(button, text, lv_color_hex(text_color), Font28());
   if (label == nullptr) {
     lv_obj_delete(button);
     return nullptr;
@@ -1901,11 +1905,11 @@ lv_obj_t* CreateTestButtonBar(lv_obj_t* parent, CitViewState* state) {
   lv_obj_set_style_pad_all(button_bar, 0, LV_PART_MAIN);
 
   if (CreateTestActionButton(button_bar, "FAIL", kFailButtonColor,
-          LV_ALIGN_CENTER, -kTestButtonCenterOffset,
+          kFailButtonTextColor, LV_ALIGN_CENTER, -kTestButtonCenterOffset,
           TestFailButtonEventCallback, state) == nullptr ||
       CreateTestActionButton(button_bar, "PASS", kPassButtonColor,
-          LV_ALIGN_CENTER, kTestButtonCenterOffset, TestPassButtonEventCallback,
-          state) == nullptr) {
+          kPassButtonTextColor, LV_ALIGN_CENTER, kTestButtonCenterOffset,
+          TestPassButtonEventCallback, state) == nullptr) {
     lv_obj_delete(button_bar);
     return nullptr;
   }
