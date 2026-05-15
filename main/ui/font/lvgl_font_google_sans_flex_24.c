@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 24 px
  * Bpp: 4
- * Opts: --no-compress --no-prefilter --bpp 4 --size 24 --font apps\EspIdf-LilygoBox\assets\font\google_sans_flex\GoogleSansFlex_24pt-Regular.ttf -r 0x20-0x7E --format lvgl --lv-font-name lvgl_font_google_sans_flex_24 -o apps\EspIdf-LilygoBox\main\ui\font\lvgl_font_google_sans_flex_24.c
+ * Opts: --no-compress --no-prefilter --bpp 4 --size 24 --font assets\font\google_sans_flex\GoogleSansFlex_24pt-Regular.ttf -r 0x20-0x7E --format lvgl --lv-font-name lvgl_font_google_sans_flex_24 -o main\ui\font\lvgl_font_google_sans_flex_24.c
  ******************************************************************************/
 
 #include "lvgl.h"
@@ -1968,4 +1968,3 @@ lv_font_t lvgl_font_google_sans_flex_24 = {
 
 
 #endif /*#if LVGL_FONT_GOOGLE_SANS_FLEX_24*/
-
