@@ -12,6 +12,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <new>
 
 #include "app/cit_test_catalog.h"
@@ -31,6 +32,7 @@
 #include "hal/imu_provider.h"
 #include "hal/rtc_provider.h"
 #include "hal/screen_provider.h"
+#include "hal/wifi_provider.h"
 #include "sdkconfig.h"
 #include "ui/app_view_gesture_flags.h"
 #include "ui/edge_back_gesture.h"
@@ -124,6 +126,7 @@ struct CitViewState {
   hal::RtcProvider* rtc = nullptr;
   hal::ImuProvider* imu = nullptr;
   hal::EthernetProvider* ethernet = nullptr;
+  hal::WifiProvider* wifi = nullptr;
   hal::DeviceDiagnostics diagnostics;
   int diagnostics_elapsed_ms = kDiagnosticsRefreshPeriodMs;
   bool diagnostics_read = false;
@@ -318,6 +321,9 @@ void StopActiveTestHardware(CitViewState* state) {
   }
   if (entry != nullptr && IsEntryId(*entry, "gps") && state->gps != nullptr) {
     state->gps->StopGps();
+  }
+  if (entry != nullptr && IsEntryId(*entry, "wifi") && state->wifi != nullptr) {
+    state->wifi->StopWifiTimeTest();
   }
 }
 
@@ -1131,6 +1137,129 @@ void RefreshEthernetTestData(CitViewState* state) {
 }
 
 /**
+ * @brief 格式化 WiFi SNTP 获取到的北京时间
+ * @param unix_time UTC Unix 时间戳
+ * @param buffer 输出缓冲区
+ * @param size 输出缓冲区大小
+ * @return
+ * @Date 2026-05-15 13:20:00
+ */
+void FormatWifiChinaTime(int64_t unix_time, char* buffer, size_t size) {
+  if (buffer == nullptr || size == 0) {
+    return;
+  }
+
+  if (unix_time <= 0) {
+    std::snprintf(buffer, size, "--");
+    return;
+  }
+
+  const std::time_t adjusted_time =
+      static_cast<std::time_t>(unix_time + 8 * 60 * 60);
+  std::tm time_info = {};
+  gmtime_r(&adjusted_time, &time_info);
+  std::snprintf(buffer, size, "%04d-%02d-%02d %02d:%02d:%02d",
+      time_info.tm_year + 1900, time_info.tm_mon + 1, time_info.tm_mday,
+      time_info.tm_hour, time_info.tm_min, time_info.tm_sec);
+}
+
+/**
+ * @brief 刷新 WiFi 获取时间测试的连接、DHCP 和 SNTP 状态
+ * @param state CIT 页面状态
+ * @return
+ * @Date 2026-05-15 13:20:00
+ */
+void RefreshWifiTestData(CitViewState* state) {
+  if (state == nullptr || state->test_data_label == nullptr) {
+    return;
+  }
+
+  hal::WifiStatus status;
+  if (state->wifi == nullptr || !state->wifi->ReadWifiStatus(&status)) {
+    lv_label_set_text(
+        state->test_data_label, "WIFI time data:\nstatus: unsupported");
+    return;
+  }
+
+  const char* status_text = "idle";
+  if (status.initializing) {
+    status_text = "initializing";
+  } else if (status.start_failed) {
+    status_text = "connect failed";
+  } else if (status.time_synced) {
+    status_text = "time synced";
+  } else if (status.time_sync_started) {
+    status_text = "syncing time";
+  } else if (status.got_ip) {
+    status_text = "got ip";
+  } else if (status.connected) {
+    status_text = "waiting dhcp";
+  } else if (status.running) {
+    status_text = "connecting";
+  } else if (status.initialized) {
+    status_text = "driver ready";
+  }
+
+  const char* dhcp_text = "waiting";
+  if (status.got_ip) {
+    dhcp_text = "got ip";
+  } else if (!status.connected) {
+    dhcp_text = "no link";
+  }
+
+  char mac_address[24] = {};
+  char ip_address[20] = {};
+  char netmask[20] = {};
+  char gateway[20] = {};
+  char china_time[32] = {};
+  FormatPackedMacAddress(status.mac_address, mac_address, sizeof(mac_address));
+  FormatIpv4Address(status.ip_address, ip_address, sizeof(ip_address));
+  FormatIpv4Address(status.netmask, netmask, sizeof(netmask));
+  FormatIpv4Address(status.gateway, gateway, sizeof(gateway));
+  FormatWifiChinaTime(status.unix_time, china_time, sizeof(china_time));
+
+  char text[800] = {};
+  size_t used = 0;
+  AppendFormatted(text, sizeof(text), &used,
+      "WIFI time data:\n"
+      "status: %s\n"
+      "wifi: %s\n"
+      "ssid: %s\n"
+      "connect: %s\n"
+      "dhcp: %s\n"
+      "retry: %d\n"
+      "\n"
+      "signal:\n"
+      "     rssi: %d dBm\n"
+      "     channel: %d\n"
+      "mac:\n"
+      "     %s\n"
+      "ip:\n"
+      "     %s\n"
+      "mask:\n"
+      "     %s\n"
+      "gateway:\n"
+      "     %s\n"
+      "\n"
+      "time:\n"
+      "     china: %s",
+      status_text, status.running ? "on" : "off",
+      status.ssid[0] == '\0' ? "--" : status.ssid,
+      status.connected ? "connected" : "disconnected", dhcp_text,
+      status.retry_count, status.rssi, status.channel, mac_address, ip_address,
+      netmask, gateway, china_time);
+
+  if (status.start_failed) {
+    AppendFormatted(text, sizeof(text), &used,
+        "\nerror: %#X\nreason: %d",
+        static_cast<unsigned int>(status.last_error),
+        status.disconnect_reason);
+  }
+
+  lv_label_set_text(state->test_data_label, text);
+}
+
+/**
  * @brief 按固定周期刷新诊断数据
  * @param state CIT 页面状态
  * @return
@@ -1259,6 +1388,11 @@ void RefreshActiveTestData(CitViewState* state) {
 
   if (IsEntryId(*entry, "ethernet")) {
     RefreshEthernetTestData(state);
+    return;
+  }
+
+  if (IsEntryId(*entry, "wifi")) {
+    RefreshWifiTestData(state);
     return;
   }
 
@@ -2642,6 +2776,38 @@ bool AddEthernetContent(lv_obj_t* content, CitViewState* state) {
 }
 
 /**
+ * @brief 添加 WiFi 获取时间测试内容并临时连接工厂热点
+ * @param content 内容容器
+ * @param state CIT 页面状态
+ * @return 成功返回 true，否则返回 false
+ * @Date 2026-05-15 13:20:00
+ */
+bool AddWifiContent(lv_obj_t* content, CitViewState* state) {
+  if (state == nullptr) {
+    return false;
+  }
+
+  lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(content, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_ACTIVE);
+
+  state->test_data_label =
+      CreateDataLabel(content, "WIFI time data:\nstatus: starting");
+  if (state->test_data_label == nullptr) {
+    return false;
+  }
+
+  if (state->wifi == nullptr || !state->wifi->StartWifiTimeTest()) {
+    lv_label_set_text(
+        state->test_data_label, "WIFI time data:\nstatus: start failed");
+    return true;
+  }
+
+  RefreshWifiTestData(state);
+  return true;
+}
+
+/**
  * @brief 添加 RTC 测试内容并刷新 PCF8563 时间数据
  * @param content 内容容器
  * @param state CIT 页面状态
@@ -2671,10 +2837,6 @@ bool AddRtcContent(lv_obj_t* content, CitViewState* state) {
  * @Date 2026-05-13 09:55:00
  */
 bool AddPlainDataContent(lv_obj_t* content, const app::CitTestEntry& entry) {
-  if (IsEntryId(entry, "wifi")) {
-    return CreateDataLabel(content, "WIFI time data:\nwaiting for time data") !=
-           nullptr;
-  }
   return CreateDataLabel(content, GetTestHint(entry)) != nullptr;
 }
 
@@ -2712,6 +2874,9 @@ bool PopulateTestContent(
   }
   if (IsEntryId(entry, "ethernet")) {
     return AddEthernetContent(content, state);
+  }
+  if (IsEntryId(entry, "wifi")) {
+    return AddWifiContent(content, state);
   }
   if (IsEntryId(entry, "rtc")) {
     return AddRtcContent(content, state);
@@ -3028,6 +3193,7 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
   state->rtc = config.rtc;
   state->imu = config.imu;
   state->ethernet = config.ethernet;
+  state->wifi = config.wifi;
   state->root = container;
   state->width = config.width;
   state->height = config.height;

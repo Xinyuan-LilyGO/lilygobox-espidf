@@ -25,6 +25,7 @@ class GpsProvider;
 class HapticProvider;
 class ImuProvider;
 class RtcProvider;
+class WifiProvider;
 }  // namespace lilygo_box::hal
 
 namespace lilygo_box::ui {
@@ -44,8 +45,9 @@ class UiManager final {
    * @param rtc RTC 提供者指针
    * @param imu IMU 提供者指针
    * @param ethernet 以太网提供者指针
+   * @param wifi hosted WiFi 提供者指针
    * @return 初始化成功返回 true，否则返回 false
-   * @Date 2026-05-10 13:01:03
+   * @Date 2026-05-15 13:20:00
    */
   bool Init(hal::ScreenProvider* screen,
       hal::DeviceDiagnosticsProvider* diagnostics,
@@ -55,7 +57,8 @@ class UiManager final {
       hal::BmuProvider* bmu,
       hal::RtcProvider* rtc,
       hal::ImuProvider* imu,
-      hal::EthernetProvider* ethernet);
+      hal::EthernetProvider* ethernet,
+      hal::WifiProvider* wifi);
 
  private:
   struct AppButtonContext {
@@ -292,6 +295,7 @@ class UiManager final {
   hal::RtcProvider* rtc_provider_ = nullptr;
   hal::ImuProvider* imu_provider_ = nullptr;
   hal::EthernetProvider* ethernet_provider_ = nullptr;
+  hal::WifiProvider* wifi_provider_ = nullptr;
   lv_obj_t* root_screen_ = nullptr;
   StatusBar status_bar_;
   lv_obj_t* launcher_container_ = nullptr;

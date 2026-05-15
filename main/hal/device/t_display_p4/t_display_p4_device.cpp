@@ -12,6 +12,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
+#include <ctime>
 #include <memory>
 #include <new>
 
@@ -22,8 +24,13 @@
 #include "esp_eth_mac.h"
 #include "esp_eth_phy_802_3.h"
 #include "esp_event.h"
+#include "esp_hosted.h"
 #include "esp_lcd_mipi_dsi.h"
 #include "esp_netif.h"
+#include "esp_sntp.h"
+#include "esp_wifi.h"
+#include "esp_wifi_default.h"
+#include "esp_wifi_remote.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -52,6 +59,16 @@ constexpr int kMicrophoneLevelFallDivisor = 8;
 constexpr size_t kGpsMaxReadBufferBytes = 4096;
 constexpr uint32_t kEthernetInitTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kEthernetInitTaskPriority = 3;
+constexpr uint32_t kWifiInitTaskStackBytes = 6 * 1024;
+constexpr UBaseType_t kWifiInitTaskPriority = 3;
+constexpr uint32_t kWifiHardwareReadyTimeoutMs = 8000;
+constexpr uint32_t kWifiHardwareReadyPollMs = 50;
+constexpr uint32_t kWifiEsp32c6BootDelayMs = 500;
+constexpr const char* kFactoryWifiSsid = "LilyGo-AABB";
+constexpr const char* kFactoryWifiPassword = "xinyuandianzi";
+constexpr const char* kWifiSntpServer = "pool.ntp.org";
+constexpr int kWifiMaxReconnectCount = 8;
+constexpr int64_t kWifiValidUnixTimeThreshold = 1700000000LL;
 
 /**
  * @brief 将 6 字节 MAC 地址打包为整数
@@ -87,6 +104,11 @@ bool TDisplayP4Device::Init() {
   if (!StartEthernet()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "TDisplayP4Device::StartEthernet failed\n");
+  }
+
+  if (!StartWifi()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "TDisplayP4Device::StartWifi failed\n");
   }
 
   if (!WaitForScreenReady()) {
@@ -158,6 +180,164 @@ bool TDisplayP4Device::ReadEthernetStatus(EthernetStatus* status) {
   status->ip_address = ethernet_ip_address_.load();
   status->netmask = ethernet_netmask_.load();
   status->gateway = ethernet_gateway_.load();
+  return true;
+}
+
+bool TDisplayP4Device::StartWifi() {
+  if (wifi_initialized_.load()) {
+    return true;
+  }
+
+  bool expected = false;
+  if (!wifi_initializing_.compare_exchange_strong(expected, true)) {
+    return true;
+  }
+
+  wifi_start_failed_.store(false);
+  wifi_last_error_.store(ESP_OK);
+  const BaseType_t result = xTaskCreate(WifiInitTaskEntry, "wifi_init",
+      kWifiInitTaskStackBytes, this, kWifiInitTaskPriority, nullptr);
+  if (result != pdPASS) {
+    SetWifiFailure(ESP_ERR_NO_MEM);
+    return false;
+  }
+  return true;
+}
+
+bool TDisplayP4Device::StartWifiTimeTest() {
+  wifi_time_test_requested_.store(true);
+  if (!wifi_initialized_.load()) {
+    return StartWifi();
+  }
+
+  const int result = StartWifiTimeTestInternal();
+  if (result != ESP_OK) {
+    SetWifiFailure(result);
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "WiFi time test start failed (error code: %#X)\n", result);
+    return false;
+  }
+  return true;
+}
+
+bool TDisplayP4Device::StopWifiTimeTest() {
+  wifi_time_test_requested_.store(false);
+  const bool was_active = wifi_time_test_active_.exchange(false);
+  if (!wifi_initialized_.load()) {
+    return true;
+  }
+  if (!was_active && !wifi_time_sync_started_.load()) {
+    return true;
+  }
+
+  if (wifi_time_sync_started_.exchange(false) && esp_sntp_enabled()) {
+    esp_sntp_stop();
+  }
+  wifi_time_synced_.store(false);
+  wifi_start_failed_.store(false);
+  wifi_last_error_.store(ESP_OK);
+  wifi_retry_count_.store(0);
+
+  esp_wifi_disconnect();
+
+  wifi_config_t empty_config = {};
+  esp_wifi_set_config(WIFI_IF_STA, &empty_config);
+
+  if (wifi_previous_sta_config_valid_) {
+    esp_wifi_set_mode(WIFI_MODE_STA);
+    esp_wifi_set_config(WIFI_IF_STA, &wifi_previous_sta_config_);
+  }
+
+  if (wifi_previous_mode_valid_) {
+    esp_wifi_set_mode(wifi_previous_mode_);
+  } else {
+    esp_wifi_set_mode(WIFI_MODE_NULL);
+  }
+
+  if (wifi_previous_running_) {
+    const esp_err_t start_result = esp_wifi_start();
+    if (start_result != ESP_OK && start_result != ESP_ERR_WIFI_CONN &&
+        start_result != ESP_ERR_WIFI_NOT_INIT &&
+        start_result != ESP_ERR_INVALID_STATE) {
+      SetWifiFailure(start_result);
+      return false;
+    }
+    wifi_running_.store(true);
+    if (wifi_previous_connected_) {
+      esp_wifi_connect();
+    }
+  } else {
+    const esp_err_t stop_result = esp_wifi_stop();
+    if (stop_result != ESP_OK && stop_result != ESP_ERR_WIFI_NOT_INIT &&
+        stop_result != ESP_ERR_WIFI_NOT_STARTED &&
+        stop_result != ESP_ERR_INVALID_STATE) {
+      SetWifiFailure(stop_result);
+      return false;
+    }
+    wifi_running_.store(false);
+    wifi_connected_.store(false);
+    wifi_got_ip_.store(false);
+    wifi_ip_address_.store(0);
+    wifi_netmask_.store(0);
+    wifi_gateway_.store(0);
+  }
+
+  wifi_previous_running_ = false;
+  wifi_previous_connected_ = false;
+  wifi_previous_mode_valid_ = false;
+  wifi_previous_sta_config_valid_ = false;
+  wifi_previous_mode_ = WIFI_MODE_NULL;
+  wifi_previous_sta_config_ = {};
+  return true;
+}
+
+bool TDisplayP4Device::ReadWifiStatus(WifiStatus* status) {
+  if (status == nullptr) {
+    return false;
+  }
+
+  *status = WifiStatus();
+  status->initializing = wifi_initializing_.load();
+  status->initialized = wifi_initialized_.load();
+  status->running = wifi_running_.load();
+  status->connected = wifi_connected_.load();
+  status->got_ip = wifi_got_ip_.load();
+  status->start_failed = wifi_start_failed_.load();
+  status->time_test_running = wifi_time_test_active_.load();
+  status->time_sync_started = wifi_time_sync_started_.load();
+  status->retry_count = wifi_retry_count_.load();
+  status->last_error = wifi_last_error_.load();
+  status->disconnect_reason = wifi_disconnect_reason_.load();
+  status->rssi = wifi_rssi_.load();
+  status->channel = wifi_channel_.load();
+  status->mac_address = wifi_mac_address_.load();
+  status->ip_address = wifi_ip_address_.load();
+  status->netmask = wifi_netmask_.load();
+  status->gateway = wifi_gateway_.load();
+
+  if (status->time_test_running) {
+    std::strncpy(status->ssid, kFactoryWifiSsid, sizeof(status->ssid) - 1);
+  }
+
+  if (status->connected) {
+    wifi_ap_record_t ap_info = {};
+    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+      std::memcpy(status->ssid, ap_info.ssid,
+          std::min(sizeof(status->ssid) - 1, sizeof(ap_info.ssid)));
+      status->rssi = ap_info.rssi;
+      status->channel = ap_info.primary;
+      wifi_rssi_.store(status->rssi);
+      wifi_channel_.store(status->channel);
+    }
+  }
+
+  const std::time_t now = std::time(nullptr);
+  if (status->time_sync_started && status->got_ip &&
+      now > kWifiValidUnixTimeThreshold) {
+    wifi_time_synced_.store(true);
+  }
+  status->time_synced = wifi_time_synced_.load();
+  status->unix_time = status->time_synced ? static_cast<int64_t>(now) : 0;
   return true;
 }
 
@@ -976,6 +1156,306 @@ void TDisplayP4Device::EthernetGotIpEventHandler(
   self->ethernet_ip_address_.store(event->ip_info.ip.addr);
   self->ethernet_netmask_.store(event->ip_info.netmask.addr);
   self->ethernet_gateway_.store(event->ip_info.gw.addr);
+}
+
+void TDisplayP4Device::WifiInitTaskEntry(void* context) {
+  auto* self = static_cast<TDisplayP4Device*>(context);
+  if (self != nullptr) {
+    self->RunWifiInitTask();
+  }
+  vTaskDelete(nullptr);
+}
+
+void TDisplayP4Device::RunWifiInitTask() {
+  if (!WaitForWifiHardwareReady()) {
+    SetWifiFailure(ESP_ERR_TIMEOUT);
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "WiFi hardware is not ready\n");
+    return;
+  }
+
+  const int result = InitializeWifiStack();
+  if (result != ESP_OK) {
+    SetWifiFailure(result);
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "WiFi init failed (error code: %#X)\n", result);
+    wifi_initializing_.store(false);
+    return;
+  }
+
+  wifi_initializing_.store(false);
+  if (wifi_time_test_requested_.load()) {
+    const int test_result = StartWifiTimeTestInternal();
+    if (test_result != ESP_OK) {
+      SetWifiFailure(test_result);
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "WiFi time test start failed (error code: %#X)\n", test_result);
+    }
+  }
+}
+
+bool TDisplayP4Device::WaitForWifiHardwareReady() {
+  uint32_t elapsed_ms = 0;
+  while (!driver_.status().xl9535.init_flag &&
+         elapsed_ms < kWifiHardwareReadyTimeoutMs) {
+    vTaskDelay(pdMS_TO_TICKS(kWifiHardwareReadyPollMs));
+    elapsed_ms += kWifiHardwareReadyPollMs;
+  }
+
+  if (!driver_.status().xl9535.init_flag) {
+    return false;
+  }
+
+  vTaskDelay(pdMS_TO_TICKS(kWifiEsp32c6BootDelayMs));
+  return true;
+}
+
+int TDisplayP4Device::InitializeWifiStack() {
+  if (wifi_initialized_.load()) {
+    return ESP_OK;
+  }
+
+  if (!wifi_hosted_initialized_.load()) {
+    const esp_err_t hosted_result = esp_hosted_init();
+    if (hosted_result != ESP_OK &&
+        hosted_result != ESP_ERR_INVALID_STATE) {
+      return hosted_result;
+    }
+    wifi_hosted_initialized_.store(true);
+  }
+
+  esp_err_t result = esp_netif_init();
+  if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
+    return result;
+  }
+
+  result = esp_event_loop_create_default();
+  if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
+    return result;
+  }
+
+  if (wifi_netif_ == nullptr) {
+    wifi_netif_ = esp_netif_create_default_wifi_sta();
+    if (wifi_netif_ == nullptr) {
+      return ESP_ERR_NO_MEM;
+    }
+  }
+
+  wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
+  result = esp_wifi_init(&config);
+  if (result != ESP_OK && result != ESP_ERR_WIFI_INIT_STATE) {
+    return result;
+  }
+
+  result = esp_wifi_set_storage(WIFI_STORAGE_RAM);
+  if (result != ESP_OK) {
+    return result;
+  }
+
+  result = esp_event_handler_register(
+      WIFI_EVENT, ESP_EVENT_ANY_ID, WifiEventHandler, this);
+  if (result != ESP_OK) {
+    return result;
+  }
+
+  result = esp_event_handler_register(
+      IP_EVENT, IP_EVENT_STA_GOT_IP, WifiGotIpEventHandler, this);
+  if (result != ESP_OK) {
+    return result;
+  }
+
+  uint8_t mac_address[6] = {};
+  if (esp_wifi_get_mac(WIFI_IF_STA, mac_address) == ESP_OK) {
+    wifi_mac_address_.store(PackMacAddress(mac_address));
+  }
+
+  result = esp_wifi_set_mode(WIFI_MODE_NULL);
+  if (result != ESP_OK) {
+    return result;
+  }
+  wifi_initialized_.store(true);
+  wifi_running_.store(false);
+  wifi_connected_.store(false);
+  wifi_got_ip_.store(false);
+  wifi_start_failed_.store(false);
+  wifi_last_error_.store(ESP_OK);
+  return ESP_OK;
+}
+
+int TDisplayP4Device::StartWifiTimeTestInternal() {
+  if (!wifi_initialized_.load()) {
+    return ESP_ERR_WIFI_NOT_INIT;
+  }
+
+  if (wifi_time_test_active_.load()) {
+    return ESP_OK;
+  }
+
+  wifi_previous_running_ = wifi_running_.load();
+  wifi_previous_connected_ = wifi_connected_.load();
+  wifi_previous_mode_valid_ =
+      esp_wifi_get_mode(&wifi_previous_mode_) == ESP_OK;
+  wifi_previous_sta_config_valid_ =
+      esp_wifi_get_config(WIFI_IF_STA, &wifi_previous_sta_config_) == ESP_OK;
+
+  wifi_time_test_active_.store(true);
+  wifi_start_failed_.store(false);
+  wifi_last_error_.store(ESP_OK);
+  wifi_disconnect_reason_.store(0);
+  wifi_retry_count_.store(0);
+  wifi_time_synced_.store(false);
+  wifi_time_sync_started_.store(false);
+  wifi_connected_.store(false);
+  wifi_got_ip_.store(false);
+  wifi_ip_address_.store(0);
+  wifi_netmask_.store(0);
+  wifi_gateway_.store(0);
+
+  esp_err_t result = esp_wifi_set_storage(WIFI_STORAGE_RAM);
+  if (result != ESP_OK) {
+    return result;
+  }
+
+  result = esp_wifi_set_mode(WIFI_MODE_STA);
+  if (result != ESP_OK) {
+    return result;
+  }
+
+  wifi_config_t wifi_config = {};
+  std::strncpy(reinterpret_cast<char*>(wifi_config.sta.ssid), kFactoryWifiSsid,
+      sizeof(wifi_config.sta.ssid));
+  std::strncpy(reinterpret_cast<char*>(wifi_config.sta.password),
+      kFactoryWifiPassword, sizeof(wifi_config.sta.password));
+  result = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+  if (result != ESP_OK) {
+    return result;
+  }
+
+  result = esp_wifi_start();
+  if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
+    return result;
+  }
+  wifi_running_.store(true);
+
+  result = esp_wifi_connect();
+  if (result != ESP_OK && result != ESP_ERR_WIFI_CONN) {
+    return result;
+  }
+  return ESP_OK;
+}
+
+int TDisplayP4Device::StartWifiSntp() {
+  if (wifi_time_sync_started_.load()) {
+    return ESP_OK;
+  }
+
+  if (esp_sntp_enabled()) {
+    esp_sntp_stop();
+  }
+  esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
+  esp_sntp_setservername(0, kWifiSntpServer);
+  esp_sntp_init();
+  wifi_time_sync_started_.store(true);
+  return ESP_OK;
+}
+
+void TDisplayP4Device::SetWifiFailure(int error) {
+  wifi_initializing_.store(false);
+  wifi_start_failed_.store(true);
+  wifi_last_error_.store(error);
+  wifi_connected_.store(false);
+  wifi_got_ip_.store(false);
+  wifi_ip_address_.store(0);
+  wifi_netmask_.store(0);
+  wifi_gateway_.store(0);
+}
+
+void TDisplayP4Device::WifiEventHandler(
+    void* arg, const char* event_base, int32_t event_id, void* event_data) {
+  (void)event_base;
+  auto* self = static_cast<TDisplayP4Device*>(arg);
+  if (self == nullptr) {
+    return;
+  }
+
+  switch (event_id) {
+    case WIFI_EVENT_STA_START:
+      self->wifi_running_.store(true);
+      self->wifi_start_failed_.store(false);
+      self->wifi_last_error_.store(ESP_OK);
+      break;
+    case WIFI_EVENT_STA_CONNECTED: {
+      self->wifi_connected_.store(true);
+      self->wifi_got_ip_.store(false);
+      self->wifi_retry_count_.store(0);
+      wifi_ap_record_t ap_info = {};
+      if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+        self->wifi_rssi_.store(ap_info.rssi);
+        self->wifi_channel_.store(ap_info.primary);
+      }
+      uint8_t mac_address[6] = {};
+      if (esp_wifi_get_mac(WIFI_IF_STA, mac_address) == ESP_OK) {
+        self->wifi_mac_address_.store(PackMacAddress(mac_address));
+      }
+      break;
+    }
+    case WIFI_EVENT_STA_DISCONNECTED: {
+      self->wifi_connected_.store(false);
+      self->wifi_got_ip_.store(false);
+      self->wifi_ip_address_.store(0);
+      self->wifi_netmask_.store(0);
+      self->wifi_gateway_.store(0);
+      if (event_data != nullptr) {
+        const auto* disconnected =
+            static_cast<wifi_event_sta_disconnected_t*>(event_data);
+        self->wifi_disconnect_reason_.store(disconnected->reason);
+      }
+
+      if (self->wifi_time_test_active_.load()) {
+        const int retry_count = self->wifi_retry_count_.fetch_add(1) + 1;
+        if (retry_count <= kWifiMaxReconnectCount) {
+          esp_wifi_connect();
+        } else {
+          self->wifi_start_failed_.store(true);
+          self->wifi_last_error_.store(ESP_ERR_WIFI_CONN);
+        }
+      }
+      break;
+    }
+    case WIFI_EVENT_STA_STOP:
+      self->wifi_running_.store(false);
+      self->wifi_connected_.store(false);
+      self->wifi_got_ip_.store(false);
+      self->wifi_ip_address_.store(0);
+      self->wifi_netmask_.store(0);
+      self->wifi_gateway_.store(0);
+      break;
+    default:
+      break;
+  }
+}
+
+void TDisplayP4Device::WifiGotIpEventHandler(
+    void* arg, const char* event_base, int32_t event_id, void* event_data) {
+  (void)event_base;
+  (void)event_id;
+  auto* self = static_cast<TDisplayP4Device*>(arg);
+  auto* event = static_cast<ip_event_got_ip_t*>(event_data);
+  if (self == nullptr || event == nullptr) {
+    return;
+  }
+
+  self->wifi_connected_.store(true);
+  self->wifi_got_ip_.store(true);
+  self->wifi_ip_address_.store(event->ip_info.ip.addr);
+  self->wifi_netmask_.store(event->ip_info.netmask.addr);
+  self->wifi_gateway_.store(event->ip_info.gw.addr);
+  if (self->wifi_time_test_active_.load()) {
+    const int result = self->StartWifiSntp();
+    if (result != ESP_OK) {
+      self->SetWifiFailure(result);
+    }
+  }
 }
 
 bool TDisplayP4Device::ReadDiagnostics(DeviceDiagnostics* diagnostics) {

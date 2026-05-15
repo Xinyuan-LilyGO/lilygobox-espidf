@@ -44,7 +44,7 @@ bool Application::Init() {
       device_provider_context_.gps, device_provider_context_.audio,
       device_provider_context_.haptic, device_provider_context_.bmu,
       device_provider_context_.rtc, device_provider_context_.imu,
-      device_provider_context_.ethernet);
+      device_provider_context_.ethernet, device_provider_context_.wifi);
   if (!result) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
                "UiManager::Init failed\n");

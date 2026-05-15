@@ -697,7 +697,8 @@ bool UiManager::Init(hal::ScreenProvider* screen,
     hal::BmuProvider* bmu,
     hal::RtcProvider* rtc,
     hal::ImuProvider* imu,
-    hal::EthernetProvider* ethernet) {
+    hal::EthernetProvider* ethernet,
+    hal::WifiProvider* wifi) {
   if (screen == nullptr) {
     return false;
   }
@@ -710,6 +711,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   rtc_provider_ = rtc;
   imu_provider_ = imu;
   ethernet_provider_ = ethernet;
+  wifi_provider_ = wifi;
 
   root_screen_ = lv_obj_create(nullptr);
   if (root_screen_ == nullptr) {
@@ -1454,6 +1456,7 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   config.rtc = rtc_provider_;
   config.imu = imu_provider_;
   config.ethernet = ethernet_provider_;
+  config.wifi = wifi_provider_;
   config.back_callback = BackButtonEventCallback;
   config.back_context = this;
 

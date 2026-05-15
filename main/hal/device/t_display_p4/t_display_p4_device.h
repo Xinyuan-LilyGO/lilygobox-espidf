@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "esp_wifi_types.h"
 #include "hal/audio_provider.h"
 #include "hal/bmu_provider.h"
 #include "hal/device_diagnostics.h"
@@ -20,6 +21,7 @@
 #include "hal/imu_provider.h"
 #include "hal/rtc_provider.h"
 #include "hal/screen_provider.h"
+#include "hal/wifi_provider.h"
 #include "t_display_p4_driver.h"
 
 namespace lilygo_box::hal {
@@ -31,7 +33,8 @@ class TDisplayP4Device final : public ScreenProvider,
                                public HapticProvider,
                                public BmuProvider,
                                public RtcProvider,
-                               public EthernetProvider {
+                               public EthernetProvider,
+                               public WifiProvider {
  public:
   TDisplayP4Device();
 
@@ -250,6 +253,35 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ReadEthernetStatus(EthernetStatus* status) override;
 
   /**
+   * @brief 异步初始化 hosted WiFi 驱动并保持默认关闭
+   * @return 启动命令发送成功返回 true，否则返回 false
+   * @Date 2026-05-15 13:20:00
+   */
+  bool StartWifi() override;
+
+  /**
+   * @brief 启动 WiFi 获取时间测试并连接工厂测试热点
+   * @return 启动命令发送成功返回 true，否则返回 false
+   * @Date 2026-05-15 13:20:00
+   */
+  bool StartWifiTimeTest() override;
+
+  /**
+   * @brief 停止 WiFi 获取时间测试并恢复测试前状态
+   * @return 恢复命令发送成功返回 true，否则返回 false
+   * @Date 2026-05-15 13:20:00
+   */
+  bool StopWifiTimeTest() override;
+
+  /**
+   * @brief 读取 hosted WiFi 连接和 SNTP 时间同步状态
+   * @param status WiFi 状态输出地址
+   * @return 读取成功返回 true，否则返回 false
+   * @Date 2026-05-15 13:20:00
+   */
+  bool ReadWifiStatus(WifiStatus* status) override;
+
+  /**
    * @brief 启动屏幕背光
    * @return
    * @Date 2026-05-10 13:01:03
@@ -372,6 +404,81 @@ class TDisplayP4Device final : public ScreenProvider,
   static void EthernetGotIpEventHandler(
       void* arg, const char* event_base, int32_t event_id, void* event_data);
 
+  /**
+   * @brief hosted WiFi 初始化任务入口
+   * @param context 设备对象指针
+   * @return
+   * @Date 2026-05-15 13:20:00
+   */
+  static void WifiInitTaskEntry(void* context);
+
+  /**
+   * @brief 执行 hosted WiFi 异步初始化
+   * @return
+   * @Date 2026-05-15 13:20:00
+   */
+  void RunWifiInitTask();
+
+  /**
+   * @brief 等待 ESP32-C6 桥接芯片完成上电复位
+   * @return 就绪返回 true，否则返回 false
+   * @Date 2026-05-15 14:40:00
+   */
+  bool WaitForWifiHardwareReady();
+
+  /**
+   * @brief 初始化 hosted WiFi 驱动和默认 STA netif
+   * @return 初始化成功返回 ESP_OK，否则返回错误码
+   * @Date 2026-05-15 13:20:00
+   */
+  int InitializeWifiStack();
+
+  /**
+   * @brief 连接工厂测试 WiFi 并启动网络时间同步
+   * @return 启动成功返回 ESP_OK，否则返回错误码
+   * @Date 2026-05-15 13:20:00
+   */
+  int StartWifiTimeTestInternal();
+
+  /**
+   * @brief 启动 SNTP 时间同步
+   * @return 启动成功返回 ESP_OK，否则返回错误码
+   * @Date 2026-05-15 13:20:00
+   */
+  int StartWifiSntp();
+
+  /**
+   * @brief 记录 hosted WiFi 初始化或连接失败状态
+   * @param error 错误码
+   * @return
+   * @Date 2026-05-15 13:20:00
+   */
+  void SetWifiFailure(int error);
+
+  /**
+   * @brief 处理 hosted WiFi STA 连接事件
+   * @param arg 设备对象指针
+   * @param event_base 事件类型
+   * @param event_id 事件 ID
+   * @param event_data 事件数据
+   * @return
+   * @Date 2026-05-15 13:20:00
+   */
+  static void WifiEventHandler(
+      void* arg, const char* event_base, int32_t event_id, void* event_data);
+
+  /**
+   * @brief 处理 hosted WiFi DHCP 获取 IP 事件
+   * @param arg 设备对象指针
+   * @param event_base 事件类型
+   * @param event_id 事件 ID
+   * @param event_data 事件数据
+   * @return
+   * @Date 2026-05-15 13:20:00
+   */
+  static void WifiGotIpEventHandler(
+      void* arg, const char* event_base, int32_t event_id, void* event_data);
+
   lilygo_device_driver::TDisplayP4Driver& driver_;
   ScreenProviderFlushReadyHandler flush_ready_handler_;
   // 扬声器任务是否正在播放
@@ -422,6 +529,60 @@ class TDisplayP4Device final : public ScreenProvider,
   std::atomic<uint32_t> ethernet_gateway_{0};
   // ESP-IDF 以太网驱动句柄
   void* ethernet_handle_ = nullptr;
+  // esp_hosted 桥接组件是否已经初始化完成
+  std::atomic<bool> wifi_hosted_initialized_{false};
+  // hosted WiFi 初始化任务是否正在运行
+  std::atomic<bool> wifi_initializing_{false};
+  // hosted WiFi 驱动是否已经初始化完成
+  std::atomic<bool> wifi_initialized_{false};
+  // hosted WiFi 驱动是否已经启动
+  std::atomic<bool> wifi_running_{false};
+  // hosted WiFi STA 是否已经关联到热点
+  std::atomic<bool> wifi_connected_{false};
+  // hosted WiFi 是否已经获取 DHCP 地址
+  std::atomic<bool> wifi_got_ip_{false};
+  // hosted WiFi 启动或连接是否失败
+  std::atomic<bool> wifi_start_failed_{false};
+  // WiFi 获取时间测试是否已经请求
+  std::atomic<bool> wifi_time_test_requested_{false};
+  // WiFi 获取时间测试是否正在运行
+  std::atomic<bool> wifi_time_test_active_{false};
+  // SNTP 时间同步是否已经启动
+  std::atomic<bool> wifi_time_sync_started_{false};
+  // SNTP 是否已经获取到有效时间
+  std::atomic<bool> wifi_time_synced_{false};
+  // WiFi 连接重试次数
+  std::atomic<int> wifi_retry_count_{0};
+  // WiFi 最近一次错误码
+  std::atomic<int> wifi_last_error_{0};
+  // WiFi 最近一次断开原因
+  std::atomic<int> wifi_disconnect_reason_{0};
+  // WiFi RSSI 信号强度
+  std::atomic<int> wifi_rssi_{0};
+  // WiFi 连接信道
+  std::atomic<int> wifi_channel_{0};
+  // WiFi STA MAC 地址打包值
+  std::atomic<uint64_t> wifi_mac_address_{0};
+  // WiFi DHCP IP 地址
+  std::atomic<uint32_t> wifi_ip_address_{0};
+  // WiFi DHCP 子网掩码
+  std::atomic<uint32_t> wifi_netmask_{0};
+  // WiFi DHCP 网关
+  std::atomic<uint32_t> wifi_gateway_{0};
+  // WiFi 测试进入前驱动是否已启动
+  bool wifi_previous_running_ = false;
+  // WiFi 测试进入前 STA 是否已连接
+  bool wifi_previous_connected_ = false;
+  // WiFi 测试进入前模式是否有效
+  bool wifi_previous_mode_valid_ = false;
+  // WiFi 测试进入前 STA 配置是否有效
+  bool wifi_previous_sta_config_valid_ = false;
+  // WiFi 测试进入前工作模式
+  wifi_mode_t wifi_previous_mode_ = WIFI_MODE_NULL;
+  // WiFi 测试进入前 STA 配置
+  wifi_config_t wifi_previous_sta_config_ = {};
+  // ESP-IDF WiFi netif 指针
+  void* wifi_netif_ = nullptr;
   bool gps_running_ = false;
   GpsStatus gps_status_;
 };

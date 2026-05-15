@@ -4,6 +4,12 @@ dependencies:
   lvgl/lvgl:
     version: "9.5.0"
 
+  espressif/esp_hosted:
+    version: "2.12.7"
+
+  espressif/esp_wifi_remote:
+    version: "1.5.2"
+
   cpp_bus_driver:
     override_path: "../libraries/cpp_bus_driver"
 

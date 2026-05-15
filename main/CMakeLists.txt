@@ -29,6 +29,8 @@ idf_component_register(
         esp_hw_support
         esp_netif
         esp_system
+        esp_wifi
         freertos
         heap
+        lwip
         spi_flash)

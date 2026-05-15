@@ -19,6 +19,7 @@ class HapticProvider;
 class ImuProvider;
 class RtcProvider;
 class ScreenProvider;
+class WifiProvider;
 }  // namespace lilygo_box::hal
 
 namespace lilygo_box::ui {
@@ -35,6 +36,7 @@ struct AppViewConfig {
   hal::RtcProvider* rtc = nullptr;
   hal::ImuProvider* imu = nullptr;
   hal::EthernetProvider* ethernet = nullptr;
+  hal::WifiProvider* wifi = nullptr;
   lv_event_cb_t back_callback = nullptr;
   void* back_context = nullptr;
 };
