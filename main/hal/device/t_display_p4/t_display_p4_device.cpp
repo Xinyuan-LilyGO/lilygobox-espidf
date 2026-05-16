@@ -7,6 +7,8 @@
  */
 #include "hal/device/t_display_p4/t_display_p4_device.h"
 
+#include <sys/time.h>
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -17,7 +19,6 @@
 #include <memory>
 #include <new>
 #include <string>
-#include <sys/time.h>
 
 #include "audio/new_notification_010_c2_b16_s44100.h"
 #include "base/logger.h"
@@ -129,21 +130,24 @@ bool TDisplayP4Device::InitDevice() {
   const bool result =
       driver_.Init(lilygo_device_driver::TDisplayP4Driver::InitMode::kAsync);
   if (!result) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "TDisplayP4Driver::Init failed\n");
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "Init failed\n");
   }
 
   if (!WaitForScreenReady()) {
-    LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "TDisplayP4Device::WaitForScreenReady failed\n");
+    LogMessage(
+        LogLevel::kError, __FILE__, __LINE__, "WaitForScreenReady failed\n");
     return false;
   }
   return true;
 }
 
-int TDisplayP4Device::ScreenWidth() const { return driver_.screen_info().width; }
+int TDisplayP4Device::ScreenWidth() const {
+  return driver_.screen_info().width;
+}
 
-int TDisplayP4Device::ScreenHeight() const { return driver_.screen_info().height; }
+int TDisplayP4Device::ScreenHeight() const {
+  return driver_.screen_info().height;
+}
 
 int TDisplayP4Device::ScreenBitsPerPixel() const {
   return driver_.screen_info().bits_per_pixel;
@@ -364,7 +368,8 @@ bool TDisplayP4Device::ReadWifiStatus(WifiStatus* status) {
   status->time_synced = wifi_time_test_.synced.load() &&
                         synced_unix_time > kWifiValidUnixTimeThreshold;
   status->unix_time = status->time_synced ? synced_unix_time : 0;
-  const int64_t sync_monotonic_ms = wifi_time_test_.sntp_sync_monotonic_ms.load();
+  const int64_t sync_monotonic_ms =
+      wifi_time_test_.sntp_sync_monotonic_ms.load();
   if (status->time_synced && sync_monotonic_ms > 0) {
     const int64_t elapsed_ms = esp_timer_get_time() / 1000 - sync_monotonic_ms;
     if (elapsed_ms > 0) {
@@ -782,8 +787,7 @@ bool TDisplayP4Device::ReadMicrophoneStatus(MicrophoneStatus* status) {
 
 bool TDisplayP4Device::StartGps() {
   if (!IsGpsReady() && !driver_.InitL76k()) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "TDisplayP4Driver::InitL76k failed\n");
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "InitL76k failed\n");
     return false;
   }
   if (!IsGpsReady()) {
@@ -802,8 +806,7 @@ bool TDisplayP4Device::StartGps() {
   if (!result) {
     gps_running_ = false;
     gps_status_.running = false;
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "TDisplayP4Device::StartGps failed\n");
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "StartGps failed\n");
     return false;
   }
   return true;
@@ -818,8 +821,7 @@ bool TDisplayP4Device::StopGps() {
 
   const bool result = driver_.chip().l76k->Sleep(true);
   if (!result) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "TDisplayP4Device::StopGps failed\n");
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "StopGps failed\n");
   }
   return result;
 }
@@ -1058,8 +1060,7 @@ void TDisplayP4Device::RunMicrophoneCaptureTask() {
           sample_count == 0 ? 0 : absolute_sum / static_cast<int>(sample_count);
       const int target_level_percent =
           std::min(100, (average_sample * 100) / kMicrophoneLevelFullScale);
-      const int current_level_percent =
-          microphone_.level_percent.load();
+      const int current_level_percent = microphone_.level_percent.load();
       const int difference = target_level_percent - current_level_percent;
       const int divisor = difference > 0 ? kMicrophoneLevelRiseDivisor
                                          : kMicrophoneLevelFallDivisor;
@@ -1314,8 +1315,8 @@ void TDisplayP4Device::WifiInitTaskEntry(void* context) {
 void TDisplayP4Device::RunWifiInitTask() {
   if (!WaitForWifiHardwareReady()) {
     SetWifiFailure(ESP_ERR_TIMEOUT);
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "WiFi hardware is not ready\n");
+    LogMessage(
+        LogLevel::kWarning, __FILE__, __LINE__, "WiFi hardware is not ready\n");
     return;
   }
 
@@ -1362,8 +1363,7 @@ int TDisplayP4Device::InitializeWifiStack() {
 
   if (!wifi_.hosted_bridge_initialized.load()) {
     const esp_err_t hosted_result = esp_hosted_init();
-    if (hosted_result != ESP_OK &&
-        hosted_result != ESP_ERR_INVALID_STATE) {
+    if (hosted_result != ESP_OK && hosted_result != ESP_ERR_INVALID_STATE) {
       return hosted_result;
     }
     wifi_.hosted_bridge_initialized.store(true);

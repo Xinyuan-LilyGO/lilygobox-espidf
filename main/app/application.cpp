@@ -2,15 +2,14 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-10 13:27:05
+ * @LastEditTime: 2026-05-16 17:23:43
  * @License: GPL 3.0
  */
 #include "app/application.h"
 
+#include "base/logger.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-
-#include "base/logger.h"
 #include "hal/device_provider_factory.h"
 
 namespace lilygo_box {
@@ -21,29 +20,27 @@ Application::Application()
 bool Application::Init() {
   hal::DeviceProvider* device = device_provider_context_.device;
   if (device == nullptr) {
-    LogMessage(LogLevel::kError, __FILE__, __LINE__,
-               "No device provider selected\n");
+    LogMessage(
+        LogLevel::kError, __FILE__, __LINE__, "No device provider selected\n");
     return false;
   }
 
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
   if (screen == nullptr) {
-    LogMessage(LogLevel::kError, __FILE__, __LINE__,
-               "No screen provider selected\n");
+    LogMessage(
+        LogLevel::kError, __FILE__, __LINE__, "No screen provider selected\n");
     return false;
   }
 
   bool result = device->InitDevice();
   if (!result) {
-    LogMessage(LogLevel::kError, __FILE__, __LINE__,
-               "DeviceProvider::InitDevice failed\n");
+    LogMessage(LogLevel::kError, __FILE__, __LINE__, "InitDevice failed\n");
     return false;
   }
 
   result = lvgl_port_.Init(screen);
   if (!result) {
-    LogMessage(LogLevel::kError, __FILE__, __LINE__,
-               "LvglPort::Init failed\n");
+    LogMessage(LogLevel::kError, __FILE__, __LINE__, "Init failed\n");
     return false;
   }
 
@@ -53,15 +50,13 @@ bool Application::Init() {
       device_provider_context_.rtc, device_provider_context_.imu,
       device_provider_context_.ethernet, device_provider_context_.wifi);
   if (!result) {
-    LogMessage(LogLevel::kError, __FILE__, __LINE__,
-               "UiManager::Init failed\n");
+    LogMessage(LogLevel::kError, __FILE__, __LINE__, "Init failed\n");
     return false;
   }
 
   result = lvgl_port_.Start();
   if (!result) {
-    LogMessage(LogLevel::kError, __FILE__, __LINE__,
-               "LvglPort::Start failed\n");
+    LogMessage(LogLevel::kError, __FILE__, __LINE__, "Start failed\n");
     return false;
   }
   screen->StartScreenBacklight();
@@ -71,13 +66,13 @@ bool Application::Init() {
   lvgl_port_.Unlock();
   if (!startup_result) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-               "UiManager::StartStartupScreenAnimation failed\n");
+        "StartStartupScreenAnimation failed\n");
   }
 
   if (device_provider_context_.ethernet != nullptr &&
       !device_provider_context_.ethernet->StartEthernet()) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-               "EthernetProvider::StartEthernet failed\n");
+    LogMessage(
+        LogLevel::kWarning, __FILE__, __LINE__, "StartEthernet failed\n");
   }
   lvgl_port_.Lock();
   ui_manager_.SetStartupScreenProgress(50);
@@ -85,15 +80,14 @@ bool Application::Init() {
 
   if (device_provider_context_.wifi != nullptr &&
       !device_provider_context_.wifi->StartWifi()) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-               "WifiProvider::StartWifi failed\n");
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "StartWifi failed\n");
   }
   lvgl_port_.Lock();
   ui_manager_.SetStartupScreenProgress(100);
   lvgl_port_.Unlock();
 
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-             "LilygoBox initialized on %s\n", screen->ScreenName());
+      "LilygoBox initialized on %s\n", screen->ScreenName());
   return true;
 }
 

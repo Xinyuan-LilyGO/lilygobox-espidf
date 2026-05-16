@@ -25,7 +25,8 @@ bool LvglPort::Init(ScreenProvider* screen) {
   screen_ = screen;
   lv_init();
 
-  lvgl_display_ = lv_display_create(screen_->ScreenWidth(), screen_->ScreenHeight());
+  lvgl_display_ =
+      lv_display_create(screen_->ScreenWidth(), screen_->ScreenHeight());
   if (lvgl_display_ == nullptr) {
     return false;
   }
@@ -54,7 +55,7 @@ bool LvglPort::Init(ScreenProvider* screen) {
 
   if (!screen_->RegisterScreenFlushReadyCallback(FlushReadyCallback, this)) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "ScreenProvider::RegisterScreenFlushReadyCallback failed\n");
+        "RegisterScreenFlushReadyCallback failed\n");
     return false;
   }
 
@@ -103,8 +104,8 @@ void LvglPort::FlushCallback(
   const bool result = self->screen_->WriteScreenPixels(
       area->x1, area->y1, area->x2 + 1, area->y2 + 1, pixel_map);
   if (!result) {
-    LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "ScreenProvider::WriteScreenPixels failed\n");
+    LogMessage(
+        LogLevel::kError, __FILE__, __LINE__, "WriteScreenPixels failed\n");
     lv_display_flush_ready(lvgl_display);
   }
 }
