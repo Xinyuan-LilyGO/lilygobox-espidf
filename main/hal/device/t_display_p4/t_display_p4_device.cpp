@@ -14,7 +14,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <ctime>
 #include <memory>
 #include <new>
 #include <string>
@@ -47,14 +46,14 @@ constexpr uint8_t kVibrationTestGain = 255;
 constexpr uint8_t kVibrationTestLoopCount = 15;
 constexpr uint32_t kVibrationTestPlayMs = 220;
 constexpr uint32_t kVibrationTestStopMs = 180;
-constexpr size_t kSpeakerTestChunkBytes = 4096;
-constexpr uint32_t kSpeakerTestTaskStackBytes = 4 * 1024;
-constexpr UBaseType_t kSpeakerTestTaskPriority = 3;
-constexpr uint32_t kSpeakerTestSampleRateHz = 44100;
-constexpr uint8_t kSpeakerTestChannelCount = 2;
-constexpr uint8_t kSpeakerTestBitsPerSample = 16;
-constexpr uint32_t kMicrophoneTestTaskStackBytes = 4 * 1024;
-constexpr UBaseType_t kMicrophoneTestTaskPriority = 3;
+constexpr size_t kSpeakerPlaybackChunkBytes = 4096;
+constexpr uint32_t kSpeakerPlaybackTaskStackBytes = 4 * 1024;
+constexpr UBaseType_t kSpeakerPlaybackTaskPriority = 3;
+constexpr uint32_t kSpeakerPlaybackSampleRateHz = 44100;
+constexpr uint8_t kSpeakerPlaybackChannelCount = 2;
+constexpr uint8_t kSpeakerPlaybackBitsPerSample = 16;
+constexpr uint32_t kMicrophoneCaptureTaskStackBytes = 4 * 1024;
+constexpr UBaseType_t kMicrophoneCaptureTaskPriority = 3;
 constexpr size_t kMicrophoneReadSampleCount = 128;
 constexpr uint32_t kMicrophoneReadDelayMs = 40;
 constexpr int kMicrophoneLevelFullScale = 1000;
@@ -155,28 +154,28 @@ const char* TDisplayP4Device::ScreenType() const {
 }
 
 bool TDisplayP4Device::StartEthernet() {
-  if (ethernet_initialized_.load()) {
-    if (!ethernet_running_.load() && ethernet_handle_ != nullptr) {
+  if (ethernet_.driver_initialized.load()) {
+    if (!ethernet_.running.load() && ethernet_.handle != nullptr) {
       const esp_err_t result =
-          esp_eth_start(reinterpret_cast<esp_eth_handle_t>(ethernet_handle_));
+          esp_eth_start(reinterpret_cast<esp_eth_handle_t>(ethernet_.handle));
       if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
         SetEthernetFailure(result);
         return false;
       }
-      ethernet_running_.store(true);
-      ethernet_start_failed_.store(false);
-      ethernet_last_error_.store(ESP_OK);
+      ethernet_.running.store(true);
+      ethernet_.start_failed.store(false);
+      ethernet_.last_error.store(ESP_OK);
     }
     return true;
   }
 
   bool expected = false;
-  if (!ethernet_initializing_.compare_exchange_strong(expected, true)) {
+  if (!ethernet_.init_task_running.compare_exchange_strong(expected, true)) {
     return true;
   }
 
-  ethernet_start_failed_.store(false);
-  ethernet_last_error_.store(ESP_OK);
+  ethernet_.start_failed.store(false);
+  ethernet_.last_error.store(ESP_OK);
   const BaseType_t result = xTaskCreate(EthernetInitTaskEntry, "ethernet",
       kEthernetInitTaskStackBytes, this, kEthernetInitTaskPriority, nullptr);
   if (result != pdPASS) {
@@ -191,33 +190,33 @@ bool TDisplayP4Device::ReadEthernetStatus(EthernetStatus* status) {
     return false;
   }
 
-  status->initializing = ethernet_initializing_.load();
-  status->initialized = ethernet_initialized_.load();
-  status->running = ethernet_running_.load();
-  status->link_up = ethernet_link_up_.load();
-  status->got_ip = ethernet_got_ip_.load();
-  status->start_failed = ethernet_start_failed_.load();
-  status->port_count = ethernet_port_count_.load();
-  status->last_error = ethernet_last_error_.load();
-  status->mac_address = ethernet_mac_address_.load();
-  status->ip_address = ethernet_ip_address_.load();
-  status->netmask = ethernet_netmask_.load();
-  status->gateway = ethernet_gateway_.load();
+  status->init_task_running = ethernet_.init_task_running.load();
+  status->driver_initialized = ethernet_.driver_initialized.load();
+  status->running = ethernet_.running.load();
+  status->link_up = ethernet_.link_up.load();
+  status->got_ip = ethernet_.got_ip.load();
+  status->start_failed = ethernet_.start_failed.load();
+  status->port_count = ethernet_.port_count.load();
+  status->last_error = ethernet_.last_error.load();
+  status->mac_address = ethernet_.mac_address.load();
+  status->ip_address = ethernet_.ip_address.load();
+  status->netmask = ethernet_.netmask.load();
+  status->gateway = ethernet_.gateway.load();
   return true;
 }
 
 bool TDisplayP4Device::StartWifi() {
-  if (wifi_initialized_.load()) {
+  if (wifi_.driver_initialized.load()) {
     return true;
   }
 
   bool expected = false;
-  if (!wifi_initializing_.compare_exchange_strong(expected, true)) {
+  if (!wifi_.init_task_running.compare_exchange_strong(expected, true)) {
     return true;
   }
 
-  wifi_start_failed_.store(false);
-  wifi_last_error_.store(ESP_OK);
+  wifi_.start_failed.store(false);
+  wifi_.last_error.store(ESP_OK);
   const BaseType_t result = xTaskCreate(WifiInitTaskEntry, "wifi_init",
       kWifiInitTaskStackBytes, this, kWifiInitTaskPriority, nullptr);
   if (result != pdPASS) {
@@ -228,8 +227,8 @@ bool TDisplayP4Device::StartWifi() {
 }
 
 bool TDisplayP4Device::StartWifiTimeTest() {
-  wifi_time_test_requested_.store(true);
-  if (!wifi_initialized_.load()) {
+  wifi_time_test_.requested.store(true);
+  if (!wifi_.driver_initialized.load()) {
     return StartWifi();
   }
 
@@ -244,16 +243,16 @@ bool TDisplayP4Device::StartWifiTimeTest() {
 }
 
 bool TDisplayP4Device::StopWifiTimeTest() {
-  wifi_time_test_requested_.store(false);
-  const bool was_active = wifi_time_test_active_.exchange(false);
-  if (!wifi_initialized_.load()) {
+  wifi_time_test_.requested.store(false);
+  const bool was_active = wifi_time_test_.active.exchange(false);
+  if (!wifi_.driver_initialized.load()) {
     return true;
   }
-  if (!was_active && !wifi_time_sync_started_.load()) {
+  if (!was_active && !wifi_time_test_.sync_started.load()) {
     return true;
   }
 
-  if (wifi_time_sync_started_.exchange(false)) {
+  if (wifi_time_test_.sync_started.exchange(false)) {
     esp_sntp_set_time_sync_notification_cb(nullptr);
     TDisplayP4Device* owner = this;
     g_wifi_time_sync_owner.compare_exchange_strong(owner, nullptr);
@@ -261,30 +260,30 @@ bool TDisplayP4Device::StopWifiTimeTest() {
       esp_sntp_stop();
     }
   }
-  wifi_time_synced_.store(false);
-  wifi_sntp_unix_time_.store(0);
-  wifi_sntp_sync_monotonic_ms_.store(0);
-  wifi_start_failed_.store(false);
-  wifi_last_error_.store(ESP_OK);
-  wifi_retry_count_.store(0);
+  wifi_time_test_.synced.store(false);
+  wifi_time_test_.sntp_unix_time.store(0);
+  wifi_time_test_.sntp_sync_monotonic_ms.store(0);
+  wifi_.start_failed.store(false);
+  wifi_.last_error.store(ESP_OK);
+  wifi_.retry_count.store(0);
 
   esp_wifi_disconnect();
 
   wifi_config_t empty_config = {};
   esp_wifi_set_config(WIFI_IF_STA, &empty_config);
 
-  if (wifi_previous_sta_config_valid_) {
+  if (wifi_time_test_.previous_sta_config_valid) {
     esp_wifi_set_mode(WIFI_MODE_STA);
-    esp_wifi_set_config(WIFI_IF_STA, &wifi_previous_sta_config_);
+    esp_wifi_set_config(WIFI_IF_STA, &wifi_time_test_.previous_sta_config);
   }
 
-  if (wifi_previous_mode_valid_) {
-    esp_wifi_set_mode(wifi_previous_mode_);
+  if (wifi_time_test_.previous_mode_valid) {
+    esp_wifi_set_mode(wifi_time_test_.previous_mode);
   } else {
     esp_wifi_set_mode(WIFI_MODE_NULL);
   }
 
-  if (wifi_previous_running_) {
+  if (wifi_time_test_.previous_running) {
     const esp_err_t start_result = esp_wifi_start();
     if (start_result != ESP_OK && start_result != ESP_ERR_WIFI_CONN &&
         start_result != ESP_ERR_WIFI_NOT_INIT &&
@@ -292,8 +291,8 @@ bool TDisplayP4Device::StopWifiTimeTest() {
       SetWifiFailure(start_result);
       return false;
     }
-    wifi_running_.store(true);
-    if (wifi_previous_connected_) {
+    wifi_.running.store(true);
+    if (wifi_time_test_.previous_connected) {
       esp_wifi_connect();
     }
   } else {
@@ -304,20 +303,20 @@ bool TDisplayP4Device::StopWifiTimeTest() {
       SetWifiFailure(stop_result);
       return false;
     }
-    wifi_running_.store(false);
-    wifi_connected_.store(false);
-    wifi_got_ip_.store(false);
-    wifi_ip_address_.store(0);
-    wifi_netmask_.store(0);
-    wifi_gateway_.store(0);
+    wifi_.running.store(false);
+    wifi_.connected.store(false);
+    wifi_.got_ip.store(false);
+    wifi_.ip_address.store(0);
+    wifi_.netmask.store(0);
+    wifi_.gateway.store(0);
   }
 
-  wifi_previous_running_ = false;
-  wifi_previous_connected_ = false;
-  wifi_previous_mode_valid_ = false;
-  wifi_previous_sta_config_valid_ = false;
-  wifi_previous_mode_ = WIFI_MODE_NULL;
-  wifi_previous_sta_config_ = {};
+  wifi_time_test_.previous_running = false;
+  wifi_time_test_.previous_connected = false;
+  wifi_time_test_.previous_mode_valid = false;
+  wifi_time_test_.previous_sta_config_valid = false;
+  wifi_time_test_.previous_mode = WIFI_MODE_NULL;
+  wifi_time_test_.previous_sta_config = {};
   return true;
 }
 
@@ -327,23 +326,23 @@ bool TDisplayP4Device::ReadWifiStatus(WifiStatus* status) {
   }
 
   *status = WifiStatus();
-  status->initializing = wifi_initializing_.load();
-  status->initialized = wifi_initialized_.load();
-  status->running = wifi_running_.load();
-  status->connected = wifi_connected_.load();
-  status->got_ip = wifi_got_ip_.load();
-  status->start_failed = wifi_start_failed_.load();
-  status->time_test_running = wifi_time_test_active_.load();
-  status->time_sync_started = wifi_time_sync_started_.load();
-  status->retry_count = wifi_retry_count_.load();
-  status->last_error = wifi_last_error_.load();
-  status->disconnect_reason = wifi_disconnect_reason_.load();
-  status->rssi = wifi_rssi_.load();
-  status->channel = wifi_channel_.load();
-  status->mac_address = wifi_mac_address_.load();
-  status->ip_address = wifi_ip_address_.load();
-  status->netmask = wifi_netmask_.load();
-  status->gateway = wifi_gateway_.load();
+  status->init_task_running = wifi_.init_task_running.load();
+  status->driver_initialized = wifi_.driver_initialized.load();
+  status->running = wifi_.running.load();
+  status->connected = wifi_.connected.load();
+  status->got_ip = wifi_.got_ip.load();
+  status->start_failed = wifi_.start_failed.load();
+  status->time_test_running = wifi_time_test_.active.load();
+  status->time_sync_started = wifi_time_test_.sync_started.load();
+  status->retry_count = wifi_.retry_count.load();
+  status->last_error = wifi_.last_error.load();
+  status->disconnect_reason = wifi_.disconnect_reason.load();
+  status->rssi = wifi_.rssi.load();
+  status->channel = wifi_.channel.load();
+  status->mac_address = wifi_.mac_address.load();
+  status->ip_address = wifi_.ip_address.load();
+  status->netmask = wifi_.netmask.load();
+  status->gateway = wifi_.gateway.load();
 
   if (status->time_test_running) {
     std::strncpy(status->ssid, kFactoryWifiSsid, sizeof(status->ssid) - 1);
@@ -356,16 +355,16 @@ bool TDisplayP4Device::ReadWifiStatus(WifiStatus* status) {
           std::min(sizeof(status->ssid) - 1, sizeof(ap_info.ssid)));
       status->rssi = ap_info.rssi;
       status->channel = ap_info.primary;
-      wifi_rssi_.store(status->rssi);
-      wifi_channel_.store(status->channel);
+      wifi_.rssi.store(status->rssi);
+      wifi_.channel.store(status->channel);
     }
   }
 
-  const int64_t synced_unix_time = wifi_sntp_unix_time_.load();
-  status->time_synced = wifi_time_synced_.load() &&
+  const int64_t synced_unix_time = wifi_time_test_.sntp_unix_time.load();
+  status->time_synced = wifi_time_test_.synced.load() &&
                         synced_unix_time > kWifiValidUnixTimeThreshold;
   status->unix_time = status->time_synced ? synced_unix_time : 0;
-  const int64_t sync_monotonic_ms = wifi_sntp_sync_monotonic_ms_.load();
+  const int64_t sync_monotonic_ms = wifi_time_test_.sntp_sync_monotonic_ms.load();
   if (status->time_synced && sync_monotonic_ms > 0) {
     const int64_t elapsed_ms = esp_timer_get_time() / 1000 - sync_monotonic_ms;
     if (elapsed_ms > 0) {
@@ -619,24 +618,24 @@ bool TDisplayP4Device::PlaySpeakerTone(size_t* bytes_written) {
 
   const auto* audio_data = reinterpret_cast<const uint8_t*>(c2_b16_s44100);
   const size_t audio_size = sizeof(c2_b16_s44100);
-  speaker_test_total_bytes_.store(audio_size);
+  speaker_.total_bytes.store(audio_size);
   const size_t frame_size =
-      (kSpeakerTestBitsPerSample / 8) * kSpeakerTestChannelCount;
+      (kSpeakerPlaybackBitsPerSample / 8) * kSpeakerPlaybackChannelCount;
   const size_t duration_ms =
-      ((audio_size / frame_size) * 1000U) / kSpeakerTestSampleRateHz;
+      ((audio_size / frame_size) * 1000U) / kSpeakerPlaybackSampleRateHz;
 
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-      "ES8311 CIT speaker test: bytes=%u, sample_rate=%u, channels=%u, "
+      "ES8311 speaker playback: bytes=%u, sample_rate=%u, channels=%u, "
       "duration=%u ms\n",
       static_cast<unsigned int>(audio_size),
-      static_cast<unsigned int>(kSpeakerTestSampleRateHz),
-      static_cast<unsigned int>(kSpeakerTestChannelCount),
+      static_cast<unsigned int>(kSpeakerPlaybackSampleRateHz),
+      static_cast<unsigned int>(kSpeakerPlaybackChannelCount),
       static_cast<unsigned int>(duration_ms));
 
   size_t total_written = 0;
   while (total_written < audio_size) {
     const size_t write_size =
-        std::min(kSpeakerTestChunkBytes, audio_size - total_written);
+        std::min(kSpeakerPlaybackChunkBytes, audio_size - total_written);
     const size_t written =
         driver_.chip().es8311->WriteI2s(audio_data + total_written, write_size);
     if (written == 0) {
@@ -650,7 +649,7 @@ bool TDisplayP4Device::PlaySpeakerTone(size_t* bytes_written) {
     if (bytes_written != nullptr) {
       *bytes_written = total_written;
     }
-    speaker_test_bytes_written_.store(total_written);
+    speaker_.bytes_written.store(total_written);
   }
 
   return true;
@@ -658,54 +657,55 @@ bool TDisplayP4Device::PlaySpeakerTone(size_t* bytes_written) {
 
 bool TDisplayP4Device::StartSpeakerTone() {
   bool expected = false;
-  if (!speaker_test_running_.compare_exchange_strong(expected, true)) {
+  if (!speaker_.running.compare_exchange_strong(expected, true)) {
     return false;
   }
 
-  speaker_test_completed_.store(false);
-  speaker_test_success_.store(false);
-  speaker_test_bytes_written_.store(0);
-  speaker_test_total_bytes_.store(sizeof(c2_b16_s44100));
+  speaker_.completed.store(false);
+  speaker_.success.store(false);
+  speaker_.bytes_written.store(0);
+  speaker_.total_bytes.store(sizeof(c2_b16_s44100));
 
-  const BaseType_t result = xTaskCreate(SpeakerToneTaskEntry, "cit_speaker",
-      kSpeakerTestTaskStackBytes, this, kSpeakerTestTaskPriority, nullptr);
+  const BaseType_t result = xTaskCreate(SpeakerPlaybackTaskEntry,
+      "speaker_play", kSpeakerPlaybackTaskStackBytes, this,
+      kSpeakerPlaybackTaskPriority, nullptr);
   if (result != pdPASS) {
-    speaker_test_running_.store(false);
-    speaker_test_completed_.store(true);
+    speaker_.running.store(false);
+    speaker_.completed.store(true);
     return false;
   }
 
   return true;
 }
 
-bool TDisplayP4Device::ReadSpeakerToneStatus(SpeakerPlaybackStatus* status) {
+bool TDisplayP4Device::ReadSpeakerToneStatus(SpeakerStatus* status) {
   if (status == nullptr) {
     return false;
   }
 
-  status->running = speaker_test_running_.load();
-  status->completed = speaker_test_completed_.load();
-  status->success = speaker_test_success_.load();
-  status->bytes_written = speaker_test_bytes_written_.load();
-  status->total_bytes = speaker_test_total_bytes_.load();
+  status->running = speaker_.running.load();
+  status->completed = speaker_.completed.load();
+  status->success = speaker_.success.load();
+  status->bytes_written = speaker_.bytes_written.load();
+  status->total_bytes = speaker_.total_bytes.load();
   return true;
 }
 
-void TDisplayP4Device::SpeakerToneTaskEntry(void* context) {
+void TDisplayP4Device::SpeakerPlaybackTaskEntry(void* context) {
   auto* self = static_cast<TDisplayP4Device*>(context);
   if (self != nullptr) {
-    self->RunSpeakerToneTask();
+    self->RunSpeakerPlaybackTask();
   }
   vTaskDelete(nullptr);
 }
 
-void TDisplayP4Device::RunSpeakerToneTask() {
+void TDisplayP4Device::RunSpeakerPlaybackTask() {
   size_t bytes_written = 0;
   const bool played = PlaySpeakerTone(&bytes_written);
-  speaker_test_bytes_written_.store(bytes_written);
-  speaker_test_success_.store(played);
-  speaker_test_completed_.store(true);
-  speaker_test_running_.store(false);
+  speaker_.bytes_written.store(bytes_written);
+  speaker_.success.store(played);
+  speaker_.completed.store(true);
+  speaker_.running.store(false);
 }
 
 bool TDisplayP4Device::StartMicrophone() {
@@ -716,25 +716,25 @@ bool TDisplayP4Device::StartMicrophone() {
   }
 
   bool expected = false;
-  if (!microphone_test_running_.compare_exchange_strong(expected, true)) {
-    return !microphone_test_stop_requested_.load();
+  if (!microphone_.running.compare_exchange_strong(expected, true)) {
+    return !microphone_.stop_requested.load();
   }
 
-  microphone_test_stop_requested_.store(false);
-  microphone_level_percent_.store(0);
-  microphone_peak_sample_.store(0);
-  microphone_bytes_read_.store(0);
+  microphone_.stop_requested.store(false);
+  microphone_.level_percent.store(0);
+  microphone_.peak_sample.store(0);
+  microphone_.bytes_read.store(0);
   if (!SetAudioAdcToDac(false)) {
-    microphone_test_running_.store(false);
+    microphone_.running.store(false);
     return false;
   }
 
-  const BaseType_t result = xTaskCreate(MicrophoneTestTaskEntry,
-      "cit_microphone", kMicrophoneTestTaskStackBytes, this,
-      kMicrophoneTestTaskPriority, nullptr);
+  const BaseType_t result = xTaskCreate(MicrophoneCaptureTaskEntry,
+      "mic_capture", kMicrophoneCaptureTaskStackBytes, this,
+      kMicrophoneCaptureTaskPriority, nullptr);
   if (result != pdPASS) {
-    microphone_test_running_.store(false);
-    microphone_test_stop_requested_.store(true);
+    microphone_.running.store(false);
+    microphone_.stop_requested.store(true);
     return false;
   }
 
@@ -742,11 +742,11 @@ bool TDisplayP4Device::StartMicrophone() {
 }
 
 bool TDisplayP4Device::StopMicrophone() {
-  microphone_test_stop_requested_.store(true);
-  microphone_level_percent_.store(0);
-  microphone_peak_sample_.store(0);
+  microphone_.stop_requested.store(true);
+  microphone_.level_percent.store(0);
+  microphone_.peak_sample.store(0);
   if (!driver_.status().es8311.init_flag) {
-    microphone_adc_to_dac_enabled_.store(false);
+    microphone_.adc_to_dac_enabled.store(false);
     return true;
   }
   return SetAudioAdcToDac(false);
@@ -763,7 +763,7 @@ bool TDisplayP4Device::SetAudioAdcToDac(bool enable) {
     return false;
   }
 
-  microphone_adc_to_dac_enabled_.store(enable);
+  microphone_.adc_to_dac_enabled.store(enable);
   return true;
 }
 
@@ -772,11 +772,11 @@ bool TDisplayP4Device::ReadMicrophoneStatus(MicrophoneStatus* status) {
     return false;
   }
 
-  status->running = microphone_test_running_.load();
-  status->adc_to_dac_enabled = microphone_adc_to_dac_enabled_.load();
-  status->level_percent = microphone_level_percent_.load();
-  status->peak_sample = microphone_peak_sample_.load();
-  status->bytes_read = microphone_bytes_read_.load();
+  status->running = microphone_.running.load();
+  status->adc_to_dac_enabled = microphone_.adc_to_dac_enabled.load();
+  status->level_percent = microphone_.level_percent.load();
+  status->peak_sample = microphone_.peak_sample.load();
+  status->bytes_read = microphone_.bytes_read.load();
   return true;
 }
 
@@ -1028,21 +1028,21 @@ bool TDisplayP4Device::ReadGpsStatus(GpsStatus* status) {
   return true;
 }
 
-void TDisplayP4Device::MicrophoneTestTaskEntry(void* context) {
+void TDisplayP4Device::MicrophoneCaptureTaskEntry(void* context) {
   auto* self = static_cast<TDisplayP4Device*>(context);
   if (self != nullptr) {
-    self->RunMicrophoneTestTask();
+    self->RunMicrophoneCaptureTask();
   }
   vTaskDelete(nullptr);
 }
 
-void TDisplayP4Device::RunMicrophoneTestTask() {
+void TDisplayP4Device::RunMicrophoneCaptureTask() {
   std::array<int16_t, kMicrophoneReadSampleCount> samples = {};
-  while (!microphone_test_stop_requested_.load()) {
+  while (!microphone_.stop_requested.load()) {
     const size_t read_bytes = driver_.chip().es8311->ReadI2s(
         samples.data(), samples.size() * sizeof(samples[0]));
     if (read_bytes > 0) {
-      microphone_bytes_read_.fetch_add(read_bytes);
+      microphone_.bytes_read.fetch_add(read_bytes);
 
       int peak_sample = 0;
       int64_t absolute_sum = 0;
@@ -1058,7 +1058,8 @@ void TDisplayP4Device::RunMicrophoneTestTask() {
           sample_count == 0 ? 0 : absolute_sum / static_cast<int>(sample_count);
       const int target_level_percent =
           std::min(100, (average_sample * 100) / kMicrophoneLevelFullScale);
-      const int current_level_percent = microphone_level_percent_.load();
+      const int current_level_percent =
+          microphone_.level_percent.load();
       const int difference = target_level_percent - current_level_percent;
       const int divisor = difference > 0 ? kMicrophoneLevelRiseDivisor
                                          : kMicrophoneLevelFallDivisor;
@@ -1066,20 +1067,20 @@ void TDisplayP4Device::RunMicrophoneTestTask() {
       if (level_percent == current_level_percent && difference != 0) {
         level_percent += difference > 0 ? 1 : -1;
       }
-      microphone_peak_sample_.store(peak_sample);
-      microphone_level_percent_.store(level_percent);
+      microphone_.peak_sample.store(peak_sample);
+      microphone_.level_percent.store(level_percent);
     }
 
     vTaskDelay(pdMS_TO_TICKS(kMicrophoneReadDelayMs));
   }
 
-  if (microphone_adc_to_dac_enabled_.load()) {
+  if (microphone_.adc_to_dac_enabled.load()) {
     driver_.chip().es8311->SetAdcDataToDac(false);
-    microphone_adc_to_dac_enabled_.store(false);
+    microphone_.adc_to_dac_enabled.store(false);
   }
-  microphone_level_percent_.store(0);
-  microphone_peak_sample_.store(0);
-  microphone_test_running_.store(false);
+  microphone_.level_percent.store(0);
+  microphone_.peak_sample.store(0);
+  microphone_.running.store(false);
 }
 
 void TDisplayP4Device::EthernetInitTaskEntry(void* context) {
@@ -1097,20 +1098,20 @@ void TDisplayP4Device::RunEthernetInitTask() {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Ethernet init failed (error code: %#X)\n", result);
   }
-  ethernet_initializing_.store(false);
+  ethernet_.init_task_running.store(false);
 }
 
 int TDisplayP4Device::InitializeEthernetStack() {
-  if (ethernet_handle_ != nullptr) {
+  if (ethernet_.handle != nullptr) {
     const esp_err_t start_result =
-        esp_eth_start(reinterpret_cast<esp_eth_handle_t>(ethernet_handle_));
+        esp_eth_start(reinterpret_cast<esp_eth_handle_t>(ethernet_.handle));
     if (start_result != ESP_OK && start_result != ESP_ERR_INVALID_STATE) {
       return start_result;
     }
-    ethernet_initialized_.store(true);
-    ethernet_running_.store(true);
-    ethernet_start_failed_.store(false);
-    ethernet_last_error_.store(ESP_OK);
+    ethernet_.driver_initialized.store(true);
+    ethernet_.running.store(true);
+    ethernet_.start_failed.store(false);
+    ethernet_.last_error.store(ESP_OK);
     return ESP_OK;
   }
 
@@ -1206,32 +1207,32 @@ int TDisplayP4Device::InitializeEthernetStack() {
     return result;
   }
 
-  ethernet_handle_ = handle;
-  ethernet_port_count_.store(1);
+  ethernet_.handle = handle;
+  ethernet_.port_count.store(1);
 
   result = esp_eth_start(handle);
   if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
     return result;
   }
 
-  ethernet_initialized_.store(true);
-  ethernet_running_.store(true);
-  ethernet_start_failed_.store(false);
-  ethernet_last_error_.store(ESP_OK);
+  ethernet_.driver_initialized.store(true);
+  ethernet_.running.store(true);
+  ethernet_.start_failed.store(false);
+  ethernet_.last_error.store(ESP_OK);
   return ESP_OK;
 }
 
 void TDisplayP4Device::SetEthernetFailure(int error) {
-  ethernet_initializing_.store(false);
-  ethernet_initialized_.store(ethernet_handle_ != nullptr);
-  ethernet_running_.store(false);
-  ethernet_link_up_.store(false);
-  ethernet_got_ip_.store(false);
-  ethernet_start_failed_.store(true);
-  ethernet_last_error_.store(error);
-  ethernet_ip_address_.store(0);
-  ethernet_netmask_.store(0);
-  ethernet_gateway_.store(0);
+  ethernet_.init_task_running.store(false);
+  ethernet_.driver_initialized.store(ethernet_.handle != nullptr);
+  ethernet_.running.store(false);
+  ethernet_.link_up.store(false);
+  ethernet_.got_ip.store(false);
+  ethernet_.start_failed.store(true);
+  ethernet_.last_error.store(error);
+  ethernet_.ip_address.store(0);
+  ethernet_.netmask.store(0);
+  ethernet_.gateway.store(0);
 }
 
 void TDisplayP4Device::EthernetEventHandler(
@@ -1244,41 +1245,41 @@ void TDisplayP4Device::EthernetEventHandler(
 
   switch (event_id) {
     case ETHERNET_EVENT_CONNECTED: {
-      self->ethernet_running_.store(true);
-      self->ethernet_link_up_.store(true);
-      self->ethernet_got_ip_.store(false);
-      self->ethernet_ip_address_.store(0);
-      self->ethernet_netmask_.store(0);
-      self->ethernet_gateway_.store(0);
+      self->ethernet_.running.store(true);
+      self->ethernet_.link_up.store(true);
+      self->ethernet_.got_ip.store(false);
+      self->ethernet_.ip_address.store(0);
+      self->ethernet_.netmask.store(0);
+      self->ethernet_.gateway.store(0);
 
       if (event_data != nullptr) {
         esp_eth_handle_t handle = *static_cast<esp_eth_handle_t*>(event_data);
         uint8_t mac_address[6] = {};
         if (esp_eth_ioctl(handle, ETH_CMD_G_MAC_ADDR, mac_address) == ESP_OK) {
-          self->ethernet_mac_address_.store(PackMacAddress(mac_address));
+          self->ethernet_.mac_address.store(PackMacAddress(mac_address));
         }
       }
       break;
     }
     case ETHERNET_EVENT_DISCONNECTED:
-      self->ethernet_link_up_.store(false);
-      self->ethernet_got_ip_.store(false);
-      self->ethernet_ip_address_.store(0);
-      self->ethernet_netmask_.store(0);
-      self->ethernet_gateway_.store(0);
+      self->ethernet_.link_up.store(false);
+      self->ethernet_.got_ip.store(false);
+      self->ethernet_.ip_address.store(0);
+      self->ethernet_.netmask.store(0);
+      self->ethernet_.gateway.store(0);
       break;
     case ETHERNET_EVENT_START:
-      self->ethernet_running_.store(true);
-      self->ethernet_start_failed_.store(false);
-      self->ethernet_last_error_.store(ESP_OK);
+      self->ethernet_.running.store(true);
+      self->ethernet_.start_failed.store(false);
+      self->ethernet_.last_error.store(ESP_OK);
       break;
     case ETHERNET_EVENT_STOP:
-      self->ethernet_running_.store(false);
-      self->ethernet_link_up_.store(false);
-      self->ethernet_got_ip_.store(false);
-      self->ethernet_ip_address_.store(0);
-      self->ethernet_netmask_.store(0);
-      self->ethernet_gateway_.store(0);
+      self->ethernet_.running.store(false);
+      self->ethernet_.link_up.store(false);
+      self->ethernet_.got_ip.store(false);
+      self->ethernet_.ip_address.store(0);
+      self->ethernet_.netmask.store(0);
+      self->ethernet_.gateway.store(0);
       break;
     default:
       break;
@@ -1295,11 +1296,11 @@ void TDisplayP4Device::EthernetGotIpEventHandler(
     return;
   }
 
-  self->ethernet_link_up_.store(true);
-  self->ethernet_got_ip_.store(true);
-  self->ethernet_ip_address_.store(event->ip_info.ip.addr);
-  self->ethernet_netmask_.store(event->ip_info.netmask.addr);
-  self->ethernet_gateway_.store(event->ip_info.gw.addr);
+  self->ethernet_.link_up.store(true);
+  self->ethernet_.got_ip.store(true);
+  self->ethernet_.ip_address.store(event->ip_info.ip.addr);
+  self->ethernet_.netmask.store(event->ip_info.netmask.addr);
+  self->ethernet_.gateway.store(event->ip_info.gw.addr);
 }
 
 void TDisplayP4Device::WifiInitTaskEntry(void* context) {
@@ -1323,12 +1324,12 @@ void TDisplayP4Device::RunWifiInitTask() {
     SetWifiFailure(result);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "WiFi init failed (error code: %#X)\n", result);
-    wifi_initializing_.store(false);
+    wifi_.init_task_running.store(false);
     return;
   }
 
-  wifi_initializing_.store(false);
-  if (wifi_time_test_requested_.load()) {
+  wifi_.init_task_running.store(false);
+  if (wifi_time_test_.requested.load()) {
     const int test_result = StartWifiTimeTestInternal();
     if (test_result != ESP_OK) {
       SetWifiFailure(test_result);
@@ -1355,17 +1356,17 @@ bool TDisplayP4Device::WaitForWifiHardwareReady() {
 }
 
 int TDisplayP4Device::InitializeWifiStack() {
-  if (wifi_initialized_.load()) {
+  if (wifi_.driver_initialized.load()) {
     return ESP_OK;
   }
 
-  if (!wifi_hosted_initialized_.load()) {
+  if (!wifi_.hosted_bridge_initialized.load()) {
     const esp_err_t hosted_result = esp_hosted_init();
     if (hosted_result != ESP_OK &&
         hosted_result != ESP_ERR_INVALID_STATE) {
       return hosted_result;
     }
-    wifi_hosted_initialized_.store(true);
+    wifi_.hosted_bridge_initialized.store(true);
   }
 
   esp_err_t result = esp_netif_init();
@@ -1378,9 +1379,9 @@ int TDisplayP4Device::InitializeWifiStack() {
     return result;
   }
 
-  if (wifi_netif_ == nullptr) {
-    wifi_netif_ = esp_netif_create_default_wifi_sta();
-    if (wifi_netif_ == nullptr) {
+  if (wifi_.netif == nullptr) {
+    wifi_.netif = esp_netif_create_default_wifi_sta();
+    if (wifi_.netif == nullptr) {
       return ESP_ERR_NO_MEM;
     }
   }
@@ -1410,52 +1411,53 @@ int TDisplayP4Device::InitializeWifiStack() {
 
   uint8_t mac_address[6] = {};
   if (esp_wifi_get_mac(WIFI_IF_STA, mac_address) == ESP_OK) {
-    wifi_mac_address_.store(PackMacAddress(mac_address));
+    wifi_.mac_address.store(PackMacAddress(mac_address));
   }
 
   result = esp_wifi_set_mode(WIFI_MODE_NULL);
   if (result != ESP_OK) {
     return result;
   }
-  wifi_initialized_.store(true);
-  wifi_running_.store(false);
-  wifi_connected_.store(false);
-  wifi_got_ip_.store(false);
-  wifi_start_failed_.store(false);
-  wifi_last_error_.store(ESP_OK);
+  wifi_.driver_initialized.store(true);
+  wifi_.running.store(false);
+  wifi_.connected.store(false);
+  wifi_.got_ip.store(false);
+  wifi_.start_failed.store(false);
+  wifi_.last_error.store(ESP_OK);
   return ESP_OK;
 }
 
 int TDisplayP4Device::StartWifiTimeTestInternal() {
-  if (!wifi_initialized_.load()) {
+  if (!wifi_.driver_initialized.load()) {
     return ESP_ERR_WIFI_NOT_INIT;
   }
 
-  if (wifi_time_test_active_.load()) {
+  if (wifi_time_test_.active.load()) {
     return ESP_OK;
   }
 
-  wifi_previous_running_ = wifi_running_.load();
-  wifi_previous_connected_ = wifi_connected_.load();
-  wifi_previous_mode_valid_ =
-      esp_wifi_get_mode(&wifi_previous_mode_) == ESP_OK;
-  wifi_previous_sta_config_valid_ =
-      esp_wifi_get_config(WIFI_IF_STA, &wifi_previous_sta_config_) == ESP_OK;
+  wifi_time_test_.previous_running = wifi_.running.load();
+  wifi_time_test_.previous_connected = wifi_.connected.load();
+  wifi_time_test_.previous_mode_valid =
+      esp_wifi_get_mode(&wifi_time_test_.previous_mode) == ESP_OK;
+  wifi_time_test_.previous_sta_config_valid =
+      esp_wifi_get_config(WIFI_IF_STA, &wifi_time_test_.previous_sta_config) ==
+      ESP_OK;
 
-  wifi_time_test_active_.store(true);
-  wifi_start_failed_.store(false);
-  wifi_last_error_.store(ESP_OK);
-  wifi_disconnect_reason_.store(0);
-  wifi_retry_count_.store(0);
-  wifi_time_synced_.store(false);
-  wifi_time_sync_started_.store(false);
-  wifi_sntp_unix_time_.store(0);
-  wifi_sntp_sync_monotonic_ms_.store(0);
-  wifi_connected_.store(false);
-  wifi_got_ip_.store(false);
-  wifi_ip_address_.store(0);
-  wifi_netmask_.store(0);
-  wifi_gateway_.store(0);
+  wifi_time_test_.active.store(true);
+  wifi_.start_failed.store(false);
+  wifi_.last_error.store(ESP_OK);
+  wifi_.disconnect_reason.store(0);
+  wifi_.retry_count.store(0);
+  wifi_time_test_.synced.store(false);
+  wifi_time_test_.sync_started.store(false);
+  wifi_time_test_.sntp_unix_time.store(0);
+  wifi_time_test_.sntp_sync_monotonic_ms.store(0);
+  wifi_.connected.store(false);
+  wifi_.got_ip.store(false);
+  wifi_.ip_address.store(0);
+  wifi_.netmask.store(0);
+  wifi_.gateway.store(0);
 
   esp_err_t result = esp_wifi_set_storage(WIFI_STORAGE_RAM);
   if (result != ESP_OK) {
@@ -1481,7 +1483,7 @@ int TDisplayP4Device::StartWifiTimeTestInternal() {
   if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
     return result;
   }
-  wifi_running_.store(true);
+  wifi_.running.store(true);
 
   result = esp_wifi_connect();
   if (result != ESP_OK && result != ESP_ERR_WIFI_CONN) {
@@ -1491,16 +1493,16 @@ int TDisplayP4Device::StartWifiTimeTestInternal() {
 }
 
 int TDisplayP4Device::StartWifiSntp() {
-  if (wifi_time_sync_started_.load()) {
+  if (wifi_time_test_.sync_started.load()) {
     return ESP_OK;
   }
 
   if (esp_sntp_enabled()) {
     esp_sntp_stop();
   }
-  wifi_sntp_unix_time_.store(0);
-  wifi_sntp_sync_monotonic_ms_.store(0);
-  wifi_time_synced_.store(false);
+  wifi_time_test_.sntp_unix_time.store(0);
+  wifi_time_test_.sntp_sync_monotonic_ms.store(0);
+  wifi_time_test_.synced.store(false);
   g_wifi_time_sync_owner.store(this);
   esp_sntp_set_time_sync_notification_cb([](struct timeval* time_value) {
     auto* owner = g_wifi_time_sync_owner.load();
@@ -1513,31 +1515,32 @@ int TDisplayP4Device::StartWifiSntp() {
       return;
     }
 
-    owner->wifi_sntp_unix_time_.store(unix_time);
-    owner->wifi_sntp_sync_monotonic_ms_.store(esp_timer_get_time() / 1000);
-    owner->wifi_time_synced_.store(true);
+    owner->wifi_time_test_.sntp_unix_time.store(unix_time);
+    owner->wifi_time_test_.sntp_sync_monotonic_ms.store(
+        esp_timer_get_time() / 1000);
+    owner->wifi_time_test_.synced.store(true);
   });
   esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
   esp_sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
   esp_sntp_set_sync_interval(kWifiSntpSyncIntervalMs);
   esp_sntp_setservername(0, kWifiSntpServer);
   esp_sntp_init();
-  wifi_time_sync_started_.store(true);
+  wifi_time_test_.sync_started.store(true);
   return ESP_OK;
 }
 
 void TDisplayP4Device::SetWifiFailure(int error) {
-  wifi_initializing_.store(false);
-  wifi_start_failed_.store(true);
-  wifi_last_error_.store(error);
-  wifi_connected_.store(false);
-  wifi_got_ip_.store(false);
-  wifi_time_synced_.store(false);
-  wifi_sntp_unix_time_.store(0);
-  wifi_sntp_sync_monotonic_ms_.store(0);
-  wifi_ip_address_.store(0);
-  wifi_netmask_.store(0);
-  wifi_gateway_.store(0);
+  wifi_.init_task_running.store(false);
+  wifi_.start_failed.store(true);
+  wifi_.last_error.store(error);
+  wifi_.connected.store(false);
+  wifi_.got_ip.store(false);
+  wifi_time_test_.synced.store(false);
+  wifi_time_test_.sntp_unix_time.store(0);
+  wifi_time_test_.sntp_sync_monotonic_ms.store(0);
+  wifi_.ip_address.store(0);
+  wifi_.netmask.store(0);
+  wifi_.gateway.store(0);
 }
 
 void TDisplayP4Device::WifiEventHandler(
@@ -1550,36 +1553,36 @@ void TDisplayP4Device::WifiEventHandler(
 
   switch (event_id) {
     case WIFI_EVENT_STA_START:
-      self->wifi_running_.store(true);
-      self->wifi_start_failed_.store(false);
-      self->wifi_last_error_.store(ESP_OK);
+      self->wifi_.running.store(true);
+      self->wifi_.start_failed.store(false);
+      self->wifi_.last_error.store(ESP_OK);
       break;
     case WIFI_EVENT_STA_CONNECTED: {
-      self->wifi_connected_.store(true);
-      self->wifi_got_ip_.store(false);
-      self->wifi_retry_count_.store(0);
+      self->wifi_.connected.store(true);
+      self->wifi_.got_ip.store(false);
+      self->wifi_.retry_count.store(0);
       wifi_ap_record_t ap_info = {};
       if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
-        self->wifi_rssi_.store(ap_info.rssi);
-        self->wifi_channel_.store(ap_info.primary);
+        self->wifi_.rssi.store(ap_info.rssi);
+        self->wifi_.channel.store(ap_info.primary);
       }
       uint8_t mac_address[6] = {};
       if (esp_wifi_get_mac(WIFI_IF_STA, mac_address) == ESP_OK) {
-        self->wifi_mac_address_.store(PackMacAddress(mac_address));
+        self->wifi_.mac_address.store(PackMacAddress(mac_address));
       }
       break;
     }
     case WIFI_EVENT_STA_DISCONNECTED: {
-      self->wifi_connected_.store(false);
-      self->wifi_got_ip_.store(false);
-      self->wifi_time_synced_.store(false);
-      self->wifi_sntp_unix_time_.store(0);
-      self->wifi_sntp_sync_monotonic_ms_.store(0);
-      self->wifi_ip_address_.store(0);
-      self->wifi_netmask_.store(0);
-      self->wifi_gateway_.store(0);
-      if (self->wifi_time_test_active_.load() &&
-          self->wifi_time_sync_started_.exchange(false)) {
+      self->wifi_.connected.store(false);
+      self->wifi_.got_ip.store(false);
+      self->wifi_time_test_.synced.store(false);
+      self->wifi_time_test_.sntp_unix_time.store(0);
+      self->wifi_time_test_.sntp_sync_monotonic_ms.store(0);
+      self->wifi_.ip_address.store(0);
+      self->wifi_.netmask.store(0);
+      self->wifi_.gateway.store(0);
+      if (self->wifi_time_test_.active.load() &&
+          self->wifi_time_test_.sync_started.exchange(false)) {
         esp_sntp_set_time_sync_notification_cb(nullptr);
         TDisplayP4Device* owner = self;
         g_wifi_time_sync_owner.compare_exchange_strong(owner, nullptr);
@@ -1590,32 +1593,32 @@ void TDisplayP4Device::WifiEventHandler(
       if (event_data != nullptr) {
         const auto* disconnected =
             static_cast<wifi_event_sta_disconnected_t*>(event_data);
-        self->wifi_disconnect_reason_.store(disconnected->reason);
+        self->wifi_.disconnect_reason.store(disconnected->reason);
       }
 
-      if (self->wifi_time_test_active_.load()) {
-        const int retry_count = self->wifi_retry_count_.fetch_add(1) + 1;
+      if (self->wifi_time_test_.active.load()) {
+        const int retry_count = self->wifi_.retry_count.fetch_add(1) + 1;
         if (retry_count <= kWifiMaxReconnectCount) {
           esp_wifi_connect();
         } else {
-          self->wifi_start_failed_.store(true);
-          self->wifi_last_error_.store(ESP_ERR_WIFI_CONN);
+          self->wifi_.start_failed.store(true);
+          self->wifi_.last_error.store(ESP_ERR_WIFI_CONN);
         }
       }
       break;
     }
     case WIFI_EVENT_STA_STOP:
-      self->wifi_running_.store(false);
-      self->wifi_connected_.store(false);
-      self->wifi_got_ip_.store(false);
-      self->wifi_time_synced_.store(false);
-      self->wifi_sntp_unix_time_.store(0);
-      self->wifi_sntp_sync_monotonic_ms_.store(0);
-      self->wifi_ip_address_.store(0);
-      self->wifi_netmask_.store(0);
-      self->wifi_gateway_.store(0);
-      if (self->wifi_time_test_active_.load() &&
-          self->wifi_time_sync_started_.exchange(false)) {
+      self->wifi_.running.store(false);
+      self->wifi_.connected.store(false);
+      self->wifi_.got_ip.store(false);
+      self->wifi_time_test_.synced.store(false);
+      self->wifi_time_test_.sntp_unix_time.store(0);
+      self->wifi_time_test_.sntp_sync_monotonic_ms.store(0);
+      self->wifi_.ip_address.store(0);
+      self->wifi_.netmask.store(0);
+      self->wifi_.gateway.store(0);
+      if (self->wifi_time_test_.active.load() &&
+          self->wifi_time_test_.sync_started.exchange(false)) {
         esp_sntp_set_time_sync_notification_cb(nullptr);
         TDisplayP4Device* owner = self;
         g_wifi_time_sync_owner.compare_exchange_strong(owner, nullptr);
@@ -1639,12 +1642,12 @@ void TDisplayP4Device::WifiGotIpEventHandler(
     return;
   }
 
-  self->wifi_connected_.store(true);
-  self->wifi_got_ip_.store(true);
-  self->wifi_ip_address_.store(event->ip_info.ip.addr);
-  self->wifi_netmask_.store(event->ip_info.netmask.addr);
-  self->wifi_gateway_.store(event->ip_info.gw.addr);
-  if (self->wifi_time_test_active_.load()) {
+  self->wifi_.connected.store(true);
+  self->wifi_.got_ip.store(true);
+  self->wifi_.ip_address.store(event->ip_info.ip.addr);
+  self->wifi_.netmask.store(event->ip_info.netmask.addr);
+  self->wifi_.gateway.store(event->ip_info.gw.addr);
+  if (self->wifi_time_test_.active.load()) {
     const int result = self->StartWifiSntp();
     if (result != ESP_OK) {
       self->SetWifiFailure(result);

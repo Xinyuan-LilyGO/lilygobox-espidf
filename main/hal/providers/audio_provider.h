@@ -11,7 +11,7 @@
 
 namespace lilygo_box::hal {
 
-struct SpeakerPlaybackStatus {
+struct SpeakerStatus {
   bool running = false;
   bool completed = false;
   bool success = false;
@@ -53,7 +53,7 @@ class AudioProvider {
    * @Date 2026-05-14 00:20:00
    */
   virtual bool ReadSpeakerToneStatus(
-      SpeakerPlaybackStatus* status) = 0;
+      SpeakerStatus* status) = 0;
 
   /**
    * @brief 创建后台任务读取麦克风采样数据

@@ -101,7 +101,7 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 读取成功返回 true，否则返回 false
    * @Date 2026-05-13 21:00:00
    */
-  bool ReadSpeakerToneStatus(SpeakerPlaybackStatus* status) override;
+  bool ReadSpeakerToneStatus(SpeakerStatus* status) override;
 
   /**
    * @brief 创建后台任务读取 ES8311 麦克风采样数据
@@ -318,14 +318,14 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return
    * @Date 2026-05-13 21:00:00
    */
-  static void SpeakerToneTaskEntry(void* context);
+  static void SpeakerPlaybackTaskEntry(void* context);
 
   /**
    * @brief 执行后台扬声器播放
    * @return
    * @Date 2026-05-13 21:00:00
    */
-  void RunSpeakerToneTask();
+  void RunSpeakerPlaybackTask();
 
   /**
    * @brief 麦克风采样读取任务入口
@@ -333,14 +333,14 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return
    * @Date 2026-05-13 21:20:00
    */
-  static void MicrophoneTestTaskEntry(void* context);
+  static void MicrophoneCaptureTaskEntry(void* context);
 
   /**
    * @brief 执行后台麦克风采样读取
    * @return
    * @Date 2026-05-13 21:20:00
    */
-  void RunMicrophoneTestTask();
+  void RunMicrophoneCaptureTask();
 
   /**
    * @brief 以太网初始化任务入口
@@ -471,114 +471,139 @@ class TDisplayP4Device final : public ScreenProvider,
   static void WifiGotIpEventHandler(
       void* arg, const char* event_base, int32_t event_id, void* event_data);
 
+  struct SpeakerState {
+    // 播放任务是否正在运行
+    std::atomic<bool> running{false};
+    // 最近一次播放任务是否已经完成
+    std::atomic<bool> completed{false};
+    // 最近一次播放是否成功
+    std::atomic<bool> success{false};
+    // 最近一次写入 I2S 的字节数
+    std::atomic<size_t> bytes_written{0};
+    // 播放音频总字节数
+    std::atomic<size_t> total_bytes{0};
+  };
+
+  struct MicrophoneState {
+    // 采样任务是否正在运行
+    std::atomic<bool> running{false};
+    // 采样任务是否请求停止
+    std::atomic<bool> stop_requested{false};
+    // ADC 数据是否直通到 DAC
+    std::atomic<bool> adc_to_dac_enabled{false};
+    // 当前音量百分比
+    std::atomic<int> level_percent{0};
+    // 当前峰值采样
+    std::atomic<int> peak_sample{0};
+    // 累计读取字节数
+    std::atomic<size_t> bytes_read{0};
+  };
+
+  struct EthernetState {
+    // 初始化任务是否正在运行
+    std::atomic<bool> init_task_running{false};
+    // 驱动是否已经初始化完成
+    std::atomic<bool> driver_initialized{false};
+    // 驱动是否已经启动
+    std::atomic<bool> running{false};
+    // 网线链路是否已经连接
+    std::atomic<bool> link_up{false};
+    // 是否已经获取 DHCP 地址
+    std::atomic<bool> got_ip{false};
+    // 启动或连接是否失败
+    std::atomic<bool> start_failed{false};
+    // 端口数量
+    std::atomic<int> port_count{0};
+    // 最近一次错误码
+    std::atomic<int> last_error{0};
+    // MAC 地址打包值
+    std::atomic<uint64_t> mac_address{0};
+    // DHCP IP 地址
+    std::atomic<uint32_t> ip_address{0};
+    // DHCP 子网掩码
+    std::atomic<uint32_t> netmask{0};
+    // DHCP 网关
+    std::atomic<uint32_t> gateway{0};
+    // ESP-IDF 以太网驱动句柄
+    void* handle = nullptr;
+  };
+
+  struct WifiState {
+    // esp_hosted 桥接组件是否已经初始化完成
+    std::atomic<bool> hosted_bridge_initialized{false};
+    // hosted WiFi 初始化任务是否正在运行
+    std::atomic<bool> init_task_running{false};
+    // hosted WiFi 驱动是否已经初始化完成
+    std::atomic<bool> driver_initialized{false};
+    // hosted WiFi 驱动是否已经启动
+    std::atomic<bool> running{false};
+    // hosted WiFi STA 是否已经关联到热点
+    std::atomic<bool> connected{false};
+    // hosted WiFi 是否已经获取 DHCP 地址
+    std::atomic<bool> got_ip{false};
+    // hosted WiFi 启动或连接是否失败
+    std::atomic<bool> start_failed{false};
+    // WiFi 连接重试次数
+    std::atomic<int> retry_count{0};
+    // WiFi 最近一次错误码
+    std::atomic<int> last_error{0};
+    // WiFi 最近一次断开原因
+    std::atomic<int> disconnect_reason{0};
+    // WiFi RSSI 信号强度
+    std::atomic<int> rssi{0};
+    // WiFi 连接信道
+    std::atomic<int> channel{0};
+    // WiFi STA MAC 地址打包值
+    std::atomic<uint64_t> mac_address{0};
+    // WiFi DHCP IP 地址
+    std::atomic<uint32_t> ip_address{0};
+    // WiFi DHCP 子网掩码
+    std::atomic<uint32_t> netmask{0};
+    // WiFi DHCP 网关
+    std::atomic<uint32_t> gateway{0};
+    // ESP-IDF WiFi netif 指针
+    void* netif = nullptr;
+  };
+
+  struct WifiTimeTestState {
+    // WiFi 获取时间测试是否已经请求
+    std::atomic<bool> requested{false};
+    // WiFi 获取时间测试是否正在运行
+    std::atomic<bool> active{false};
+    // SNTP 时间同步是否已经启动
+    std::atomic<bool> sync_started{false};
+    // SNTP 是否已经获取到有效时间
+    std::atomic<bool> synced{false};
+    // SNTP 最新一次从网络同步到的 UTC Unix 时间戳
+    std::atomic<int64_t> sntp_unix_time{0};
+    // SNTP 最新一次同步完成时的单调时间，单位为毫秒
+    std::atomic<int64_t> sntp_sync_monotonic_ms{0};
+    // 进入测试前驱动是否已启动
+    bool previous_running = false;
+    // 进入测试前 STA 是否已连接
+    bool previous_connected = false;
+    // 进入测试前工作模式是否有效
+    bool previous_mode_valid = false;
+    // 进入测试前 STA 配置是否有效
+    bool previous_sta_config_valid = false;
+    // 进入测试前工作模式
+    wifi_mode_t previous_mode = WIFI_MODE_NULL;
+    // 进入测试前 STA 配置
+    wifi_config_t previous_sta_config = {};
+  };
+
   lilygo_device_driver::TDisplayP4Driver& driver_;
   ScreenProviderFlushReadyHandler flush_ready_handler_;
-  // 扬声器任务是否正在播放
-  std::atomic<bool> speaker_test_running_{false};
-  // 扬声器任务是否已经完成过一次
-  std::atomic<bool> speaker_test_completed_{false};
-  // 扬声器最近一次播放是否成功
-  std::atomic<bool> speaker_test_success_{false};
-  // 扬声器最近一次写入的字节数
-  std::atomic<size_t> speaker_test_bytes_written_{0};
-  // 扬声器音频总字节数
-  std::atomic<size_t> speaker_test_total_bytes_{0};
-  // 麦克风采样任务是否正在读取
-  std::atomic<bool> microphone_test_running_{false};
-  // 麦克风采样任务是否请求停止
-  std::atomic<bool> microphone_test_stop_requested_{false};
-  // 麦克风 ADC 数据是否直通到 DAC
-  std::atomic<bool> microphone_adc_to_dac_enabled_{false};
-  // 麦克风当前音量百分比
-  std::atomic<int> microphone_level_percent_{0};
-  // 麦克风当前峰值采样
-  std::atomic<int> microphone_peak_sample_{0};
-  // 麦克风累计读取字节数
-  std::atomic<size_t> microphone_bytes_read_{0};
-  // 以太网初始化任务是否正在运行
-  std::atomic<bool> ethernet_initializing_{false};
-  // 以太网驱动是否已经初始化完成
-  std::atomic<bool> ethernet_initialized_{false};
-  // 以太网驱动是否已经启动
-  std::atomic<bool> ethernet_running_{false};
-  // 以太网链路是否已经连接
-  std::atomic<bool> ethernet_link_up_{false};
-  // 以太网是否已经获取 DHCP 地址
-  std::atomic<bool> ethernet_got_ip_{false};
-  // 以太网启动是否失败
-  std::atomic<bool> ethernet_start_failed_{false};
-  // 以太网端口数量
-  std::atomic<int> ethernet_port_count_{0};
-  // 以太网最近一次错误码
-  std::atomic<int> ethernet_last_error_{0};
-  // 以太网 MAC 地址打包值
-  std::atomic<uint64_t> ethernet_mac_address_{0};
-  // 以太网 DHCP IP 地址
-  std::atomic<uint32_t> ethernet_ip_address_{0};
-  // 以太网 DHCP 子网掩码
-  std::atomic<uint32_t> ethernet_netmask_{0};
-  // 以太网 DHCP 网关
-  std::atomic<uint32_t> ethernet_gateway_{0};
-  // ESP-IDF 以太网驱动句柄
-  void* ethernet_handle_ = nullptr;
-  // esp_hosted 桥接组件是否已经初始化完成
-  std::atomic<bool> wifi_hosted_initialized_{false};
-  // hosted WiFi 初始化任务是否正在运行
-  std::atomic<bool> wifi_initializing_{false};
-  // hosted WiFi 驱动是否已经初始化完成
-  std::atomic<bool> wifi_initialized_{false};
-  // hosted WiFi 驱动是否已经启动
-  std::atomic<bool> wifi_running_{false};
-  // hosted WiFi STA 是否已经关联到热点
-  std::atomic<bool> wifi_connected_{false};
-  // hosted WiFi 是否已经获取 DHCP 地址
-  std::atomic<bool> wifi_got_ip_{false};
-  // hosted WiFi 启动或连接是否失败
-  std::atomic<bool> wifi_start_failed_{false};
-  // WiFi 获取时间测试是否已经请求
-  std::atomic<bool> wifi_time_test_requested_{false};
-  // WiFi 获取时间测试是否正在运行
-  std::atomic<bool> wifi_time_test_active_{false};
-  // SNTP 时间同步是否已经启动
-  std::atomic<bool> wifi_time_sync_started_{false};
-  // SNTP 是否已经获取到有效时间
-  std::atomic<bool> wifi_time_synced_{false};
-  // SNTP 最新一次从网络同步到的 UTC Unix 时间戳
-  std::atomic<int64_t> wifi_sntp_unix_time_{0};
-  // SNTP 最新一次同步完成时的单调时间，单位为毫秒
-  std::atomic<int64_t> wifi_sntp_sync_monotonic_ms_{0};
-  // WiFi 连接重试次数
-  std::atomic<int> wifi_retry_count_{0};
-  // WiFi 最近一次错误码
-  std::atomic<int> wifi_last_error_{0};
-  // WiFi 最近一次断开原因
-  std::atomic<int> wifi_disconnect_reason_{0};
-  // WiFi RSSI 信号强度
-  std::atomic<int> wifi_rssi_{0};
-  // WiFi 连接信道
-  std::atomic<int> wifi_channel_{0};
-  // WiFi STA MAC 地址打包值
-  std::atomic<uint64_t> wifi_mac_address_{0};
-  // WiFi DHCP IP 地址
-  std::atomic<uint32_t> wifi_ip_address_{0};
-  // WiFi DHCP 子网掩码
-  std::atomic<uint32_t> wifi_netmask_{0};
-  // WiFi DHCP 网关
-  std::atomic<uint32_t> wifi_gateway_{0};
-  // WiFi 测试进入前驱动是否已启动
-  bool wifi_previous_running_ = false;
-  // WiFi 测试进入前 STA 是否已连接
-  bool wifi_previous_connected_ = false;
-  // WiFi 测试进入前模式是否有效
-  bool wifi_previous_mode_valid_ = false;
-  // WiFi 测试进入前 STA 配置是否有效
-  bool wifi_previous_sta_config_valid_ = false;
-  // WiFi 测试进入前工作模式
-  wifi_mode_t wifi_previous_mode_ = WIFI_MODE_NULL;
-  // WiFi 测试进入前 STA 配置
-  wifi_config_t wifi_previous_sta_config_ = {};
-  // ESP-IDF WiFi netif 指针
-  void* wifi_netif_ = nullptr;
+  // 扬声器播放状态，供 UI 和后台播放任务共享
+  SpeakerState speaker_;
+  // 麦克风采样状态，供 UI 和后台采样任务共享
+  MicrophoneState microphone_;
+  // 以太网运行状态，供事件回调和 UI 查询共享
+  EthernetState ethernet_;
+  // WiFi 运行状态，供事件回调和 UI 查询共享
+  WifiState wifi_;
+  // WiFi 获取时间测试状态，保存测试流程和进入前配置
+  WifiTimeTestState wifi_time_test_;
   bool gps_running_ = false;
   GpsStatus gps_status_;
 };

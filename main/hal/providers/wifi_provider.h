@@ -13,9 +13,9 @@ namespace lilygo_box::hal {
 
 struct WifiStatus {
   // WiFi 初始化任务是否正在运行
-  bool initializing = false;
+  bool init_task_running = false;
   // WiFi 驱动是否已经初始化完成
-  bool initialized = false;
+  bool driver_initialized = false;
   // WiFi 驱动是否已经启动
   bool running = false;
   // STA 是否已经关联热点

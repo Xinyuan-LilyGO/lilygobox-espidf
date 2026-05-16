@@ -12,8 +12,8 @@
 namespace lilygo_box::hal {
 
 struct EthernetStatus {
-  bool initializing = false;
-  bool initialized = false;
+  bool init_task_running = false;
+  bool driver_initialized = false;
   bool running = false;
   bool link_up = false;
   bool got_ip = false;

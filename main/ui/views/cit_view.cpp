@@ -801,7 +801,7 @@ void RefreshSpeakerTestData(CitViewState* state) {
     return;
   }
 
-  hal::SpeakerPlaybackStatus status;
+  hal::SpeakerStatus status;
   if (state->audio == nullptr ||
       !state->audio->ReadSpeakerToneStatus(&status)) {
     lv_label_set_text(
@@ -813,7 +813,8 @@ void RefreshSpeakerTestData(CitViewState* state) {
   if (status.running) {
     state_text = "playing built-in notification audio";
   } else if (status.completed) {
-    state_text = status.success ? "playback complete" : "playback failed";
+    state_text =
+        status.success ? "playback complete" : "playback failed";
   }
 
   char text[192] = {};
@@ -1202,13 +1203,13 @@ void RefreshEthernetTestData(CitViewState* state) {
   }
 
   const char* status_text = "idle";
-  if (status.initializing) {
+  if (status.init_task_running) {
     status_text = "initializing";
   } else if (status.start_failed) {
     status_text = "start failed";
   } else if (status.running) {
     status_text = "started";
-  } else if (status.initialized) {
+  } else if (status.driver_initialized) {
     status_text = "driver ready";
   }
 
@@ -1302,7 +1303,7 @@ void RefreshWifiTestData(CitViewState* state) {
   }
 
   const char* status_text = "idle";
-  if (status.initializing) {
+  if (status.init_task_running) {
     status_text = "initializing";
   } else if (status.start_failed) {
     status_text = "connect failed";
@@ -1316,7 +1317,7 @@ void RefreshWifiTestData(CitViewState* state) {
     status_text = "waiting dhcp";
   } else if (status.running) {
     status_text = "connecting";
-  } else if (status.initialized) {
+  } else if (status.driver_initialized) {
     status_text = "driver ready";
   }
 
@@ -2173,7 +2174,7 @@ void GenericStartButtonEventCallback(lv_event_t* event) {
       return;
     }
 
-    hal::SpeakerPlaybackStatus status;
+    hal::SpeakerStatus status;
     const bool status_read =
         state->audio != nullptr && state->audio->ReadSpeakerToneStatus(&status);
     lv_label_set_text(state->test_data_label,
