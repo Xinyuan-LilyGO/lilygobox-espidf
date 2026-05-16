@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-14 00:45:00
+ * @LastEditTime: 2026-05-15 18:00:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -31,46 +31,39 @@ class ScreenProvider {
   virtual ~ScreenProvider() = default;
 
   /**
-   * @brief 初始化屏幕设备到可被 LVGL 使用的状态
-   * @return 初始化成功返回 true，否则返回 false
-   * @Date 2026-05-10 13:01:03
-   */
-  virtual bool Init() = 0;
-
-  /**
    * @brief 获取屏幕设备名称
    * @return 屏幕设备名称字符串
    * @Date 2026-05-10 13:01:03
    */
-  virtual const char* name() const = 0;
+  virtual const char* ScreenName() const = 0;
 
   /**
    * @brief 获取当前屏幕类型名称
    * @return 屏幕类型名称字符串，未知时返回 unknown
    * @Date 2026-05-15 00:00:00
    */
-  virtual const char* screen_type() const { return "unknown"; }
+  virtual const char* ScreenType() const { return "unknown"; }
 
   /**
    * @brief 获取屏幕宽度
    * @return 屏幕宽度，单位为像素
    * @Date 2026-05-10 13:01:03
    */
-  virtual int width() const = 0;
+  virtual int ScreenWidth() const = 0;
 
   /**
    * @brief 获取屏幕高度
    * @return 屏幕高度，单位为像素
    * @Date 2026-05-10 13:01:03
    */
-  virtual int height() const = 0;
+  virtual int ScreenHeight() const = 0;
 
   /**
    * @brief 获取单个像素的位数
    * @return 单个像素的位数
    * @Date 2026-05-10 13:01:03
    */
-  virtual int bits_per_pixel() const = 0;
+  virtual int ScreenBitsPerPixel() const = 0;
 
   /**
    * @brief 注册屏幕 flush 完成回调
@@ -79,7 +72,7 @@ class ScreenProvider {
    * @return 注册成功返回 true，否则返回 false
    * @Date 2026-05-10 13:01:03
    */
-  virtual bool RegisterFlushReadyCallback(
+  virtual bool RegisterScreenFlushReadyCallback(
       ScreenProviderFlushReadyCallback callback, void* callback_context) = 0;
 
   /**
@@ -92,7 +85,7 @@ class ScreenProvider {
    * @return 写入成功返回 true，否则返回 false
    * @Date 2026-05-10 13:01:03
    */
-  virtual bool WritePixels(
+  virtual bool WriteScreenPixels(
       int x_start, int y_start, int x_end, int y_end, const void* pixels) = 0;
 
   /**
@@ -101,7 +94,7 @@ class ScreenProvider {
    * @return 读取到触摸点返回 true，否则返回 false
    * @Date 2026-05-10 13:01:03
    */
-  virtual bool ReadTouch(TouchPoint* point) = 0;
+  virtual bool ReadScreenTouch(TouchPoint* point) = 0;
 
   /**
    * @brief 读取当前多个触摸点
@@ -111,14 +104,14 @@ class ScreenProvider {
    * @return 读取到至少一个触摸点返回 true，否则返回 false
    * @Date 2026-05-13 09:55:00
    */
-  virtual bool ReadTouchPoints(
+  virtual bool ReadScreenTouchPoints(
       TouchPoint* points, size_t max_points, size_t* point_count);
 
   /**
    * @brief 启动屏幕背光
    * @Date 2026-05-10 13:01:03
    */
-  virtual void StartBacklight() = 0;
+  virtual void StartScreenBacklight() = 0;
 };
 
 }  // namespace lilygo_box::hal

@@ -75,7 +75,7 @@ class AudioProvider {
    * @return 设置成功返回 true，否则返回 false
    * @Date 2026-05-14 00:20:00
    */
-  virtual bool SetAdcToDac(bool enable) = 0;
+  virtual bool SetAudioAdcToDac(bool enable) = 0;
 
   /**
    * @brief 读取麦克风状态

@@ -19,6 +19,7 @@ DeviceProviderContext CreateDeviceProviderContext() {
 #if defined(CONFIG_LILYGO_BOX_DEVICE_T_DISPLAY_P4)
   auto device = std::make_unique<TDisplayP4Device>();
   DeviceProviderContext context;
+  context.device = device.get();
   context.diagnostics = device.get();
   context.gps = device.get();
   context.imu = device.get();

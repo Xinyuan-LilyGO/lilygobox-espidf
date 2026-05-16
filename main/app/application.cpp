@@ -19,6 +19,13 @@ Application::Application()
     : device_provider_context_(hal::CreateDeviceProviderContext()) {}
 
 bool Application::Init() {
+  hal::DeviceProvider* device = device_provider_context_.device;
+  if (device == nullptr) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+               "No device provider selected\n");
+    return false;
+  }
+
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
   if (screen == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
@@ -26,10 +33,10 @@ bool Application::Init() {
     return false;
   }
 
-  bool result = screen->Init();
+  bool result = device->InitDevice();
   if (!result) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-               "ScreenProvider::Init failed\n");
+               "DeviceProvider::InitDevice failed\n");
     return false;
   }
 
@@ -57,10 +64,22 @@ bool Application::Init() {
                "LvglPort::Start failed\n");
     return false;
   }
-  screen->StartBacklight();
+  screen->StartScreenBacklight();
+
+  if (device_provider_context_.ethernet != nullptr &&
+      !device_provider_context_.ethernet->StartEthernet()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+               "EthernetProvider::StartEthernet failed\n");
+  }
+
+  if (device_provider_context_.wifi != nullptr &&
+      !device_provider_context_.wifi->StartWifi()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+               "WifiProvider::StartWifi failed\n");
+  }
 
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-             "LilygoBox initialized on %s\n", screen->name());
+             "LilygoBox initialized on %s\n", screen->ScreenName());
   return true;
 }
 

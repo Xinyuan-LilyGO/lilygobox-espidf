@@ -25,7 +25,7 @@ bool LvglPort::Init(ScreenProvider* screen) {
   screen_ = screen;
   lv_init();
 
-  lvgl_display_ = lv_display_create(screen_->width(), screen_->height());
+  lvgl_display_ = lv_display_create(screen_->ScreenWidth(), screen_->ScreenHeight());
   if (lvgl_display_ == nullptr) {
     return false;
   }
@@ -52,9 +52,9 @@ bool LvglPort::Init(ScreenProvider* screen) {
   lv_indev_set_user_data(input_device_, this);
   lv_indev_set_read_cb(input_device_, TouchReadCallback);
 
-  if (!screen_->RegisterFlushReadyCallback(FlushReadyCallback, this)) {
+  if (!screen_->RegisterScreenFlushReadyCallback(FlushReadyCallback, this)) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "ScreenProvider::RegisterFlushReadyCallback failed\n");
+        "ScreenProvider::RegisterScreenFlushReadyCallback failed\n");
     return false;
   }
 
@@ -100,11 +100,11 @@ void LvglPort::FlushCallback(
     return;
   }
 
-  const bool result = self->screen_->WritePixels(
+  const bool result = self->screen_->WriteScreenPixels(
       area->x1, area->y1, area->x2 + 1, area->y2 + 1, pixel_map);
   if (!result) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "ScreenProvider::WritePixels failed\n");
+        "ScreenProvider::WriteScreenPixels failed\n");
     lv_display_flush_ready(lvgl_display);
   }
 }
@@ -124,7 +124,7 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
   }
 
   TouchPoint point;
-  const bool result = self->screen_->ReadTouch(&point);
+  const bool result = self->screen_->ReadScreenTouch(&point);
   if (result) {
     data->state = LV_INDEV_STATE_PR;
     data->point.x = point.x;
@@ -143,7 +143,7 @@ void LvglPort::TaskEntry(void* arg) {
 }
 
 lv_color_format_t LvglPort::ColorFormat() const {
-  switch (screen_->bits_per_pixel()) {
+  switch (screen_->ScreenBitsPerPixel()) {
     case 16:
       return LV_COLOR_FORMAT_RGB565;
     case 24:
@@ -151,14 +151,14 @@ lv_color_format_t LvglPort::ColorFormat() const {
     default:
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Unsupported color depth %d, falling back to RGB565\n",
-          screen_->bits_per_pixel());
+          screen_->ScreenBitsPerPixel());
       return LV_COLOR_FORMAT_RGB565;
   }
 }
 
 size_t LvglPort::DrawBufferSize() const {
-  const size_t bytes_per_pixel = screen_->bits_per_pixel() / 8;
-  return static_cast<size_t>(screen_->width()) * screen_->height() *
+  const size_t bytes_per_pixel = screen_->ScreenBitsPerPixel() / 8;
+  return static_cast<size_t>(screen_->ScreenWidth()) * screen_->ScreenHeight() *
          bytes_per_pixel;
 }
 

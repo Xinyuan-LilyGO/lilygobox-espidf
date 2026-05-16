@@ -3,6 +3,7 @@ set(src_dirs
     "app"
     "base"
     "hal"
+    "hal/providers"
     "ui"
     "ui/font"
     "ui/icon"

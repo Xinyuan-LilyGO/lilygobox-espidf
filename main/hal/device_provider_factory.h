@@ -9,20 +9,12 @@
 
 #include <memory>
 
-#include "hal/audio_provider.h"
-#include "hal/bmu_provider.h"
-#include "hal/device_diagnostics.h"
-#include "hal/ethernet_provider.h"
-#include "hal/gps_provider.h"
-#include "hal/haptic_provider.h"
-#include "hal/imu_provider.h"
-#include "hal/rtc_provider.h"
-#include "hal/screen_provider.h"
-#include "hal/wifi_provider.h"
+#include "hal/providers/providers.h"
 
 namespace lilygo_box::hal {
 
 struct DeviceProviderContext {
+  DeviceProvider* device = nullptr;
   std::unique_ptr<ScreenProvider> screen;
   DeviceDiagnosticsProvider* diagnostics = nullptr;
   GpsProvider* gps = nullptr;

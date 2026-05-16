@@ -12,7 +12,7 @@
 #include <cstdint>
 
 #include "app/app_catalog.h"
-#include "hal/screen_provider.h"
+#include "hal/providers/screen_provider.h"
 #include "lvgl.h"
 #include "ui/widgets/status_bar.h"
 

@@ -7,8 +7,8 @@
  */
 #pragma once
 
-#include "hal/bmu_provider.h"
-#include "hal/imu_provider.h"
+#include "hal/providers/bmu_provider.h"
+#include "hal/providers/imu_provider.h"
 
 namespace lilygo_box::hal {
 
@@ -27,7 +27,7 @@ class DeviceDiagnosticsProvider {
    * @return 读取到有效诊断数据返回 true，否则返回 false
    * @Date 2026-05-10 13:01:03
    */
-  virtual bool ReadDiagnostics(DeviceDiagnostics* diagnostics) = 0;
+  virtual bool ReadDeviceDiagnostics(DeviceDiagnostics* diagnostics) = 0;
 };
 
 }  // namespace lilygo_box::hal

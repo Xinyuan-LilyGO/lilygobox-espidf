@@ -23,16 +23,7 @@
 #include "esp_heap_caps.h"
 #include "esp_mac.h"
 #include "esp_system.h"
-#include "hal/audio_provider.h"
-#include "hal/bmu_provider.h"
-#include "hal/device_diagnostics.h"
-#include "hal/ethernet_provider.h"
-#include "hal/gps_provider.h"
-#include "hal/haptic_provider.h"
-#include "hal/imu_provider.h"
-#include "hal/rtc_provider.h"
-#include "hal/screen_provider.h"
-#include "hal/wifi_provider.h"
+#include "hal/providers/providers.h"
 #include "sdkconfig.h"
 #include "ui/input/app_view_gesture_flags.h"
 #include "ui/input/edge_back_gesture.h"
@@ -669,7 +660,7 @@ void RefreshTouchState(CitViewState* state) {
   }
 
   hal::TouchPoint point;
-  const bool result = state->screen->ReadTouch(&point);
+  const bool result = state->screen->ReadScreenTouch(&point);
   if (result) {
     state->touch_was_seen = true;
   }
@@ -761,7 +752,7 @@ void RefreshTouchTestData(CitViewState* state) {
 
   std::array<hal::TouchPoint, kTouchDisplayPointCount> points = {};
   size_t point_count = 0;
-  if (state->screen != nullptr && state->screen->ReadTouchPoints(points.data(),
+  if (state->screen != nullptr && state->screen->ReadScreenTouchPoints(points.data(),
                                       points.size(), &point_count)) {
     state->touch_was_seen = point_count > 0;
   }
@@ -1299,7 +1290,7 @@ void RefreshDiagnosticsState(CitViewState* state) {
     result |= state->imu->ReadImuStatus(&state->diagnostics.imu);
   }
   if (!result && state->diagnostics_provider != nullptr) {
-    result = state->diagnostics_provider->ReadDiagnostics(&state->diagnostics);
+    result = state->diagnostics_provider->ReadDeviceDiagnostics(&state->diagnostics);
   }
   state->diagnostics_read = result;
   state->diagnostics_elapsed_ms = 0;
@@ -2363,7 +2354,7 @@ const char* ConfiguredDeviceName() {
  * @Date 2026-05-13 09:55:00
  */
 const char* ConfiguredScreenType(hal::ScreenProvider* screen) {
-  return screen == nullptr ? "unknown" : screen->screen_type();
+  return screen == nullptr ? "unknown" : screen->ScreenType();
 }
 
 /**
@@ -2474,9 +2465,9 @@ bool AddVersionContent(lv_obj_t* content, CitViewState* state) {
   const bool flash_size_read =
       esp_flash_get_size(nullptr, &flash_size) == ESP_OK;
 
-  const int screen_width = state->screen->width();
-  const int screen_height = state->screen->height();
-  const int screen_bpp = state->screen->bits_per_pixel();
+  const int screen_width = state->screen->ScreenWidth();
+  const int screen_height = state->screen->ScreenHeight();
+  const int screen_bpp = state->screen->ScreenBitsPerPixel();
   const char* app_project_name = KnownString(
       app_description == nullptr ? nullptr : app_description->project_name);
   const char* app_version = KnownString(
@@ -2666,7 +2657,7 @@ void MicrophoneAdcToDacSwitchEventCallback(lv_event_t* event) {
   }
 
   const bool enable = lv_obj_has_state(switch_object, LV_STATE_CHECKED);
-  if (state->audio == nullptr || !state->audio->SetAdcToDac(enable)) {
+  if (state->audio == nullptr || !state->audio->SetAudioAdcToDac(enable)) {
     lv_obj_remove_state(switch_object, LV_STATE_CHECKED);
   }
   RefreshMicrophoneTestData(state);

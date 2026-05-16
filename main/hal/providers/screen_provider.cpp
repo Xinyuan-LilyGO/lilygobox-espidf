@@ -5,11 +5,11 @@
  * @LastEditTime: 2026-05-14 00:45:00
  * @License: GPL 3.0
  */
-#include "hal/screen_provider.h"
+#include "hal/providers/screen_provider.h"
 
 namespace lilygo_box::hal {
 
-bool ScreenProvider::ReadTouchPoints(
+bool ScreenProvider::ReadScreenTouchPoints(
     TouchPoint* points, size_t max_points, size_t* point_count) {
   if (point_count != nullptr) {
     *point_count = 0;
@@ -19,7 +19,7 @@ bool ScreenProvider::ReadTouchPoints(
   }
 
   TouchPoint point;
-  if (!ReadTouch(&point)) {
+  if (!ReadScreenTouch(&point)) {
     return false;
   }
 

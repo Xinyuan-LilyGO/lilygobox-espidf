@@ -11,7 +11,7 @@
 #include <cstdint>
 
 #include "freertos/FreeRTOS.h"
-#include "hal/screen_provider.h"
+#include "hal/providers/screen_provider.h"
 #include "lvgl.h"
 #include "sys/lock.h"
 

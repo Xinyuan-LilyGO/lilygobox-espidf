@@ -93,22 +93,12 @@ uint64_t PackMacAddress(const uint8_t* mac_address) {
 TDisplayP4Device::TDisplayP4Device()
     : driver_(lilygo_device_driver::TDisplayP4Driver::GetInstance()) {}
 
-bool TDisplayP4Device::Init() {
+bool TDisplayP4Device::InitDevice() {
   const bool result =
       driver_.Init(lilygo_device_driver::TDisplayP4Driver::InitMode::kAsync);
   if (!result) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "TDisplayP4Driver::Init failed\n");
-  }
-
-  if (!StartEthernet()) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "TDisplayP4Device::StartEthernet failed\n");
-  }
-
-  if (!StartWifi()) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "TDisplayP4Device::StartWifi failed\n");
   }
 
   if (!WaitForScreenReady()) {
@@ -119,15 +109,15 @@ bool TDisplayP4Device::Init() {
   return true;
 }
 
-int TDisplayP4Device::width() const { return driver_.screen_info().width; }
+int TDisplayP4Device::ScreenWidth() const { return driver_.screen_info().width; }
 
-int TDisplayP4Device::height() const { return driver_.screen_info().height; }
+int TDisplayP4Device::ScreenHeight() const { return driver_.screen_info().height; }
 
-int TDisplayP4Device::bits_per_pixel() const {
+int TDisplayP4Device::ScreenBitsPerPixel() const {
   return driver_.screen_info().bits_per_pixel;
 }
 
-const char* TDisplayP4Device::screen_type() const {
+const char* TDisplayP4Device::ScreenType() const {
   return driver_.screen_info().name;
 }
 
@@ -341,7 +331,7 @@ bool TDisplayP4Device::ReadWifiStatus(WifiStatus* status) {
   return true;
 }
 
-bool TDisplayP4Device::RegisterFlushReadyCallback(
+bool TDisplayP4Device::RegisterScreenFlushReadyCallback(
     ScreenProviderFlushReadyCallback callback, void* callback_context) {
   if (!IsScreenReady()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
@@ -394,7 +384,7 @@ bool TDisplayP4Device::RegisterFlushReadyCallback(
   return true;
 }
 
-bool TDisplayP4Device::WritePixels(
+bool TDisplayP4Device::WriteScreenPixels(
     int x_start, int y_start, int x_end, int y_end, const void* pixels) {
   if (!IsScreenReady()) {
     return false;
@@ -413,7 +403,7 @@ bool TDisplayP4Device::WritePixels(
   return false;
 }
 
-bool TDisplayP4Device::ReadTouch(TouchPoint* point) {
+bool TDisplayP4Device::ReadScreenTouch(TouchPoint* point) {
   if (point == nullptr) {
     return false;
   }
@@ -455,7 +445,7 @@ bool TDisplayP4Device::ReadTouch(TouchPoint* point) {
   return false;
 }
 
-bool TDisplayP4Device::ReadTouchPoints(
+bool TDisplayP4Device::ReadScreenTouchPoints(
     TouchPoint* points, size_t max_points, size_t* point_count) {
   if (point_count != nullptr) {
     *point_count = 0;
@@ -690,7 +680,7 @@ bool TDisplayP4Device::StartMicrophone() {
   microphone_level_percent_.store(0);
   microphone_peak_sample_.store(0);
   microphone_bytes_read_.store(0);
-  if (!SetAdcToDac(false)) {
+  if (!SetAudioAdcToDac(false)) {
     microphone_test_running_.store(false);
     return false;
   }
@@ -715,10 +705,10 @@ bool TDisplayP4Device::StopMicrophone() {
     microphone_adc_to_dac_enabled_.store(false);
     return true;
   }
-  return SetAdcToDac(false);
+  return SetAudioAdcToDac(false);
 }
 
-bool TDisplayP4Device::SetAdcToDac(bool enable) {
+bool TDisplayP4Device::SetAudioAdcToDac(bool enable) {
   if (!driver_.status().es8311.init_flag) {
     return false;
   }
@@ -831,7 +821,7 @@ bool TDisplayP4Device::ReadGpsStatus(GpsStatus* status) {
   next_status.data_ready = true;
   next_status.bytes_read = data_length;
 
-  cpp_bus_driver::Gnss::Rmc rmc;
+  cpp_bus_driver::GnssParser::Rmc rmc;
   next_status.parse_success =
       driver_.chip().l76k->ParseRmcInfo(buffer.get(), data_length, rmc);
   if (next_status.parse_success) {
@@ -1458,7 +1448,7 @@ void TDisplayP4Device::WifiGotIpEventHandler(
   }
 }
 
-bool TDisplayP4Device::ReadDiagnostics(DeviceDiagnostics* diagnostics) {
+bool TDisplayP4Device::ReadDeviceDiagnostics(DeviceDiagnostics* diagnostics) {
   if (diagnostics == nullptr) {
     return false;
   }
@@ -1576,7 +1566,7 @@ bool TDisplayP4Device::ReadImuStatus(ImuStatus* status) {
   return false;
 }
 
-void TDisplayP4Device::StartBacklight() {
+void TDisplayP4Device::StartScreenBacklight() {
   if (!WaitForScreenReady()) {
     return;
   }

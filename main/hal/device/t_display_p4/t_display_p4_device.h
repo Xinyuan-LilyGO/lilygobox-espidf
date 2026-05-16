@@ -12,20 +12,12 @@
 #include <cstdint>
 
 #include "esp_wifi_types.h"
-#include "hal/audio_provider.h"
-#include "hal/bmu_provider.h"
-#include "hal/device_diagnostics.h"
-#include "hal/ethernet_provider.h"
-#include "hal/gps_provider.h"
-#include "hal/haptic_provider.h"
-#include "hal/imu_provider.h"
-#include "hal/rtc_provider.h"
-#include "hal/screen_provider.h"
-#include "hal/wifi_provider.h"
+#include "hal/providers/providers.h"
 #include "t_display_p4_driver.h"
 
 namespace lilygo_box::hal {
 class TDisplayP4Device final : public ScreenProvider,
+                               public DeviceProvider,
                                public DeviceDiagnosticsProvider,
                                public GpsProvider,
                                public ImuProvider,
@@ -43,42 +35,42 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 初始化成功返回 true，否则返回 false
    * @Date 2026-05-10 13:01:03
    */
-  bool Init() override;
+  bool InitDevice() override;
 
   /**
    * @brief 获取设备名称
    * @return 设备名称字符串
    * @Date 2026-05-10 13:01:03
    */
-  const char* name() const override { return "T-Display-P4"; }
+  const char* ScreenName() const override { return "T-Display-P4"; }
 
   /**
    * @brief 获取屏幕宽度
    * @return 屏幕宽度，单位为像素
    * @Date 2026-05-10 13:01:03
    */
-  int width() const override;
+  int ScreenWidth() const override;
 
   /**
    * @brief 获取屏幕高度
    * @return 屏幕高度，单位为像素
    * @Date 2026-05-10 13:01:03
    */
-  int height() const override;
+  int ScreenHeight() const override;
 
   /**
    * @brief 获取单个像素的位数
    * @return 单个像素的位数
    * @Date 2026-05-10 13:01:03
    */
-  int bits_per_pixel() const override;
+  int ScreenBitsPerPixel() const override;
 
   /**
    * @brief 获取当前自动识别到的屏幕类型名称
    * @return 屏幕类型名称字符串
    * @Date 2026-05-15 00:00:00
    */
-  const char* screen_type() const override;
+  const char* ScreenType() const override;
 
   /**
    * @brief 播放 AW86224 RAM 振动波形
@@ -131,7 +123,7 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 设置成功返回 true，否则返回 false
    * @Date 2026-05-13 21:20:00
    */
-  bool SetAdcToDac(bool enable) override;
+  bool SetAudioAdcToDac(bool enable) override;
 
   /**
    * @brief 读取 ES8311 麦克风状态
@@ -170,7 +162,7 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 注册成功返回 true，否则返回 false
    * @Date 2026-05-10 13:01:03
    */
-  bool RegisterFlushReadyCallback(ScreenProviderFlushReadyCallback callback,
+  bool RegisterScreenFlushReadyCallback(ScreenProviderFlushReadyCallback callback,
       void* callback_context) override;
 
   /**
@@ -183,7 +175,7 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 写入成功返回 true，否则返回 false
    * @Date 2026-05-10 13:01:03
    */
-  bool WritePixels(int x_start, int y_start, int x_end, int y_end,
+  bool WriteScreenPixels(int x_start, int y_start, int x_end, int y_end,
       const void* pixels) override;
 
   /**
@@ -192,7 +184,7 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 读取到触摸点返回 true，否则返回 false
    * @Date 2026-05-10 13:01:03
    */
-  bool ReadTouch(TouchPoint* point) override;
+  bool ReadScreenTouch(TouchPoint* point) override;
 
   /**
    * @brief 读取当前多个触摸点
@@ -202,7 +194,7 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 读取到至少一个触摸点返回 true，否则返回 false
    * @Date 2026-05-13 09:55:00
    */
-  bool ReadTouchPoints(
+  bool ReadScreenTouchPoints(
       TouchPoint* points, size_t max_points, size_t* point_count) override;
 
   /**
@@ -211,7 +203,7 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 读取到有效诊断数据返回 true，否则返回 false
    * @Date 2026-05-10 13:01:03
    */
-  bool ReadDiagnostics(DeviceDiagnostics* diagnostics) override;
+  bool ReadDeviceDiagnostics(DeviceDiagnostics* diagnostics) override;
 
   /**
    * @brief 读取 BMU 电池管理状态
@@ -286,7 +278,7 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return
    * @Date 2026-05-10 13:01:03
    */
-  void StartBacklight() override;
+  void StartScreenBacklight() override;
 
  private:
   static constexpr int kScreenReadyTimeoutMs = 5000;
