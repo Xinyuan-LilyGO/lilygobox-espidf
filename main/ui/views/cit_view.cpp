@@ -1420,9 +1420,9 @@ void RefreshActiveTestData(CitViewState* state) {
   if (IsEntryId(*entry, "imu")) {
     const hal::ImuStatus& imu = state->diagnostics.imu;
     std::snprintf(text, sizeof(text),
-        "imu data:\nready: %s\nx: %.2f g\ny: %.2f g\nz: %.2f g",
-        imu.ready ? "yes" : "no", imu.acceleration_x_g, imu.acceleration_y_g,
-        imu.acceleration_z_g);
+        "imu data:\nstatus: %s\nx: %.2f g\ny: %.2f g\nz: %.2f g",
+        imu.ready ? "ready" : "not ready", imu.acceleration_x_g,
+        imu.acceleration_y_g, imu.acceleration_z_g);
     lv_label_set_text(state->test_data_label, text);
     return;
   }
@@ -1430,7 +1430,7 @@ void RefreshActiveTestData(CitViewState* state) {
   if (IsEntryId(*entry, "bmu")) {
     const hal::BmuStatus& bmu = state->diagnostics.bmu;
     std::snprintf(text, sizeof(text),
-        "BMU data:\nready: %s\npack: %s\ncharging: %s\n"
+        "BMU data:\nstatus: %s\npack: %s\ncharging: %s\n"
         "discharging: %s\nfull: %s\nempty: %s\n"
         "\n"
         "voltage: %d mV\ncurrent: %d mA\naverage current: %d mA\n"
@@ -1449,7 +1449,8 @@ void RefreshActiveTestData(CitViewState* state) {
         "temperature:\n"
         "     pack: %.2f C\n"
         "     gauge: %.2f C",
-        bmu.ready ? "yes" : "no", bmu.pack_present ? "present" : "none",
+        bmu.ready ? "ready" : "not ready",
+        bmu.pack_present ? "present" : "none",
         bmu.charging ? "yes" : "no", bmu.discharging ? "yes" : "no",
         bmu.full_charged ? "yes" : "no", bmu.full_discharged ? "yes" : "no",
         bmu.voltage_mv, bmu.current_ma, bmu.average_current_ma,
