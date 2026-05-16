@@ -30,6 +30,7 @@
 #include "ui/font/font_assets.h"
 #include "ui/font/material_symbols_assets.h"
 #include "ui/input/press_cancel.h"
+#include "ui/animation/transition_animation.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -246,29 +247,6 @@ void SuppressNextLauncherGesture(lv_obj_t* app_view) {
 }
 
 /**
- * @brief 设置页面 X 坐标
- * @param object LVGL 对象
- * @param x X 坐标
- * @return
- * @Date 2026-05-13 09:55:00
- */
-void SetPageX(void* object, int32_t x) {
-  lv_obj_set_x(static_cast<lv_obj_t*>(object), x);
-}
-
-/**
- * @brief 设置遮罩透明度
- * @param object LVGL 对象
- * @param opacity 透明度
- * @return
- * @Date 2026-05-13 09:55:00
- */
-void SetDimOverlayOpacity(void* object, int32_t opacity) {
-  lv_obj_set_style_bg_opa(
-      static_cast<lv_obj_t*>(object), opacity, LV_PART_MAIN);
-}
-
-/**
  * @brief 设置麦克风测试指针数值
  * @param context CIT 页面状态
  * @param value 指针数值
@@ -400,39 +378,6 @@ void TestPageCloseCompletedCallback(lv_anim_t* animation) {
 }
 
 /**
- * @brief 启动测试页面横向滑动动画
- * @param page 页面对象
- * @param start_x 起始 X 坐标
- * @param end_x 结束 X 坐标
- * @param state CIT 页面状态
- * @param completed_callback 动画完成回调
- * @return 成功返回 true，否则返回 false
- * @Date 2026-05-13 09:55:00
- */
-bool StartTestPageSlideAnimation(lv_obj_t* page, int32_t start_x, int32_t end_x,
-    CitViewState* state, lv_anim_completed_cb_t completed_callback) {
-  if (page == nullptr) {
-    return false;
-  }
-
-  lv_anim_delete(page, SetPageX);
-  lv_obj_set_x(page, start_x);
-
-  lv_anim_t animation;
-  lv_anim_init(&animation);
-  lv_anim_set_var(&animation, page);
-  lv_anim_set_values(&animation, start_x, end_x);
-  lv_anim_set_duration(&animation, kPageSlideAnimationMs);
-  lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
-  lv_anim_set_exec_cb(&animation, SetPageX);
-  lv_anim_set_user_data(&animation, state);
-  if (completed_callback != nullptr) {
-    lv_anim_set_completed_cb(&animation, completed_callback);
-  }
-  return lv_anim_start(&animation) != nullptr;
-}
-
-/**
  * @brief 删除列表页面的变暗遮罩
  * @param state CIT 页面状态
  * @return
@@ -443,7 +388,7 @@ void DeleteListDimOverlay(CitViewState* state) {
     return;
   }
 
-  lv_anim_delete(state->list_dim_overlay, SetDimOverlayOpacity);
+  DeleteBackgroundOpacityTransition(state->list_dim_overlay);
   lv_obj_delete(state->list_dim_overlay);
   state->list_dim_overlay = nullptr;
 }
@@ -517,21 +462,8 @@ bool StartDimOverlayAnimation(lv_obj_t* overlay, int32_t start_opacity,
     return false;
   }
 
-  lv_anim_delete(overlay, SetDimOverlayOpacity);
-  SetDimOverlayOpacity(overlay, start_opacity);
-
-  lv_anim_t animation;
-  lv_anim_init(&animation);
-  lv_anim_set_var(&animation, overlay);
-  lv_anim_set_values(&animation, start_opacity, end_opacity);
-  lv_anim_set_duration(&animation, kPageSlideAnimationMs);
-  lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
-  lv_anim_set_exec_cb(&animation, SetDimOverlayOpacity);
-  lv_anim_set_user_data(&animation, state);
-  if (completed_callback != nullptr) {
-    lv_anim_set_completed_cb(&animation, completed_callback);
-  }
-  return lv_anim_start(&animation) != nullptr;
+  return StartBackgroundOpacityTransition(overlay, start_opacity, end_opacity,
+      kPageSlideAnimationMs, state, completed_callback);
 }
 
 /**
@@ -3080,7 +3012,7 @@ void DeleteTestPage(CitViewState* state) {
 
   StopActiveTestHardware(state);
   lv_anim_delete(state, SetMicrophoneNeedleValue);
-  lv_anim_delete(state->test_page, SetPageX);
+  DeleteWindowTransition(state->test_page, WindowTransitionMode::kSlideLeft);
   lv_obj_delete(state->test_page);
   ClearTestPageState(state);
 }
@@ -3191,11 +3123,13 @@ bool ShowCitTest(CitViewState* state, size_t index) {
     }
     if (!StartDimOverlayAnimation(dim_overlay, start_opacity,
             kBottomPageDimOpacity, state, nullptr)) {
-      SetDimOverlayOpacity(dim_overlay, kBottomPageDimOpacity);
+      lv_obj_set_style_bg_opa(
+          dim_overlay, kBottomPageDimOpacity, LV_PART_MAIN);
     }
   }
 
-  if (!StartTestPageSlideAnimation(page, state->width, 0, state, nullptr)) {
+  if (!StartSlideLeftWindowTransition(
+          page, state->width, kPageSlideAnimationMs, state, nullptr)) {
     lv_obj_set_x(page, 0);
   }
   return true;
@@ -3237,9 +3171,8 @@ void ShowCitList(CitViewState* state) {
       DeleteListDimOverlay(state);
     }
   }
-  const int32_t start_x = lv_obj_get_x(state->test_page);
-  if (!StartTestPageSlideAnimation(state->test_page, start_x, state->width,
-          state, TestPageCloseCompletedCallback)) {
+  if (!StartSlideRightWindowTransition(state->test_page, state->width,
+          kPageSlideAnimationMs, state, TestPageCloseCompletedCallback)) {
     FinishTestPageClose(state);
   }
 }

@@ -5,6 +5,7 @@ set(src_dirs
     "hal"
     "hal/providers"
     "ui"
+    "ui/animation"
     "ui/font"
     "ui/icon"
     "ui/input"

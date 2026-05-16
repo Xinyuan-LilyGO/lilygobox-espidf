@@ -124,15 +124,6 @@ class UiManager final {
   static void PageScrollEventCallback(lv_event_t* event);
 
   /**
-   * @brief 设置进入 app 页面过渡遮罩透明度
-   * @param user_data 过渡动画状态
-   * @param opacity 透明度
-   * @return
-   * @Date 2026-05-11 23:41:25
-   */
-  static void SetAppOpenCoverOpacity(void* user_data, int32_t opacity);
-
-  /**
    * @brief 处理进入 app 页面过渡遮罩淡入完成事件
    * @param animation LVGL 动画对象
    * @return

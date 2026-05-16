@@ -19,6 +19,7 @@
 #include "ui/input/app_view_gesture_flags.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"
+#include "ui/animation/transition_animation.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -917,15 +918,6 @@ void UiManager::PageScrollEventCallback(lv_event_t* event) {
   self->UpdatePageIndicator(page_index);
 }
 
-void UiManager::SetAppOpenCoverOpacity(void* user_data, int32_t opacity) {
-  auto* state = static_cast<AppOpenTransitionState*>(user_data);
-  if (state == nullptr || state->cover == nullptr) {
-    return;
-  }
-
-  lv_obj_set_style_opa(state->cover, opacity, LV_PART_MAIN);
-}
-
 void UiManager::AppOpenFadeInCompletedCallback(lv_anim_t* animation) {
   auto* state = static_cast<AppOpenTransitionState*>(
       lv_anim_get_user_data(animation));
@@ -1455,9 +1447,9 @@ void UiManager::CancelAppOpenTransition() {
     return;
   }
 
-  lv_anim_delete(app_open_transition_state_, SetAppOpenCoverOpacity);
-
   if (app_open_transition_state_->cover != nullptr) {
+    DeleteWindowTransition(
+        app_open_transition_state_->cover, WindowTransitionMode::kFade);
     lv_obj_delete(app_open_transition_state_->cover);
     app_open_transition_state_->cover = nullptr;
   }
@@ -1473,16 +1465,8 @@ bool UiManager::StartAppOpenCoverFade(AppOpenTransitionState* state,
     return false;
   }
 
-  lv_anim_t animation;
-  lv_anim_init(&animation);
-  lv_anim_set_var(&animation, state);
-  lv_anim_set_user_data(&animation, state);
-  lv_anim_set_values(&animation, start_opacity, end_opacity);
-  lv_anim_set_duration(&animation, duration_ms);
-  lv_anim_set_exec_cb(&animation, SetAppOpenCoverOpacity);
-  lv_anim_set_completed_cb(&animation, completed_callback);
-  lv_anim_t* result = lv_anim_start(&animation);
-  return result != nullptr;
+  return StartFadeWindowTransition(state->cover, start_opacity, end_opacity,
+      duration_ms, state, completed_callback);
 }
 
 lv_obj_t* UiManager::CreateAppTransitionCover() {
