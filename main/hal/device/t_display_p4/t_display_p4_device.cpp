@@ -16,6 +16,7 @@
 #include <ctime>
 #include <memory>
 #include <new>
+#include <string>
 
 #include "audio/new_notification_010_c2_b16_s44100.h"
 #include "base/logger.h"
@@ -69,6 +70,31 @@ constexpr const char* kFactoryWifiPassword = "xinyuandianzi";
 constexpr const char* kWifiSntpServer = "pool.ntp.org";
 constexpr int kWifiMaxReconnectCount = 8;
 constexpr int64_t kWifiValidUnixTimeThreshold = 1700000000LL;
+
+/**
+ * @brief 判断 GNSS 浮点字段是否已经被解析更新
+ * @param value GNSS 浮点字段
+ * @return 已更新返回 true，否则返回 false
+ * @Date 2026-05-16 11:20:00
+ */
+bool IsGnssFloatReady(float value) { return value >= 0.0F; }
+
+/**
+ * @brief 将字符串安全复制到固定长度 C 字符数组
+ * @param destination 目标字符数组
+ * @param destination_size 目标字符数组长度
+ * @param source 源字符串
+ * @return
+ * @Date 2026-05-16 11:20:00
+ */
+void CopyString(
+    char* destination, size_t destination_size, const std::string& source) {
+  if (destination == nullptr || destination_size == 0) {
+    return;
+  }
+
+  std::snprintf(destination, destination_size, "%s", source.c_str());
+}
 
 /**
  * @brief 将 6 字节 MAC 地址打包为整数
@@ -751,6 +777,7 @@ bool TDisplayP4Device::StartGps() {
   gps_status_ = GpsStatus();
   gps_running_ = true;
   gps_status_.running = true;
+  gps_status_.update_interval_ms = driver_.chip().l76k->update_interval_ms();
 
   bool result = driver_.chip().l76k->ClearRxBufferData();
   result &= driver_.chip().l76k->Sleep(false);
@@ -785,6 +812,9 @@ bool TDisplayP4Device::ReadGpsStatus(GpsStatus* status) {
   }
 
   gps_status_.running = gps_running_;
+  if (IsGpsReady()) {
+    gps_status_.update_interval_ms = driver_.chip().l76k->update_interval_ms();
+  }
   *status = gps_status_;
   if (!gps_running_) {
     return true;
@@ -820,26 +850,58 @@ bool TDisplayP4Device::ReadGpsStatus(GpsStatus* status) {
   next_status.running = true;
   next_status.data_ready = true;
   next_status.bytes_read = data_length;
+  next_status.update_interval_ms = driver_.chip().l76k->update_interval_ms();
 
-  cpp_bus_driver::GnssParser::Rmc rmc;
-  next_status.parse_success =
-      driver_.chip().l76k->ParseRmcInfo(buffer.get(), data_length, rmc);
-  if (next_status.parse_success) {
-    std::snprintf(next_status.location_status,
-        sizeof(next_status.location_status), "%s", rmc.location_status.c_str());
+  cpp_bus_driver::L76k::Info info;
+  const bool parse_success =
+      driver_.chip().l76k->ParseInfo(buffer.get(), data_length, info);
+  next_status.parse_success = next_status.parse_success || parse_success;
+  if (parse_success) {
+    const auto& rmc = info.rmc;
+    const auto& gga = info.gga;
+    const auto& gsv = info.gsv;
+    const auto& gsa = info.gsa;
+    const auto& vtg = info.vtg;
+    const auto& zda = info.zda;
+
+    if (rmc.location_status_update_flag) {
+      CopyString(next_status.location_status,
+          sizeof(next_status.location_status), rmc.location_status);
+    }
+    if (!rmc.mode_indicator.empty()) {
+      CopyString(next_status.mode_indicator, sizeof(next_status.mode_indicator),
+          rmc.mode_indicator);
+    } else if (!vtg.mode_indicator.empty()) {
+      CopyString(next_status.mode_indicator, sizeof(next_status.mode_indicator),
+          vtg.mode_indicator);
+    }
+    if (!rmc.navigational_status.empty()) {
+      CopyString(next_status.navigational_status,
+          sizeof(next_status.navigational_status), rmc.navigational_status);
+    }
 
     if (rmc.utc.update_flag) {
       next_status.utc.ready = true;
       next_status.utc.hour = rmc.utc.hour;
       next_status.utc.minute = rmc.utc.minute;
       next_status.utc.second = rmc.utc.second;
+    } else if (zda.utc.update_flag) {
+      next_status.utc.ready = true;
+      next_status.utc.hour = zda.utc.hour;
+      next_status.utc.minute = zda.utc.minute;
+      next_status.utc.second = zda.utc.second;
     }
 
     if (rmc.data.update_flag) {
       next_status.date.ready = true;
       next_status.date.day = rmc.data.day;
       next_status.date.month = rmc.data.month;
-      next_status.date.year = rmc.data.year;
+      next_status.date.year = 2000 + rmc.data.year;
+    } else if (zda.date.update_flag) {
+      next_status.date.ready = true;
+      next_status.date.day = zda.date.day;
+      next_status.date.month = zda.date.month;
+      next_status.date.year = zda.date.year;
     }
 
     if (rmc.location.lat.update_flag &&
@@ -867,6 +929,80 @@ bool TDisplayP4Device::ReadGpsStatus(GpsStatus* status) {
     next_status.positioned =
         next_status.positioned ||
         (next_status.latitude.ready && next_status.longitude.ready);
+
+    if (IsGnssFloatReady(rmc.speed_over_ground_knots)) {
+      next_status.speed_ready = true;
+      next_status.speed_knots = rmc.speed_over_ground_knots;
+      next_status.speed_kmh = rmc.speed_over_ground_knots * 1.852F;
+    } else if (vtg.update_flag && IsGnssFloatReady(vtg.speed_kmh)) {
+      next_status.speed_ready = true;
+      next_status.speed_knots = vtg.speed_knots;
+      next_status.speed_kmh = vtg.speed_kmh;
+    }
+    if (IsGnssFloatReady(rmc.course_over_ground_degree)) {
+      next_status.course_ready = true;
+      next_status.course_degree = rmc.course_over_ground_degree;
+    } else if (vtg.update_flag && IsGnssFloatReady(vtg.course_true_degree)) {
+      next_status.course_ready = true;
+      next_status.course_degree = vtg.course_true_degree;
+    }
+    if (gga.gps_mode_status != 0xFF) {
+      next_status.fix_quality_ready = true;
+      next_status.fix_quality = gga.gps_mode_status;
+    }
+    if (gga.online_satellite_count != 0xFF) {
+      next_status.satellites_used_ready = true;
+      next_status.satellites_used = gga.online_satellite_count;
+    }
+    if (gsv.update_flag && gsv.total_satellite_count != 0xFF) {
+      next_status.satellites_in_view_ready = true;
+      next_status.satellites_in_view = gsv.total_satellite_count;
+    }
+    if (gsv.update_flag) {
+      next_status.satellite_info_count = gsv.satellites.size();
+      int16_t strongest_cn0 = -1;
+      uint16_t strongest_id = 0;
+      for (const auto& satellite : gsv.satellites) {
+        if (satellite.cn0 > strongest_cn0) {
+          strongest_cn0 = satellite.cn0;
+          strongest_id = satellite.id;
+        }
+      }
+      if (strongest_cn0 >= 0) {
+        next_status.strongest_satellite_ready = true;
+        next_status.strongest_satellite_id = strongest_id;
+        next_status.strongest_satellite_cn0 = strongest_cn0;
+      }
+    }
+    if (IsGnssFloatReady(gga.hdop)) {
+      next_status.hdop_ready = true;
+      next_status.hdop = gga.hdop;
+    }
+    if (IsGnssFloatReady(gga.altitude)) {
+      next_status.altitude_ready = true;
+      next_status.altitude = gga.altitude;
+      CopyString(next_status.altitude_unit, sizeof(next_status.altitude_unit),
+          gga.altitude_unit);
+    }
+    if (gsa.update_flag && !gsa.sentences.empty()) {
+      const auto& sentence = gsa.sentences.front();
+      if (sentence.fix_mode != 0xFF) {
+        next_status.fix_mode_ready = true;
+        next_status.fix_mode = sentence.fix_mode;
+      }
+      if (IsGnssFloatReady(sentence.pdop)) {
+        next_status.pdop_ready = true;
+        next_status.pdop = sentence.pdop;
+      }
+      if (IsGnssFloatReady(sentence.hdop)) {
+        next_status.hdop_ready = true;
+        next_status.hdop = sentence.hdop;
+      }
+      if (IsGnssFloatReady(sentence.vdop)) {
+        next_status.vdop_ready = true;
+        next_status.vdop = sentence.vdop;
+      }
+    }
   }
 
   gps_status_ = next_status;

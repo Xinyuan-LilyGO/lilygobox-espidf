@@ -122,6 +122,8 @@ struct CitViewState {
   hal::DeviceDiagnostics diagnostics;
   int diagnostics_elapsed_ms = kDiagnosticsRefreshPeriodMs;
   bool diagnostics_read = false;
+  hal::GpsStatus gps_status;
+  bool gps_status_valid = false;
   std::array<CitStatusRow, app::kMaxCitTestEntryCount> rows;
   std::array<app::CitTestStatus, app::kMaxCitTestEntryCount> test_statuses;
   size_t row_count = 0;
@@ -130,6 +132,8 @@ struct CitViewState {
   size_t screen_color_index = 0;
   bool touch_was_seen = false;
   int gps_elapsed_ms = 0;
+  int gps_read_elapsed_ms = 0;
+  uint32_t gps_update_interval_ms = 1000;
   bool gps_positioned = false;
   int microphone_display_level = 0;
   std::array<lv_point_precise_t, kTouchTraceMaxPointCount> touch_trace_points;
@@ -345,6 +349,10 @@ void ClearTestPageState(CitViewState* state) {
   state->touch_point_markers.fill(nullptr);
   state->touch_trace_point_count = 0;
   state->gps_elapsed_ms = 0;
+  state->gps_read_elapsed_ms = 0;
+  state->gps_update_interval_ms = 1000;
+  state->gps_status = hal::GpsStatus();
+  state->gps_status_valid = false;
   state->gps_positioned = false;
   state->microphone_display_level = 0;
   state->pending_test_index = app::kMaxCitTestEntryCount;
@@ -862,7 +870,7 @@ void RefreshMicrophoneTestData(CitViewState* state) {
 }
 
 /**
- * @brief 刷新 GPS 测试页面的 RMC 定位数据
+ * @brief 刷新 GPS 测试页面的 GNSS 定位数据
  * @param state CIT 页面状态
  * @return
  * @Date 2026-05-13 23:20:00
@@ -872,12 +880,36 @@ void RefreshGpsTestData(CitViewState* state) {
     return;
   }
 
-  hal::GpsStatus status;
-  if (state->gps == nullptr || !state->gps->ReadGpsStatus(&status)) {
-    lv_label_set_text(state->test_data_label, "GPS data:\nstatus: read failed");
+  if (state->gps == nullptr) {
+    lv_label_set_text(state->test_data_label, "GPS data:\nstatus: unsupported");
     return;
   }
 
+  if (state->gps_status_valid) {
+    state->gps_read_elapsed_ms += kCitRefreshPeriodMs;
+  }
+
+  const uint32_t update_interval_ms =
+      std::max<uint32_t>(state->gps_update_interval_ms, kCitRefreshPeriodMs);
+  const bool should_read =
+      !state->gps_status_valid ||
+      state->gps_read_elapsed_ms >= static_cast<int>(update_interval_ms);
+  if (should_read) {
+    hal::GpsStatus status;
+    if (!state->gps->ReadGpsStatus(&status)) {
+      lv_label_set_text(
+          state->test_data_label, "GPS data:\nstatus: read failed");
+      return;
+    }
+    state->gps_status = status;
+    state->gps_status_valid = true;
+    state->gps_read_elapsed_ms = 0;
+    if (status.update_interval_ms > 0) {
+      state->gps_update_interval_ms = status.update_interval_ms;
+    }
+  }
+
+  const hal::GpsStatus& status = state->gps_status;
   if (status.running && !state->gps_positioned) {
     state->gps_elapsed_ms += kCitRefreshPeriodMs;
     if (status.positioned) {
@@ -889,20 +921,101 @@ void RefreshGpsTestData(CitViewState* state) {
   if (!status.running) {
     status_text = "stopped";
   } else if (status.data_ready && status.parse_success) {
-    status_text = "RMC parsed";
+    status_text = "GNSS parsed";
   } else if (status.data_ready) {
-    status_text = "waiting for valid RMC data";
+    status_text = "waiting for valid GNSS data";
   }
 
-  char text[1024] = {};
+  char text[2048] = {};
   size_t used = 0;
   AppendFormatted(text, sizeof(text), &used,
       "GPS data:\nstatus: %s\n%s: %d s\nread bytes: %u\n", status_text,
       state->gps_positioned ? "location found time" : "getting location time",
       (state->gps_elapsed_ms + 999) / 1000,
       static_cast<unsigned int>(status.bytes_read));
-  AppendFormatted(text, sizeof(text), &used, "location status: %s\n\n",
-      status.location_status[0] == '\0' ? "unknown" : status.location_status);
+  AppendFormatted(text, sizeof(text), &used,
+      "update interval: %u ms\n"
+      "location status: %s\n"
+      "mode: %s  nav: %s\n\n",
+      static_cast<unsigned int>(state->gps_update_interval_ms),
+      status.location_status[0] == '\0' ? "unknown" : status.location_status,
+      status.mode_indicator[0] == '\0' ? "unknown" : status.mode_indicator,
+      status.navigational_status[0] == '\0' ? "unknown"
+                                             : status.navigational_status);
+
+  char fix_quality_text[16] = "unknown";
+  char fix_mode_text[16] = "unknown";
+  char satellites_used_text[16] = "unknown";
+  char satellites_in_view_text[16] = "unknown";
+  char hdop_text[16] = "unknown";
+  char pdop_text[16] = "unknown";
+  char vdop_text[16] = "unknown";
+  if (status.fix_quality_ready) {
+    std::snprintf(fix_quality_text, sizeof(fix_quality_text), "%u",
+        static_cast<unsigned int>(status.fix_quality));
+  }
+  if (status.fix_mode_ready) {
+    std::snprintf(fix_mode_text, sizeof(fix_mode_text), "%u",
+        static_cast<unsigned int>(status.fix_mode));
+  }
+  if (status.satellites_used_ready) {
+    std::snprintf(satellites_used_text, sizeof(satellites_used_text), "%u",
+        static_cast<unsigned int>(status.satellites_used));
+  }
+  if (status.satellites_in_view_ready) {
+    std::snprintf(satellites_in_view_text, sizeof(satellites_in_view_text),
+        "%u", static_cast<unsigned int>(status.satellites_in_view));
+  }
+  if (status.hdop_ready) {
+    std::snprintf(hdop_text, sizeof(hdop_text), "%.2f", status.hdop);
+  }
+  if (status.pdop_ready) {
+    std::snprintf(pdop_text, sizeof(pdop_text), "%.2f", status.pdop);
+  }
+  if (status.vdop_ready) {
+    std::snprintf(vdop_text, sizeof(vdop_text), "%.2f", status.vdop);
+  }
+
+  AppendFormatted(text, sizeof(text), &used,
+      "fix quality: %s\nfix mode: %s\n",
+      fix_quality_text, fix_mode_text);
+  AppendFormatted(text, sizeof(text), &used,
+      "satellites used: %s\nsatellites in view: %s\n"
+      "satellite records: %u\n",
+      satellites_used_text, satellites_in_view_text,
+      static_cast<unsigned int>(status.satellite_info_count));
+  if (status.strongest_satellite_ready) {
+    AppendFormatted(text, sizeof(text), &used,
+        "strongest satellite: %u  C/N0: %d\n",
+        static_cast<unsigned int>(status.strongest_satellite_id),
+        static_cast<int>(status.strongest_satellite_cn0));
+  } else {
+    AppendFormatted(
+        text, sizeof(text), &used, "strongest satellite: unknown\n");
+  }
+  AppendFormatted(text, sizeof(text), &used,
+      "HDOP: %s  PDOP: %s  VDOP: %s\n", hdop_text, pdop_text, vdop_text);
+  if (status.altitude_ready) {
+    AppendFormatted(text, sizeof(text), &used, "altitude: %.2f %s\n",
+        status.altitude,
+        status.altitude_unit[0] == '\0' ? "m" : status.altitude_unit);
+  } else {
+    AppendFormatted(text, sizeof(text), &used, "altitude: unknown\n");
+  }
+  if (status.speed_ready) {
+    AppendFormatted(text, sizeof(text), &used,
+        "speed: %.2f km/h  %.2f kn\n", status.speed_kmh,
+        status.speed_knots);
+  } else {
+    AppendFormatted(text, sizeof(text), &used, "speed: unknown\n");
+  }
+  if (status.course_ready) {
+    AppendFormatted(
+        text, sizeof(text), &used, "course: %.2f deg\n\n",
+        status.course_degree);
+  } else {
+    AppendFormatted(text, sizeof(text), &used, "course: unknown\n\n");
+  }
 
   if (status.utc.ready) {
     AppendFormatted(text, sizeof(text), &used, "utc: %02u:%02u:%05.2f\n",
@@ -913,7 +1026,7 @@ void RefreshGpsTestData(CitViewState* state) {
   }
 
   if (status.date.ready) {
-    AppendFormatted(text, sizeof(text), &used, "date: 20%02u-%02u-%02u\n",
+    AppendFormatted(text, sizeof(text), &used, "date: %04u-%02u-%02u\n",
         static_cast<unsigned int>(status.date.year),
         static_cast<unsigned int>(status.date.month),
         static_cast<unsigned int>(status.date.day));
@@ -2786,6 +2899,10 @@ bool AddGpsContent(lv_obj_t* content, CitViewState* state) {
   lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_ACTIVE);
 
   state->gps_elapsed_ms = 0;
+  state->gps_read_elapsed_ms = 0;
+  state->gps_update_interval_ms = 1000;
+  state->gps_status = hal::GpsStatus();
+  state->gps_status_valid = false;
   state->gps_positioned = false;
   state->test_data_label = CreateDataLabel(content, "GPS data:\nstatus: start");
   if (state->test_data_label == nullptr) {

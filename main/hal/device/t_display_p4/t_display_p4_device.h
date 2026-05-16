@@ -148,7 +148,7 @@ class TDisplayP4Device final : public ScreenProvider,
   bool StopGps() override;
 
   /**
-   * @brief 读取 L76K GPS 测试状态和最新 RMC 解析数据
+   * @brief 读取 L76K GPS 测试状态和最新 GNSS 解析数据
    * @param status GPS 测试状态输出地址
    * @return 读取成功返回 true，否则返回 false
    * @Date 2026-05-13 23:20:00
