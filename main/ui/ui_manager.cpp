@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-12 21:20:00
+ * @LastEditTime: 2026-05-16 17:14:31
  * @License: GPL 3.0
  */
 #include "ui/ui_manager.h"
@@ -60,6 +60,19 @@ constexpr int kPageIndicatorBottom = kDockHeight + 8;
 constexpr uint32_t kAppOpenFadeInMs = 45;
 constexpr uint32_t kAppOpenFadeOutMs = 50;
 constexpr uint32_t kAppOpenFadeCoverColor = 0xE2E2E2;
+constexpr uint32_t kStartupProgressFullMs = 1000;
+constexpr uint32_t kStartupProgressMinStepMs = 200;
+constexpr uint32_t kStartupFadeOutMs = 220;
+constexpr uint32_t kStartupBackgroundColor = 0xFFFFFF;
+constexpr uint32_t kStartupTextColor = 0x111111;
+constexpr uint32_t kStartupProgressTrackColor = 0xE8E8E8;
+constexpr uint32_t kStartupProgressFillColor = 0x1C1C1C;
+constexpr int kStartupProgressMaxWidth = 360;
+constexpr int kStartupProgressWidthPercent = 54;
+constexpr int kStartupProgressMinHeight = 6;
+constexpr int kStartupProgressHeightDivisor = 150;
+constexpr int kStartupProgressOffsetY = -30;
+constexpr int kStartupTitleGap = 20;
 
 struct IconStyle {
   const char* symbol;
@@ -141,6 +154,13 @@ const lv_font_t* Font22() { return &lvgl_font_google_sans_flex_22; }
  * @Date 2026-05-13 09:55:00
  */
 const lv_font_t* Font24() { return &lvgl_font_google_sans_flex_24; }
+
+/**
+ * @brief 获取 32 号 Google Sans 字体
+ * @return 字体指针
+ * @Date 2026-05-16 16:10:00
+ */
+const lv_font_t* Font32() { return &lvgl_font_google_sans_flex_32; }
 
 /**
  * @brief 获取 56 号 Material Symbols 字体
@@ -737,8 +757,56 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   }
   status_bar_.MoveToTop();
 
+  startup_screen_ = CreateStartupScreen(root_screen_);
+  if (startup_screen_ == nullptr) {
+    return false;
+  }
+
   lv_screen_load(root_screen_);
   return true;
+}
+
+bool UiManager::StartStartupScreenAnimation() {
+  if (startup_screen_ == nullptr || startup_progress_fill_ == nullptr) {
+    return false;
+  }
+
+  lv_obj_clear_flag(startup_screen_, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_move_to_index(startup_screen_, -1);
+  lv_obj_set_style_opa(startup_screen_, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_width(startup_progress_fill_, 1);
+  lv_anim_delete(this, SetStartupProgressWidth);
+  startup_progress_percent_ = 0;
+  startup_progress_target_percent_ = 0;
+  startup_progress_pending_percent_ = 0;
+  startup_progress_animating_ = false;
+  lv_obj_invalidate(startup_screen_);
+  return true;
+}
+
+bool UiManager::SetStartupScreenProgress(int percent) {
+  if (startup_screen_ == nullptr || startup_progress_fill_ == nullptr) {
+    return false;
+  }
+
+  const int clamped_percent = std::clamp(percent, 0, 100);
+  lv_obj_t* track = lv_obj_get_parent(startup_progress_fill_);
+  if (track == nullptr) {
+    return false;
+  }
+
+  if (clamped_percent <= startup_progress_percent_ &&
+      !startup_progress_animating_) {
+    return true;
+  }
+
+  if (startup_progress_animating_) {
+    startup_progress_pending_percent_ =
+        std::max(startup_progress_pending_percent_, clamped_percent);
+    return true;
+  }
+
+  return StartStartupProgressAnimation(clamped_percent);
 }
 
 void UiManager::AppButtonEventCallback(lv_event_t* event) {
@@ -1441,6 +1509,206 @@ lv_obj_t* UiManager::CreateAppTransitionCover() {
   lv_obj_move_to_index(cover, -1);
   status_bar_.MoveToTop();
   return cover;
+}
+
+lv_obj_t* UiManager::CreateStartupScreen(lv_obj_t* parent) {
+  if (parent == nullptr || screen_ == nullptr) {
+    return nullptr;
+  }
+
+  lv_obj_t* startup = lv_obj_create(parent);
+  if (startup == nullptr) {
+    return nullptr;
+  }
+
+  lv_obj_remove_flag(startup, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(startup, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(startup, screen_->ScreenWidth(), screen_->ScreenHeight());
+  lv_obj_set_pos(startup, 0, 0);
+  lv_obj_set_style_bg_color(
+      startup, lv_color_hex(kStartupBackgroundColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(startup, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(startup, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(startup, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(startup, 0, LV_PART_MAIN);
+  lv_obj_set_style_opa(startup, LV_OPA_COVER, LV_PART_MAIN);
+
+  lv_obj_t* title = lv_label_create(startup);
+  if (title == nullptr) {
+    lv_obj_delete(startup);
+    return nullptr;
+  }
+  lv_label_set_text(title, "LilygoBox");
+  SetTextStyle(title, lv_color_hex(kStartupTextColor), Font32());
+
+  const int progress_width = std::min(kStartupProgressMaxWidth,
+      screen_->ScreenWidth() * kStartupProgressWidthPercent / 100);
+  const int progress_height = std::max(
+      kStartupProgressMinHeight,
+      screen_->ScreenHeight() / kStartupProgressHeightDivisor);
+  lv_obj_t* track = lv_obj_create(startup);
+  if (track == nullptr) {
+    lv_obj_delete(startup);
+    return nullptr;
+  }
+  lv_obj_remove_flag(track, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(track, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(track, progress_width, progress_height);
+  lv_obj_align(track, LV_ALIGN_CENTER, 0, kStartupProgressOffsetY);
+  lv_obj_set_style_bg_color(
+      track, lv_color_hex(kStartupProgressTrackColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(track, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(track, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(track, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(track, progress_height / 2, LV_PART_MAIN);
+  lv_obj_align_to(title, track, LV_ALIGN_OUT_TOP_MID, 0, -kStartupTitleGap);
+
+  startup_progress_fill_ = lv_obj_create(track);
+  if (startup_progress_fill_ == nullptr) {
+    lv_obj_delete(startup);
+    return nullptr;
+  }
+  lv_obj_remove_flag(startup_progress_fill_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(startup_progress_fill_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(startup_progress_fill_, 1, progress_height);
+  lv_obj_set_pos(startup_progress_fill_, 0, 0);
+  lv_obj_set_style_bg_color(startup_progress_fill_,
+      lv_color_hex(kStartupProgressFillColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(startup_progress_fill_, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(startup_progress_fill_, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(startup_progress_fill_, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(
+      startup_progress_fill_, progress_height / 2, LV_PART_MAIN);
+
+  lv_obj_move_to_index(startup, -1);
+  return startup;
+}
+
+void UiManager::SetStartupProgressWidth(void* user_data, int32_t width) {
+  auto* self = static_cast<UiManager*>(user_data);
+  if (self == nullptr || self->startup_progress_fill_ == nullptr) {
+    return;
+  }
+
+  lv_obj_set_width(self->startup_progress_fill_, width);
+}
+
+void UiManager::SetStartupScreenOpacity(void* user_data, int32_t opacity) {
+  auto* self = static_cast<UiManager*>(user_data);
+  if (self == nullptr || self->startup_screen_ == nullptr) {
+    return;
+  }
+
+  lv_obj_set_style_opa(self->startup_screen_, opacity, LV_PART_MAIN);
+}
+
+void UiManager::StartupProgressCompletedCallback(lv_anim_t* animation) {
+  auto* self = static_cast<UiManager*>(lv_anim_get_user_data(animation));
+  if (self == nullptr || self->startup_screen_ == nullptr) {
+    return;
+  }
+
+  self->startup_progress_percent_ = self->startup_progress_target_percent_;
+  self->startup_progress_animating_ = false;
+
+  if (self->startup_progress_pending_percent_ >
+      self->startup_progress_percent_) {
+    const int pending_percent = self->startup_progress_pending_percent_;
+    self->startup_progress_pending_percent_ = 0;
+    if (self->StartStartupProgressAnimation(pending_percent)) {
+      return;
+    }
+  }
+
+  if (self->startup_progress_percent_ >= 100 &&
+      !self->StartStartupFadeOut()) {
+    self->DestroyStartupScreen();
+  }
+}
+
+void UiManager::StartupFadeCompletedCallback(lv_anim_t* animation) {
+  auto* self = static_cast<UiManager*>(lv_anim_get_user_data(animation));
+  if (self == nullptr) {
+    return;
+  }
+
+  self->DestroyStartupScreen();
+}
+
+bool UiManager::StartStartupProgressAnimation(int target_percent) {
+  if (startup_screen_ == nullptr || startup_progress_fill_ == nullptr) {
+    return false;
+  }
+
+  lv_obj_t* track = lv_obj_get_parent(startup_progress_fill_);
+  if (track == nullptr) {
+    return false;
+  }
+
+  const int track_width = lv_obj_get_width(track);
+  if (track_width <= 0) {
+    return false;
+  }
+
+  const int clamped_percent = std::clamp(target_percent, 0, 100);
+  if (clamped_percent <= startup_progress_percent_) {
+    return true;
+  }
+
+  const int start_width = std::max(
+      1, track_width * startup_progress_percent_ / 100);
+  const int end_width = std::max(1, track_width * clamped_percent / 100);
+  const int progress_delta = clamped_percent - startup_progress_percent_;
+  const uint32_t duration_ms = std::max(kStartupProgressMinStepMs,
+      kStartupProgressFullMs * static_cast<uint32_t>(progress_delta) / 100U);
+
+  startup_progress_target_percent_ = clamped_percent;
+  startup_progress_animating_ = true;
+  lv_anim_delete(this, SetStartupProgressWidth);
+
+  lv_anim_t animation;
+  lv_anim_init(&animation);
+  lv_anim_set_var(&animation, this);
+  lv_anim_set_user_data(&animation, this);
+  lv_anim_set_values(&animation, start_width, end_width);
+  lv_anim_set_duration(&animation, duration_ms);
+  lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
+  lv_anim_set_exec_cb(&animation, SetStartupProgressWidth);
+  lv_anim_set_completed_cb(&animation, StartupProgressCompletedCallback);
+  if (lv_anim_start(&animation) == nullptr) {
+    startup_progress_animating_ = false;
+    return false;
+  }
+  return true;
+}
+
+bool UiManager::StartStartupFadeOut() {
+  if (startup_screen_ == nullptr) {
+    return false;
+  }
+
+  lv_anim_t animation;
+  lv_anim_init(&animation);
+  lv_anim_set_var(&animation, this);
+  lv_anim_set_user_data(&animation, this);
+  lv_anim_set_values(&animation, LV_OPA_COVER, LV_OPA_TRANSP);
+  lv_anim_set_duration(&animation, kStartupFadeOutMs);
+  lv_anim_set_exec_cb(&animation, SetStartupScreenOpacity);
+  lv_anim_set_completed_cb(&animation, StartupFadeCompletedCallback);
+  return lv_anim_start(&animation) != nullptr;
+}
+
+void UiManager::DestroyStartupScreen() {
+  lv_anim_delete(this, SetStartupProgressWidth);
+  if (startup_screen_ != nullptr) {
+    lv_obj_delete(startup_screen_);
+    startup_screen_ = nullptr;
+  }
+  startup_progress_fill_ = nullptr;
+  startup_progress_percent_ = 0;
+  startup_progress_target_percent_ = 0;
+  startup_progress_pending_percent_ = 0;
+  startup_progress_animating_ = false;
 }
 
 bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {

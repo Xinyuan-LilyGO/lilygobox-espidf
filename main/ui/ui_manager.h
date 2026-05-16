@@ -60,6 +60,21 @@ class UiManager final {
       hal::EthernetProvider* ethernet,
       hal::WifiProvider* wifi);
 
+  /**
+   * @brief 启动系统启动界面动画
+   * @return 启动成功返回 true，否则返回 false
+   * @Date 2026-05-16 16:25:00
+   */
+  bool StartStartupScreenAnimation();
+
+  /**
+   * @brief 设置系统启动界面进度
+   * @param percent 进度百分比，范围 0 到 100
+   * @return 设置成功返回 true，否则返回 false
+   * @Date 2026-05-16 16:45:00
+   */
+  bool SetStartupScreenProgress(int percent);
+
  private:
   struct AppButtonContext {
     UiManager* manager = nullptr;
@@ -150,6 +165,40 @@ class UiManager final {
   static void AppCloseFadeOutCompletedCallback(lv_anim_t* animation);
 
   /**
+   * @brief 设置系统启动界面进度条宽度
+   * @param user_data UI 管理器对象
+   * @param width 进度条宽度
+   * @return
+   * @Date 2026-05-16 17:05:00
+   */
+  static void SetStartupProgressWidth(void* user_data, int32_t width);
+
+  /**
+   * @brief 设置系统启动界面透明度
+   * @param user_data UI 管理器对象
+   * @param opacity 透明度
+   * @return
+   * @Date 2026-05-16 16:10:00
+   */
+  static void SetStartupScreenOpacity(void* user_data, int32_t opacity);
+
+  /**
+   * @brief 处理系统启动界面进度条动画完成事件
+   * @param animation LVGL 动画对象
+   * @return
+   * @Date 2026-05-16 17:05:00
+   */
+  static void StartupProgressCompletedCallback(lv_anim_t* animation);
+
+  /**
+   * @brief 处理系统启动界面淡出动画完成事件
+   * @param animation LVGL 动画对象
+   * @return
+   * @Date 2026-05-16 16:10:00
+   */
+  static void StartupFadeCompletedCallback(lv_anim_t* animation);
+
+  /**
    * @brief 完成进入 app 页面过渡动画并保留最终页面
    * @param state 过渡动画状态
    * @return
@@ -184,6 +233,36 @@ class UiManager final {
    * @Date 2026-05-12 00:28:46
    */
   lv_obj_t* CreateAppTransitionCover();
+
+  /**
+   * @brief 创建系统启动界面
+   * @param parent 父对象
+   * @return 创建成功返回启动界面对象，否则返回 nullptr
+   * @Date 2026-05-16 16:10:00
+   */
+  lv_obj_t* CreateStartupScreen(lv_obj_t* parent);
+
+  /**
+   * @brief 启动系统启动界面进度条动画
+   * @param target_percent 目标进度百分比
+   * @return 启动成功返回 true，否则返回 false
+   * @Date 2026-05-16 17:05:00
+   */
+  bool StartStartupProgressAnimation(int target_percent);
+
+  /**
+   * @brief 启动系统启动界面淡出动画
+   * @return 启动成功返回 true，否则返回 false
+   * @Date 2026-05-16 16:10:00
+   */
+  bool StartStartupFadeOut();
+
+  /**
+   * @brief 删除系统启动界面
+   * @return
+   * @Date 2026-05-16 16:10:00
+   */
+  void DestroyStartupScreen();
 
   /**
    * @brief 创建当前 app 页面
@@ -298,6 +377,12 @@ class UiManager final {
   hal::WifiProvider* wifi_provider_ = nullptr;
   lv_obj_t* root_screen_ = nullptr;
   StatusBar status_bar_;
+  lv_obj_t* startup_screen_ = nullptr;
+  lv_obj_t* startup_progress_fill_ = nullptr;
+  int startup_progress_percent_ = 0;
+  int startup_progress_target_percent_ = 0;
+  int startup_progress_pending_percent_ = 0;
+  bool startup_progress_animating_ = false;
   lv_obj_t* launcher_container_ = nullptr;
   lv_obj_t* page_scroller_ = nullptr;
   lv_obj_t* home_page_ = nullptr;

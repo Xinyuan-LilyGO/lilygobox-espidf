@@ -66,17 +66,31 @@ bool Application::Init() {
   }
   screen->StartScreenBacklight();
 
+  lvgl_port_.Lock();
+  const bool startup_result = ui_manager_.StartStartupScreenAnimation();
+  lvgl_port_.Unlock();
+  if (!startup_result) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+               "UiManager::StartStartupScreenAnimation failed\n");
+  }
+
   if (device_provider_context_.ethernet != nullptr &&
       !device_provider_context_.ethernet->StartEthernet()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
                "EthernetProvider::StartEthernet failed\n");
   }
+  lvgl_port_.Lock();
+  ui_manager_.SetStartupScreenProgress(50);
+  lvgl_port_.Unlock();
 
   if (device_provider_context_.wifi != nullptr &&
       !device_provider_context_.wifi->StartWifi()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
                "WifiProvider::StartWifi failed\n");
   }
+  lvgl_port_.Lock();
+  ui_manager_.SetStartupScreenProgress(100);
+  lvgl_port_.Unlock();
 
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
              "LilygoBox initialized on %s\n", screen->ScreenName());
