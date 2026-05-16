@@ -543,6 +543,10 @@ class TDisplayP4Device final : public ScreenProvider,
   std::atomic<bool> wifi_time_sync_started_{false};
   // SNTP 是否已经获取到有效时间
   std::atomic<bool> wifi_time_synced_{false};
+  // SNTP 最新一次从网络同步到的 UTC Unix 时间戳
+  std::atomic<int64_t> wifi_sntp_unix_time_{0};
+  // SNTP 最新一次同步完成时的单调时间，单位为毫秒
+  std::atomic<int64_t> wifi_sntp_sync_monotonic_ms_{0};
   // WiFi 连接重试次数
   std::atomic<int> wifi_retry_count_{0};
   // WiFi 最近一次错误码

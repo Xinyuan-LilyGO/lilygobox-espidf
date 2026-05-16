@@ -50,6 +50,8 @@ struct WifiStatus {
   uint32_t gateway = 0;
   // SNTP 获取到的 UTC Unix 时间戳
   int64_t unix_time = 0;
+  // SNTP 最新一次网络同步距当前的秒数
+  uint32_t time_sync_age_s = 0;
   // 当前连接或测试使用的 SSID
   char ssid[33] = {};
 };

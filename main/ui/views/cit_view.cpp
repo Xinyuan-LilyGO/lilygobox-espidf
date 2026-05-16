@@ -1332,11 +1332,18 @@ void RefreshWifiTestData(CitViewState* state) {
   char netmask[20] = {};
   char gateway[20] = {};
   char china_time[32] = {};
+  char sync_age[16] = {};
   FormatPackedMacAddress(status.mac_address, mac_address, sizeof(mac_address));
   FormatIpv4Address(status.ip_address, ip_address, sizeof(ip_address));
   FormatIpv4Address(status.netmask, netmask, sizeof(netmask));
   FormatIpv4Address(status.gateway, gateway, sizeof(gateway));
   FormatWifiChinaTime(status.unix_time, china_time, sizeof(china_time));
+  if (status.time_synced) {
+    std::snprintf(sync_age, sizeof(sync_age), "%lu s",
+        static_cast<unsigned long>(status.time_sync_age_s));
+  } else {
+    std::snprintf(sync_age, sizeof(sync_age), "--");
+  }
 
   char text[800] = {};
   size_t used = 0;
@@ -1362,12 +1369,13 @@ void RefreshWifiTestData(CitViewState* state) {
       "     %s\n"
       "\n"
       "time:\n"
-      "     china: %s",
+      "     network: %s\n"
+      "     sync age: %s",
       status_text, status.running ? "on" : "off",
       status.ssid[0] == '\0' ? "--" : status.ssid,
       status.connected ? "connected" : "disconnected", dhcp_text,
       status.retry_count, status.rssi, status.channel, mac_address, ip_address,
-      netmask, gateway, china_time);
+      netmask, gateway, china_time, sync_age);
 
   if (status.start_failed) {
     AppendFormatted(text, sizeof(text), &used,

@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -17,6 +18,7 @@
 #include <memory>
 #include <new>
 #include <string>
+#include <sys/time.h>
 
 #include "audio/new_notification_010_c2_b16_s44100.h"
 #include "base/logger.h"
@@ -29,6 +31,7 @@
 #include "esp_lcd_mipi_dsi.h"
 #include "esp_netif.h"
 #include "esp_sntp.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "esp_wifi_default.h"
 #include "esp_wifi_remote.h"
@@ -70,6 +73,10 @@ constexpr const char* kFactoryWifiPassword = "xinyuandianzi";
 constexpr const char* kWifiSntpServer = "pool.ntp.org";
 constexpr int kWifiMaxReconnectCount = 8;
 constexpr int64_t kWifiValidUnixTimeThreshold = 1700000000LL;
+constexpr uint32_t kWifiSntpSyncIntervalMs = 15 * 1000;
+
+// 当前接收 SNTP 同步回调的设备实例
+std::atomic<TDisplayP4Device*> g_wifi_time_sync_owner{nullptr};
 
 /**
  * @brief 判断 GNSS 浮点字段是否已经被解析更新
@@ -246,10 +253,17 @@ bool TDisplayP4Device::StopWifiTimeTest() {
     return true;
   }
 
-  if (wifi_time_sync_started_.exchange(false) && esp_sntp_enabled()) {
-    esp_sntp_stop();
+  if (wifi_time_sync_started_.exchange(false)) {
+    esp_sntp_set_time_sync_notification_cb(nullptr);
+    TDisplayP4Device* owner = this;
+    g_wifi_time_sync_owner.compare_exchange_strong(owner, nullptr);
+    if (esp_sntp_enabled()) {
+      esp_sntp_stop();
+    }
   }
   wifi_time_synced_.store(false);
+  wifi_sntp_unix_time_.store(0);
+  wifi_sntp_sync_monotonic_ms_.store(0);
   wifi_start_failed_.store(false);
   wifi_last_error_.store(ESP_OK);
   wifi_retry_count_.store(0);
@@ -347,13 +361,17 @@ bool TDisplayP4Device::ReadWifiStatus(WifiStatus* status) {
     }
   }
 
-  const std::time_t now = std::time(nullptr);
-  if (status->time_sync_started && status->got_ip &&
-      now > kWifiValidUnixTimeThreshold) {
-    wifi_time_synced_.store(true);
+  const int64_t synced_unix_time = wifi_sntp_unix_time_.load();
+  status->time_synced = wifi_time_synced_.load() &&
+                        synced_unix_time > kWifiValidUnixTimeThreshold;
+  status->unix_time = status->time_synced ? synced_unix_time : 0;
+  const int64_t sync_monotonic_ms = wifi_sntp_sync_monotonic_ms_.load();
+  if (status->time_synced && sync_monotonic_ms > 0) {
+    const int64_t elapsed_ms = esp_timer_get_time() / 1000 - sync_monotonic_ms;
+    if (elapsed_ms > 0) {
+      status->time_sync_age_s = static_cast<uint32_t>(elapsed_ms / 1000);
+    }
   }
-  status->time_synced = wifi_time_synced_.load();
-  status->unix_time = status->time_synced ? static_cast<int64_t>(now) : 0;
   return true;
 }
 
@@ -1431,6 +1449,8 @@ int TDisplayP4Device::StartWifiTimeTestInternal() {
   wifi_retry_count_.store(0);
   wifi_time_synced_.store(false);
   wifi_time_sync_started_.store(false);
+  wifi_sntp_unix_time_.store(0);
+  wifi_sntp_sync_monotonic_ms_.store(0);
   wifi_connected_.store(false);
   wifi_got_ip_.store(false);
   wifi_ip_address_.store(0);
@@ -1478,7 +1498,28 @@ int TDisplayP4Device::StartWifiSntp() {
   if (esp_sntp_enabled()) {
     esp_sntp_stop();
   }
+  wifi_sntp_unix_time_.store(0);
+  wifi_sntp_sync_monotonic_ms_.store(0);
+  wifi_time_synced_.store(false);
+  g_wifi_time_sync_owner.store(this);
+  esp_sntp_set_time_sync_notification_cb([](struct timeval* time_value) {
+    auto* owner = g_wifi_time_sync_owner.load();
+    if (owner == nullptr || time_value == nullptr) {
+      return;
+    }
+
+    const int64_t unix_time = static_cast<int64_t>(time_value->tv_sec);
+    if (unix_time <= kWifiValidUnixTimeThreshold) {
+      return;
+    }
+
+    owner->wifi_sntp_unix_time_.store(unix_time);
+    owner->wifi_sntp_sync_monotonic_ms_.store(esp_timer_get_time() / 1000);
+    owner->wifi_time_synced_.store(true);
+  });
   esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
+  esp_sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
+  esp_sntp_set_sync_interval(kWifiSntpSyncIntervalMs);
   esp_sntp_setservername(0, kWifiSntpServer);
   esp_sntp_init();
   wifi_time_sync_started_.store(true);
@@ -1491,6 +1532,9 @@ void TDisplayP4Device::SetWifiFailure(int error) {
   wifi_last_error_.store(error);
   wifi_connected_.store(false);
   wifi_got_ip_.store(false);
+  wifi_time_synced_.store(false);
+  wifi_sntp_unix_time_.store(0);
+  wifi_sntp_sync_monotonic_ms_.store(0);
   wifi_ip_address_.store(0);
   wifi_netmask_.store(0);
   wifi_gateway_.store(0);
@@ -1528,9 +1572,21 @@ void TDisplayP4Device::WifiEventHandler(
     case WIFI_EVENT_STA_DISCONNECTED: {
       self->wifi_connected_.store(false);
       self->wifi_got_ip_.store(false);
+      self->wifi_time_synced_.store(false);
+      self->wifi_sntp_unix_time_.store(0);
+      self->wifi_sntp_sync_monotonic_ms_.store(0);
       self->wifi_ip_address_.store(0);
       self->wifi_netmask_.store(0);
       self->wifi_gateway_.store(0);
+      if (self->wifi_time_test_active_.load() &&
+          self->wifi_time_sync_started_.exchange(false)) {
+        esp_sntp_set_time_sync_notification_cb(nullptr);
+        TDisplayP4Device* owner = self;
+        g_wifi_time_sync_owner.compare_exchange_strong(owner, nullptr);
+        if (esp_sntp_enabled()) {
+          esp_sntp_stop();
+        }
+      }
       if (event_data != nullptr) {
         const auto* disconnected =
             static_cast<wifi_event_sta_disconnected_t*>(event_data);
@@ -1552,9 +1608,21 @@ void TDisplayP4Device::WifiEventHandler(
       self->wifi_running_.store(false);
       self->wifi_connected_.store(false);
       self->wifi_got_ip_.store(false);
+      self->wifi_time_synced_.store(false);
+      self->wifi_sntp_unix_time_.store(0);
+      self->wifi_sntp_sync_monotonic_ms_.store(0);
       self->wifi_ip_address_.store(0);
       self->wifi_netmask_.store(0);
       self->wifi_gateway_.store(0);
+      if (self->wifi_time_test_active_.load() &&
+          self->wifi_time_sync_started_.exchange(false)) {
+        esp_sntp_set_time_sync_notification_cb(nullptr);
+        TDisplayP4Device* owner = self;
+        g_wifi_time_sync_owner.compare_exchange_strong(owner, nullptr);
+        if (esp_sntp_enabled()) {
+          esp_sntp_stop();
+        }
+      }
       break;
     default:
       break;
