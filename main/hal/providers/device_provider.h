@@ -16,7 +16,6 @@ class DeviceProvider {
   /**
    * @brief 初始化整机底层驱动到屏幕可以使用的状态
    * @return 初始化成功返回 true，否则返回 false
-   * @Date 2026-05-15 18:00:00
    */
   virtual bool InitDevice() = 0;
 };

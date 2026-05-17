@@ -29,7 +29,6 @@ enum class WindowTransitionMode {
  * @param user_data 用户数据
  * @param completed_callback 完成回调
  * @return 启动成功返回 true，否则返回 false
- * @Date 2026-05-16 18:35:00
  */
 bool StartFadeWindowTransition(lv_obj_t* object, int32_t start_opacity,
     int32_t end_opacity, uint32_t duration_ms, void* user_data,
@@ -43,7 +42,6 @@ bool StartFadeWindowTransition(lv_obj_t* object, int32_t start_opacity,
  * @param user_data 用户数据
  * @param completed_callback 完成回调
  * @return 启动成功返回 true，否则返回 false
- * @Date 2026-05-16 18:35:00
  */
 bool StartSlideLeftWindowTransition(lv_obj_t* object, int32_t distance,
     uint32_t duration_ms, void* user_data,
@@ -57,7 +55,6 @@ bool StartSlideLeftWindowTransition(lv_obj_t* object, int32_t distance,
  * @param user_data 用户数据
  * @param completed_callback 完成回调
  * @return 启动成功返回 true，否则返回 false
- * @Date 2026-05-16 18:35:00
  */
 bool StartSlideRightWindowTransition(lv_obj_t* object, int32_t distance,
     uint32_t duration_ms, void* user_data,
@@ -72,7 +69,6 @@ bool StartSlideRightWindowTransition(lv_obj_t* object, int32_t distance,
  * @param user_data 用户数据
  * @param completed_callback 完成回调
  * @return 启动成功返回 true，否则返回 false
- * @Date 2026-05-16 18:35:00
  */
 bool StartBackgroundOpacityTransition(lv_obj_t* object, int32_t start_opacity,
     int32_t end_opacity, uint32_t duration_ms, void* user_data,
@@ -82,16 +78,12 @@ bool StartBackgroundOpacityTransition(lv_obj_t* object, int32_t start_opacity,
  * @brief 删除指定对象上的窗口切换动画
  * @param object LVGL 对象
  * @param mode 窗口切换动画模式
- * @return
- * @Date 2026-05-16 18:35:00
  */
 void DeleteWindowTransition(lv_obj_t* object, WindowTransitionMode mode);
 
 /**
  * @brief 删除指定对象上的背景透明度切换动画
  * @param object LVGL 对象
- * @return
- * @Date 2026-05-16 18:35:00
  */
 void DeleteBackgroundOpacityTransition(lv_obj_t* object);
 

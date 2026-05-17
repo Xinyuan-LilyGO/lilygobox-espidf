@@ -40,7 +40,6 @@ class RtcProvider {
    * @brief 读取 RTC 日期时间和时钟完整性状态
    * @param status RTC 状态输出地址
    * @return 读取到有效 RTC 数据返回 true，否则返回 false
-   * @Date 2026-05-15 10:40:00
    */
   virtual bool ReadRtcStatus(RtcStatus* status) = 0;
 };

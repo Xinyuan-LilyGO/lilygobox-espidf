@@ -33,8 +33,6 @@ struct TransitionAnimationConfig {
  * @brief 设置对象 X 坐标
  * @param object LVGL 对象
  * @param x X 坐标
- * @return
- * @Date 2026-05-16 18:35:00
  */
 void SetTransitionX(void* object, int32_t x) {
   lv_obj_set_x(static_cast<lv_obj_t*>(object), x);
@@ -44,8 +42,6 @@ void SetTransitionX(void* object, int32_t x) {
  * @brief 设置对象整体透明度
  * @param object LVGL 对象
  * @param opacity 透明度
- * @return
- * @Date 2026-05-16 18:35:00
  */
 void SetTransitionOpacity(void* object, int32_t opacity) {
   lv_obj_set_style_opa(
@@ -56,8 +52,6 @@ void SetTransitionOpacity(void* object, int32_t opacity) {
  * @brief 设置对象背景透明度
  * @param object LVGL 对象
  * @param opacity 背景透明度
- * @return
- * @Date 2026-05-16 18:35:00
  */
 void SetTransitionBackgroundOpacity(void* object, int32_t opacity) {
   lv_obj_set_style_bg_opa(
@@ -68,7 +62,6 @@ void SetTransitionBackgroundOpacity(void* object, int32_t opacity) {
  * @brief 启动页面切换动画
  * @param config 动画配置
  * @return 启动成功返回 true，否则返回 false
- * @Date 2026-05-16 18:35:00
  */
 bool StartTransitionAnimation(const TransitionAnimationConfig& config) {
   if (config.object == nullptr) {
@@ -114,8 +107,6 @@ bool StartTransitionAnimation(const TransitionAnimationConfig& config) {
  * @brief 删除指定对象上的页面切换动画
  * @param object LVGL 对象
  * @param type 动画类型
- * @return
- * @Date 2026-05-16 18:35:00
  */
 void DeleteTransitionAnimation(
     lv_obj_t* object, TransitionAnimationType type) {

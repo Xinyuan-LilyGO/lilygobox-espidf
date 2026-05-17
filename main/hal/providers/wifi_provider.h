@@ -63,21 +63,18 @@ class WifiProvider {
   /**
    * @brief 异步初始化 hosted WiFi 驱动，初始化完成后保持关闭状态
    * @return 启动命令发送成功返回 true，否则返回 false
-   * @Date 2026-05-15 13:20:00
    */
   virtual bool StartWifi() = 0;
 
   /**
    * @brief 临时打开 WiFi 并连接工厂测试热点获取网络时间
    * @return 启动命令发送成功返回 true，否则返回 false
-   * @Date 2026-05-15 13:20:00
    */
   virtual bool StartWifiTimeTest() = 0;
 
   /**
    * @brief 停止 WiFi 获取时间测试并恢复进入测试前的 WiFi 状态
    * @return 恢复命令发送成功返回 true，否则返回 false
-   * @Date 2026-05-15 13:20:00
    */
   virtual bool StopWifiTimeTest() = 0;
 
@@ -85,7 +82,6 @@ class WifiProvider {
    * @brief 读取 hosted WiFi 连接、DHCP 和时间同步状态
    * @param status WiFi 状态输出地址
    * @return 读取成功返回 true，否则返回 false
-   * @Date 2026-05-15 13:20:00
    */
   virtual bool ReadWifiStatus(WifiStatus* status) = 0;
 };

@@ -33,7 +33,6 @@ class EthernetProvider {
   /**
    * @brief 异步启动以太网检测
    * @return 启动命令发送成功返回 true，否则返回 false
-   * @Date 2026-05-14 00:20:00
    */
   virtual bool StartEthernet() = 0;
 
@@ -41,7 +40,6 @@ class EthernetProvider {
    * @brief 读取以太网链路和 DHCP 状态
    * @param status 以太网状态输出地址
    * @return 读取成功返回 true，否则返回 false
-   * @Date 2026-05-14 00:20:00
    */
   virtual bool ReadEthernetStatus(EthernetStatus* status) = 0;
 };

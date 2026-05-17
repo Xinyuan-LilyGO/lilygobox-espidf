@@ -47,7 +47,6 @@ class UiManager final {
    * @param ethernet 以太网提供者指针
    * @param wifi hosted WiFi 提供者指针
    * @return 初始化成功返回 true，否则返回 false
-   * @Date 2026-05-15 13:20:00
    */
   bool Init(hal::ScreenProvider* screen,
       hal::DeviceDiagnosticsProvider* diagnostics,
@@ -63,7 +62,6 @@ class UiManager final {
   /**
    * @brief 启动系统启动界面动画
    * @return 启动成功返回 true，否则返回 false
-   * @Date 2026-05-16 16:25:00
    */
   bool StartStartupScreenAnimation();
 
@@ -71,7 +69,6 @@ class UiManager final {
    * @brief 设置系统启动界面进度
    * @param percent 进度百分比，范围 0 到 100
    * @return 设置成功返回 true，否则返回 false
-   * @Date 2026-05-16 16:45:00
    */
   bool SetStartupScreenProgress(int percent);
 
@@ -86,72 +83,54 @@ class UiManager final {
   /**
    * @brief 处理 app 图标点击事件
    * @param event LVGL 事件对象
-   * @return
-   * @Date 2026-05-10 13:01:03
    */
   static void AppButtonEventCallback(lv_event_t* event);
 
   /**
    * @brief 处理 app 图标回弹结束后的延迟打开
    * @param timer LVGL 定时器对象
-   * @return
-   * @Date 2026-05-12 00:15:02
    */
   static void AppButtonOpenDelayCallback(lv_timer_t* timer);
 
   /**
    * @brief 处理返回按钮点击事件
    * @param event LVGL 事件对象
-   * @return
-   * @Date 2026-05-10 13:01:03
    */
   static void BackButtonEventCallback(lv_event_t* event);
 
   /**
    * @brief 处理 launcher 和 app 页面手势事件
    * @param event LVGL 事件对象
-   * @return
-   * @Date 2026-05-10 13:01:03
    */
   static void GestureEventCallback(lv_event_t* event);
 
   /**
    * @brief 处理 launcher 页面滚动事件
    * @param event LVGL 事件对象
-   * @return
-   * @Date 2026-05-10 13:01:03
    */
   static void PageScrollEventCallback(lv_event_t* event);
 
   /**
    * @brief 处理进入 app 页面过渡遮罩淡入完成事件
    * @param animation LVGL 动画对象
-   * @return
-   * @Date 2026-05-11 23:41:25
    */
   static void AppOpenFadeInCompletedCallback(lv_anim_t* animation);
 
   /**
    * @brief 处理进入 app 页面过渡遮罩淡出完成事件
    * @param animation LVGL 动画对象
-   * @return
-   * @Date 2026-05-11 23:41:25
    */
   static void AppOpenFadeOutCompletedCallback(lv_anim_t* animation);
 
   /**
    * @brief 处理退出 app 页面过渡遮罩淡入完成事件
    * @param animation LVGL 动画对象
-   * @return
-   * @Date 2026-05-12 00:28:46
    */
   static void AppCloseFadeInCompletedCallback(lv_anim_t* animation);
 
   /**
    * @brief 处理退出 app 页面过渡遮罩淡出完成事件
    * @param animation LVGL 动画对象
-   * @return
-   * @Date 2026-05-12 00:28:46
    */
   static void AppCloseFadeOutCompletedCallback(lv_anim_t* animation);
 
@@ -159,8 +138,6 @@ class UiManager final {
    * @brief 设置系统启动界面进度条宽度
    * @param user_data UI 管理器对象
    * @param width 进度条宽度
-   * @return
-   * @Date 2026-05-16 17:05:00
    */
   static void SetStartupProgressWidth(void* user_data, int32_t width);
 
@@ -168,39 +145,29 @@ class UiManager final {
    * @brief 设置系统启动界面透明度
    * @param user_data UI 管理器对象
    * @param opacity 透明度
-   * @return
-   * @Date 2026-05-16 16:10:00
    */
   static void SetStartupScreenOpacity(void* user_data, int32_t opacity);
 
   /**
    * @brief 处理系统启动界面进度条动画完成事件
    * @param animation LVGL 动画对象
-   * @return
-   * @Date 2026-05-16 17:05:00
    */
   static void StartupProgressCompletedCallback(lv_anim_t* animation);
 
   /**
    * @brief 处理系统启动界面淡出动画完成事件
    * @param animation LVGL 动画对象
-   * @return
-   * @Date 2026-05-16 16:10:00
    */
   static void StartupFadeCompletedCallback(lv_anim_t* animation);
 
   /**
    * @brief 完成进入 app 页面过渡动画并保留最终页面
    * @param state 过渡动画状态
-   * @return
-   * @Date 2026-05-11 23:38:24
    */
   void FinishAppOpenTransition(AppOpenTransitionState* state);
 
   /**
    * @brief 取消当前进入 app 页面过渡动画
-   * @return
-   * @Date 2026-05-11 22:15:06
    */
   void CancelAppOpenTransition();
 
@@ -212,7 +179,6 @@ class UiManager final {
    * @param duration_ms 动画时长
    * @param completed_callback 完成回调
    * @return 启动成功返回 true，否则返回 false
-   * @Date 2026-05-11 23:41:25
    */
   bool StartAppOpenCoverFade(AppOpenTransitionState* state, int start_opacity,
       int end_opacity, uint32_t duration_ms,
@@ -221,7 +187,6 @@ class UiManager final {
   /**
    * @brief 创建 app 页面过渡遮罩
    * @return 创建成功返回遮罩对象，否则返回 nullptr
-   * @Date 2026-05-12 00:28:46
    */
   lv_obj_t* CreateAppTransitionCover();
 
@@ -229,7 +194,6 @@ class UiManager final {
    * @brief 创建系统启动界面
    * @param parent 父对象
    * @return 创建成功返回启动界面对象，否则返回 nullptr
-   * @Date 2026-05-16 16:10:00
    */
   lv_obj_t* CreateStartupScreen(lv_obj_t* parent);
 
@@ -237,21 +201,17 @@ class UiManager final {
    * @brief 启动系统启动界面进度条动画
    * @param target_percent 目标进度百分比
    * @return 启动成功返回 true，否则返回 false
-   * @Date 2026-05-16 17:05:00
    */
   bool StartStartupProgressAnimation(int target_percent);
 
   /**
    * @brief 启动系统启动界面淡出动画
    * @return 启动成功返回 true，否则返回 false
-   * @Date 2026-05-16 16:10:00
    */
   bool StartStartupFadeOut();
 
   /**
    * @brief 删除系统启动界面
-   * @return
-   * @Date 2026-05-16 16:10:00
    */
   void DestroyStartupScreen();
 
@@ -259,7 +219,6 @@ class UiManager final {
    * @brief 创建当前 app 页面
    * @param app_entry launcher app 入口
    * @return 创建成功返回 true，否则返回 false
-   * @Date 2026-05-11 23:38:24
    */
   bool CreateActiveAppView(const app::AppEntry& app_entry);
 
@@ -267,7 +226,6 @@ class UiManager final {
    * @brief 创建 launcher 根容器
    * @param parent 父对象
    * @return 创建成功返回对象指针，否则返回 nullptr
-   * @Date 2026-05-10 13:01:03
    */
   lv_obj_t* CreateLauncher(lv_obj_t* parent);
 
@@ -275,7 +233,6 @@ class UiManager final {
    * @brief 创建可拖动的 launcher 页面容器
    * @param parent 父对象
    * @return 创建成功返回对象指针，否则返回 nullptr
-   * @Date 2026-05-10 13:01:03
    */
   lv_obj_t* CreatePageScroller(lv_obj_t* parent);
 
@@ -283,7 +240,6 @@ class UiManager final {
    * @brief 创建主屏时间日期区域
    * @param parent 父对象
    * @return 创建成功返回对象指针，否则返回 nullptr
-   * @Date 2026-05-10 13:01:03
    */
   lv_obj_t* CreateClockGroup(lv_obj_t* parent);
 
@@ -291,7 +247,6 @@ class UiManager final {
    * @brief 创建主屏 app 图标网格
    * @param parent 父对象
    * @return 创建成功返回对象指针，否则返回 nullptr
-   * @Date 2026-05-10 13:01:03
    */
   lv_obj_t* CreateAppGrid(lv_obj_t* parent);
 
@@ -301,7 +256,6 @@ class UiManager final {
    * @param context app 按钮上下文
    * @param cell_width 图标单元宽度
    * @return 创建成功返回对象指针，否则返回 nullptr
-   * @Date 2026-05-10 13:01:03
    */
   lv_obj_t* CreateAppIcon(
       lv_obj_t* parent, AppButtonContext* context, int cell_width);
@@ -310,7 +264,6 @@ class UiManager final {
    * @brief 创建底部常驻 dock
    * @param parent 父对象
    * @return 创建成功返回对象指针，否则返回 nullptr
-   * @Date 2026-05-10 13:01:03
    */
   lv_obj_t* CreateDock(lv_obj_t* parent);
 
@@ -320,7 +273,6 @@ class UiManager final {
    * @param entry_index dock 图标入口索引
    * @param cell_width 图标单元宽度
    * @return 创建成功返回对象指针，否则返回 nullptr
-   * @Date 2026-05-10 22:24:18
    */
   lv_obj_t* CreateDockIcon(
       lv_obj_t* parent, size_t entry_index, int cell_width);
@@ -329,15 +281,12 @@ class UiManager final {
    * @brief 创建页面指示器
    * @param parent 父对象
    * @return 创建成功返回对象指针，否则返回 nullptr
-   * @Date 2026-05-10 13:01:03
    */
   lv_obj_t* CreatePageIndicator(lv_obj_t* parent);
 
   /**
    * @brief 更新页面指示器状态
    * @param page_index 页面索引
-   * @return
-   * @Date 2026-05-10 13:01:03
    */
   void UpdatePageIndicator(size_t page_index);
 
@@ -345,14 +294,11 @@ class UiManager final {
    * @brief 显示指定 launcher app 页面
    * @param app_entry launcher app 入口
    * @return 显示成功返回 true，否则返回 false
-   * @Date 2026-05-11 23:17:41
    */
   bool ShowAppView(const app::AppEntry& app_entry);
 
   /**
    * @brief 返回 launcher 页面
-   * @return
-   * @Date 2026-05-10 13:01:03
    */
   void ShowLauncher();
 

@@ -18,7 +18,6 @@ namespace {
  * @brief 获取日志级别名称
  * @param level 日志级别
  * @return 日志级别名称
- * @Date 2026-05-13 09:55:00
  */
 const char* LogLevelName(LogLevel level) {
   switch (level) {
@@ -39,7 +38,6 @@ const char* LogLevelName(LogLevel level) {
  * @brief 判断指定日志级别是否允许输出
  * @param level 日志级别
  * @return 允许输出返回 true，否则返回 false
- * @Date 2026-05-13 09:55:00
  */
 bool IsLogLevelEnabled(LogLevel level) {
   switch (level) {

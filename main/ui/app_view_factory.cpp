@@ -27,8 +27,6 @@ constexpr int kBackButtonHeight = 70;
  * @param object LVGL 对象
  * @param color 文本颜色
  * @param font 文本字体
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void SetTextStyle(lv_obj_t* object, lv_color_t color, const lv_font_t* font) {
   lv_obj_set_style_text_color(object, color, LV_PART_MAIN);
@@ -38,14 +36,12 @@ void SetTextStyle(lv_obj_t* object, lv_color_t color, const lv_font_t* font) {
 /**
  * @brief 获取 24 号 Google Sans 字体
  * @return 字体指针
- * @Date 2026-05-13 09:55:00
  */
 const lv_font_t* Font24() { return &lvgl_font_google_sans_flex_24; }
 
 /**
  * @brief 获取 48 号 Google Sans 字体
  * @return 字体指针
- * @Date 2026-05-13 09:55:00
  */
 const lv_font_t* Font48() { return &lvgl_font_google_sans_flex_48; }
 
@@ -56,7 +52,6 @@ const lv_font_t* Font48() { return &lvgl_font_google_sans_flex_48; }
  * @param color 文本颜色
  * @param font 文本字体
  * @return 创建成功返回对象指针，否则返回 nullptr
- * @Date 2026-05-13 09:55:00
  */
 lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color,
     const lv_font_t* font) {
@@ -75,7 +70,6 @@ lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color,
  * @param parent 父对象
  * @param config 应用视图配置
  * @return 创建成功返回对象指针，否则返回 nullptr
- * @Date 2026-05-13 09:55:00
  */
 lv_obj_t* CreateBackButton(lv_obj_t* parent, const AppViewConfig& config) {
   lv_obj_t* button = lv_button_create(parent);
@@ -109,7 +103,6 @@ lv_obj_t* CreateBackButton(lv_obj_t* parent, const AppViewConfig& config) {
  * @param app_entry 应用条目
  * @param id 目标 ID
  * @return 匹配返回 true，否则返回 false
- * @Date 2026-05-13 09:55:00
  */
 bool IsAppId(const app::AppEntry& app_entry, const char* id) {
   if (app_entry.id == nullptr || id == nullptr) {
@@ -124,7 +117,6 @@ bool IsAppId(const app::AppEntry& app_entry, const char* id) {
  * @param app_entry 应用条目
  * @param config 应用视图配置
  * @return 创建成功返回对象指针，否则返回 nullptr
- * @Date 2026-05-13 09:55:00
  */
 lv_obj_t* CreatePlaceholderAppView(lv_obj_t* parent,
     const app::AppEntry& app_entry, const AppViewConfig& config) {

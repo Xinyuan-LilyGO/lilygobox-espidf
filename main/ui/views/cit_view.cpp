@@ -155,8 +155,6 @@ void ScreenColorOverlayEventCallback(lv_event_t* event);
  * @param object LVGL 对象
  * @param color 文本颜色
  * @param font 文本字体
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void SetTextStyle(lv_obj_t* object, lv_color_t color, const lv_font_t* font) {
   lv_obj_set_style_text_color(object, color, LV_PART_MAIN);
@@ -166,28 +164,24 @@ void SetTextStyle(lv_obj_t* object, lv_color_t color, const lv_font_t* font) {
 /**
  * @brief 获取 28 号 Google Sans 字体
  * @return 字体指针
- * @Date 2026-05-13 09:55:00
  */
 const lv_font_t* Font28() { return &lvgl_font_google_sans_flex_28; }
 
 /**
  * @brief 获取 32 号 Google Sans 字体
  * @return 字体指针
- * @Date 2026-05-13 09:55:00
  */
 const lv_font_t* Font32() { return &lvgl_font_google_sans_flex_32; }
 
 /**
  * @brief 获取 48 号 Google Sans 字体
  * @return 字体指针
- * @Date 2026-05-13 09:55:00
  */
 const lv_font_t* Font48() { return &lvgl_font_google_sans_flex_48; }
 
 /**
  * @brief 获取 32 号 Material Symbols 图标字体
  * @return 字体指针
- * @Date 2026-05-13 09:55:00
  */
 const lv_font_t* MaterialIconFont32() { return &lvgl_font_material_symbols_32; }
 
@@ -198,7 +192,6 @@ const lv_font_t* MaterialIconFont32() { return &lvgl_font_material_symbols_32; }
  * @param color 文本颜色
  * @param font 文本字体
  * @return 创建成功返回对象指针，否则返回 nullptr
- * @Date 2026-05-13 09:55:00
  */
 lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color,
     const lv_font_t* font) {
@@ -217,8 +210,6 @@ bool IsEntryId(const app::CitTestEntry& entry, const char* id);
 /**
  * @brief 清除临时屏蔽桌面手势的标记
  * @param timer LVGL 定时器
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void ClearSuppressLauncherGestureTimerCallback(lv_timer_t* timer) {
   auto* app_view = static_cast<lv_obj_t*>(lv_timer_get_user_data(timer));
@@ -230,8 +221,6 @@ void ClearSuppressLauncherGestureTimerCallback(lv_timer_t* timer) {
 /**
  * @brief 临时屏蔽下一次桌面返回手势
  * @param app_view 应用根对象
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void SuppressNextLauncherGesture(lv_obj_t* app_view) {
   if (app_view == nullptr) {
@@ -250,8 +239,6 @@ void SuppressNextLauncherGesture(lv_obj_t* app_view) {
  * @brief 设置麦克风测试指针数值
  * @param context CIT 页面状态
  * @param value 指针数值
- * @return
- * @Date 2026-05-13 21:40:00
  */
 void SetMicrophoneNeedleValue(void* context, int32_t value) {
   auto* state = static_cast<CitViewState*>(context);
@@ -268,8 +255,6 @@ void SetMicrophoneNeedleValue(void* context, int32_t value) {
 /**
  * @brief 恢复 CIT 列表页面的手势处理
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void RestoreCitListGestures(CitViewState* state) {
   if (state == nullptr || state->root == nullptr) {
@@ -283,8 +268,6 @@ void RestoreCitListGestures(CitViewState* state) {
 /**
  * @brief 停止当前测试页面关联的硬件任务
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-13 21:20:00
  */
 void StopActiveTestHardware(CitViewState* state) {
   if (state == nullptr || state->current_test_index >= state->row_count) {
@@ -307,8 +290,6 @@ void StopActiveTestHardware(CitViewState* state) {
 /**
  * @brief 清空当前测试页面相关状态
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void ClearTestPageState(CitViewState* state) {
   if (state == nullptr) {
@@ -340,8 +321,6 @@ void ClearTestPageState(CitViewState* state) {
 /**
  * @brief 完成测试页面关闭并恢复列表状态
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void FinishTestPageClose(CitViewState* state) {
   if (state == nullptr) {
@@ -369,8 +348,6 @@ void FinishTestPageClose(CitViewState* state) {
 /**
  * @brief 处理测试页面关闭动画完成事件
  * @param animation LVGL 动画
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void TestPageCloseCompletedCallback(lv_anim_t* animation) {
   auto* state = static_cast<CitViewState*>(lv_anim_get_user_data(animation));
@@ -380,8 +357,6 @@ void TestPageCloseCompletedCallback(lv_anim_t* animation) {
 /**
  * @brief 删除列表页面的变暗遮罩
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void DeleteListDimOverlay(CitViewState* state) {
   if (state == nullptr || state->list_dim_overlay == nullptr) {
@@ -396,8 +371,6 @@ void DeleteListDimOverlay(CitViewState* state) {
 /**
  * @brief 处理列表变暗遮罩淡出完成事件
  * @param animation LVGL 动画
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void DimOverlayFadeOutCompletedCallback(lv_anim_t* animation) {
   auto* state = static_cast<CitViewState*>(lv_anim_get_user_data(animation));
@@ -409,7 +382,6 @@ void DimOverlayFadeOutCompletedCallback(lv_anim_t* animation) {
  * @param state CIT 页面状态
  * @param created 是否新建遮罩的输出标记
  * @return 创建成功返回对象指针，否则返回 nullptr
- * @Date 2026-05-13 09:55:00
  */
 lv_obj_t* EnsureListDimOverlay(CitViewState* state, bool* created) {
   if (created != nullptr) {
@@ -453,7 +425,6 @@ lv_obj_t* EnsureListDimOverlay(CitViewState* state, bool* created) {
  * @param state CIT 页面状态
  * @param completed_callback 动画完成回调
  * @return 成功返回 true，否则返回 false
- * @Date 2026-05-13 09:55:00
  */
 bool StartDimOverlayAnimation(lv_obj_t* overlay, int32_t start_opacity,
     int32_t end_opacity, CitViewState* state,
@@ -470,7 +441,6 @@ bool StartDimOverlayAnimation(lv_obj_t* overlay, int32_t start_opacity,
  * @brief 获取测试项在测试页展示的标题
  * @param entry 测试项
  * @return 字符串指针
- * @Date 2026-05-13 09:55:00
  */
 const char* TestTitle(const app::CitTestEntry& entry) {
   if (IsEntryId(entry, "version")) {
@@ -517,7 +487,6 @@ const char* TestTitle(const app::CitTestEntry& entry) {
  * @param entry 测试项
  * @param id id 参数
  * @return 成功返回 true，否则返回 false
- * @Date 2026-05-13 09:55:00
  */
 bool IsEntryId(const app::CitTestEntry& entry, const char* id) {
   if (entry.id == nullptr || id == nullptr) {
@@ -530,7 +499,6 @@ bool IsEntryId(const app::CitTestEntry& entry, const char* id) {
  * @brief 获取测试状态对应的显示颜色
  * @param status 测试状态
  * @return 颜色值
- * @Date 2026-05-13 09:55:00
  */
 lv_color_t GetStatusColor(app::CitTestStatus status) {
   switch (status) {
@@ -548,7 +516,6 @@ lv_color_t GetStatusColor(app::CitTestStatus status) {
  * @brief 获取测试状态对应的图标
  * @param status 测试状态
  * @return 字符串指针
- * @Date 2026-05-13 09:55:00
  */
 const char* GetStatusIcon(app::CitTestStatus status) {
   switch (status) {
@@ -566,8 +533,6 @@ const char* GetStatusIcon(app::CitTestStatus status) {
  * @brief 对齐列表行里的状态图标和名称
  * @param icon_label 状态图标标签
  * @param name_label 测试名称标签
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void AlignStatusLabels(lv_obj_t* icon_label, lv_obj_t* name_label) {
   if (icon_label == nullptr || name_label == nullptr) {
@@ -584,15 +549,12 @@ void AlignStatusLabels(lv_obj_t* icon_label, lv_obj_t* name_label) {
 /**
  * @brief 获取状态图标使用的字体
  * @return 字体指针
- * @Date 2026-05-13 09:55:00
  */
 const lv_font_t* GetStatusIconFont() { return MaterialIconFont32(); }
 
 /**
  * @brief 刷新列表页触摸测试触发状态
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void RefreshTouchState(CitViewState* state) {
   if (state == nullptr || state->screen == nullptr || state->touch_was_seen) {
@@ -612,8 +574,6 @@ void RefreshTouchState(CitViewState* state) {
  * @param text_size 文本缓冲区大小
  * @param used 已使用长度
  * @param format 格式化字符串
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void AppendFormatted(
     char* text, size_t text_size, size_t* used, const char* format, ...) {
@@ -641,8 +601,6 @@ void AppendFormatted(
  * @param state CIT 页面状态
  * @param points 触摸点数组
  * @param point_count 触摸点数量
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void UpdateTouchPointMarkers(
     CitViewState* state, const hal::TouchPoint* points, size_t point_count) {
@@ -682,8 +640,6 @@ void UpdateTouchPointMarkers(
 /**
  * @brief 刷新触摸测试页面的 10 点数据和压力值
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void RefreshTouchTestData(CitViewState* state) {
   if (state == nullptr || state->test_data_label == nullptr) {
@@ -725,8 +681,6 @@ void RefreshTouchTestData(CitViewState* state) {
 /**
  * @brief 刷新扬声器测试播放状态
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-13 21:00:00
  */
 void RefreshSpeakerTestData(CitViewState* state) {
   if (state == nullptr || state->test_data_label == nullptr) {
@@ -763,8 +717,6 @@ void RefreshSpeakerTestData(CitViewState* state) {
 /**
  * @brief 刷新麦克风测试数据和指针
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-13 21:20:00
  */
 void RefreshMicrophoneTestData(CitViewState* state) {
   if (state == nullptr || state->test_data_label == nullptr) {
@@ -805,8 +757,6 @@ void RefreshMicrophoneTestData(CitViewState* state) {
 /**
  * @brief 刷新 GPS 测试页面的 GNSS 定位数据
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-13 23:20:00
  */
 void RefreshGpsTestData(CitViewState* state) {
   if (state == nullptr || state->test_data_label == nullptr) {
@@ -998,7 +948,6 @@ void RefreshGpsTestData(CitViewState* state) {
  * @brief 将 RTC 星期数字转换为显示文本
  * @param week 星期数字
  * @return 星期文本
- * @Date 2026-05-15 10:40:00
  */
 const char* RtcWeekName(uint8_t week) {
   switch (week) {
@@ -1024,8 +973,6 @@ const char* RtcWeekName(uint8_t week) {
 /**
  * @brief 刷新 PCF8563 RTC 日期时间和完整性状态
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-15 10:40:00
  */
 void RefreshRtcTestData(CitViewState* state) {
   if (state == nullptr || state->test_data_label == nullptr) {
@@ -1068,8 +1015,6 @@ void RefreshRtcTestData(CitViewState* state) {
  * @param mac_address 打包后的 MAC 地址
  * @param buffer 输出缓冲区
  * @param size 输出缓冲区大小
- * @return
- * @Date 2026-05-14 00:20:00
  */
 void FormatPackedMacAddress(uint64_t mac_address, char* buffer, size_t size) {
   if (buffer == nullptr || size == 0) {
@@ -1095,8 +1040,6 @@ void FormatPackedMacAddress(uint64_t mac_address, char* buffer, size_t size) {
  * @param address IPv4 地址原始值
  * @param buffer 输出缓冲区
  * @param size 输出缓冲区大小
- * @return
- * @Date 2026-05-14 00:20:00
  */
 void FormatIpv4Address(uint32_t address, char* buffer, size_t size) {
   if (buffer == nullptr || size == 0) {
@@ -1118,8 +1061,6 @@ void FormatIpv4Address(uint32_t address, char* buffer, size_t size) {
 /**
  * @brief 刷新以太网链路和 DHCP 状态
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-14 00:20:00
  */
 void RefreshEthernetTestData(CitViewState* state) {
   if (state == nullptr || state->test_data_label == nullptr) {
@@ -1194,8 +1135,6 @@ void RefreshEthernetTestData(CitViewState* state) {
  * @param unix_time UTC Unix 时间戳
  * @param buffer 输出缓冲区
  * @param size 输出缓冲区大小
- * @return
- * @Date 2026-05-15 13:20:00
  */
 void FormatWifiChinaTime(int64_t unix_time, char* buffer, size_t size) {
   if (buffer == nullptr || size == 0) {
@@ -1219,8 +1158,6 @@ void FormatWifiChinaTime(int64_t unix_time, char* buffer, size_t size) {
 /**
  * @brief 刷新 WiFi 获取时间测试的连接、DHCP 和 SNTP 状态
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-15 13:20:00
  */
 void RefreshWifiTestData(CitViewState* state) {
   if (state == nullptr || state->test_data_label == nullptr) {
@@ -1323,8 +1260,6 @@ void RefreshWifiTestData(CitViewState* state) {
 /**
  * @brief 按固定周期刷新诊断数据
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void RefreshDiagnosticsState(CitViewState* state) {
   if (state == nullptr) {
@@ -1355,7 +1290,6 @@ void RefreshDiagnosticsState(CitViewState* state) {
  * @param state CIT 页面状态
  * @param index 测试项索引
  * @return 测试状态
- * @Date 2026-05-13 09:55:00
  */
 app::CitTestStatus GetRuntimeStatus(const CitViewState& state, size_t index) {
   if (index < state.test_statuses.size()) {
@@ -1369,8 +1303,6 @@ app::CitTestStatus GetRuntimeStatus(const CitViewState& state, size_t index) {
  * @param icon_label 状态图标标签
  * @param name_label 测试名称标签
  * @param status 测试状态
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void UpdateStatusRow(
     lv_obj_t* icon_label, lv_obj_t* name_label, app::CitTestStatus status) {
@@ -1389,8 +1321,6 @@ void UpdateStatusRow(
 /**
  * @brief 刷新 CIT 列表中所有测试项状态
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void RefreshCitRows(CitViewState* state) {
   if (state == nullptr) {
@@ -1412,8 +1342,6 @@ void RefreshCitRows(CitViewState* state) {
 /**
  * @brief 刷新当前测试页里的动态数据
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void RefreshActiveTestData(CitViewState* state) {
   if (state == nullptr || state->test_data_label == nullptr ||
@@ -1511,8 +1439,6 @@ void RefreshActiveTestData(CitViewState* state) {
 /**
  * @brief 处理 CIT 页面定时刷新事件
  * @param timer LVGL 定时器
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void CitRefreshTimerCallback(lv_timer_t* timer) {
   auto* state = static_cast<CitViewState*>(lv_timer_get_user_data(timer));
@@ -1523,8 +1449,6 @@ void CitRefreshTimerCallback(lv_timer_t* timer) {
 /**
  * @brief 处理 CIT 根对象删除事件
  * @param event LVGL 事件
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void CitViewDeleteCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_DELETE) {
@@ -1548,7 +1472,6 @@ void CitViewDeleteCallback(lv_event_t* event) {
  * @brief 判断当前触摸点是否仍在对象区域内
  * @param object LVGL 对象
  * @return 在对象区域内返回 true，否则返回 false
- * @Date 2026-05-13 09:55:00
  */
 bool IsActivePointerInsideObject(lv_obj_t* object) {
   if (object == nullptr) {
@@ -1573,8 +1496,6 @@ bool IsActivePointerInsideObject(lv_obj_t* object) {
  * @brief 设置列表行按下背景的显示状态
  * @param row 状态行
  * @param pressed 是否按下
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void SetCitRowPressed(CitStatusRow* row, bool pressed) {
   if (row == nullptr || row->pressed_background == nullptr) {
@@ -1593,7 +1514,6 @@ void SetCitRowPressed(CitStatusRow* row, bool pressed) {
  * @brief 判断 CIT 列表当前是否允许点击
  * @param state CIT 页面状态
  * @return 允许点击返回 true，否则返回 false
- * @Date 2026-05-15 17:20:00
  */
 bool IsCitListClickable(const CitViewState* state) {
   return state != nullptr && state->test_page == nullptr &&
@@ -1605,8 +1525,6 @@ bool IsCitListClickable(const CitViewState* state) {
  * @brief 设置 CIT 列表行是否可以点击
  * @param state CIT 页面状态
  * @param enabled 是否允许点击
- * @return
- * @Date 2026-05-15 17:20:00
  */
 void SetCitRowsClickable(CitViewState* state, bool enabled) {
   if (state == nullptr) {
@@ -1632,8 +1550,6 @@ void SetCitRowsClickable(CitViewState* state, bool enabled) {
 /**
  * @brief 处理 CIT 列表行事件
  * @param event LVGL 事件
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void CitRowEventCallback(lv_event_t* event) {
   auto* row = static_cast<CitStatusRow*>(lv_event_get_user_data(event));
@@ -1681,8 +1597,6 @@ void CitRowEventCallback(lv_event_t* event) {
 /**
  * @brief 处理测试通过按钮点击事件
  * @param event LVGL 事件
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void TestPassButtonEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
@@ -1710,8 +1624,6 @@ void TestPassButtonEventCallback(lv_event_t* event) {
 /**
  * @brief 将当前测试标记为失败并返回列表
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void FailCurrentTestAndShowList(CitViewState* state) {
   if (state == nullptr || state->current_test_index >= state->row_count) {
@@ -1726,8 +1638,6 @@ void FailCurrentTestAndShowList(CitViewState* state) {
 /**
  * @brief 处理测试失败按钮点击事件
  * @param event LVGL 事件
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void TestFailButtonEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
@@ -1741,8 +1651,6 @@ void TestFailButtonEventCallback(lv_event_t* event) {
 /**
  * @brief 处理测试页面的边缘返回手势
  * @param event LVGL 事件
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void TestPageGestureEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_GESTURE) {
@@ -1783,7 +1691,6 @@ void TestPageGestureEventCallback(lv_event_t* event) {
  * @param state CIT 页面状态
  * @param local_point 局部坐标输出地址
  * @return 成功返回 true，否则返回 false
- * @Date 2026-05-13 09:55:00
  */
 bool ReadTouchTracePoint(CitViewState* state, lv_point_t* local_point) {
   if (state == nullptr || state->touch_trace_surface == nullptr ||
@@ -1828,8 +1735,6 @@ bool ReadTouchTracePoint(CitViewState* state, lv_point_t* local_point) {
 /**
  * @brief 按当前轨迹点刷新红色触摸轨迹线
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void RefreshTouchTraceLine(CitViewState* state) {
   if (state == nullptr || state->touch_trace_line == nullptr) {
@@ -1849,8 +1754,6 @@ void RefreshTouchTraceLine(CitViewState* state) {
 /**
  * @brief 清空触摸轨迹点
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void ClearTouchTrace(CitViewState* state) {
   if (state == nullptr) {
@@ -1865,8 +1768,6 @@ void ClearTouchTrace(CitViewState* state) {
  * @brief 向触摸轨迹追加一个坐标点
  * @param state CIT 页面状态
  * @param point 触摸点
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void AppendTouchTracePoint(CitViewState* state, const lv_point_t& point) {
   if (state == nullptr) {
@@ -1899,8 +1800,6 @@ void AppendTouchTracePoint(CitViewState* state, const lv_point_t& point) {
 /**
  * @brief 处理触摸轨迹绘制相关事件
  * @param event LVGL 事件
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void TouchTraceEventCallback(lv_event_t* event) {
   const lv_event_code_t code = lv_event_get_code(event);
@@ -1937,8 +1836,6 @@ void TouchTraceEventCallback(lv_event_t* event) {
  * @brief 给对象添加触摸轨迹事件回调
  * @param object LVGL 对象
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void AddTouchTraceEventCallbacks(lv_obj_t* object, CitViewState* state) {
   if (object == nullptr || state == nullptr ||
@@ -1959,8 +1856,6 @@ void AddTouchTraceEventCallbacks(lv_obj_t* object, CitViewState* state) {
 /**
  * @brief 更新全屏色彩测试浮层颜色
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void UpdateScreenColorOverlayColor(CitViewState* state) {
   if (state == nullptr || state->screen_color_overlay == nullptr ||
@@ -1977,7 +1872,6 @@ void UpdateScreenColorOverlayColor(CitViewState* state) {
  * @brief 显示全屏色彩测试浮层
  * @param state CIT 页面状态
  * @return 成功返回 true，否则返回 false
- * @Date 2026-05-13 09:55:00
  */
 bool ShowScreenColorOverlay(CitViewState* state) {
   if (state == nullptr || state->test_page == nullptr) {
@@ -2016,8 +1910,6 @@ bool ShowScreenColorOverlay(CitViewState* state) {
 /**
  * @brief 处理全屏色彩测试浮层点击事件
  * @param event LVGL 事件
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void ScreenColorOverlayEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
@@ -2042,8 +1934,6 @@ void ScreenColorOverlayEventCallback(lv_event_t* event) {
 /**
  * @brief 处理屏幕颜色测试按钮点击事件
  * @param event LVGL 事件
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void ScreenColorStartButtonEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
@@ -2061,8 +1951,6 @@ void ScreenColorStartButtonEventCallback(lv_event_t* event) {
 /**
  * @brief 处理普通开始按钮点击事件
  * @param event LVGL 事件
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void GenericStartButtonEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
@@ -2126,7 +2014,6 @@ void GenericStartButtonEventCallback(lv_event_t* event) {
  * @param callback 事件回调
  * @param state CIT 页面状态
  * @return 创建成功返回对象指针，否则返回 nullptr
- * @Date 2026-05-13 09:55:00
  */
 lv_obj_t* CreateTestActionButton(lv_obj_t* parent, const char* text,
     uint32_t color, uint32_t text_color, lv_align_t align, int x,
@@ -2169,7 +2056,6 @@ lv_obj_t* CreateTestActionButton(lv_obj_t* parent, const char* text,
  * @param callback 事件回调
  * @param state CIT 页面状态
  * @return 创建成功返回对象指针，否则返回 nullptr
- * @Date 2026-05-13 09:55:00
  */
 lv_obj_t* CreateCenterButton(lv_obj_t* parent, const char* text,
     lv_event_cb_t callback, CitViewState* state) {
@@ -2210,7 +2096,6 @@ lv_obj_t* CreateCenterButton(lv_obj_t* parent, const char* text,
  * @param parent 父对象
  * @param state CIT 页面状态
  * @return 创建成功返回对象指针，否则返回 nullptr
- * @Date 2026-05-13 09:55:00
  */
 lv_obj_t* CreateTestButtonBar(lv_obj_t* parent, CitViewState* state) {
   lv_obj_t* button_bar = lv_obj_create(parent);
@@ -2248,7 +2133,6 @@ lv_obj_t* CreateTestButtonBar(lv_obj_t* parent, CitViewState* state) {
  * @brief 获取测试项的默认提示文案
  * @param entry 测试项
  * @return 字符串指针
- * @Date 2026-05-13 09:55:00
  */
 const char* GetTestHint(const app::CitTestEntry& entry) {
   if (IsEntryId(entry, "version")) {
@@ -2295,7 +2179,6 @@ const char* GetTestHint(const app::CitTestEntry& entry) {
  * @param parent 父对象
  * @param text 显示文本
  * @return 创建成功返回对象指针，否则返回 nullptr
- * @Date 2026-05-13 09:55:00
  */
 lv_obj_t* CreateDataLabel(lv_obj_t* parent, const char* text) {
   lv_obj_t* label = CreateLabel(parent, text, lv_color_hex(0x202020), Font28());
@@ -2313,7 +2196,6 @@ lv_obj_t* CreateDataLabel(lv_obj_t* parent, const char* text) {
  * @brief 创建多点触摸位置标记
  * @param state CIT 页面状态
  * @return 成功返回 true，否则返回 false
- * @Date 2026-05-13 09:55:00
  */
 bool CreateTouchPointMarkers(CitViewState* state) {
   if (state == nullptr || state->touch_trace_surface == nullptr) {
@@ -2356,7 +2238,6 @@ bool CreateTouchPointMarkers(CitViewState* state) {
 /**
  * @brief 获取当前配置的芯片型号
  * @return 字符串指针
- * @Date 2026-05-13 09:55:00
  */
 const char* ConfiguredChipModel() {
 #if defined(CONFIG_IDF_TARGET)
@@ -2369,7 +2250,6 @@ const char* ConfiguredChipModel() {
 /**
  * @brief 获取当前配置的目标架构
  * @return 字符串指针
- * @Date 2026-05-13 09:55:00
  */
 const char* ConfiguredTargetArch() {
 #if defined(CONFIG_IDF_TARGET_ARCH)
@@ -2382,7 +2262,6 @@ const char* ConfiguredTargetArch() {
 /**
  * @brief 获取当前配置的设备名称
  * @return 字符串指针
- * @Date 2026-05-13 09:55:00
  */
 const char* ConfiguredDeviceName() {
 #if defined(CONFIG_BOARD_TYPE_T_DISPLAY_P4_KEYBOARD)
@@ -2405,7 +2284,6 @@ const char* ConfiguredDeviceName() {
 /**
  * @brief 获取当前配置的屏幕类型
  * @return 字符串指针
- * @Date 2026-05-13 09:55:00
  */
 const char* ConfiguredScreenType(hal::ScreenProvider* screen) {
   return screen == nullptr ? "unknown" : screen->ScreenType();
@@ -2414,7 +2292,6 @@ const char* ConfiguredScreenType(hal::ScreenProvider* screen) {
 /**
  * @brief 获取当前配置的摄像头类型
  * @return 字符串指针
- * @Date 2026-05-13 09:55:00
  */
 const char* ConfiguredCameraType() {
 #if defined(CONFIG_CAMERA_TYPE_SC2336)
@@ -2431,7 +2308,6 @@ const char* ConfiguredCameraType() {
 /**
  * @brief 获取当前配置的摄像头像素格式
  * @return 字符串指针
- * @Date 2026-05-13 09:55:00
  */
 const char* ConfiguredCameraPixelFormat() {
 #if defined(CONFIG_CAMERA_PIXEL_FORMAT_RGB565)
@@ -2447,7 +2323,6 @@ const char* ConfiguredCameraPixelFormat() {
  * @brief 根据像素位数获取屏幕像素格式描述
  * @param bits_per_pixel 像素位数
  * @return 字符串指针
- * @Date 2026-05-13 09:55:00
  */
 const char* ScreenPixelFormat(int bits_per_pixel) {
 #if defined(CONFIG_SCREEN_PIXEL_FORMAT_RGB565)
@@ -2471,7 +2346,6 @@ const char* ScreenPixelFormat(int bits_per_pixel) {
  * @brief 返回有效字符串
  * @param text 显示文本
  * @return 字符串指针
- * @Date 2026-05-13 09:55:00
  */
 const char* KnownString(const char* text) {
   return (text == nullptr || text[0] == '\0') ? "unknown" : text;
@@ -2481,8 +2355,6 @@ const char* KnownString(const char* text) {
  * @brief 格式化本机 MAC 地址
  * @param buffer 输出缓冲区
  * @param size 输出缓冲区大小
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void FormatMacAddress(char* buffer, size_t size) {
   if (buffer == nullptr || size == 0) {
@@ -2504,7 +2376,6 @@ void FormatMacAddress(char* buffer, size_t size) {
  * @param content 内容容器
  * @param state CIT 页面状态
  * @return 成功返回 true，否则返回 false
- * @Date 2026-05-13 09:55:00
  */
 bool AddVersionContent(lv_obj_t* content, CitViewState* state) {
   esp_chip_info_t chip_info = {};
@@ -2602,7 +2473,6 @@ bool AddVersionContent(lv_obj_t* content, CitViewState* state) {
  * @param content 内容容器
  * @param state CIT 页面状态
  * @return 成功返回 true，否则返回 false
- * @Date 2026-05-13 09:55:00
  */
 bool AddTouchContent(lv_obj_t* content, CitViewState* state) {
   if (state == nullptr || state->test_page == nullptr) {
@@ -2660,7 +2530,6 @@ bool AddTouchContent(lv_obj_t* content, CitViewState* state) {
  * @param content 内容容器
  * @param state CIT 页面状态
  * @return 成功返回 true，否则返回 false
- * @Date 2026-05-13 09:55:00
  */
 bool AddScreenColorContent(lv_obj_t* content, CitViewState* state) {
   state->screen_color_index = 0;
@@ -2681,7 +2550,6 @@ bool AddScreenColorContent(lv_obj_t* content, CitViewState* state) {
  * @param data_text 数据文本
  * @param button_text 按钮文本
  * @return 成功返回 true，否则返回 false
- * @Date 2026-05-13 09:55:00
  */
 bool AddStartButtonContent(lv_obj_t* content, CitViewState* state,
     const char* data_text, const char* button_text) {
@@ -2696,8 +2564,6 @@ bool AddStartButtonContent(lv_obj_t* content, CitViewState* state,
 /**
  * @brief 处理麦克风 ADC 到 DAC 直通开关事件
  * @param event LVGL 事件
- * @return
- * @Date 2026-05-13 21:20:00
  */
 void MicrophoneAdcToDacSwitchEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED) {
@@ -2722,7 +2588,6 @@ void MicrophoneAdcToDacSwitchEventCallback(lv_event_t* event) {
  * @param content 内容容器
  * @param state CIT 页面状态
  * @return 成功返回 true，否则返回 false
- * @Date 2026-05-13 09:55:00
  */
 bool AddMicrophoneContent(lv_obj_t* content, CitViewState* state) {
   if (state == nullptr) {
@@ -2801,7 +2666,6 @@ bool AddMicrophoneContent(lv_obj_t* content, CitViewState* state) {
  * @param state CIT 页面状态
  * @param entry 测试项
  * @return 成功返回 true，否则返回 false
- * @Date 2026-05-13 09:55:00
  */
 bool AddDiagnosticsContent(
     lv_obj_t* content, CitViewState* state, const app::CitTestEntry& entry) {
@@ -2828,7 +2692,6 @@ bool AddDiagnosticsContent(
  * @param content 内容容器
  * @param state CIT 页面状态
  * @return 成功返回 true，否则返回 false
- * @Date 2026-05-13 23:20:00
  */
 bool AddGpsContent(lv_obj_t* content, CitViewState* state) {
   if (state == nullptr) {
@@ -2864,7 +2727,6 @@ bool AddGpsContent(lv_obj_t* content, CitViewState* state) {
  * @param content 内容容器
  * @param state CIT 页面状态
  * @return 成功返回 true，否则返回 false
- * @Date 2026-05-14 00:20:00
  */
 bool AddEthernetContent(lv_obj_t* content, CitViewState* state) {
   if (state == nullptr) {
@@ -2892,7 +2754,6 @@ bool AddEthernetContent(lv_obj_t* content, CitViewState* state) {
  * @param content 内容容器
  * @param state CIT 页面状态
  * @return 成功返回 true，否则返回 false
- * @Date 2026-05-15 13:20:00
  */
 bool AddWifiContent(lv_obj_t* content, CitViewState* state) {
   if (state == nullptr) {
@@ -2924,7 +2785,6 @@ bool AddWifiContent(lv_obj_t* content, CitViewState* state) {
  * @param content 内容容器
  * @param state CIT 页面状态
  * @return 成功返回 true，否则返回 false
- * @Date 2026-05-15 10:40:00
  */
 bool AddRtcContent(lv_obj_t* content, CitViewState* state) {
   if (state == nullptr) {
@@ -2946,7 +2806,6 @@ bool AddRtcContent(lv_obj_t* content, CitViewState* state) {
  * @param content 内容容器
  * @param entry 测试项
  * @return 成功返回 true，否则返回 false
- * @Date 2026-05-13 09:55:00
  */
 bool AddPlainDataContent(lv_obj_t* content, const app::CitTestEntry& entry) {
   return CreateDataLabel(content, GetTestHint(entry)) != nullptr;
@@ -2958,7 +2817,6 @@ bool AddPlainDataContent(lv_obj_t* content, const app::CitTestEntry& entry) {
  * @param state CIT 页面状态
  * @param entry 测试项
  * @return 成功返回 true，否则返回 false
- * @Date 2026-05-13 09:55:00
  */
 bool PopulateTestContent(
     lv_obj_t* content, CitViewState* state, const app::CitTestEntry& entry) {
@@ -3002,8 +2860,6 @@ bool PopulateTestContent(
 /**
  * @brief 删除当前测试页面对象
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void DeleteTestPage(CitViewState* state) {
   if (state == nullptr || state->test_page == nullptr) {
@@ -3020,8 +2876,6 @@ void DeleteTestPage(CitViewState* state) {
 /**
  * @brief 删除当前测试页面和列表变暗遮罩
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void DeleteTestPageAndDimOverlay(CitViewState* state) {
   DeleteTestPage(state);
@@ -3033,7 +2887,6 @@ void DeleteTestPageAndDimOverlay(CitViewState* state) {
  * @param state CIT 页面状态
  * @param index 测试项索引
  * @return 成功返回 true，否则返回 false
- * @Date 2026-05-13 09:55:00
  */
 bool ShowCitTest(CitViewState* state, size_t index) {
   if (state == nullptr || state->root == nullptr || index >= state->row_count) {
@@ -3138,8 +2991,6 @@ bool ShowCitTest(CitViewState* state, size_t index) {
 /**
  * @brief 显示 CIT 列表页面
  * @param state CIT 页面状态
- * @return
- * @Date 2026-05-13 09:55:00
  */
 void ShowCitList(CitViewState* state) {
   if (state == nullptr) {
@@ -3183,7 +3034,6 @@ void ShowCitList(CitViewState* state) {
  * @param entry 测试项
  * @param state CIT 页面状态
  * @return 创建成功返回对象指针，否则返回 nullptr
- * @Date 2026-05-13 09:55:00
  */
 lv_obj_t* CreateStatusRow(
     lv_obj_t* parent, const app::CitTestEntry& entry, CitViewState* state) {
@@ -3264,7 +3114,6 @@ lv_obj_t* CreateStatusRow(
  * @param catalog 测试项目录
  * @param state CIT 页面状态
  * @return 成功返回 true，否则返回 false
- * @Date 2026-05-13 09:55:00
  */
 bool AddCitRows(
     lv_obj_t* parent, const app::CitTestCatalog& catalog, CitViewState* state) {

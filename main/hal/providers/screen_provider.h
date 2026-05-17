@@ -33,35 +33,30 @@ class ScreenProvider {
   /**
    * @brief 获取屏幕设备名称
    * @return 屏幕设备名称字符串
-   * @Date 2026-05-10 13:01:03
    */
   virtual const char* ScreenName() const = 0;
 
   /**
    * @brief 获取当前屏幕类型名称
    * @return 屏幕类型名称字符串，未知时返回 unknown
-   * @Date 2026-05-15 00:00:00
    */
   virtual const char* ScreenType() const { return "unknown"; }
 
   /**
    * @brief 获取屏幕宽度
    * @return 屏幕宽度，单位为像素
-   * @Date 2026-05-10 13:01:03
    */
   virtual int ScreenWidth() const = 0;
 
   /**
    * @brief 获取屏幕高度
    * @return 屏幕高度，单位为像素
-   * @Date 2026-05-10 13:01:03
    */
   virtual int ScreenHeight() const = 0;
 
   /**
    * @brief 获取单个像素的位数
    * @return 单个像素的位数
-   * @Date 2026-05-10 13:01:03
    */
   virtual int ScreenBitsPerPixel() const = 0;
 
@@ -70,7 +65,6 @@ class ScreenProvider {
    * @param callback flush 完成时调用的回调函数
    * @param callback_context 回调上下文
    * @return 注册成功返回 true，否则返回 false
-   * @Date 2026-05-10 13:01:03
    */
   virtual bool RegisterScreenFlushReadyCallback(
       ScreenProviderFlushReadyCallback callback, void* callback_context) = 0;
@@ -83,7 +77,6 @@ class ScreenProvider {
    * @param y_end 结束 Y 坐标
    * @param pixels 像素数据地址
    * @return 写入成功返回 true，否则返回 false
-   * @Date 2026-05-10 13:01:03
    */
   virtual bool WriteScreenPixels(
       int x_start, int y_start, int x_end, int y_end, const void* pixels) = 0;
@@ -92,7 +85,6 @@ class ScreenProvider {
    * @brief 读取当前触摸点
    * @param point 触摸点输出地址
    * @return 读取到触摸点返回 true，否则返回 false
-   * @Date 2026-05-10 13:01:03
    */
   virtual bool ReadScreenTouch(TouchPoint* point) = 0;
 
@@ -102,14 +94,12 @@ class ScreenProvider {
    * @param max_points 输出数组可容纳的最大触点数量
    * @param point_count 实际读取到的触点数量输出地址
    * @return 读取到至少一个触摸点返回 true，否则返回 false
-   * @Date 2026-05-13 09:55:00
    */
   virtual bool ReadScreenTouchPoints(
       TouchPoint* points, size_t max_points, size_t* point_count);
 
   /**
    * @brief 启动屏幕背光
-   * @Date 2026-05-10 13:01:03
    */
   virtual void StartScreenBacklight() = 0;
 };

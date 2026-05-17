@@ -30,7 +30,6 @@ struct DeviceProviderContext {
 /**
  * @brief 创建 Kconfig 选择的设备 provider 上下文
  * @return 创建成功返回设备 provider 上下文，否则返回空上下文
- * @Date 2026-05-14 00:45:00
  */
 DeviceProviderContext CreateDeviceProviderContext();
 

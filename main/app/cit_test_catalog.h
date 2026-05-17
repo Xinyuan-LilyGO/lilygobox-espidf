@@ -33,7 +33,6 @@ struct CitTestCatalog {
 /**
  * @brief 获取 CIT 页面显示的硬件自检入口目录
  * @return CIT 自检入口目录引用
- * @Date 2026-05-12 22:55:00
  */
 const CitTestCatalog& GetCitTestCatalog();
 
@@ -41,7 +40,6 @@ const CitTestCatalog& GetCitTestCatalog();
  * @brief 获取 CIT 测试状态文本
  * @param status CIT 测试状态
  * @return 状态文本
- * @Date 2026-05-12 22:55:00
  */
 const char* GetCitTestStatusText(CitTestStatus status);
 

@@ -50,7 +50,6 @@ enum class LogLevel {
  * @param file_name 源文件名
  * @param line_number 源文件行号
  * @param format 格式化字符串
- * @Date 2026-05-12 22:55:00
  */
 void LogMessage(LogLevel level, const char* file_name, size_t line_number,
     const char* format, ...);

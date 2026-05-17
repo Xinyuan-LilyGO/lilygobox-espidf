@@ -82,7 +82,6 @@ std::atomic<TDisplayP4Device*> g_wifi_time_sync_owner{nullptr};
  * @brief 判断 GNSS 浮点字段是否已经被解析更新
  * @param value GNSS 浮点字段
  * @return 已更新返回 true，否则返回 false
- * @Date 2026-05-16 11:20:00
  */
 bool IsGnssFloatReady(float value) { return value >= 0.0F; }
 
@@ -91,8 +90,6 @@ bool IsGnssFloatReady(float value) { return value >= 0.0F; }
  * @param destination 目标字符数组
  * @param destination_size 目标字符数组长度
  * @param source 源字符串
- * @return
- * @Date 2026-05-16 11:20:00
  */
 void CopyString(
     char* destination, size_t destination_size, const std::string& source) {
@@ -107,7 +104,6 @@ void CopyString(
  * @brief 将 6 字节 MAC 地址打包为整数
  * @param mac_address MAC 地址数组
  * @return 打包后的 MAC 地址
- * @Date 2026-05-14 00:20:00
  */
 uint64_t PackMacAddress(const uint8_t* mac_address) {
   if (mac_address == nullptr) {

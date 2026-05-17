@@ -20,14 +20,11 @@ class Application final {
   /**
    * @brief 初始化当前设备、LVGL 和本地 UI
    * @return 初始化成功返回 true，否则返回 false
-   * @Date 2026-05-10 13:01:03
    */
   bool Init();
 
   /**
    * @brief 运行应用主循环
-   * @return
-   * @Date 2026-05-10 13:01:03
    */
   void Run();
 

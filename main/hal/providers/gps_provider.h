@@ -83,14 +83,12 @@ class GpsProvider {
   /**
    * @brief 启动 GPS 并唤醒定位模块
    * @return 启动成功返回 true，否则返回 false
-   * @Date 2026-05-14 00:20:00
    */
   virtual bool StartGps() = 0;
 
   /**
    * @brief 停止 GPS 并让定位模块进入睡眠
    * @return 停止成功返回 true，否则返回 false
-   * @Date 2026-05-14 00:20:00
    */
   virtual bool StopGps() = 0;
 
@@ -98,7 +96,6 @@ class GpsProvider {
    * @brief 读取 GPS 状态和最新 GNSS 解析数据
    * @param status GPS 状态输出地址
    * @return 读取成功返回 true，否则返回 false
-   * @Date 2026-05-14 00:20:00
    */
   virtual bool ReadGpsStatus(GpsStatus* status) = 0;
 };

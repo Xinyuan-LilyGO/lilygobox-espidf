@@ -20,8 +20,6 @@ struct PressCancelState {
 /**
  * @brief 处理按压移出取消事件
  * @param event LVGL 事件
- * @return
- * @Date 2026-05-15 10:18:00
  */
 void PressCancelOnLeaveEventCallback(lv_event_t* event) {
   auto* state = static_cast<PressCancelState*>(lv_event_get_user_data(event));

@@ -40,7 +40,6 @@ class BmuProvider {
    * @brief 读取 BMU 电池管理状态
    * @param status BMU 状态输出地址
    * @return 读取到有效 BMU 状态返回 true，否则返回 false
-   * @Date 2026-05-14 00:20:00
    */
   virtual bool ReadBmuStatus(BmuStatus* status) = 0;
 };
