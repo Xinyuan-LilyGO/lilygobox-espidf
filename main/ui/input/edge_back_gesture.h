@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-12 21:20:00
- * @LastEditTime: 2026-05-12 22:15:00
+ * @LastEditTime: 2026-05-18 12:00:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -11,14 +11,19 @@
 
 namespace lilygo_box::ui {
 
-struct BackGestureInfo {
-  lv_dir_t direction = LV_DIR_NONE;
+// 边缘返回滑动状态
+struct EdgeBackSwipeState {
   lv_point_t start_point = {};
+  bool tracking = false;
+  bool from_left_edge = false;
+  bool from_right_edge = false;
 };
 
 constexpr int kBackGestureMinEdgeWidth = 36;
 constexpr int kBackGestureMaxEdgeWidth = 76;
 constexpr int kBackGestureWidthDivisor = 9;
+constexpr int kBackGestureMinSwipeDistance = 90;
+constexpr int kBackGestureMaxVerticalOffset = 140;
 
 /**
  * @brief 根据屏幕宽度计算返回手势边缘区域宽度
@@ -37,20 +42,28 @@ inline int BackGestureEdgeWidth(int screen_width) {
 }
 
 /**
- * @brief 读取当前 LVGL 返回手势信息
- * @param indev LVGL 输入设备
- * @param info 手势信息输出
- * @return 读取成功返回 true，否则返回 false
+ * @brief 处理按下和释放事件并判断是否完成边缘返回滑动
+ * @param event LVGL 事件对象
+ * @param screen_width 屏幕宽度
+ * @param state 边缘返回滑动状态
+ * @return 完成边缘返回滑动返回 true，否则返回 false
  */
-bool ReadBackGestureInfo(const lv_indev_t* indev, BackGestureInfo* info);
+bool HandleEdgeBackSwipeEvent(
+    lv_event_t* event, int screen_width, EdgeBackSwipeState* state);
 
 /**
- * @brief 判断手势是否从屏幕边缘向内返回
- * @param info 手势信息
- * @param screen_width 屏幕宽度
- * @return 符合边缘返回返回 true，否则返回 false
+ * @brief 给对象添加边缘返回滑动事件并设置为可点击
+ * @param object LVGL 对象
+ * @param callback 事件回调
+ * @param user_data 事件用户数据
  */
-bool IsBackGestureFromEdge(
-    const BackGestureInfo& info, int screen_width);
+void AddEdgeBackSwipeEvents(
+    lv_obj_t* object, lv_event_cb_t callback, void* user_data);
+
+/**
+ * @brief 递归开启对象和子对象的事件冒泡
+ * @param object LVGL 对象
+ */
+void EnableEdgeBackSwipeEventBubble(lv_obj_t* object);
 
 }  // namespace lilygo_box::ui

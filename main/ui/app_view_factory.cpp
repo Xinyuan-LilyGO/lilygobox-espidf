@@ -11,6 +11,7 @@
 
 #include "ui/font/font_assets.h"
 #include "ui/views/cit_view.h"
+#include "ui/views/settings_view.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -177,6 +178,9 @@ lv_obj_t* CreateAppView(lv_obj_t* parent, const app::AppEntry& app_entry,
 
   if (IsAppId(app_entry, "cit")) {
     return CreateCitView(parent, app_entry, config);
+  }
+  if (IsAppId(app_entry, "settings")) {
+    return CreateSettingsView(parent, app_entry, config);
   }
   return CreatePlaceholderAppView(parent, app_entry, config);
 }

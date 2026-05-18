@@ -25,6 +25,8 @@ idf_component_register(
         lvgl
         lilygo_device_driver
     PRIV_REQUIRES
+        app_update
+        bootloader_support
         esp_app_format
         esp_common
         esp_eth

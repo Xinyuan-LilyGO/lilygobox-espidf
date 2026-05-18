@@ -10,22 +10,40 @@
 namespace lilygo_box::app {
 namespace {
 
-constexpr AppEntry kAppEntries[] = {
+constexpr AppEntry kHomeAppEntries[] = {
     {.id = "cit", .title = "CIT", .subtitle = "Hardware self-test entry"},
     {.id = "rf", .title = "RF", .subtitle = "RF tools placeholder"},
     {.id = "music", .title = "Music", .subtitle = "Audio UI placeholder"},
 };
 
-constexpr size_t kAppEntryCount = sizeof(kAppEntries) / sizeof(kAppEntries[0]);
-static_assert(kAppEntryCount <= kMaxAppEntryCount);
+constexpr AppEntry kDockAppEntries[] = {
+    {.id = "camera", .title = "Camera", .subtitle = "Camera shortcut"},
+    {.id = "settings", .title = "Settings", .subtitle = "System settings"},
+};
 
-const AppCatalog kAppCatalog = {
-    .entries = kAppEntries,
-    .entry_count = kAppEntryCount,
+constexpr size_t kHomeAppEntryCount =
+    sizeof(kHomeAppEntries) / sizeof(kHomeAppEntries[0]);
+constexpr size_t kDockAppEntryCount =
+    sizeof(kDockAppEntries) / sizeof(kDockAppEntries[0]);
+static_assert(kHomeAppEntryCount <= kMaxAppEntryCount);
+static_assert(kDockAppEntryCount <= kMaxAppEntryCount);
+
+const AppCatalog kHomeAppCatalog = {
+    .entries = kHomeAppEntries,
+    .entry_count = kHomeAppEntryCount,
+};
+
+const AppCatalog kDockAppCatalog = {
+    .entries = kDockAppEntries,
+    .entry_count = kDockAppEntryCount,
 };
 
 }  // namespace
 
-const AppCatalog& GetAppCatalog() { return kAppCatalog; }
+const AppCatalog& GetHomeAppCatalog() { return kHomeAppCatalog; }
+
+const AppCatalog& GetDockAppCatalog() { return kDockAppCatalog; }
+
+const AppCatalog& GetAppCatalog() { return GetHomeAppCatalog(); }
 
 }  // namespace lilygo_box::app

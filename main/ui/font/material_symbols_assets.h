@@ -11,6 +11,7 @@ namespace lilygo_box::ui::icon {
 
 inline constexpr char kAppList[] = "\xEE\x97\x83";
 inline constexpr char kArticle[] = "\xEE\xBD\x82";
+inline constexpr char kArrowBack[] = "\xEE\x97\x84";
 inline constexpr char kBack[] = "\xEE\x97\x84";
 inline constexpr char kBatteryAndroid0[] = "\xEF\x8C\x8D";
 inline constexpr char kBatteryAndroid1[] = "\xEF\x8C\x8C";
@@ -24,7 +25,10 @@ inline constexpr char kBluetooth[] = "\xEE\x86\xA7";
 inline constexpr char kCamera[] = "\xEE\x90\x92";
 inline constexpr char kCancel[] = "\xEE\xA2\x88";
 inline constexpr char kCellTower[] = "\xEE\xAE\xBA";
+inline constexpr char kCheck[] = "\xEE\x97\x8A";
 inline constexpr char kCheckCircle[] = "\xEE\xA1\xAC";
+inline constexpr char kChevronRight[] = "\xEE\x97\x8C";
+inline constexpr char kClose[] = "\xEE\x97\x8D";
 inline constexpr char kFile[] = "\xEE\x99\xAD";
 inline constexpr char kFolder[] = "\xEE\x8B\x87";
 inline constexpr char kFolderOpen[] = "\xEE\x8B\x88";

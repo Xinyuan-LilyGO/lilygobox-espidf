@@ -19,7 +19,6 @@
 #include "ui/input/app_view_gesture_flags.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"
-#include "ui/animation/transition_animation.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -58,9 +57,6 @@ constexpr lv_opa_t kIconPressedGlowOpacity = 136;
 constexpr int kDockTopPadding = 10;
 constexpr int kDockInsetExtra = 40;
 constexpr int kPageIndicatorBottom = kDockHeight + 8;
-constexpr uint32_t kAppOpenFadeInMs = 45;
-constexpr uint32_t kAppOpenFadeOutMs = 50;
-constexpr uint32_t kAppOpenFadeCoverColor = 0xE2E2E2;
 constexpr uint32_t kStartupProgressFullMs = 1000;
 constexpr uint32_t kStartupProgressMinStepMs = 200;
 constexpr uint32_t kStartupFadeOutMs = 220;
@@ -83,36 +79,6 @@ struct IconStyle {
   uint32_t pressed_shell_color;
   int image_offset_x;
   int image_offset_y;
-};
-
-struct DockIconEntry {
-  const char* title;
-  IconStyle style;
-};
-
-constexpr DockIconEntry kDockIconEntries[] = {
-    {.title = "Camera",
-        .style =
-            {
-                .symbol = nullptr,
-                .image = &camera_inner_icon_68x68,
-                .shell_color = 0xF2C051,
-                .surface_color = 0xFBE995,
-                .pressed_shell_color = 0xD69B36,
-                .image_offset_x = 0,
-                .image_offset_y = 0,
-            }},
-    {.title = "Settings",
-        .style =
-            {
-                .symbol = nullptr,
-                .image = &settings_inner_icon_68x68,
-                .shell_color = 0x7D7D7D,
-                .surface_color = 0xD1D1D1,
-                .pressed_shell_color = 0x666666,
-                .image_offset_x = 0,
-                .image_offset_y = 0,
-            }},
 };
 
 /**
@@ -576,6 +542,30 @@ IconStyle GetIconStyle(const app::AppEntry& app_entry) {
     };
   }
 
+  if (IsId(app_entry.id, "camera")) {
+    return {
+        .symbol = nullptr,
+        .image = &camera_inner_icon_68x68,
+        .shell_color = 0xF2C051,
+        .surface_color = 0xFBE995,
+        .pressed_shell_color = 0xD69B36,
+        .image_offset_x = 0,
+        .image_offset_y = 0,
+    };
+  }
+
+  if (IsId(app_entry.id, "settings")) {
+    return {
+        .symbol = nullptr,
+        .image = &settings_inner_icon_68x68,
+        .shell_color = 0x7D7D7D,
+        .surface_color = 0xD1D1D1,
+        .pressed_shell_color = 0x666666,
+        .image_offset_x = 0,
+        .image_offset_y = 0,
+    };
+  }
+
   return {
       .symbol = icon::kHome,
       .image = nullptr,
@@ -652,12 +642,6 @@ void CreateWallpaperObjects(lv_obj_t* parent) {
 
 }  // namespace
 
-struct UiManager::AppOpenTransitionState {
-  UiManager* manager = nullptr;
-  const app::AppEntry* app_entry = nullptr;
-  lv_obj_t* cover = nullptr;
-};
-
 bool UiManager::Init(hal::ScreenProvider* screen,
     hal::DeviceDiagnosticsProvider* diagnostics,
     hal::GpsProvider* gps,
@@ -692,8 +676,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   lv_obj_set_style_bg_color(root_screen_, lv_color_hex(0xE2E2E2), LV_PART_MAIN);
   lv_obj_set_style_border_width(root_screen_, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(root_screen_, 0, LV_PART_MAIN);
-  lv_obj_add_event_cb(
-      root_screen_, GestureEventCallback, LV_EVENT_GESTURE, this);
+  AddEdgeBackSwipeEvents(root_screen_, AppBackSwipeEventCallback, this);
 
   CreateWallpaperObjects(root_screen_);
   launcher_container_ = CreateLauncher(root_screen_);
@@ -801,30 +784,15 @@ void UiManager::BackButtonEventCallback(lv_event_t* event) {
   }
 }
 
-void UiManager::GestureEventCallback(lv_event_t* event) {
-  if (lv_event_get_code(event) != LV_EVENT_GESTURE) {
-    return;
-  }
-
+void UiManager::AppBackSwipeEventCallback(lv_event_t* event) {
   auto* self = static_cast<UiManager*>(lv_event_get_user_data(event));
   if (self == nullptr || self->active_view_container_ == nullptr ||
       self->screen_ == nullptr) {
     return;
   }
 
-  lv_indev_t* indev = lv_indev_active();
-  if (indev == nullptr) {
-    return;
-  }
-
-  const lv_dir_t direction = lv_indev_get_gesture_dir(indev);
-  if (direction != LV_DIR_LEFT && direction != LV_DIR_RIGHT) {
-    return;
-  }
-
-  BackGestureInfo gesture;
-  if (!ReadBackGestureInfo(indev, &gesture) ||
-      !IsBackGestureFromEdge(gesture, self->screen_->ScreenWidth())) {
+  if (!HandleEdgeBackSwipeEvent(
+          event, self->screen_->ScreenWidth(), &self->app_back_swipe_)) {
     return;
   }
 
@@ -846,6 +814,7 @@ void UiManager::GestureEventCallback(lv_event_t* event) {
 
   self->ShowLauncher();
   lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
 }
 
 void UiManager::PageScrollEventCallback(lv_event_t* event) {
@@ -864,110 +833,6 @@ void UiManager::PageScrollEventCallback(lv_event_t* event) {
       static_cast<int>(lv_obj_get_scroll_x(self->page_scroller_));
   const size_t page_index = scroll_x >= self->screen_->ScreenWidth() / 2 ? 1 : 0;
   self->UpdatePageIndicator(page_index);
-}
-
-void UiManager::AppOpenFadeInCompletedCallback(lv_anim_t* animation) {
-  auto* state = static_cast<AppOpenTransitionState*>(
-      lv_anim_get_user_data(animation));
-  if (state == nullptr || state->manager == nullptr) {
-    return;
-  }
-
-  UiManager* self = state->manager;
-  if (self->app_open_transition_state_ != state) {
-    return;
-  }
-
-  if (!self->CreateActiveAppView(*state->app_entry)) {
-    self->ShowLauncher();
-    return;
-  }
-
-  if (self->launcher_container_ != nullptr) {
-    lv_obj_add_flag(self->launcher_container_, LV_OBJ_FLAG_HIDDEN);
-  }
-
-  if (state->cover != nullptr) {
-    lv_obj_move_to_index(state->cover, -1);
-    self->status_bar_.MoveToTop();
-  }
-
-  if (!self->StartAppOpenCoverFade(state, LV_OPA_COVER, LV_OPA_TRANSP,
-          kAppOpenFadeOutMs, AppOpenFadeOutCompletedCallback)) {
-    self->FinishAppOpenTransition(state);
-  }
-}
-
-void UiManager::AppOpenFadeOutCompletedCallback(lv_anim_t* animation) {
-  auto* state = static_cast<AppOpenTransitionState*>(
-      lv_anim_get_user_data(animation));
-  if (state == nullptr || state->manager == nullptr) {
-    return;
-  }
-
-  state->manager->FinishAppOpenTransition(state);
-}
-
-void UiManager::AppCloseFadeInCompletedCallback(lv_anim_t* animation) {
-  auto* state = static_cast<AppOpenTransitionState*>(
-      lv_anim_get_user_data(animation));
-  if (state == nullptr || state->manager == nullptr) {
-    return;
-  }
-
-  UiManager* self = state->manager;
-  if (self->app_open_transition_state_ != state) {
-    return;
-  }
-
-  if (self->active_view_container_ != nullptr) {
-    lv_obj_delete(self->active_view_container_);
-    self->active_view_container_ = nullptr;
-  }
-
-  if (self->launcher_container_ != nullptr) {
-    lv_obj_remove_flag(self->launcher_container_, LV_OBJ_FLAG_HIDDEN);
-  }
-
-  if (state->cover != nullptr) {
-    lv_obj_move_to_index(state->cover, -1);
-    self->status_bar_.MoveToTop();
-  }
-
-  if (!self->StartAppOpenCoverFade(state, LV_OPA_COVER, LV_OPA_TRANSP,
-          kAppOpenFadeOutMs, AppCloseFadeOutCompletedCallback)) {
-    self->CancelAppOpenTransition();
-  }
-}
-
-void UiManager::AppCloseFadeOutCompletedCallback(lv_anim_t* animation) {
-  auto* state = static_cast<AppOpenTransitionState*>(
-      lv_anim_get_user_data(animation));
-  if (state == nullptr || state->manager == nullptr) {
-    return;
-  }
-
-  state->manager->CancelAppOpenTransition();
-}
-
-void UiManager::FinishAppOpenTransition(AppOpenTransitionState* state) {
-  if (state == nullptr || app_open_transition_state_ != state) {
-    return;
-  }
-
-  if (root_screen_ != nullptr && active_view_container_ != nullptr) {
-    lv_obj_set_pos(active_view_container_, 0, 0);
-    lv_obj_set_size(
-        active_view_container_, screen_->ScreenWidth(), screen_->ScreenHeight());
-    lv_obj_move_to_index(active_view_container_, -1);
-    status_bar_.MoveToTop();
-  }
-
-  if (launcher_container_ != nullptr && active_view_container_ != nullptr) {
-    lv_obj_add_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
-  }
-
-  CancelAppOpenTransition();
 }
 
 lv_obj_t* UiManager::CreateLauncher(lv_obj_t* parent) {
@@ -1110,7 +975,7 @@ lv_obj_t* UiManager::CreateAppGrid(lv_obj_t* parent) {
   lv_obj_add_flag(grid, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
   MakeTransparent(grid);
 
-  const app::AppCatalog& app_catalog = app::GetAppCatalog();
+  const app::AppCatalog& app_catalog = app::GetHomeAppCatalog();
   button_context_count_ = app_catalog.entry_count;
   if (button_context_count_ > button_contexts_.size()) {
     button_context_count_ = button_contexts_.size();
@@ -1261,9 +1126,18 @@ lv_obj_t* UiManager::CreateDock(lv_obj_t* parent) {
   const int column_gap =
       ColumnGap(screen_->ScreenWidth(), inset_x, kDockColumns, cell_width);
 
-  for (size_t i = 0; i < sizeof(kDockIconEntries) / sizeof(kDockIconEntries[0]);
-      ++i) {
-    lv_obj_t* cell = CreateDockIcon(dock, i, cell_width);
+  const app::AppCatalog& dock_catalog = app::GetDockAppCatalog();
+  dock_button_context_count_ = dock_catalog.entry_count;
+  if (dock_button_context_count_ > dock_button_contexts_.size()) {
+    dock_button_context_count_ = dock_button_contexts_.size();
+  }
+
+  for (size_t i = 0; i < dock_button_context_count_; ++i) {
+    dock_button_contexts_[i].manager = this;
+    dock_button_contexts_[i].app_entry = &dock_catalog.entries[i];
+
+    lv_obj_t* cell =
+        CreateDockIcon(dock, &dock_button_contexts_[i], cell_width);
     if (cell == nullptr) {
       lv_obj_delete(dock);
       return nullptr;
@@ -1278,13 +1152,13 @@ lv_obj_t* UiManager::CreateDock(lv_obj_t* parent) {
 }
 
 lv_obj_t* UiManager::CreateDockIcon(
-    lv_obj_t* parent, size_t entry_index, int cell_width) {
-  if (entry_index >= sizeof(kDockIconEntries) / sizeof(kDockIconEntries[0])) {
+    lv_obj_t* parent, AppButtonContext* context, int cell_width) {
+  if (context == nullptr || context->app_entry == nullptr) {
     return nullptr;
   }
 
-  const DockIconEntry& entry = kDockIconEntries[entry_index];
-  const IconStyle& style = entry.style;
+  const app::AppEntry& entry = *context->app_entry;
+  const IconStyle style = GetIconStyle(entry);
   lv_obj_t* cell = lv_obj_create(parent);
   if (cell == nullptr) {
     return nullptr;
@@ -1313,6 +1187,8 @@ lv_obj_t* UiManager::CreateDockIcon(
     lv_obj_delete(cell);
     return nullptr;
   }
+  lv_obj_add_event_cb(
+      icon_box, AppButtonEventCallback, LV_EVENT_CLICKED, context);
 
   lv_obj_t* icon_parent = icon_box;
   if (style.image != nullptr) {
@@ -1388,59 +1264,6 @@ lv_obj_t* UiManager::CreatePageIndicator(lv_obj_t* parent) {
   }
 
   return indicator;
-}
-
-void UiManager::CancelAppOpenTransition() {
-  if (app_open_transition_state_ == nullptr) {
-    return;
-  }
-
-  if (app_open_transition_state_->cover != nullptr) {
-    DeleteWindowTransition(
-        app_open_transition_state_->cover, WindowTransitionMode::kFade);
-    lv_obj_delete(app_open_transition_state_->cover);
-    app_open_transition_state_->cover = nullptr;
-  }
-
-  delete app_open_transition_state_;
-  app_open_transition_state_ = nullptr;
-}
-
-bool UiManager::StartAppOpenCoverFade(AppOpenTransitionState* state,
-    int start_opacity, int end_opacity, uint32_t duration_ms,
-    lv_anim_completed_cb_t completed_callback) {
-  if (state == nullptr || state->cover == nullptr) {
-    return false;
-  }
-
-  return StartFadeWindowTransition(state->cover, start_opacity, end_opacity,
-      duration_ms, state, completed_callback);
-}
-
-lv_obj_t* UiManager::CreateAppTransitionCover() {
-  if (root_screen_ == nullptr || screen_ == nullptr) {
-    return nullptr;
-  }
-
-  lv_obj_t* cover = lv_obj_create(root_screen_);
-  if (cover == nullptr) {
-    return nullptr;
-  }
-
-  lv_obj_remove_flag(cover, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(cover, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(cover, screen_->ScreenWidth(), screen_->ScreenHeight());
-  lv_obj_set_pos(cover, 0, 0);
-  lv_obj_set_style_bg_color(
-      cover, lv_color_hex(kAppOpenFadeCoverColor), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(cover, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(cover, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(cover, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(cover, 0, LV_PART_MAIN);
-  lv_obj_set_style_opa(cover, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_move_to_index(cover, -1);
-  status_bar_.MoveToTop();
-  return cover;
 }
 
 lv_obj_t* UiManager::CreateStartupScreen(lv_obj_t* parent) {
@@ -1667,9 +1490,10 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
 
   lv_obj_set_pos(active_view_container_, 0, 0);
   lv_obj_set_size(active_view_container_, screen_->ScreenWidth(), screen_->ScreenHeight());
-  lv_obj_add_flag(active_view_container_, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_add_event_cb(
-      active_view_container_, GestureEventCallback, LV_EVENT_GESTURE, this);
+  app_back_swipe_ = EdgeBackSwipeState();
+  EnableEdgeBackSwipeEventBubble(active_view_container_);
+  AddEdgeBackSwipeEvents(
+      active_view_container_, AppBackSwipeEventCallback, this);
   status_bar_.MoveToTop();
   return true;
 }
@@ -1679,7 +1503,6 @@ bool UiManager::ShowAppView(const app::AppEntry& app_entry) {
     return false;
   }
 
-  CancelAppOpenTransition();
   lv_obj_remove_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_style_opa(launcher_container_, LV_OPA_COVER, LV_PART_MAIN);
   if (active_view_container_ != nullptr) {
@@ -1687,62 +1510,31 @@ bool UiManager::ShowAppView(const app::AppEntry& app_entry) {
     active_view_container_ = nullptr;
   }
 
-  auto* state = new AppOpenTransitionState;
-  state->manager = this;
-  state->app_entry = &app_entry;
-  state->cover = CreateAppTransitionCover();
-  if (state->cover == nullptr) {
-    delete state;
+  if (!CreateActiveAppView(app_entry)) {
     return false;
   }
-
-  app_open_transition_state_ = state;
-
-  if (!StartAppOpenCoverFade(state, LV_OPA_TRANSP, LV_OPA_COVER,
-          kAppOpenFadeInMs, AppOpenFadeInCompletedCallback)) {
-    if (!CreateActiveAppView(app_entry)) {
-      CancelAppOpenTransition();
-      return false;
-    }
-    if (launcher_container_ != nullptr) {
-      lv_obj_add_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
-    }
-    FinishAppOpenTransition(state);
-  }
-
+  app_back_swipe_ = EdgeBackSwipeState();
+  lv_obj_add_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
   return true;
 }
 
 void UiManager::ShowLauncher() {
-  CancelAppOpenTransition();
-
+  app_back_swipe_ = EdgeBackSwipeState();
   if (active_view_container_ == nullptr || root_screen_ == nullptr ||
       launcher_container_ == nullptr) {
     if (launcher_container_ != nullptr) {
       lv_obj_remove_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_set_style_opa(launcher_container_, LV_OPA_COVER, LV_PART_MAIN);
+      status_bar_.MoveToTop();
     }
     return;
   }
 
-  auto* state = new AppOpenTransitionState;
-  state->manager = this;
-  state->cover = CreateAppTransitionCover();
-  if (state->cover == nullptr) {
-    delete state;
-    lv_obj_delete(active_view_container_);
-    active_view_container_ = nullptr;
-    lv_obj_remove_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
-    return;
-  }
-
-  app_open_transition_state_ = state;
-  if (!StartAppOpenCoverFade(state, LV_OPA_TRANSP, LV_OPA_COVER,
-          kAppOpenFadeInMs, AppCloseFadeInCompletedCallback)) {
-    CancelAppOpenTransition();
-    lv_obj_delete(active_view_container_);
-    active_view_container_ = nullptr;
-    lv_obj_remove_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
-  }
+  lv_obj_delete(active_view_container_);
+  active_view_container_ = nullptr;
+  lv_obj_remove_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_set_style_opa(launcher_container_, LV_OPA_COVER, LV_PART_MAIN);
+  status_bar_.MoveToTop();
 }
 
 void UiManager::UpdatePageIndicator(size_t page_index) {

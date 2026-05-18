@@ -11,17 +11,21 @@
 #include <array>
 #include <cstdarg>
 #include <cstdio>
+#include <cstdint>
 #include <cstring>
 #include <ctime>
 #include <new>
 
 #include "app/cit_test_catalog.h"
+#include "app/device_identity.h"
 #include "esp_app_desc.h"
 #include "esp_chip_info.h"
 #include "esp_err.h"
 #include "esp_flash.h"
 #include "esp_heap_caps.h"
+#include "esp_image_format.h"
 #include "esp_mac.h"
+#include "esp_ota_ops.h"
 #include "esp_system.h"
 #include "hal/providers/providers.h"
 #include "sdkconfig.h"
@@ -58,7 +62,6 @@ constexpr size_t kTouchDisplayPointCount = 10;
 constexpr uint32_t kGestureSuppressTimeoutMs = 500;
 constexpr uint32_t kPageSlideAnimationMs = 180;
 constexpr uint32_t kMicrophoneNeedleAnimationMs = 180;
-constexpr lv_opa_t kBottomPageDimOpacity = 84;
 constexpr uint32_t kCitBackgroundColor = 0xFF7F58;
 constexpr uint32_t kListBackgroundColor = 0xFBF4E4;
 constexpr uint32_t kRowPressedColor = 0xEEDBD1;
@@ -97,7 +100,6 @@ struct CitStatusRow {
 struct CitViewState {
   lv_obj_t* root = nullptr;
   lv_obj_t* list_page = nullptr;
-  lv_obj_t* list_dim_overlay = nullptr;
   lv_obj_t* test_page = nullptr;
   lv_obj_t* test_content = nullptr;
   lv_obj_t* test_data_label = nullptr;
@@ -139,6 +141,7 @@ struct CitViewState {
   int microphone_display_level = 0;
   std::array<lv_point_precise_t, kTouchTraceMaxPointCount> touch_trace_points;
   size_t touch_trace_point_count = 0;
+  EdgeBackSwipeState test_edge_back_swipe = {};
   bool test_page_closing = false;
   lv_timer_t* refresh_timer = nullptr;
 };
@@ -147,7 +150,7 @@ void ShowCitList(CitViewState* state);
 bool ShowCitTest(CitViewState* state, size_t index);
 void RefreshCitRows(CitViewState* state);
 void SetCitRowsClickable(CitViewState* state, bool enabled);
-void TestPageGestureEventCallback(lv_event_t* event);
+void TestPageEdgeBackEventCallback(lv_event_t* event);
 void ScreenColorOverlayEventCallback(lv_event_t* event);
 
 /**
@@ -315,6 +318,7 @@ void ClearTestPageState(CitViewState* state) {
   state->gps_positioned = false;
   state->microphone_display_level = 0;
   state->pending_test_index = app::kMaxCitTestEntryCount;
+  state->test_edge_back_swipe = EdgeBackSwipeState();
   state->test_page_closing = false;
 }
 
@@ -352,89 +356,6 @@ void FinishTestPageClose(CitViewState* state) {
 void TestPageCloseCompletedCallback(lv_anim_t* animation) {
   auto* state = static_cast<CitViewState*>(lv_anim_get_user_data(animation));
   FinishTestPageClose(state);
-}
-
-/**
- * @brief 删除列表页面的变暗遮罩
- * @param state CIT 页面状态
- */
-void DeleteListDimOverlay(CitViewState* state) {
-  if (state == nullptr || state->list_dim_overlay == nullptr) {
-    return;
-  }
-
-  DeleteBackgroundOpacityTransition(state->list_dim_overlay);
-  lv_obj_delete(state->list_dim_overlay);
-  state->list_dim_overlay = nullptr;
-}
-
-/**
- * @brief 处理列表变暗遮罩淡出完成事件
- * @param animation LVGL 动画
- */
-void DimOverlayFadeOutCompletedCallback(lv_anim_t* animation) {
-  auto* state = static_cast<CitViewState*>(lv_anim_get_user_data(animation));
-  DeleteListDimOverlay(state);
-}
-
-/**
- * @brief 确保列表页面存在变暗遮罩
- * @param state CIT 页面状态
- * @param created 是否新建遮罩的输出标记
- * @return 创建成功返回对象指针，否则返回 nullptr
- */
-lv_obj_t* EnsureListDimOverlay(CitViewState* state, bool* created) {
-  if (created != nullptr) {
-    *created = false;
-  }
-  if (state == nullptr || state->root == nullptr) {
-    return nullptr;
-  }
-  if (state->list_dim_overlay != nullptr &&
-      lv_obj_is_valid(state->list_dim_overlay)) {
-    return state->list_dim_overlay;
-  }
-
-  lv_obj_t* overlay = lv_obj_create(state->root);
-  if (overlay == nullptr) {
-    state->list_dim_overlay = nullptr;
-    return nullptr;
-  }
-  state->list_dim_overlay = overlay;
-  if (created != nullptr) {
-    *created = true;
-  }
-
-  lv_obj_remove_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(overlay, state->width, state->height);
-  lv_obj_set_pos(overlay, 0, 0);
-  lv_obj_set_style_bg_color(overlay, lv_color_hex(0x000000), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(overlay, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_border_width(overlay, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(overlay, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(overlay, 0, LV_PART_MAIN);
-  return overlay;
-}
-
-/**
- * @brief 启动列表变暗遮罩透明度动画
- * @param overlay 遮罩对象
- * @param start_opacity 起始透明度
- * @param end_opacity 结束透明度
- * @param state CIT 页面状态
- * @param completed_callback 动画完成回调
- * @return 成功返回 true，否则返回 false
- */
-bool StartDimOverlayAnimation(lv_obj_t* overlay, int32_t start_opacity,
-    int32_t end_opacity, CitViewState* state,
-    lv_anim_completed_cb_t completed_callback) {
-  if (overlay == nullptr) {
-    return false;
-  }
-
-  return StartBackgroundOpacityTransition(overlay, start_opacity, end_opacity,
-      kPageSlideAnimationMs, state, completed_callback);
 }
 
 /**
@@ -1649,32 +1570,14 @@ void TestFailButtonEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 处理测试页面的边缘返回手势
+ * @brief 处理测试页面的边缘返回事件
  * @param event LVGL 事件
  */
-void TestPageGestureEventCallback(lv_event_t* event) {
-  if (lv_event_get_code(event) != LV_EVENT_GESTURE) {
-    return;
-  }
-
+void TestPageEdgeBackEventCallback(lv_event_t* event) {
   auto* state = static_cast<CitViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->test_page == nullptr) {
-    return;
-  }
-
-  lv_indev_t* indev = lv_indev_active();
-  if (indev == nullptr) {
-    return;
-  }
-
-  const lv_dir_t direction = lv_indev_get_gesture_dir(indev);
-  if (direction != LV_DIR_LEFT && direction != LV_DIR_RIGHT) {
-    return;
-  }
-
-  BackGestureInfo gesture;
-  if (!ReadBackGestureInfo(indev, &gesture) ||
-      !IsBackGestureFromEdge(gesture, state->width)) {
+  if (state == nullptr || state->test_page == nullptr ||
+      !HandleEdgeBackSwipeEvent(
+          event, state->width, &state->test_edge_back_swipe)) {
     return;
   }
 
@@ -1896,8 +1799,7 @@ bool ShowScreenColorOverlay(CitViewState* state) {
     lv_obj_set_style_pad_all(overlay, 0, LV_PART_MAIN);
     lv_obj_add_event_cb(
         overlay, ScreenColorOverlayEventCallback, LV_EVENT_CLICKED, state);
-    lv_obj_add_event_cb(
-        overlay, TestPageGestureEventCallback, LV_EVENT_GESTURE, state);
+    AddEdgeBackSwipeEvents(overlay, TestPageEdgeBackEventCallback, state);
   }
 
   state->screen_color_index = 0;
@@ -2035,8 +1937,7 @@ lv_obj_t* CreateTestActionButton(lv_obj_t* parent, const char* text,
     return nullptr;
   }
   lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, state);
-  lv_obj_add_event_cb(
-      button, TestPageGestureEventCallback, LV_EVENT_GESTURE, state);
+  AddEdgeBackSwipeEvents(button, TestPageEdgeBackEventCallback, state);
   AddTouchTraceEventCallbacks(button, state);
 
   lv_obj_t* label =
@@ -2079,8 +1980,7 @@ lv_obj_t* CreateCenterButton(lv_obj_t* parent, const char* text,
   if (callback != nullptr) {
     lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, state);
   }
-  lv_obj_add_event_cb(
-      button, TestPageGestureEventCallback, LV_EVENT_GESTURE, state);
+  AddEdgeBackSwipeEvents(button, TestPageEdgeBackEventCallback, state);
 
   lv_obj_t* label = CreateLabel(button, text, lv_color_hex(0xFFFFFF), Font28());
   if (label == nullptr) {
@@ -2104,8 +2004,7 @@ lv_obj_t* CreateTestButtonBar(lv_obj_t* parent, CitViewState* state) {
   }
 
   lv_obj_remove_flag(button_bar, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_event_cb(
-      button_bar, TestPageGestureEventCallback, LV_EVENT_GESTURE, state);
+  AddEdgeBackSwipeEvents(button_bar, TestPageEdgeBackEventCallback, state);
   AddTouchTraceEventCallbacks(button_bar, state);
   lv_obj_set_size(button_bar, LV_PCT(100), kTestButtonBarHeight);
   lv_obj_align(button_bar, LV_ALIGN_BOTTOM_MID, 0, 0);
@@ -2260,28 +2159,6 @@ const char* ConfiguredTargetArch() {
 }
 
 /**
- * @brief 获取当前配置的设备名称
- * @return 字符串指针
- */
-const char* ConfiguredDeviceName() {
-#if defined(CONFIG_BOARD_TYPE_T_DISPLAY_P4_KEYBOARD)
-  return "t-display-p4-keyboard";
-#elif defined(CONFIG_BOARD_TYPE_T_DISPLAY_P4)
-#if defined(CONFIG_BOARD_VERSION_T_DISPLAY_P4_V1_0)
-  return "t-display-p4_v1.0";
-#elif defined(CONFIG_BOARD_VERSION_T_DISPLAY_P4_V2_0)
-  return "t-display-p4_v2.0";
-#else
-  return "t-display-p4";
-#endif
-#elif defined(CONFIG_LILYGO_BOX_DEVICE_T_DISPLAY_P4)
-  return "t-display-p4";
-#else
-  return "unknown";
-#endif
-}
-
-/**
  * @brief 获取当前配置的屏幕类型
  * @return 字符串指针
  */
@@ -2372,6 +2249,68 @@ void FormatMacAddress(char* buffer, size_t size) {
 }
 
 /**
+ * @brief 读取当前运行固件镜像大小
+ * @param image_size 镜像大小输出地址
+ * @return 读取成功返回 true，否则返回 false
+ */
+bool ReadRunningImageSize(size_t* image_size) {
+  if (image_size == nullptr) {
+    return false;
+  }
+
+  const esp_partition_t* running_partition = esp_ota_get_running_partition();
+  if (running_partition == nullptr) {
+    return false;
+  }
+
+  esp_partition_pos_t partition = {};
+  partition.offset = running_partition->address;
+  partition.size = running_partition->size;
+
+  esp_image_metadata_t metadata = {};
+  if (esp_image_get_metadata(&partition, &metadata) != ESP_OK ||
+      metadata.image_len == 0) {
+    return false;
+  }
+
+  *image_size = metadata.image_len;
+  return true;
+}
+
+/**
+ * @brief 格式化 flash 剩余容量和总容量
+ * @param buffer 文本缓冲区
+ * @param size 文本缓冲区大小
+ */
+void FormatFlashFreeTotal(char* buffer, size_t size) {
+  if (buffer == nullptr || size == 0) {
+    return;
+  }
+
+  uint32_t flash_size = 0;
+  if (esp_flash_get_size(nullptr, &flash_size) != ESP_OK || flash_size == 0) {
+    std::snprintf(buffer, size, "unknown / unknown");
+    return;
+  }
+
+  size_t image_size = 0;
+  if (!ReadRunningImageSize(&image_size)) {
+    std::snprintf(buffer, size, "unknown / %lu bytes (%lu MB)",
+        static_cast<unsigned long>(flash_size),
+        static_cast<unsigned long>(flash_size / 1024 / 1024));
+    return;
+  }
+
+  const uint64_t free_size =
+      flash_size > image_size ? flash_size - image_size : 0;
+  std::snprintf(buffer, size, "%llu / %lu bytes (%llu / %lu MB)",
+      static_cast<unsigned long long>(free_size),
+      static_cast<unsigned long>(flash_size),
+      static_cast<unsigned long long>(free_size / 1024 / 1024),
+      static_cast<unsigned long>(flash_size / 1024 / 1024));
+}
+
+/**
  * @brief 添加版本信息测试内容
  * @param content 内容容器
  * @param state CIT 页面状态
@@ -2386,9 +2325,8 @@ bool AddVersionContent(lv_obj_t* content, CitViewState* state) {
   char mac_address[18] = {};
   FormatMacAddress(mac_address, sizeof(mac_address));
 
-  uint32_t flash_size = 0;
-  const bool flash_size_read =
-      esp_flash_get_size(nullptr, &flash_size) == ESP_OK;
+  char flash_size_text[96] = {};
+  FormatFlashFreeTotal(flash_size_text, sizeof(flash_size_text));
 
   const int screen_width = state->screen->ScreenWidth();
   const int screen_height = state->screen->ScreenHeight();
@@ -2410,8 +2348,8 @@ bool AddVersionContent(lv_obj_t* content, CitViewState* state) {
       "     %s\n"
       "revision: v%d.%d\n"
       "cores: %d\n"
-      "flash size:\n"
-      "     %lu bytes (%lu MB)\n"
+      "flash size free / total:\n"
+      "     %s\n"
       "flash features: %s\n"
       "\n"
       "[Memory]\n"
@@ -2445,17 +2383,14 @@ bool AddVersionContent(lv_obj_t* content, CitViewState* state) {
       "[LVGL]\n"
       "lvgl version: %d.%d.%d%s",
       ConfiguredChipModel(), mac_address, chip_info.revision / 100,
-      chip_info.revision % 100, chip_info.cores,
-      flash_size_read ? static_cast<unsigned long>(flash_size) : 0UL,
-      flash_size_read ? static_cast<unsigned long>(flash_size / 1024 / 1024)
-                      : 0UL,
+      chip_info.revision % 100, chip_info.cores, flash_size_text,
       (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external",
       static_cast<unsigned long>(esp_get_free_heap_size()),
       static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
       static_cast<unsigned long>(heap_caps_get_total_size(MALLOC_CAP_INTERNAL)),
       static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)),
       static_cast<unsigned long>(heap_caps_get_total_size(MALLOC_CAP_SPIRAM)),
-      ConfiguredDeviceName(), app_project_name, app_version, app_build_date,
+      app::ConfiguredDeviceName(), app_project_name, app_version, app_build_date,
       app_build_time, esp_get_idf_version(), ConfiguredTargetArch(),
       ConfiguredScreenType(state->screen), screen_width, screen_height,
       ScreenPixelFormat(screen_bpp), ConfiguredCameraType(),
@@ -2868,18 +2803,9 @@ void DeleteTestPage(CitViewState* state) {
 
   StopActiveTestHardware(state);
   lv_anim_delete(state, SetMicrophoneNeedleValue);
-  DeleteWindowTransition(state->test_page, WindowTransitionMode::kSlideLeft);
+  DeleteWindowTransition(state->test_page);
   lv_obj_delete(state->test_page);
   ClearTestPageState(state);
-}
-
-/**
- * @brief 删除当前测试页面和列表变暗遮罩
- * @param state CIT 页面状态
- */
-void DeleteTestPageAndDimOverlay(CitViewState* state) {
-  DeleteTestPage(state);
-  DeleteListDimOverlay(state);
 }
 
 /**
@@ -2912,9 +2838,9 @@ bool ShowCitTest(CitViewState* state, size_t index) {
   }
   state->test_page = page;
   state->test_page_closing = false;
+  state->test_edge_back_swipe = EdgeBackSwipeState();
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_event_cb(
-      page, TestPageGestureEventCallback, LV_EVENT_GESTURE, state);
+  AddEdgeBackSwipeEvents(page, TestPageEdgeBackEventCallback, state);
   lv_obj_set_size(page, LV_PCT(100), LV_PCT(100));
   lv_obj_set_pos(page, state->width, 0);
   lv_obj_set_style_bg_color(
@@ -2927,7 +2853,7 @@ bool ShowCitTest(CitViewState* state, size_t index) {
   lv_obj_t* title = CreateLabel(
       page, TestTitle(*row.entry), lv_color_hex(0xFFFFFF), Font48());
   if (title == nullptr) {
-    DeleteTestPageAndDimOverlay(state);
+    DeleteTestPage(state);
     return false;
   }
   lv_obj_set_size(title, state->width - 2 * kTitleLeft, 70);
@@ -2935,13 +2861,12 @@ bool ShowCitTest(CitViewState* state, size_t index) {
 
   lv_obj_t* content = lv_obj_create(page);
   if (content == nullptr) {
-    DeleteTestPageAndDimOverlay(state);
+    DeleteTestPage(state);
     return false;
   }
   state->test_content = content;
   lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_event_cb(
-      content, TestPageGestureEventCallback, LV_EVENT_GESTURE, state);
+  AddEdgeBackSwipeEvents(content, TestPageEdgeBackEventCallback, state);
   lv_obj_set_size(
       content, LV_PCT(100), state->height - kListTop - kTestButtonBarHeight);
   lv_obj_set_style_bg_color(
@@ -2953,12 +2878,12 @@ bool ShowCitTest(CitViewState* state, size_t index) {
   lv_obj_align(content, LV_ALIGN_TOP_MID, 0, kListTop);
 
   if (!PopulateTestContent(content, state, *row.entry)) {
-    DeleteTestPageAndDimOverlay(state);
+    DeleteTestPage(state);
     return false;
   }
 
   if (CreateTestButtonBar(page, state) == nullptr) {
-    DeleteTestPageAndDimOverlay(state);
+    DeleteTestPage(state);
     return false;
   }
 
@@ -2966,21 +2891,7 @@ bool ShowCitTest(CitViewState* state, size_t index) {
     lv_obj_move_to_index(state->touch_trace_surface, -1);
   }
 
-  bool dim_overlay_created = false;
-  lv_obj_t* dim_overlay = EnsureListDimOverlay(state, &dim_overlay_created);
-  if (dim_overlay != nullptr) {
-    lv_obj_move_to_index(page, -1);
-    lv_opa_t start_opacity = LV_OPA_TRANSP;
-    if (!dim_overlay_created) {
-      start_opacity = lv_obj_get_style_bg_opa(dim_overlay, LV_PART_MAIN);
-    }
-    if (!StartDimOverlayAnimation(dim_overlay, start_opacity,
-            kBottomPageDimOpacity, state, nullptr)) {
-      lv_obj_set_style_bg_opa(
-          dim_overlay, kBottomPageDimOpacity, LV_PART_MAIN);
-    }
-  }
-
+  EnableEdgeBackSwipeEventBubble(page);
   if (!StartSlideLeftWindowTransition(
           page, state->width, kPageSlideAnimationMs, state, nullptr)) {
     lv_obj_set_x(page, 0);
@@ -3001,7 +2912,6 @@ void ShowCitList(CitViewState* state) {
     lv_obj_remove_flag(state->list_page, LV_OBJ_FLAG_HIDDEN);
   }
   if (state->test_page == nullptr) {
-    DeleteListDimOverlay(state);
     RestoreCitListGestures(state);
     SetCitRowsClickable(state, true);
     return;
@@ -3013,15 +2923,6 @@ void ShowCitList(CitViewState* state) {
   SetCitRowsClickable(state, false);
   StopActiveTestHardware(state);
   state->test_page_closing = true;
-  if (state->list_dim_overlay != nullptr &&
-      lv_obj_is_valid(state->list_dim_overlay)) {
-    const int32_t start_opacity =
-        lv_obj_get_style_bg_opa(state->list_dim_overlay, LV_PART_MAIN);
-    if (!StartDimOverlayAnimation(state->list_dim_overlay, start_opacity,
-            LV_OPA_TRANSP, state, DimOverlayFadeOutCompletedCallback)) {
-      DeleteListDimOverlay(state);
-    }
-  }
   if (!StartSlideRightWindowTransition(state->test_page, state->width,
           kPageSlideAnimationMs, state, TestPageCloseCompletedCallback)) {
     FinishTestPageClose(state);
@@ -3165,8 +3066,7 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
   state->height = config.height;
   state->test_statuses.fill(app::CitTestStatus::kPending);
   lv_obj_add_event_cb(container, CitViewDeleteCallback, LV_EVENT_DELETE, state);
-  lv_obj_add_event_cb(
-      container, TestPageGestureEventCallback, LV_EVENT_GESTURE, state);
+  AddEdgeBackSwipeEvents(container, TestPageEdgeBackEventCallback, state);
 
   lv_obj_remove_flag(container, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_color(

@@ -28,6 +28,18 @@ struct AppCatalog {
  * @brief 获取 launcher 页面显示的本地 app 入口目录
  * @return app 入口目录引用
  */
+const AppCatalog& GetHomeAppCatalog();
+
+/**
+ * @brief 获取 launcher 固定栏显示的本地 app 入口目录
+ * @return app 入口目录引用
+ */
+const AppCatalog& GetDockAppCatalog();
+
+/**
+ * @brief 获取默认 launcher app 入口目录
+ * @return app 入口目录引用
+ */
 const AppCatalog& GetAppCatalog();
 
 }  // namespace lilygo_box::app
