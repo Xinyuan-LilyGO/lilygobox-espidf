@@ -8,18 +8,6 @@ menu "LilygoBox Configuration"
             bool "T-Display-P4"
     endchoice
 
-    choice T_DISPLAY_P4_DEVICE_TYPE
-        prompt "T-Display-P4 device type"
-        depends on LILYGO_BOX_DEVICE_T_DISPLAY_P4
-        default BOARD_TYPE_T_DISPLAY_P4
-
-        config BOARD_TYPE_T_DISPLAY_P4
-            bool "T-Display-P4"
-
-        config BOARD_TYPE_T_DISPLAY_P4_KEYBOARD
-            bool "T-Display-P4 Keyboard"
-    endchoice
-
     choice SCREEN_PIXEL_FORMAT
         prompt "Screen color format"
         depends on LILYGO_BOX_DEVICE_T_DISPLAY_P4
