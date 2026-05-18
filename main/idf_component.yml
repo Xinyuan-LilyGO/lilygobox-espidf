@@ -19,9 +19,6 @@ dependencies:
   radiolib_cpp_bus_driver:
     override_path: "../libraries/radiolib_cpp_bus_driver"
 
-  kode_bq25896:
-    override_path: "../libraries/kode_bq25896"
-
   icm20948_we:
     override_path: "../libraries/icm20948_we"
 

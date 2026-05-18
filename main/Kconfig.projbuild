@@ -20,18 +20,6 @@ menu "LilygoBox Configuration"
             bool "T-Display-P4 Keyboard"
     endchoice
 
-    choice T_DISPLAY_P4_DEVICE_VERSION
-        prompt "T-Display-P4 device version"
-        depends on LILYGO_BOX_DEVICE_T_DISPLAY_P4
-        default BOARD_VERSION_T_DISPLAY_P4_V2_0
-
-        config BOARD_VERSION_T_DISPLAY_P4_V1_0
-            bool "T-Display-P4 V1.0"
-
-        config BOARD_VERSION_T_DISPLAY_P4_V2_0
-            bool "T-Display-P4 V2.0"
-    endchoice
-
     choice SCREEN_PIXEL_FORMAT
         prompt "Screen color format"
         depends on LILYGO_BOX_DEVICE_T_DISPLAY_P4
