@@ -149,8 +149,29 @@ int TDisplayP4Device::ScreenBitsPerPixel() const {
   return driver_.screen_info().bits_per_pixel;
 }
 
-const char* TDisplayP4Device::ScreenType() const {
-  return driver_.screen_info().name;
+/**
+ * @brief 读取当前 T-Display-P4 设备信息
+ * @param info 设备信息输出地址
+ * @return 读取成功返回 true，否则返回 false
+ */
+bool TDisplayP4Device::ReadDeviceInfo(DeviceInfo* info) {
+  if (info == nullptr) {
+    return false;
+  }
+
+  const auto device_info = driver_.device_info();
+  info->device_model_name = device_info.model.name;
+  info->device_model_version = device_info.model.version;
+  info->screen_type = device_info.screen.name;
+  info->screen_width = device_info.screen.width;
+  info->screen_height = device_info.screen.height;
+  info->screen_bits_per_pixel = device_info.screen.bits_per_pixel;
+  info->screen_pixel_format = device_info.screen.pixel_format;
+  info->camera_name = device_info.camera.name;
+  info->camera_pixel_format = device_info.camera.pixel_format;
+  info->camera_bits_per_pixel = device_info.camera.bits_per_pixel;
+  info->camera_buffer_count = device_info.camera.buffer_count;
+  return true;
 }
 
 bool TDisplayP4Device::StartEthernet() {

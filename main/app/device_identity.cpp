@@ -13,8 +13,8 @@
 namespace lilygo_box::app {
 namespace {
 
-// 当前本机设备名称
-char g_configured_device_name[kMaxDeviceNameLength + 1] = "T-Display-P4";
+// 用户设置的本机设备名称，空字符串表示使用硬件型号名。
+char g_device_name[kMaxDeviceNameLength + 1] = "";
 
 /**
  * @brief 判断字符是否为空白字符
@@ -27,7 +27,7 @@ bool IsSpace(char character) {
 
 }  // namespace
 
-const char* ConfiguredDeviceName() { return g_configured_device_name; }
+const char* ConfiguredDeviceName() { return g_device_name; }
 
 bool SetConfiguredDeviceName(const char* name) {
   if (name == nullptr) {
@@ -53,8 +53,8 @@ bool SetConfiguredDeviceName(const char* name) {
     length = kMaxDeviceNameLength;
   }
 
-  std::memcpy(g_configured_device_name, begin, length);
-  g_configured_device_name[length] = '\0';
+  std::memcpy(g_device_name, begin, length);
+  g_device_name[length] = '\0';
   return true;
 }
 

@@ -10,6 +10,7 @@
 #include "hal/providers/audio_provider.h"
 #include "hal/providers/bmu_provider.h"
 #include "hal/providers/device_diagnostics.h"
+#include "hal/providers/device_info_provider.h"
 #include "hal/providers/device_provider.h"
 #include "hal/providers/ethernet_provider.h"
 #include "hal/providers/gps_provider.h"

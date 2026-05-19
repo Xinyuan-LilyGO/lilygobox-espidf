@@ -644,6 +644,7 @@ void CreateWallpaperObjects(lv_obj_t* parent) {
 
 bool UiManager::Init(hal::ScreenProvider* screen,
     hal::DeviceDiagnosticsProvider* diagnostics,
+    hal::DeviceInfoProvider* device_info,
     hal::GpsProvider* gps,
     hal::AudioProvider* audio,
     hal::HapticProvider* haptic,
@@ -657,6 +658,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   }
   screen_ = screen;
   diagnostics_provider_ = diagnostics;
+  device_info_provider_ = device_info;
   gps_provider_ = gps;
   audio_provider_ = audio;
   haptic_provider_ = haptic;
@@ -1472,6 +1474,7 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   config.height = screen_->ScreenHeight();
   config.screen = screen_;
   config.diagnostics = diagnostics_provider_;
+  config.device_info = device_info_provider_;
   config.gps = gps_provider_;
   config.audio = audio_provider_;
   config.haptic = haptic_provider_;

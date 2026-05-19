@@ -14,13 +14,8 @@
 #include <new>
 
 #include "app/device_identity.h"
+#include "app/device_info_snapshot.h"
 #include "app/settings_catalog.h"
-#include "esp_app_desc.h"
-#include "esp_err.h"
-#include "esp_flash.h"
-#include "esp_heap_caps.h"
-#include "esp_image_format.h"
-#include "esp_ota_ops.h"
 #include "hal/providers/bmu_provider.h"
 #include "hal/providers/screen_provider.h"
 #include "hal/providers/wifi_provider.h"
@@ -70,7 +65,7 @@ constexpr int kDetailUpdateWidth = 400;
 constexpr int kDetailFirstCardTop = 260;
 constexpr int kDetailFirstCardHeight = 188;
 constexpr int kDetailSecondCardTop = 478;
-constexpr int kDetailSecondCardHeight = 640;
+constexpr int kDetailSecondCardHeight = 730;
 constexpr int kDetailOptionTopGap = 36;
 constexpr int kDetailOptionRowHeight = 98;
 constexpr int kDetailCardRadius = 26;
@@ -98,7 +93,6 @@ constexpr int kNameEditHelpTop =
 constexpr int kNameEditKeyboardHeightPercent = 35;
 constexpr uint32_t kNameEditInputColor = 0xF2F2F2;
 constexpr uint32_t kNameEditInputBorderColor = 0x4A86F7;
-constexpr const char* kDeviceProductName = "T-Display-P4";
 constexpr const char* kDeviceNameAcceptedChars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_. ";
 
@@ -242,12 +236,19 @@ bool IsId(const char* left, const char* right) {
 }
 
 /**
- * @brief 获取可显示字符串
- * @param text 原始字符串
- * @return 原始字符串有效时返回自身，否则返回 unknown
+ * @brief 读取当前显示用设备名称
+ * @param config app 页面配置
+ * @return 设备名称字符串
  */
-const char* KnownString(const char* text) {
-  return text == nullptr || text[0] == '\0' ? "unknown" : text;
+const char* ReadDisplayDeviceName(const AppViewConfig& config) {
+  app::CurrentDeviceInfoSnapshot info;
+  if (app::ReadCurrentDeviceInfoSnapshot(config.device_info, &info)) {
+    return info.software.device_name;
+  }
+
+  const char* device_name = app::ConfiguredDeviceName();
+  return (device_name == nullptr || device_name[0] == '\0') ? "unknown"
+                                                            : device_name;
 }
 
 /**
@@ -319,97 +320,69 @@ void FormatByteSize(uint64_t bytes, char* buffer, size_t size) {
 }
 
 /**
- * @brief 读取当前固件镜像大小
- * @param image_size 镜像大小输出地址
- * @return 读取成功返回 true，否则返回 false
- */
-bool ReadRunningImageSize(size_t* image_size) {
-  if (image_size == nullptr) {
-    return false;
-  }
-
-  const esp_partition_t* running_partition = esp_ota_get_running_partition();
-  if (running_partition == nullptr) {
-    return false;
-  }
-
-  esp_partition_pos_t partition = {};
-  partition.offset = running_partition->address;
-  partition.size = running_partition->size;
-
-  esp_image_metadata_t metadata = {};
-  if (esp_image_get_metadata(&partition, &metadata) != ESP_OK ||
-      metadata.image_len == 0) {
-    return false;
-  }
-
-  *image_size = metadata.image_len;
-  return true;
-}
-
-/**
  * @brief 格式化存储空间占用
+ * @param info 当前设备信息
  * @param buffer 文本缓冲区
  * @param size 文本缓冲区大小
  */
-void FormatStorageUsage(char* buffer, size_t size) {
+void FormatStorageUsage(
+    const app::CurrentDeviceInfoSnapshot& info, char* buffer, size_t size) {
   if (buffer == nullptr || size == 0) {
     return;
   }
 
-  uint32_t flash_size = 0;
-  if (esp_flash_get_size(nullptr, &flash_size) != ESP_OK || flash_size == 0) {
+  if (info.chip.flash_total_bytes == 0) {
     std::snprintf(buffer, size, "unknown / unknown");
     return;
   }
 
   char total_text[24] = {};
-  FormatByteSize(flash_size, total_text, sizeof(total_text));
+  FormatByteSize(info.chip.flash_total_bytes, total_text, sizeof(total_text));
 
-  size_t used_size = 0;
-  if (!ReadRunningImageSize(&used_size)) {
+  if (!info.chip.running_image_size_valid) {
     std::snprintf(buffer, size, "unknown / %s", total_text);
     return;
   }
 
   char used_text[24] = {};
-  FormatByteSize(used_size, used_text, sizeof(used_text));
+  FormatByteSize(info.chip.running_image_bytes, used_text, sizeof(used_text));
   std::snprintf(buffer, size, "%s / %s", used_text, total_text);
 }
 
 /**
  * @brief 格式化屏幕分辨率
- * @param config app 页面配置
+ * @param info 当前设备信息
  * @param buffer 文本缓冲区
  * @param size 文本缓冲区大小
  */
 void FormatResolution(
-    const AppViewConfig& config, char* buffer, size_t size) {
+    const app::CurrentDeviceInfoSnapshot& info, char* buffer, size_t size) {
   if (buffer == nullptr || size == 0) {
     return;
   }
-  if (config.screen == nullptr) {
+  if (info.screen.width <= 0 || info.screen.height <= 0) {
     std::snprintf(buffer, size, "unknown");
     return;
   }
 
-  std::snprintf(buffer, size, "%d*%d", config.screen->ScreenWidth(),
-      config.screen->ScreenHeight());
+  std::snprintf(buffer, size, "%d*%d", info.screen.width, info.screen.height);
 }
 
 /**
  * @brief 格式化运行内存容量
+ * @param info 当前设备信息
  * @param buffer 文本缓冲区
  * @param size 文本缓冲区大小
  */
-void FormatMemorySize(char* buffer, size_t size) {
+void FormatMemorySize(
+    const app::CurrentDeviceInfoSnapshot& info, char* buffer, size_t size) {
   if (buffer == nullptr || size == 0) {
     return;
   }
 
-  const size_t internal_size = heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
-  const size_t psram_size = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
-  const size_t total_kb = (internal_size + psram_size) / 1024;
+  const size_t total_bytes =
+      info.memory.internal_total_bytes + info.memory.psram_total_bytes;
+  const size_t total_kb = total_bytes / 1024;
   if (total_kb >= 1024) {
     std::snprintf(buffer, size, "%lu MB",
         static_cast<unsigned long>(total_kb / 1024));
@@ -737,7 +710,7 @@ void RefreshDeviceNameLabels(SettingsViewState* state) {
     return;
   }
 
-  const char* device_name = app::ConfiguredDeviceName();
+  const char* device_name = ReadDisplayDeviceName(state->config);
   if (state->device_name_value_label != nullptr) {
     lv_label_set_text(state->device_name_value_label, device_name);
   }
@@ -760,7 +733,7 @@ void DeviceNameEditConfirmClickedEventCallback(lv_event_t* event) {
   const char* text = lv_textarea_get_text(state->name_edit_text_area);
   if (!app::SetConfiguredDeviceName(text)) {
     lv_textarea_set_text(
-        state->name_edit_text_area, app::ConfiguredDeviceName());
+        state->name_edit_text_area, ReadDisplayDeviceName(state->config));
     return;
   }
 
@@ -888,13 +861,11 @@ bool CreateMyDeviceHeader(
  * @brief 创建我的设备页面系统标识区域
  * @param parent 父对象
  * @param width 内容宽度
+ * @param info 当前设备信息
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateMyDeviceSystemArea(lv_obj_t* parent, int width) {
-  const esp_app_desc_t* app_description = esp_app_get_description();
-  const char* app_version = KnownString(
-      app_description == nullptr ? nullptr : app_description->version);
-
+bool CreateMyDeviceSnapshotArea(lv_obj_t* parent, int width,
+    const app::CurrentDeviceInfoSnapshot& info) {
   lv_obj_t* brand =
       CreateLabel(parent, "LilygoBox", lv_color_hex(0x050505), Font48());
   if (brand == nullptr) {
@@ -905,8 +876,8 @@ bool CreateMyDeviceSystemArea(lv_obj_t* parent, int width) {
   lv_obj_align(brand, LV_ALIGN_TOP_MID, 0, kDetailBrandTop);
 
   lv_obj_t* version =
-      CreateLabel(parent, app_version, lv_color_hex(kSecondaryTextColor),
-          Font24());
+      CreateLabel(parent, info.software.software_version,
+          lv_color_hex(kSecondaryTextColor), Font24());
   if (version == nullptr) {
     return false;
   }
@@ -1024,13 +995,14 @@ bool CreateDeviceInfoRow(lv_obj_t* parent, const char* title,
  * @param config app 页面配置
  * @param width 页面宽度
  * @param state 设置页面状态
+ * @param info 当前设备信息
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateDeviceInfoCard(
     lv_obj_t* parent, const AppViewConfig& config, int width,
-    SettingsViewState* state) {
+    SettingsViewState* state, const app::CurrentDeviceInfoSnapshot& info) {
   char storage_text[48] = {};
-  FormatStorageUsage(storage_text, sizeof(storage_text));
+  FormatStorageUsage(info, storage_text, sizeof(storage_text));
 
   const int card_width = width - 2 * kDetailSidePadding;
   lv_obj_t* card = CreateBox(parent, card_width, kDetailFirstCardHeight,
@@ -1042,8 +1014,9 @@ bool CreateDeviceInfoCard(
   lv_obj_align(card, LV_ALIGN_TOP_MID, 0, kDetailFirstCardTop);
 
   (void)config;
-  return CreateDeviceInfoRow(card, "Device name", app::ConfiguredDeviceName(),
-             22, card_width, true, DeviceNameRowClickedEventCallback, state,
+  return CreateDeviceInfoRow(card, "Device name",
+             info.software.device_name, 22, card_width, true,
+             DeviceNameRowClickedEventCallback, state,
              state == nullptr ? nullptr : &state->device_name_value_label) &&
          CreateDeviceInfoRow(card, "Storage space", storage_text,
              22 + kDetailInfoRowHeight, card_width, false, nullptr, nullptr,
@@ -1083,21 +1056,18 @@ bool CreateSpecText(lv_obj_t* parent, const char* value, const char* label,
  * @param config app 页面配置
  * @param width 页面宽度
  * @param state 设置页面状态
+ * @param info 当前设备信息
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateDeviceSpecCard(
     lv_obj_t* parent, const AppViewConfig& config, int width,
-    SettingsViewState* state) {
+    SettingsViewState* state, const app::CurrentDeviceInfoSnapshot& info) {
   char memory_text[32] = {};
   char battery_text[32] = {};
   char resolution_text[32] = {};
-  FormatMemorySize(memory_text, sizeof(memory_text));
+  FormatMemorySize(info, memory_text, sizeof(memory_text));
   FormatBatteryCapacity(config, battery_text, sizeof(battery_text));
-  FormatResolution(config, resolution_text, sizeof(resolution_text));
-
-  const esp_app_desc_t* app_description = esp_app_get_description();
-  const char* build_date =
-      KnownString(app_description == nullptr ? nullptr : app_description->date);
+  FormatResolution(info, resolution_text, sizeof(resolution_text));
 
   lv_obj_t* card = CreateBox(parent, width - 2 * kDetailSidePadding,
       kDetailSecondCardHeight, kDetailCardColor, LV_OPA_COVER,
@@ -1107,7 +1077,7 @@ bool CreateDeviceSpecCard(
   }
   lv_obj_align(card, LV_ALIGN_TOP_MID, 0, kDetailSecondCardTop);
 
-  lv_obj_t* title = CreateLabel(card, kDeviceProductName,
+  lv_obj_t* title = CreateLabel(card, info.software.device_model_name,
       lv_color_hex(kPrimaryTextColor), Font36());
   if (title == nullptr) {
     return false;
@@ -1116,22 +1086,29 @@ bool CreateDeviceSpecCard(
   lv_obj_align(title, LV_ALIGN_TOP_LEFT, kDetailCardPaddingX,
       kDetailCardPaddingTop);
 
-  const char* screen_type =
-      config.screen == nullptr ? "unknown"
-                               : KnownString(config.screen->ScreenType());
+  lv_obj_t* model_version = CreateLabel(card,
+      info.software.device_model_version, lv_color_hex(kSecondaryTextColor),
+      Font28());
+  if (model_version == nullptr) {
+    return false;
+  }
+  lv_obj_align_to(model_version, title, LV_ALIGN_OUT_RIGHT_MID, 14, 2);
+
   const int first_y = kDetailCardPaddingTop + 82;
-  return CreateSpecText(card, "ESP32-P4", "Processor", kDetailCardPaddingX,
-             first_y) &&
-         CreateSpecText(card, memory_text, "Runtime memory", kDetailCardPaddingX,
-             first_y + 86) &&
+  return CreateSpecText(card, info.chip.model, "Processor",
+             kDetailCardPaddingX, first_y) &&
+         CreateSpecText(card, memory_text, "Runtime memory",
+             kDetailCardPaddingX, first_y + 86) &&
          CreateSpecText(card, battery_text, "Battery capacity",
              kDetailCardPaddingX, first_y + 172) &&
-         CreateSpecText(card, resolution_text, "Resolution", kDetailCardPaddingX,
-             first_y + 258) &&
-         CreateSpecText(card, screen_type, "Screen type", kDetailCardPaddingX,
-             first_y + 344) &&
-         CreateSpecText(card, build_date, "Firmware build data",
-             kDetailCardPaddingX, first_y + 430);
+         CreateSpecText(card, resolution_text, "Resolution",
+             kDetailCardPaddingX, first_y + 258) &&
+         CreateSpecText(card, info.screen.type, "Screen type",
+             kDetailCardPaddingX, first_y + 344) &&
+         CreateSpecText(card, info.camera.type, "Camera type",
+             kDetailCardPaddingX, first_y + 430) &&
+         CreateSpecText(card, info.software.software_build_date,
+             "Firmware build date", kDetailCardPaddingX, first_y + 516);
 }
 
 /**
@@ -1263,9 +1240,18 @@ bool ShowMyDevicePage(SettingsViewState* state) {
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLL_ELASTIC);
   AddEdgeBackSwipeEvents(body, MyDeviceEdgeBackEventCallback, state);
 
-  const bool created = CreateMyDeviceSystemArea(body, config.width) &&
-                       CreateDeviceInfoCard(body, config, config.width, state) &&
-                       CreateDeviceSpecCard(body, config, config.width, state) &&
+  app::CurrentDeviceInfoSnapshot device_info;
+  if (!app::ReadCurrentDeviceInfoSnapshot(config.device_info, &device_info)) {
+    CloseMyDevicePage(state, false);
+    return false;
+  }
+
+  const bool created = CreateMyDeviceSnapshotArea(
+                           body, config.width, device_info) &&
+                       CreateDeviceInfoCard(
+                           body, config, config.width, state, device_info) &&
+                       CreateDeviceSpecCard(
+                           body, config, config.width, state, device_info) &&
                        CreateDeviceOptions(body, config.width);
   if (!created) {
     CloseMyDevicePage(state, false);
@@ -1337,7 +1323,7 @@ bool CreateDeviceNameEditContent(
   lv_textarea_set_one_line(text_area, true);
   lv_textarea_set_max_length(text_area, app::kMaxDeviceNameLength);
   lv_textarea_set_accepted_chars(text_area, kDeviceNameAcceptedChars);
-  lv_textarea_set_text(text_area, app::ConfiguredDeviceName());
+  lv_textarea_set_text(text_area, ReadDisplayDeviceName(config));
   lv_textarea_set_cursor_pos(text_area, LV_TEXTAREA_CURSOR_LAST);
   lv_obj_set_style_text_font(text_area, Font32(), LV_PART_MAIN);
   lv_obj_set_style_text_color(

@@ -17,18 +17,9 @@
 #include <new>
 
 #include "app/cit_catalog.h"
-#include "app/device_identity.h"
-#include "esp_app_desc.h"
-#include "esp_chip_info.h"
+#include "app/device_info_snapshot.h"
 #include "esp_err.h"
-#include "esp_flash.h"
-#include "esp_heap_caps.h"
-#include "esp_image_format.h"
-#include "esp_mac.h"
-#include "esp_ota_ops.h"
-#include "esp_system.h"
 #include "hal/providers/providers.h"
-#include "sdkconfig.h"
 #include "ui/input/app_view_gesture_flags.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/font/font_assets.h"
@@ -114,6 +105,7 @@ struct CitViewState {
   int height = 0;
   hal::ScreenProvider* screen = nullptr;
   hal::DeviceDiagnosticsProvider* diagnostics_provider = nullptr;
+  hal::DeviceInfoProvider* device_info_provider = nullptr;
   hal::GpsProvider* gps = nullptr;
   hal::AudioProvider* audio = nullptr;
   hal::HapticProvider* haptic = nullptr;
@@ -2135,179 +2127,38 @@ bool CreateTouchPointMarkers(CitViewState* state) {
 }
 
 /**
- * @brief 获取当前配置的芯片型号
- * @return 字符串指针
- */
-const char* ConfiguredChipModel() {
-#if defined(CONFIG_IDF_TARGET)
-  return CONFIG_IDF_TARGET;
-#else
-  return "unknown";
-#endif
-}
-
-/**
- * @brief 获取当前配置的目标架构
- * @return 字符串指针
- */
-const char* ConfiguredTargetArch() {
-#if defined(CONFIG_IDF_TARGET_ARCH)
-  return CONFIG_IDF_TARGET_ARCH;
-#else
-  return "unknown";
-#endif
-}
-
-/**
- * @brief 获取当前配置的屏幕类型
- * @return 字符串指针
- */
-const char* ConfiguredScreenType(hal::ScreenProvider* screen) {
-  return screen == nullptr ? "unknown" : screen->ScreenType();
-}
-
-/**
- * @brief 获取当前配置的摄像头类型
- * @return 字符串指针
- */
-const char* ConfiguredCameraType() {
-#if defined(CONFIG_CAMERA_TYPE_SC2336)
-  return "sc2336";
-#elif defined(CONFIG_CAMERA_TYPE_OV2710)
-  return "ov2710";
-#elif defined(CONFIG_CAMERA_TYPE_OV5645)
-  return "ov5645";
-#else
-  return "unknown";
-#endif
-}
-
-/**
- * @brief 获取当前配置的摄像头像素格式
- * @return 字符串指针
- */
-const char* ConfiguredCameraPixelFormat() {
-#if defined(CONFIG_CAMERA_PIXEL_FORMAT_RGB565)
-  return "rgb565";
-#elif defined(CONFIG_CAMERA_PIXEL_FORMAT_RGB888)
-  return "rgb888";
-#else
-  return "unknown";
-#endif
-}
-
-/**
- * @brief 根据像素位数获取屏幕像素格式描述
- * @param bits_per_pixel 像素位数
- * @return 字符串指针
- */
-const char* ScreenPixelFormat(int bits_per_pixel) {
-#if defined(CONFIG_SCREEN_PIXEL_FORMAT_RGB565)
-  return "rgb565";
-#elif defined(CONFIG_SCREEN_PIXEL_FORMAT_RGB888)
-  return "rgb888";
-#else
-  switch (bits_per_pixel) {
-    case 16:
-      return "rgb565";
-    case 24:
-    case 32:
-      return "rgb888";
-    default:
-      return "unknown";
-  }
-#endif
-}
-
-/**
- * @brief 返回有效字符串
- * @param text 显示文本
- * @return 字符串指针
- */
-const char* KnownString(const char* text) {
-  return (text == nullptr || text[0] == '\0') ? "unknown" : text;
-}
-
-/**
- * @brief 格式化本机 MAC 地址
- * @param buffer 输出缓冲区
- * @param size 输出缓冲区大小
- */
-void FormatMacAddress(char* buffer, size_t size) {
-  if (buffer == nullptr || size == 0) {
-    return;
-  }
-
-  uint8_t mac[6] = {};
-  if (esp_efuse_mac_get_default(mac) != ESP_OK) {
-    std::snprintf(buffer, size, "unknown");
-    return;
-  }
-
-  std::snprintf(buffer, size, "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1],
-      mac[2], mac[3], mac[4], mac[5]);
-}
-
-/**
- * @brief 读取当前运行固件镜像大小
- * @param image_size 镜像大小输出地址
- * @return 读取成功返回 true，否则返回 false
- */
-bool ReadRunningImageSize(size_t* image_size) {
-  if (image_size == nullptr) {
-    return false;
-  }
-
-  const esp_partition_t* running_partition = esp_ota_get_running_partition();
-  if (running_partition == nullptr) {
-    return false;
-  }
-
-  esp_partition_pos_t partition = {};
-  partition.offset = running_partition->address;
-  partition.size = running_partition->size;
-
-  esp_image_metadata_t metadata = {};
-  if (esp_image_get_metadata(&partition, &metadata) != ESP_OK ||
-      metadata.image_len == 0) {
-    return false;
-  }
-
-  *image_size = metadata.image_len;
-  return true;
-}
-
-/**
- * @brief 格式化 flash 剩余容量和总容量
+ * @brief 格式化 CIT 版本测试中的 flash 剩余容量和总容量
+ * @param chip 芯片信息
  * @param buffer 文本缓冲区
  * @param size 文本缓冲区大小
  */
-void FormatFlashFreeTotal(char* buffer, size_t size) {
+void FormatCitFlashFreeTotal(const app::CurrentDeviceChipInfo& chip,
+    char* buffer, size_t size) {
   if (buffer == nullptr || size == 0) {
     return;
   }
 
-  uint32_t flash_size = 0;
-  if (esp_flash_get_size(nullptr, &flash_size) != ESP_OK || flash_size == 0) {
+  if (chip.flash_total_bytes == 0) {
     std::snprintf(buffer, size, "unknown / unknown");
     return;
   }
 
-  size_t image_size = 0;
-  if (!ReadRunningImageSize(&image_size)) {
+  if (!chip.running_image_size_valid) {
     std::snprintf(buffer, size, "unknown / %lu bytes (%lu MB)",
-        static_cast<unsigned long>(flash_size),
-        static_cast<unsigned long>(flash_size / 1024 / 1024));
+        static_cast<unsigned long>(chip.flash_total_bytes),
+        static_cast<unsigned long>(chip.flash_total_bytes / 1024 / 1024));
     return;
   }
 
   const uint64_t free_size =
-      flash_size > image_size ? flash_size - image_size : 0;
+      chip.flash_total_bytes > chip.running_image_bytes
+          ? chip.flash_total_bytes - chip.running_image_bytes
+          : 0;
   std::snprintf(buffer, size, "%llu / %lu bytes (%llu / %lu MB)",
       static_cast<unsigned long long>(free_size),
-      static_cast<unsigned long>(flash_size),
+      static_cast<unsigned long>(chip.flash_total_bytes),
       static_cast<unsigned long long>(free_size / 1024 / 1024),
-      static_cast<unsigned long>(flash_size / 1024 / 1024));
+      static_cast<unsigned long>(chip.flash_total_bytes / 1024 / 1024));
 }
 
 /**
@@ -2317,28 +2168,18 @@ void FormatFlashFreeTotal(char* buffer, size_t size) {
  * @return 成功返回 true，否则返回 false
  */
 bool AddVersionContent(lv_obj_t* content, CitViewState* state) {
-  esp_chip_info_t chip_info = {};
-  esp_chip_info(&chip_info);
+  if (content == nullptr || state == nullptr) {
+    return false;
+  }
 
-  const esp_app_desc_t* app_description = esp_app_get_description();
-
-  char mac_address[18] = {};
-  FormatMacAddress(mac_address, sizeof(mac_address));
+  app::CurrentDeviceInfoSnapshot info;
+  if (!app::ReadCurrentDeviceInfoSnapshot(
+          state->device_info_provider, &info)) {
+    return false;
+  }
 
   char flash_size_text[96] = {};
-  FormatFlashFreeTotal(flash_size_text, sizeof(flash_size_text));
-
-  const int screen_width = state->screen->ScreenWidth();
-  const int screen_height = state->screen->ScreenHeight();
-  const int screen_bpp = state->screen->ScreenBitsPerPixel();
-  const char* app_project_name = KnownString(
-      app_description == nullptr ? nullptr : app_description->project_name);
-  const char* app_version = KnownString(
-      app_description == nullptr ? nullptr : app_description->version);
-  const char* app_build_date =
-      KnownString(app_description == nullptr ? nullptr : app_description->date);
-  const char* app_build_time =
-      KnownString(app_description == nullptr ? nullptr : app_description->time);
+  FormatCitFlashFreeTotal(info.chip, flash_size_text, sizeof(flash_size_text));
 
   char text[2048] = {};
   std::snprintf(text, sizeof(text),
@@ -2361,8 +2202,9 @@ bool AddVersionContent(lv_obj_t* content, CitViewState* state) {
       "     %lu / %lu bytes\n"
       "\n"
       "[Software]\n"
-      "company: lilygo\n"
-      "device name: %s\n"
+      "company: %s\n"
+      "device model name: %s\n"
+      "device model version: %s\n"
       "software name: %s\n"
       "software version: %s\n"
       "software build date:\n"
@@ -2379,23 +2221,28 @@ bool AddVersionContent(lv_obj_t* content, CitViewState* state) {
       "[Camera]\n"
       "camera type: %s\n"
       "camera pixel format: %s\n"
+      "camera bits per pixel: %d\n"
+      "camera buffer count: %d\n"
       "\n"
       "[LVGL]\n"
       "lvgl version: %d.%d.%d%s",
-      ConfiguredChipModel(), mac_address, chip_info.revision / 100,
-      chip_info.revision % 100, chip_info.cores, flash_size_text,
-      (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external",
-      static_cast<unsigned long>(esp_get_free_heap_size()),
-      static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
-      static_cast<unsigned long>(heap_caps_get_total_size(MALLOC_CAP_INTERNAL)),
-      static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)),
-      static_cast<unsigned long>(heap_caps_get_total_size(MALLOC_CAP_SPIRAM)),
-      app::ConfiguredDeviceName(), app_project_name, app_version, app_build_date,
-      app_build_time, esp_get_idf_version(), ConfiguredTargetArch(),
-      ConfiguredScreenType(state->screen), screen_width, screen_height,
-      ScreenPixelFormat(screen_bpp), ConfiguredCameraType(),
-      ConfiguredCameraPixelFormat(), LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR,
-      LVGL_VERSION_PATCH, LVGL_VERSION_INFO);
+      info.chip.model, info.chip.efuse_mac, info.chip.revision_major,
+      info.chip.revision_minor, info.chip.cores, flash_size_text,
+      info.chip.flash_features,
+      static_cast<unsigned long>(info.memory.free_heap_bytes),
+      static_cast<unsigned long>(info.memory.internal_free_bytes),
+      static_cast<unsigned long>(info.memory.internal_total_bytes),
+      static_cast<unsigned long>(info.memory.psram_free_bytes),
+      static_cast<unsigned long>(info.memory.psram_total_bytes),
+      info.software.company, info.software.device_model_name,
+      info.software.device_model_version,
+      info.software.software_name, info.software.software_version,
+      info.software.software_build_date, info.software.software_build_time,
+      info.software.esp_idf_version, info.software.target_arch,
+      info.screen.type, info.screen.width, info.screen.height,
+      info.screen.pixel_format, info.camera.type, info.camera.pixel_format,
+      info.camera.bits_per_pixel, info.camera.buffer_count, info.lvgl.major,
+      info.lvgl.minor, info.lvgl.patch, info.lvgl.extra_info);
 
   lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(content, LV_DIR_VER);
@@ -3053,6 +2900,7 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
   }
   state->screen = config.screen;
   state->diagnostics_provider = config.diagnostics;
+  state->device_info_provider = config.device_info;
   state->gps = config.gps;
   state->audio = config.audio;
   state->haptic = config.haptic;

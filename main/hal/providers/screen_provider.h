@@ -31,18 +31,6 @@ class ScreenProvider {
   virtual ~ScreenProvider() = default;
 
   /**
-   * @brief 获取屏幕设备名称
-   * @return 屏幕设备名称字符串
-   */
-  virtual const char* ScreenName() const = 0;
-
-  /**
-   * @brief 获取当前屏幕类型名称
-   * @return 屏幕类型名称字符串，未知时返回 unknown
-   */
-  virtual const char* ScreenType() const { return "unknown"; }
-
-  /**
    * @brief 获取屏幕宽度
    * @return 屏幕宽度，单位为像素
    */

@@ -17,6 +17,7 @@ struct DeviceProviderContext {
   DeviceProvider* device = nullptr;
   std::unique_ptr<ScreenProvider> screen;
   DeviceDiagnosticsProvider* diagnostics = nullptr;
+  DeviceInfoProvider* device_info = nullptr;
   GpsProvider* gps = nullptr;
   ImuProvider* imu = nullptr;
   AudioProvider* audio = nullptr;

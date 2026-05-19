@@ -13,6 +13,7 @@ namespace lilygo_box::hal {
 class AudioProvider;
 class BmuProvider;
 class DeviceDiagnosticsProvider;
+class DeviceInfoProvider;
 class EthernetProvider;
 class GpsProvider;
 class HapticProvider;
@@ -29,6 +30,7 @@ struct AppViewConfig {
   int height = 0;
   hal::ScreenProvider* screen = nullptr;
   hal::DeviceDiagnosticsProvider* diagnostics = nullptr;
+  hal::DeviceInfoProvider* device_info = nullptr;
   hal::GpsProvider* gps = nullptr;
   hal::AudioProvider* audio = nullptr;
   hal::HapticProvider* haptic = nullptr;

@@ -12,7 +12,7 @@ set(src_dirs
     "ui/views"
     "ui/widgets")
 
-if(CONFIG_LILYGO_BOX_DEVICE_T_DISPLAY_P4)
+if(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
     list(APPEND src_dirs "hal/device/t_display_p4")
 endif()
 

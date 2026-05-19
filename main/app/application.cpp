@@ -45,9 +45,10 @@ bool Application::Init() {
   }
 
   result = ui_manager_.Init(screen, device_provider_context_.diagnostics,
-      device_provider_context_.gps, device_provider_context_.audio,
-      device_provider_context_.haptic, device_provider_context_.bmu,
-      device_provider_context_.rtc, device_provider_context_.imu,
+      device_provider_context_.device_info, device_provider_context_.gps,
+      device_provider_context_.audio, device_provider_context_.haptic,
+      device_provider_context_.bmu, device_provider_context_.rtc,
+      device_provider_context_.imu,
       device_provider_context_.ethernet, device_provider_context_.wifi);
   if (!result) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__, "Init failed\n");
@@ -86,8 +87,16 @@ bool Application::Init() {
   ui_manager_.SetStartupScreenProgress(100);
   lvgl_port_.Unlock();
 
+  const char* device_model_name = "unknown";
+  hal::DeviceInfo init_device_info;
+  if (device_provider_context_.device_info != nullptr &&
+      device_provider_context_.device_info->ReadDeviceInfo(&init_device_info) &&
+      init_device_info.device_model_name != nullptr &&
+      init_device_info.device_model_name[0] != '\0') {
+    device_model_name = init_device_info.device_model_name;
+  }
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-      "LilygoBox initialized on %s\n", screen->ScreenName());
+      "LilygoBox initialized on %s\n", device_model_name);
   return true;
 }
 

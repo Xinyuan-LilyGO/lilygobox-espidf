@@ -21,6 +21,7 @@ namespace lilygo_box::hal {
 class AudioProvider;
 class BmuProvider;
 class DeviceDiagnosticsProvider;
+class DeviceInfoProvider;
 class EthernetProvider;
 class GpsProvider;
 class HapticProvider;
@@ -39,6 +40,7 @@ class UiManager final {
    * @brief 初始化 launcher 和根屏幕 UI
    * @param screen 屏幕设备对象
    * @param diagnostics 设备诊断提供者指针
+   * @param device_info 设备信息提供者指针
    * @param gps GPS 提供者指针
    * @param audio 音频提供者指针
    * @param haptic 振动提供者指针
@@ -51,6 +53,7 @@ class UiManager final {
    */
   bool Init(hal::ScreenProvider* screen,
       hal::DeviceDiagnosticsProvider* diagnostics,
+      hal::DeviceInfoProvider* device_info,
       hal::GpsProvider* gps,
       hal::AudioProvider* audio,
       hal::HapticProvider* haptic,
@@ -249,6 +252,7 @@ class UiManager final {
 
   hal::ScreenProvider* screen_ = nullptr;
   hal::DeviceDiagnosticsProvider* diagnostics_provider_ = nullptr;
+  hal::DeviceInfoProvider* device_info_provider_ = nullptr;
   hal::GpsProvider* gps_provider_ = nullptr;
   hal::AudioProvider* audio_provider_ = nullptr;
   hal::HapticProvider* haptic_provider_ = nullptr;

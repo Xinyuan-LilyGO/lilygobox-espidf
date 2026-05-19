@@ -14,8 +14,8 @@ namespace lilygo_box::app {
 inline constexpr size_t kMaxDeviceNameLength = 31;
 
 /**
- * @brief 获取当前本机设备名称
- * @return 设备名称字符串
+ * @brief 获取用户设置的本机设备名称
+ * @return 已设置的设备名称字符串，未设置时返回空字符串
  */
 const char* ConfiguredDeviceName();
 

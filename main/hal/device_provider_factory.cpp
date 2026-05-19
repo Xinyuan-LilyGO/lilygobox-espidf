@@ -9,18 +9,19 @@
 
 #include "sdkconfig.h"
 
-#if defined(CONFIG_LILYGO_BOX_DEVICE_T_DISPLAY_P4)
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
 #include "hal/device/t_display_p4/t_display_p4_device.h"
 #endif
 
 namespace lilygo_box::hal {
 
 DeviceProviderContext CreateDeviceProviderContext() {
-#if defined(CONFIG_LILYGO_BOX_DEVICE_T_DISPLAY_P4)
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
   auto device = std::make_unique<TDisplayP4Device>();
   DeviceProviderContext context;
   context.device = device.get();
   context.diagnostics = device.get();
+  context.device_info = device.get();
   context.gps = device.get();
   context.imu = device.get();
   context.audio = device.get();

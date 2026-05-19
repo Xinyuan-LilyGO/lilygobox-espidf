@@ -1,16 +1,8 @@
 menu "LilygoBox Configuration"
 
-    choice LILYGO_BOX_DEVICE
-        prompt "Select the device to build"
-        default LILYGO_BOX_DEVICE_T_DISPLAY_P4
-
-        config LILYGO_BOX_DEVICE_T_DISPLAY_P4
-            bool "T-Display-P4"
-    endchoice
-
     choice SCREEN_PIXEL_FORMAT
         prompt "Screen color format"
-        depends on LILYGO_BOX_DEVICE_T_DISPLAY_P4
+        depends on LILYGO_DEVICE_DRIVER_T_DISPLAY_P4
         default SCREEN_PIXEL_FORMAT_RGB565
 
         config SCREEN_PIXEL_FORMAT_RGB565
@@ -22,7 +14,7 @@ menu "LilygoBox Configuration"
 
     choice CAMERA_TYPE
         prompt "Camera type"
-        depends on LILYGO_BOX_DEVICE_T_DISPLAY_P4
+        depends on LILYGO_DEVICE_DRIVER_T_DISPLAY_P4
         default CAMERA_TYPE_OV2710
 
         config CAMERA_TYPE_SC2336
@@ -37,7 +29,7 @@ menu "LilygoBox Configuration"
 
     choice CAMERA_PIXEL_FORMAT
         prompt "Camera color format"
-        depends on LILYGO_BOX_DEVICE_T_DISPLAY_P4
+        depends on LILYGO_DEVICE_DRIVER_T_DISPLAY_P4
         default CAMERA_PIXEL_FORMAT_RGB565
 
         config CAMERA_PIXEL_FORMAT_RGB565

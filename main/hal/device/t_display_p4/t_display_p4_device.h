@@ -19,6 +19,7 @@ namespace lilygo_box::hal {
 class TDisplayP4Device final : public ScreenProvider,
                                public DeviceProvider,
                                public DeviceDiagnosticsProvider,
+                               public DeviceInfoProvider,
                                public GpsProvider,
                                public ImuProvider,
                                public AudioProvider,
@@ -37,10 +38,11 @@ class TDisplayP4Device final : public ScreenProvider,
   bool InitDevice() override;
 
   /**
-   * @brief 获取设备名称
-   * @return 设备名称字符串
+   * @brief 读取当前 T-Display-P4 设备信息
+   * @param info 设备信息输出地址
+   * @return 读取成功返回 true，否则返回 false
    */
-  const char* ScreenName() const override { return "T-Display-P4"; }
+  bool ReadDeviceInfo(DeviceInfo* info) override;
 
   /**
    * @brief 获取屏幕宽度
@@ -59,12 +61,6 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 单个像素的位数
    */
   int ScreenBitsPerPixel() const override;
-
-  /**
-   * @brief 获取当前自动识别到的屏幕类型名称
-   * @return 屏幕类型名称字符串
-   */
-  const char* ScreenType() const override;
 
   /**
    * @brief 播放 AW86224 RAM 振动波形
