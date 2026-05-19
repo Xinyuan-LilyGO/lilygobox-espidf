@@ -2,10 +2,10 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-12 20:58:06
+ * @LastEditTime: 2026-05-19 13:50:00
  * @License: GPL 3.0
  */
-#include "app/cit_test_catalog.h"
+#include "app/cit_catalog.h"
 
 namespace lilygo_box::app {
 namespace {

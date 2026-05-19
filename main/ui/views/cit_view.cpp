@@ -16,7 +16,7 @@
 #include <ctime>
 #include <new>
 
-#include "app/cit_test_catalog.h"
+#include "app/cit_catalog.h"
 #include "app/device_identity.h"
 #include "esp_app_desc.h"
 #include "esp_chip_info.h"

@@ -14,6 +14,7 @@
 #include <new>
 
 #include "app/device_identity.h"
+#include "app/settings_catalog.h"
 #include "esp_app_desc.h"
 #include "esp_err.h"
 #include "esp_flash.h"
@@ -116,97 +117,12 @@ struct SettingsViewState {
   bool name_edit_closing = false;
 };
 
-// 设置项配置
-struct SettingsItem {
-  const char* id;
-  const char* title;
-  const char* value;
-  const char* icon;
-  uint32_t icon_color;
-  bool divider_before;
+// 设置入口图标样式。
+struct SettingsIconStyle {
+  const char* symbol = nullptr;
+  uint32_t color = 0x3F82F6;
 };
 
-// 设置项列表
-constexpr SettingsItem kSettingsItems[] = {
-    {.id = "my_device",
-        .title = "My Device",
-        .value = "",
-        .icon = icon::kInfo,
-        .icon_color = 0x8790B0,
-        .divider_before = false},
-    {.id = "wlan",
-        .title = "WLAN",
-        .value = "LilyGo-AABB-5G",
-        .icon = icon::kWifi,
-        .icon_color = 0x3F82F6,
-        .divider_before = true},
-    {.id = "bluetooth",
-        .title = "Bluetooth",
-        .value = "Off",
-        .icon = icon::kBluetooth,
-        .icon_color = 0x3E7FF1,
-        .divider_before = false},
-    {.id = "mobile_network",
-        .title = "Mobile Network",
-        .value = "",
-        .icon = icon::kCellTower,
-        .icon_color = 0x59C96B,
-        .divider_before = false},
-    {.id = "connect_share",
-        .title = "Connect Share",
-        .value = "",
-        .icon = icon::kAppList,
-        .icon_color = 0xF2F2F2,
-        .divider_before = false},
-    {.id = "personal_hotspot",
-        .title = "Personal Hotspot",
-        .value = "Off",
-        .icon = icon::kSettingsInputAntenna,
-        .icon_color = 0x347BF2,
-        .divider_before = false},
-    {.id = "vpn",
-        .title = "VPN",
-        .value = "",
-        .icon = icon::kHome,
-        .icon_color = 0x55C76C,
-        .divider_before = false},
-    {.id = "more_connections",
-        .title = "More Connections",
-        .value = "",
-        .icon = icon::kFile,
-        .icon_color = 0x8890AF,
-        .divider_before = false},
-    {.id = "wallpaper",
-        .title = "Wallpaper",
-        .value = "",
-        .icon = icon::kImage,
-        .icon_color = 0x347DF5,
-        .divider_before = true},
-    {.id = "lock_screen",
-        .title = "Lock Screen",
-        .value = "",
-        .icon = icon::kFolder,
-        .icon_color = 0xF05B34,
-        .divider_before = false},
-    {.id = "notifications",
-        .title = "Notifications",
-        .value = "",
-        .icon = icon::kWarning,
-        .icon_color = 0x3F82F6,
-        .divider_before = false},
-    {.id = "sound",
-        .title = "Sound",
-        .value = "",
-        .icon = icon::kVolumeUp,
-        .icon_color = 0x3F82F6,
-        .divider_before = false},
-};
-
-// 我的设备详情页下方选项
-constexpr const char* kDeviceOptions[] = {
-    "Factory reset",
-    "Authentication info",
-};
 
 /**
  * @brief 显示设备名称编辑页
@@ -548,12 +464,48 @@ lv_obj_t* CreateDivider(lv_obj_t* parent, int width) {
 }
 
 /**
+ * @brief 解析设置入口图标样式
+ * @param icon_type 设置入口图标类型
+ * @return 图标样式
+ */
+SettingsIconStyle ResolveSettingsIconStyle(app::SettingsIcon icon_type) {
+  switch (icon_type) {
+    case app::SettingsIcon::kInfo:
+      return {.symbol = icon::kInfo, .color = 0x8790B0};
+    case app::SettingsIcon::kWifi:
+      return {.symbol = icon::kWifi, .color = 0x3F82F6};
+    case app::SettingsIcon::kBluetooth:
+      return {.symbol = icon::kBluetooth, .color = 0x3E7FF1};
+    case app::SettingsIcon::kCellTower:
+      return {.symbol = icon::kCellTower, .color = 0x59C96B};
+    case app::SettingsIcon::kAppList:
+      return {.symbol = icon::kAppList, .color = 0xF2F2F2};
+    case app::SettingsIcon::kAntenna:
+      return {.symbol = icon::kSettingsInputAntenna, .color = 0x347BF2};
+    case app::SettingsIcon::kHome:
+      return {.symbol = icon::kHome, .color = 0x55C76C};
+    case app::SettingsIcon::kFile:
+      return {.symbol = icon::kFile, .color = 0x8890AF};
+    case app::SettingsIcon::kImage:
+      return {.symbol = icon::kImage, .color = 0x347DF5};
+    case app::SettingsIcon::kFolder:
+      return {.symbol = icon::kFolder, .color = 0xF05B34};
+    case app::SettingsIcon::kWarning:
+      return {.symbol = icon::kWarning, .color = 0x3F82F6};
+    case app::SettingsIcon::kVolumeUp:
+      return {.symbol = icon::kVolumeUp, .color = 0x3F82F6};
+  }
+  return {.symbol = icon::kInfo, .color = 0x8790B0};
+}
+
+/**
  * @brief 创建设置项图标背景
  * @param parent 父对象
  * @param item 设置项
  * @return 创建成功返回对象指针，否则返回 nullptr
  */
-lv_obj_t* CreateIconBox(lv_obj_t* parent, const SettingsItem& item) {
+lv_obj_t* CreateIconBox(lv_obj_t* parent, const app::SettingsEntry& item) {
+  const SettingsIconStyle icon_style = ResolveSettingsIconStyle(item.icon);
   lv_obj_t* box = lv_obj_create(parent);
   if (box == nullptr) {
     return nullptr;
@@ -563,13 +515,14 @@ lv_obj_t* CreateIconBox(lv_obj_t* parent, const SettingsItem& item) {
   lv_obj_remove_flag(box, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(box, kIconBoxSize, kIconBoxSize);
   lv_obj_set_style_radius(box, kIconBoxRadius, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(box, lv_color_hex(item.icon_color), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      box, lv_color_hex(icon_style.color), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(box, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(box, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(box, 0, LV_PART_MAIN);
 
-  lv_obj_t* icon =
-      CreateLabel(box, item.icon, lv_color_hex(0xFFFFFF), MaterialIconFont32());
+  lv_obj_t* icon = CreateLabel(
+      box, icon_style.symbol, lv_color_hex(0xFFFFFF), MaterialIconFont32());
   if (icon == nullptr) {
     lv_obj_delete(box);
     return nullptr;
@@ -1236,10 +1189,11 @@ bool CreateDeviceOptionRow(
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateDeviceOptions(lv_obj_t* parent, int width) {
+  const app::SettingsDeviceOptionCatalog& catalog =
+      app::GetSettingsDeviceOptionCatalog();
   int y = kDetailSecondCardTop + kDetailSecondCardHeight + kDetailOptionTopGap;
-  for (size_t i = 0; i < sizeof(kDeviceOptions) / sizeof(kDeviceOptions[0]);
-      ++i) {
-    if (!CreateDeviceOptionRow(parent, kDeviceOptions[i], y, width)) {
+  for (size_t i = 0; i < catalog.option_count; ++i) {
+    if (!CreateDeviceOptionRow(parent, catalog.options[i].title, y, width)) {
       return false;
     }
     y += kDetailOptionRowHeight;
@@ -1536,7 +1490,7 @@ void DeviceNameRowClickedEventCallback(lv_event_t* event) {
  * @return 创建成功返回对象指针，否则返回 nullptr
  */
 lv_obj_t* CreateSettingsRow(
-    lv_obj_t* parent, const SettingsItem& item, int width) {
+    lv_obj_t* parent, const app::SettingsEntry& item, int width) {
   lv_obj_t* row = lv_obj_create(parent);
   if (row == nullptr) {
     return nullptr;
@@ -1639,11 +1593,11 @@ const char* WifiValueText(
  */
 bool CreateSettingsList(lv_obj_t* parent, const AppViewConfig& config,
     int width, SettingsViewState* state) {
+  const app::SettingsCatalog& catalog = app::GetSettingsCatalog();
   char wifi_value[32] = {};
   int y = 0;
-  for (size_t i = 0; i < sizeof(kSettingsItems) / sizeof(kSettingsItems[0]);
-      ++i) {
-    SettingsItem item = kSettingsItems[i];
+  for (size_t i = 0; i < catalog.entry_count; ++i) {
+    app::SettingsEntry item = catalog.entries[i];
     if (item.divider_before) {
       lv_obj_t* divider =
           CreateDivider(parent, width - 2 * kPagePaddingX - kDividerLeft);
