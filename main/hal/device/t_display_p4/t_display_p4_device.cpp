@@ -171,6 +171,8 @@ bool TDisplayP4Device::ReadDeviceInfo(DeviceInfo* info) {
   info->camera_pixel_format = device_info.camera.pixel_format;
   info->camera_bits_per_pixel = device_info.camera.bits_per_pixel;
   info->camera_buffer_count = device_info.camera.buffer_count;
+  info->battery_fuel_gauge_name = device_info.battery.fuel_gauge_name;
+  info->battery_capacity_mah = device_info.battery.capacity_mah;
   return true;
 }
 

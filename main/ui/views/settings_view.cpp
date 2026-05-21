@@ -16,7 +16,6 @@
 #include "app/device_identity.h"
 #include "app/device_info_snapshot.h"
 #include "app/settings_catalog.h"
-#include "hal/providers/bmu_provider.h"
 #include "hal/providers/screen_provider.h"
 #include "hal/providers/wifi_provider.h"
 #include "ui/animation/transition_animation.h"
@@ -398,19 +397,17 @@ void FormatMemorySize(
  * @param size 文本缓冲区大小
  */
 void FormatBatteryCapacity(
-    const AppViewConfig& config, char* buffer, size_t size) {
+    const app::CurrentDeviceInfoSnapshot& info, char* buffer, size_t size) {
   if (buffer == nullptr || size == 0) {
     return;
   }
 
-  hal::BmuStatus status;
-  if (config.bmu == nullptr || !config.bmu->ReadBmuStatus(&status) ||
-      status.design_capacity_mah <= 0) {
+  if (info.battery.capacity_mah <= 0) {
     std::snprintf(buffer, size, "unknown");
     return;
   }
 
-  std::snprintf(buffer, size, "%d mAh", status.design_capacity_mah);
+  std::snprintf(buffer, size, "%d mAh", info.battery.capacity_mah);
 }
 
 /**
@@ -1066,7 +1063,7 @@ bool CreateDeviceSpecCard(
   char battery_text[32] = {};
   char resolution_text[32] = {};
   FormatMemorySize(info, memory_text, sizeof(memory_text));
-  FormatBatteryCapacity(config, battery_text, sizeof(battery_text));
+  FormatBatteryCapacity(info, battery_text, sizeof(battery_text));
   FormatResolution(info, resolution_text, sizeof(resolution_text));
 
   lv_obj_t* card = CreateBox(parent, width - 2 * kDetailSidePadding,
@@ -1082,6 +1079,7 @@ bool CreateDeviceSpecCard(
   if (title == nullptr) {
     return false;
   }
+  (void)config;
   (void)state;
   lv_obj_align(title, LV_ALIGN_TOP_LEFT, kDetailCardPaddingX,
       kDetailCardPaddingTop);

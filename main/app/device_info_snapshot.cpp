@@ -202,6 +202,10 @@ bool ReadCurrentDeviceInfoSnapshot(
   info->camera.bits_per_pixel = device_info.camera_bits_per_pixel;
   info->camera.buffer_count = device_info.camera_buffer_count;
 
+  info->battery.fuel_gauge_name =
+      KnownString(device_info.battery_fuel_gauge_name);
+  info->battery.capacity_mah = device_info.battery_capacity_mah;
+
   info->lvgl.major = LVGL_VERSION_MAJOR;
   info->lvgl.minor = LVGL_VERSION_MINOR;
   info->lvgl.patch = LVGL_VERSION_PATCH;
