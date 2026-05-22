@@ -106,6 +106,7 @@ constexpr int kWifiCircleButtonSize = 46;
 constexpr int kWifiSwitchWidth = 78;
 constexpr int kWifiSwitchHeight = 44;
 constexpr uint32_t kWifiSwitchAnimationMs = 180;
+constexpr uint32_t kWifiRefreshSpinMs = 850;
 constexpr lv_style_selector_t kWifiSwitchCheckedIndicatorSelector =
     static_cast<lv_style_selector_t>(LV_PART_INDICATOR) |
     static_cast<lv_style_selector_t>(LV_STATE_CHECKED);
@@ -144,6 +145,7 @@ struct SettingsViewState {
   lv_obj_t* wifi_body = nullptr;
   // 已连接卡片中的信号图标，RSSI 变化时单独更新。
   lv_obj_t* wifi_connected_signal_icon = nullptr;
+  lv_obj_t* wifi_refresh_icon = nullptr;
   // WiFi 页面定时刷新器，用来轮询 HAL 扫描和连接状态。
   lv_timer_t* wifi_refresh_timer = nullptr;
   lv_obj_t* device_name_value_label = nullptr;
@@ -222,6 +224,8 @@ void WifiRowClickedEventCallback(lv_event_t* event);
  */
 void RefreshWifiPage(SettingsViewState* state, bool force);
 void UpdateWifiConnectedSignalIcon(SettingsViewState* state);
+void StopWifiRefreshIconSpin(SettingsViewState* state);
+void UpdateWifiRefreshAnimation(SettingsViewState* state);
 
 /**
  * @brief 从配置的 WiFi Provider 读取连接和扫描快照
@@ -265,6 +269,14 @@ void WifiNetworkClickedEventCallback(lv_event_t* event);
 void SetTextStyle(lv_obj_t* object, lv_color_t color, const lv_font_t* font) {
   lv_obj_set_style_text_color(object, color, LV_PART_MAIN);
   lv_obj_set_style_text_font(object, font, LV_PART_MAIN);
+}
+
+void SetWifiRefreshIconRotation(void* object, int32_t value) {
+  if (object == nullptr) {
+    return;
+  }
+  lv_obj_set_style_transform_rotation(
+      static_cast<lv_obj_t*>(object), value % 3600, LV_PART_MAIN);
 }
 
 /**
@@ -746,9 +758,11 @@ void WifiCloseCompletedCallback(lv_anim_t* animation) {
   }
 
   lv_obj_t* page = state->wifi_page;
+  StopWifiRefreshIconSpin(state);
   state->wifi_page = nullptr;
   state->wifi_body = nullptr;
   state->wifi_connected_signal_icon = nullptr;
+  state->wifi_refresh_icon = nullptr;
   state->wifi_closing = false;
   state->wifi_swipe = EdgeBackSwipeState();
   if (state->wifi_refresh_timer != nullptr) {
@@ -783,9 +797,11 @@ void CloseWifiPage(SettingsViewState* state, bool animated) {
   }
 
   lv_obj_t* page = state->wifi_page;
+  StopWifiRefreshIconSpin(state);
   state->wifi_page = nullptr;
   state->wifi_body = nullptr;
   state->wifi_connected_signal_icon = nullptr;
+  state->wifi_refresh_icon = nullptr;
   state->wifi_closing = false;
   state->wifi_swipe = EdgeBackSwipeState();
   if (state->wifi_refresh_timer != nullptr) {
@@ -898,7 +914,7 @@ void WifiRefreshButtonClickedEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   RequestWifiScan(state);
   if (state != nullptr) {
-    state->wifi_refresh_force = true;
+    UpdateWifiRefreshAnimation(state);
   }
 }
 
@@ -942,6 +958,7 @@ void WifiRefreshTimerCallback(lv_timer_t* timer) {
     }
   }
   RefreshWifiPage(state, false);
+  UpdateWifiRefreshAnimation(state);
   UpdateWifiConnectedSignalIcon(state);
 }
 
@@ -1549,7 +1566,6 @@ uint32_t MakeWifiRefreshKey(
     const hal::WifiStatus& status, const hal::WifiScanStatus& scan_status) {
   uint32_t key = scan_status.generation * 131U;
   key ^= static_cast<uint32_t>(scan_status.network_count) << 16;
-  key ^= scan_status.scan_running ? 0x0001U : 0U;
   key ^= scan_status.scan_failed ? 0x0002U : 0U;
   key ^= status.init_task_running ? 0x0004U : 0U;
   key ^= status.running ? 0x0008U : 0U;
@@ -1582,6 +1598,54 @@ void ReadWifiSnapshots(const AppViewConfig& config, hal::WifiStatus* status,
   }
   if (scan_status != nullptr) {
     config.wifi->ReadWifiScanStatus(scan_status);
+  }
+}
+
+bool IsWifiRefreshActive(const SettingsViewState* state,
+    const hal::WifiStatus& status, const hal::WifiScanStatus& scan_status) {
+  return scan_status.scan_running || status.init_task_running ||
+         (state != nullptr && state->wifi_scan_on_ready);
+}
+
+void StartWifiRefreshIconSpin(SettingsViewState* state) {
+  if (state == nullptr || state->wifi_refresh_icon == nullptr ||
+      lv_anim_get(state->wifi_refresh_icon, SetWifiRefreshIconRotation) !=
+          nullptr) {
+    return;
+  }
+
+  lv_anim_t animation;
+  lv_anim_init(&animation);
+  lv_anim_set_var(&animation, state->wifi_refresh_icon);
+  lv_anim_set_values(&animation, 0, 3600);
+  lv_anim_set_duration(&animation, kWifiRefreshSpinMs);
+  lv_anim_set_repeat_count(&animation, LV_ANIM_REPEAT_INFINITE);
+  lv_anim_set_path_cb(&animation, lv_anim_path_linear);
+  lv_anim_set_exec_cb(&animation, SetWifiRefreshIconRotation);
+  lv_anim_start(&animation);
+}
+
+void StopWifiRefreshIconSpin(SettingsViewState* state) {
+  if (state == nullptr || state->wifi_refresh_icon == nullptr) {
+    return;
+  }
+
+  lv_anim_delete(state->wifi_refresh_icon, SetWifiRefreshIconRotation);
+  SetWifiRefreshIconRotation(state->wifi_refresh_icon, 0);
+}
+
+void UpdateWifiRefreshAnimation(SettingsViewState* state) {
+  if (state == nullptr || state->wifi_refresh_icon == nullptr) {
+    return;
+  }
+
+  hal::WifiStatus status;
+  hal::WifiScanStatus scan_status;
+  ReadWifiSnapshots(state->config, &status, &scan_status);
+  if (IsWifiRefreshActive(state, status, scan_status)) {
+    StartWifiRefreshIconSpin(state);
+  } else {
+    StopWifiRefreshIconSpin(state);
   }
 }
 
@@ -2083,7 +2147,16 @@ bool CreateWifiRefreshButton(
   if (refresh_icon == nullptr) {
     return false;
   }
+  lv_obj_update_layout(refresh_icon);
+  lv_obj_set_style_transform_pivot_x(
+      refresh_icon, lv_obj_get_width(refresh_icon) / 2, LV_PART_MAIN);
+  lv_obj_set_style_transform_pivot_y(
+      refresh_icon, lv_obj_get_height(refresh_icon) / 2, LV_PART_MAIN);
   lv_obj_center(refresh_icon);
+  if (state != nullptr) {
+    state->wifi_refresh_icon = refresh_icon;
+    UpdateWifiRefreshAnimation(state);
+  }
   return true;
 }
 
@@ -2142,6 +2215,10 @@ bool CreateWifiPageContent(lv_obj_t* parent, SettingsViewState* state,
                                              : IsWifiPageEnabled(status,
                                                    scan_status);
   const bool scan_pending = state != nullptr && state->wifi_scan_on_ready;
+  const bool refreshing = IsWifiRefreshActive(state, status, scan_status);
+  const bool show_scan_results =
+      scan_status.network_count > 0 && !status.start_failed &&
+      (!scan_status.scan_failed || refreshing);
   int y = 0;
   if (!CreateWifiSwitchRow(parent, state, y, config.width, wifi_enabled)) {
     return false;
@@ -2182,8 +2259,7 @@ bool CreateWifiPageContent(lv_obj_t* parent, SettingsViewState* state,
   }
   y += kWifiSectionHeight;
 
-  if (!scan_pending && !scan_status.scan_running && !status.init_task_running &&
-      !scan_status.scan_failed && !status.start_failed) {
+  if (show_scan_results) {
     for (size_t i = 0; i < scan_status.network_count; ++i) {
       const hal::WifiNetworkInfo& network = scan_status.networks[i];
       if (!IsSavedWifiSsid(network.ssid)) {
@@ -2208,7 +2284,29 @@ bool CreateWifiPageContent(lv_obj_t* parent, SettingsViewState* state,
   }
   y += kWifiSectionHeight + 6;
 
-  if (scan_pending || scan_status.scan_running || status.init_task_running) {
+  if (show_scan_results) {
+    size_t nearby_count = 0;
+    for (size_t i = 0; i < scan_status.network_count; ++i) {
+      const hal::WifiNetworkInfo& network = scan_status.networks[i];
+      if (IsSavedWifiSsid(network.ssid)) {
+        continue;
+      }
+      const char* password = network.secure ? kWifiDefaultPassword : "";
+      if (!CreateWifiNetworkRow(parent, state, network.ssid, network.is_5g,
+              network.secure, network.rssi, password, y, config.width)) {
+        return false;
+      }
+      ++nearby_count;
+      y += kWifiNetworkRowHeight;
+    }
+    if (nearby_count == 0 && !refreshing) {
+      if (!CreateWifiStatusText(parent, "No nearby WLAN.", y, config.width)) {
+        return false;
+      }
+      y += kWifiSectionHeight;
+    }
+  } else if (scan_pending || scan_status.scan_running ||
+             status.init_task_running) {
     if (!CreateWifiStatusText(parent, "Scanning...", y, config.width)) {
       return false;
     }
@@ -2224,27 +2322,6 @@ bool CreateWifiPageContent(lv_obj_t* parent, SettingsViewState* state,
       return false;
     }
     y += kWifiSectionHeight;
-  } else {
-    size_t nearby_count = 0;
-    for (size_t i = 0; i < scan_status.network_count; ++i) {
-      const hal::WifiNetworkInfo& network = scan_status.networks[i];
-      if (IsSavedWifiSsid(network.ssid)) {
-        continue;
-      }
-      const char* password = network.secure ? kWifiDefaultPassword : "";
-      if (!CreateWifiNetworkRow(parent, state, network.ssid, network.is_5g,
-              network.secure, network.rssi, password, y, config.width)) {
-        return false;
-      }
-      ++nearby_count;
-      y += kWifiNetworkRowHeight;
-    }
-    if (nearby_count == 0) {
-      if (!CreateWifiStatusText(parent, "No nearby WLAN.", y, config.width)) {
-        return false;
-      }
-      y += kWifiSectionHeight;
-    }
   }
 
   y += 10;
@@ -2283,8 +2360,13 @@ void RefreshWifiPage(SettingsViewState* state, bool force) {
   state->wifi_refresh_force = false;
   state->wifi_action_count = 0;
   state->wifi_connected_signal_icon = nullptr;
+  const int scroll_y = lv_obj_get_scroll_y(state->wifi_body);
+  StopWifiRefreshIconSpin(state);
+  state->wifi_refresh_icon = nullptr;
   lv_obj_clean(state->wifi_body);
   CreateWifiPageContent(state->wifi_body, state, state->config);
+  lv_obj_update_layout(state->wifi_body);
+  lv_obj_scroll_to_y(state->wifi_body, scroll_y, LV_ANIM_OFF);
 }
 
 /**
@@ -2314,6 +2396,7 @@ bool ShowWifiPage(SettingsViewState* state) {
   state->wifi_page = page;
   state->wifi_body = nullptr;
   state->wifi_connected_signal_icon = nullptr;
+  state->wifi_refresh_icon = nullptr;
   state->wifi_closing = false;
   state->wifi_swipe = EdgeBackSwipeState();
   state->wifi_action_count = 0;
