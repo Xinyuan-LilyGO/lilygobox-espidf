@@ -47,8 +47,13 @@ inline constexpr char kSdStorage[] = "\xEE\x98\xA3";
 inline constexpr char kSensors[] = "\xEE\x94\x9E";
 inline constexpr char kSettings[] = "\xEE\xA2\xB8";
 inline constexpr char kSettingsInputAntenna[] = "\xEE\xA2\xBF";
+inline constexpr char kRefresh[] = "\xEE\x97\x95";
 inline constexpr char kVolumeUp[] = "\xEE\x81\x90";
 inline constexpr char kWarning[] = "\xEF\x82\x83";
-inline constexpr char kWifi[] = "\xEE\x98\xBE";
+inline constexpr char kAndroidWifi4Bar[] = "\xEE\xBC\x90";
+inline constexpr char kAndroidWifi3Bar[] = "\xEE\xBC\x96";
+inline constexpr char kWifi2Bar[] = "\xEE\x93\x99";
+inline constexpr char kWifi1Bar[] = "\xEE\x93\x8A";
+inline constexpr char kWifi[] = "\xEE\xBC\x90";
 
 }  // namespace lilygo_box::ui::icon

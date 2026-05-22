@@ -216,8 +216,35 @@ class TDisplayP4Device final : public ScreenProvider,
   /**
    * @brief 异步初始化 hosted WiFi 驱动并保持默认关闭
    * @return 启动命令发送成功返回 true，否则返回 false
-   */
+  */
   bool StartWifi() override;
+
+  /**
+   * @brief 停止 hosted WiFi STA 并清理连接和扫描状态
+   * @return 停止成功或已经处于关闭状态返回 true，否则返回 false
+   */
+  bool StopWifi() override;
+
+  /**
+   * @brief 异步扫描附近的 hosted WiFi 热点
+   * @return 扫描命令发送成功或扫描已在进行返回 true，否则返回 false
+   */
+  bool StartWifiScan() override;
+
+  /**
+   * @brief 读取最近一次 hosted WiFi 扫描进度和缓存热点列表
+   * @param status 扫描状态输出地址
+   * @return 读取成功返回 true，否则返回 false
+   */
+  bool ReadWifiScanStatus(WifiScanStatus* status) override;
+
+  /**
+   * @brief 连接指定的 hosted WiFi 热点
+   * @param ssid 目标热点 SSID
+   * @param password 目标热点密码，开放热点可传空字符串或 nullptr
+   * @return 连接命令发送成功返回 true，否则返回 false
+   */
+  bool ConnectWifi(const char* ssid, const char* password) override;
 
   /**
    * @brief 启动 WiFi 获取时间测试并连接工厂测试热点
@@ -356,8 +383,19 @@ class TDisplayP4Device final : public ScreenProvider,
   /**
    * @brief 初始化 hosted WiFi 驱动和默认 STA netif
    * @return 初始化成功返回 ESP_OK，否则返回错误码
-   */
+  */
   int InitializeWifiStack();
+
+  /**
+   * @brief 将 hosted WiFi 驱动切换到已启动的 STA 模式
+   * @return 成功返回 ESP_OK，否则返回 ESP-IDF 错误码
+   */
+  int PrepareWifiStation();
+
+  /**
+   * @brief 将 ESP-IDF 扫描结果整理后写入 wifi_ 缓存
+   */
+  void CopyWifiScanResultsFromDriver();
 
   /**
    * @brief 连接工厂测试 WiFi 并启动网络时间同步
@@ -489,6 +527,16 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<uint32_t> gateway{0};
     // ESP-IDF WiFi netif 指针
     void* netif = nullptr;
+    // 是否正在执行异步 WiFi 扫描。
+    std::atomic<bool> scan_running{false};
+    // 最近一次 WiFi 扫描是否失败。
+    std::atomic<bool> scan_failed{false};
+    // 扫描结果版本号，结果刷新后递增。
+    std::atomic<uint32_t> scan_generation{0};
+    // 当前缓存的有效热点数量。
+    std::atomic<size_t> scan_network_count{0};
+    // 供 UI 轮询读取的热点扫描缓存。
+    WifiNetworkInfo scan_networks[kMaxWifiScanNetworkCount] = {};
   };
 
   struct WifiTimeTestState {

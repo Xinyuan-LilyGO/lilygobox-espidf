@@ -7,9 +7,42 @@
  */
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace lilygo_box::hal {
+
+inline constexpr size_t kWifiSsidMaxLength = 32;
+inline constexpr size_t kWifiPasswordMaxLength = 64;
+inline constexpr size_t kMaxWifiScanNetworkCount = 16;
+
+struct WifiNetworkInfo {
+  // 热点 SSID，末尾保留字符串终止符。
+  char ssid[kWifiSsidMaxLength + 1] = {};
+  // 热点信号强度，单位为 dBm。
+  int rssi = 0;
+  // 热点所在信道。
+  int channel = 0;
+  // 热点是否需要密码。
+  bool secure = false;
+  // 热点是否位于 5 GHz 频段。
+  bool is_5g = false;
+};
+
+struct WifiScanStatus {
+  // WiFi 扫描是否正在进行。
+  bool scan_running = false;
+  // 最近一次扫描是否失败。
+  bool scan_failed = false;
+  // 最近一次 WiFi 扫描或连接错误码。
+  int last_error = 0;
+  // 扫描结果版本号，扫描完成后递增。
+  uint32_t generation = 0;
+  // 当前有效扫描结果数量。
+  size_t network_count = 0;
+  // 最近一次扫描得到的热点列表。
+  WifiNetworkInfo networks[kMaxWifiScanNetworkCount] = {};
+};
 
 struct WifiStatus {
   // WiFi 初始化任务是否正在运行
@@ -65,6 +98,33 @@ class WifiProvider {
    * @return 启动命令发送成功返回 true，否则返回 false
    */
   virtual bool StartWifi() = 0;
+
+  /**
+   * @brief 关闭 hosted WiFi 驱动运行状态，清除连接与扫描中的状态
+   * @return 关闭命令执行成功返回 true，否则返回 false
+   */
+  virtual bool StopWifi() = 0;
+
+  /**
+   * @brief 启动 hosted WiFi STA 并异步扫描附近热点
+   * @return 扫描命令发送成功返回 true，否则返回 false
+   */
+  virtual bool StartWifiScan() = 0;
+
+  /**
+   * @brief 读取最近一次 hosted WiFi 扫描状态与热点列表
+   * @param status WiFi 扫描状态输出地址
+   * @return 读取成功返回 true，否则返回 false
+   */
+  virtual bool ReadWifiScanStatus(WifiScanStatus* status) = 0;
+
+  /**
+   * @brief 连接指定 hosted WiFi 热点
+   * @param ssid 热点 SSID
+   * @param password 热点密码，开放网络可传空字符串或 nullptr
+   * @return 连接命令发送成功返回 true，否则返回 false
+   */
+  virtual bool ConnectWifi(const char* ssid, const char* password) = 0;
 
   /**
    * @brief 临时打开 WiFi 并连接工厂测试热点获取网络时间

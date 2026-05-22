@@ -117,6 +117,24 @@ uint64_t PackMacAddress(const uint8_t* mac_address) {
   return packed;
 }
 
+/**
+ * @brief 判断 ESP-IDF 认证模式是否表示加密热点
+ * @param auth_mode ESP-IDF WiFi 认证模式
+ * @return 需要密码返回 true，开放热点返回 false
+ */
+bool IsSecureWifiAuthMode(wifi_auth_mode_t auth_mode) {
+  return auth_mode != WIFI_AUTH_OPEN;
+}
+
+/**
+ * @brief 根据 WiFi 信道判断是否属于 5 GHz 频段
+ * @param channel WiFi 主信道
+ * @return 大于 2.4 GHz 信道范围返回 true
+ */
+bool IsFiveGWifiChannel(int channel) {
+  return channel > 14;
+}
+
 }  // namespace
 
 TDisplayP4Device::TDisplayP4Device()
@@ -244,6 +262,185 @@ bool TDisplayP4Device::StartWifi() {
       kWifiInitTaskStackBytes, this, kWifiInitTaskPriority, nullptr);
   if (result != pdPASS) {
     SetWifiFailure(ESP_ERR_NO_MEM);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * @brief 停止 hosted WiFi 并重置面向 UI 的扫描和连接状态
+ * @return 停止流程完成或 WiFi 已关闭返回 true
+ */
+bool TDisplayP4Device::StopWifi() {
+  wifi_time_test_.requested.store(false);
+  if (!wifi_.driver_initialized.load()) {
+    wifi_.scan_running.store(false);
+    wifi_.running.store(false);
+    wifi_.connected.store(false);
+    wifi_.got_ip.store(false);
+    return true;
+  }
+
+  if (wifi_time_test_.active.load()) {
+    StopWifiTimeTest();
+  }
+
+  if (wifi_.scan_running.load()) {
+    esp_wifi_scan_stop();
+  }
+
+  esp_wifi_disconnect();
+  esp_err_t result = esp_wifi_stop();
+  if (result != ESP_OK && result != ESP_ERR_WIFI_NOT_STARTED &&
+      result != ESP_ERR_INVALID_STATE && result != ESP_ERR_WIFI_STATE) {
+    SetWifiFailure(result);
+    return false;
+  }
+
+  result = esp_wifi_set_mode(WIFI_MODE_NULL);
+  if (result != ESP_OK && result != ESP_ERR_INVALID_STATE &&
+      result != ESP_ERR_WIFI_STATE) {
+    SetWifiFailure(result);
+    return false;
+  }
+
+  wifi_.running.store(false);
+  wifi_.connected.store(false);
+  wifi_.got_ip.store(false);
+  wifi_.start_failed.store(false);
+  wifi_.last_error.store(ESP_OK);
+  wifi_.disconnect_reason.store(0);
+  wifi_.retry_count.store(0);
+  wifi_.scan_running.store(false);
+  wifi_.scan_failed.store(false);
+  wifi_.ip_address.store(0);
+  wifi_.netmask.store(0);
+  wifi_.gateway.store(0);
+  return true;
+}
+
+/**
+ * @brief 启动异步 STA 扫描，供设置页轮询结果
+ * @return 扫描已启动、已在运行或已转入初始化流程返回 true
+ */
+bool TDisplayP4Device::StartWifiScan() {
+  if (!wifi_.driver_initialized.load()) {
+    return StartWifi();
+  }
+
+  if (wifi_.scan_running.load()) {
+    return true;
+  }
+
+  const int prepare_result = PrepareWifiStation();
+  if (prepare_result != ESP_OK) {
+    wifi_.scan_failed.store(true);
+    wifi_.last_error.store(prepare_result);
+    return false;
+  }
+
+  wifi_scan_config_t scan_config = {};
+  scan_config.show_hidden = false;
+  wifi_.scan_failed.store(false);
+  wifi_.last_error.store(ESP_OK);
+  wifi_.scan_running.store(true);
+  const esp_err_t result = esp_wifi_scan_start(&scan_config, false);
+  if (result != ESP_OK) {
+    wifi_.scan_running.store(false);
+    if (result == ESP_ERR_WIFI_STATE) {
+      wifi_.scan_failed.store(false);
+      wifi_.last_error.store(ESP_OK);
+      return true;
+    }
+    wifi_.scan_failed.store(true);
+    wifi_.last_error.store(result);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * @brief 将最近一次 WiFi 扫描状态复制到调用方结构体
+ * @param status 扫描状态输出地址
+ * @return 输出地址有效返回 true
+ */
+bool TDisplayP4Device::ReadWifiScanStatus(WifiScanStatus* status) {
+  if (status == nullptr) {
+    return false;
+  }
+
+  *status = WifiScanStatus();
+  status->scan_running = wifi_.scan_running.load();
+  status->scan_failed = wifi_.scan_failed.load();
+  status->last_error = wifi_.last_error.load();
+  status->generation = wifi_.scan_generation.load();
+  status->network_count = std::min(
+      wifi_.scan_network_count.load(), kMaxWifiScanNetworkCount);
+  for (size_t i = 0; i < status->network_count; ++i) {
+    status->networks[i] = wifi_.scan_networks[i];
+  }
+  return true;
+}
+
+/**
+ * @brief 设置 STA 账号密码并请求连接目标热点
+ * @param ssid 目标热点 SSID
+ * @param password 目标热点密码，开放热点可为空
+ * @return ESP-IDF 接受连接请求返回 true
+ */
+bool TDisplayP4Device::ConnectWifi(
+    const char* ssid, const char* password) {
+  if (ssid == nullptr || ssid[0] == '\0') {
+    return false;
+  }
+
+  if (!wifi_.driver_initialized.load()) {
+    if (!StartWifi()) {
+      return false;
+    }
+    return false;
+  }
+
+  const int prepare_result = PrepareWifiStation();
+  if (prepare_result != ESP_OK) {
+    SetWifiFailure(prepare_result);
+    return false;
+  }
+
+  if (wifi_.scan_running.load()) {
+    esp_wifi_scan_stop();
+    wifi_.scan_running.store(false);
+  }
+
+  wifi_config_t wifi_config = {};
+  std::snprintf(reinterpret_cast<char*>(wifi_config.sta.ssid),
+      sizeof(wifi_config.sta.ssid), "%s", ssid);
+  if (password != nullptr && password[0] != '\0') {
+    std::snprintf(reinterpret_cast<char*>(wifi_config.sta.password),
+        sizeof(wifi_config.sta.password), "%s", password);
+  }
+
+  wifi_.start_failed.store(false);
+  wifi_.last_error.store(ESP_OK);
+  wifi_.disconnect_reason.store(0);
+  wifi_.retry_count.store(0);
+  wifi_.connected.store(false);
+  wifi_.got_ip.store(false);
+  wifi_.ip_address.store(0);
+  wifi_.netmask.store(0);
+  wifi_.gateway.store(0);
+
+  esp_wifi_disconnect();
+  const esp_err_t config_result = esp_wifi_set_config(WIFI_IF_STA,
+      &wifi_config);
+  if (config_result != ESP_OK) {
+    SetWifiFailure(config_result);
+    return false;
+  }
+
+  const esp_err_t connect_result = esp_wifi_connect();
+  if (connect_result != ESP_OK && connect_result != ESP_ERR_WIFI_CONN) {
+    SetWifiFailure(connect_result);
     return false;
   }
   return true;
@@ -1446,6 +1643,118 @@ int TDisplayP4Device::InitializeWifiStack() {
   return ESP_OK;
 }
 
+/**
+ * @brief 确保 hosted WiFi 驱动已经以 STA 模式启动
+ * @return 成功返回 ESP_OK，否则返回 ESP-IDF 错误码
+ */
+int TDisplayP4Device::PrepareWifiStation() {
+  if (!wifi_.driver_initialized.load()) {
+    return ESP_ERR_WIFI_NOT_INIT;
+  }
+
+  esp_err_t result = esp_wifi_set_storage(WIFI_STORAGE_RAM);
+  if (result != ESP_OK) {
+    return result;
+  }
+
+  result = esp_wifi_set_mode(WIFI_MODE_STA);
+  if (result != ESP_OK) {
+    return result;
+  }
+
+  result = esp_wifi_start();
+  if (result != ESP_OK && result != ESP_ERR_INVALID_STATE &&
+      result != ESP_ERR_WIFI_STATE) {
+    return result;
+  }
+
+  wifi_.running.store(true);
+  wifi_.start_failed.store(false);
+  wifi_.last_error.store(ESP_OK);
+  return ESP_OK;
+}
+
+/**
+ * @brief 读取、去重并缓存最近一次 ESP-IDF 热点扫描记录
+ */
+void TDisplayP4Device::CopyWifiScanResultsFromDriver() {
+  uint16_t available_count = 0;
+  esp_err_t result = esp_wifi_scan_get_ap_num(&available_count);
+  if (result != ESP_OK) {
+    wifi_.scan_failed.store(true);
+    wifi_.last_error.store(result);
+    wifi_.scan_network_count.store(0);
+    return;
+  }
+
+  uint16_t record_count = static_cast<uint16_t>(
+      std::min<size_t>(available_count, kMaxWifiScanNetworkCount));
+  std::unique_ptr<wifi_ap_record_t[]> records(
+      new (std::nothrow) wifi_ap_record_t[kMaxWifiScanNetworkCount]());
+  std::unique_ptr<WifiNetworkInfo[]> networks(
+      new (std::nothrow) WifiNetworkInfo[kMaxWifiScanNetworkCount]());
+  if (records == nullptr || networks == nullptr) {
+    wifi_.scan_failed.store(true);
+    wifi_.last_error.store(ESP_ERR_NO_MEM);
+    wifi_.scan_network_count.store(0);
+    wifi_.scan_generation.fetch_add(1);
+    return;
+  }
+
+  if (record_count > 0) {
+    result = esp_wifi_scan_get_ap_records(&record_count, records.get());
+    if (result != ESP_OK) {
+      wifi_.scan_failed.store(true);
+      wifi_.last_error.store(result);
+      wifi_.scan_network_count.store(0);
+      wifi_.scan_generation.fetch_add(1);
+      return;
+    }
+  } else {
+    wifi_.scan_network_count.store(0);
+    wifi_.scan_generation.fetch_add(1);
+    return;
+  }
+
+  size_t network_count = 0;
+  for (uint16_t i = 0; i < record_count &&
+       network_count < kMaxWifiScanNetworkCount; ++i) {
+    const auto* ssid =
+        reinterpret_cast<const char*>(records[i].ssid);
+    if (ssid == nullptr || ssid[0] == '\0') {
+      continue;
+    }
+
+    bool duplicate = false;
+    for (size_t existing = 0; existing < network_count; ++existing) {
+      if (std::strncmp(networks[existing].ssid, ssid,
+              sizeof(networks[existing].ssid)) == 0) {
+        duplicate = true;
+        break;
+      }
+    }
+    if (duplicate) {
+      continue;
+    }
+
+    WifiNetworkInfo info;
+    std::snprintf(info.ssid, sizeof(info.ssid), "%s", ssid);
+    info.rssi = records[i].rssi;
+    info.channel = records[i].primary;
+    info.secure = IsSecureWifiAuthMode(records[i].authmode);
+    info.is_5g = IsFiveGWifiChannel(records[i].primary);
+    networks[network_count++] = info;
+  }
+
+  for (size_t i = 0; i < kMaxWifiScanNetworkCount; ++i) {
+    wifi_.scan_networks[i] = networks[i];
+  }
+  wifi_.scan_network_count.store(network_count);
+  wifi_.scan_failed.store(false);
+  wifi_.last_error.store(ESP_OK);
+  wifi_.scan_generation.fetch_add(1);
+}
+
 int TDisplayP4Device::StartWifiTimeTestInternal() {
   if (!wifi_.driver_initialized.load()) {
     return ESP_ERR_WIFI_NOT_INIT;
@@ -1554,6 +1863,8 @@ void TDisplayP4Device::SetWifiFailure(int error) {
   wifi_.last_error.store(error);
   wifi_.connected.store(false);
   wifi_.got_ip.store(false);
+  wifi_.scan_running.store(false);
+  wifi_.scan_failed.store(true);
   wifi_time_test_.synced.store(false);
   wifi_time_test_.sntp_unix_time.store(0);
   wifi_time_test_.sntp_sync_monotonic_ms.store(0);
@@ -1571,6 +1882,19 @@ void TDisplayP4Device::WifiEventHandler(
   }
 
   switch (event_id) {
+    case WIFI_EVENT_SCAN_DONE: {
+      self->wifi_.scan_running.store(false);
+      const auto* scan_done =
+          static_cast<wifi_event_sta_scan_done_t*>(event_data);
+      if (scan_done != nullptr && scan_done->status != 0) {
+        self->wifi_.scan_failed.store(true);
+        self->wifi_.last_error.store(ESP_FAIL);
+        self->wifi_.scan_generation.fetch_add(1);
+        break;
+      }
+      self->CopyWifiScanResultsFromDriver();
+      break;
+    }
     case WIFI_EVENT_STA_START:
       self->wifi_.running.store(true);
       self->wifi_.start_failed.store(false);
@@ -1630,6 +1954,7 @@ void TDisplayP4Device::WifiEventHandler(
       self->wifi_.running.store(false);
       self->wifi_.connected.store(false);
       self->wifi_.got_ip.store(false);
+      self->wifi_.scan_running.store(false);
       self->wifi_time_test_.synced.store(false);
       self->wifi_time_test_.sntp_unix_time.store(0);
       self->wifi_time_test_.sntp_sync_monotonic_ms.store(0);
