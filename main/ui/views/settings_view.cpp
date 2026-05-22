@@ -464,6 +464,10 @@ SettingsIconStyle ResolveSettingsIconStyle(app::SettingsIcon icon_type) {
       return {.symbol = icon::kWarning, .color = 0x3F82F6};
     case app::SettingsIcon::kVolumeUp:
       return {.symbol = icon::kVolumeUp, .color = 0x3F82F6};
+    case app::SettingsIcon::kBattery:
+      return {.symbol = icon::kBatteryAndroidFull, .color = 0x55C76C};
+    case app::SettingsIcon::kSettings:
+      return {.symbol = icon::kSettings, .color = 0x8790B0};
   }
   return {.symbol = icon::kInfo, .color = 0x8790B0};
 }
@@ -1538,7 +1542,7 @@ lv_obj_t* CreateSettingsRow(
 }
 
 /**
- * @brief 根据 WiFi 状态更新 WLAN 设置项显示值
+ * @brief 根据 WiFi 状态更新 WiFi 设置项显示值
  * @param config app 页面配置
  * @param buffer 文本缓冲区
  * @param size 文本缓冲区大小

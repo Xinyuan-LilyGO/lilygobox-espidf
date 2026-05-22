@@ -28,6 +28,8 @@ enum class SettingsIcon {
   kFolder,
   kWarning,
   kVolumeUp,
+  kBattery,
+  kSettings,
 };
 
 // 设置首页入口。
