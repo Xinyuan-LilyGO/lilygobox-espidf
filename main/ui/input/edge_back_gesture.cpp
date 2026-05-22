@@ -215,11 +215,7 @@ bool HandleEdgeBackSwipeEvent(
     state->from_left_edge = point.x <= edge_width;
     state->from_right_edge = point.x >= screen_width - edge_width;
     state->tracking = state->from_left_edge || state->from_right_edge;
-    if (state->tracking) {
-      UpdateBackIndicator(*state, screen_width, point);
-    } else {
-      HideBackIndicator(false);
-    }
+    HideBackIndicator(false);
     return false;
   }
 
@@ -233,6 +229,12 @@ bool HandleEdgeBackSwipeEvent(
     if (AbsInt(delta_y) > kBackGestureMaxVerticalOffset) {
       state->tracking = false;
       HideBackIndicator(true);
+      return false;
+    }
+    const int back_distance =
+        state->from_left_edge ? delta_x : -delta_x;
+    if (back_distance < kBackGestureIndicatorStartDistance) {
+      HideBackIndicator(false);
       return false;
     }
     UpdateBackIndicator(*state, screen_width, point);

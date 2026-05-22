@@ -22,6 +22,7 @@ struct EdgeBackSwipeState {
 constexpr int kBackGestureMinEdgeWidth = 36;
 constexpr int kBackGestureMaxEdgeWidth = 76;
 constexpr int kBackGestureWidthDivisor = 9;
+constexpr int kBackGestureIndicatorStartDistance = 18;
 constexpr int kBackGestureMinSwipeDistance = 90;
 constexpr int kBackGestureMaxVerticalOffset = 140;
 
