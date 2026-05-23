@@ -69,13 +69,13 @@ struct CurrentDeviceCameraInfo {
   int buffer_count = 0;
 };
 
-// Current battery information snapshot
+// 当前电池信息快照
 struct CurrentDeviceBatteryInfo {
   const char* fuel_gauge_name = "unknown";
   int capacity_mah = 0;
 };
 
-// Current LVGL version information snapshot
+// 当前 LVGL 版本信息快照
 struct CurrentDeviceLvglInfo {
   int major = 0;
   int minor = 0;

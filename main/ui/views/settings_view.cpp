@@ -271,6 +271,11 @@ void SetTextStyle(lv_obj_t* object, lv_color_t color, const lv_font_t* font) {
   lv_obj_set_style_text_font(object, font, LV_PART_MAIN);
 }
 
+/**
+ * @brief 设置 WLAN 刷新图标旋转角度
+ * @param object 刷新图标对象
+ * @param value 旋转角度，单位为 0.1 度
+ */
 void SetWifiRefreshIconRotation(void* object, int32_t value) {
   if (object == nullptr) {
     return;
@@ -319,7 +324,9 @@ const lv_font_t* Font48() { return &lvgl_font_google_sans_flex_48; }
  * @brief 获取 32 号 Material Symbols 字体
  * @return 字体指针
  */
-const lv_font_t* MaterialIconFont32() { return &lvgl_font_material_symbols_32; }
+const lv_font_t* MaterialIconFont32() {
+  return &lvgl_font_material_symbols_32;
+}
 
 /**
  * @brief 创建文本标签
@@ -556,7 +563,8 @@ lv_obj_t* CreateDivider(lv_obj_t* parent, int width) {
   lv_obj_remove_flag(divider, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(divider, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(divider, width, kDividerHeight);
-  lv_obj_set_style_bg_color(divider, lv_color_hex(kDividerColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      divider, lv_color_hex(kDividerColor), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(divider, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(divider, 0, LV_PART_MAIN);
@@ -927,7 +935,8 @@ void WifiNetworkClickedEventCallback(lv_event_t* event) {
     return;
   }
 
-  auto* action = static_cast<WifiNetworkAction*>(lv_event_get_user_data(event));
+  auto* action =
+      static_cast<WifiNetworkAction*>(lv_event_get_user_data(event));
   if (action == nullptr || action->state == nullptr ||
       action->state->config.wifi == nullptr || action->ssid[0] == '\0') {
     return;
@@ -962,6 +971,10 @@ void WifiRefreshTimerCallback(lv_timer_t* timer) {
   UpdateWifiConnectedSignalIcon(state);
 }
 
+/**
+ * @brief 处理设备名称编辑页边缘返回手势
+ * @param event LVGL 事件对象
+ */
 void DeviceNameEditSwipeEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->name_edit_page == nullptr ||
@@ -1311,7 +1324,7 @@ bool CreateDeviceInfoRow(lv_obj_t* parent, const char* title,
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateDeviceInfoCard(
-    lv_obj_t* parent, const AppViewConfig& config, int width,
+    lv_obj_t* parent, const AppViewConfig&, int width,
     SettingsViewState* state, const app::CurrentDeviceInfoSnapshot& info) {
   char storage_text[48] = {};
   FormatStorageUsage(info, storage_text, sizeof(storage_text));
@@ -1325,7 +1338,6 @@ bool CreateDeviceInfoCard(
   }
   lv_obj_align(card, LV_ALIGN_TOP_MID, 0, kDetailFirstCardTop);
 
-  (void)config;
   return CreateDeviceInfoRow(card, "Device name",
              info.software.device_name, 22, card_width, true,
              DeviceNameRowClickedEventCallback, state,
@@ -1372,8 +1384,8 @@ bool CreateSpecText(lv_obj_t* parent, const char* value, const char* label,
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateDeviceSpecCard(
-    lv_obj_t* parent, const AppViewConfig& config, int width,
-    SettingsViewState* state, const app::CurrentDeviceInfoSnapshot& info) {
+    lv_obj_t* parent, const AppViewConfig&, int width,
+    SettingsViewState*, const app::CurrentDeviceInfoSnapshot& info) {
   char memory_text[32] = {};
   char battery_text[32] = {};
   char resolution_text[32] = {};
@@ -1394,8 +1406,6 @@ bool CreateDeviceSpecCard(
   if (title == nullptr) {
     return false;
   }
-  (void)config;
-  (void)state;
   lv_obj_align(title, LV_ALIGN_TOP_LEFT, kDetailCardPaddingX,
       kDetailCardPaddingTop);
 
@@ -1522,6 +1532,11 @@ void ReadWifiPageSsid(const hal::WifiStatus& status, char* buffer,
   std::snprintf(buffer, buffer_size, "%s", status.ssid);
 }
 
+/**
+ * @brief 判断 SSID 是否为固化的已保存测试热点
+ * @param ssid 待判断的热点名称
+ * @return 是已保存测试热点返回 true，否则返回 false
+ */
 bool IsSavedWifiSsid(const char* ssid) {
   if (ssid == nullptr) {
     return false;
@@ -1530,6 +1545,11 @@ bool IsSavedWifiSsid(const char* ssid) {
          std::strcmp(ssid, kWifiSavedSsid5G) == 0;
 }
 
+/**
+ * @brief 根据 RSSI 计算 WiFi 信号等级
+ * @param rssi 信号强度，单位为 dBm
+ * @return 1 到 4 的信号等级
+ */
 int WifiSignalLevelForRssi(int rssi) {
   if (rssi >= -55) {
     return 4;
@@ -1543,6 +1563,11 @@ int WifiSignalLevelForRssi(int rssi) {
   return 1;
 }
 
+/**
+ * @brief 根据 RSSI 获取 WiFi 信号图标文本
+ * @param rssi 信号强度，单位为 dBm
+ * @return Material Symbols 图标文本
+ */
 const char* WifiSignalIconForRssi(int rssi) {
   switch (WifiSignalLevelForRssi(rssi)) {
     case 4:
@@ -1601,12 +1626,23 @@ void ReadWifiSnapshots(const AppViewConfig& config, hal::WifiStatus* status,
   }
 }
 
+/**
+ * @brief 判断 WLAN 刷新动画是否应该保持运行
+ * @param state 设置页状态
+ * @param status WiFi 连接状态
+ * @param scan_status WiFi 扫描状态
+ * @return 需要显示刷新中返回 true，否则返回 false
+ */
 bool IsWifiRefreshActive(const SettingsViewState* state,
     const hal::WifiStatus& status, const hal::WifiScanStatus& scan_status) {
   return scan_status.scan_running || status.init_task_running ||
          (state != nullptr && state->wifi_scan_on_ready);
 }
 
+/**
+ * @brief 启动 WLAN 刷新图标旋转动画
+ * @param state 设置页状态
+ */
 void StartWifiRefreshIconSpin(SettingsViewState* state) {
   if (state == nullptr || state->wifi_refresh_icon == nullptr ||
       lv_anim_get(state->wifi_refresh_icon, SetWifiRefreshIconRotation) !=
@@ -1625,6 +1661,10 @@ void StartWifiRefreshIconSpin(SettingsViewState* state) {
   lv_anim_start(&animation);
 }
 
+/**
+ * @brief 停止 WLAN 刷新图标旋转动画并复位角度
+ * @param state 设置页状态
+ */
 void StopWifiRefreshIconSpin(SettingsViewState* state) {
   if (state == nullptr || state->wifi_refresh_icon == nullptr) {
     return;
@@ -1634,6 +1674,10 @@ void StopWifiRefreshIconSpin(SettingsViewState* state) {
   SetWifiRefreshIconRotation(state->wifi_refresh_icon, 0);
 }
 
+/**
+ * @brief 根据 WiFi 初始化和扫描状态刷新旋转动画
+ * @param state 设置页状态
+ */
 void UpdateWifiRefreshAnimation(SettingsViewState* state) {
   if (state == nullptr || state->wifi_refresh_icon == nullptr) {
     return;
@@ -1649,6 +1693,10 @@ void UpdateWifiRefreshAnimation(SettingsViewState* state) {
   }
 }
 
+/**
+ * @brief 刷新已连接 WiFi 卡片上的信号图标
+ * @param state 设置页状态
+ */
 void UpdateWifiConnectedSignalIcon(SettingsViewState* state) {
   if (state == nullptr || state->wifi_connected_signal_icon == nullptr ||
       state->config.wifi == nullptr) {
@@ -1718,7 +1766,7 @@ WifiNetworkAction* ReserveWifiNetworkAction(SettingsViewState* state,
  * @param width 页面宽度
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateWifiHeader(lv_obj_t* parent, SettingsViewState* state, int width) {
+bool CreateWifiHeader(lv_obj_t* parent, SettingsViewState* state, int) {
   lv_obj_t* back_button = CreateToolbarButton(parent, kDetailBackButtonLeft,
       kDetailBackButtonTop, WifiBackClickedEventCallback, state);
   if (back_button == nullptr) {
@@ -1730,7 +1778,6 @@ bool CreateWifiHeader(lv_obj_t* parent, SettingsViewState* state, int width) {
     return false;
   }
   lv_obj_center(back_icon);
-  (void)width;
 
   lv_obj_t* title =
       CreateLabel(parent, "WLAN", lv_color_hex(kTitleColor), Font48());
@@ -2468,6 +2515,11 @@ bool ShowWifiPage(SettingsViewState* state) {
   return true;
 }
 
+/**
+ * @brief 打开我的设备详情页
+ * @param state 设置页状态
+ * @return 打开成功返回 true，否则返回 false
+ */
 bool ShowMyDevicePage(SettingsViewState* state) {
   if (state == nullptr || state->root == nullptr) {
     return false;
@@ -2638,7 +2690,8 @@ bool CreateDeviceNameEditContent(
 
   SharedKeyboardConfig keyboard_config;
   keyboard_config.width = config.width;
-  keyboard_config.height = config.height * kNameEditKeyboardHeightPercent / 100;
+  keyboard_config.height =
+      config.height * kNameEditKeyboardHeightPercent / 100;
   lv_obj_t* keyboard = CreateSharedKeyboard(parent, keyboard_config);
   if (keyboard == nullptr) {
     return false;
@@ -2757,6 +2810,10 @@ void WifiRowClickedEventCallback(lv_event_t* event) {
   ShowWifiPage(state);
 }
 
+/**
+ * @brief 从我的设备详情页打开设备名称编辑页
+ * @param event LVGL 事件对象
+ */
 void DeviceNameRowClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
@@ -2788,7 +2845,8 @@ lv_obj_t* CreateSettingsRow(
   lv_obj_add_flag(row, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(row, width, kRowHeight);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(row, lv_color_hex(kPressedColor), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(
+      row, lv_color_hex(kPressedColor), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, kPressedOpacity, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
@@ -2893,8 +2951,8 @@ bool CreateSettingsList(lv_obj_t* parent, const AppViewConfig& config,
       }
       lv_obj_set_pos(divider, kPagePaddingX + kDividerLeft,
           y + kGroupDividerTopPadding);
-      y +=
-          kGroupDividerTopPadding + kDividerHeight + kGroupDividerBottomPadding;
+      y += kGroupDividerTopPadding + kDividerHeight +
+           kGroupDividerBottomPadding;
     }
 
     if (IsId(item.id, "wlan")) {
@@ -2920,9 +2978,8 @@ bool CreateSettingsList(lv_obj_t* parent, const AppViewConfig& config,
 
 }  // namespace
 
-lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry& app_entry,
+lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
     const AppViewConfig& config) {
-  (void)app_entry;
   if (parent == nullptr || config.width <= 0 || config.height <= 0) {
     return nullptr;
   }
@@ -2944,7 +3001,8 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry& app_entry,
   lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(root, config.width, config.height);
   lv_obj_set_pos(root, 0, 0);
-  lv_obj_set_style_bg_color(root, lv_color_hex(kBackgroundColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      root, lv_color_hex(kBackgroundColor), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(root, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(root, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(root, 0, LV_PART_MAIN);

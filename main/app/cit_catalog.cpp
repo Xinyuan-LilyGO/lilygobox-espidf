@@ -53,8 +53,17 @@ const CitTestCatalog kCitTestCatalog = {
 
 }  // namespace
 
+/**
+ * @brief 获取 CIT 页面显示的硬件自检入口目录
+ * @return CIT 自检入口目录引用
+ */
 const CitTestCatalog& GetCitTestCatalog() { return kCitTestCatalog; }
 
+/**
+ * @brief 获取 CIT 测试状态文本
+ * @param status CIT 测试状态
+ * @return 状态文本
+ */
 const char* GetCitTestStatusText(CitTestStatus status) {
   switch (status) {
     case CitTestStatus::kReady:

@@ -12,12 +12,19 @@ namespace {
 
 // 页面切换动画配置
 struct TransitionAnimationConfig {
+  // 执行动画的 LVGL 对象。
   lv_obj_t* object = nullptr;
+  // 动画起始 X 坐标。
   int32_t start_value = 0;
+  // 动画结束 X 坐标。
   int32_t end_value = 0;
+  // 动画时长，单位为毫秒。
   uint32_t duration_ms = 0;
+  // 动画缓动路径回调。
   lv_anim_path_cb_t path_callback = lv_anim_path_ease_out;
+  // 传递给完成回调的用户数据。
   void* user_data = nullptr;
+  // 动画完成回调。
   lv_anim_completed_cb_t completed_callback = nullptr;
 };
 
@@ -73,6 +80,15 @@ void DeleteTransitionAnimation(lv_obj_t* object) {
 
 }  // namespace
 
+/**
+ * @brief 启动窗口向左切换动画
+ * @param object LVGL 对象
+ * @param distance 切换距离
+ * @param duration_ms 动画时长
+ * @param user_data 用户数据
+ * @param completed_callback 完成回调
+ * @return 启动成功返回 true，否则返回 false
+ */
 bool StartSlideLeftWindowTransition(lv_obj_t* object, int32_t distance,
     uint32_t duration_ms, void* user_data,
     lv_anim_completed_cb_t completed_callback) {
@@ -86,6 +102,15 @@ bool StartSlideLeftWindowTransition(lv_obj_t* object, int32_t distance,
   return StartTransitionAnimation(config);
 }
 
+/**
+ * @brief 启动窗口向右切换动画
+ * @param object LVGL 对象
+ * @param distance 切换距离
+ * @param duration_ms 动画时长
+ * @param user_data 用户数据
+ * @param completed_callback 完成回调
+ * @return 启动成功返回 true，否则返回 false
+ */
 bool StartSlideRightWindowTransition(lv_obj_t* object, int32_t distance,
     uint32_t duration_ms, void* user_data,
     lv_anim_completed_cb_t completed_callback) {
@@ -103,6 +128,10 @@ bool StartSlideRightWindowTransition(lv_obj_t* object, int32_t distance,
   return StartTransitionAnimation(config);
 }
 
+/**
+ * @brief 删除指定对象上的窗口切换动画
+ * @param object LVGL 对象
+ */
 void DeleteWindowTransition(lv_obj_t* object) {
   DeleteTransitionAnimation(object);
 }

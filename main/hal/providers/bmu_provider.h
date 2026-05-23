@@ -9,26 +9,47 @@
 
 namespace lilygo_box::hal {
 
+// 电池管理芯片读取到的电池包、容量、电流和温度状态。
 struct BmuStatus {
+  // BMU 是否已经初始化并可读取。
   bool ready = false;
+  // 是否检测到电池包。
   bool pack_present = false;
+  // 当前是否正在充电。
   bool charging = false;
+  // 当前是否正在放电。
   bool discharging = false;
+  // 电池是否已充满。
   bool full_charged = false;
+  // 电池是否已放空。
   bool full_discharged = false;
+  // 电池电压，单位为 mV。
   int voltage_mv = 0;
+  // 当前电流，单位为 mA。
   int current_ma = 0;
+  // 平均电流，单位为 mA。
   int average_current_ma = 0;
+  // 平均功率，单位为 mW。
   int average_bmu_mw = 0;
+  // 当前电量百分比。
   int charge_percent = 0;
+  // 电池健康度百分比。
   int health_percent = 0;
+  // 设计容量，单位为 mAh。
   int design_capacity_mah = 0;
+  // 剩余容量，单位为 mAh。
   int remaining_capacity_mah = 0;
+  // 满充容量，单位为 mAh。
   int full_charge_capacity_mah = 0;
+  // 预计放空剩余时间，单位为分钟。
   int time_to_empty_min = 0;
+  // 预计充满剩余时间，单位为分钟。
   int time_to_full_min = 0;
+  // 电池循环次数。
   int cycle_count = 0;
+  // 电池包温度，单位为摄氏度。
   float pack_temperature_c = 0.0F;
+  // 电量计芯片温度，单位为摄氏度。
   float gauge_temperature_c = 0.0F;
 };
 

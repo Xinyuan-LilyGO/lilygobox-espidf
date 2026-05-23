@@ -83,6 +83,11 @@ void PressCancelOnLeaveEventCallback(lv_event_t* event) {
 
 }  // namespace
 
+/**
+ * @brief 判断当前指针是否仍位于对象区域内
+ * @param object LVGL 对象
+ * @return 指针位于对象区域内返回 true，否则返回 false
+ */
 bool IsPointerInsideObject(lv_obj_t* object) {
   if (object == nullptr) {
     return false;
@@ -98,10 +103,15 @@ bool IsPointerInsideObject(lv_obj_t* object) {
 
   lv_area_t coords = {};
   lv_obj_get_coords(object, &coords);
-  return point.x >= coords.x1 && point.x <= coords.x2 && point.y >= coords.y1 &&
-         point.y <= coords.y2;
+  return point.x >= coords.x1 && point.x <= coords.x2 &&
+         point.y >= coords.y1 && point.y <= coords.y2;
 }
 
+/**
+ * @brief 为对象添加滑出时取消按压反馈的事件处理
+ * @param object LVGL 对象
+ * @return 添加成功返回 true，否则返回 false
+ */
 bool AddPressCancelOnLeave(lv_obj_t* object) {
   if (object == nullptr) {
     return false;

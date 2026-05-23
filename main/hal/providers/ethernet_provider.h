@@ -11,18 +11,31 @@
 
 namespace lilygo_box::hal {
 
+// 以太网驱动、链路和 DHCP 状态快照。
 struct EthernetStatus {
+  // 异步初始化任务是否正在运行。
   bool init_task_running = false;
+  // ESP-IDF 以太网驱动是否已经初始化。
   bool driver_initialized = false;
+  // 以太网驱动是否已经启动。
   bool running = false;
+  // 网线链路是否已经建立。
   bool link_up = false;
+  // 是否已经通过 DHCP 获得地址。
   bool got_ip = false;
+  // 最近一次启动或连接流程是否失败。
   bool start_failed = false;
+  // 当前可用的以太网端口数量。
   int port_count = 0;
+  // 最近一次底层错误码。
   int last_error = 0;
+  // 打包后的 MAC 地址。
   uint64_t mac_address = 0;
+  // DHCP 分配的 IP 地址。
   uint32_t ip_address = 0;
+  // DHCP 分配的子网掩码。
   uint32_t netmask = 0;
+  // DHCP 分配的网关。
   uint32_t gateway = 0;
 };
 

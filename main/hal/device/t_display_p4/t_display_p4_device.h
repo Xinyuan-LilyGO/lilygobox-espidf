@@ -140,7 +140,8 @@ class TDisplayP4Device final : public ScreenProvider,
    * @param callback_context 回调上下文
    * @return 注册成功返回 true，否则返回 false
    */
-  bool RegisterScreenFlushReadyCallback(ScreenProviderFlushReadyCallback callback,
+  bool RegisterScreenFlushReadyCallback(
+      ScreenProviderFlushReadyCallback callback,
       void* callback_context) override;
 
   /**

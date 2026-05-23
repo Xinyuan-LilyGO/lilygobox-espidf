@@ -30,8 +30,20 @@ lv_obj_t* g_back_indicator = nullptr;
 lv_obj_t* g_back_indicator_icon = nullptr;
 lv_opa_t g_back_indicator_opacity = LV_OPA_TRANSP;
 
+/**
+ * @brief 计算整数绝对值
+ * @param value 原始值
+ * @return 绝对值
+ */
 int AbsInt(int value) { return value < 0 ? -value : value; }
 
+/**
+ * @brief 将整数限制在指定范围内
+ * @param value 原始值
+ * @param min_value 最小值
+ * @param max_value 最大值
+ * @return 限制后的值
+ */
 int ClampInt(int value, int min_value, int max_value) {
   if (value < min_value) {
     return min_value;
@@ -42,6 +54,12 @@ int ClampInt(int value, int min_value, int max_value) {
   return value;
 }
 
+/**
+ * @brief 根据侧滑距离计算手势进度
+ * @param state 边缘返回手势状态
+ * @param point 当前触摸点
+ * @return 0 到 1000 的进度值
+ */
 int GestureProgressPermille(
     const EdgeBackSwipeState& state, lv_point_t point) {
   int distance = 0;
@@ -54,6 +72,11 @@ int GestureProgressPermille(
   return distance * 1000 / kBackGestureMinSwipeDistance;
 }
 
+/**
+ * @brief 设置全局返回指示器及图标透明度
+ * @param object 返回指示器对象
+ * @param value 透明度数值
+ */
 void SetBackIndicatorOpacity(void* object, int32_t value) {
   if (object == nullptr) {
     return;
@@ -71,6 +94,10 @@ void SetBackIndicatorOpacity(void* object, int32_t value) {
   }
 }
 
+/**
+ * @brief 处理返回指示器淡出动画完成事件
+ * @param animation LVGL 动画对象
+ */
 void BackIndicatorFadeCompletedCallback(lv_anim_t* animation) {
   auto* indicator = static_cast<lv_obj_t*>(lv_anim_get_user_data(animation));
   if (indicator != nullptr) {
@@ -78,6 +105,10 @@ void BackIndicatorFadeCompletedCallback(lv_anim_t* animation) {
   }
 }
 
+/**
+ * @brief 确保全局返回指示器对象已经创建
+ * @return 创建或复用成功返回 true，否则返回 false
+ */
 bool EnsureBackIndicator() {
   if (g_back_indicator != nullptr && g_back_indicator_icon != nullptr) {
     return true;
@@ -121,6 +152,12 @@ bool EnsureBackIndicator() {
   return true;
 }
 
+/**
+ * @brief 根据当前手势状态刷新返回指示器位置和外观
+ * @param state 边缘返回手势状态
+ * @param screen_width 屏幕宽度
+ * @param point 当前触摸点
+ */
 void UpdateBackIndicator(
     const EdgeBackSwipeState& state, int screen_width, lv_point_t point) {
   if (!EnsureBackIndicator()) {
@@ -162,6 +199,10 @@ void UpdateBackIndicator(
       state.from_left_edge ? 8 : -8, 0);
 }
 
+/**
+ * @brief 隐藏全局返回指示器
+ * @param animated 是否使用淡出动画
+ */
 void HideBackIndicator(bool animated) {
   if (g_back_indicator == nullptr) {
     return;
@@ -192,6 +233,13 @@ void HideBackIndicator(bool animated) {
 
 }  // namespace
 
+/**
+ * @brief 处理边缘返回滑动事件并判断是否完成返回手势
+ * @param event LVGL 事件对象
+ * @param screen_width 屏幕宽度
+ * @param state 边缘返回滑动状态
+ * @return 完成返回手势返回 true，否则返回 false
+ */
 bool HandleEdgeBackSwipeEvent(
     lv_event_t* event, int screen_width, EdgeBackSwipeState* state) {
   if (event == nullptr || state == nullptr || screen_width <= 0) {
@@ -275,6 +323,12 @@ bool HandleEdgeBackSwipeEvent(
   return false;
 }
 
+/**
+ * @brief 给对象添加边缘返回滑动事件监听
+ * @param object LVGL 对象
+ * @param callback 事件回调
+ * @param user_data 事件用户数据
+ */
 void AddEdgeBackSwipeEvents(
     lv_obj_t* object, lv_event_cb_t callback, void* user_data) {
   if (object == nullptr || callback == nullptr) {
@@ -289,6 +343,10 @@ void AddEdgeBackSwipeEvents(
   lv_obj_add_event_cb(object, callback, LV_EVENT_PRESS_LOST, user_data);
 }
 
+/**
+ * @brief 递归开启对象和子对象的事件冒泡
+ * @param object LVGL 对象
+ */
 void EnableEdgeBackSwipeEventBubble(lv_obj_t* object) {
   if (object == nullptr) {
     return;

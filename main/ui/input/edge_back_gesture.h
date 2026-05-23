@@ -13,11 +13,17 @@ namespace lilygo_box::ui {
 
 // 边缘返回滑动状态
 struct EdgeBackSwipeState {
+  // 手指按下时的起点，用于计算横向返回距离。
   lv_point_t start_point = {};
+  // 指示器固定的垂直中心点，避免横向滑出后跟随手指上下漂移。
   int indicator_center_y = 0;
+  // 是否正在跟踪一次从屏幕边缘开始的触摸。
   bool tracking = false;
+  // 是否已经进入有效侧滑阶段。
   bool active = false;
+  // 手势是否从左边缘开始。
   bool from_left_edge = false;
+  // 手势是否从右边缘开始。
   bool from_right_edge = false;
 };
 
