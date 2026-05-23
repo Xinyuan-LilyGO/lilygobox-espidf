@@ -42,7 +42,8 @@ int ClampInt(int value, int min_value, int max_value) {
   return value;
 }
 
-int GestureProgressPermille(const EdgeBackSwipeState& state, lv_point_t point) {
+int GestureProgressPermille(
+    const EdgeBackSwipeState& state, lv_point_t point) {
   int distance = 0;
   if (state.from_left_edge) {
     distance = point.x - state.start_point.x;
@@ -59,7 +60,8 @@ void SetBackIndicatorOpacity(void* object, int32_t value) {
   }
 
   g_back_indicator_opacity =
-      static_cast<lv_opa_t>(ClampInt(static_cast<int>(value), 0, LV_OPA_COVER));
+      static_cast<lv_opa_t>(
+          ClampInt(static_cast<int>(value), 0, LV_OPA_COVER));
   auto* indicator = static_cast<lv_obj_t*>(object);
   lv_obj_set_style_opa(indicator, g_back_indicator_opacity, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(indicator, g_back_indicator_opacity, LV_PART_MAIN);
@@ -136,15 +138,16 @@ void UpdateBackIndicator(
   const int height = kIndicatorMinHeight +
                      (kIndicatorMaxHeight - kIndicatorMinHeight) * progress /
                          1000;
-  const int opacity = kIndicatorMinOpacity +
-                      (kIndicatorMaxOpacity - kIndicatorMinOpacity) * progress /
-                          1000;
+  const int opacity =
+      kIndicatorMinOpacity +
+      (kIndicatorMaxOpacity - kIndicatorMinOpacity) * progress / 1000;
   int parent_height = lv_obj_get_height(lv_layer_top());
   if (parent_height <= 0) {
     parent_height = lv_obj_get_height(lv_screen_active());
   }
   const int max_y = parent_height > height ? parent_height - height : 0;
-  const int y = ClampInt(point.y - height / 2, 0, max_y);
+  const int center_y = state.indicator_center_y;
+  const int y = ClampInt(center_y - height / 2, 0, max_y);
   const int x = state.from_left_edge ? -(width - kIndicatorVisibleWidth)
                                      : screen_width - kIndicatorVisibleWidth;
 
@@ -215,6 +218,8 @@ bool HandleEdgeBackSwipeEvent(
     state->from_left_edge = point.x <= edge_width;
     state->from_right_edge = point.x >= screen_width - edge_width;
     state->tracking = state->from_left_edge || state->from_right_edge;
+    state->active = false;
+    state->indicator_center_y = point.y;
     HideBackIndicator(false);
     return false;
   }
@@ -225,25 +230,39 @@ bool HandleEdgeBackSwipeEvent(
 
   const int delta_x = point.x - state->start_point.x;
   const int delta_y = point.y - state->start_point.y;
+  const int back_distance = state->from_left_edge ? delta_x : -delta_x;
+  if (code == LV_EVENT_PRESS_LOST &&
+      lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED) {
+    if (state->active ||
+        back_distance >= kBackGestureIndicatorStartDistance) {
+      state->active = true;
+      UpdateBackIndicator(*state, screen_width, point);
+    }
+    return false;
+  }
+
   if (code == LV_EVENT_PRESSING) {
-    if (AbsInt(delta_y) > kBackGestureMaxVerticalOffset) {
+    if (!state->active &&
+        back_distance < kBackGestureIndicatorStartDistance &&
+        AbsInt(delta_y) > kBackGestureMaxVerticalOffset) {
       state->tracking = false;
       HideBackIndicator(true);
       return false;
     }
-    const int back_distance =
-        state->from_left_edge ? delta_x : -delta_x;
     if (back_distance < kBackGestureIndicatorStartDistance) {
       HideBackIndicator(false);
       return false;
     }
+    state->active = true;
     UpdateBackIndicator(*state, screen_width, point);
     return false;
   }
 
+  const bool was_active = state->active;
   state->tracking = false;
+  state->active = false;
   HideBackIndicator(true);
-  if (AbsInt(delta_y) > kBackGestureMaxVerticalOffset) {
+  if (!was_active && AbsInt(delta_y) > kBackGestureMaxVerticalOffset) {
     return false;
   }
 

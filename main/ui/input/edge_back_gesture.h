@@ -14,7 +14,9 @@ namespace lilygo_box::ui {
 // 边缘返回滑动状态
 struct EdgeBackSwipeState {
   lv_point_t start_point = {};
+  int indicator_center_y = 0;
   bool tracking = false;
+  bool active = false;
   bool from_left_edge = false;
   bool from_right_edge = false;
 };
