@@ -10,6 +10,7 @@ set(src_dirs
     "ui/icon"
     "ui/input"
     "ui/views"
+    "ui/views/settings"
     "ui/widgets")
 
 if(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
