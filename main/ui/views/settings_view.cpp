@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <new>
 
 #include "app/settings_catalog.h"
@@ -148,6 +149,84 @@ void WifiRowClickedEventCallback(lv_event_t* event) {
 }
 
 /**
+ * @brief 从设置主页打开蓝牙详情页
+ * @param event LVGL 事件对象
+ */
+void BluetoothRowClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+
+  ShowBluetoothPage(
+      static_cast<SettingsViewState*>(lv_event_get_user_data(event)));
+}
+
+/**
+ * @brief 从设置主页打开个人热点详情页
+ * @param event LVGL 事件对象
+ */
+void HotspotRowClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+
+  ShowPersonalHotspotPage(
+      static_cast<SettingsViewState*>(lv_event_get_user_data(event)));
+}
+
+/**
+ * @brief 从设置主页打开锁屏详情页
+ * @param event LVGL 事件对象
+ */
+void LockScreenRowClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+
+  ShowLockScreenPage(
+      static_cast<SettingsViewState*>(lv_event_get_user_data(event)));
+}
+
+/**
+ * @brief 从设置主页打开显示与亮度详情页
+ * @param event LVGL 事件对象
+ */
+void DisplayBrightnessRowClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+
+  ShowDisplayBrightnessPage(
+      static_cast<SettingsViewState*>(lv_event_get_user_data(event)));
+}
+
+/**
+ * @brief 从设置主页打开声音与触感详情页
+ * @param event LVGL 事件对象
+ */
+void SoundRowClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+
+  ShowSoundHapticsPage(
+      static_cast<SettingsViewState*>(lv_event_get_user_data(event)));
+}
+
+/**
+ * @brief 从设置主页打开省电与电池详情页
+ * @param event LVGL 事件对象
+ */
+void PowerBatteryRowClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+
+  ShowPowerBatteryPage(
+      static_cast<SettingsViewState*>(lv_event_get_user_data(event)));
+}
+
+/**
  * @brief 创建单个设置项
  * @param parent 父对象
  * @param item 设置项
@@ -241,7 +320,11 @@ const char* WifiValueText(
     return "Off";
   }
   if (status.got_ip || status.connected) {
-    return kWifiSavedSsid5G;
+    if (status.ssid[0] != '\0') {
+      std::snprintf(buffer, size, "%s", status.ssid);
+      return buffer;
+    }
+    return "Connected";
   }
   if (status.init_task_running) {
     return "Starting";
@@ -290,6 +373,24 @@ bool CreateSettingsList(lv_obj_t* parent, const AppViewConfig& config,
     } else if (IsId(item.id, "wlan")) {
       lv_obj_add_event_cb(
           row, WifiRowClickedEventCallback, LV_EVENT_CLICKED, state);
+    } else if (IsId(item.id, "bluetooth")) {
+      lv_obj_add_event_cb(
+          row, BluetoothRowClickedEventCallback, LV_EVENT_CLICKED, state);
+    } else if (IsId(item.id, "personal_hotspot")) {
+      lv_obj_add_event_cb(
+          row, HotspotRowClickedEventCallback, LV_EVENT_CLICKED, state);
+    } else if (IsId(item.id, "lock_screen")) {
+      lv_obj_add_event_cb(
+          row, LockScreenRowClickedEventCallback, LV_EVENT_CLICKED, state);
+    } else if (IsId(item.id, "display_brightness")) {
+      lv_obj_add_event_cb(row, DisplayBrightnessRowClickedEventCallback,
+          LV_EVENT_CLICKED, state);
+    } else if (IsId(item.id, "sound")) {
+      lv_obj_add_event_cb(
+          row, SoundRowClickedEventCallback, LV_EVENT_CLICKED, state);
+    } else if (IsId(item.id, "power_battery")) {
+      lv_obj_add_event_cb(
+          row, PowerBatteryRowClickedEventCallback, LV_EVENT_CLICKED, state);
     }
     lv_obj_set_pos(row, 0, y);
     y += kRowHeight;

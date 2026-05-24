@@ -248,6 +248,12 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ConnectWifi(const char* ssid, const char* password) override;
 
   /**
+   * @brief 取消当前 hosted WiFi 连接等待状态并保持 STA 启动
+   * @return 取消成功或当前无需取消返回 true，否则返回 false
+   */
+  bool CancelWifiConnection() override;
+
+  /**
    * @brief 启动 WiFi 获取时间测试并连接工厂测试热点
    * @return 启动命令发送成功返回 true，否则返回 false
    */
@@ -371,9 +377,20 @@ class TDisplayP4Device final : public ScreenProvider,
   static void WifiInitTaskEntry(void* context);
 
   /**
+   * @brief hosted WiFi 扫描任务入口
+   * @param context 设备对象指针
+   */
+  static void WifiScanTaskEntry(void* context);
+
+  /**
    * @brief 执行 hosted WiFi 异步初始化
    */
   void RunWifiInitTask();
+
+  /**
+   * @brief 执行官方示例同款的阻塞 WLAN 扫描流程
+   */
+  void RunWifiScanTask();
 
   /**
    * @brief 等待 ESP32-C6 桥接芯片完成上电复位
@@ -530,6 +547,8 @@ class TDisplayP4Device final : public ScreenProvider,
     void* netif = nullptr;
     // 是否正在执行异步 WiFi 扫描。
     std::atomic<bool> scan_running{false};
+    // 后台扫描任务是否还在执行。
+    std::atomic<bool> scan_task_running{false};
     // 最近一次 WiFi 扫描是否失败。
     std::atomic<bool> scan_failed{false};
     // 扫描结果版本号，结果刷新后递增。
@@ -538,6 +557,8 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<size_t> scan_network_count{0};
     // 供 UI 轮询读取的热点扫描缓存。
     WifiNetworkInfo scan_networks[kMaxWifiScanNetworkCount] = {};
+    // 最近一次扫描开始 tick，用来在事件丢失时软超时。
+    std::atomic<uint32_t> scan_started_tick{0};
   };
 
   struct WifiTimeTestState {

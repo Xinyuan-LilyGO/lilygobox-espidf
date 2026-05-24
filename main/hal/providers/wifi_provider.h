@@ -127,6 +127,12 @@ class WifiProvider {
   virtual bool ConnectWifi(const char* ssid, const char* password) = 0;
 
   /**
+   * @brief 取消当前 WiFi 连接等待状态并保持 WiFi 驱动开启
+   * @return 取消成功或当前无需取消返回 true，否则返回 false
+   */
+  virtual bool CancelWifiConnection() = 0;
+
+  /**
    * @brief 临时打开 WiFi 并连接工厂测试热点获取网络时间
    * @return 启动命令发送成功返回 true，否则返回 false
    */

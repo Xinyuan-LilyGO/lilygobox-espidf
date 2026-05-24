@@ -23,6 +23,10 @@
 namespace lilygo_box::ui {
 namespace {
 
+/**
+ * @brief 处理设备名称行点击事件并打开编辑页
+ * @param event LVGL 事件对象
+ */
 void DeviceNameRowClickedEventCallback(lv_event_t* event);
 
 /**
