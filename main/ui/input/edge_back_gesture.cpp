@@ -1,5 +1,5 @@
 /*
- * @Description: Edge back gesture common interface
+ * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-12 22:15:00
  * @LastEditTime: 2026-05-18 12:00:00
@@ -9,17 +9,16 @@
 
 #include <cstdint>
 
+#include "hal/lvgl_port.h"
 #include "ui/font/font_assets.h"
 #include "ui/font/material_symbols_assets.h"
 
 namespace lilygo_box::ui {
 namespace {
 
-constexpr int kIndicatorMinWidth = 56;
-constexpr int kIndicatorMaxWidth = 84;
-constexpr int kIndicatorMinHeight = 96;
-constexpr int kIndicatorMaxHeight = 132;
-constexpr int kIndicatorVisibleWidth = 42;
+constexpr int kIndicatorMinDiameter = 96;
+constexpr int kIndicatorMaxDiameter = 132;
+constexpr int kIndicatorVisibleDivisor = 3;
 constexpr int kIndicatorAnimationMs = 120;
 constexpr int kIndicatorMinOpacity = 150;
 constexpr int kIndicatorMaxOpacity = 238;
@@ -36,6 +35,16 @@ lv_opa_t g_back_indicator_opacity = LV_OPA_TRANSP;
  * @return 绝对值
  */
 int AbsInt(int value) { return value < 0 ? -value : value; }
+
+/**
+ * @brief 判断触摸点 X 坐标是否在屏幕宽度范围内。
+ * @param point 触摸点坐标。
+ * @param screen_width 屏幕宽度。
+ * @return X 坐标在屏幕范围内返回 true，否则返回 false。
+ */
+bool IsPointInsideScreen(lv_point_t point, int screen_width) {
+  return point.x >= 0 && point.x < screen_width;
+}
 
 /**
  * @brief 将整数限制在指定范围内
@@ -169,12 +178,10 @@ void UpdateBackIndicator(
   lv_obj_move_to_index(g_back_indicator, -1);
 
   const int progress = GestureProgressPermille(state, point);
-  const int width = kIndicatorMinWidth +
-                    (kIndicatorMaxWidth - kIndicatorMinWidth) * progress /
-                        1000;
-  const int height = kIndicatorMinHeight +
-                     (kIndicatorMaxHeight - kIndicatorMinHeight) * progress /
-                         1000;
+  const int diameter =
+      kIndicatorMinDiameter +
+      (kIndicatorMaxDiameter - kIndicatorMinDiameter) * progress / 1000;
+  const int visible_width = diameter / kIndicatorVisibleDivisor;
   const int opacity =
       kIndicatorMinOpacity +
       (kIndicatorMaxOpacity - kIndicatorMinOpacity) * progress / 1000;
@@ -182,21 +189,31 @@ void UpdateBackIndicator(
   if (parent_height <= 0) {
     parent_height = lv_obj_get_height(lv_screen_active());
   }
-  const int max_y = parent_height > height ? parent_height - height : 0;
+  const int max_y = parent_height > diameter ? parent_height - diameter : 0;
   const int center_y = state.indicator_center_y;
-  const int y = ClampInt(center_y - height / 2, 0, max_y);
-  const int x = state.from_left_edge ? -(width - kIndicatorVisibleWidth)
-                                     : screen_width - kIndicatorVisibleWidth;
+  const int y = ClampInt(center_y - diameter / 2, 0, max_y);
+  const int x = state.from_left_edge ? -(diameter - visible_width)
+                                     : screen_width - visible_width;
+  const int icon_offset =
+      state.from_left_edge ? (diameter - visible_width) / 2
+                           : -(diameter - visible_width) / 2;
 
-  lv_obj_set_size(g_back_indicator, width, height);
+  lv_obj_set_size(g_back_indicator, diameter, diameter);
   lv_obj_set_pos(g_back_indicator, x, y);
-  lv_obj_set_style_radius(g_back_indicator, height / 2, LV_PART_MAIN);
+  lv_obj_set_style_radius(g_back_indicator, LV_RADIUS_CIRCLE, LV_PART_MAIN);
   SetBackIndicatorOpacity(g_back_indicator, opacity);
 
-  lv_label_set_text(g_back_indicator_icon,
-      state.from_left_edge ? icon::kChevronRight : icon::kArrowBack);
-  lv_obj_align(g_back_indicator_icon, LV_ALIGN_CENTER,
-      state.from_left_edge ? 8 : -8, 0);
+  lv_label_set_text(g_back_indicator_icon, icon::kChevronRight);
+  lv_obj_update_layout(g_back_indicator_icon);
+  lv_obj_set_style_transform_pivot_x(
+      g_back_indicator_icon, lv_obj_get_width(g_back_indicator_icon) / 2,
+      LV_PART_MAIN);
+  lv_obj_set_style_transform_pivot_y(
+      g_back_indicator_icon, lv_obj_get_height(g_back_indicator_icon) / 2,
+      LV_PART_MAIN);
+  lv_obj_set_style_transform_rotation(
+      g_back_indicator_icon, state.from_left_edge ? 0 : 1800, LV_PART_MAIN);
+  lv_obj_align(g_back_indicator_icon, LV_ALIGN_CENTER, icon_offset, 0);
 }
 
 /**
@@ -262,9 +279,21 @@ bool HandleEdgeBackSwipeEvent(
 
   if (code == LV_EVENT_PRESSED) {
     const int edge_width = BackGestureEdgeWidth(screen_width);
+    const bool valid_x = IsPointInsideScreen(point, screen_width);
+    const bool hardware_edge = hal::LvglPort::ActiveInputEdgeTouch();
     state->start_point = point;
-    state->from_left_edge = point.x <= edge_width;
-    state->from_right_edge = point.x >= screen_width - edge_width;
+    state->from_left_edge = valid_x && point.x <= edge_width;
+    state->from_right_edge = valid_x && point.x >= screen_width - edge_width;
+    if (hardware_edge && valid_x && !state->from_left_edge &&
+        !state->from_right_edge) {
+      state->from_left_edge = point.x < screen_width / 2;
+      state->from_right_edge = !state->from_left_edge;
+    }
+    if (hardware_edge && state->from_left_edge) {
+      state->start_point.x = 0;
+    } else if (hardware_edge && state->from_right_edge) {
+      state->start_point.x = screen_width - 1;
+    }
     state->tracking = state->from_left_edge || state->from_right_edge;
     state->active = false;
     state->indicator_center_y = point.y;

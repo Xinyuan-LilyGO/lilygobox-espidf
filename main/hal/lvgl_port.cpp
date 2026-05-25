@@ -16,6 +16,22 @@
 #include "freertos/task.h"
 
 namespace lilygo_box::hal {
+namespace {
+
+/**
+ * @brief 判断触摸点坐标是否落在当前屏幕有效范围内。
+ * @param point 触摸点信息。
+ * @param screen_width 屏幕宽度。
+ * @param screen_height 屏幕高度。
+ * @return 触摸点坐标有效返回 true，否则返回 false。
+ */
+bool IsValidTouchPoint(const TouchPoint& point, int screen_width,
+    int screen_height) {
+  return point.x >= 0 && point.x < screen_width && point.y >= 0 &&
+         point.y < screen_height;
+}
+
+}  // namespace
 
 bool LvglPort::Init(ScreenProvider* screen) {
   if (screen == nullptr) {
@@ -89,6 +105,20 @@ bool LvglPort::Start() {
   return result == pdPASS;
 }
 
+/**
+ * @brief 判断当前 LVGL 输入是否带有硬件边缘触摸标志。
+ * @return 当前输入来自硬件边缘触摸检测返回 true，否则返回 false。
+ */
+bool LvglPort::ActiveInputEdgeTouch() {
+  lv_indev_t* indev = lv_indev_active();
+  if (indev == nullptr) {
+    return false;
+  }
+
+  auto* self = static_cast<LvglPort*>(lv_indev_get_user_data(indev));
+  return self != nullptr && self->active_edge_touch_flag_;
+}
+
 void LvglPort::Lock() { _lock_acquire(&lock_); }
 
 void LvglPort::Unlock() { _lock_release(&lock_); }
@@ -127,12 +157,42 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
   TouchPoint point;
   const bool result = self->screen_->ReadScreenTouch(&point);
   if (result) {
+    const bool valid_point =
+        IsValidTouchPoint(point, self->screen_->ScreenWidth(),
+            self->screen_->ScreenHeight());
+    if (!valid_point) {
+      if (point.edge_touch_flag) {
+        self->pending_edge_touch_flag_ = true;
+      }
+      if (!self->has_last_touch_point_) {
+        data->state = LV_INDEV_STATE_REL;
+        return;
+      }
+
+      self->active_edge_touch_flag_ = self->active_edge_touch_flag_ ||
+                                      self->pending_edge_touch_flag_ ||
+                                      point.edge_touch_flag;
+      data->state = LV_INDEV_STATE_PR;
+      data->point = self->last_touch_point_;
+      return;
+    }
+
+    self->active_edge_touch_flag_ =
+        point.edge_touch_flag || self->pending_edge_touch_flag_;
+    self->pending_edge_touch_flag_ = false;
+    self->has_last_touch_point_ = true;
+    self->last_touch_point_.x = point.x;
+    self->last_touch_point_.y = point.y;
+
     data->state = LV_INDEV_STATE_PR;
     data->point.x = point.x;
     data->point.y = point.y;
     return;
   }
 
+  self->active_edge_touch_flag_ = false;
+  self->pending_edge_touch_flag_ = false;
+  self->has_last_touch_point_ = false;
   data->state = LV_INDEV_STATE_REL;
 }
 

@@ -17,6 +17,7 @@ struct TouchPoint {
   int16_t x = 0;
   int16_t y = 0;
   uint8_t pressure = 0;
+  bool edge_touch_flag = false;
 };
 
 using ScreenProviderFlushReadyCallback = void (*)(void* context);

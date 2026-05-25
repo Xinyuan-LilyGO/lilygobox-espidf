@@ -559,6 +559,8 @@ class TDisplayP4Device final : public ScreenProvider,
     WifiNetworkInfo scan_networks[kMaxWifiScanNetworkCount] = {};
     // 最近一次扫描开始 tick，用来在事件丢失时软超时。
     std::atomic<uint32_t> scan_started_tick{0};
+    // ReadWifiScanStatus 超时处理是否已经标记，防止扫描任务返回后重复递增 generation
+    std::atomic<bool> scan_timeout_handled{false};
   };
 
   struct WifiTimeTestState {

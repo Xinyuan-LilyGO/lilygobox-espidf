@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-15 09:50:08
+ * @LastEditTime: 2026-05-25 17:28:36
  * @License: GPL 3.0
  */
 #include "hal/device/t_display_p4/t_display_p4_device.h"
@@ -306,6 +306,7 @@ bool TDisplayP4Device::StopWifi() {
     wifi_.scan_failed.store(false);
     wifi_.scan_network_count.store(0);
     wifi_.scan_generation.fetch_add(1);
+    wifi_.scan_timeout_handled.store(false);
     wifi_.ip_address.store(0);
     wifi_.netmask.store(0);
     wifi_.gateway.store(0);
@@ -338,6 +339,7 @@ bool TDisplayP4Device::StopWifi() {
   wifi_.scan_task_running.store(false);
   wifi_.scan_started_tick.store(0);
   wifi_.scan_failed.store(false);
+  wifi_.scan_timeout_handled.store(false);
   wifi_.ip_address.store(0);
   wifi_.netmask.store(0);
   wifi_.gateway.store(0);
@@ -359,6 +361,7 @@ bool TDisplayP4Device::StartWifiScan() {
   }
 
   wifi_.scan_failed.store(false);
+  wifi_.scan_timeout_handled.store(false);
   wifi_.last_error.store(ESP_OK);
   wifi_.scan_running.store(true);
   wifi_.scan_started_tick.store(static_cast<uint32_t>(xTaskGetTickCount()));
@@ -396,6 +399,10 @@ bool TDisplayP4Device::ReadWifiScanStatus(WifiScanStatus* status) {
       wifi_.scan_started_tick.store(0);
       wifi_.scan_failed.store(true);
       wifi_.last_error.store(ESP_ERR_TIMEOUT);
+      // 标记超时已处理，避免 RunWifiScanTask 返回后重复递增 scan_generation。
+      // 注意：scan_task_running 保持为 true，因为实际 FreeRTOS 任务仍阻塞在
+      // esp_wifi_scan_start 等待 C6 RPC 响应。此时不能启动新扫描或连接。
+      wifi_.scan_timeout_handled.store(true);
       wifi_.scan_generation.fetch_add(1);
     }
   }
@@ -751,12 +758,21 @@ bool TDisplayP4Device::ReadScreenTouch(TouchPoint* point) {
       const bool result =
           driver_.chip().hi8561_touch->GetSingleTouchPoint(touch_point);
       if (!result || touch_point.info.empty()) {
+        if (driver_.chip().hi8561_touch->GetEdgeTouch()) {
+          point->id = 0;
+          point->x = -1;
+          point->y = -1;
+          point->pressure = 0;
+          point->edge_touch_flag = true;
+          return true;
+        }
         return false;
       }
       point->id = 1;
       point->x = touch_point.info[0].x;
       point->y = touch_point.info[0].y;
       point->pressure = touch_point.info[0].pressure_value;
+      point->edge_touch_flag = touch_point.edge_touch_flag;
       return true;
     }
     case device::ScreenType::kRm69a10: {
@@ -770,6 +786,7 @@ bool TDisplayP4Device::ReadScreenTouch(TouchPoint* point) {
       point->x = touch_point.info[0].x;
       point->y = touch_point.info[0].y;
       point->pressure = touch_point.info[0].pressure_value;
+      point->edge_touch_flag = touch_point.edge_touch_flag;
       return true;
     }
     default:
@@ -810,6 +827,7 @@ bool TDisplayP4Device::ReadScreenTouchPoints(
         points[*point_count].x = touch_point.info[i].x;
         points[*point_count].y = touch_point.info[i].y;
         points[*point_count].pressure = touch_point.info[i].pressure_value;
+        points[*point_count].edge_touch_flag = touch_point.edge_touch_flag;
         ++(*point_count);
       }
       return *point_count > 0;
@@ -832,6 +850,7 @@ bool TDisplayP4Device::ReadScreenTouchPoints(
         points[*point_count].x = touch_point.info[i].x;
         points[*point_count].y = touch_point.info[i].y;
         points[*point_count].pressure = touch_point.info[i].pressure_value;
+        points[*point_count].edge_touch_flag = touch_point.edge_touch_flag;
         ++(*point_count);
       }
       return *point_count > 0;
@@ -1654,10 +1673,31 @@ void TDisplayP4Device::RunWifiScanTask() {
   if (scan_result == ESP_OK) {
     CopyWifiScanResultsFromDriver();
   } else {
-    wifi_.scan_failed.store(true);
-    wifi_.last_error.store(scan_result);
-    wifi_.scan_network_count.store(0);
-    wifi_.scan_generation.fetch_add(1);
+    // ReadWifiScanStatus 可能已通过 P4 侧超时处理了这次失败，
+    // 此时 scan_timeout_handled 为 true，避免重复递增 scan_generation。
+    if (!wifi_.scan_timeout_handled.exchange(false)) {
+      wifi_.scan_failed.store(true);
+      wifi_.last_error.store(scan_result);
+      wifi_.scan_network_count.store(0);
+      wifi_.scan_generation.fetch_add(1);
+    }
+    // 扫描 RPC 超时后 C6 WiFi 可能处于无效状态。
+    // 尝试 stop + start 尽可能恢复 C6 侧 WiFi 栈，避免后续
+    // ConnectWifi / StartWifiScan 触发 SDIO 崩溃。
+    // 如果 stop/start 也失败，至少不会让问题更严重。
+    if (scan_result == ESP_ERR_TIMEOUT || scan_result == ESP_FAIL) {
+      const esp_err_t stop_result = esp_wifi_stop();
+      if (stop_result == ESP_OK || stop_result == ESP_ERR_WIFI_NOT_STARTED ||
+          stop_result == ESP_ERR_INVALID_STATE ||
+          stop_result == ESP_ERR_WIFI_STATE) {
+        esp_wifi_set_mode(WIFI_MODE_STA);
+        const esp_err_t start_result = esp_wifi_start();
+        if (start_result == ESP_OK || start_result == ESP_ERR_INVALID_STATE ||
+            start_result == ESP_ERR_WIFI_STATE) {
+          wifi_.running.store(true);
+        }
+      }
+    }
   }
 
   wifi_.scan_running.store(false);

@@ -35,6 +35,12 @@ class LvglPort final {
   bool Start();
 
   /**
+   * @brief 判断当前 LVGL 输入是否带有硬件边缘触摸标志。
+   * @return 当前输入来自硬件边缘触摸检测返回 true，否则返回 false。
+   */
+  static bool ActiveInputEdgeTouch();
+
+  /**
    * @brief 获取 LVGL 显示对象
    * @return LVGL 显示对象指针
    */
@@ -110,6 +116,10 @@ class LvglPort final {
   ScreenProvider* screen_ = nullptr;
   lv_display_t* lvgl_display_ = nullptr;
   lv_indev_t* input_device_ = nullptr;
+  bool active_edge_touch_flag_ = false;
+  bool pending_edge_touch_flag_ = false;
+  bool has_last_touch_point_ = false;
+  lv_point_t last_touch_point_ = {};
   _lock_t lock_ = nullptr;
 };
 
