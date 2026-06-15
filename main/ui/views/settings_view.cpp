@@ -9,7 +9,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <new>
 
 #include "app/settings_catalog.h"
@@ -231,10 +230,16 @@ void PowerBatteryRowClickedEventCallback(lv_event_t* event) {
  * @param parent 父对象
  * @param item 设置项
  * @param width 设置项宽度
+ * @param value_label_output 右侧值标签输出地址，可为 nullptr
  * @return 创建成功返回对象指针，否则返回 nullptr
  */
-lv_obj_t* CreateSettingsRow(
-    lv_obj_t* parent, const app::SettingsEntry& item, int width) {
+lv_obj_t* CreateSettingsRow(lv_obj_t* parent,
+    const app::SettingsEntry& item, int width,
+    lv_obj_t** value_label_output) {
+  if (value_label_output != nullptr) {
+    *value_label_output = nullptr;
+  }
+
   lv_obj_t* row = lv_obj_create(parent);
   if (row == nullptr) {
     return nullptr;
@@ -293,57 +298,51 @@ lv_obj_t* CreateSettingsRow(
         value, width - 2 * kPagePaddingX - kTextLeft - kValueRight - 40);
     lv_obj_align(
         value, LV_ALIGN_RIGHT_MID, -(kPagePaddingX + kValueRight), 1);
+    if (value_label_output != nullptr) {
+      *value_label_output = value;
+    }
   }
 
   return row;
 }
 
 /**
- * @brief 根据 WiFi 状态更新 WiFi 设置项显示值
+ * @brief 读取当前 WLAN 是否处于开启或正在开启状态
  * @param config app 页面配置
- * @param buffer 文本缓冲区
- * @param size 文本缓冲区大小
- * @return 文本指针
+ * @return WLAN 正在运行、连接、初始化或扫描时返回 true
  */
-const char* WifiValueText(
-    const AppViewConfig& config, char* buffer, size_t size) {
-  if (buffer == nullptr || size == 0) {
-    return "";
+bool IsWifiCurrentlyEnabled(const AppViewConfig& config) {
+  if (config.wifi == nullptr) {
+    return false;
   }
-  buffer[0] = '\0';
 
   hal::WifiStatus status;
-  if (config.wifi == nullptr || !config.wifi->ReadWifiStatus(&status)) {
-    return "";
-  }
-  if (!status.running) {
-    return "Off";
-  }
-  if (status.got_ip || status.connected) {
-    if (status.ssid[0] != '\0') {
-      std::snprintf(buffer, size, "%s", status.ssid);
-      return buffer;
-    }
-    return "Connected";
-  }
-  if (status.init_task_running) {
-    return "Starting";
-  }
-  return "On";
+  hal::WifiScanStatus scan_status;
+  config.wifi->ReadWifiStatus(&status);
+  config.wifi->ReadWifiScanStatus(&scan_status);
+  return status.running || status.connected || status.got_ip ||
+         status.init_task_running || scan_status.scan_running;
+}
+
+/**
+ * @brief 根据 WLAN 开关状态生成设置主页右侧 On/Off 文本
+ * @param state 设置页状态
+ * @return WLAN 打开返回 On，否则返回 Off
+ */
+const char* WifiValueText(const SettingsViewState* state) {
+  return state != nullptr && state->wifi_enabled_requested ? "On" : "Off";
 }
 
 /**
  * @brief 创建设置列表
  * @param parent 父对象
- * @param config app 页面配置
  * @param width 列表宽度
  * @param state 设置页面状态
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateSettingsList(lv_obj_t* parent, const AppViewConfig& config,
-    int width, SettingsViewState* state) {
+bool CreateSettingsList(
+    lv_obj_t* parent, int width, SettingsViewState* state) {
   const app::SettingsCatalog& catalog = app::GetSettingsCatalog();
-  char wifi_value[32] = {};
   int y = 0;
   for (size_t i = 0; i < catalog.entry_count; ++i) {
     app::SettingsEntry item = catalog.entries[i];
@@ -360,10 +359,12 @@ bool CreateSettingsList(lv_obj_t* parent, const AppViewConfig& config,
     }
 
     if (IsId(item.id, "wlan")) {
-      item.value = WifiValueText(config, wifi_value, sizeof(wifi_value));
+      item.value = WifiValueText(state);
     }
 
-    lv_obj_t* row = CreateSettingsRow(parent, item, width);
+    lv_obj_t* wifi_value_label = nullptr;
+    lv_obj_t* row = CreateSettingsRow(parent, item, width,
+        IsId(item.id, "wlan") ? &wifi_value_label : nullptr);
     if (row == nullptr) {
       return false;
     }
@@ -371,6 +372,7 @@ bool CreateSettingsList(lv_obj_t* parent, const AppViewConfig& config,
       lv_obj_add_event_cb(
           row, MyDeviceRowClickedEventCallback, LV_EVENT_CLICKED, state);
     } else if (IsId(item.id, "wlan")) {
+      state->wifi_value_label = wifi_value_label;
       lv_obj_add_event_cb(
           row, WifiRowClickedEventCallback, LV_EVENT_CLICKED, state);
     } else if (IsId(item.id, "bluetooth")) {
@@ -401,6 +403,17 @@ bool CreateSettingsList(lv_obj_t* parent, const AppViewConfig& config,
 }  // namespace
 
 /**
+ * @brief 按当前 WLAN 开关请求状态刷新设置主页 WLAN 行右侧文字
+ * @param state 设置页状态
+ */
+void UpdateSettingsWifiValue(SettingsViewState* state) {
+  if (state == nullptr || state->wifi_value_label == nullptr) {
+    return;
+  }
+  lv_label_set_text(state->wifi_value_label, WifiValueText(state));
+}
+
+/**
  * @brief 创建设置主页视图
  * @param parent 父对象
  * @param config app 页面配置
@@ -423,6 +436,7 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
   }
   state->config = config;
   state->root = root;
+  state->wifi_enabled_requested = IsWifiCurrentlyEnabled(config);
   lv_obj_add_event_cb(
       root, SettingsViewDeleteEventCallback, LV_EVENT_DELETE, state);
 
@@ -458,7 +472,7 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
   lv_obj_add_flag(list, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLL_ELASTIC);
 
-  if (!CreateSettingsList(list, config, config.width, state)) {
+  if (!CreateSettingsList(list, config.width, state)) {
     lv_obj_delete(root);
     return nullptr;
   }

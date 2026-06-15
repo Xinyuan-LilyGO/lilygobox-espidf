@@ -113,7 +113,9 @@ constexpr int kWifiPasswordKeyboardHeightPercent = 35;
 constexpr size_t kWifiPasswordMinLength = 8;
 constexpr size_t kWifiSavedNetworkCapacity = hal::kMaxWifiScanNetworkCount;
 constexpr size_t kWifiActionCapacity = hal::kMaxWifiScanNetworkCount * 2 + 6;
-constexpr uint32_t kWifiBlueColor = 0x4D82F5;
+constexpr size_t kWifiSubPageStackCapacity = 4;
+constexpr uint32_t kWifiBlueColor = 0x3F82F6;
+constexpr uint32_t kWifiConnectingColor = 0xF5A623;
 constexpr uint32_t kWifiCardColor = 0xF6F7F9;
 constexpr uint32_t kWifiMutedColor = 0xA5A5AD;
 constexpr uint32_t kWifiControlColor = 0xF0F1F3;
@@ -172,6 +174,8 @@ struct SettingsViewState {
   lv_obj_t* name_edit_keyboard = nullptr;
   lv_obj_t* wifi_page = nullptr;
   lv_obj_t* wifi_sub_page = nullptr;
+  // WLAN 二级页面栈，保持高级设置、已保存网络和网络详情的返回层级。
+  lv_obj_t* wifi_sub_pages[kWifiSubPageStackCapacity] = {};
   lv_obj_t* wifi_modal_overlay = nullptr;
   lv_obj_t* wifi_modal_sheet = nullptr;
   lv_obj_t* wifi_password_text_area = nullptr;
@@ -188,8 +192,12 @@ struct SettingsViewState {
   // WLAN 页面定时刷新器，用来轮询 HAL 扫描和连接状态。
   lv_timer_t* wifi_refresh_timer = nullptr;
   lv_obj_t* device_name_value_label = nullptr;
+  // 设置主页 WLAN 行右侧的 On/Off 文本。
+  lv_obj_t* wifi_value_label = nullptr;
   // WLAN 列表行点击参数池，避免 LVGL 回调使用临时地址。
   WifiNetworkAction wifi_actions[kWifiActionCapacity] = {};
+  // 已保存网络删除按钮参数池，不占用主 WLAN 列表行点击参数。
+  WifiNetworkAction wifi_saved_delete_actions[kWifiSavedNetworkCapacity] = {};
   // 当前弹窗正在处理的 WLAN，复制出来避免列表刷新后地址失效。
   WifiNetworkAction wifi_pending_action = {};
   EdgeBackSwipeState detail_swipe = {};
@@ -199,6 +207,9 @@ struct SettingsViewState {
   EdgeBackSwipeState settings_extra_swipe = {};
   EdgeBackSwipeState settings_nested_swipe = {};
   size_t wifi_action_count = 0;
+  size_t wifi_saved_delete_action_count = 0;
+  // 当前 WLAN 二级页面栈深度，wifi_sub_page 始终指向栈顶页面。
+  size_t wifi_sub_page_count = 0;
   // 上一次渲染的 WLAN 状态摘要，用来跳过重复刷新。
   uint32_t wifi_refresh_key = 0;
   bool detail_closing = false;
@@ -213,6 +224,8 @@ struct SettingsViewState {
   bool wifi_scan_on_ready = false;
   // 本次自动扫描请求发起前的扫描结果版本号。
   uint32_t wifi_scan_request_generation = 0;
+  // 驱动初始化完成后补发一次自动连接请求。
+  bool wifi_auto_connect_on_ready = false;
   // 标记下一次定时刷新必须重建 WLAN 页面。
   bool wifi_refresh_force = false;
   // WLAN 页面发起连接后等待连接结果。
@@ -344,6 +357,12 @@ lv_obj_t* CreateDivider(lv_obj_t* parent, int width);
  * @param state 设置页状态
  */
 void RestoreSettingsListGestures(SettingsViewState* state);
+
+/**
+ * @brief 按当前 WLAN 开关请求状态刷新设置主页 WLAN 行右侧文字
+ * @param state 设置页状态
+ */
+void UpdateSettingsWifiValue(SettingsViewState* state);
 
 /**
  * @brief 创建透明工具按钮

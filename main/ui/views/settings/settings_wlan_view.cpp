@@ -78,10 +78,23 @@ void MoveWifiConnectSheetForKeyboard(
 void UpdateWifiConnectTimeout(SettingsViewState* state);
 
 /**
+ * @brief 清理 WLAN 连接等待和失败重试状态
+ * @param state 设置页状态
+ */
+void ResetWifiConnectionState(SettingsViewState* state);
+
+/**
  * @brief 请求驱动层执行一次 WLAN 扫描
  * @param state 设置页状态
  */
 void RequestWifiScan(SettingsViewState* state);
+
+/**
+ * @brief 尝试连接当前设置为自动连接的 WLAN
+ * @param state 设置页状态
+ * @return 已发起或已安排自动连接返回 true，否则返回 false
+ */
+bool TryStartWifiAutoConnect(SettingsViewState* state);
 
 /**
  * @brief 保存或更新用户确认连接后的 WLAN 凭据
@@ -119,6 +132,13 @@ const WifiSavedNetwork* FindSavedWifiNetworkConst(const char* ssid);
 void RemoveSavedWifiNetwork(const char* ssid);
 
 /**
+ * @brief 删除保存凭据并按需断开当前 WLAN
+ * @param state 设置页状态
+ * @param ssid 待删除的热点名称
+ */
+void ForgetSavedWifiNetwork(SettingsViewState* state, const char* ssid);
+
+/**
  * @brief 判断当前待连接 WLAN 是否可以直接重试
  * @param state 设置页状态
  * @return 有保存密码或开放网络返回 true，否则返回 false
@@ -148,6 +168,12 @@ void ReadWifiSnapshots(
  * @param animated 是否播放关闭动画
  */
 void CloseWifiSubPage(SettingsViewState* state, bool animated);
+
+/**
+ * @brief 关闭 WLAN 的全部子页面
+ * @param state 设置页状态
+ */
+void CloseAllWifiSubPages(SettingsViewState* state);
 
 /**
  * @brief 关闭 WLAN 底部弹窗
@@ -188,6 +214,25 @@ bool ShowWifiConnectSheet(
     SettingsViewState* state, const WifiNetworkAction& action);
 
 /**
+ * @brief 创建 WLAN 状态提示文本
+ * @param parent 父对象
+ * @param text 提示文本
+ * @param y 顶部坐标
+ * @param width 页面宽度
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateWifiStatusText(
+    lv_obj_t* parent, const char* text, int y, int width);
+
+/**
+ * @brief 创建已保存 WLAN 为空时的提示文本
+ * @param parent 父对象
+ * @param width 页面宽度
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateWifiSavedEmptyText(lv_obj_t* parent, int width);
+
+/**
  * @brief 设置 WLAN 刷新图标旋转角度
  * @param object 刷新图标对象
  * @param value 旋转角度，单位为 0.1 度
@@ -213,9 +258,11 @@ void WifiCloseCompletedCallback(lv_anim_t* animation) {
 
   lv_obj_t* page = state->wifi_page;
   StopWifiRefreshIconSpin(state);
+  CloseAllWifiSubPages(state);
   state->wifi_page = nullptr;
   state->wifi_body = nullptr;
   state->wifi_sub_page = nullptr;
+  state->wifi_sub_page_count = 0;
   state->wifi_modal_overlay = nullptr;
   state->wifi_modal_sheet = nullptr;
   state->wifi_password_text_area = nullptr;
@@ -231,6 +278,7 @@ void WifiCloseCompletedCallback(lv_anim_t* animation) {
     state->wifi_refresh_timer = nullptr;
   }
   lv_obj_delete(page);
+  UpdateSettingsWifiValue(state);
   RestoreSettingsListGestures(state);
 }
 
@@ -250,7 +298,7 @@ void CloseWifiPage(SettingsViewState* state, bool animated) {
     state->wifi_refresh_timer = nullptr;
   }
   CloseWifiModal(state);
-  CloseWifiSubPage(state, false);
+  CloseAllWifiSubPages(state);
 
   if (animated &&
       StartSlideRightWindowTransition(state->wifi_page, state->config.width,
@@ -264,6 +312,7 @@ void CloseWifiPage(SettingsViewState* state, bool animated) {
   state->wifi_page = nullptr;
   state->wifi_body = nullptr;
   state->wifi_sub_page = nullptr;
+  state->wifi_sub_page_count = 0;
   state->wifi_modal_overlay = nullptr;
   state->wifi_modal_sheet = nullptr;
   state->wifi_password_text_area = nullptr;
@@ -279,6 +328,7 @@ void CloseWifiPage(SettingsViewState* state, bool animated) {
     state->wifi_refresh_timer = nullptr;
   }
   lv_obj_delete(page);
+  UpdateSettingsWifiValue(state);
   RestoreSettingsListGestures(state);
 }
 
@@ -293,6 +343,8 @@ void WifiBackClickedEventCallback(lv_event_t* event) {
 
   CloseWifiPage(
       static_cast<SettingsViewState*>(lv_event_get_user_data(event)), true);
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
 }
 
 /**
@@ -314,9 +366,66 @@ void WifiEdgeBackEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 通过 WLAN 开关启动扫描或关闭 WiFi
- * @param event LVGL 事件对象
+ * @brief 同步 WLAN 子页面栈顶指针和返回手势状态
+ * @param state 设置页状态
  */
+void SyncWifiSubPageTop(SettingsViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+
+  if (state->wifi_sub_page_count == 0) {
+    state->wifi_sub_page = nullptr;
+  } else {
+    state->wifi_sub_page =
+        state->wifi_sub_pages[state->wifi_sub_page_count - 1];
+    if (state->wifi_sub_page != nullptr) {
+      lv_obj_move_to_index(state->wifi_sub_page, -1);
+    }
+  }
+  state->wifi_sub_closing = false;
+  state->wifi_sub_swipe = EdgeBackSwipeState();
+}
+
+/**
+ * @brief 弹出并删除当前 WLAN 子页面
+ * @param state 设置页状态
+ */
+void DeleteWifiSubPageTop(SettingsViewState* state) {
+  if (state == nullptr || state->wifi_sub_page_count == 0) {
+    return;
+  }
+
+  const size_t top_index = state->wifi_sub_page_count - 1;
+  lv_obj_t* page = state->wifi_sub_pages[top_index];
+  state->wifi_sub_pages[top_index] = nullptr;
+  --state->wifi_sub_page_count;
+  if (page != nullptr) {
+    lv_obj_delete(page);
+  }
+  SyncWifiSubPageTop(state);
+}
+
+/**
+ * @brief 删除 WLAN 的全部子页面
+ * @param state 设置页状态
+ */
+void CloseAllWifiSubPages(SettingsViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+
+  for (size_t i = state->wifi_sub_page_count; i > 0; --i) {
+    lv_obj_t* page = state->wifi_sub_pages[i - 1];
+    state->wifi_sub_pages[i - 1] = nullptr;
+    if (page != nullptr) {
+      lv_obj_delete(page);
+    }
+  }
+  state->wifi_sub_page_count = 0;
+  SyncWifiSubPageTop(state);
+}
+
 /**
  * @brief WLAN 子页面关闭动画完成后清理页面对象
  * @param animation LVGL 动画对象
@@ -328,11 +437,7 @@ void WifiSubCloseCompletedCallback(lv_anim_t* animation) {
     return;
   }
 
-  lv_obj_t* page = state->wifi_sub_page;
-  state->wifi_sub_page = nullptr;
-  state->wifi_sub_closing = false;
-  state->wifi_sub_swipe = EdgeBackSwipeState();
-  lv_obj_delete(page);
+  DeleteWifiSubPageTop(state);
 }
 
 /**
@@ -354,11 +459,7 @@ void CloseWifiSubPage(SettingsViewState* state, bool animated) {
     return;
   }
 
-  lv_obj_t* page = state->wifi_sub_page;
-  state->wifi_sub_page = nullptr;
-  state->wifi_sub_closing = false;
-  state->wifi_sub_swipe = EdgeBackSwipeState();
-  lv_obj_delete(page);
+  DeleteWifiSubPageTop(state);
 }
 
 /**
@@ -381,6 +482,21 @@ void CloseWifiModal(SettingsViewState* state) {
 }
 
 /**
+ * @brief 清理 WLAN 连接等待、失败重试和连接节流状态
+ * @param state 设置页状态
+ */
+void ResetWifiConnectionState(SettingsViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+
+  state->wifi_connect_waiting = false;
+  state->wifi_connection_retry_ready = false;
+  state->wifi_connect_started_ms = 0;
+  state->wifi_connect_block_until_ms = 0;
+}
+
+/**
  * @brief 处理 WLAN 子页面顶部返回按钮
  * @param event LVGL 事件对象
  */
@@ -390,6 +506,8 @@ void WifiSubBackClickedEventCallback(lv_event_t* event) {
   }
   CloseWifiSubPage(
       static_cast<SettingsViewState*>(lv_event_get_user_data(event)), true);
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
 }
 
 /**
@@ -427,17 +545,18 @@ void WifiSwitchValueChangedEventCallback(lv_event_t* event) {
 
   if (lv_obj_has_state(target, LV_STATE_CHECKED)) {
     state->wifi_enabled_requested = true;
-    RequestWifiScan(state);
+    if (!TryStartWifiAutoConnect(state)) {
+      RequestWifiScan(state);
+    }
   } else {
     state->wifi_enabled_requested = false;
-    state->wifi_connect_waiting = false;
-    state->wifi_connection_retry_ready = false;
-    state->wifi_connect_started_ms = 0;
-    state->wifi_connect_block_until_ms = 0;
+    state->wifi_auto_connect_on_ready = false;
+    ResetWifiConnectionState(state);
     state->wifi_scan_on_ready = false;
     state->wifi_scan_request_generation = 0;
     state->config.wifi->StopWifi();
   }
+  UpdateSettingsWifiValue(state);
   state->wifi_refresh_force = true;
 }
 
@@ -480,7 +599,9 @@ bool StartWifiConnection(SettingsViewState* state, const char* password) {
   }
 
   state->wifi_enabled_requested = true;
+  UpdateSettingsWifiValue(state);
   state->wifi_scan_on_ready = false;
+  state->wifi_auto_connect_on_ready = false;
   if (state->wifi_pending_action.saved) {
     SaveWifiNetworkCredential(state->wifi_pending_action, connect_password);
   }
@@ -502,6 +623,62 @@ bool StartWifiConnection(SettingsViewState* state, const char* password) {
     lv_timer_ready(state->wifi_refresh_timer);
   }
   return state->wifi_connect_waiting;
+}
+
+/**
+ * @brief 按当前自动连接 SSID 发起连接或等待驱动初始化后连接
+ * @param state 设置页状态
+ * @return 已连接、已发起连接或已安排连接返回 true，否则返回 false
+ */
+bool TryStartWifiAutoConnect(SettingsViewState* state) {
+  if (state == nullptr || state->config.wifi == nullptr ||
+      state->wifi_auto_connect_ssid[0] == '\0') {
+    return false;
+  }
+
+  const WifiSavedNetwork* saved =
+      FindSavedWifiNetworkConst(state->wifi_auto_connect_ssid);
+  if (saved == nullptr || (saved->secure && saved->password[0] == '\0')) {
+    state->wifi_auto_connect_on_ready = false;
+    return false;
+  }
+
+  hal::WifiStatus status;
+  hal::WifiScanStatus scan_status;
+  ReadWifiSnapshots(state->config, &status, &scan_status);
+  if (scan_status.scan_running || state->wifi_connect_waiting ||
+      IsWifiConnectBlocked(state)) {
+    state->wifi_auto_connect_on_ready = true;
+    return true;
+  }
+  if (!status.driver_initialized || status.init_task_running) {
+    state->wifi_auto_connect_on_ready = true;
+    state->wifi_enabled_requested = true;
+    UpdateSettingsWifiValue(state);
+    if (state->config.wifi->StartWifi()) {
+      return true;
+    }
+    state->wifi_auto_connect_on_ready = false;
+    return false;
+  }
+  if ((status.connected || status.got_ip) &&
+      std::strcmp(status.ssid, saved->ssid) == 0) {
+    state->wifi_auto_connect_on_ready = false;
+    return true;
+  }
+
+  WifiNetworkAction action;
+  action.state = state;
+  std::snprintf(action.ssid, sizeof(action.ssid), "%s", saved->ssid);
+  std::snprintf(action.password, sizeof(action.password), "%s",
+      saved->password);
+  action.secure = saved->secure;
+  action.is_5g = saved->is_5g;
+  action.rssi = saved->rssi;
+  action.saved = true;
+  state->wifi_pending_action = action;
+  state->wifi_auto_connect_on_ready = false;
+  return StartWifiConnection(state, state->wifi_pending_action.password);
 }
 
 /**
@@ -619,6 +796,8 @@ void WifiAdvancedClickedEventCallback(lv_event_t* event) {
 
   ShowWifiAdvancedPage(
       static_cast<SettingsViewState*>(lv_event_get_user_data(event)));
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
 }
 
 /**
@@ -632,6 +811,8 @@ void WifiSavedNetworksClickedEventCallback(lv_event_t* event) {
 
   ShowWifiSavedNetworksPage(
       static_cast<SettingsViewState*>(lv_event_get_user_data(event)));
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
 }
 
 /**
@@ -726,10 +907,18 @@ void WifiAutoConnectChangedEventCallback(lv_event_t* event) {
     std::snprintf(state->wifi_auto_connect_ssid,
         sizeof(state->wifi_auto_connect_ssid), "%s",
         state->wifi_pending_action.ssid);
+    if (state->wifi_enabled_requested) {
+      TryStartWifiAutoConnect(state);
+    }
   } else if (std::strcmp(state->wifi_auto_connect_ssid,
                  state->wifi_pending_action.ssid) == 0) {
     state->wifi_auto_connect_ssid[0] = '\0';
+    state->wifi_auto_connect_on_ready = false;
   }
+  state->wifi_refresh_force = true;
+  RefreshWifiPage(state, true);
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
 }
 
 /**
@@ -745,15 +934,54 @@ void WifiDeleteNetworkClickedEventCallback(lv_event_t* event) {
   if (state == nullptr) {
     return;
   }
-  if (std::strcmp(state->wifi_auto_connect_ssid,
-          state->wifi_pending_action.ssid) == 0) {
-    state->wifi_auto_connect_ssid[0] = '\0';
+
+  char deleted_ssid[hal::kWifiSsidMaxLength + 1] = {};
+  std::snprintf(deleted_ssid, sizeof(deleted_ssid), "%s",
+      state->wifi_pending_action.ssid);
+  if (deleted_ssid[0] == '\0') {
+    lv_event_stop_bubbling(event);
+    lv_event_stop_processing(event);
+    return;
   }
-  RemoveSavedWifiNetwork(state->wifi_pending_action.ssid);
-  state->wifi_pending_action.saved = false;
-  state->wifi_pending_action.password[0] = '\0';
+
+  ForgetSavedWifiNetwork(state, deleted_ssid);
   RefreshWifiPage(state, true);
   CloseWifiSubPage(state, true);
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+}
+
+/**
+ * @brief 处理管理已保存网络页的单项删除按钮
+ * @param event LVGL 事件对象
+ */
+void WifiSavedNetworkDeleteClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+
+  auto* action =
+      static_cast<WifiNetworkAction*>(lv_event_get_user_data(event));
+  lv_obj_t* button = lv_event_get_target_obj(event);
+  if (action == nullptr || action->state == nullptr ||
+      action->ssid[0] == '\0' || button == nullptr) {
+    return;
+  }
+
+  char deleted_ssid[hal::kWifiSsidMaxLength + 1] = {};
+  std::snprintf(deleted_ssid, sizeof(deleted_ssid), "%s", action->ssid);
+  lv_obj_t* row = lv_obj_get_parent(button);
+  lv_obj_t* body = row == nullptr ? nullptr : lv_obj_get_parent(row);
+  ForgetSavedWifiNetwork(action->state, deleted_ssid);
+  RefreshWifiPage(action->state, true);
+  if (row != nullptr) {
+    lv_obj_delete(row);
+  }
+  if (body != nullptr && g_wifi_saved_network_count == 0) {
+    CreateWifiSavedEmptyText(body, action->state->config.width);
+  }
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
 }
 
 /**
@@ -763,17 +991,23 @@ void WifiDeleteNetworkClickedEventCallback(lv_event_t* event) {
 void WifiRefreshTimerCallback(lv_timer_t* timer) {
   auto* state = static_cast<SettingsViewState*>(lv_timer_get_user_data(timer));
   UpdateWifiConnectTimeout(state);
-  if (state != nullptr && state->wifi_enabled_requested &&
-      state->wifi_scan_on_ready) {
+  if (state != nullptr && state->wifi_enabled_requested) {
     hal::WifiStatus status;
     hal::WifiScanStatus scan_status;
     ReadWifiSnapshots(state->config, &status, &scan_status);
-    if (state->wifi_connect_waiting) {
+    if (state->wifi_auto_connect_on_ready && !state->wifi_connect_waiting &&
+        !scan_status.scan_running && !status.init_task_running) {
+      TryStartWifiAutoConnect(state);
+    }
+
+    if ((status.connected || status.got_ip) && state->wifi_scan_on_ready) {
+      state->wifi_scan_on_ready = false;
+    } else if (state->wifi_connect_waiting) {
       state->wifi_scan_on_ready = false;
     } else if (scan_status.scan_running ||
         scan_status.generation != state->wifi_scan_request_generation) {
       state->wifi_scan_on_ready = false;
-    } else if (!status.init_task_running) {
+    } else if (state->wifi_scan_on_ready && !status.init_task_running) {
       if (state->config.wifi != nullptr) {
         state->config.wifi->StartWifiScan();
         ReadWifiSnapshots(state->config, nullptr, &scan_status);
@@ -892,6 +1126,34 @@ void RemoveSavedWifiNetwork(const char* ssid) {
     g_wifi_saved_networks[g_wifi_saved_network_count] = WifiSavedNetwork();
     return;
   }
+}
+
+void ForgetSavedWifiNetwork(SettingsViewState* state, const char* ssid) {
+  if (state == nullptr || ssid == nullptr || ssid[0] == '\0') {
+    return;
+  }
+
+  if (std::strcmp(state->wifi_auto_connect_ssid, ssid) == 0) {
+    state->wifi_auto_connect_ssid[0] = '\0';
+  }
+
+  hal::WifiStatus status;
+  ReadWifiSnapshots(state->config, &status, nullptr);
+  const bool deleted_current_connection =
+      (status.connected || status.got_ip) &&
+      std::strcmp(status.ssid, ssid) == 0;
+  RemoveSavedWifiNetwork(ssid);
+
+  if (std::strcmp(state->wifi_pending_action.ssid, ssid) == 0) {
+    state->wifi_pending_action = WifiNetworkAction();
+  }
+  state->wifi_auto_connect_on_ready = false;
+  ResetWifiConnectionState(state);
+  state->wifi_scan_on_ready = false;
+  if (deleted_current_connection && state->config.wifi != nullptr) {
+    state->config.wifi->CancelWifiConnection();
+  }
+  state->wifi_refresh_force = true;
 }
 
 /**
@@ -1213,7 +1475,8 @@ void RequestWifiScan(SettingsViewState* state) {
   hal::WifiStatus status;
   hal::WifiScanStatus scan_status;
   ReadWifiSnapshots(state->config, &status, &scan_status);
-  if (state->wifi_connect_waiting) {
+  if (state->wifi_connect_waiting || status.connected || status.got_ip ||
+      state->wifi_auto_connect_on_ready) {
     state->wifi_scan_on_ready = false;
     return;
   }
@@ -1260,6 +1523,29 @@ WifiNetworkAction* ReserveWifiNetworkAction(SettingsViewState* state,
 }
 
 /**
+ * @brief 为管理已保存网络页分配删除按钮参数
+ * @param state 设置页状态
+ * @param ssid 待删除的热点名称
+ * @return 分配到的参数地址，参数池已满时返回 nullptr
+ */
+WifiNetworkAction* ReserveWifiSavedDeleteAction(
+    SettingsViewState* state, const char* ssid) {
+  if (state == nullptr || ssid == nullptr || ssid[0] == '\0' ||
+      state->wifi_saved_delete_action_count >= kWifiSavedNetworkCapacity) {
+    return nullptr;
+  }
+
+  WifiNetworkAction* action =
+      &state->wifi_saved_delete_actions[
+          state->wifi_saved_delete_action_count++];
+  *action = WifiNetworkAction();
+  action->state = state;
+  std::snprintf(action->ssid, sizeof(action->ssid), "%s", ssid);
+  action->saved = true;
+  return action;
+}
+
+/**
  * @brief 创建 WLAN 页面返回按钮和标题
  * @param parent 父对象
  * @param state 设置页状态
@@ -1293,9 +1579,10 @@ bool CreateWifiHeader(lv_obj_t* parent, SettingsViewState* state, int) {
  * @param parent 父对象
  * @param x 左侧坐标
  * @param y 顶部坐标
+ * @param color 锁图标颜色
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateWifiSmallLock(lv_obj_t* parent, int x, int y) {
+bool CreateWifiSmallLock(lv_obj_t* parent, int x, int y, uint32_t color) {
   lv_obj_t* shackle = lv_obj_create(parent);
   if (shackle == nullptr) {
     return false;
@@ -1307,13 +1594,12 @@ bool CreateWifiSmallLock(lv_obj_t* parent, int x, int y) {
   lv_obj_set_pos(shackle, x + 2, y);
   lv_obj_set_style_bg_opa(shackle, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_border_color(
-      shackle, lv_color_hex(kWifiMutedColor), LV_PART_MAIN);
+      shackle, lv_color_hex(color), LV_PART_MAIN);
   lv_obj_set_style_border_width(shackle, 3, LV_PART_MAIN);
   lv_obj_set_style_radius(shackle, 9, LV_PART_MAIN);
   lv_obj_set_style_pad_all(shackle, 0, LV_PART_MAIN);
 
-  lv_obj_t* body = CreateBox(
-      parent, 22, 16, kWifiMutedColor, LV_OPA_COVER, 3);
+  lv_obj_t* body = CreateBox(parent, 22, 16, color, LV_OPA_COVER, 3);
   if (body == nullptr) {
     return false;
   }
@@ -1546,6 +1832,17 @@ bool CreateWifiConnectedCard(lv_obj_t* parent, SettingsViewState* state,
     bool is_5g, bool secure, const char* password, int y, int width,
     bool retry_on_click) {
   const int card_width = width - 2 * kWifiSidePadding;
+  const bool blue_card = card_color == kWifiBlueColor;
+  const bool colored_card =
+      blue_card || card_color == kWifiConnectingColor;
+  const uint32_t text_color =
+      colored_card ? 0xFFFFFF : kPrimaryTextColor;
+  const uint32_t subtitle_color =
+      colored_card ? (blue_card ? 0xEAF1FF : 0xFFF4E2)
+                   : kSecondaryTextColor;
+  const uint32_t pressed_color = colored_card
+                                     ? (blue_card ? 0x2F70E4 : 0xD88D16)
+                                     : 0xEEF3FF;
   lv_obj_t* card = CreateBox(parent, card_width, kWifiConnectedCardHeight,
       card_color, LV_OPA_COVER, kWifiConnectedCardRadius);
   if (card == nullptr) {
@@ -1554,7 +1851,7 @@ bool CreateWifiConnectedCard(lv_obj_t* parent, SettingsViewState* state,
   lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_pos(card, kWifiSidePadding, y);
   lv_obj_set_style_bg_color(
-      card, lv_color_hex(0xEEF3FF), LV_STATE_PRESSED);
+      card, lv_color_hex(pressed_color), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(card, LV_OPA_COVER, LV_STATE_PRESSED);
   if (!AddPressCancelOnLeave(card)) {
     return false;
@@ -1566,7 +1863,7 @@ bool CreateWifiConnectedCard(lv_obj_t* parent, SettingsViewState* state,
   AddEdgeBackSwipeEvents(card, WifiEdgeBackEventCallback, state);
 
   lv_obj_t* wifi_icon = CreateLabel(card, WifiSignalIconForRssi(rssi),
-      lv_color_hex(kPrimaryTextColor), MaterialIconFont32());
+      lv_color_hex(text_color), MaterialIconFont32());
   if (wifi_icon == nullptr) {
     return false;
   }
@@ -1576,7 +1873,7 @@ bool CreateWifiConnectedCard(lv_obj_t* parent, SettingsViewState* state,
   lv_obj_align(wifi_icon, LV_ALIGN_LEFT_MID, 28, -4);
 
   lv_obj_t* title =
-      CreateLabel(card, ssid, lv_color_hex(kPrimaryTextColor), Font28());
+      CreateLabel(card, ssid, lv_color_hex(text_color), Font28());
   if (title == nullptr) {
     return false;
   }
@@ -1585,7 +1882,7 @@ bool CreateWifiConnectedCard(lv_obj_t* parent, SettingsViewState* state,
   lv_obj_align(title, LV_ALIGN_LEFT_MID, 82, -16);
 
   lv_obj_t* subtitle = CreateLabel(card, state_text,
-      lv_color_hex(kSecondaryTextColor), Font22());
+      lv_color_hex(subtitle_color), Font22());
   if (subtitle == nullptr) {
     return false;
   }
@@ -1597,11 +1894,21 @@ bool CreateWifiConnectedCard(lv_obj_t* parent, SettingsViewState* state,
     if (tag == nullptr) {
       return false;
     }
+    if (colored_card) {
+      lv_obj_set_style_border_color(
+          tag, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+      lv_obj_t* label = lv_obj_get_child(tag, 0);
+      if (label != nullptr) {
+        lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF),
+            LV_PART_MAIN);
+      }
+    }
     lv_obj_align_to(tag, title, LV_ALIGN_OUT_RIGHT_MID, 8, 0);
   }
 
-  if (secure && !CreateWifiSmallLock(card, card_width - 100,
-                    (kWifiConnectedCardHeight - 26) / 2)) {
+  if (secure && !CreateWifiSmallLock(card, card_width - 112,
+                    (kWifiConnectedCardHeight - 26) / 2,
+                    colored_card ? 0xFFFFFF : kWifiMutedColor)) {
     return false;
   }
 
@@ -1611,6 +1918,16 @@ bool CreateWifiConnectedCard(lv_obj_t* parent, SettingsViewState* state,
   lv_obj_t* arrow_circle = CreateWifiCircleArrow(card);
   if (arrow_circle == nullptr) {
     return false;
+  }
+  if (colored_card) {
+    lv_obj_set_style_bg_color(
+        arrow_circle, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(arrow_circle, LV_OPA_30, LV_PART_MAIN);
+    lv_obj_t* arrow = lv_obj_get_child(arrow_circle, 0);
+    if (arrow != nullptr) {
+      lv_obj_set_style_text_color(arrow, lv_color_hex(0xFFFFFF),
+          LV_PART_MAIN);
+    }
   }
   if (action != nullptr) {
     lv_obj_add_flag(arrow_circle, LV_OBJ_FLAG_CLICKABLE);
@@ -1697,7 +2014,7 @@ bool CreateWifiNetworkRow(lv_obj_t* parent, SettingsViewState* state,
   }
 
   if (secure && !CreateWifiSmallLock(row, row_width - 108,
-                    (kWifiNetworkRowHeight - 26) / 2)) {
+                    (kWifiNetworkRowHeight - 26) / 2, kWifiMutedColor)) {
     return false;
   }
 
@@ -1711,6 +2028,70 @@ bool CreateWifiNetworkRow(lv_obj_t* parent, SettingsViewState* state,
         LV_EVENT_CLICKED, action);
   }
   lv_obj_align(arrow_circle, LV_ALIGN_RIGHT_MID, -kWifiNetworkArrowRight, 0);
+  return true;
+}
+
+/**
+ * @brief 创建管理已保存网络页的简化删除行
+ * @param parent 父对象
+ * @param state 设置页状态
+ * @param ssid 已保存热点 SSID
+ * @param width 页面宽度
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateWifiSavedManageRow(
+    lv_obj_t* parent, SettingsViewState* state, const char* ssid, int width) {
+  const int button_width = 142;
+  const int button_height = 62;
+  lv_obj_t* row = lv_obj_create(parent);
+  if (row == nullptr) {
+    return false;
+  }
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(row, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(row, width, kWifiNetworkRowHeight + 12);
+  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
+  AddEdgeBackSwipeEvents(row, WifiSubEdgeBackEventCallback, state);
+
+  lv_obj_t* name =
+      CreateLabel(row, ssid, lv_color_hex(kPrimaryTextColor), Font32());
+  if (name == nullptr) {
+    return false;
+  }
+  lv_obj_set_width(
+      name, width - 2 * kWifiSidePadding - button_width - 28);
+  lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+  lv_obj_align(name, LV_ALIGN_LEFT_MID, kWifiSidePadding, 0);
+
+  lv_obj_t* button = CreateBox(row, button_width, button_height, 0xE8F2FF,
+      LV_OPA_COVER, button_height / 2);
+  if (button == nullptr) {
+    return false;
+  }
+  lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_align(button, LV_ALIGN_RIGHT_MID, -kWifiSidePadding, 0);
+  lv_obj_set_style_bg_color(
+      button, lv_color_hex(0xD7E9FF), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
+  if (!AddPressCancelOnLeave(button)) {
+    return false;
+  }
+  AddEdgeBackSwipeEvents(button, WifiSubEdgeBackEventCallback, state);
+  WifiNetworkAction* action = ReserveWifiSavedDeleteAction(state, ssid);
+  if (action != nullptr) {
+    lv_obj_add_event_cb(button, WifiSavedNetworkDeleteClickedEventCallback,
+        LV_EVENT_CLICKED, action);
+  }
+
+  lv_obj_t* label =
+      CreateLabel(button, "Delete", lv_color_hex(kWifiBlueColor), Font28());
+  if (label == nullptr) {
+    return false;
+  }
+  lv_obj_center(label);
   return true;
 }
 
@@ -1795,6 +2176,23 @@ bool CreateWifiStatusText(
   lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
   lv_obj_align(label, LV_ALIGN_TOP_LEFT, kWifiSidePadding, y + 12);
   return true;
+}
+
+/**
+ * @brief 创建已保存 WLAN 为空时的提示文本
+ * @param parent 父对象
+ * @param width 页面宽度
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateWifiSavedEmptyText(lv_obj_t* parent, int width) {
+  if (parent == nullptr) {
+    return false;
+  }
+  lv_obj_set_layout(parent, LV_LAYOUT_NONE);
+  lv_obj_set_style_pad_top(parent, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_bottom(parent, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_row(parent, 0, LV_PART_MAIN);
+  return CreateWifiSectionLabel(parent, "No saved WLAN.", 0, width);
 }
 
 /**
@@ -1886,15 +2284,17 @@ bool ShowWifiSubPage(SettingsViewState* state, const char* title,
       builder == nullptr) {
     return false;
   }
-  if (state->wifi_sub_page != nullptr) {
-    lv_obj_delete(state->wifi_sub_page);
-    state->wifi_sub_page = nullptr;
+  if (state->wifi_sub_closing ||
+      state->wifi_sub_page_count >= kWifiSubPageStackCapacity) {
+    return false;
   }
 
   lv_obj_t* page = lv_obj_create(state->root);
   if (page == nullptr) {
     return false;
   }
+  state->wifi_sub_pages[state->wifi_sub_page_count] = page;
+  ++state->wifi_sub_page_count;
   state->wifi_sub_page = page;
   state->wifi_sub_closing = false;
   state->wifi_sub_swipe = EdgeBackSwipeState();
@@ -2115,36 +2515,30 @@ bool BuildWifiAdvancedContent(lv_obj_t* parent, SettingsViewState* state) {
  */
 bool BuildWifiSavedNetworksContent(
     lv_obj_t* parent, SettingsViewState* state) {
-  int y = 0;
   hal::WifiScanStatus scan_status;
   ReadWifiSnapshots(state->config, nullptr, &scan_status);
   SyncSavedWifiNetworksWithScan(scan_status);
-  if (!CreateWifiSectionLabel(parent, "Saved WLAN", y,
-          state->config.width)) {
-    return false;
-  }
-  y += kWifiSectionHeight;
+  state->wifi_saved_delete_action_count = 0;
 
-  size_t shown_count = 0;
+  if (g_wifi_saved_network_count == 0) {
+    return CreateWifiSavedEmptyText(parent, state->config.width);
+  }
+
+  lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START,
+      LV_FLEX_ALIGN_START);
+  lv_obj_set_style_pad_top(parent, 10, LV_PART_MAIN);
+  lv_obj_set_style_pad_bottom(parent, 24, LV_PART_MAIN);
+  lv_obj_set_style_pad_row(parent, 10, LV_PART_MAIN);
+
   for (size_t i = 0; i < g_wifi_saved_network_count; ++i) {
     const WifiSavedNetwork& saved = g_wifi_saved_networks[i];
-    hal::WifiNetworkInfo network = {};
-    if (!FindScannedWifiNetwork(scan_status, saved.ssid, &network)) {
-      continue;
-    }
-    if (!CreateWifiNetworkRow(parent, state, saved.ssid, network.is_5g,
-            network.secure, network.rssi, saved.password, true, y,
-            state->config.width)) {
+    if (!CreateWifiSavedManageRow(
+            parent, state, saved.ssid, state->config.width)) {
       return false;
     }
-    ++shown_count;
-    y += kWifiNetworkRowHeight;
   }
 
-  if (shown_count == 0) {
-    return CreateWifiStatusText(
-        parent, "No saved WLAN in range.", y, state->config.width);
-  }
   return true;
 }
 
@@ -2357,7 +2751,7 @@ bool ShowWifiConnectSheet(
   lv_obj_add_event_cb(overlay, WifiModalCancelClickedEventCallback,
       LV_EVENT_CLICKED, state);
 
-  const int sheet_height = action.secure ? 404 : 292;
+  const int sheet_height = action.secure ? 350 : 292;
   const int sheet_width =
       state->config.width - 2 * kWifiConnectSheetSideMargin;
   lv_obj_t* sheet = CreateBox(overlay, sheet_width, sheet_height, 0xFFFFFF,
@@ -2580,8 +2974,8 @@ bool CreateWifiPageContent(lv_obj_t* parent, SettingsViewState* state,
   if (ssid[0] != '\0' && (status.connected || status.got_ip)) {
     y += 10;
     if (!CreateWifiConnectedCard(parent, state, ssid, "Connected",
-            0xEAF3FF, card_rssi, card_is_5g, card_secure, card_password, y,
-            config.width, false)) {
+            kWifiBlueColor, card_rssi, card_is_5g, card_secure,
+            card_password, y, config.width, false)) {
       return false;
     }
     MarkShownWifiSsid(shown_ssids, &shown_ssid_count, ssid);
@@ -2591,8 +2985,8 @@ bool CreateWifiPageContent(lv_obj_t* parent, SettingsViewState* state,
                  (state != nullptr && state->wifi_scan_on_ready))) {
     y += 10;
     if (!CreateWifiConnectedCard(parent, state, ssid, "Connecting...",
-            0xFFF6E7, card_rssi, card_is_5g, card_secure, card_password, y,
-            config.width, false)) {
+            kWifiConnectingColor, card_rssi, card_is_5g, card_secure,
+            card_password, y, config.width, false)) {
       return false;
     }
     MarkShownWifiSsid(shown_ssids, &shown_ssid_count, ssid);
@@ -2723,6 +3117,7 @@ void RefreshWifiPage(SettingsViewState* state, bool force) {
   state->wifi_refresh_key = refresh_key;
   state->wifi_refresh_force = false;
   state->wifi_action_count = 0;
+  state->wifi_saved_delete_action_count = 0;
   state->wifi_connected_signal_icon = nullptr;
   const int scroll_y = lv_obj_get_scroll_y(state->wifi_body);
   StopWifiRefreshIconSpin(state);
@@ -2759,20 +3154,28 @@ bool ShowWifiPageInternal(SettingsViewState* state) {
   }
   state->wifi_page = page;
   state->wifi_body = nullptr;
+  state->wifi_sub_page = nullptr;
+  state->wifi_sub_page_count = 0;
+  for (lv_obj_t*& sub_page : state->wifi_sub_pages) {
+    sub_page = nullptr;
+  }
   state->wifi_connected_signal_icon = nullptr;
   state->wifi_refresh_icon = nullptr;
   state->wifi_closing = false;
   state->wifi_swipe = EdgeBackSwipeState();
   state->wifi_action_count = 0;
+  state->wifi_saved_delete_action_count = 0;
   state->wifi_refresh_key = 0;
   state->wifi_refresh_force = true;
   state->wifi_scan_on_ready = false;
   state->wifi_scan_request_generation = 0;
+  state->wifi_auto_connect_on_ready = false;
   hal::WifiStatus initial_status;
   hal::WifiScanStatus initial_scan_status;
   ReadWifiSnapshots(config, &initial_status, &initial_scan_status);
   state->wifi_enabled_requested =
       IsWifiPageEnabled(initial_status, initial_scan_status);
+  UpdateSettingsWifiValue(state);
   if (state->wifi_enabled_requested) {
     RequestWifiScan(state);
   }

@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-06-15 10:07:42
+ * @LastEditTime: 2026-05-31 22:35:02
  * @License: GPL 3.0
  */
 #include "hal/device/t_display_p4/t_display_p4_device.h"
@@ -314,6 +314,8 @@ bool TDisplayP4Device::StopWifi() {
   }
 
   esp_wifi_disconnect();
+  wifi_config_t empty_config = {};
+  esp_wifi_set_config(WIFI_IF_STA, &empty_config);
   esp_err_t result = esp_wifi_stop();
   if (result != ESP_OK && result != ESP_ERR_WIFI_NOT_STARTED &&
       result != ESP_ERR_INVALID_STATE && result != ESP_ERR_WIFI_STATE) {
@@ -506,12 +508,21 @@ bool TDisplayP4Device::CancelWifiConnection() {
     return true;
   }
 
-  // ESP-Hosted 在 STA 关联过程中主动 disconnect 容易触发 SDIO 写超时。
-  // 这里仅收敛 P4 侧状态；下一次 ConnectWifi 会覆盖 STA 配置再重连。
+  // 仅在已经关联成功时主动断开；关联过程中的取消仍只收敛 P4 侧状态，
+  // 避免 ESP-Hosted 在认证/关联中途收到 disconnect 后出现 SDIO 超时。
+  const bool was_associated = wifi_.connected.load() || wifi_.got_ip.load();
+  if (was_associated) {
+    esp_wifi_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(kWifiDisconnectSettleDelayMs));
+    wifi_config_t empty_config = {};
+    esp_wifi_set_config(WIFI_IF_STA, &empty_config);
+  }
+
   wifi_.connected.store(false);
   wifi_.got_ip.store(false);
-  wifi_.start_failed.store(true);
-  wifi_.last_error.store(ESP_ERR_WIFI_CONN);
+  wifi_.start_failed.store(!was_associated);
+  wifi_.last_error.store(was_associated ? ESP_OK : ESP_ERR_WIFI_CONN);
+  wifi_.disconnect_reason.store(0);
   wifi_.retry_count.store(0);
   wifi_.ip_address.store(0);
   wifi_.netmask.store(0);
@@ -872,7 +883,8 @@ bool TDisplayP4Device::PlayHapticWaveform(uint8_t* waveform_count) {
     return false;
   }
 
-  const auto& info = driver_.status().aw86224.ram_waveform_selection.info;
+  const auto info = cpp_bus_driver::Aw862xx::GetRamWaveformInfo(
+      cpp_bus_driver::Aw862xx::RamWaveformLibrary::kRam12k041230_235);
   if (info.waveform_count == 0) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Aw86224 RAM waveform count is zero\n");
@@ -1668,10 +1680,19 @@ void TDisplayP4Device::RunWifiScanTask() {
     vTaskDelay(pdMS_TO_TICKS(kWifiStartSettleDelayMs));
   }
 
-  // 参考 ESP-IDF 与 ESP-Hosted 示例，STA 先启动完成，再阻塞扫描并读取 AP 列表。
+  // STA 先启动完成，再阻塞扫描并读取 AP 列表。
   const esp_err_t scan_result = esp_wifi_scan_start(nullptr, true);
   if (scan_result == ESP_OK) {
-    CopyWifiScanResultsFromDriver();
+    // 关闭 WLAN 期间扫描可能刚好完成，此时不再读取 AP 记录，避免 hosted
+    // 通道已经收敛后继续访问扫描结果导致空指针断言。
+    if (wifi_.running.load()) {
+      CopyWifiScanResultsFromDriver();
+    } else {
+      wifi_.scan_network_count.store(0);
+      wifi_.scan_failed.store(false);
+      wifi_.last_error.store(ESP_OK);
+      wifi_.scan_generation.fetch_add(1);
+    }
   } else {
     // ReadWifiScanStatus 可能已通过 P4 侧超时处理了这次失败，
     // 此时 scan_timeout_handled 为 true，避免重复递增 scan_generation。
@@ -1685,7 +1706,8 @@ void TDisplayP4Device::RunWifiScanTask() {
     // 尝试 stop + start 尽可能恢复 C6 侧 WiFi 栈，避免后续
     // ConnectWifi / StartWifiScan 触发 SDIO 崩溃。
     // 如果 stop/start 也失败，至少不会让问题更严重。
-    if (scan_result == ESP_ERR_TIMEOUT || scan_result == ESP_FAIL) {
+    if (wifi_.running.load() &&
+        (scan_result == ESP_ERR_TIMEOUT || scan_result == ESP_FAIL)) {
       const esp_err_t stop_result = esp_wifi_stop();
       if (stop_result == ESP_OK || stop_result == ESP_ERR_WIFI_NOT_STARTED ||
           stop_result == ESP_ERR_INVALID_STATE ||
@@ -1700,6 +1722,13 @@ void TDisplayP4Device::RunWifiScanTask() {
     }
   }
 
+  if (!wifi_.running.load()) {
+    esp_wifi_disconnect();
+    wifi_config_t empty_config = {};
+    esp_wifi_set_config(WIFI_IF_STA, &empty_config);
+    esp_wifi_stop();
+    esp_wifi_set_mode(WIFI_MODE_NULL);
+  }
   wifi_.scan_running.store(false);
   wifi_.scan_started_tick.store(0);
   wifi_.scan_task_running.store(false);
@@ -1777,6 +1806,12 @@ int TDisplayP4Device::InitializeWifiStack() {
   }
 
   result = esp_wifi_set_mode(WIFI_MODE_STA);
+  if (result != ESP_OK) {
+    return result;
+  }
+
+  wifi_config_t empty_config = {};
+  result = esp_wifi_set_config(WIFI_IF_STA, &empty_config);
   if (result != ESP_OK) {
     return result;
   }
@@ -2284,7 +2319,7 @@ void TDisplayP4Device::StartScreenBacklight() {
       break;
     case device::ScreenType::kRm69a10:
       if (driver_.status().rm69a10.init_flag) {
-        for (uint16_t brightness = 0; brightness <= 255; brightness += 5) {
+        for (uint16_t brightness = 0; brightness < 255; brightness += 5) {
           driver_.chip().rm69a10->SetBrightness(brightness);
           vTaskDelay(pdMS_TO_TICKS(10));
         }
