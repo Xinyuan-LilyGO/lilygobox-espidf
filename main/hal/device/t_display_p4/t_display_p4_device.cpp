@@ -78,7 +78,7 @@ constexpr const char* kFactoryWifiPassword = "xinyuandianzi";
 constexpr const char* kWifiSntpServer = "pool.ntp.org";
 constexpr int kWifiMaxReconnectCount = 8;
 constexpr int64_t kWifiValidUnixTimeThreshold = 1700000000LL;
-constexpr uint32_t kWifiSntpSyncIntervalMs = 15 * 1000;
+constexpr uint32_t kWifiSntpSyncIntervalMs = 20 * 1000;
 
 // 当前接收 SNTP 同步回调的设备实例
 std::atomic<TDisplayP4Device*> g_wifi_time_sync_owner{nullptr};
@@ -577,10 +577,12 @@ bool TDisplayP4Device::StopWifiTimeTest() {
   esp_wifi_disconnect();
 
   wifi_config_t empty_config = {};
+  esp_wifi_set_storage(WIFI_STORAGE_RAM);
   esp_wifi_set_config(WIFI_IF_STA, &empty_config);
 
   if (wifi_time_test_.previous_sta_config_valid) {
     esp_wifi_set_mode(WIFI_MODE_STA);
+    esp_wifi_set_storage(WIFI_STORAGE_RAM);
     esp_wifi_set_config(WIFI_IF_STA, &wifi_time_test_.previous_sta_config);
   }
 
@@ -1969,11 +1971,24 @@ int TDisplayP4Device::StartWifiTimeTestInternal() {
       esp_wifi_get_config(WIFI_IF_STA, &wifi_time_test_.previous_sta_config) ==
       ESP_OK;
 
-  wifi_time_test_.active.store(true);
+  // 进入 CIT WiFi 时间测试前先停止设置页当前 WiFi，避免沿用旧热点。
+  if (wifi_time_test_.previous_running) {
+    esp_wifi_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(kWifiDisconnectSettleDelayMs));
+    const esp_err_t stop_result = esp_wifi_stop();
+    if (stop_result != ESP_OK && stop_result != ESP_ERR_WIFI_NOT_STARTED &&
+        stop_result != ESP_ERR_INVALID_STATE &&
+        stop_result != ESP_ERR_WIFI_STATE) {
+      return stop_result;
+    }
+    vTaskDelay(pdMS_TO_TICKS(kWifiDisconnectSettleDelayMs));
+  }
+
   wifi_.start_failed.store(false);
   wifi_.last_error.store(ESP_OK);
   wifi_.disconnect_reason.store(0);
   wifi_.retry_count.store(0);
+  wifi_.running.store(false);
   wifi_time_test_.synced.store(false);
   wifi_time_test_.sync_started.store(false);
   wifi_time_test_.sntp_unix_time.store(0);
@@ -1983,14 +1998,18 @@ int TDisplayP4Device::StartWifiTimeTestInternal() {
   wifi_.ip_address.store(0);
   wifi_.netmask.store(0);
   wifi_.gateway.store(0);
+  // 后续任何失败都走 StopWifiTimeTest，确保原 WiFi 配置能恢复。
+  wifi_time_test_.active.store(true);
 
   esp_err_t result = esp_wifi_set_storage(WIFI_STORAGE_RAM);
   if (result != ESP_OK) {
+    StopWifiTimeTest();
     return result;
   }
 
   result = esp_wifi_set_mode(WIFI_MODE_STA);
   if (result != ESP_OK) {
+    StopWifiTimeTest();
     return result;
   }
 
@@ -2001,17 +2020,20 @@ int TDisplayP4Device::StartWifiTimeTestInternal() {
       kFactoryWifiPassword, sizeof(wifi_config.sta.password));
   result = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
   if (result != ESP_OK) {
+    StopWifiTimeTest();
     return result;
   }
 
   result = esp_wifi_start();
   if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
+    StopWifiTimeTest();
     return result;
   }
   wifi_.running.store(true);
 
   result = esp_wifi_connect();
   if (result != ESP_OK && result != ESP_ERR_WIFI_CONN) {
+    StopWifiTimeTest();
     return result;
   }
   return ESP_OK;
