@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-25 17:28:36
+ * @LastEditTime: 2026-06-15 09:35:35
  * @License: GPL 3.0
  */
 #include "hal/device/t_display_p4/t_display_p4_device.h"
@@ -2284,7 +2284,7 @@ void TDisplayP4Device::StartScreenBacklight() {
       break;
     case device::ScreenType::kRm69a10:
       if (driver_.status().rm69a10.init_flag) {
-        for (uint8_t brightness = 0; brightness < 180; brightness += 5) {
+        for (uint16_t brightness = 0; brightness < 255; brightness += 5) {
           driver_.chip().rm69a10->SetBrightness(brightness);
           vTaskDelay(pdMS_TO_TICKS(10));
         }

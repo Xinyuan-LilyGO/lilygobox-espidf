@@ -5,10 +5,10 @@ dependencies:
     version: "9.5.0"
 
   espressif/esp_hosted:
-    version: "2.12.7"
+    version: "2.12.3"
 
   espressif/esp_wifi_remote:
-    version: "1.5.2"
+    version: ">=1.6.1,<2.0"
 
   cpp_bus_driver:
     override_path: "../libraries/cpp_bus_driver"
