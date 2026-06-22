@@ -482,6 +482,25 @@ void CloseWifiModal(SettingsViewState* state) {
 }
 
 /**
+ * @brief 处理 WLAN 连接底部弹窗的边缘返回手势
+ * @param event LVGL 事件对象
+ */
+void WifiModalEdgeBackEventCallback(lv_event_t* event) {
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->wifi_modal_overlay == nullptr ||
+      state->config.screen == nullptr ||
+      !HandleEdgeBackSwipeEvent(event, state->config.screen->ScreenWidth(),
+          &state->wifi_swipe)) {
+    return;
+  }
+
+  CloseWifiModal(state);
+  state->wifi_swipe = EdgeBackSwipeState();
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+}
+
+/**
  * @brief 清理 WLAN 连接等待、失败重试和连接节流状态
  * @param state 设置页状态
  */
@@ -694,6 +713,11 @@ void WifiNetworkClickedEventCallback(lv_event_t* event) {
       static_cast<WifiNetworkAction*>(lv_event_get_user_data(event));
   if (action == nullptr || action->state == nullptr ||
       action->state->config.wifi == nullptr || action->ssid[0] == '\0') {
+    return;
+  }
+  if (action->state->wifi_closing || action->state->wifi_page == nullptr) {
+    lv_event_stop_bubbling(event);
+    lv_event_stop_processing(event);
     return;
   }
   if (action->state->wifi_connect_waiting) {
@@ -2727,7 +2751,9 @@ void WifiPasswordTextAreaEventCallback(lv_event_t* event) {
  */
 bool ShowWifiConnectSheet(
     SettingsViewState* state, const WifiNetworkAction& action) {
-  if (state == nullptr || state->root == nullptr || action.ssid[0] == '\0') {
+  if (state == nullptr || state->root == nullptr ||
+      state->wifi_page == nullptr || state->wifi_closing ||
+      action.ssid[0] == '\0') {
     return false;
   }
   CloseWifiModal(state);
@@ -2750,6 +2776,7 @@ bool ShowWifiConnectSheet(
   lv_obj_set_style_pad_all(overlay, 0, LV_PART_MAIN);
   lv_obj_add_event_cb(overlay, WifiModalCancelClickedEventCallback,
       LV_EVENT_CLICKED, state);
+  AddEdgeBackSwipeEvents(overlay, WifiModalEdgeBackEventCallback, state);
 
   const int sheet_height = action.secure ? 350 : 292;
   const int sheet_width =
@@ -2762,9 +2789,11 @@ bool ShowWifiConnectSheet(
   }
   state->wifi_modal_sheet = sheet;
   lv_obj_add_flag(sheet, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(sheet, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_pos(sheet, kWifiConnectSheetSideMargin, state->config.height);
   lv_obj_add_event_cb(sheet, WifiModalContentClickedEventCallback,
       LV_EVENT_CLICKED, state);
+  AddEdgeBackSwipeEvents(sheet, WifiModalEdgeBackEventCallback, state);
 
   lv_obj_t* title = CreateLabel(sheet, action.ssid,
       lv_color_hex(kPrimaryTextColor), Font32());
@@ -2818,6 +2847,7 @@ bool ShowWifiConnectSheet(
     lv_obj_set_style_pad_right(text_area, 24, LV_PART_MAIN);
     lv_obj_set_style_pad_top(text_area, 16, LV_PART_MAIN);
     lv_obj_set_style_pad_bottom(text_area, 16, LV_PART_MAIN);
+    AddEdgeBackSwipeEvents(text_area, WifiModalEdgeBackEventCallback, state);
 
     SharedKeyboardConfig keyboard_config;
     keyboard_config.width = state->config.width;
@@ -2832,6 +2862,7 @@ bool ShowWifiConnectSheet(
     lv_obj_add_flag(keyboard, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_add_event_cb(keyboard, WifiModalContentClickedEventCallback,
         LV_EVENT_CLICKED, state);
+    AddEdgeBackSwipeEvents(keyboard, WifiModalEdgeBackEventCallback, state);
     lv_obj_add_event_cb(text_area, WifiPasswordTextAreaEventCallback,
         LV_EVENT_ALL, state);
     if (!AttachSharedKeyboardToTextArea(
@@ -2877,6 +2908,7 @@ bool ShowWifiConnectSheet(
   lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
   lv_anim_set_exec_cb(&animation, SetObjectY);
   lv_anim_start(&animation);
+  EnableEdgeBackSwipeEventBubble(overlay);
   return true;
 }
 
