@@ -547,7 +547,7 @@ class TDisplayP4Device final : public ScreenProvider,
     void* netif = nullptr;
     // 是否正在执行异步 WiFi 扫描。
     std::atomic<bool> scan_running{false};
-    // 后台扫描任务是否还在执行。
+    // 扫描启动任务或非阻塞扫描完成事件是否还未结束。
     std::atomic<bool> scan_task_running{false};
     // 最近一次 WiFi 扫描是否失败。
     std::atomic<bool> scan_failed{false};

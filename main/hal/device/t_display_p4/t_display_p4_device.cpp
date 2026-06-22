@@ -401,9 +401,9 @@ bool TDisplayP4Device::ReadWifiScanStatus(WifiScanStatus* status) {
       wifi_.scan_started_tick.store(0);
       wifi_.scan_failed.store(true);
       wifi_.last_error.store(ESP_ERR_TIMEOUT);
-      // 标记超时已处理，避免 RunWifiScanTask 返回后重复递增 scan_generation。
-      // 注意：scan_task_running 保持为 true，因为实际 FreeRTOS 任务仍阻塞在
-      // esp_wifi_scan_start 等待 C6 RPC 响应。此时不能启动新扫描或连接。
+      // 非阻塞扫描超时后主动停止，避免后续连接或扫描一直被等待状态挡住。
+      esp_wifi_scan_stop();
+      wifi_.scan_task_running.store(false);
       wifi_.scan_timeout_handled.store(true);
       wifi_.scan_generation.fetch_add(1);
     }
@@ -447,8 +447,8 @@ bool TDisplayP4Device::ConnectWifi(
     return false;
   }
 
-  if (wifi_.scan_task_running.load()) {
-    // 阻塞扫描任务未退出前不叠加连接 RPC，避免 hosted 通道并发。
+  if (wifi_.scan_running.load() || wifi_.scan_task_running.load()) {
+    // 非阻塞扫描完成事件未返回前不叠加连接 RPC，避免 hosted 通道并发。
     wifi_.scan_running.store(false);
     wifi_.scan_failed.store(true);
     wifi_.last_error.store(ESP_ERR_TIMEOUT);
@@ -1682,19 +1682,10 @@ void TDisplayP4Device::RunWifiScanTask() {
     vTaskDelay(pdMS_TO_TICKS(kWifiStartSettleDelayMs));
   }
 
-  // STA 先启动完成，再阻塞扫描并读取 AP 列表。
-  const esp_err_t scan_result = esp_wifi_scan_start(nullptr, true);
+  // STA 先启动完成，再发起非阻塞扫描；结果在 WIFI_EVENT_SCAN_DONE 中读取。
+  const esp_err_t scan_result = esp_wifi_scan_start(nullptr, false);
   if (scan_result == ESP_OK) {
-    // 关闭 WLAN 期间扫描可能刚好完成，此时不再读取 AP 记录，避免 hosted
-    // 通道已经收敛后继续访问扫描结果导致空指针断言。
-    if (wifi_.running.load()) {
-      CopyWifiScanResultsFromDriver();
-    } else {
-      wifi_.scan_network_count.store(0);
-      wifi_.scan_failed.store(false);
-      wifi_.last_error.store(ESP_OK);
-      wifi_.scan_generation.fetch_add(1);
-    }
+    return;
   } else {
     // ReadWifiScanStatus 可能已通过 P4 侧超时处理了这次失败，
     // 此时 scan_timeout_handled 为 true，避免重复递增 scan_generation。
@@ -2103,7 +2094,21 @@ void TDisplayP4Device::WifiEventHandler(
 
   switch (event_id) {
     case WIFI_EVENT_SCAN_DONE:
-      // 扫描任务使用阻塞扫描，结果只在任务内读取，避免重复消费 AP 列表。
+      if (self->wifi_.scan_running.load() ||
+          self->wifi_.scan_task_running.load()) {
+        if (self->wifi_.running.load()) {
+          self->CopyWifiScanResultsFromDriver();
+        } else {
+          self->wifi_.scan_network_count.store(0);
+          self->wifi_.scan_failed.store(false);
+          self->wifi_.last_error.store(ESP_OK);
+          self->wifi_.scan_generation.fetch_add(1);
+        }
+      }
+      self->wifi_.scan_running.store(false);
+      self->wifi_.scan_started_tick.store(0);
+      self->wifi_.scan_task_running.store(false);
+      self->wifi_.scan_timeout_handled.store(false);
       break;
     case WIFI_EVENT_STA_START:
       self->wifi_.running.store(true);

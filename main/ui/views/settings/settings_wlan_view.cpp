@@ -103,8 +103,9 @@ void ResetWifiConnectionState(SettingsViewState* state);
 /**
  * @brief 请求驱动层执行一次 WLAN 扫描
  * @param state 设置页状态
+ * @param force 是否强制发起扫描，手动刷新时允许已连接状态下扫描
  */
-void RequestWifiScan(SettingsViewState* state);
+void RequestWifiScan(SettingsViewState* state, bool force = false);
 
 /**
  * @brief 尝试连接当前设置为自动连接的 WLAN
@@ -581,9 +582,10 @@ void WifiSwitchValueChangedEventCallback(lv_event_t* event) {
 
   if (lv_obj_has_state(target, LV_STATE_CHECKED)) {
     state->wifi_enabled_requested = true;
-    if (!TryStartWifiAutoConnect(state)) {
-      RequestWifiScan(state);
+    if (state->wifi_auto_connect_ssid[0] != '\0') {
+      state->wifi_auto_connect_on_ready = true;
     }
+    RequestWifiScan(state);
   } else {
     state->wifi_enabled_requested = false;
     state->wifi_auto_connect_on_ready = false;
@@ -606,7 +608,7 @@ void WifiRefreshButtonClickedEventCallback(lv_event_t* event) {
   }
 
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
-  RequestWifiScan(state);
+  RequestWifiScan(state, true);
   if (state != nullptr) {
     UpdateWifiRefreshAnimation(state);
   }
@@ -682,8 +684,8 @@ bool TryStartWifiAutoConnect(SettingsViewState* state) {
   hal::WifiStatus status;
   hal::WifiScanStatus scan_status;
   ReadWifiSnapshots(state->config, &status, &scan_status);
-  if (scan_status.scan_running || state->wifi_connect_waiting ||
-      IsWifiConnectBlocked(state)) {
+  if (state->wifi_scan_on_ready || scan_status.scan_running ||
+      state->wifi_connect_waiting || IsWifiConnectBlocked(state)) {
     state->wifi_auto_connect_on_ready = true;
     return true;
   }
@@ -949,7 +951,8 @@ void WifiAutoConnectChangedEventCallback(lv_event_t* event) {
         sizeof(state->wifi_auto_connect_ssid), "%s",
         state->wifi_pending_action.ssid);
     if (state->wifi_enabled_requested) {
-      TryStartWifiAutoConnect(state);
+      state->wifi_auto_connect_on_ready = true;
+      RequestWifiScan(state);
     }
   } else if (std::strcmp(state->wifi_auto_connect_ssid,
                  state->wifi_pending_action.ssid) == 0) {
@@ -1036,10 +1039,6 @@ void WifiRefreshTimerCallback(lv_timer_t* timer) {
     hal::WifiStatus status;
     hal::WifiScanStatus scan_status;
     ReadWifiSnapshots(state->config, &status, &scan_status);
-    if (state->wifi_auto_connect_on_ready && !state->wifi_connect_waiting &&
-        !scan_status.scan_running && !status.init_task_running) {
-      TryStartWifiAutoConnect(state);
-    }
 
     if ((status.connected || status.got_ip) && state->wifi_scan_on_ready) {
       state->wifi_scan_on_ready = false;
@@ -1057,6 +1056,12 @@ void WifiRefreshTimerCallback(lv_timer_t* timer) {
           state->wifi_scan_on_ready = false;
         }
       }
+    }
+
+    if (state->wifi_auto_connect_on_ready && !state->wifi_connect_waiting &&
+        !state->wifi_scan_on_ready && !scan_status.scan_running &&
+        !status.init_task_running) {
+      TryStartWifiAutoConnect(state);
     }
   }
   RefreshWifiPage(state, false);
@@ -1592,8 +1597,9 @@ void UpdateWifiConnectedSignalIcon(SettingsViewState* state) {
 /**
  * @brief 请求 HAL 开始扫描并更新 UI 期望状态
  * @param state 设置页状态
+ * @param force 是否强制发起扫描，手动刷新时允许已连接状态下扫描
  */
-void RequestWifiScan(SettingsViewState* state) {
+void RequestWifiScan(SettingsViewState* state, bool force) {
   if (state == nullptr || state->config.wifi == nullptr) {
     return;
   }
@@ -1602,8 +1608,15 @@ void RequestWifiScan(SettingsViewState* state) {
   hal::WifiStatus status;
   hal::WifiScanStatus scan_status;
   ReadWifiSnapshots(state->config, &status, &scan_status);
-  if (state->wifi_connect_waiting || status.connected || status.got_ip ||
-      state->wifi_auto_connect_on_ready) {
+  if (force && state->wifi_connect_waiting &&
+      (status.connected || status.got_ip)) {
+    state->wifi_connect_waiting = false;
+    state->wifi_connection_retry_ready = false;
+    state->wifi_connect_started_ms = 0;
+    state->wifi_connect_block_until_ms = 0;
+  }
+  if (state->wifi_connect_waiting ||
+      (!force && (status.connected || status.got_ip))) {
     state->wifi_scan_on_ready = false;
     return;
   }
@@ -1613,7 +1626,10 @@ void RequestWifiScan(SettingsViewState* state) {
     state->wifi_scan_on_ready = false;
     return;
   }
-  state->config.wifi->StartWifiScan();
+  if (!state->config.wifi->StartWifiScan()) {
+    state->wifi_scan_on_ready = false;
+    return;
+  }
   ReadWifiSnapshots(state->config, nullptr, &scan_status);
   state->wifi_scan_on_ready =
       !scan_status.scan_running && !scan_status.scan_failed &&
@@ -3312,7 +3328,7 @@ bool ShowWifiPageInternal(SettingsViewState* state) {
       IsWifiPageEnabled(initial_status, initial_scan_status);
   UpdateSettingsWifiValue(state);
   if (state->wifi_enabled_requested) {
-    RequestWifiScan(state);
+    RequestWifiScan(state, true);
   }
   lv_obj_add_flag(state->root, kBlockLauncherGestureFlag);
   lv_obj_remove_flag(state->root, LV_OBJ_FLAG_GESTURE_BUBBLE);
