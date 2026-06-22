@@ -67,6 +67,8 @@ constexpr uint32_t kWifiInitTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kWifiInitTaskPriority = 3;
 constexpr uint32_t kWifiScanTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kWifiScanTaskPriority = 3;
+constexpr uint32_t kWifiConnectTaskStackBytes = 6 * 1024;
+constexpr UBaseType_t kWifiConnectTaskPriority = 3;
 constexpr uint32_t kWifiHardwareReadyTimeoutMs = 8000;
 constexpr uint32_t kWifiHardwareReadyPollMs = 50;
 constexpr uint32_t kWifiEsp32c6BootDelayMs = 500;
@@ -278,9 +280,11 @@ bool TDisplayP4Device::StartWifi() {
  */
 bool TDisplayP4Device::StopWifi() {
   wifi_time_test_.requested.store(false);
+  wifi_.connect_cancel_requested.store(true);
   if (!wifi_.driver_initialized.load()) {
     wifi_.scan_running.store(false);
     wifi_.scan_task_running.store(false);
+    wifi_.connect_task_running.store(false);
     wifi_.scan_started_tick.store(0);
     wifi_.running.store(false);
     wifi_.connected.store(false);
@@ -426,7 +430,7 @@ bool TDisplayP4Device::ReadWifiScanStatus(WifiScanStatus* status) {
  * @brief 设置 STA 账号密码并请求连接目标热点
  * @param ssid 目标热点 SSID
  * @param password 目标热点密码，开放热点可为空
- * @return ESP-IDF 接受连接请求返回 true
+ * @return 后台连接任务创建成功返回 true
  */
 bool TDisplayP4Device::ConnectWifi(
     const char* ssid, const char* password) {
@@ -441,55 +445,20 @@ bool TDisplayP4Device::ConnectWifi(
     return false;
   }
 
-  const int prepare_result = PrepareWifiStation();
-  if (prepare_result != ESP_OK) {
-    SetWifiFailure(prepare_result);
+  bool expected = false;
+  if (!wifi_.connect_task_running.compare_exchange_strong(expected, true)) {
     return false;
   }
 
-  if (wifi_.scan_running.load() || wifi_.scan_task_running.load()) {
-    // 非阻塞扫描完成事件未返回前不叠加连接 RPC，避免 hosted 通道并发。
-    wifi_.scan_running.store(false);
-    wifi_.scan_failed.store(true);
-    wifi_.last_error.store(ESP_ERR_TIMEOUT);
-    wifi_.scan_generation.fetch_add(1);
-    return false;
-  }
-
-  if (wifi_.connected.load() || wifi_.got_ip.load()) {
-    // 已关联热点时先断开；失败或连接中状态下直接覆盖配置，减少 hosted RPC。
-    esp_wifi_disconnect();
-    vTaskDelay(pdMS_TO_TICKS(kWifiDisconnectSettleDelayMs));
-  }
-
-  wifi_config_t wifi_config = {};
-  std::snprintf(reinterpret_cast<char*>(wifi_config.sta.ssid),
-      sizeof(wifi_config.sta.ssid), "%s", ssid);
-  if (password != nullptr && password[0] != '\0') {
-    std::snprintf(reinterpret_cast<char*>(wifi_config.sta.password),
-        sizeof(wifi_config.sta.password), "%s", password);
-  }
-
-  wifi_.start_failed.store(false);
-  wifi_.last_error.store(ESP_OK);
-  wifi_.disconnect_reason.store(0);
-  wifi_.retry_count.store(0);
-  wifi_.connected.store(false);
-  wifi_.got_ip.store(false);
-  wifi_.ip_address.store(0);
-  wifi_.netmask.store(0);
-  wifi_.gateway.store(0);
-
-  const esp_err_t config_result = esp_wifi_set_config(WIFI_IF_STA,
-      &wifi_config);
-  if (config_result != ESP_OK) {
-    SetWifiFailure(config_result);
-    return false;
-  }
-
-  const esp_err_t connect_result = esp_wifi_connect();
-  if (connect_result != ESP_OK && connect_result != ESP_ERR_WIFI_CONN) {
-    SetWifiFailure(connect_result);
+  std::snprintf(wifi_.connect_ssid, sizeof(wifi_.connect_ssid), "%s", ssid);
+  std::snprintf(wifi_.connect_password, sizeof(wifi_.connect_password), "%s",
+      password == nullptr ? "" : password);
+  wifi_.connect_cancel_requested.store(false);
+  const BaseType_t result = xTaskCreate(WifiConnectTaskEntry, "wifi_connect",
+      kWifiConnectTaskStackBytes, this, kWifiConnectTaskPriority, nullptr);
+  if (result != pdPASS) {
+    wifi_.connect_task_running.store(false);
+    SetWifiFailure(ESP_ERR_NO_MEM);
     return false;
   }
   return true;
@@ -500,6 +469,7 @@ bool TDisplayP4Device::ConnectWifi(
  * @return ESP-IDF 接受取消请求返回 true
  */
 bool TDisplayP4Device::CancelWifiConnection() {
+  wifi_.connect_cancel_requested.store(true);
   if (!wifi_.driver_initialized.load()) {
     wifi_.connected.store(false);
     wifi_.got_ip.store(false);
@@ -1666,6 +1636,14 @@ void TDisplayP4Device::WifiScanTaskEntry(void* context) {
   vTaskDelete(nullptr);
 }
 
+void TDisplayP4Device::WifiConnectTaskEntry(void* context) {
+  auto* self = static_cast<TDisplayP4Device*>(context);
+  if (self != nullptr) {
+    self->RunWifiConnectTask();
+  }
+  vTaskDelete(nullptr);
+}
+
 void TDisplayP4Device::RunWifiScanTask() {
   if (!wifi_.running.load()) {
     const int prepare_result = PrepareWifiStation();
@@ -1725,6 +1703,106 @@ void TDisplayP4Device::RunWifiScanTask() {
   wifi_.scan_running.store(false);
   wifi_.scan_started_tick.store(0);
   wifi_.scan_task_running.store(false);
+}
+
+void TDisplayP4Device::RunWifiConnectTask() {
+  char ssid[kWifiSsidMaxLength + 1] = {};
+  char password[kWifiPasswordMaxLength + 1] = {};
+  std::snprintf(ssid, sizeof(ssid), "%s", wifi_.connect_ssid);
+  std::snprintf(password, sizeof(password), "%s", wifi_.connect_password);
+
+  const auto finish = [this](esp_err_t error) {
+    if (error != ESP_OK) {
+      SetWifiFailure(error);
+    }
+    wifi_.connect_task_running.store(false);
+  };
+
+  if (ssid[0] == '\0') {
+    finish(ESP_ERR_INVALID_ARG);
+    return;
+  }
+
+  uint32_t wait_scan_ms = 0;
+  while (wifi_.scan_running.load() || wifi_.scan_task_running.load()) {
+    if (wifi_.connect_cancel_requested.load()) {
+      wifi_.connect_task_running.store(false);
+      return;
+    }
+    if (wait_scan_ms >= kWifiScanTimeoutMs) {
+      wifi_.scan_running.store(false);
+      wifi_.scan_task_running.store(false);
+      wifi_.scan_started_tick.store(0);
+      wifi_.scan_failed.store(true);
+      wifi_.last_error.store(ESP_ERR_TIMEOUT);
+      wifi_.scan_generation.fetch_add(1);
+      finish(ESP_ERR_TIMEOUT);
+      return;
+    }
+    vTaskDelay(pdMS_TO_TICKS(kWifiHardwareReadyPollMs));
+    wait_scan_ms += kWifiHardwareReadyPollMs;
+  }
+
+  const int prepare_result = PrepareWifiStation();
+  if (prepare_result != ESP_OK) {
+    finish(static_cast<esp_err_t>(prepare_result));
+    return;
+  }
+
+  if (wifi_.connect_cancel_requested.load()) {
+    wifi_.connect_task_running.store(false);
+    return;
+  }
+
+  if (wifi_.connected.load() || wifi_.got_ip.load()) {
+    // 已关联热点时先断开，放到后台任务里等待，避免卡住 LVGL 事件回调。
+    esp_wifi_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(kWifiDisconnectSettleDelayMs));
+  }
+
+  if (wifi_.connect_cancel_requested.load()) {
+    wifi_.connect_task_running.store(false);
+    return;
+  }
+
+  wifi_config_t wifi_config = {};
+  const size_t ssid_length =
+      std::min(std::strlen(ssid), sizeof(wifi_config.sta.ssid));
+  std::memcpy(wifi_config.sta.ssid, ssid, ssid_length);
+  if (password[0] != '\0') {
+    const size_t password_length =
+        std::min(std::strlen(password), sizeof(wifi_config.sta.password));
+    std::memcpy(wifi_config.sta.password, password, password_length);
+  }
+
+  wifi_.start_failed.store(false);
+  wifi_.last_error.store(ESP_OK);
+  wifi_.disconnect_reason.store(0);
+  wifi_.retry_count.store(0);
+  wifi_.connected.store(false);
+  wifi_.got_ip.store(false);
+  wifi_.ip_address.store(0);
+  wifi_.netmask.store(0);
+  wifi_.gateway.store(0);
+
+  const esp_err_t config_result = esp_wifi_set_config(WIFI_IF_STA,
+      &wifi_config);
+  if (config_result != ESP_OK) {
+    finish(config_result);
+    return;
+  }
+
+  if (wifi_.connect_cancel_requested.load()) {
+    wifi_.connect_task_running.store(false);
+    return;
+  }
+
+  const esp_err_t connect_result = esp_wifi_connect();
+  if (connect_result != ESP_OK && connect_result != ESP_ERR_WIFI_CONN) {
+    finish(connect_result);
+    return;
+  }
+  wifi_.connect_task_running.store(false);
 }
 
 bool TDisplayP4Device::WaitForWifiHardwareReady() {

@@ -383,6 +383,12 @@ class TDisplayP4Device final : public ScreenProvider,
   static void WifiScanTaskEntry(void* context);
 
   /**
+   * @brief hosted WiFi 连接任务入口
+   * @param context 设备对象指针
+   */
+  static void WifiConnectTaskEntry(void* context);
+
+  /**
    * @brief 执行 hosted WiFi 异步初始化
    */
   void RunWifiInitTask();
@@ -391,6 +397,11 @@ class TDisplayP4Device final : public ScreenProvider,
    * @brief 执行官方示例同款的阻塞 WLAN 扫描流程
    */
   void RunWifiScanTask();
+
+  /**
+   * @brief 执行 hosted WiFi 异步连接流程
+   */
+  void RunWifiConnectTask();
 
   /**
    * @brief 等待 ESP32-C6 桥接芯片完成上电复位
@@ -561,6 +572,14 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<uint32_t> scan_started_tick{0};
     // ReadWifiScanStatus 超时处理是否已经标记，防止扫描任务返回后重复递增 generation
     std::atomic<bool> scan_timeout_handled{false};
+    // WiFi 连接任务是否正在后台执行。
+    std::atomic<bool> connect_task_running{false};
+    // WiFi 连接任务是否已经请求取消。
+    std::atomic<bool> connect_cancel_requested{false};
+    // 后台连接任务使用的 SSID 副本。
+    char connect_ssid[kWifiSsidMaxLength + 1] = {};
+    // 后台连接任务使用的密码副本。
+    char connect_password[kWifiPasswordMaxLength + 1] = {};
   };
 
   struct WifiTimeTestState {
