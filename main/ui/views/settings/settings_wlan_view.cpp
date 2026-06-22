@@ -32,14 +32,24 @@ bool g_wifi_saved_networks_loaded = false;
 
 constexpr const char* kSettingsNvsNamespace = "settings";
 constexpr const char* kWifiSavedNetworksNvsKey = "wifi_saved";
+constexpr const char* kWifiPreferencesNvsKey = "wifi_config";
 constexpr uint32_t kWifiSavedNetworksMagic = 0x57494649;
 constexpr uint32_t kWifiSavedNetworksVersion = 1;
+constexpr uint32_t kWifiPreferencesMagic = 0x57465052;
+constexpr uint32_t kWifiPreferencesVersion = 1;
 
 struct WifiSavedNetworksStorage {
   uint32_t magic = kWifiSavedNetworksMagic;
   uint32_t version = kWifiSavedNetworksVersion;
   uint32_t count = 0;
   WifiSavedNetwork networks[kWifiSavedNetworkCapacity] = {};
+};
+
+struct WifiPreferencesStorage {
+  uint32_t magic = kWifiPreferencesMagic;
+  uint32_t version = kWifiPreferencesVersion;
+  uint8_t enabled_requested = 0;
+  char auto_connect_ssid[hal::kWifiSsidMaxLength + 1] = {};
 };
 
 /**
@@ -121,6 +131,12 @@ bool TryStartWifiAutoConnect(SettingsViewState* state);
  */
 void SaveWifiNetworkCredential(
     const WifiNetworkAction& action, const char* password);
+
+/**
+ * @brief 将 WLAN 开关和自动连接偏好写入 ESP32-P4 NVS
+ * @param state 设置页状态
+ */
+void PersistWifiPreferencesToNvsInternal(const SettingsViewState* state);
 
 /**
  * @brief 判断 SSID 是否已经在运行期保存过
@@ -594,6 +610,7 @@ void WifiSwitchValueChangedEventCallback(lv_event_t* event) {
     state->wifi_scan_request_generation = 0;
     state->config.wifi->StopWifi();
   }
+  PersistWifiPreferencesToNvsInternal(state);
   UpdateSettingsWifiValue(state);
   state->wifi_refresh_force = true;
 }
@@ -637,6 +654,7 @@ bool StartWifiConnection(SettingsViewState* state, const char* password) {
   }
 
   state->wifi_enabled_requested = true;
+  PersistWifiPreferencesToNvsInternal(state);
   UpdateSettingsWifiValue(state);
   state->wifi_scan_on_ready = false;
   state->wifi_auto_connect_on_ready = false;
@@ -692,6 +710,7 @@ bool TryStartWifiAutoConnect(SettingsViewState* state) {
   if (!status.driver_initialized || status.init_task_running) {
     state->wifi_auto_connect_on_ready = true;
     state->wifi_enabled_requested = true;
+    PersistWifiPreferencesToNvsInternal(state);
     UpdateSettingsWifiValue(state);
     if (state->config.wifi->StartWifi()) {
       return true;
@@ -959,6 +978,7 @@ void WifiAutoConnectChangedEventCallback(lv_event_t* event) {
     state->wifi_auto_connect_ssid[0] = '\0';
     state->wifi_auto_connect_on_ready = false;
   }
+  PersistWifiPreferencesToNvsInternal(state);
   state->wifi_refresh_force = true;
   RefreshWifiPage(state, true);
   lv_event_stop_bubbling(event);
@@ -1134,6 +1154,43 @@ void PersistSavedWifiNetworksToNvs() {
 }
 
 /**
+ * @brief 将 WLAN 开关和自动连接偏好写入 ESP32-P4 NVS
+ * @param state 设置页状态
+ */
+void PersistWifiPreferencesToNvsInternal(const SettingsViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+
+  WifiPreferencesStorage storage;
+  storage.enabled_requested = state->wifi_enabled_requested ? 1 : 0;
+  std::snprintf(storage.auto_connect_ssid,
+      sizeof(storage.auto_connect_ssid), "%s",
+      state->wifi_auto_connect_ssid);
+
+  nvs_handle_t handle = 0;
+  esp_err_t result =
+      nvs_open(kSettingsNvsNamespace, NVS_READWRITE, &handle);
+  if (result != ESP_OK) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Open settings NVS failed (error code: %#X)\n", result);
+    return;
+  }
+
+  result = nvs_set_blob(
+      handle, kWifiPreferencesNvsKey, &storage, sizeof(storage));
+  if (result == ESP_OK) {
+    result = nvs_commit(handle);
+  }
+  nvs_close(handle);
+
+  if (result != ESP_OK) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Save WLAN preferences failed (error code: %#X)\n", result);
+  }
+}
+
+/**
  * @brief 从 ESP32-P4 NVS 加载运行期已保存 WLAN 凭据
  */
 void LoadSavedWifiNetworksFromNvsInternal() {
@@ -1181,6 +1238,56 @@ void LoadSavedWifiNetworksFromNvsInternal() {
     }
     g_wifi_saved_networks[g_wifi_saved_network_count++] =
         storage.networks[i];
+  }
+}
+
+/**
+ * @brief 从 ESP32-P4 NVS 加载 WLAN 开关和自动连接偏好
+ * @param state 设置页状态
+ * @param fallback_enabled 未保存开关状态时使用的默认 WLAN 开关状态
+ */
+void LoadWifiPreferencesFromNvsInternal(
+    SettingsViewState* state, bool fallback_enabled) {
+  if (state == nullptr) {
+    return;
+  }
+
+  state->wifi_enabled_requested = fallback_enabled;
+  state->wifi_auto_connect_ssid[0] = '\0';
+
+  nvs_handle_t handle = 0;
+  esp_err_t result = nvs_open(kSettingsNvsNamespace, NVS_READONLY, &handle);
+  if (result == ESP_ERR_NVS_NOT_FOUND) {
+    return;
+  }
+  if (result != ESP_OK) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Open settings NVS failed (error code: %#X)\n", result);
+    return;
+  }
+
+  WifiPreferencesStorage storage;
+  size_t blob_size = sizeof(storage);
+  result = nvs_get_blob(
+      handle, kWifiPreferencesNvsKey, &storage, &blob_size);
+  nvs_close(handle);
+  if (result == ESP_ERR_NVS_NOT_FOUND) {
+    return;
+  }
+  if (result != ESP_OK || blob_size != sizeof(storage) ||
+      storage.magic != kWifiPreferencesMagic ||
+      storage.version != kWifiPreferencesVersion) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Load WLAN preferences failed (error code: %#X)\n", result);
+    return;
+  }
+
+  state->wifi_enabled_requested = storage.enabled_requested != 0;
+  std::snprintf(state->wifi_auto_connect_ssid,
+      sizeof(state->wifi_auto_connect_ssid), "%s",
+      storage.auto_connect_ssid);
+  if (FindSavedWifiNetworkConst(state->wifi_auto_connect_ssid) == nullptr) {
+    state->wifi_auto_connect_ssid[0] = '\0';
   }
 }
 
@@ -1267,6 +1374,7 @@ void ForgetSavedWifiNetwork(SettingsViewState* state, const char* ssid) {
 
   if (std::strcmp(state->wifi_auto_connect_ssid, ssid) == 0) {
     state->wifi_auto_connect_ssid[0] = '\0';
+    PersistWifiPreferencesToNvsInternal(state);
   }
 
   hal::WifiStatus status;
@@ -3321,11 +3429,6 @@ bool ShowWifiPageInternal(SettingsViewState* state) {
   state->wifi_scan_on_ready = false;
   state->wifi_scan_request_generation = 0;
   state->wifi_auto_connect_on_ready = false;
-  hal::WifiStatus initial_status;
-  hal::WifiScanStatus initial_scan_status;
-  ReadWifiSnapshots(config, &initial_status, &initial_scan_status);
-  state->wifi_enabled_requested =
-      IsWifiPageEnabled(initial_status, initial_scan_status);
   UpdateSettingsWifiValue(state);
   if (state->wifi_enabled_requested) {
     RequestWifiScan(state, true);
@@ -3397,8 +3500,10 @@ bool ShowWifiPage(SettingsViewState* state) {
   return ShowWifiPageInternal(state);
 }
 
-void LoadSavedWifiNetworksFromNvs() {
+void LoadWifiSettingsFromNvs(
+    SettingsViewState* state, bool fallback_enabled) {
   LoadSavedWifiNetworksFromNvsInternal();
+  LoadWifiPreferencesFromNvsInternal(state, fallback_enabled);
 }
 
 }  // namespace lilygo_box::ui

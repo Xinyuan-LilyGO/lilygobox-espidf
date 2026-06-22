@@ -359,9 +359,12 @@ lv_obj_t* CreateDivider(lv_obj_t* parent, int width);
 void RestoreSettingsListGestures(SettingsViewState* state);
 
 /**
- * @brief 从 ESP32-P4 NVS 读取已保存 WLAN 凭据
+ * @brief 从 ESP32-P4 NVS 读取已保存 WLAN 凭据和用户偏好
+ * @param state 设置页状态
+ * @param fallback_enabled 未保存开关状态时使用的默认 WLAN 开关状态
  */
-void LoadSavedWifiNetworksFromNvs();
+void LoadWifiSettingsFromNvs(
+    SettingsViewState* state, bool fallback_enabled);
 
 /**
  * @brief 按当前 WLAN 开关请求状态刷新设置主页 WLAN 行右侧文字
