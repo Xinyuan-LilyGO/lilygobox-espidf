@@ -15,6 +15,8 @@ namespace lilygo_box::ui {
 struct EdgeBackSwipeState {
   // 手指按下时的起点，用于计算横向返回距离。
   lv_point_t start_point = {};
+  // 真实按下点，用于判断手指是否真的连续滑动，避免硬件边缘标志导致点击误显示动画。
+  lv_point_t gesture_start_point = {};
   // 指示器固定的垂直中心点，避免横向滑出后跟随手指上下漂移。
   int indicator_center_y = 0;
   // 是否正在跟踪一次从屏幕边缘开始的触摸。

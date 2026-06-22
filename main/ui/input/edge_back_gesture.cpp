@@ -20,7 +20,6 @@ constexpr int kIndicatorMinDiameter = 96;
 constexpr int kIndicatorMaxDiameter = 132;
 constexpr int kIndicatorVisibleDivisor = 3;
 constexpr int kIndicatorAnimationMs = 120;
-constexpr int kIndicatorMinOpacity = 150;
 constexpr int kIndicatorMaxOpacity = 238;
 constexpr uint32_t kIndicatorColor = 0x202020;
 constexpr uint32_t kIndicatorIconColor = 0xFFFFFF;
@@ -64,6 +63,22 @@ int ClampInt(int value, int min_value, int max_value) {
 }
 
 /**
+ * @brief 根据真实按下点计算朝返回方向移动的距离
+ * @param state 边缘返回手势状态
+ * @param point 当前触摸点
+ * @return 朝返回方向移动的横向距离
+ */
+int GestureBackDistance(const EdgeBackSwipeState& state, lv_point_t point) {
+  if (state.from_left_edge) {
+    return point.x - state.gesture_start_point.x;
+  }
+  if (state.from_right_edge) {
+    return state.gesture_start_point.x - point.x;
+  }
+  return 0;
+}
+
+/**
  * @brief 根据侧滑距离计算手势进度
  * @param state 边缘返回手势状态
  * @param point 当前触摸点
@@ -71,14 +86,20 @@ int ClampInt(int value, int min_value, int max_value) {
  */
 int GestureProgressPermille(
     const EdgeBackSwipeState& state, lv_point_t point) {
-  int distance = 0;
-  if (state.from_left_edge) {
-    distance = point.x - state.start_point.x;
-  } else if (state.from_right_edge) {
-    distance = state.start_point.x - point.x;
-  }
+  int distance = GestureBackDistance(state, point);
   distance = ClampInt(distance, 0, kBackGestureMinSwipeDistance);
   return distance * 1000 / kBackGestureMinSwipeDistance;
+}
+
+/**
+ * @brief 判断当前移动是否可以显示边缘返回指示器
+ * @param back_distance 朝返回方向移动的横向距离
+ * @param delta_y 垂直方向移动距离
+ * @return 横向移动超过阈值且不是明显纵向滑动时返回 true
+ */
+bool IsBackGestureIndicatorReady(int back_distance, int delta_y) {
+  return back_distance > kBackGestureIndicatorStartDistance &&
+         back_distance >= AbsInt(delta_y);
 }
 
 /**
@@ -181,10 +202,9 @@ void UpdateBackIndicator(
   const int diameter =
       kIndicatorMinDiameter +
       (kIndicatorMaxDiameter - kIndicatorMinDiameter) * progress / 1000;
-  const int visible_width = diameter / kIndicatorVisibleDivisor;
-  const int opacity =
-      kIndicatorMinOpacity +
-      (kIndicatorMaxOpacity - kIndicatorMinOpacity) * progress / 1000;
+  const int visible_width =
+      diameter * progress / 1000 / kIndicatorVisibleDivisor;
+  const int opacity = kIndicatorMaxOpacity * progress / 1000;
   int parent_height = lv_obj_get_height(lv_layer_top());
   if (parent_height <= 0) {
     parent_height = lv_obj_get_height(lv_screen_active());
@@ -282,6 +302,7 @@ bool HandleEdgeBackSwipeEvent(
     const bool valid_x = IsPointInsideScreen(point, screen_width);
     const bool hardware_edge = hal::LvglPort::ActiveInputEdgeTouch();
     state->start_point = point;
+    state->gesture_start_point = point;
     state->from_left_edge = valid_x && point.x <= edge_width;
     state->from_right_edge = valid_x && point.x >= screen_width - edge_width;
     if (hardware_edge && valid_x && !state->from_left_edge &&
@@ -305,32 +326,29 @@ bool HandleEdgeBackSwipeEvent(
     return false;
   }
 
-  const int delta_x = point.x - state->start_point.x;
-  const int delta_y = point.y - state->start_point.y;
-  const int back_distance = state->from_left_edge ? delta_x : -delta_x;
+  const int delta_y = point.y - state->gesture_start_point.y;
+  const int back_distance = GestureBackDistance(*state, point);
   if (code == LV_EVENT_PRESS_LOST &&
       lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED) {
-    if (state->active ||
-        back_distance >= kBackGestureIndicatorStartDistance) {
-      state->active = true;
+    if (state->active) {
       UpdateBackIndicator(*state, screen_width, point);
     }
     return false;
   }
 
   if (code == LV_EVENT_PRESSING) {
-    if (!state->active &&
-        back_distance < kBackGestureIndicatorStartDistance &&
-        AbsInt(delta_y) > kBackGestureMaxVerticalOffset) {
-      state->tracking = false;
-      HideBackIndicator(true);
-      return false;
+    if (!state->active) {
+      if (AbsInt(delta_y) > kBackGestureMaxVerticalOffset) {
+        state->tracking = false;
+        HideBackIndicator(true);
+        return false;
+      }
+      if (!IsBackGestureIndicatorReady(back_distance, delta_y)) {
+        HideBackIndicator(false);
+        return false;
+      }
+      state->active = true;
     }
-    if (back_distance < kBackGestureIndicatorStartDistance) {
-      HideBackIndicator(false);
-      return false;
-    }
-    state->active = true;
     UpdateBackIndicator(*state, screen_width, point);
     return false;
   }
@@ -342,11 +360,11 @@ bool HandleEdgeBackSwipeEvent(
   if (!was_active && AbsInt(delta_y) > kBackGestureMaxVerticalOffset) {
     return false;
   }
-
-  if (state->from_left_edge && delta_x >= kBackGestureMinSwipeDistance) {
-    return true;
+  if (!was_active) {
+    return false;
   }
-  if (state->from_right_edge && -delta_x >= kBackGestureMinSwipeDistance) {
+
+  if (back_distance >= kBackGestureMinSwipeDistance) {
     return true;
   }
   return false;
