@@ -7,10 +7,14 @@
  */
 #include "ui/views/settings/settings_view_internal.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
+#include "base/logger.h"
+#include "esp_err.h"
 #include "hal/providers/screen_provider.h"
+#include "nvs.h"
 #include "ui/animation/transition_animation.h"
 #include "ui/font/material_symbols_assets.h"
 #include "ui/input/app_view_gesture_flags.h"
@@ -24,6 +28,19 @@ namespace {
 // P4 侧运行期保存的 WLAN 凭据，不写入 ESP32-C6。
 WifiSavedNetwork g_wifi_saved_networks[kWifiSavedNetworkCapacity] = {};
 size_t g_wifi_saved_network_count = 0;
+bool g_wifi_saved_networks_loaded = false;
+
+constexpr const char* kSettingsNvsNamespace = "settings";
+constexpr const char* kWifiSavedNetworksNvsKey = "wifi_saved";
+constexpr uint32_t kWifiSavedNetworksMagic = 0x57494649;
+constexpr uint32_t kWifiSavedNetworksVersion = 1;
+
+struct WifiSavedNetworksStorage {
+  uint32_t magic = kWifiSavedNetworksMagic;
+  uint32_t version = kWifiSavedNetworksVersion;
+  uint32_t count = 0;
+  WifiSavedNetwork networks[kWifiSavedNetworkCapacity] = {};
+};
 
 /**
  * @brief 关闭 WLAN 详情页并释放页面资源
@@ -1079,6 +1096,90 @@ void ReadWifiPageSsid(const hal::WifiStatus& status, char* buffer,
 }
 
 /**
+ * @brief 将运行期已保存 WLAN 凭据写入 ESP32-P4 NVS
+ */
+void PersistSavedWifiNetworksToNvs() {
+  WifiSavedNetworksStorage storage;
+  storage.count = static_cast<uint32_t>(
+      std::min(g_wifi_saved_network_count, kWifiSavedNetworkCapacity));
+  for (size_t i = 0; i < storage.count; ++i) {
+    storage.networks[i] = g_wifi_saved_networks[i];
+  }
+
+  nvs_handle_t handle = 0;
+  esp_err_t result =
+      nvs_open(kSettingsNvsNamespace, NVS_READWRITE, &handle);
+  if (result != ESP_OK) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Open settings NVS failed (error code: %#X)\n", result);
+    return;
+  }
+
+  result = nvs_set_blob(
+      handle, kWifiSavedNetworksNvsKey, &storage, sizeof(storage));
+  if (result == ESP_OK) {
+    result = nvs_commit(handle);
+  }
+  nvs_close(handle);
+
+  if (result != ESP_OK) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Save WLAN credentials failed (error code: %#X)\n", result);
+  }
+}
+
+/**
+ * @brief 从 ESP32-P4 NVS 加载运行期已保存 WLAN 凭据
+ */
+void LoadSavedWifiNetworksFromNvsInternal() {
+  if (g_wifi_saved_networks_loaded) {
+    return;
+  }
+  g_wifi_saved_networks_loaded = true;
+  g_wifi_saved_network_count = 0;
+  for (size_t i = 0; i < kWifiSavedNetworkCapacity; ++i) {
+    g_wifi_saved_networks[i] = WifiSavedNetwork();
+  }
+
+  nvs_handle_t handle = 0;
+  esp_err_t result = nvs_open(kSettingsNvsNamespace, NVS_READONLY, &handle);
+  if (result == ESP_ERR_NVS_NOT_FOUND) {
+    return;
+  }
+  if (result != ESP_OK) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Open settings NVS failed (error code: %#X)\n", result);
+    return;
+  }
+
+  WifiSavedNetworksStorage storage;
+  size_t blob_size = sizeof(storage);
+  result = nvs_get_blob(
+      handle, kWifiSavedNetworksNvsKey, &storage, &blob_size);
+  nvs_close(handle);
+  if (result == ESP_ERR_NVS_NOT_FOUND) {
+    return;
+  }
+  if (result != ESP_OK || blob_size != sizeof(storage) ||
+      storage.magic != kWifiSavedNetworksMagic ||
+      storage.version != kWifiSavedNetworksVersion) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Load WLAN credentials failed (error code: %#X)\n", result);
+    return;
+  }
+
+  const size_t count = std::min<size_t>(
+      storage.count, kWifiSavedNetworkCapacity);
+  for (size_t i = 0; i < count; ++i) {
+    if (storage.networks[i].ssid[0] == '\0') {
+      continue;
+    }
+    g_wifi_saved_networks[g_wifi_saved_network_count++] =
+        storage.networks[i];
+  }
+}
+
+/**
  * @brief 判断 SSID 是否为固化的已保存测试热点
  * @param ssid 待判断的热点名称
  * @return 是已保存测试热点返回 true，否则返回 false
@@ -1129,6 +1230,7 @@ void SaveWifiNetworkCredential(
   saved->secure = action.secure;
   saved->is_5g = action.is_5g;
   saved->rssi = action.rssi;
+  PersistSavedWifiNetworksToNvs();
 }
 
 /**
@@ -1148,6 +1250,7 @@ void RemoveSavedWifiNetwork(const char* ssid) {
     }
     --g_wifi_saved_network_count;
     g_wifi_saved_networks[g_wifi_saved_network_count] = WifiSavedNetwork();
+    PersistSavedWifiNetworksToNvs();
     return;
   }
 }
@@ -3276,6 +3379,10 @@ bool ShowWifiPageInternal(SettingsViewState* state) {
  */
 bool ShowWifiPage(SettingsViewState* state) {
   return ShowWifiPageInternal(state);
+}
+
+void LoadSavedWifiNetworksFromNvs() {
+  LoadSavedWifiNetworksFromNvsInternal();
 }
 
 }  // namespace lilygo_box::ui

@@ -436,6 +436,7 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
   }
   state->config = config;
   state->root = root;
+  LoadSavedWifiNetworksFromNvs();
   state->wifi_enabled_requested = IsWifiCurrentlyEnabled(config);
   lv_obj_add_event_cb(
       root, SettingsViewDeleteEventCallback, LV_EVENT_DELETE, state);

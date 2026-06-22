@@ -8,9 +8,11 @@
 #include "app/application.h"
 
 #include "base/logger.h"
+#include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal/device_provider_factory.h"
+#include "nvs_flash.h"
 
 namespace lilygo_box {
 
@@ -18,6 +20,17 @@ Application::Application()
     : device_provider_context_(hal::CreateDeviceProviderContext()) {}
 
 bool Application::Init() {
+  esp_err_t nvs_result = nvs_flash_init();
+  if (nvs_result == ESP_ERR_NVS_NO_FREE_PAGES ||
+      nvs_result == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    nvs_flash_erase();
+    nvs_result = nvs_flash_init();
+  }
+  if (nvs_result != ESP_OK) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "NVS init failed (error code: %#X)\n", nvs_result);
+  }
+
   hal::DeviceProvider* device = device_provider_context_.device;
   if (device == nullptr) {
     LogMessage(

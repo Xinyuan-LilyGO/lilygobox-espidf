@@ -111,7 +111,7 @@ constexpr int kWifiPasswordInputHeight = 78;
 constexpr int kWifiPasswordInputRadius = 30;
 constexpr int kWifiPasswordKeyboardHeightPercent = 35;
 constexpr size_t kWifiPasswordMinLength = 8;
-constexpr size_t kWifiSavedNetworkCapacity = hal::kMaxWifiScanNetworkCount;
+constexpr size_t kWifiSavedNetworkCapacity = 10;
 constexpr size_t kWifiActionCapacity = hal::kMaxWifiScanNetworkCount * 2 + 6;
 constexpr size_t kWifiSubPageStackCapacity = 4;
 constexpr uint32_t kWifiBlueColor = 0x3F82F6;
@@ -357,6 +357,11 @@ lv_obj_t* CreateDivider(lv_obj_t* parent, int width);
  * @param state 设置页状态
  */
 void RestoreSettingsListGestures(SettingsViewState* state);
+
+/**
+ * @brief 从 ESP32-P4 NVS 读取已保存 WLAN 凭据
+ */
+void LoadSavedWifiNetworksFromNvs();
 
 /**
  * @brief 按当前 WLAN 开关请求状态刷新设置主页 WLAN 行右侧文字
