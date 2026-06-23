@@ -45,7 +45,7 @@ namespace gpio = lilygo_device_driver::t_display_p4::gpio;
 namespace {
 
 constexpr uint8_t kVibrationTestGain = 255;
-constexpr uint8_t kVibrationTestLoopCount = 15;
+constexpr uint8_t kVibrationTestLoopCount = 1;
 constexpr uint32_t kVibrationTestPlayMs = 220;
 constexpr uint32_t kVibrationTestStopMs = 180;
 constexpr size_t kSpeakerPlaybackChunkBytes = 4096;
