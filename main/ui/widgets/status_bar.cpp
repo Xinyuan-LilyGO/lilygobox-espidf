@@ -137,4 +137,16 @@ void StatusBar::MoveToTop() {
   }
 }
 
+void StatusBar::SetTextColor(lv_color_t color) {
+  if (time_label_ != nullptr) {
+    lv_obj_set_style_text_color(time_label_, color, LV_PART_MAIN);
+  }
+  if (wifi_label_ != nullptr) {
+    lv_obj_set_style_text_color(wifi_label_, color, LV_PART_MAIN);
+  }
+  if (bmu_label_ != nullptr) {
+    lv_obj_set_style_text_color(bmu_label_, color, LV_PART_MAIN);
+  }
+}
+
 }  // namespace lilygo_box::ui

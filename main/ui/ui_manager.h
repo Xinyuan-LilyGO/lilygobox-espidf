@@ -76,6 +76,12 @@ class UiManager final {
    */
   bool SetStartupScreenProgress(int percent);
 
+  /**
+   * @brief 设置全局状态栏文字和图标颜色
+   * @param color 文字和图标颜色，格式为 0xRRGGBB
+   */
+  void SetStatusBarTextColor(uint32_t color);
+
  private:
   struct AppButtonContext {
     UiManager* manager = nullptr;

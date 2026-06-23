@@ -7,6 +7,8 @@
  */
 #pragma once
 
+#include <functional>
+
 #include "lvgl.h"
 
 namespace lilygo_box::hal {
@@ -57,6 +59,8 @@ struct AppViewConfig {
   lv_event_cb_t back_callback = nullptr;
   // 传给返回回调的用户上下文。
   void* back_context = nullptr;
+  // 设置状态栏文字和图标颜色。
+  std::function<void(uint32_t color)> set_status_bar_text_color;
 };
 
 }  // namespace lilygo_box::ui

@@ -34,6 +34,12 @@ class StatusBar final {
    */
   void MoveToTop();
 
+  /**
+   * @brief 设置状态栏文字和图标颜色
+   * @param color 文字和图标颜色
+   */
+  void SetTextColor(lv_color_t color);
+
  private:
   lv_obj_t* object_ = nullptr;
   lv_obj_t* time_label_ = nullptr;

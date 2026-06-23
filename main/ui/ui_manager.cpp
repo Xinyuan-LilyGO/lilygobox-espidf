@@ -64,6 +64,7 @@ constexpr uint32_t kStartupBackgroundColor = 0xFFFFFF;
 constexpr uint32_t kStartupTextColor = 0x111111;
 constexpr uint32_t kStartupProgressTrackColor = 0xE8E8E8;
 constexpr uint32_t kStartupProgressFillColor = 0x1C1C1C;
+constexpr uint32_t kStatusBarLightTextColor = 0xFFFFFF;
 constexpr int kStartupProgressMaxWidth = 360;
 constexpr int kStartupProgressWidthPercent = 54;
 constexpr int kStartupProgressMinHeight = 6;
@@ -716,6 +717,10 @@ bool UiManager::StartStartupScreenAnimation() {
   startup_progress_animating_ = false;
   lv_obj_invalidate(startup_screen_);
   return true;
+}
+
+void UiManager::SetStatusBarTextColor(uint32_t color) {
+  status_bar_.SetTextColor(lv_color_hex(color));
 }
 
 bool UiManager::SetStartupScreenProgress(int percent) {
@@ -1485,7 +1490,11 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   config.wifi = wifi_provider_;
   config.back_callback = BackButtonEventCallback;
   config.back_context = this;
+  config.set_status_bar_text_color = [this](uint32_t color) {
+    SetStatusBarTextColor(color);
+  };
 
+  SetStatusBarTextColor(kStatusBarLightTextColor);
   active_view_container_ = CreateAppView(root_screen_, app_entry, config);
   if (active_view_container_ == nullptr) {
     return false;
@@ -1528,6 +1537,7 @@ void UiManager::ShowLauncher() {
     if (launcher_container_ != nullptr) {
       lv_obj_remove_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
       lv_obj_set_style_opa(launcher_container_, LV_OPA_COVER, LV_PART_MAIN);
+      SetStatusBarTextColor(kStatusBarLightTextColor);
       status_bar_.MoveToTop();
     }
     return;
@@ -1537,6 +1547,7 @@ void UiManager::ShowLauncher() {
   active_view_container_ = nullptr;
   lv_obj_remove_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_style_opa(launcher_container_, LV_OPA_COVER, LV_PART_MAIN);
+  SetStatusBarTextColor(kStatusBarLightTextColor);
   status_bar_.MoveToTop();
 }
 

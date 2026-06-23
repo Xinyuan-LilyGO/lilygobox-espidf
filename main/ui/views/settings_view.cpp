@@ -20,6 +20,8 @@
 namespace lilygo_box::ui {
 namespace {
 
+constexpr uint32_t kSettingsStatusBarTextColor = 0x111111;
+
 // 设置入口图标样式。
 struct SettingsIconStyle {
   const char* symbol = nullptr;
@@ -423,6 +425,10 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
     const AppViewConfig& config) {
   if (parent == nullptr || config.width <= 0 || config.height <= 0) {
     return nullptr;
+  }
+
+  if (config.set_status_bar_text_color) {
+    config.set_status_bar_text_color(kSettingsStatusBarTextColor);
   }
 
   lv_obj_t* root = lv_obj_create(parent);
