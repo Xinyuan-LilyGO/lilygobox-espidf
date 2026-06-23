@@ -82,6 +82,12 @@ class UiManager final {
    */
   void SetStatusBarTextColor(uint32_t color);
 
+  /**
+   * @brief 设置全局状态栏是否显示
+   * @param visible true 显示，false 隐藏
+   */
+  void SetStatusBarVisible(bool visible);
+
  private:
   struct AppButtonContext {
     UiManager* manager = nullptr;

@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <cstring>
 #include <ctime>
+#include <functional>
 #include <new>
 
 #include "app/cit_catalog.h"
@@ -114,6 +115,7 @@ struct CitViewState {
   hal::ImuProvider* imu = nullptr;
   hal::EthernetProvider* ethernet = nullptr;
   hal::WifiProvider* wifi = nullptr;
+  std::function<void(bool visible)> set_status_bar_visible;
   hal::DeviceDiagnostics diagnostics;
   int diagnostics_elapsed_ms = kDiagnosticsRefreshPeriodMs;
   bool diagnostics_read = false;
@@ -144,6 +146,7 @@ void RefreshCitRows(CitViewState* state);
 void SetCitRowsClickable(CitViewState* state, bool enabled);
 void TestPageEdgeBackEventCallback(lv_event_t* event);
 void ScreenColorOverlayEventCallback(lv_event_t* event);
+void ScreenColorOverlayEdgeBackEventCallback(lv_event_t* event);
 
 /**
  * @brief 设置对象的文本颜色和字体
@@ -261,6 +264,33 @@ void RestoreCitListGestures(CitViewState* state) {
 }
 
 /**
+ * @brief 设置 CIT 使用的全局状态栏显示状态
+ * @param state CIT 页面状态
+ * @param visible true 显示，false 隐藏
+ */
+void SetCitStatusBarVisible(CitViewState* state, bool visible) {
+  if (state != nullptr && state->set_status_bar_visible) {
+    state->set_status_bar_visible(visible);
+  }
+}
+
+/**
+ * @brief 隐藏屏幕颜色测试浮层并恢复状态栏
+ * @param state CIT 页面状态
+ */
+void HideScreenColorOverlay(CitViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+
+  if (state->screen_color_overlay != nullptr) {
+    lv_obj_add_flag(state->screen_color_overlay, LV_OBJ_FLAG_HIDDEN);
+  }
+  state->test_edge_back_swipe = EdgeBackSwipeState();
+  SetCitStatusBarVisible(state, true);
+}
+
+/**
  * @brief 停止当前测试页面关联的硬件任务
  * @param state CIT 页面状态
  */
@@ -291,6 +321,7 @@ void ClearTestPageState(CitViewState* state) {
     return;
   }
 
+  SetCitStatusBarVisible(state, true);
   state->test_page = nullptr;
   state->test_content = nullptr;
   state->test_data_label = nullptr;
@@ -1378,6 +1409,7 @@ void CitViewDeleteCallback(lv_event_t* event) {
     lv_timer_delete(state->refresh_timer);
     state->refresh_timer = nullptr;
   }
+  SetCitStatusBarVisible(state, true);
   StopActiveTestHardware(state);
   delete state;
 }
@@ -1792,14 +1824,37 @@ bool ShowScreenColorOverlay(CitViewState* state) {
     lv_obj_set_style_pad_all(overlay, 0, LV_PART_MAIN);
     lv_obj_add_event_cb(
         overlay, ScreenColorOverlayEventCallback, LV_EVENT_CLICKED, state);
-    AddEdgeBackSwipeEvents(overlay, TestPageEdgeBackEventCallback, state);
+    AddEdgeBackSwipeEvents(
+        overlay, ScreenColorOverlayEdgeBackEventCallback, state);
   }
 
   state->screen_color_index = 0;
+  state->test_edge_back_swipe = EdgeBackSwipeState();
   UpdateScreenColorOverlayColor(state);
   lv_obj_remove_flag(state->screen_color_overlay, LV_OBJ_FLAG_HIDDEN);
   lv_obj_move_to_index(state->screen_color_overlay, -1);
+  SetCitStatusBarVisible(state, false);
   return true;
+}
+
+/**
+ * @brief 处理屏幕颜色测试浮层的边缘返回事件
+ * @param event LVGL 事件
+ */
+void ScreenColorOverlayEdgeBackEventCallback(lv_event_t* event) {
+  auto* state = static_cast<CitViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr ||
+      !HandleEdgeBackSwipeEvent(
+          event, state->width, &state->test_edge_back_swipe)) {
+    return;
+  }
+
+  if (state->root != nullptr) {
+    SuppressNextLauncherGesture(state->root);
+  }
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+  HideScreenColorOverlay(state);
 }
 
 /**
@@ -1818,7 +1873,7 @@ void ScreenColorOverlayEventCallback(lv_event_t* event) {
 
   lv_event_stop_bubbling(event);
   if (state->screen_color_index + 1 >= kScreenColorTestColors.size()) {
-    lv_obj_add_flag(state->screen_color_overlay, LV_OBJ_FLAG_HIDDEN);
+    HideScreenColorOverlay(state);
     return;
   }
 
@@ -2910,6 +2965,7 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
   state->imu = config.imu;
   state->ethernet = config.ethernet;
   state->wifi = config.wifi;
+  state->set_status_bar_visible = config.set_status_bar_visible;
   state->root = container;
   state->width = config.width;
   state->height = config.height;

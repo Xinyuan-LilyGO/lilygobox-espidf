@@ -61,6 +61,8 @@ struct AppViewConfig {
   void* back_context = nullptr;
   // 设置状态栏文字和图标颜色。
   std::function<void(uint32_t color)> set_status_bar_text_color;
+  // 设置状态栏是否显示。
+  std::function<void(bool visible)> set_status_bar_visible;
 };
 
 }  // namespace lilygo_box::ui

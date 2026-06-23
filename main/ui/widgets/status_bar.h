@@ -40,6 +40,12 @@ class StatusBar final {
    */
   void SetTextColor(lv_color_t color);
 
+  /**
+   * @brief 设置状态栏是否显示
+   * @param visible true 显示，false 隐藏
+   */
+  void SetVisible(bool visible);
+
  private:
   lv_obj_t* object_ = nullptr;
   lv_obj_t* time_label_ = nullptr;

@@ -149,4 +149,18 @@ void StatusBar::SetTextColor(lv_color_t color) {
   }
 }
 
+void StatusBar::SetVisible(bool visible) {
+  if (object_ == nullptr) {
+    return;
+  }
+
+  if (visible) {
+    lv_obj_remove_flag(object_, LV_OBJ_FLAG_HIDDEN);
+    MoveToTop();
+    return;
+  }
+
+  lv_obj_add_flag(object_, LV_OBJ_FLAG_HIDDEN);
+}
+
 }  // namespace lilygo_box::ui

@@ -723,6 +723,10 @@ void UiManager::SetStatusBarTextColor(uint32_t color) {
   status_bar_.SetTextColor(lv_color_hex(color));
 }
 
+void UiManager::SetStatusBarVisible(bool visible) {
+  status_bar_.SetVisible(visible);
+}
+
 bool UiManager::SetStartupScreenProgress(int percent) {
   if (startup_screen_ == nullptr || startup_progress_fill_ == nullptr) {
     return false;
@@ -1493,7 +1497,11 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   config.set_status_bar_text_color = [this](uint32_t color) {
     SetStatusBarTextColor(color);
   };
+  config.set_status_bar_visible = [this](bool visible) {
+    SetStatusBarVisible(visible);
+  };
 
+  SetStatusBarVisible(true);
   SetStatusBarTextColor(kStatusBarLightTextColor);
   active_view_container_ = CreateAppView(root_screen_, app_entry, config);
   if (active_view_container_ == nullptr) {
@@ -1538,6 +1546,7 @@ void UiManager::ShowLauncher() {
       lv_obj_remove_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
       lv_obj_set_style_opa(launcher_container_, LV_OPA_COVER, LV_PART_MAIN);
       SetStatusBarTextColor(kStatusBarLightTextColor);
+      SetStatusBarVisible(true);
       status_bar_.MoveToTop();
     }
     return;
@@ -1548,6 +1557,7 @@ void UiManager::ShowLauncher() {
   lv_obj_remove_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_style_opa(launcher_container_, LV_OPA_COVER, LV_PART_MAIN);
   SetStatusBarTextColor(kStatusBarLightTextColor);
+  SetStatusBarVisible(true);
   status_bar_.MoveToTop();
 }
 
