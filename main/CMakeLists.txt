@@ -1,6 +1,7 @@
 set(src_dirs
     "."
     "app"
+    "app/settings"
     "base"
     "hal"
     "hal/providers"

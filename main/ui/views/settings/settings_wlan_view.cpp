@@ -11,10 +11,8 @@
 #include <cstdio>
 #include <cstring>
 
-#include "base/logger.h"
-#include "esp_err.h"
+#include "app/settings/settings_wifi_storage.h"
 #include "hal/providers/screen_provider.h"
-#include "nvs.h"
 #include "ui/animation/transition_animation.h"
 #include "ui/font/material_symbols_assets.h"
 #include "ui/input/app_view_gesture_flags.h"
@@ -23,34 +21,14 @@
 #include "ui/widgets/shared_keyboard.h"
 
 namespace lilygo_box::ui {
+
 namespace {
 
 // P4 侧运行期保存的 WLAN 凭据，不写入 ESP32-C6。
-WifiSavedNetwork g_wifi_saved_networks[kWifiSavedNetworkCapacity] = {};
+app::WifiSavedNetwork g_wifi_saved_networks[
+    app::kWifiSavedNetworkCapacity] = {};
 size_t g_wifi_saved_network_count = 0;
 bool g_wifi_saved_networks_loaded = false;
-
-constexpr const char* kSettingsNvsNamespace = "settings";
-constexpr const char* kWifiSavedNetworksNvsKey = "wifi_saved";
-constexpr const char* kWifiPreferencesNvsKey = "wifi_config";
-constexpr uint32_t kWifiSavedNetworksMagic = 0x57494649;
-constexpr uint32_t kWifiSavedNetworksVersion = 1;
-constexpr uint32_t kWifiPreferencesMagic = 0x57465052;
-constexpr uint32_t kWifiPreferencesVersion = 1;
-
-struct WifiSavedNetworksStorage {
-  uint32_t magic = kWifiSavedNetworksMagic;
-  uint32_t version = kWifiSavedNetworksVersion;
-  uint32_t count = 0;
-  WifiSavedNetwork networks[kWifiSavedNetworkCapacity] = {};
-};
-
-struct WifiPreferencesStorage {
-  uint32_t magic = kWifiPreferencesMagic;
-  uint32_t version = kWifiPreferencesVersion;
-  uint8_t enabled_requested = 0;
-  char auto_connect_ssid[hal::kWifiSsidMaxLength + 1] = {};
-};
 
 /**
  * @brief 关闭 WLAN 详情页并释放页面资源
@@ -150,14 +128,14 @@ bool IsSavedWifiSsid(const char* ssid);
  * @param ssid 待查找的热点名称
  * @return 找到返回保存项地址，否则返回 nullptr
  */
-WifiSavedNetwork* FindSavedWifiNetwork(const char* ssid);
+app::WifiSavedNetwork* FindSavedWifiNetwork(const char* ssid);
 
 /**
  * @brief 在只读运行期已保存 WLAN 表里查找指定 SSID
  * @param ssid 待查找的热点名称
  * @return 找到返回保存项地址，否则返回 nullptr
  */
-const WifiSavedNetwork* FindSavedWifiNetworkConst(const char* ssid);
+const app::WifiSavedNetwork* FindSavedWifiNetworkConst(const char* ssid);
 
 /**
  * @brief 从运行期已保存 WLAN 表里删除指定 SSID
@@ -692,7 +670,7 @@ bool TryStartWifiAutoConnect(SettingsViewState* state) {
     return false;
   }
 
-  const WifiSavedNetwork* saved =
+  const app::WifiSavedNetwork* saved =
       FindSavedWifiNetworkConst(state->wifi_auto_connect_ssid);
   if (saved == nullptr || (saved->secure && saved->password[0] == '\0')) {
     state->wifi_auto_connect_on_ready = false;
@@ -766,7 +744,7 @@ void WifiNetworkClickedEventCallback(lv_event_t* event) {
 
   if (action->saved) {
     action->state->wifi_pending_action = *action;
-    const WifiSavedNetwork* saved =
+    const app::WifiSavedNetwork* saved =
         FindSavedWifiNetworkConst(action->ssid);
     if (saved != nullptr) {
       std::snprintf(action->state->wifi_pending_action.password,
@@ -808,7 +786,7 @@ void WifiConnectionCardRetryClickedEventCallback(lv_event_t* event) {
 
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (state != nullptr && state->wifi_pending_action.ssid[0] != '\0') {
-    const WifiSavedNetwork* saved =
+    const app::WifiSavedNetwork* saved =
         FindSavedWifiNetworkConst(state->wifi_pending_action.ssid);
     if (saved != nullptr) {
       std::snprintf(state->wifi_pending_action.password,
@@ -1124,33 +1102,8 @@ void ReadWifiPageSsid(const hal::WifiStatus& status, char* buffer,
  * @brief 将运行期已保存 WLAN 凭据写入 ESP32-P4 NVS
  */
 void PersistSavedWifiNetworksToNvs() {
-  WifiSavedNetworksStorage storage;
-  storage.count = static_cast<uint32_t>(
-      std::min(g_wifi_saved_network_count, kWifiSavedNetworkCapacity));
-  for (size_t i = 0; i < storage.count; ++i) {
-    storage.networks[i] = g_wifi_saved_networks[i];
-  }
-
-  nvs_handle_t handle = 0;
-  esp_err_t result =
-      nvs_open(kSettingsNvsNamespace, NVS_READWRITE, &handle);
-  if (result != ESP_OK) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Open settings NVS failed (error code: %#X)\n", result);
-    return;
-  }
-
-  result = nvs_set_blob(
-      handle, kWifiSavedNetworksNvsKey, &storage, sizeof(storage));
-  if (result == ESP_OK) {
-    result = nvs_commit(handle);
-  }
-  nvs_close(handle);
-
-  if (result != ESP_OK) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Save WLAN credentials failed (error code: %#X)\n", result);
-  }
+  app::SaveWifiSavedNetworksToNvs(
+      g_wifi_saved_networks, g_wifi_saved_network_count);
 }
 
 /**
@@ -1162,32 +1115,12 @@ void PersistWifiPreferencesToNvsInternal(const SettingsViewState* state) {
     return;
   }
 
-  WifiPreferencesStorage storage;
-  storage.enabled_requested = state->wifi_enabled_requested ? 1 : 0;
-  std::snprintf(storage.auto_connect_ssid,
-      sizeof(storage.auto_connect_ssid), "%s",
+  app::WifiPreferences preferences;
+  preferences.enabled_requested = state->wifi_enabled_requested;
+  std::snprintf(preferences.auto_connect_ssid,
+      sizeof(preferences.auto_connect_ssid), "%s",
       state->wifi_auto_connect_ssid);
-
-  nvs_handle_t handle = 0;
-  esp_err_t result =
-      nvs_open(kSettingsNvsNamespace, NVS_READWRITE, &handle);
-  if (result != ESP_OK) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Open settings NVS failed (error code: %#X)\n", result);
-    return;
-  }
-
-  result = nvs_set_blob(
-      handle, kWifiPreferencesNvsKey, &storage, sizeof(storage));
-  if (result == ESP_OK) {
-    result = nvs_commit(handle);
-  }
-  nvs_close(handle);
-
-  if (result != ESP_OK) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Save WLAN preferences failed (error code: %#X)\n", result);
-  }
+  app::SaveWifiPreferencesToNvs(preferences);
 }
 
 /**
@@ -1198,47 +1131,8 @@ void LoadSavedWifiNetworksFromNvsInternal() {
     return;
   }
   g_wifi_saved_networks_loaded = true;
-  g_wifi_saved_network_count = 0;
-  for (size_t i = 0; i < kWifiSavedNetworkCapacity; ++i) {
-    g_wifi_saved_networks[i] = WifiSavedNetwork();
-  }
-
-  nvs_handle_t handle = 0;
-  esp_err_t result = nvs_open(kSettingsNvsNamespace, NVS_READONLY, &handle);
-  if (result == ESP_ERR_NVS_NOT_FOUND) {
-    return;
-  }
-  if (result != ESP_OK) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Open settings NVS failed (error code: %#X)\n", result);
-    return;
-  }
-
-  WifiSavedNetworksStorage storage;
-  size_t blob_size = sizeof(storage);
-  result = nvs_get_blob(
-      handle, kWifiSavedNetworksNvsKey, &storage, &blob_size);
-  nvs_close(handle);
-  if (result == ESP_ERR_NVS_NOT_FOUND) {
-    return;
-  }
-  if (result != ESP_OK || blob_size != sizeof(storage) ||
-      storage.magic != kWifiSavedNetworksMagic ||
-      storage.version != kWifiSavedNetworksVersion) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Load WLAN credentials failed (error code: %#X)\n", result);
-    return;
-  }
-
-  const size_t count = std::min<size_t>(
-      storage.count, kWifiSavedNetworkCapacity);
-  for (size_t i = 0; i < count; ++i) {
-    if (storage.networks[i].ssid[0] == '\0') {
-      continue;
-    }
-    g_wifi_saved_networks[g_wifi_saved_network_count++] =
-        storage.networks[i];
-  }
+  app::LoadWifiSavedNetworksFromNvs(g_wifi_saved_networks,
+      app::kWifiSavedNetworkCapacity, &g_wifi_saved_network_count);
 }
 
 /**
@@ -1255,37 +1149,15 @@ void LoadWifiPreferencesFromNvsInternal(
   state->wifi_enabled_requested = fallback_enabled;
   state->wifi_auto_connect_ssid[0] = '\0';
 
-  nvs_handle_t handle = 0;
-  esp_err_t result = nvs_open(kSettingsNvsNamespace, NVS_READONLY, &handle);
-  if (result == ESP_ERR_NVS_NOT_FOUND) {
-    return;
-  }
-  if (result != ESP_OK) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Open settings NVS failed (error code: %#X)\n", result);
+  app::WifiPreferences preferences;
+  if (!app::LoadWifiPreferencesFromNvs(&preferences)) {
     return;
   }
 
-  WifiPreferencesStorage storage;
-  size_t blob_size = sizeof(storage);
-  result = nvs_get_blob(
-      handle, kWifiPreferencesNvsKey, &storage, &blob_size);
-  nvs_close(handle);
-  if (result == ESP_ERR_NVS_NOT_FOUND) {
-    return;
-  }
-  if (result != ESP_OK || blob_size != sizeof(storage) ||
-      storage.magic != kWifiPreferencesMagic ||
-      storage.version != kWifiPreferencesVersion) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Load WLAN preferences failed (error code: %#X)\n", result);
-    return;
-  }
-
-  state->wifi_enabled_requested = storage.enabled_requested != 0;
+  state->wifi_enabled_requested = preferences.enabled_requested;
   std::snprintf(state->wifi_auto_connect_ssid,
       sizeof(state->wifi_auto_connect_ssid), "%s",
-      storage.auto_connect_ssid);
+      preferences.auto_connect_ssid);
   if (FindSavedWifiNetworkConst(state->wifi_auto_connect_ssid) == nullptr) {
     state->wifi_auto_connect_ssid[0] = '\0';
   }
@@ -1296,7 +1168,7 @@ void LoadWifiPreferencesFromNvsInternal(
  * @param ssid 待判断的热点名称
  * @return 是已保存测试热点返回 true，否则返回 false
  */
-WifiSavedNetwork* FindSavedWifiNetwork(const char* ssid) {
+app::WifiSavedNetwork* FindSavedWifiNetwork(const char* ssid) {
   if (ssid == nullptr || ssid[0] == '\0') {
     return nullptr;
   }
@@ -1308,7 +1180,7 @@ WifiSavedNetwork* FindSavedWifiNetwork(const char* ssid) {
   return nullptr;
 }
 
-const WifiSavedNetwork* FindSavedWifiNetworkConst(const char* ssid) {
+const app::WifiSavedNetwork* FindSavedWifiNetworkConst(const char* ssid) {
   return FindSavedWifiNetwork(ssid);
 }
 
@@ -1327,13 +1199,13 @@ void SaveWifiNetworkCredential(
     return;
   }
 
-  WifiSavedNetwork* saved = FindSavedWifiNetwork(action.ssid);
+  app::WifiSavedNetwork* saved = FindSavedWifiNetwork(action.ssid);
   if (saved == nullptr) {
-    if (g_wifi_saved_network_count >= kWifiSavedNetworkCapacity) {
+    if (g_wifi_saved_network_count >= app::kWifiSavedNetworkCapacity) {
       return;
     }
     saved = &g_wifi_saved_networks[g_wifi_saved_network_count++];
-    *saved = WifiSavedNetwork();
+    *saved = app::WifiSavedNetwork();
   }
 
   std::snprintf(saved->ssid, sizeof(saved->ssid), "%s", action.ssid);
@@ -1361,7 +1233,8 @@ void RemoveSavedWifiNetwork(const char* ssid) {
       g_wifi_saved_networks[j - 1] = g_wifi_saved_networks[j];
     }
     --g_wifi_saved_network_count;
-    g_wifi_saved_networks[g_wifi_saved_network_count] = WifiSavedNetwork();
+    g_wifi_saved_networks[g_wifi_saved_network_count] =
+        app::WifiSavedNetwork();
     PersistSavedWifiNetworksToNvs();
     return;
   }
@@ -1478,7 +1351,7 @@ bool CanRetryPendingWifiConnection(const SettingsViewState* state) {
   if (!state->wifi_pending_action.secure) {
     return true;
   }
-  const WifiSavedNetwork* saved =
+  const app::WifiSavedNetwork* saved =
       FindSavedWifiNetworkConst(state->wifi_pending_action.ssid);
   return saved != nullptr && saved->password[0] != '\0';
 }
@@ -1782,7 +1655,8 @@ WifiNetworkAction* ReserveWifiNetworkAction(SettingsViewState* state,
 WifiNetworkAction* ReserveWifiSavedDeleteAction(
     SettingsViewState* state, const char* ssid) {
   if (state == nullptr || ssid == nullptr || ssid[0] == '\0' ||
-      state->wifi_saved_delete_action_count >= kWifiSavedNetworkCapacity) {
+      state->wifi_saved_delete_action_count >=
+          app::kWifiSavedNetworkCapacity) {
     return nullptr;
   }
 
@@ -2783,7 +2657,7 @@ bool BuildWifiSavedNetworksContent(
   lv_obj_set_style_pad_row(parent, 10, LV_PART_MAIN);
 
   for (size_t i = 0; i < g_wifi_saved_network_count; ++i) {
-    const WifiSavedNetwork& saved = g_wifi_saved_networks[i];
+    const app::WifiSavedNetwork& saved = g_wifi_saved_networks[i];
     if (!CreateWifiSavedManageRow(
             parent, state, saved.ssid, state->config.width)) {
       return false;
@@ -3207,7 +3081,7 @@ bool CreateWifiPageContent(lv_obj_t* parent, SettingsViewState* state,
   bool card_is_5g = status.channel > 14;
   bool card_secure = true;
   const char* card_password = "";
-  const WifiSavedNetwork* card_saved = FindSavedWifiNetworkConst(ssid);
+  const app::WifiSavedNetwork* card_saved = FindSavedWifiNetworkConst(ssid);
   if (card_saved != nullptr) {
     card_rssi = card_saved->rssi;
     card_is_5g = card_saved->is_5g;
@@ -3273,7 +3147,7 @@ bool CreateWifiPageContent(lv_obj_t* parent, SettingsViewState* state,
 
   if (show_scan_results) {
     for (size_t i = 0; i < g_wifi_saved_network_count; ++i) {
-      const WifiSavedNetwork& saved = g_wifi_saved_networks[i];
+      const app::WifiSavedNetwork& saved = g_wifi_saved_networks[i];
       hal::WifiNetworkInfo network = {};
       if (IsShownWifiSsid(
               shown_ssids, shown_ssid_count, saved.ssid) ||

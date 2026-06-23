@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "app/settings/settings_wifi_storage.h"
 #include "hal/providers/wifi_provider.h"
 #include "lvgl.h"
 #include "ui/input/edge_back_gesture.h"
@@ -111,7 +112,6 @@ constexpr int kWifiPasswordInputHeight = 78;
 constexpr int kWifiPasswordInputRadius = 30;
 constexpr int kWifiPasswordKeyboardHeightPercent = 35;
 constexpr size_t kWifiPasswordMinLength = 8;
-constexpr size_t kWifiSavedNetworkCapacity = 10;
 constexpr size_t kWifiActionCapacity = hal::kMaxWifiScanNetworkCount * 2 + 6;
 constexpr size_t kWifiSubPageStackCapacity = 4;
 constexpr uint32_t kWifiBlueColor = 0x3F82F6;
@@ -150,20 +150,6 @@ struct WifiNetworkAction {
   bool saved = false;
 };
 
-// WLAN 已保存网络凭据，保存用户确认连接后的 SSID 与连接元数据。
-struct WifiSavedNetwork {
-  // 已保存热点 SSID，用来在 Saved WLAN 与附近 WLAN 间去重。
-  char ssid[hal::kWifiSsidMaxLength + 1] = {};
-  // 用户确认连接时输入的密码，开放网络保持为空字符串。
-  char password[hal::kWifiPasswordMaxLength + 1] = {};
-  // 热点是否需要密码，用于重连和详情页安全性显示。
-  bool secure = false;
-  // 热点是否位于 5 GHz 频段，只使用扫描结果或连接状态更新。
-  bool is_5g = false;
-  // 最近一次已知 RSSI，用于 Saved WLAN 行和详情页展示。
-  int rssi = 0;
-};
-
 // 设置页运行状态，跨主列表和多个详情页共享。
 struct SettingsViewState {
   AppViewConfig config;
@@ -197,7 +183,8 @@ struct SettingsViewState {
   // WLAN 列表行点击参数池，避免 LVGL 回调使用临时地址。
   WifiNetworkAction wifi_actions[kWifiActionCapacity] = {};
   // 已保存网络删除按钮参数池，不占用主 WLAN 列表行点击参数。
-  WifiNetworkAction wifi_saved_delete_actions[kWifiSavedNetworkCapacity] = {};
+  WifiNetworkAction wifi_saved_delete_actions[
+      app::kWifiSavedNetworkCapacity] = {};
   // 当前弹窗正在处理的 WLAN，复制出来避免列表刷新后地址失效。
   WifiNetworkAction wifi_pending_action = {};
   EdgeBackSwipeState detail_swipe = {};
