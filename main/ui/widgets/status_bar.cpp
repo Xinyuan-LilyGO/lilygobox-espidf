@@ -17,7 +17,7 @@ namespace lilygo_box::ui {
 namespace {
 
 constexpr int kStatusBarHeight = 50;
-constexpr int kStatusBarPadding = 24;
+constexpr int kStatusBarPadding = 40;
 constexpr int kStatusBarIconGap = -6;
 constexpr uint32_t kStatusBarBackgroundColor = 0x000000;
 constexpr uint32_t kStatusBarTextColor = 0xFFFFFF;
