@@ -3431,6 +3431,9 @@ bool ShowWifiPageInternal(SettingsViewState* state) {
   state->wifi_auto_connect_on_ready = false;
   UpdateSettingsWifiValue(state);
   if (state->wifi_enabled_requested) {
+    if (state->wifi_auto_connect_ssid[0] != '\0') {
+      state->wifi_auto_connect_on_ready = true;
+    }
     RequestWifiScan(state, true);
   }
   lv_obj_add_flag(state->root, kBlockLauncherGestureFlag);
