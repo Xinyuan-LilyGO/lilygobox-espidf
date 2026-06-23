@@ -18,6 +18,7 @@
 #include "ui/input/app_view_gesture_flags.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"
+#include "ui/widgets/prompt_sheet.h"
 #include "ui/widgets/shared_keyboard.h"
 
 namespace lilygo_box::ui {
@@ -224,6 +225,17 @@ bool ShowWifiSavedNetworksPage(SettingsViewState* state);
  */
 bool ShowWifiConnectSheet(
     SettingsViewState* state, const WifiNetworkAction& action);
+
+/**
+ * @brief 打开 WLAN 删除网络确认底部弹窗
+ * @param state 设置页状态
+ * @param ssid 待删除的热点名称
+ * @param close_sub_page 确认删除后是否关闭当前 WLAN 子页面
+ * @param saved_delete_row 管理已保存网络页中待删除的行对象
+ * @return 打开成功返回 true，否则返回 false
+ */
+bool ShowWifiDeleteNetworkSheet(SettingsViewState* state, const char* ssid,
+    bool close_sub_page, lv_obj_t* saved_delete_row);
 
 /**
  * @brief 创建 WLAN 状态提示文本
@@ -490,6 +502,8 @@ void CloseWifiModal(SettingsViewState* state) {
   state->wifi_password_keyboard = nullptr;
   state->wifi_connect_button = nullptr;
   state->wifi_connect_button_label = nullptr;
+  state->wifi_saved_delete_row = nullptr;
+  state->wifi_delete_close_sub_page = false;
   lv_obj_delete(overlay);
 }
 
@@ -977,18 +991,51 @@ void WifiDeleteNetworkClickedEventCallback(lv_event_t* event) {
     return;
   }
 
-  char deleted_ssid[hal::kWifiSsidMaxLength + 1] = {};
-  std::snprintf(deleted_ssid, sizeof(deleted_ssid), "%s",
-      state->wifi_pending_action.ssid);
-  if (deleted_ssid[0] == '\0') {
-    lv_event_stop_bubbling(event);
-    lv_event_stop_processing(event);
+  ShowWifiDeleteNetworkSheet(
+      state, state->wifi_pending_action.ssid, true, nullptr);
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+}
+
+/**
+ * @brief 确认删除当前 WLAN 保存信息
+ * @param event LVGL 事件对象
+ */
+void WifiDeleteConfirmClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
 
-  ForgetSavedWifiNetwork(state, deleted_ssid);
-  RefreshWifiPage(state, true);
-  CloseWifiSubPage(state, true);
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr) {
+    return;
+  }
+
+  char deleted_ssid[hal::kWifiSsidMaxLength + 1] = {};
+  std::snprintf(deleted_ssid, sizeof(deleted_ssid), "%s",
+      state->wifi_pending_action.ssid);
+  const bool close_sub_page = state->wifi_delete_close_sub_page;
+  lv_obj_t* saved_delete_row = state->wifi_saved_delete_row;
+  lv_obj_t* saved_delete_body =
+      saved_delete_row == nullptr ? nullptr : lv_obj_get_parent(
+                                             saved_delete_row);
+  if (deleted_ssid[0] != '\0') {
+    ForgetSavedWifiNetwork(state, deleted_ssid);
+    RefreshWifiPage(state, true);
+    if (close_sub_page) {
+      CloseWifiSubPage(state, true);
+    } else {
+      if (saved_delete_row != nullptr) {
+        lv_obj_delete(saved_delete_row);
+      }
+      if (saved_delete_body != nullptr && g_wifi_saved_network_count == 0) {
+        CreateWifiSavedEmptyText(saved_delete_body, state->config.width);
+      }
+    }
+  }
+  state->wifi_saved_delete_row = nullptr;
+  state->wifi_delete_close_sub_page = false;
+  CloseWifiModal(state);
   lv_event_stop_bubbling(event);
   lv_event_stop_processing(event);
 }
@@ -1010,18 +1057,8 @@ void WifiSavedNetworkDeleteClickedEventCallback(lv_event_t* event) {
     return;
   }
 
-  char deleted_ssid[hal::kWifiSsidMaxLength + 1] = {};
-  std::snprintf(deleted_ssid, sizeof(deleted_ssid), "%s", action->ssid);
   lv_obj_t* row = lv_obj_get_parent(button);
-  lv_obj_t* body = row == nullptr ? nullptr : lv_obj_get_parent(row);
-  ForgetSavedWifiNetwork(action->state, deleted_ssid);
-  RefreshWifiPage(action->state, true);
-  if (row != nullptr) {
-    lv_obj_delete(row);
-  }
-  if (body != nullptr && g_wifi_saved_network_count == 0) {
-    CreateWifiSavedEmptyText(body, action->state->config.width);
-  }
+  ShowWifiDeleteNetworkSheet(action->state, action->ssid, false, row);
   lv_event_stop_bubbling(event);
   lv_event_stop_processing(event);
 }
@@ -1921,8 +1958,11 @@ bool CreateWifiOptionRow(lv_obj_t* parent, SettingsViewState* state,
         LV_EVENT_CLICKED, state);
   }
 
-  lv_obj_t* label =
-      CreateLabel(row, text, lv_color_hex(kPrimaryTextColor), Font32());
+  const uint32_t label_color = std::strcmp(text, "Delete network") == 0
+                                   ? 0xE53935
+                                   : kPrimaryTextColor;
+  lv_obj_t* label = CreateLabel(row, text, lv_color_hex(label_color),
+      Font32());
   if (label == nullptr) {
     return false;
   }
@@ -2191,7 +2231,7 @@ bool CreateWifiSavedManageRow(
   lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
   lv_obj_align(name, LV_ALIGN_LEFT_MID, kWifiSidePadding, 0);
 
-  lv_obj_t* button = CreateBox(row, button_width, button_height, 0xE8F2FF,
+  lv_obj_t* button = CreateBox(row, button_width, button_height, 0xFFECEE,
       LV_OPA_COVER, button_height / 2);
   if (button == nullptr) {
     return false;
@@ -2199,7 +2239,7 @@ bool CreateWifiSavedManageRow(
   lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_align(button, LV_ALIGN_RIGHT_MID, -kWifiSidePadding, 0);
   lv_obj_set_style_bg_color(
-      button, lv_color_hex(0xD7E9FF), LV_STATE_PRESSED);
+      button, lv_color_hex(0xFFD7DC), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
   if (!AddPressCancelOnLeave(button)) {
     return false;
@@ -2212,7 +2252,7 @@ bool CreateWifiSavedManageRow(
   }
 
   lv_obj_t* label =
-      CreateLabel(button, "Delete", lv_color_hex(kWifiBlueColor), Font28());
+      CreateLabel(button, "Delete", lv_color_hex(0xE53935), Font28());
   if (label == nullptr) {
     return false;
   }
@@ -2581,20 +2621,28 @@ bool CreateWifiAutoConnectRow(
  */
 bool BuildWifiNetworkDetailContent(
     lv_obj_t* parent, SettingsViewState* state) {
+  if (state == nullptr) {
+    return false;
+  }
+
+  const bool saved_network =
+      FindSavedWifiNetworkConst(state->wifi_pending_action.ssid) != nullptr;
   int y = 0;
   if (!CreateWifiSectionLabel(parent, "Network details", y,
           state->config.width)) {
     return false;
   }
   y += kWifiSectionHeight;
-  if (!CreateWifiAutoConnectRow(parent, state, y, state->config.width)) {
-    return false;
+  if (saved_network) {
+    if (!CreateWifiAutoConnectRow(parent, state, y, state->config.width)) {
+      return false;
+    }
+    y += kWifiRowHeight + 8;
+    if (!CreateWifiDividerAt(parent, y, state->config.width)) {
+      return false;
+    }
+    y += 18;
   }
-  y += kWifiRowHeight + 8;
-  if (!CreateWifiDividerAt(parent, y, state->config.width)) {
-    return false;
-  }
-  y += 18;
   if (!CreateWifiInfoRow(parent, "Signal strength",
           WifiSignalText(state->wifi_pending_action.rssi), y,
           state->config.width)) {
@@ -2605,6 +2653,9 @@ bool BuildWifiNetworkDetailContent(
           WifiSecurityText(state->wifi_pending_action.secure), y,
           state->config.width)) {
     return false;
+  }
+  if (!saved_network) {
+    return true;
   }
   y += kWifiRowHeight + 8;
   if (!CreateWifiDividerAt(parent, y, state->config.width)) {
@@ -2718,33 +2769,27 @@ bool CreateWifiSheetButton(lv_obj_t* parent, const char* text, int x, int y,
     bool primary, bool enabled) {
   const uint32_t background_color =
       primary ? kWifiBlueColor : kWifiConnectSecondaryColor;
-  lv_obj_t* button = CreateBox(parent, width, kWifiConnectButtonHeight,
-      background_color, LV_OPA_COVER, 24);
+  PromptSheetButtonConfig button_config;
+  button_config.text = text;
+  button_config.x = x;
+  button_config.y = y;
+  button_config.width = width;
+  button_config.height = kWifiConnectButtonHeight;
+  button_config.radius = 24;
+  button_config.background_color = background_color;
+  button_config.disabled_background_color = kWifiConnectDisabledColor;
+  button_config.text_color = primary ? 0xFFFFFF : kPrimaryTextColor;
+  button_config.font = Font28();
+  button_config.callback = callback;
+  button_config.user_data = state;
+  button_config.enabled = enabled;
+  lv_obj_t* button = CreatePromptSheetButton(parent, button_config);
   if (button == nullptr) {
     return false;
   }
-  lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_pos(button, x, y);
-  lv_obj_set_style_bg_color(button, lv_color_hex(kWifiConnectDisabledColor),
-      LV_STATE_DISABLED);
-  lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_DISABLED);
-  if (!enabled) {
-    lv_obj_add_state(button, LV_STATE_DISABLED);
-  }
-  if (!AddPressCancelOnLeave(button)) {
-    return false;
-  }
-  lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, state);
-  const uint32_t text_color = primary ? 0xFFFFFF : kPrimaryTextColor;
-  lv_obj_t* label = CreateLabel(button, text, lv_color_hex(text_color),
-      Font28());
-  if (label == nullptr) {
-    return false;
-  }
-  lv_obj_center(label);
   if (primary && state != nullptr) {
     state->wifi_connect_button = button;
-    state->wifi_connect_button_label = label;
+    state->wifi_connect_button_label = lv_obj_get_child(button, 0);
   }
   return true;
 }
@@ -2861,37 +2906,33 @@ bool ShowWifiConnectSheet(
   state->wifi_pending_action = action;
   state->wifi_connection_retry_ready = false;
 
-  lv_obj_t* overlay = lv_obj_create(state->root);
+  const int sheet_height = action.secure ? 350 : 292;
+  const int sheet_width =
+      state->config.width - 2 * kWifiConnectSheetSideMargin;
+  PromptSheetConfig sheet_config;
+  sheet_config.screen_width = state->config.width;
+  sheet_config.screen_height = state->config.height;
+  sheet_config.sheet_width = sheet_width;
+  sheet_config.sheet_height = sheet_height;
+  sheet_config.side_margin = kWifiConnectSheetSideMargin;
+  sheet_config.bottom_margin = kWifiConnectSheetBottomMargin;
+  sheet_config.sheet_radius = kWifiConnectSheetRadius;
+
+  lv_obj_t* overlay = CreatePromptSheetOverlay(state->root, sheet_config);
   if (overlay == nullptr) {
     return false;
   }
   state->wifi_modal_overlay = overlay;
-  lv_obj_remove_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(overlay, state->config.width, state->config.height);
-  lv_obj_set_pos(overlay, 0, 0);
-  lv_obj_set_style_bg_color(overlay, lv_color_hex(0x000000), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(overlay, 115, LV_PART_MAIN);
-  lv_obj_set_style_border_width(overlay, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(overlay, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(overlay, 0, LV_PART_MAIN);
   lv_obj_add_event_cb(overlay, WifiModalCancelClickedEventCallback,
       LV_EVENT_CLICKED, state);
   AddEdgeBackSwipeEvents(overlay, WifiModalEdgeBackEventCallback, state);
 
-  const int sheet_height = action.secure ? 350 : 292;
-  const int sheet_width =
-      state->config.width - 2 * kWifiConnectSheetSideMargin;
-  lv_obj_t* sheet = CreateBox(overlay, sheet_width, sheet_height, 0xFFFFFF,
-      LV_OPA_COVER, kWifiConnectSheetRadius);
+  lv_obj_t* sheet = CreatePromptSheet(overlay, sheet_config);
   if (sheet == nullptr) {
     CloseWifiModal(state);
     return false;
   }
   state->wifi_modal_sheet = sheet;
-  lv_obj_add_flag(sheet, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_flag(sheet, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_pos(sheet, kWifiConnectSheetSideMargin, state->config.height);
   lv_obj_add_event_cb(sheet, WifiModalContentClickedEventCallback,
       LV_EVENT_CLICKED, state);
   AddEdgeBackSwipeEvents(sheet, WifiModalEdgeBackEventCallback, state);
@@ -3000,15 +3041,106 @@ bool ShowWifiConnectSheet(
   }
   UpdateWifiConnectButtonState(state);
 
-  lv_anim_t animation;
-  lv_anim_init(&animation);
-  lv_anim_set_var(&animation, sheet);
-  lv_anim_set_values(&animation, state->config.height,
-      state->config.height - sheet_height - kWifiConnectSheetBottomMargin);
-  lv_anim_set_duration(&animation, kDetailSlideAnimationMs);
-  lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
-  lv_anim_set_exec_cb(&animation, SetObjectY);
-  lv_anim_start(&animation);
+  AnimatePromptSheetIn(sheet, sheet_config, kDetailSlideAnimationMs);
+  EnableEdgeBackSwipeEventBubble(overlay);
+  return true;
+}
+
+/**
+ * @brief 打开 WLAN 删除网络确认底部弹窗
+ * @param state 设置页状态
+ * @param ssid 待删除的热点名称
+ * @param close_sub_page 确认删除后是否关闭当前 WLAN 子页面
+ * @param saved_delete_row 管理已保存网络页中待删除的行对象
+ * @return 打开成功返回 true，否则返回 false
+ */
+bool ShowWifiDeleteNetworkSheet(SettingsViewState* state, const char* ssid,
+    bool close_sub_page, lv_obj_t* saved_delete_row) {
+  if (state == nullptr || state->root == nullptr ||
+      ssid == nullptr || ssid[0] == '\0' || !IsSavedWifiSsid(ssid)) {
+    return false;
+  }
+
+  CloseWifiModal(state);
+  std::strncpy(state->wifi_pending_action.ssid, ssid,
+      sizeof(state->wifi_pending_action.ssid) - 1);
+  state->wifi_pending_action.ssid[
+      sizeof(state->wifi_pending_action.ssid) - 1] = '\0';
+  state->wifi_delete_close_sub_page = close_sub_page;
+  state->wifi_saved_delete_row = saved_delete_row;
+
+  const int sheet_height = 316;
+  const int sheet_width =
+      state->config.width - 2 * kWifiConnectSheetSideMargin;
+  PromptSheetConfig sheet_config;
+  sheet_config.screen_width = state->config.width;
+  sheet_config.screen_height = state->config.height;
+  sheet_config.sheet_width = sheet_width;
+  sheet_config.sheet_height = sheet_height;
+  sheet_config.side_margin = kWifiConnectSheetSideMargin;
+  sheet_config.bottom_margin = kWifiConnectSheetBottomMargin;
+  sheet_config.sheet_radius = kWifiConnectSheetRadius;
+
+  lv_obj_t* overlay = CreatePromptSheetOverlay(state->root, sheet_config);
+  if (overlay == nullptr) {
+    return false;
+  }
+  state->wifi_modal_overlay = overlay;
+  lv_obj_add_event_cb(overlay, WifiModalCancelClickedEventCallback,
+      LV_EVENT_CLICKED, state);
+  AddEdgeBackSwipeEvents(overlay, WifiModalEdgeBackEventCallback, state);
+
+  lv_obj_t* sheet = CreatePromptSheet(overlay, sheet_config);
+  if (sheet == nullptr) {
+    CloseWifiModal(state);
+    return false;
+  }
+  state->wifi_modal_sheet = sheet;
+  lv_obj_add_event_cb(sheet, WifiModalContentClickedEventCallback,
+      LV_EVENT_CLICKED, state);
+  AddEdgeBackSwipeEvents(sheet, WifiModalEdgeBackEventCallback, state);
+
+  lv_obj_t* title = CreateLabel(sheet, "Delete network",
+      lv_color_hex(kPrimaryTextColor), Font32());
+  if (title == nullptr) {
+    CloseWifiModal(state);
+    return false;
+  }
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 38);
+
+  lv_obj_t* message = CreateLabel(sheet,
+      "Stop automatically connecting to this network. You may need to enter "
+      "the password again.",
+      lv_color_hex(kSecondaryTextColor), Font28());
+  if (message == nullptr) {
+    CloseWifiModal(state);
+    return false;
+  }
+  lv_obj_set_width(message, sheet_width - 2 * kWifiConnectSheetInnerPadding);
+  lv_label_set_long_mode(message, LV_LABEL_LONG_WRAP);
+  lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+  lv_obj_align(message, LV_ALIGN_TOP_LEFT, kWifiConnectSheetInnerPadding, 98);
+
+  const int button_width =
+      (sheet_width - 2 * kWifiConnectSheetInnerPadding -
+          kWifiConnectButtonGap) /
+      2;
+  const int button_y =
+      sheet_height - kWifiConnectSheetInnerPadding - kWifiConnectButtonHeight;
+  const int left_button_x = kWifiConnectSheetInnerPadding;
+  const int right_button_x =
+      left_button_x + button_width + kWifiConnectButtonGap;
+  if (!CreateWifiSheetButton(sheet, "Cancel", left_button_x, button_y,
+          button_width, WifiModalCancelClickedEventCallback, state, false,
+          true) ||
+      !CreateWifiSheetButton(sheet, "OK", right_button_x, button_y,
+          button_width, WifiDeleteConfirmClickedEventCallback, state, true,
+          true)) {
+    CloseWifiModal(state);
+    return false;
+  }
+
+  AnimatePromptSheetIn(sheet, sheet_config, kDetailSlideAnimationMs);
   EnableEdgeBackSwipeEventBubble(overlay);
   return true;
 }

@@ -168,6 +168,8 @@ struct SettingsViewState {
   lv_obj_t* wifi_password_keyboard = nullptr;
   lv_obj_t* wifi_connect_button = nullptr;
   lv_obj_t* wifi_connect_button_label = nullptr;
+  // 管理已保存网络页中等待确认删除的行对象。
+  lv_obj_t* wifi_saved_delete_row = nullptr;
   // WLAN 页面内容容器，扫描或连接状态变化时会整体重建。
   lv_obj_t* wifi_body = nullptr;
   // 已连接卡片里的信号图标，RSSI 变化时可单独刷新。
@@ -219,6 +221,8 @@ struct SettingsViewState {
   bool wifi_connect_waiting = false;
   // 用户确认连接后才允许失败卡片直接重试。
   bool wifi_connection_retry_ready = false;
+  // 确认删除网络后是否关闭当前 WLAN 详情页。
+  bool wifi_delete_close_sub_page = false;
   // 本次 WLAN 连接请求开始的 LVGL tick，单位为毫秒。
   uint32_t wifi_connect_started_ms = 0;
   // 上次连接命令失败后的短暂等待窗口，避免连续点击重复发命令。
