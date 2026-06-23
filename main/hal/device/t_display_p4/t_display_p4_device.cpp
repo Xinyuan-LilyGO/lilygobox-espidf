@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -60,6 +61,7 @@ constexpr uint32_t kMicrophoneReadDelayMs = 40;
 constexpr int kMicrophoneLevelFullScale = 1000;
 constexpr int kMicrophoneLevelRiseDivisor = 4;
 constexpr int kMicrophoneLevelFallDivisor = 8;
+constexpr float kRadiansToDegrees = 57.2957795F;
 constexpr size_t kGpsMaxReadBufferBytes = 4096;
 constexpr uint32_t kEthernetInitTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kEthernetInitTaskPriority = 3;
@@ -2398,13 +2400,21 @@ bool TDisplayP4Device::ReadImuStatus(ImuStatus* status) {
   if (driver_.status().icm20948.init_flag &&
       driver_.chip().icm20948 != nullptr) {
     xyzFloat acceleration;
+    xyzFloat angle;
+    xyzFloat magnetic;
     driver_.chip().icm20948->readSensor();
     driver_.chip().icm20948->getGValues(&acceleration);
+    driver_.chip().icm20948->getAngles(&angle);
+    const float pitch = driver_.chip().icm20948->getPitch();
+    const float roll = driver_.chip().icm20948->getRoll();
+    driver_.chip().icm20948->getMagValues(&magnetic);
+    const float yaw =
+        std::atan2(magnetic.y, magnetic.x) * kRadiansToDegrees;
 
     status->ready = true;
-    status->acceleration_x_g = acceleration.x;
-    status->acceleration_y_g = acceleration.y;
-    status->acceleration_z_g = acceleration.z;
+    status->pitch_deg = pitch;
+    status->yaw_deg = yaw;
+    status->roll_deg = roll;
     return true;
   }
 

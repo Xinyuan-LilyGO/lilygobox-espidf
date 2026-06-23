@@ -11,9 +11,9 @@ namespace lilygo_box::hal {
 
 struct ImuStatus {
   bool ready = false;
-  float acceleration_x_g = 0.0F;
-  float acceleration_y_g = 0.0F;
-  float acceleration_z_g = 0.0F;
+  float pitch_deg = 0.0F;
+  float yaw_deg = 0.0F;
+  float roll_deg = 0.0F;
 };
 
 class ImuProvider {

@@ -1306,9 +1306,10 @@ void RefreshActiveTestData(CitViewState* state) {
   if (IsEntryId(*entry, "imu")) {
     const hal::ImuStatus& imu = state->diagnostics.imu;
     std::snprintf(text, sizeof(text),
-        "imu data:\nstatus: %s\nx: %.2f g\ny: %.2f g\nz: %.2f g",
-        imu.ready ? "ready" : "not ready", imu.acceleration_x_g,
-        imu.acceleration_y_g, imu.acceleration_z_g);
+        "imu data:\nstatus: %s\npitch: %.2f deg\nyaw: %.2f deg\n"
+        "roll: %.2f deg",
+        imu.ready ? "ready" : "not ready", imu.pitch_deg, imu.yaw_deg,
+        imu.roll_deg);
     lv_label_set_text(state->test_data_label, text);
     return;
   }
