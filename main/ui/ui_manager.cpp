@@ -62,7 +62,6 @@ constexpr uint32_t kStartupProgressFullMs = 1000;
 constexpr uint32_t kStartupProgressMinStepMs = 200;
 constexpr uint32_t kStartupFadeOutMs = 220;
 constexpr uint32_t kSystemStatusRefreshPeriodMs = 1000;
-constexpr uint32_t kBatteryRefreshIntervalTicks = 5;
 constexpr uint32_t kStartupBackgroundColor = 0xFFFFFF;
 constexpr uint32_t kStartupTextColor = 0x111111;
 constexpr uint32_t kStartupProgressTrackColor = 0xE8E8E8;
@@ -786,6 +785,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   imu_provider_ = imu;
   ethernet_provider_ = ethernet;
   wifi_provider_ = wifi;
+  system_status_cache_.Init(rtc_provider_, bmu_provider_);
 
   root_screen_ = lv_obj_create(nullptr);
   if (root_screen_ == nullptr) {
@@ -1110,44 +1110,14 @@ lv_obj_t* UiManager::CreateClockGroup(lv_obj_t* parent) {
   return group;
 }
 
-void UiManager::RefreshClock() {
-  if (rtc_provider_ == nullptr) {
-    return;
-  }
-
-  hal::RtcStatus status;
-  if (!rtc_provider_->ReadRtcStatus(&status) || !status.ready) {
-    return;
-  }
-
-  clock_status_ = status;
-  UpdateClockLabels(clock_status_);
-}
-
-void UiManager::RefreshBattery() {
-  if (bmu_provider_ == nullptr) {
-    return;
-  }
-
-  hal::BmuStatus status;
-  if (!bmu_provider_->ReadBmuStatus(&status) || !status.ready) {
-    return;
-  }
-
-  bmu_status_ = status;
-  UpdateBatteryStatus(bmu_status_);
-}
-
 void UiManager::RefreshSystemStatus() {
-  RefreshClock();
-
-  const bool should_refresh_battery =
-      system_status_refresh_count_ == 0 ||
-      system_status_refresh_count_ % kBatteryRefreshIntervalTicks == 0;
-  if (should_refresh_battery) {
-    RefreshBattery();
+  system_status_cache_.RefreshSystemStatus();
+  if (system_status_cache_.rtc_status_valid()) {
+    UpdateClockLabels(system_status_cache_.rtc_status());
   }
-  ++system_status_refresh_count_;
+  if (system_status_cache_.bmu_status_valid()) {
+    UpdateBatteryStatus(system_status_cache_.bmu_status());
+  }
 }
 
 void UiManager::UpdateClockLabels(const hal::RtcStatus& status) {
@@ -1703,6 +1673,7 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   config.imu = imu_provider_;
   config.ethernet = ethernet_provider_;
   config.wifi = wifi_provider_;
+  config.system_status = &system_status_cache_;
   config.back_callback = BackButtonEventCallback;
   config.back_context = this;
   config.set_status_bar_text_color = [this](uint32_t color) {

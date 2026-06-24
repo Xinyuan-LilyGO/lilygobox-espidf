@@ -5,7 +5,7 @@
  * @LastEditTime: 2026-06-23 00:00:00
  * @License: GPL 3.0
  */
-#include "app/settings/settings_wifi_storage.h"
+#include "app/storage/settings_wifi_storage.h"
 
 #include <algorithm>
 #include <cstdio>

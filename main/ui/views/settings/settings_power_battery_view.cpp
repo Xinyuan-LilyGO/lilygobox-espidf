@@ -9,6 +9,7 @@
 
 #include <cstdio>
 
+#include "app/system_status_cache.h"
 #include "hal/providers/bmu_provider.h"
 #include "ui/font/material_symbols_assets.h"
 
@@ -24,8 +25,10 @@ namespace {
 bool BuildBatteryProtectionPage(lv_obj_t* body, SettingsViewState* state) {
   hal::BmuStatus status;
   bool has_status = false;
-  if (state->config.bmu != nullptr) {
-    has_status = state->config.bmu->ReadBmuStatus(&status);
+  if (state->config.system_status != nullptr &&
+      state->config.system_status->bmu_status_valid()) {
+    status = state->config.system_status->bmu_status();
+    has_status = true;
   }
   if (!has_status) {
     status = hal::BmuStatus();
@@ -76,8 +79,10 @@ bool CreateBatteryOverviewCard(
     lv_obj_t* body, SettingsViewState* state, int y) {
   hal::BmuStatus status;
   bool has_status = false;
-  if (state->config.bmu != nullptr) {
-    has_status = state->config.bmu->ReadBmuStatus(&status);
+  if (state->config.system_status != nullptr &&
+      state->config.system_status->bmu_status_valid()) {
+    status = state->config.system_status->bmu_status();
+    has_status = true;
   }
   if (!has_status) {
     status = hal::BmuStatus();

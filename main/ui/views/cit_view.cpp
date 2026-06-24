@@ -19,6 +19,7 @@
 
 #include "app/cit_catalog.h"
 #include "app/device_info_snapshot.h"
+#include "app/system_status_cache.h"
 #include "esp_err.h"
 #include "hal/providers/providers.h"
 #include "ui/input/app_view_gesture_flags.h"
@@ -115,6 +116,7 @@ struct CitViewState {
   hal::ImuProvider* imu = nullptr;
   hal::EthernetProvider* ethernet = nullptr;
   hal::WifiProvider* wifi = nullptr;
+  app::SystemStatusCache* system_status = nullptr;
   std::function<void(bool visible)> set_status_bar_visible;
   hal::DeviceDiagnostics diagnostics;
   int diagnostics_elapsed_ms = kDiagnosticsRefreshPeriodMs;
@@ -923,17 +925,17 @@ void RefreshRtcTestData(CitViewState* state) {
     return;
   }
 
-  hal::RtcStatus status;
-  if (state->rtc == nullptr) {
+  if (state->system_status == nullptr) {
     lv_label_set_text(state->test_data_label, "RTC data:\nstatus: unsupported");
     return;
   }
 
-  if (!state->rtc->ReadRtcStatus(&status)) {
-    lv_label_set_text(state->test_data_label, "RTC data:\nstatus: read failed");
+  if (!state->system_status->rtc_status_valid()) {
+    lv_label_set_text(state->test_data_label, "RTC data:\nstatus: not ready");
     return;
   }
 
+  const hal::RtcStatus& status = state->system_status->rtc_status();
   char text[320] = {};
   std::snprintf(text, sizeof(text),
       "RTC data:\n"
@@ -1216,8 +1218,10 @@ void RefreshDiagnosticsState(CitViewState* state) {
 
   state->diagnostics = hal::DeviceDiagnostics();
   bool result = false;
-  if (state->bmu != nullptr) {
-    result |= state->bmu->ReadBmuStatus(&state->diagnostics.bmu);
+  if (state->system_status != nullptr &&
+      state->system_status->bmu_status_valid()) {
+    state->diagnostics.bmu = state->system_status->bmu_status();
+    result = true;
   }
   if (state->imu != nullptr) {
     result |= state->imu->ReadImuStatus(&state->diagnostics.imu);
@@ -2965,6 +2969,7 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
   state->imu = config.imu;
   state->ethernet = config.ethernet;
   state->wifi = config.wifi;
+  state->system_status = config.system_status;
   state->set_status_bar_visible = config.set_status_bar_visible;
   state->root = container;
   state->width = config.width;

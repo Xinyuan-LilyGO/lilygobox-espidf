@@ -12,7 +12,7 @@
 #include <cstdint>
 
 #include "app/app_catalog.h"
-#include "hal/providers/bmu_provider.h"
+#include "app/system_status_cache.h"
 #include "hal/providers/rtc_provider.h"
 #include "hal/providers/screen_provider.h"
 #include "lvgl.h"
@@ -214,12 +214,10 @@ class UiManager final {
   /**
    * @brief 从 RTC 读取时间并刷新所有时间显示
    */
-  void RefreshClock();
 
   /**
    * @brief 从 BMU 读取电池信息并刷新状态栏电量显示
    */
-  void RefreshBattery();
 
   /**
    * @brief 刷新应用级系统状态信息
@@ -326,8 +324,7 @@ class UiManager final {
   lv_obj_t* active_view_container_ = nullptr;
   EdgeBackSwipeState app_back_swipe_ = {};
   lv_timer_t* system_status_refresh_timer_ = nullptr;
-  hal::RtcStatus clock_status_ = {};
-  hal::BmuStatus bmu_status_ = {};
+  app::SystemStatusCache system_status_cache_;
   lv_obj_t* page_indicator_ = nullptr;
   lv_obj_t* first_page_dot_ = nullptr;
   lv_obj_t* second_page_dot_ = nullptr;
@@ -336,7 +333,6 @@ class UiManager final {
   size_t button_context_count_ = 0;
   size_t dock_button_context_count_ = 0;
   size_t page_index_ = 0;
-  uint32_t system_status_refresh_count_ = 0;
   char clock_time_text_[6] = "09:15";
   char home_date_text_[24] = "June 21th";
   char home_week_text_[8] = "Sat";

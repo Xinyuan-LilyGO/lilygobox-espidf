@@ -10,7 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "app/settings/settings_wifi_storage.h"
+#include "app/storage/settings_wifi_storage.h"
 #include "hal/providers/wifi_provider.h"
 #include "lvgl.h"
 #include "ui/input/edge_back_gesture.h"

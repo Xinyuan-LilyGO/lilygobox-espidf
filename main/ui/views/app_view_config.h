@@ -11,6 +11,10 @@
 
 #include "lvgl.h"
 
+namespace lilygo_box::app {
+class SystemStatusCache;
+}  // namespace lilygo_box::app
+
 namespace lilygo_box::hal {
 class AudioProvider;
 class BmuProvider;
@@ -55,6 +59,8 @@ struct AppViewConfig {
   hal::EthernetProvider* ethernet = nullptr;
   // WiFi 状态和控制提供者。
   hal::WifiProvider* wifi = nullptr;
+  // 系统状态运行缓存，不负责 NVS 持久化。
+  app::SystemStatusCache* system_status = nullptr;
   // app 内部返回按钮触发的 LVGL 回调。
   lv_event_cb_t back_callback = nullptr;
   // 传给返回回调的用户上下文。
