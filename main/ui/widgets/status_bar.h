@@ -24,10 +24,16 @@ class StatusBar final {
   bool Init(lv_obj_t* parent, int width);
 
   /**
-   * @brief 设置 RTC 状态提供者，用于动态刷新状态栏时间
-   * @param rtc RTC 状态提供者
+   * @brief 设置状态栏时间文本
+   * @param text 时间文本
    */
   void SetTimeText(const char* text);
+
+  /**
+   * @brief 设置状态栏电池百分比
+   * @param percent 电池百分比
+   */
+  void SetBatteryPercent(int percent);
 
   /**
    * @brief 获取状态栏对象
@@ -66,7 +72,9 @@ class StatusBar final {
   lv_obj_t* time_label_ = nullptr;
   lv_obj_t* wifi_label_ = nullptr;
   lv_obj_t* bmu_label_ = nullptr;
+  lv_obj_t* bmu_percent_label_ = nullptr;
   char time_text_[6] = "09:15";
+  char bmu_percent_text_[8] = "--%";
 };
 
 }  // namespace lilygo_box::ui

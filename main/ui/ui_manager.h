@@ -12,6 +12,7 @@
 #include <cstdint>
 
 #include "app/app_catalog.h"
+#include "hal/providers/bmu_provider.h"
 #include "hal/providers/rtc_provider.h"
 #include "hal/providers/screen_provider.h"
 #include "lvgl.h"
@@ -126,10 +127,10 @@ class UiManager final {
   static void PageScrollEventCallback(lv_event_t* event);
 
   /**
-   * @brief 处理应用级时间刷新定时器
+   * @brief 处理应用级系统状态刷新定时器
    * @param timer LVGL 定时器
    */
-  static void ClockRefreshTimerCallback(lv_timer_t* timer);
+  static void SystemStatusRefreshTimerCallback(lv_timer_t* timer);
 
   /**
    * @brief 设置系统启动界面进度条宽度
@@ -216,10 +217,26 @@ class UiManager final {
   void RefreshClock();
 
   /**
+   * @brief 从 BMU 读取电池信息并刷新状态栏电量显示
+   */
+  void RefreshBattery();
+
+  /**
+   * @brief 刷新应用级系统状态信息
+   */
+  void RefreshSystemStatus();
+
+  /**
    * @brief 根据 RTC 状态刷新状态栏和主界面时间显示
    * @param status RTC 状态
    */
   void UpdateClockLabels(const hal::RtcStatus& status);
+
+  /**
+   * @brief 根据 BMU 状态刷新状态栏电池显示
+   * @param status BMU 状态
+   */
+  void UpdateBatteryStatus(const hal::BmuStatus& status);
 
   /**
    * @brief 创建主屏 app 图标网格
@@ -308,8 +325,9 @@ class UiManager final {
   lv_obj_t* reserved_page_ = nullptr;
   lv_obj_t* active_view_container_ = nullptr;
   EdgeBackSwipeState app_back_swipe_ = {};
-  lv_timer_t* clock_refresh_timer_ = nullptr;
+  lv_timer_t* system_status_refresh_timer_ = nullptr;
   hal::RtcStatus clock_status_ = {};
+  hal::BmuStatus bmu_status_ = {};
   lv_obj_t* page_indicator_ = nullptr;
   lv_obj_t* first_page_dot_ = nullptr;
   lv_obj_t* second_page_dot_ = nullptr;
@@ -318,6 +336,7 @@ class UiManager final {
   size_t button_context_count_ = 0;
   size_t dock_button_context_count_ = 0;
   size_t page_index_ = 0;
+  uint32_t system_status_refresh_count_ = 0;
   char clock_time_text_[6] = "09:15";
   char home_date_text_[24] = "June 21th";
   char home_week_text_[8] = "Sat";

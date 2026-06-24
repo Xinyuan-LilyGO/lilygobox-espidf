@@ -61,7 +61,8 @@ constexpr int kPageIndicatorBottom = kDockHeight + 8;
 constexpr uint32_t kStartupProgressFullMs = 1000;
 constexpr uint32_t kStartupProgressMinStepMs = 200;
 constexpr uint32_t kStartupFadeOutMs = 220;
-constexpr uint32_t kClockRefreshPeriodMs = 1000;
+constexpr uint32_t kSystemStatusRefreshPeriodMs = 1000;
+constexpr uint32_t kBatteryRefreshIntervalTicks = 5;
 constexpr uint32_t kStartupBackgroundColor = 0xFFFFFF;
 constexpr uint32_t kStartupTextColor = 0x111111;
 constexpr uint32_t kStartupProgressTrackColor = 0xE8E8E8;
@@ -809,12 +810,12 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   }
   status_bar_.MoveToTop();
 
-  clock_refresh_timer_ =
-      lv_timer_create(ClockRefreshTimerCallback, kClockRefreshPeriodMs, this);
-  if (clock_refresh_timer_ == nullptr) {
+  system_status_refresh_timer_ = lv_timer_create(
+      SystemStatusRefreshTimerCallback, kSystemStatusRefreshPeriodMs, this);
+  if (system_status_refresh_timer_ == nullptr) {
     return false;
   }
-  RefreshClock();
+  RefreshSystemStatus();
 
   startup_screen_ = CreateStartupScreen(root_screen_);
   if (startup_screen_ == nullptr) {
@@ -970,10 +971,10 @@ void UiManager::PageScrollEventCallback(lv_event_t* event) {
   self->UpdatePageIndicator(page_index);
 }
 
-void UiManager::ClockRefreshTimerCallback(lv_timer_t* timer) {
+void UiManager::SystemStatusRefreshTimerCallback(lv_timer_t* timer) {
   auto* self = static_cast<UiManager*>(lv_timer_get_user_data(timer));
   if (self != nullptr) {
-    self->RefreshClock();
+    self->RefreshSystemStatus();
   }
 }
 
@@ -1123,6 +1124,32 @@ void UiManager::RefreshClock() {
   UpdateClockLabels(clock_status_);
 }
 
+void UiManager::RefreshBattery() {
+  if (bmu_provider_ == nullptr) {
+    return;
+  }
+
+  hal::BmuStatus status;
+  if (!bmu_provider_->ReadBmuStatus(&status) || !status.ready) {
+    return;
+  }
+
+  bmu_status_ = status;
+  UpdateBatteryStatus(bmu_status_);
+}
+
+void UiManager::RefreshSystemStatus() {
+  RefreshClock();
+
+  const bool should_refresh_battery =
+      system_status_refresh_count_ == 0 ||
+      system_status_refresh_count_ % kBatteryRefreshIntervalTicks == 0;
+  if (should_refresh_battery) {
+    RefreshBattery();
+  }
+  ++system_status_refresh_count_;
+}
+
 void UiManager::UpdateClockLabels(const hal::RtcStatus& status) {
   char time_text[sizeof(clock_time_text_)] = {};
   FormatClockTime(status, time_text);
@@ -1153,6 +1180,10 @@ void UiManager::UpdateClockLabels(const hal::RtcStatus& status) {
       lv_label_set_text(home_week_label_, home_week_text_);
     }
   }
+}
+
+void UiManager::UpdateBatteryStatus(const hal::BmuStatus& status) {
+  status_bar_.SetBatteryPercent(status.charge_percent);
 }
 
 lv_obj_t* UiManager::CreateAppGrid(lv_obj_t* parent) {
