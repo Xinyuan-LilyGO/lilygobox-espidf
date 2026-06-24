@@ -53,6 +53,8 @@ SettingsIconStyle ResolveSettingsIconStyle(app::SettingsIcon icon_type) {
       return {.symbol = icon::kFile, .color = 0x8890AF};
     case app::SettingsIcon::kImage:
       return {.symbol = icon::kImage, .color = 0x347DF5};
+    case app::SettingsIcon::kSunny:
+      return {.symbol = icon::kSunny, .color = 0xF4C95D};
     case app::SettingsIcon::kFolder:
       return {.symbol = icon::kFolder, .color = 0xF05B34};
     case app::SettingsIcon::kLock:
@@ -60,7 +62,7 @@ SettingsIconStyle ResolveSettingsIconStyle(app::SettingsIcon icon_type) {
     case app::SettingsIcon::kWarning:
       return {.symbol = icon::kWarning, .color = 0x3F82F6};
     case app::SettingsIcon::kVolumeUp:
-      return {.symbol = icon::kVolumeUp, .color = 0x3F82F6};
+      return {.symbol = icon::kVolumeUp, .color = 0xB9A0F6};
     case app::SettingsIcon::kBattery:
       return {.symbol = icon::kBatteryAndroidFull, .color = 0x55C76C};
     case app::SettingsIcon::kSettings:
