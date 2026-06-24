@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-12 01:08:42
- * @LastEditTime: 2026-05-12 01:08:42
+ * @LastEditTime: 2026-06-24 13:43:42
  * @License: GPL 3.0
  */
 #include "ui/widgets/status_bar.h"
@@ -20,7 +20,7 @@ namespace {
 
 constexpr int kStatusBarHeight = 50;
 constexpr int kStatusBarPadding = 40;
-constexpr int kStatusBarIconGap = -6;
+constexpr int kStatusBarIconGap = -10;
 constexpr int kStatusBarBatteryPercentGap = 4;
 constexpr uint32_t kStatusBarBackgroundColor = 0x000000;
 constexpr uint32_t kStatusBarTextColor = 0xFFFFFF;
@@ -43,10 +43,16 @@ void SetTextStyle(lv_obj_t* object, lv_color_t color, const lv_font_t* font) {
 const lv_font_t* Font24() { return &lvgl_font_google_sans_flex_24; }
 
 /**
- * @brief 获取 28 号 Material Symbols 字体
+ * @brief 获取 32 号 Material Symbols 字体
  * @return 字体指针
  */
-const lv_font_t* MaterialIconFont28() { return &lvgl_font_material_symbols_28; }
+const lv_font_t* MaterialIconFont32() { return &lvgl_font_material_symbols_32; }
+
+/**
+ * @brief 获取 34 号 Material Symbols 字体
+ * @return 字体指针
+ */
+const lv_font_t* MaterialIconFont34() { return &lvgl_font_material_symbols_34; }
 
 /**
  * @brief 根据电量百分比选择电池图标
@@ -181,7 +187,7 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
 
   bmu_label_ =
       CreateLabel(object_, icon::kBatteryAndroid3,
-          lv_color_hex(kStatusBarTextColor), MaterialIconFont28());
+          lv_color_hex(kStatusBarTextColor), MaterialIconFont34());
   if (bmu_label_ == nullptr) {
     lv_obj_delete(object_);
     object_ = nullptr;
@@ -191,7 +197,7 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
       -kStatusBarBatteryPercentGap, 0);
 
   wifi_label_ = CreateLabel(object_, icon::kWifi,
-      lv_color_hex(kStatusBarTextColor), MaterialIconFont28());
+      lv_color_hex(kStatusBarTextColor), MaterialIconFont32());
   if (wifi_label_ == nullptr) {
     lv_obj_delete(object_);
     object_ = nullptr;
