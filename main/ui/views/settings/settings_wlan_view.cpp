@@ -2,7 +2,7 @@
  * @Description: Settings WLAN detail page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-05-23 00:00:00
+ * @LastEditTime: 2026-06-24 09:05:19
  * @License: GPL 3.0
  */
 #include "ui/views/settings/settings_view_internal.h"
@@ -1745,28 +1745,15 @@ bool CreateWifiHeader(lv_obj_t* parent, SettingsViewState* state, int) {
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateWifiSmallLock(lv_obj_t* parent, int x, int y, uint32_t color) {
-  lv_obj_t* shackle = lv_obj_create(parent);
-  if (shackle == nullptr) {
+  lv_obj_t* lock = CreateLabel(
+      parent, icon::kLock, lv_color_hex(color), MaterialIconFont32());
+  if (lock == nullptr) {
     return false;
   }
-  lv_obj_remove_flag(shackle, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(shackle, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_flag(shackle, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_size(shackle, 18, 16);
-  lv_obj_set_pos(shackle, x + 2, y);
-  lv_obj_set_style_bg_opa(shackle, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_border_color(
-      shackle, lv_color_hex(color), LV_PART_MAIN);
-  lv_obj_set_style_border_width(shackle, 3, LV_PART_MAIN);
-  lv_obj_set_style_radius(shackle, 9, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(shackle, 0, LV_PART_MAIN);
-
-  lv_obj_t* body = CreateBox(parent, 22, 16, color, LV_OPA_COVER, 3);
-  if (body == nullptr) {
-    return false;
-  }
-  lv_obj_remove_flag(body, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_pos(body, x, y + 10);
+  lv_obj_remove_flag(lock, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(lock, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(lock, 28, 28);
+  lv_obj_set_pos(lock, x - 3, y - 2);
   return true;
 }
 
@@ -2360,13 +2347,6 @@ bool CreateWifiSavedEmptyText(lv_obj_t* parent, int width) {
   return CreateWifiSectionLabel(parent, "No saved WLAN.", 0, width);
 }
 
-/**
- * @brief 根据 HAL 连接和扫描状态创建当前 WLAN 页面内容
- * @param parent WLAN 页面滚动内容对象
- * @param state 设置页状态
- * @param config app 页面配置
- * @return 创建成功返回 true，否则返回 false
- */
 /**
  * @brief 设置对象的垂直坐标，用于底部弹窗动画
  * @param object LVGL 对象

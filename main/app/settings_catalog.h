@@ -26,6 +26,7 @@ enum class SettingsIcon {
   kFile,
   kImage,
   kFolder,
+  kLock,
   kWarning,
   kVolumeUp,
   kBattery,

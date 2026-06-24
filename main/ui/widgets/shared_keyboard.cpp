@@ -179,6 +179,18 @@ struct TextAreaKeyboardBinding {
 const lv_font_t* KeyboardFont() { return &lv_font_montserrat_26; }
 
 /**
+ * @brief 合并 LVGL 样式部件和状态选择器
+ * @param part 样式部件
+ * @param state 样式状态
+ * @return LVGL 样式选择器
+ */
+lv_style_selector_t StyleSelector(lv_part_t part, lv_state_t state) {
+  return static_cast<lv_style_selector_t>(
+      static_cast<lv_style_selector_t>(part) |
+      static_cast<lv_style_selector_t>(state));
+}
+
+/**
  * @brief 设置共享键盘的按键布局
  * @param keyboard 键盘对象
  */
@@ -218,10 +230,10 @@ void ConfigureSharedKeyboardStyle(lv_obj_t* keyboard) {
 
   lv_obj_set_style_bg_color(
       keyboard, lv_color_hex(kKeyboardPressedKeyColor),
-      static_cast<lv_style_selector_t>(LV_PART_ITEMS | LV_STATE_PRESSED));
+      StyleSelector(LV_PART_ITEMS, LV_STATE_PRESSED));
   lv_obj_set_style_bg_color(
       keyboard, lv_color_hex(kKeyboardSpecialKeyColor),
-      static_cast<lv_style_selector_t>(LV_PART_ITEMS | LV_STATE_CHECKED));
+      StyleSelector(LV_PART_ITEMS, LV_STATE_CHECKED));
 }
 
 /**

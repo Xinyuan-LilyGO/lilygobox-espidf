@@ -55,6 +55,8 @@ SettingsIconStyle ResolveSettingsIconStyle(app::SettingsIcon icon_type) {
       return {.symbol = icon::kImage, .color = 0x347DF5};
     case app::SettingsIcon::kFolder:
       return {.symbol = icon::kFolder, .color = 0xF05B34};
+    case app::SettingsIcon::kLock:
+      return {.symbol = icon::kLock, .color = 0xF05B34};
     case app::SettingsIcon::kWarning:
       return {.symbol = icon::kWarning, .color = 0x3F82F6};
     case app::SettingsIcon::kVolumeUp:
