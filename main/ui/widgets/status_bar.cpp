@@ -8,6 +8,7 @@
 #include "ui/widgets/status_bar.h"
 
 #include <cstdint>
+#include <cstring>
 
 #include "ui/font/font_assets.h"
 #include "ui/font/material_symbols_assets.h"
@@ -128,7 +129,19 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
   }
   lv_obj_align_to(
       wifi_label_, bmu_label_, LV_ALIGN_OUT_LEFT_MID, kStatusBarIconGap, 0);
+
   return true;
+}
+
+void StatusBar::SetTimeText(const char* text) {
+  if (time_label_ == nullptr || text == nullptr ||
+      std::strncmp(time_text_, text, sizeof(time_text_)) == 0) {
+    return;
+  }
+
+  std::strncpy(time_text_, text, sizeof(time_text_) - 1);
+  time_text_[sizeof(time_text_) - 1] = '\0';
+  lv_label_set_text(time_label_, time_text_);
 }
 
 void StatusBar::MoveToTop() {

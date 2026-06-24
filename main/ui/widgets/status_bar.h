@@ -24,6 +24,12 @@ class StatusBar final {
   bool Init(lv_obj_t* parent, int width);
 
   /**
+   * @brief 设置 RTC 状态提供者，用于动态刷新状态栏时间
+   * @param rtc RTC 状态提供者
+   */
+  void SetTimeText(const char* text);
+
+  /**
    * @brief 获取状态栏对象
    * @return 状态栏对象指针
    */
@@ -47,10 +53,20 @@ class StatusBar final {
   void SetVisible(bool visible);
 
  private:
+  /**
+   * @brief 状态栏定时刷新回调
+   * @param timer LVGL 定时器
+   */
+
+  /**
+   * @brief 按 RTC 数据刷新状态栏时间
+   */
+
   lv_obj_t* object_ = nullptr;
   lv_obj_t* time_label_ = nullptr;
   lv_obj_t* wifi_label_ = nullptr;
   lv_obj_t* bmu_label_ = nullptr;
+  char time_text_[6] = "09:15";
 };
 
 }  // namespace lilygo_box::ui

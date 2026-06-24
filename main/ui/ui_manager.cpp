@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 
 #include "app/app_catalog.h"
@@ -60,6 +61,7 @@ constexpr int kPageIndicatorBottom = kDockHeight + 8;
 constexpr uint32_t kStartupProgressFullMs = 1000;
 constexpr uint32_t kStartupProgressMinStepMs = 200;
 constexpr uint32_t kStartupFadeOutMs = 220;
+constexpr uint32_t kClockRefreshPeriodMs = 1000;
 constexpr uint32_t kStartupBackgroundColor = 0xFFFFFF;
 constexpr uint32_t kStartupTextColor = 0x111111;
 constexpr uint32_t kStartupProgressTrackColor = 0xE8E8E8;
@@ -222,6 +224,121 @@ int ColumnGap(int screen_width, int inset_x, int columns, int cell_width) {
  * @return 顶部 Y 坐标
  */
 int HomeGridTop(int screen_height) { return screen_height * 35 / 100; }
+
+/**
+ * @brief 获取月份显示名称
+ * @param month 月份，范围 1~12
+ * @return 月份文本
+ */
+const char* MonthName(uint8_t month) {
+  switch (month) {
+    case 1:
+      return "January";
+    case 2:
+      return "February";
+    case 3:
+      return "March";
+    case 4:
+      return "April";
+    case 5:
+      return "May";
+    case 6:
+      return "June";
+    case 7:
+      return "July";
+    case 8:
+      return "August";
+    case 9:
+      return "September";
+    case 10:
+      return "October";
+    case 11:
+      return "November";
+    case 12:
+      return "December";
+    default:
+      return "Unknown";
+  }
+}
+
+/**
+ * @brief 获取日期序数后缀
+ * @param day 日期，范围 1~31
+ * @return 日期后缀
+ */
+const char* DaySuffix(uint8_t day) {
+  if (day >= 11 && day <= 13) {
+    return "th";
+  }
+
+  switch (day % 10) {
+    case 1:
+      return "st";
+    case 2:
+      return "nd";
+    case 3:
+      return "rd";
+    default:
+      return "th";
+  }
+}
+
+/**
+ * @brief 获取星期显示名称
+ * @param week 星期，范围 0~6
+ * @return 星期文本
+ */
+const char* WeekName(uint8_t week) {
+  switch (week) {
+    case 0:
+      return "Sun";
+    case 1:
+      return "Mon";
+    case 2:
+      return "Tue";
+    case 3:
+      return "Wed";
+    case 4:
+      return "Thu";
+    case 5:
+      return "Fri";
+    case 6:
+      return "Sat";
+    default:
+      return "Unknown";
+  }
+}
+
+/**
+ * @brief 格式化状态栏和主界面时间
+ * @param status RTC 状态
+ * @param buffer 输出缓冲区，至少 6 字节
+ */
+void FormatClockTime(const hal::RtcStatus& status, char* buffer) {
+  const uint8_t hour = status.hour % 24;
+  const uint8_t minute = status.minute % 60;
+  buffer[0] = static_cast<char>('0' + hour / 10);
+  buffer[1] = static_cast<char>('0' + hour % 10);
+  buffer[2] = ':';
+  buffer[3] = static_cast<char>('0' + minute / 10);
+  buffer[4] = static_cast<char>('0' + minute % 10);
+  buffer[5] = '\0';
+}
+
+/**
+ * @brief 格式化主界面日期
+ * @param status RTC 状态
+ * @param buffer 输出缓冲区
+ * @param size 输出缓冲区大小
+ */
+void FormatHomeDate(const hal::RtcStatus& status, char* buffer, size_t size) {
+  if (buffer == nullptr || size == 0) {
+    return;
+  }
+
+  std::snprintf(buffer, size, "%s %u%s", MonthName(status.month),
+      static_cast<unsigned int>(status.day), DaySuffix(status.day));
+}
 
 /**
  * @brief 组合 LVGL 样式选择器
@@ -692,6 +809,13 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   }
   status_bar_.MoveToTop();
 
+  clock_refresh_timer_ =
+      lv_timer_create(ClockRefreshTimerCallback, kClockRefreshPeriodMs, this);
+  if (clock_refresh_timer_ == nullptr) {
+    return false;
+  }
+  RefreshClock();
+
   startup_screen_ = CreateStartupScreen(root_screen_);
   if (startup_screen_ == nullptr) {
     return false;
@@ -846,6 +970,13 @@ void UiManager::PageScrollEventCallback(lv_event_t* event) {
   self->UpdatePageIndicator(page_index);
 }
 
+void UiManager::ClockRefreshTimerCallback(lv_timer_t* timer) {
+  auto* self = static_cast<UiManager*>(lv_timer_get_user_data(timer));
+  if (self != nullptr) {
+    self->RefreshClock();
+  }
+}
+
 lv_obj_t* UiManager::CreateLauncher(lv_obj_t* parent) {
   lv_obj_t* launcher = lv_obj_create(parent);
   if (launcher == nullptr) {
@@ -972,7 +1103,56 @@ lv_obj_t* UiManager::CreateClockGroup(lv_obj_t* parent) {
   lv_obj_set_size(week_label, 400, 50);
   lv_obj_set_style_text_opa(week_label, 220, LV_PART_MAIN);
   lv_obj_align(week_label, LV_ALIGN_TOP_LEFT, 10, 172);
+  home_time_label_ = time_label;
+  home_date_label_ = date_label;
+  home_week_label_ = week_label;
   return group;
+}
+
+void UiManager::RefreshClock() {
+  if (rtc_provider_ == nullptr) {
+    return;
+  }
+
+  hal::RtcStatus status;
+  if (!rtc_provider_->ReadRtcStatus(&status) || !status.ready) {
+    return;
+  }
+
+  clock_status_ = status;
+  UpdateClockLabels(clock_status_);
+}
+
+void UiManager::UpdateClockLabels(const hal::RtcStatus& status) {
+  char time_text[sizeof(clock_time_text_)] = {};
+  FormatClockTime(status, time_text);
+  if (std::strncmp(
+          clock_time_text_, time_text, sizeof(clock_time_text_)) != 0) {
+    std::memcpy(clock_time_text_, time_text, sizeof(clock_time_text_));
+    status_bar_.SetTimeText(clock_time_text_);
+    if (home_time_label_ != nullptr) {
+      lv_label_set_text(home_time_label_, clock_time_text_);
+    }
+  }
+
+  char date_text[sizeof(home_date_text_)] = {};
+  FormatHomeDate(status, date_text, sizeof(date_text));
+  if (std::strncmp(home_date_text_, date_text, sizeof(home_date_text_)) != 0) {
+    std::strncpy(home_date_text_, date_text, sizeof(home_date_text_) - 1);
+    home_date_text_[sizeof(home_date_text_) - 1] = '\0';
+    if (home_date_label_ != nullptr) {
+      lv_label_set_text(home_date_label_, home_date_text_);
+    }
+  }
+
+  const char* week_text = WeekName(status.week);
+  if (std::strncmp(home_week_text_, week_text, sizeof(home_week_text_)) != 0) {
+    std::strncpy(home_week_text_, week_text, sizeof(home_week_text_) - 1);
+    home_week_text_[sizeof(home_week_text_) - 1] = '\0';
+    if (home_week_label_ != nullptr) {
+      lv_label_set_text(home_week_label_, home_week_text_);
+    }
+  }
 }
 
 lv_obj_t* UiManager::CreateAppGrid(lv_obj_t* parent) {

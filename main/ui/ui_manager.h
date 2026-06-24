@@ -12,6 +12,7 @@
 #include <cstdint>
 
 #include "app/app_catalog.h"
+#include "hal/providers/rtc_provider.h"
 #include "hal/providers/screen_provider.h"
 #include "lvgl.h"
 #include "ui/input/edge_back_gesture.h"
@@ -125,6 +126,12 @@ class UiManager final {
   static void PageScrollEventCallback(lv_event_t* event);
 
   /**
+   * @brief 处理应用级时间刷新定时器
+   * @param timer LVGL 定时器
+   */
+  static void ClockRefreshTimerCallback(lv_timer_t* timer);
+
+  /**
    * @brief 设置系统启动界面进度条宽度
    * @param user_data UI 管理器对象
    * @param width 进度条宽度
@@ -202,6 +209,17 @@ class UiManager final {
    * @return 创建成功返回对象指针，否则返回 nullptr
    */
   lv_obj_t* CreateClockGroup(lv_obj_t* parent);
+
+  /**
+   * @brief 从 RTC 读取时间并刷新所有时间显示
+   */
+  void RefreshClock();
+
+  /**
+   * @brief 根据 RTC 状态刷新状态栏和主界面时间显示
+   * @param status RTC 状态
+   */
+  void UpdateClockLabels(const hal::RtcStatus& status);
 
   /**
    * @brief 创建主屏 app 图标网格
@@ -284,9 +302,14 @@ class UiManager final {
   lv_obj_t* launcher_container_ = nullptr;
   lv_obj_t* page_scroller_ = nullptr;
   lv_obj_t* home_page_ = nullptr;
+  lv_obj_t* home_time_label_ = nullptr;
+  lv_obj_t* home_date_label_ = nullptr;
+  lv_obj_t* home_week_label_ = nullptr;
   lv_obj_t* reserved_page_ = nullptr;
   lv_obj_t* active_view_container_ = nullptr;
   EdgeBackSwipeState app_back_swipe_ = {};
+  lv_timer_t* clock_refresh_timer_ = nullptr;
+  hal::RtcStatus clock_status_ = {};
   lv_obj_t* page_indicator_ = nullptr;
   lv_obj_t* first_page_dot_ = nullptr;
   lv_obj_t* second_page_dot_ = nullptr;
@@ -295,6 +318,9 @@ class UiManager final {
   size_t button_context_count_ = 0;
   size_t dock_button_context_count_ = 0;
   size_t page_index_ = 0;
+  char clock_time_text_[6] = "09:15";
+  char home_date_text_[24] = "June 21th";
+  char home_week_text_[8] = "Sat";
 };
 
 }  // namespace lilygo_box::ui
