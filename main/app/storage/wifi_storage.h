@@ -2,7 +2,7 @@
  * @Description: Settings WLAN NVS storage helpers
  * @Author: LILYGO_L
  * @Date: 2026-06-23 00:00:00
- * @LastEditTime: 2026-06-23 00:00:00
+ * @LastEditTime: 2026-06-25 10:47:16
  * @License: GPL 3.0
  */
 #pragma once
@@ -15,9 +15,7 @@ namespace lilygo_box::app {
 
 constexpr size_t kWifiSavedNetworkCapacity = 10;
 
-/**
- * @brief WLAN 已保存网络凭据，保存用户确认连接后的 SSID 与连接元数据
- */
+// WLAN 已保存网络凭据，保存用户确认连接后的 SSID 与连接元数据
 struct WifiSavedNetwork {
   // 已保存热点 SSID，用来在 Saved WLAN 与附近 WLAN 间去重。
   char ssid[hal::kWifiSsidMaxLength + 1] = {};
@@ -31,9 +29,7 @@ struct WifiSavedNetwork {
   int rssi = 0;
 };
 
-/**
- * @brief WLAN 用户偏好，保存开关状态和自动连接目标
- */
+// WLAN 用户偏好，保存开关状态和自动连接目标
 struct WifiPreferences {
   // 用户期望的 WLAN 开关状态。
   bool enabled_requested = false;

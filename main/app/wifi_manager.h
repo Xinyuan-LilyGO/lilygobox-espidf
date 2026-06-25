@@ -9,7 +9,7 @@
 
 #include <cstdint>
 
-#include "app/storage/settings_wifi_storage.h"
+#include "app/storage/wifi_storage.h"
 #include "hal/providers/wifi_provider.h"
 
 namespace lilygo_box::app {

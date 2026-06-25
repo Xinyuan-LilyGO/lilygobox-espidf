@@ -11,7 +11,7 @@
 #include <cstdio>
 #include <cstring>
 
-#include "app/storage/settings_wifi_storage.h"
+#include "app/storage/wifi_storage.h"
 #include "app/wifi_manager.h"
 #include "hal/providers/screen_provider.h"
 #include "ui/animation/transition_animation.h"
