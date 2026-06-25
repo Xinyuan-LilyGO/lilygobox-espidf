@@ -50,6 +50,7 @@ inline constexpr char kSensors[] = "\xEE\x94\x9E";
 inline constexpr char kSettings[] = "\xEE\xA2\xB8";
 inline constexpr char kSettingsInputAntenna[] = "\xEE\xA2\xBF";
 inline constexpr char kSunny[] = "\xEE\xA0\x9A";
+inline constexpr char kTouchApp[] = "\xEE\xA4\x93";
 inline constexpr char kRefresh[] = "\xEE\x97\x95";
 inline constexpr char kVolumeUp[] = "\xEE\x81\x90";
 inline constexpr char kWarning[] = "\xEF\x82\x83";

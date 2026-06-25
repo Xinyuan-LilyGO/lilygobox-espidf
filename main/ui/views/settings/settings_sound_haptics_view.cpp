@@ -12,6 +12,35 @@
 namespace lilygo_box::ui {
 namespace {
 
+struct SoundHapticsRefreshRequest {
+  lv_obj_t* body = nullptr;
+  SettingsViewState* state = nullptr;
+};
+
+SoundHapticsRefreshRequest g_sound_haptics_refresh_request = {};
+
+/**
+ * @brief 构建声音与触感设置内容
+ * @param body 内容容器
+ * @param state 设置页状态
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool BuildSoundHapticsContent(lv_obj_t* body, SettingsViewState* state);
+
+/**
+ * @brief 异步重建声音与触感页面内容
+ * @param user_data 回调用户数据
+ */
+void RebuildSoundHapticsContentAsync(void* user_data) {
+  auto* request = static_cast<SoundHapticsRefreshRequest*>(user_data);
+  if (request == nullptr || request->body == nullptr ||
+      request->state == nullptr) {
+    return;
+  }
+  lv_obj_clean(request->body);
+  BuildSoundHapticsContent(request->body, request->state);
+}
+
 /**
  * @brief 处理系统触感开关状态变化
  * @param event LVGL 事件对象
@@ -21,6 +50,14 @@ void HapticsSwitchChangedEventCallback(lv_event_t* event) {
   lv_obj_t* target = lv_event_get_target_obj(event);
   if (state != nullptr && target != nullptr) {
     state->haptics_enabled = lv_obj_has_state(target, LV_STATE_CHECKED);
+    lv_obj_t* row = lv_obj_get_parent(target);
+    lv_obj_t* body = row == nullptr ? nullptr : lv_obj_get_parent(row);
+    if (body != nullptr) {
+      g_sound_haptics_refresh_request.body = body;
+      g_sound_haptics_refresh_request.state = state;
+      lv_async_call(RebuildSoundHapticsContentAsync,
+          &g_sound_haptics_refresh_request);
+    }
   }
 }
 
@@ -64,18 +101,20 @@ bool BuildSoundHapticsContent(lv_obj_t* body, SettingsViewState* state) {
           VolumeSliderChangedEventCallback, state)) {
     return false;
   }
-  y += 150;
+  y += 118;
+  if (!CreateBasicDivider(body, y, state->config.width)) {
+    return false;
+  }
+  y += 32;
   if (!CreateSwitchRow(body, "System haptics", y, state->config.width,
           state->haptics_enabled, HapticsSwitchChangedEventCallback, state)) {
     return false;
   }
-  y += kBasicRowHeight + 16;
-  if (!CreateSectionLabel(body, "Haptic adjustment", y,
-          state->config.width)) {
-    return false;
+  if (!state->haptics_enabled) {
+    return true;
   }
-  y += kBasicSectionHeight;
-  return CreateSliderRow(body, icon::kSettings, "Haptics",
+  y += kBasicRowHeight;
+  return CreateSliderRow(body, icon::kTouchApp, "Haptics",
       state->haptic_strength_percent, y, state->config.width,
       HapticSliderChangedEventCallback, state);
 }

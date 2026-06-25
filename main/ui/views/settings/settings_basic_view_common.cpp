@@ -560,28 +560,51 @@ bool CreateSliderRow(lv_obj_t* parent, const char* icon_text,
   if (label == nullptr) {
     return false;
   }
-  lv_obj_align(label, LV_ALIGN_TOP_LEFT, kBasicSidePadding, y);
+  constexpr int kSliderSidePadding = 50;
+  constexpr int kSliderIconSize = 42;
+  constexpr int kSliderTitleGap = 12;
+  constexpr int kSliderIconTopOffset = -4;
+  constexpr int kSliderBarTopOffset = 48;
+  constexpr int kSliderBarHeight = 38;
+  constexpr uint32_t kSliderIconColor =
+      theme::LightNeutralTheme().outline;
+  constexpr uint32_t kSliderTrackColor =
+      theme::LightNeutralTheme().surface_container_high;
+  lv_obj_align(label, LV_ALIGN_TOP_LEFT,
+      kSliderSidePadding + kSliderIconSize + kSliderTitleGap, y);
 
   lv_obj_t* icon_label = CreateLabel(parent, icon_text,
-      lv_color_hex(kPrimaryTextColor), MaterialIconFont32());
+      lv_color_hex(kSliderIconColor), MaterialIconFont32());
   if (icon_label == nullptr) {
     return false;
   }
-  lv_obj_align(icon_label, LV_ALIGN_TOP_LEFT, kBasicSidePadding, y + 64);
+  lv_obj_set_size(icon_label, kSliderIconSize, kSliderIconSize);
+  lv_obj_set_style_text_align(icon_label, LV_TEXT_ALIGN_CENTER,
+      LV_PART_MAIN);
+  lv_obj_align(icon_label, LV_ALIGN_TOP_LEFT, kSliderSidePadding,
+      y + kSliderIconTopOffset);
 
   lv_obj_t* slider = lv_slider_create(parent);
   if (slider == nullptr) {
     return false;
   }
   lv_obj_add_flag(slider, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_width(slider, width - 2 * kBasicSidePadding - 62);
-  lv_obj_align(slider, LV_ALIGN_TOP_LEFT, kBasicSidePadding + 56, y + 73);
+  lv_obj_set_size(slider, width - 2 * kSliderSidePadding,
+      kSliderBarHeight);
+  lv_obj_align(slider, LV_ALIGN_TOP_LEFT, kSliderSidePadding,
+      y + kSliderBarTopOffset);
   lv_slider_set_range(slider, 0, 100);
   lv_slider_set_value(slider, value, LV_ANIM_OFF);
-  lv_obj_set_style_bg_color(slider, lv_color_hex(0xD8DDE8),
+  lv_obj_set_style_bg_color(slider, lv_color_hex(kSliderTrackColor),
       LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_radius(slider, kSliderBarHeight / 2, LV_PART_MAIN);
   lv_obj_set_style_bg_color(slider, lv_color_hex(kBasicBlueColor),
       LV_PART_INDICATOR);
+  lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_INDICATOR);
+  lv_obj_set_style_radius(slider, 0, LV_PART_INDICATOR);
+  lv_obj_set_style_bg_opa(slider, LV_OPA_TRANSP, LV_PART_KNOB);
+  lv_obj_set_style_pad_all(slider, 0, LV_PART_KNOB);
   if (callback != nullptr) {
     lv_obj_add_event_cb(slider, callback, LV_EVENT_VALUE_CHANGED, state);
   }

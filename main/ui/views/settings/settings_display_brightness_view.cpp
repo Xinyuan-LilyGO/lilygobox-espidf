@@ -33,7 +33,7 @@ bool BuildDisplayBrightnessContent(lv_obj_t* body, SettingsViewState* state) {
   if (!CreateSectionLabel(body, "Brightness", 0, state->config.width)) {
     return false;
   }
-  return CreateSliderRow(body, icon::kSettings, "Screen brightness",
+  return CreateSliderRow(body, icon::kSunny, "Screen brightness",
       state->display_brightness_percent, kBasicSectionHeight,
       state->config.width, BrightnessSliderChangedEventCallback, state);
 }
