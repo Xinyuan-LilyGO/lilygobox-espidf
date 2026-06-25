@@ -10,6 +10,7 @@
 namespace lilygo_box::app {
 namespace {
 
+constexpr uint32_t kBatteryRefreshIntervalTicks = 3;
 constexpr uint32_t kWifiRefreshIntervalTicks = 3;
 
 }  // namespace
@@ -80,8 +81,10 @@ bool SystemStatusCache::RefreshWifi() {
 
 void SystemStatusCache::RefreshSystemStatus() {
   RefreshClock();
-  RefreshBattery();
 
+  if (refresh_count_ % kBatteryRefreshIntervalTicks == 0) {
+    RefreshBattery();
+  }
   if (refresh_count_ % kWifiRefreshIntervalTicks == 0) {
     RefreshWifi();
   }
