@@ -9,6 +9,7 @@
 
 #include <cstdint>
 
+#include "app/storage/display_storage.h"
 #include "app/wifi_manager.h"
 #include "base/logger.h"
 #include "esp_err.h"
@@ -84,7 +85,11 @@ bool Application::Init() {
     LogMessage(LogLevel::kError, __FILE__, __LINE__, "Start failed\n");
     return false;
   }
-  screen->StartScreenBacklight();
+  app::DisplayPreferences display_preferences;
+  const bool has_display_preferences =
+      app::LoadDisplayPreferencesFromNvs(&display_preferences);
+  screen->StartScreenBacklight(
+      has_display_preferences ? display_preferences.brightness_percent : 100);
 
   lvgl_port_.Lock();
   const bool startup_result = ui_manager_.StartStartupScreenAnimation();

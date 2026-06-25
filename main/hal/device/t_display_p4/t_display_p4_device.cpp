@@ -44,6 +44,9 @@ namespace device = lilygo_device_driver::t_display_p4::device;
 namespace gpio = lilygo_device_driver::t_display_p4::gpio;
 namespace {
 
+constexpr int kScreenBrightnessMinPercent = 10;
+constexpr int kScreenBrightnessMaxPercent = 100;
+constexpr uint8_t kRm69a10BrightnessMax = UINT8_MAX;
 constexpr uint8_t kVibrationTestGain = 255;
 constexpr uint8_t kVibrationTestLoopCount = 1;
 constexpr uint32_t kVibrationTestPlayMs = 220;
@@ -86,6 +89,17 @@ constexpr uint32_t kWifiSntpSyncIntervalMs = 20 * 1000;
 
 // 当前接收 SNTP 同步回调的设备实例
 std::atomic<TDisplayP4Device*> g_wifi_time_sync_owner{nullptr};
+
+int ClampScreenBrightnessPercent(int percent) {
+  return std::clamp(
+      percent, kScreenBrightnessMinPercent, kScreenBrightnessMaxPercent);
+}
+
+uint8_t ScreenBrightnessPercentToRm69a10Value(int percent) {
+  const int clamped_percent = ClampScreenBrightnessPercent(percent);
+  return static_cast<uint8_t>(
+      clamped_percent * kRm69a10BrightnessMax / kScreenBrightnessMaxPercent);
+}
 
 /**
  * @brief 判断 GNSS 浮点字段是否已经被解析更新
@@ -2418,28 +2432,62 @@ bool TDisplayP4Device::ReadImuStatus(ImuStatus* status) {
   return false;
 }
 
-void TDisplayP4Device::StartScreenBacklight() {
+void TDisplayP4Device::StartScreenBacklight(int initial_percent) {
   if (!WaitForScreenReady()) {
     return;
   }
 
+  const int clamped_percent = ClampScreenBrightnessPercent(initial_percent);
   switch (driver_.screen_type()) {
     case device::ScreenType::kHi8561:
       if (driver_.status().hi8561_backlight.init_flag) {
-        driver_.chip().hi8561_backlight->StartGradientTime(100, 500);
+        driver_.chip().hi8561_backlight->StartGradientTime(
+            static_cast<uint8_t>(clamped_percent), 500);
       }
       break;
     case device::ScreenType::kRm69a10:
       if (driver_.status().rm69a10.init_flag) {
-        for (uint16_t brightness = 0; brightness < 255; brightness += 5) {
+        const uint8_t target_brightness =
+            ScreenBrightnessPercentToRm69a10Value(clamped_percent);
+        for (uint16_t brightness = 0; brightness < target_brightness;
+             brightness += 5) {
           driver_.chip().rm69a10->SetBrightness(brightness);
           vTaskDelay(pdMS_TO_TICKS(10));
         }
+        driver_.chip().rm69a10->SetBrightness(target_brightness);
       }
       break;
     default:
       break;
   }
+}
+
+bool TDisplayP4Device::SetScreenBrightnessPercent(int percent) {
+  if (!WaitForScreenReady()) {
+    return false;
+  }
+
+  const int clamped_percent = ClampScreenBrightnessPercent(percent);
+  switch (driver_.screen_type()) {
+    case device::ScreenType::kHi8561:
+      if (driver_.status().hi8561_backlight.init_flag &&
+          driver_.chip().hi8561_backlight != nullptr) {
+        return driver_.chip().hi8561_backlight->SetDuty(
+            static_cast<uint8_t>(clamped_percent));
+      }
+      break;
+    case device::ScreenType::kRm69a10:
+      if (driver_.status().rm69a10.init_flag &&
+          driver_.chip().rm69a10 != nullptr) {
+        const uint8_t brightness =
+            ScreenBrightnessPercentToRm69a10Value(clamped_percent);
+        return driver_.chip().rm69a10->SetBrightness(brightness);
+      }
+      break;
+    default:
+      break;
+  }
+  return false;
 }
 
 bool TDisplayP4Device::WaitForScreenReady() {

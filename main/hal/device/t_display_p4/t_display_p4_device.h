@@ -274,8 +274,16 @@ class TDisplayP4Device final : public ScreenProvider,
 
   /**
    * @brief 启动屏幕背光
+   * @param initial_percent 初始亮度百分比，范围 0~100
    */
-  void StartScreenBacklight() override;
+  void StartScreenBacklight(int initial_percent = 100) override;
+
+  /**
+   * @brief 设置屏幕背光亮度
+   * @param percent 亮度百分比，范围 0~100
+   * @return 设置成功返回 true，否则返回 false
+   */
+  bool SetScreenBrightnessPercent(int percent) override;
 
  private:
   static constexpr int kScreenReadyTimeoutMs = 5000;

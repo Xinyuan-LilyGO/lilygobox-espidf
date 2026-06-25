@@ -197,6 +197,7 @@ struct SettingsViewState {
   lv_obj_t* settings_nested_page = nullptr;
   // WLAN 页面定时刷新器，用来轮询 HAL 扫描和连接状态。
   lv_timer_t* wifi_refresh_timer = nullptr;
+  lv_timer_t* display_brightness_save_timer = nullptr;
   lv_obj_t* device_name_value_label = nullptr;
   // 设置主页 WLAN 行右侧的 On/Off 文本。
   lv_obj_t* wifi_value_label = nullptr;

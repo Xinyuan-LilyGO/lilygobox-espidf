@@ -12,6 +12,7 @@
 #include <new>
 
 #include "app/settings_catalog.h"
+#include "app/storage/display_storage.h"
 #include "hal/providers/wifi_provider.h"
 #include "ui/font/material_symbols_assets.h"
 #include "ui/input/press_cancel.h"
@@ -117,6 +118,13 @@ void SettingsViewDeleteEventCallback(lv_event_t* event) {
   if (state != nullptr && state->wifi_refresh_timer != nullptr) {
     lv_timer_delete(state->wifi_refresh_timer);
     state->wifi_refresh_timer = nullptr;
+  }
+  if (state != nullptr && state->display_brightness_save_timer != nullptr) {
+    app::DisplayPreferences display_preferences;
+    display_preferences.brightness_percent = state->display_brightness_percent;
+    app::SaveDisplayPreferencesToNvs(display_preferences);
+    lv_timer_delete(state->display_brightness_save_timer);
+    state->display_brightness_save_timer = nullptr;
   }
   delete state;
 }
@@ -447,6 +455,10 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
   state->config = config;
   state->root = root;
   LoadWifiSettingsFromNvs(state, IsWifiCurrentlyEnabled(config));
+  app::DisplayPreferences display_preferences;
+  if (app::LoadDisplayPreferencesFromNvs(&display_preferences)) {
+    state->display_brightness_percent = display_preferences.brightness_percent;
+  }
   lv_obj_add_event_cb(
       root, SettingsViewDeleteEventCallback, LV_EVENT_DELETE, state);
 
