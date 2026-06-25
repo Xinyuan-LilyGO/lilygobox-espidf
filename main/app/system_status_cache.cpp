@@ -8,18 +8,12 @@
 #include "app/system_status_cache.h"
 
 namespace lilygo_box::app {
-namespace {
-
-constexpr uint32_t kBatteryRefreshIntervalTicks = 5;
-
-}  // namespace
 
 void SystemStatusCache::Init(hal::RtcProvider* rtc, hal::BmuProvider* bmu) {
   rtc_ = rtc;
   bmu_ = bmu;
   rtc_status_ = hal::RtcStatus();
   bmu_status_ = hal::BmuStatus();
-  refresh_count_ = 0;
   rtc_status_valid_ = false;
   bmu_status_valid_ = false;
 }
@@ -58,14 +52,7 @@ bool SystemStatusCache::RefreshBattery() {
 
 void SystemStatusCache::RefreshSystemStatus() {
   RefreshClock();
-
-  const bool should_refresh_battery =
-      refresh_count_ == 0 ||
-      refresh_count_ % kBatteryRefreshIntervalTicks == 0;
-  if (should_refresh_battery) {
-    RefreshBattery();
-  }
-  ++refresh_count_;
+  RefreshBattery();
 }
 
 }  // namespace lilygo_box::app

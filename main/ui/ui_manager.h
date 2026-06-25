@@ -90,6 +90,11 @@ class UiManager final {
    */
   void SetStatusBarVisible(bool visible);
 
+  /**
+   * @brief 立即刷新系统状态并同步更新状态栏和主界面显示
+   */
+  void RefreshSystemStatusNow();
+
  private:
   struct AppButtonContext {
     UiManager* manager = nullptr;

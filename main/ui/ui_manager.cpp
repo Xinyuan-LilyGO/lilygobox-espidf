@@ -1120,6 +1120,17 @@ void UiManager::RefreshSystemStatus() {
   }
 }
 
+void UiManager::RefreshSystemStatusNow() {
+  system_status_cache_.RefreshClock();
+  system_status_cache_.RefreshBattery();
+  if (system_status_cache_.rtc_status_valid()) {
+    UpdateClockLabels(system_status_cache_.rtc_status());
+  }
+  if (system_status_cache_.bmu_status_valid()) {
+    UpdateBatteryStatus(system_status_cache_.bmu_status());
+  }
+}
+
 void UiManager::UpdateClockLabels(const hal::RtcStatus& status) {
   char time_text[sizeof(clock_time_text_)] = {};
   FormatClockTime(status, time_text);
@@ -1153,7 +1164,7 @@ void UiManager::UpdateClockLabels(const hal::RtcStatus& status) {
 }
 
 void UiManager::UpdateBatteryStatus(const hal::BmuStatus& status) {
-  status_bar_.SetBatteryPercent(status.charge_percent);
+  status_bar_.SetBatteryStatus(status.charge_percent, status.charging);
 }
 
 lv_obj_t* UiManager::CreateAppGrid(lv_obj_t* parent) {

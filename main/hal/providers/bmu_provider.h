@@ -17,8 +17,6 @@ struct BmuStatus {
   bool pack_present = false;
   // 当前是否正在充电。
   bool charging = false;
-  // 当前是否正在放电。
-  bool discharging = false;
   // 电池是否已充满。
   bool full_charged = false;
   // 电池是否已放空。

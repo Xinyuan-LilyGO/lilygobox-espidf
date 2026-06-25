@@ -2344,11 +2344,8 @@ bool TDisplayP4Device::ReadBmuStatus(BmuStatus* status) {
           driver_.chip().bq27220->GetChipTemperatureCelsius();
       status->pack_present =
           bmu_status_ok && bmu_status_flags.flag.battery_present;
-      status->discharging =
-          bmu_status_ok ? bmu_status_flags.flag.discharging : current_ma > 0;
-      status->charging =
-          bmu_status_ok ? (!bmu_status_flags.flag.discharging && current_ma < 0)
-                        : current_ma < 0;
+      status->charging = current_ma > 0 ||
+                         (bmu_status_ok && !bmu_status_flags.flag.discharging);
       status->full_charged =
           bmu_status_ok && bmu_status_flags.flag.full_charged;
       status->full_discharged =

@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-12 01:08:42
- * @LastEditTime: 2026-06-24 13:43:42
+ * @LastEditTime: 2026-06-24 16:35:57
  * @License: GPL 3.0
  */
 #include "ui/widgets/status_bar.h"
@@ -22,8 +22,12 @@ constexpr int kStatusBarHeight = 50;
 constexpr int kStatusBarPadding = 40;
 constexpr int kStatusBarIconGap = -10;
 constexpr int kStatusBarBatteryPercentGap = 4;
+constexpr int kStatusBarBatteryBoltOffsetX = -1;
+constexpr int kStatusBarBatteryBoltOffsetY = -1;
 constexpr uint32_t kStatusBarBackgroundColor = 0x000000;
 constexpr uint32_t kStatusBarTextColor = 0xFFFFFF;
+constexpr uint32_t kStatusBarBatteryChargingColor = 0x27C769;
+constexpr uint32_t kStatusBarBatteryLowColor = 0xFF3B30;
 
 /**
  * @brief 设置文本对象的颜色和字体
@@ -43,16 +47,23 @@ void SetTextStyle(lv_obj_t* object, lv_color_t color, const lv_font_t* font) {
 const lv_font_t* Font24() { return &lvgl_font_google_sans_flex_24; }
 
 /**
+ * @brief 获取 20 号 Material Symbols 字体
+ * @return 字体指针
+ */
+const lv_font_t* MaterialIconFont20() { return &lvgl_font_material_symbols_20; }
+
+/**
  * @brief 获取 32 号 Material Symbols 字体
  * @return 字体指针
  */
 const lv_font_t* MaterialIconFont32() { return &lvgl_font_material_symbols_32; }
 
 /**
- * @brief 获取 34 号 Material Symbols 字体
+ * @brief 获取 36 号 Material Symbols 字体
  * @return 字体指针
  */
-const lv_font_t* MaterialIconFont34() { return &lvgl_font_material_symbols_34; }
+
+const lv_font_t* MaterialIconFont36() { return &lvgl_font_material_symbols_36; }
 
 /**
  * @brief 根据电量百分比选择电池图标
@@ -187,7 +198,7 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
 
   bmu_label_ =
       CreateLabel(object_, icon::kBatteryAndroid3,
-          lv_color_hex(kStatusBarTextColor), MaterialIconFont34());
+          lv_color_hex(kStatusBarTextColor), MaterialIconFont36());
   if (bmu_label_ == nullptr) {
     lv_obj_delete(object_);
     object_ = nullptr;
@@ -195,6 +206,17 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
   }
   lv_obj_align_to(bmu_label_, bmu_percent_label_, LV_ALIGN_OUT_LEFT_MID,
       -kStatusBarBatteryPercentGap, 0);
+
+  bmu_bolt_label_ = CreateLabel(object_, icon::kBolt,
+      lv_color_hex(kStatusBarTextColor), MaterialIconFont20());
+  if (bmu_bolt_label_ == nullptr) {
+    lv_obj_delete(object_);
+    object_ = nullptr;
+    return false;
+  }
+  lv_obj_add_flag(bmu_bolt_label_, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_align_to(bmu_bolt_label_, bmu_label_, LV_ALIGN_CENTER,
+      kStatusBarBatteryBoltOffsetX, kStatusBarBatteryBoltOffsetY);
 
   wifi_label_ = CreateLabel(object_, icon::kWifi,
       lv_color_hex(kStatusBarTextColor), MaterialIconFont32());
@@ -220,7 +242,7 @@ void StatusBar::SetTimeText(const char* text) {
   lv_label_set_text(time_label_, time_text_);
 }
 
-void StatusBar::SetBatteryPercent(int percent) {
+void StatusBar::SetBatteryStatus(int percent, bool charging) {
   if (bmu_label_ == nullptr || bmu_percent_label_ == nullptr) {
     return;
   }
@@ -228,18 +250,44 @@ void StatusBar::SetBatteryPercent(int percent) {
   const int clamped_percent = std::clamp(percent, 0, 100);
   char percent_text[sizeof(bmu_percent_text_)] = {};
   FormatBatteryPercent(clamped_percent, percent_text);
-  if (std::strncmp(
-          bmu_percent_text_, percent_text, sizeof(bmu_percent_text_)) == 0) {
-    return;
+  const bool percent_changed =
+      std::strncmp(
+          bmu_percent_text_, percent_text, sizeof(bmu_percent_text_)) != 0;
+  const bool charging_changed = bmu_charging_ != charging;
+  bmu_percent_ = clamped_percent;
+  if (percent_changed) {
+    std::strncpy(
+        bmu_percent_text_, percent_text, sizeof(bmu_percent_text_) - 1);
+    bmu_percent_text_[sizeof(bmu_percent_text_) - 1] = '\0';
+    lv_label_set_text(bmu_percent_label_, bmu_percent_text_);
+    lv_label_set_text(bmu_label_, BatteryIconFromPercent(clamped_percent));
+  }
+  if (charging_changed) {
+    bmu_charging_ = charging;
   }
 
-  std::strncpy(
-      bmu_percent_text_, percent_text, sizeof(bmu_percent_text_) - 1);
-  bmu_percent_text_[sizeof(bmu_percent_text_) - 1] = '\0';
-  lv_label_set_text(bmu_percent_label_, bmu_percent_text_);
-  lv_label_set_text(bmu_label_, BatteryIconFromPercent(clamped_percent));
+  uint32_t battery_color = text_color_hex_;
+  if (charging) {
+    battery_color = kStatusBarBatteryChargingColor;
+  } else if (clamped_percent < 10) {
+    battery_color = kStatusBarBatteryLowColor;
+  }
+  lv_obj_set_style_text_color(
+      bmu_label_, lv_color_hex(battery_color), LV_PART_MAIN);
+  if (bmu_bolt_label_ != nullptr) {
+    if (charging) {
+      lv_obj_remove_flag(bmu_bolt_label_, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(bmu_bolt_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+
   lv_obj_align_to(bmu_label_, bmu_percent_label_, LV_ALIGN_OUT_LEFT_MID,
       -kStatusBarBatteryPercentGap, 0);
+  if (bmu_bolt_label_ != nullptr) {
+    lv_obj_align_to(bmu_bolt_label_, bmu_label_, LV_ALIGN_CENTER,
+      kStatusBarBatteryBoltOffsetX, kStatusBarBatteryBoltOffsetY);
+  }
   lv_obj_align_to(
       wifi_label_, bmu_label_, LV_ALIGN_OUT_LEFT_MID, kStatusBarIconGap, 0);
 }
@@ -251,6 +299,7 @@ void StatusBar::MoveToTop() {
 }
 
 void StatusBar::SetTextColor(lv_color_t color) {
+  text_color_hex_ = lv_color_to_u32(color) & 0xFFFFFF;
   if (time_label_ != nullptr) {
     lv_obj_set_style_text_color(time_label_, color, LV_PART_MAIN);
   }
@@ -258,7 +307,17 @@ void StatusBar::SetTextColor(lv_color_t color) {
     lv_obj_set_style_text_color(wifi_label_, color, LV_PART_MAIN);
   }
   if (bmu_label_ != nullptr) {
-    lv_obj_set_style_text_color(bmu_label_, color, LV_PART_MAIN);
+    uint32_t battery_color = text_color_hex_;
+    if (bmu_charging_) {
+      battery_color = kStatusBarBatteryChargingColor;
+    } else if (bmu_percent_ >= 0 && bmu_percent_ < 10) {
+      battery_color = kStatusBarBatteryLowColor;
+    }
+    lv_obj_set_style_text_color(
+        bmu_label_, lv_color_hex(battery_color), LV_PART_MAIN);
+  }
+  if (bmu_bolt_label_ != nullptr) {
+    lv_obj_set_style_text_color(bmu_bolt_label_, color, LV_PART_MAIN);
   }
   if (bmu_percent_label_ != nullptr) {
     lv_obj_set_style_text_color(bmu_percent_label_, color, LV_PART_MAIN);

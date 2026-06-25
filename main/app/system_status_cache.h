@@ -71,7 +71,6 @@ class SystemStatusCache final {
   hal::BmuProvider* bmu_ = nullptr;
   hal::RtcStatus rtc_status_ = {};
   hal::BmuStatus bmu_status_ = {};
-  uint32_t refresh_count_ = 0;
   bool rtc_status_valid_ = false;
   bool bmu_status_valid_ = false;
 };

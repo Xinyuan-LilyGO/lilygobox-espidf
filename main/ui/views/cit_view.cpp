@@ -1353,7 +1353,7 @@ void RefreshActiveTestData(CitViewState* state) {
     const hal::BmuStatus& bmu = state->diagnostics.bmu;
     std::snprintf(text, sizeof(text),
         "BMU data:\nstatus: %s\npack: %s\ncharging: %s\n"
-        "discharging: %s\nfull: %s\nempty: %s\n"
+        "full: %s\nempty: %s\n"
         "\n"
         "voltage: %d mV\ncurrent: %d mA\naverage current: %d mA\n"
         "average BMU: %d mW\n"
@@ -1373,7 +1373,7 @@ void RefreshActiveTestData(CitViewState* state) {
         "     gauge: %.2f C",
         bmu.ready ? "ready" : "not ready",
         bmu.pack_present ? "present" : "none",
-        bmu.charging ? "yes" : "no", bmu.discharging ? "yes" : "no",
+        bmu.charging ? "yes" : "no",
         bmu.full_charged ? "yes" : "no", bmu.full_discharged ? "yes" : "no",
         bmu.voltage_mv, bmu.current_ma, bmu.average_current_ma,
         bmu.average_bmu_mw, bmu.charge_percent, bmu.health_percent,

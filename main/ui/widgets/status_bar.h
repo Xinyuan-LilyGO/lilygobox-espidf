@@ -1,4 +1,4 @@
-/*
+﻿/*
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-12 01:08:42
@@ -30,10 +30,11 @@ class StatusBar final {
   void SetTimeText(const char* text);
 
   /**
-   * @brief 设置状态栏电池百分比
+   * @brief 设置状态栏电池电量和充电状态
    * @param percent 电池百分比
+   * @param charging 是否正在充电
    */
-  void SetBatteryPercent(int percent);
+  void SetBatteryStatus(int percent, bool charging);
 
   /**
    * @brief 获取状态栏对象
@@ -59,22 +60,17 @@ class StatusBar final {
   void SetVisible(bool visible);
 
  private:
-  /**
-   * @brief 状态栏定时刷新回调
-   * @param timer LVGL 定时器
-   */
-
-  /**
-   * @brief 按 RTC 数据刷新状态栏时间
-   */
-
   lv_obj_t* object_ = nullptr;
   lv_obj_t* time_label_ = nullptr;
   lv_obj_t* wifi_label_ = nullptr;
   lv_obj_t* bmu_label_ = nullptr;
+  lv_obj_t* bmu_bolt_label_ = nullptr;
   lv_obj_t* bmu_percent_label_ = nullptr;
+  uint32_t text_color_hex_ = 0xFFFFFF;
+  int bmu_percent_ = -1;
   char time_text_[6] = "09:15";
   char bmu_percent_text_[8] = "--%";
+  bool bmu_charging_ = false;
 };
 
 }  // namespace lilygo_box::ui
