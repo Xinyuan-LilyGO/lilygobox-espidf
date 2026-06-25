@@ -12,6 +12,7 @@
 
 #include "lvgl.h"
 #include "ui/input/edge_back_gesture.h"
+#include "ui/theme/theme_provider.h"
 
 namespace lilygo_box::ui {
 
@@ -54,13 +55,15 @@ struct PromptSelectSheetConfig {
   int option_height = 0;
   int button_height = 0;
   int button_radius = 0;
-  uint32_t sheet_color = 0xFFFFFF;
-  uint32_t selected_color = 0xE8F3FF;
-  uint32_t primary_text_color = 0x101010;
-  uint32_t secondary_text_color = 0x969696;
-  uint32_t selected_text_color = 0x3F82F6;
-  uint32_t cancel_background_color = 0xF2F2F2;
-  uint32_t pressed_color = 0xE6E6E6;
+  uint32_t sheet_color = theme::LightNeutralTheme().surface_container_lowest;
+  uint32_t selected_color = theme::LightNeutralTheme().action_container;
+  uint32_t primary_text_color = theme::LightNeutralTheme().on_surface;
+  uint32_t secondary_text_color =
+      theme::LightNeutralTheme().on_surface_variant;
+  uint32_t selected_text_color = theme::LightNeutralTheme().action;
+  uint32_t cancel_background_color =
+      theme::LightNeutralTheme().button_secondary;
+  uint32_t pressed_color = theme::LightNeutralTheme().surface_container_low;
   lv_opa_t pressed_opacity = 190;
   lv_opa_t overlay_opacity = 115;
   uint32_t animation_ms = 180;

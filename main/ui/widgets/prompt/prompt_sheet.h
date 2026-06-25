@@ -8,6 +8,7 @@
 #pragma once
 
 #include "lvgl.h"
+#include "ui/theme/theme_provider.h"
 
 namespace lilygo_box::ui {
 
@@ -20,7 +21,7 @@ struct PromptSheetConfig {
   int side_margin = 0;
   int bottom_margin = 0;
   int sheet_radius = 0;
-  uint32_t sheet_color = 0xFFFFFF;
+  uint32_t sheet_color = theme::LightNeutralTheme().surface_container_lowest;
   lv_opa_t overlay_opacity = 115;
 };
 
@@ -32,10 +33,12 @@ struct PromptSheetButtonConfig {
   int width = 0;
   int height = 0;
   int radius = 0;
-  uint32_t background_color = 0xFFFFFF;
-  uint32_t disabled_background_color = 0xFFFFFF;
-  uint32_t pressed_background_color = 0xE5E5E5;
-  uint32_t text_color = 0x000000;
+  uint32_t background_color = theme::LightNeutralTheme().button_secondary;
+  uint32_t disabled_background_color =
+      theme::LightNeutralTheme().disabled_container;
+  uint32_t pressed_background_color =
+      theme::LightNeutralTheme().button_secondary_pressed;
+  uint32_t text_color = theme::LightNeutralTheme().on_button_secondary;
   lv_opa_t pressed_opacity = LV_OPA_COVER;
   const lv_font_t* font = nullptr;
   lv_event_cb_t callback = nullptr;

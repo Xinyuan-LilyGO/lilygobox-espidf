@@ -1696,6 +1696,7 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   config.ethernet = ethernet_provider_;
   config.wifi = wifi_provider_;
   config.system_status = &system_status_cache_;
+  config.theme_provider = &theme_provider_;
   config.back_callback = BackButtonEventCallback;
   config.back_context = this;
   config.set_status_bar_text_color = [this](uint32_t color) {

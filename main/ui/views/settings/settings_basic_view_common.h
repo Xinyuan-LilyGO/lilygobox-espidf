@@ -21,9 +21,11 @@ constexpr int kBasicRowHeight = 86;
 constexpr int kBasicSectionHeight = 54;
 constexpr int kBasicSwitchWidth = 78;
 constexpr int kBasicSwitchHeight = 44;
-constexpr uint32_t kBasicBlueColor = 0x4D82F5;
-constexpr uint32_t kBasicCardColor = 0xF6F7F9;
-constexpr uint32_t kBasicMutedColor = 0x8F8EA2;
+constexpr uint32_t kBasicBlueColor = theme::LightNeutralTheme().action;
+constexpr uint32_t kBasicCardColor =
+    theme::LightNeutralTheme().surface_container_low;
+constexpr uint32_t kBasicMutedColor =
+    theme::LightNeutralTheme().on_surface_variant;
 
 using SettingsContentBuilder = bool (*)(lv_obj_t*, SettingsViewState*);
 

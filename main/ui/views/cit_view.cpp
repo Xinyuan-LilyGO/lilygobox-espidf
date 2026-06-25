@@ -26,6 +26,7 @@
 #include "ui/input/edge_back_gesture.h"
 #include "ui/font/font_assets.h"
 #include "ui/font/material_symbols_assets.h"
+#include "ui/theme/theme_provider.h"
 #include "ui/input/press_cancel.h"
 #include "ui/animation/transition_animation.h"
 
@@ -50,25 +51,33 @@ constexpr int kTouchTraceLineWidth = 6;
 constexpr int kTouchMarkerSize = 42;
 constexpr int kCitRefreshPeriodMs = 200;
 constexpr int kDiagnosticsRefreshPeriodMs = 1000;
+constexpr lv_style_selector_t kSwitchCheckedIndicatorSelector =
+    static_cast<lv_style_selector_t>(LV_PART_INDICATOR) |
+    static_cast<lv_style_selector_t>(LV_STATE_CHECKED);
 constexpr size_t kTouchTraceMaxPointCount = 100;
 constexpr size_t kTouchDisplayPointCount = 10;
 constexpr uint32_t kGestureSuppressTimeoutMs = 500;
 constexpr uint32_t kPageSlideAnimationMs = 180;
 constexpr uint32_t kMicrophoneNeedleAnimationMs = 180;
 constexpr uint32_t kCitBackgroundColor = 0xFF7F58;
-constexpr uint32_t kListBackgroundColor = 0xFBF4E4;
-constexpr uint32_t kRowPressedColor = 0xEEDBD1;
+constexpr uint32_t kCitTitleColor = 0xFFFFFF;
+constexpr uint32_t kListBackgroundColor =
+    theme::LightNeutralTheme().surface_container_low;
+constexpr uint32_t kRowPressedColor = theme::LightNeutralTheme().state_layer;
 constexpr lv_opa_t kRowPressedOpacity = 170;
 constexpr int kRowPressedHeight = kRowHeight;
 constexpr int kRowPressedRadius = 0;
 constexpr uint32_t kReadyColor = 0x138A3D;
 constexpr uint32_t kFailedColor = 0xEE2C2C;
 constexpr uint32_t kPendingColor = 0xF28C00;
-constexpr uint32_t kPassButtonColor = 0x3383FF;
-constexpr uint32_t kFailButtonColor = 0xF1EADA;
-constexpr uint32_t kPassButtonTextColor = 0xFFFFFF;
-constexpr uint32_t kFailButtonTextColor = 0x000000;
-constexpr uint32_t kStartButtonColor = 0xE9785C;
+constexpr uint32_t kPassButtonColor = theme::LightNeutralTheme().action;
+constexpr uint32_t kFailButtonColor =
+    theme::LightNeutralTheme().button_secondary;
+constexpr uint32_t kPassButtonTextColor = theme::LightNeutralTheme().on_action;
+constexpr uint32_t kFailButtonTextColor =
+    theme::LightNeutralTheme().on_button_secondary;
+constexpr uint32_t kStartButtonColor = theme::LightNeutralTheme().action;
+constexpr uint32_t kStartButtonTextColor = theme::LightNeutralTheme().on_action;
 constexpr std::array<uint32_t, 5> kScreenColorTestColors = {
     0xFF0000,
     0x00FF00,
@@ -2034,7 +2043,8 @@ lv_obj_t* CreateCenterButton(lv_obj_t* parent, const char* text,
   }
   AddEdgeBackSwipeEvents(button, TestPageEdgeBackEventCallback, state);
 
-  lv_obj_t* label = CreateLabel(button, text, lv_color_hex(0xFFFFFF), Font28());
+  lv_obj_t* label =
+      CreateLabel(button, text, lv_color_hex(kStartButtonTextColor), Font28());
   if (label == nullptr) {
     lv_obj_delete(button);
     return nullptr;
@@ -2132,7 +2142,8 @@ const char* GetTestHint(const app::CitTestEntry& entry) {
  * @return 创建成功返回对象指针，否则返回 nullptr
  */
 lv_obj_t* CreateDataLabel(lv_obj_t* parent, const char* text) {
-  lv_obj_t* label = CreateLabel(parent, text, lv_color_hex(0x202020), Font28());
+  lv_obj_t* label = CreateLabel(parent, text,
+      lv_color_hex(theme::LightNeutralTheme().on_surface), Font28());
   if (label == nullptr) {
     return nullptr;
   }
@@ -2467,7 +2478,7 @@ bool AddMicrophoneContent(lv_obj_t* content, CitViewState* state) {
   lv_scale_set_line_needle_value(scale, needle, 150, 0);
 
   lv_obj_t* label = CreateLabel(content, "microphone data:\nlevel: waiting",
-      lv_color_hex(0x202020), Font28());
+      lv_color_hex(theme::LightNeutralTheme().on_surface), Font28());
   if (label == nullptr) {
     return false;
   }
@@ -2477,7 +2488,8 @@ bool AddMicrophoneContent(lv_obj_t* content, CitViewState* state) {
   lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 420);
 
   lv_obj_t* switch_label =
-      CreateLabel(content, "adc -> dac", lv_color_hex(0x202020), Font28());
+      CreateLabel(content, "adc -> dac",
+          lv_color_hex(theme::LightNeutralTheme().on_surface), Font28());
   if (switch_label == nullptr) {
     return false;
   }
@@ -2490,6 +2502,11 @@ bool AddMicrophoneContent(lv_obj_t* content, CitViewState* state) {
   state->microphone_adc_to_dac_switch = switch_object;
   lv_obj_set_size(switch_object, 90, 50);
   lv_obj_align(switch_object, LV_ALIGN_TOP_MID, 0, 610);
+  lv_obj_set_style_bg_color(switch_object,
+      lv_color_hex(theme::LightNeutralTheme().action),
+      kSwitchCheckedIndicatorSelector);
+  lv_obj_set_style_bg_opa(
+      switch_object, LV_OPA_COVER, kSwitchCheckedIndicatorSelector);
   lv_obj_add_event_cb(switch_object, MicrophoneAdcToDacSwitchEventCallback,
       LV_EVENT_VALUE_CHANGED, state);
 
@@ -2758,7 +2775,7 @@ bool ShowCitTest(CitViewState* state, size_t index) {
   lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
 
   lv_obj_t* title = CreateLabel(
-      page, TestTitle(*row.entry), lv_color_hex(0xFFFFFF), Font48());
+      page, TestTitle(*row.entry), lv_color_hex(kCitTitleColor), Font48());
   if (title == nullptr) {
     DeleteTestPage(state);
     return false;
@@ -2989,7 +3006,8 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
   lv_obj_align(container, LV_ALIGN_CENTER, 0, 0);
 
   lv_obj_t* title_weight =
-      CreateLabel(container, app_entry.title, lv_color_hex(0xFFFFFF), Font48());
+      CreateLabel(container, app_entry.title, lv_color_hex(kCitTitleColor),
+          Font48());
   if (title_weight == nullptr) {
     lv_obj_delete(container);
     return nullptr;
@@ -2998,7 +3016,8 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
   lv_obj_align(title_weight, LV_ALIGN_TOP_LEFT, kTitleLeft + 1, kTitleTop);
 
   lv_obj_t* title =
-      CreateLabel(container, app_entry.title, lv_color_hex(0xFFFFFF), Font48());
+      CreateLabel(container, app_entry.title, lv_color_hex(kCitTitleColor),
+          Font48());
   if (title == nullptr) {
     lv_obj_delete(container);
     return nullptr;

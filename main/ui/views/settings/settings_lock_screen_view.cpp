@@ -1,4 +1,4 @@
-﻿/*
+/*
  * @Description: Settings lock screen page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
@@ -33,7 +33,8 @@ constexpr int kAutoLockSheetInnerPadding = 32;
 constexpr int kAutoLockSheetHeight = 740;
 constexpr int kAutoLockOptionTop = 132;
 constexpr int kAutoLockOptionHeight = 78;
-constexpr uint32_t kAutoLockSelectedColor = 0xE8F3FF;
+constexpr uint32_t kAutoLockSelectedColor =
+    theme::LightNeutralTheme().action_container;
 
 /**
  * @brief 格式化自动锁屏等待时间

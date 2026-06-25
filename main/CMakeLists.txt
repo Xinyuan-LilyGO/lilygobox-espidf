@@ -10,6 +10,7 @@ set(src_dirs
     "ui/font"
     "ui/icon"
     "ui/input"
+    "ui/theme"
     "ui/views"
     "ui/views/settings"
     "ui/widgets"

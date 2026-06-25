@@ -15,6 +15,10 @@ namespace lilygo_box::app {
 class SystemStatusCache;
 }  // namespace lilygo_box::app
 
+namespace lilygo_box::ui::theme {
+class ThemeProvider;
+}  // namespace lilygo_box::ui::theme
+
 namespace lilygo_box::hal {
 class AudioProvider;
 class BmuProvider;
@@ -61,6 +65,8 @@ struct AppViewConfig {
   hal::WifiProvider* wifi = nullptr;
   // 系统状态运行缓存，不负责 NVS 持久化。
   app::SystemStatusCache* system_status = nullptr;
+  // 当前 app 可读取的主题提供器。
+  theme::ThemeProvider* theme_provider = nullptr;
   // app 内部返回按钮触发的 LVGL 回调。
   lv_event_cb_t back_callback = nullptr;
   // 传给返回回调的用户上下文。

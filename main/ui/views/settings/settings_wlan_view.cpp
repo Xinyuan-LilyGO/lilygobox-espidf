@@ -2804,7 +2804,7 @@ bool CreateWifiSheetButton(lv_obj_t* parent, const char* text, int x, int y,
   button_config.background_color = background_color;
   button_config.disabled_background_color = kWifiConnectDisabledColor;
   button_config.pressed_background_color =
-      primary ? 0x2F73E8 : kWifiConnectSecondaryPressedColor;
+      primary ? kWifiActionPressedColor : kWifiConnectSecondaryPressedColor;
   button_config.pressed_opacity = LV_OPA_COVER;
   button_config.text_color = primary ? 0xFFFFFF : kPrimaryTextColor;
   button_config.font = Font28();

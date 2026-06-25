@@ -14,6 +14,7 @@
 #include "hal/providers/wifi_provider.h"
 #include "lvgl.h"
 #include "ui/input/edge_back_gesture.h"
+#include "ui/theme/theme_provider.h"
 #include "ui/views/app_view_config.h"
 #include "ui/widgets/prompt/prompt_select_sheet.h"
 
@@ -33,12 +34,13 @@ constexpr int kDividerLeft = 0;
 constexpr int kDividerHeight = 2;
 constexpr int kGroupDividerTopPadding = 16;
 constexpr int kGroupDividerBottomPadding = 22;
-constexpr uint32_t kBackgroundColor = 0xFFFFFF;
-constexpr uint32_t kTitleColor = 0x222222;
-constexpr uint32_t kPrimaryTextColor = 0x101010;
-constexpr uint32_t kSecondaryTextColor = 0x969696;
-constexpr uint32_t kDividerColor = 0xE9E9E9;
-constexpr uint32_t kPressedColor = 0xEBEBEB;
+constexpr uint32_t kBackgroundColor = theme::LightNeutralTheme().surface;
+constexpr uint32_t kTitleColor = theme::LightNeutralTheme().on_surface;
+constexpr uint32_t kPrimaryTextColor = theme::LightNeutralTheme().on_surface;
+constexpr uint32_t kSecondaryTextColor =
+    theme::LightNeutralTheme().on_surface_variant;
+constexpr uint32_t kDividerColor = theme::LightNeutralTheme().outline_variant;
+constexpr uint32_t kPressedColor = theme::LightNeutralTheme().state_layer;
 constexpr lv_opa_t kPressedOpacity = 190;
 constexpr int kDetailBackButtonSize = 62;
 constexpr int kDetailBackButtonLeft = 18;
@@ -62,12 +64,15 @@ constexpr int kDetailCardPaddingX = 34;
 constexpr int kDetailCardPaddingTop = 34;
 constexpr int kDetailInfoRowHeight = 72;
 constexpr uint32_t kDetailSlideAnimationMs = 180;
-constexpr uint32_t kDetailBackgroundColor = 0xF4F4F4;
-constexpr uint32_t kDetailCardColor = 0xFFFFFF;
-constexpr uint32_t kDeviceInfoPressedColor = 0xEBEBEB;
-constexpr uint32_t kDetailBlueColor = 0x3F7EF5;
-constexpr uint32_t kDetailBackColor = 0x222222;
-constexpr uint32_t kDetailOptionPressedColor = 0xE0E0E0;
+constexpr uint32_t kDetailBackgroundColor =
+    theme::LightNeutralTheme().surface_container;
+constexpr uint32_t kDetailCardColor =
+    theme::LightNeutralTheme().surface_container_lowest;
+constexpr uint32_t kDeviceInfoPressedColor = theme::LightNeutralTheme().state_layer;
+constexpr uint32_t kDetailBlueColor = theme::LightNeutralTheme().action;
+constexpr uint32_t kDetailBackColor = theme::LightNeutralTheme().on_surface;
+constexpr uint32_t kDetailOptionPressedColor =
+    theme::LightNeutralTheme().state_layer_strong;
 constexpr lv_opa_t kDetailOptionPressedOpacity = LV_OPA_COVER;
 constexpr int kNameEditButtonSize = kDetailBackButtonSize;
 constexpr int kNameEditButtonTop = kDetailBackButtonTop;
@@ -115,16 +120,25 @@ constexpr int kWifiPasswordKeyboardHeightPercent = 35;
 constexpr size_t kWifiPasswordMinLength = 8;
 constexpr size_t kWifiActionCapacity = hal::kMaxWifiScanNetworkCount * 2 + 6;
 constexpr size_t kWifiSubPageStackCapacity = 4;
-constexpr uint32_t kWifiBlueColor = 0x3F82F6;
-constexpr uint32_t kWifiConnectingColor = 0xF5A623;
-constexpr uint32_t kWifiCardColor = 0xF6F7F9;
-constexpr uint32_t kWifiMutedColor = 0xA5A5AD;
-constexpr uint32_t kWifiControlColor = 0xF0F1F3;
-constexpr uint32_t kWifiConnectDisabledColor = 0xBFD7FB;
-constexpr uint32_t kWifiConnectSecondaryColor = 0xF2F2F2;
-constexpr uint32_t kWifiConnectSecondaryPressedColor = 0xE6E6E6;
-constexpr uint32_t kNameEditInputColor = 0xF2F2F2;
-constexpr uint32_t kNameEditInputBorderColor = 0x4A86F7;
+constexpr uint32_t kWifiBlueColor = theme::LightNeutralTheme().action;
+constexpr uint32_t kWifiActionPressedColor =
+    theme::LightNeutralTheme().action_pressed;
+constexpr uint32_t kWifiConnectingColor =
+    0xF5A623;
+constexpr uint32_t kWifiCardColor =
+    theme::LightNeutralTheme().surface_container_low;
+constexpr uint32_t kWifiMutedColor = theme::LightNeutralTheme().outline;
+constexpr uint32_t kWifiControlColor =
+    theme::LightNeutralTheme().surface_container;
+constexpr uint32_t kWifiConnectDisabledColor =
+    theme::LightNeutralTheme().action_disabled;
+constexpr uint32_t kWifiConnectSecondaryColor =
+    theme::LightNeutralTheme().button_secondary;
+constexpr uint32_t kWifiConnectSecondaryPressedColor =
+    theme::LightNeutralTheme().button_secondary_pressed;
+constexpr uint32_t kNameEditInputColor =
+    theme::LightNeutralTheme().surface_container;
+constexpr uint32_t kNameEditInputBorderColor = theme::LightNeutralTheme().outline;
 constexpr const char* kDeviceNameAcceptedChars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_. ";
 constexpr const char* kWifiPasswordAcceptedChars =

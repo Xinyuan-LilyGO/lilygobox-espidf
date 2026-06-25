@@ -17,6 +17,7 @@
 #include "hal/providers/screen_provider.h"
 #include "lvgl.h"
 #include "ui/input/edge_back_gesture.h"
+#include "ui/theme/theme_provider.h"
 #include "ui/widgets/status_bar.h"
 
 namespace lilygo_box::hal {
@@ -328,6 +329,7 @@ class UiManager final {
   EdgeBackSwipeState app_back_swipe_ = {};
   lv_timer_t* system_status_refresh_timer_ = nullptr;
   app::SystemStatusCache system_status_cache_;
+  theme::ThemeProvider theme_provider_;
   lv_obj_t* page_indicator_ = nullptr;
   lv_obj_t* first_page_dot_ = nullptr;
   lv_obj_t* second_page_dot_ = nullptr;
