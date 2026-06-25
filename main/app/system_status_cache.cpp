@@ -2,7 +2,7 @@
  * @Description: System status runtime cache
  * @Author: LILYGO_L
  * @Date: 2026-06-24 00:00:00
- * @LastEditTime: 2026-06-24 00:00:00
+ * @LastEditTime: 2026-06-25 13:45:58
  * @License: GPL 3.0
  */
 #include "app/system_status_cache.h"
@@ -10,7 +10,7 @@
 namespace lilygo_box::app {
 namespace {
 
-constexpr uint32_t kBatteryRefreshIntervalTicks = 3;
+constexpr uint32_t kBatteryRefreshIntervalTicks = 2;
 constexpr uint32_t kWifiRefreshIntervalTicks = 3;
 
 }  // namespace

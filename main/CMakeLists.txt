@@ -12,7 +12,8 @@ set(src_dirs
     "ui/input"
     "ui/views"
     "ui/views/settings"
-    "ui/widgets")
+    "ui/widgets"
+    "ui/widgets/prompt")
 
 if(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
     list(APPEND src_dirs "hal/device/t_display_p4")

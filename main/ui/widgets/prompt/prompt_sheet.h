@@ -34,7 +34,9 @@ struct PromptSheetButtonConfig {
   int radius = 0;
   uint32_t background_color = 0xFFFFFF;
   uint32_t disabled_background_color = 0xFFFFFF;
+  uint32_t pressed_background_color = 0xE5E5E5;
   uint32_t text_color = 0x000000;
+  lv_opa_t pressed_opacity = LV_OPA_COVER;
   const lv_font_t* font = nullptr;
   lv_event_cb_t callback = nullptr;
   void* user_data = nullptr;
@@ -60,6 +62,17 @@ lv_obj_t* CreatePromptSheet(
     lv_obj_t* overlay, const PromptSheetConfig& config);
 
 /**
+ * @brief 创建底部提示栏文本标签
+ * @param parent 父对象
+ * @param text 标签文本
+ * @param color 文本颜色
+ * @param font 文本字体
+ * @return 创建成功返回标签对象，否则返回 nullptr
+ */
+lv_obj_t* CreatePromptSheetLabel(lv_obj_t* parent, const char* text,
+    uint32_t color, const lv_font_t* font);
+
+/**
  * @brief 创建底部提示栏按钮
  * @param parent 父对象
  * @param config 按钮配置
@@ -76,5 +89,15 @@ lv_obj_t* CreatePromptSheetButton(
  */
 void AnimatePromptSheetIn(
     lv_obj_t* sheet, const PromptSheetConfig& config, uint32_t duration_ms);
+
+/**
+ * @brief 播放底部提示栏退出动画并在结束后删除遮罩层
+ * @param overlay 遮罩对象
+ * @param sheet 面板对象
+ * @param duration_ms 动画时长
+ * @return 动画启动成功返回 true，否则返回 false
+ */
+bool AnimatePromptSheetOut(
+    lv_obj_t* overlay, lv_obj_t* sheet, uint32_t duration_ms);
 
 }  // namespace lilygo_box::ui

@@ -19,7 +19,7 @@
 #include "ui/input/app_view_gesture_flags.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"
-#include "ui/widgets/prompt_sheet.h"
+#include "ui/widgets/prompt/prompt_sheet.h"
 #include "ui/widgets/shared_keyboard.h"
 
 namespace lilygo_box::ui {
@@ -196,6 +196,12 @@ void CloseAllWifiSubPages(SettingsViewState* state);
 void CloseWifiModal(SettingsViewState* state);
 
 /**
+ * @brief 立即关闭 WLAN 底部弹窗
+ * @param state 设置页状态
+ */
+void CloseWifiModalImmediately(SettingsViewState* state);
+
+/**
  * @brief 打开单个 WLAN 网络详情页
  * @param state 设置页状态
  * @param action 被点击网络的操作信息
@@ -322,7 +328,7 @@ void CloseWifiPage(SettingsViewState* state, bool animated) {
     lv_timer_delete(state->wifi_refresh_timer);
     state->wifi_refresh_timer = nullptr;
   }
-  CloseWifiModal(state);
+  CloseWifiModalImmediately(state);
   CloseAllWifiSubPages(state);
 
   if (animated &&
@@ -488,15 +494,14 @@ void CloseWifiSubPage(SettingsViewState* state, bool animated) {
 }
 
 /**
- * @brief 关闭 WLAN 连接底部弹窗
+ * @brief 清理 WLAN 底部弹窗状态字段
  * @param state 设置页状态
  */
-void CloseWifiModal(SettingsViewState* state) {
-  if (state == nullptr || state->wifi_modal_overlay == nullptr) {
+void ResetWifiModalState(SettingsViewState* state) {
+  if (state == nullptr) {
     return;
   }
 
-  lv_obj_t* overlay = state->wifi_modal_overlay;
   state->wifi_modal_overlay = nullptr;
   state->wifi_modal_sheet = nullptr;
   state->wifi_password_text_area = nullptr;
@@ -505,7 +510,40 @@ void CloseWifiModal(SettingsViewState* state) {
   state->wifi_connect_button_label = nullptr;
   state->wifi_saved_delete_row = nullptr;
   state->wifi_delete_close_sub_page = false;
+}
+
+/**
+ * @brief 立即关闭 WLAN 连接底部弹窗
+ * @param state 设置页状态
+ */
+void CloseWifiModalImmediately(SettingsViewState* state) {
+  if (state == nullptr || state->wifi_modal_overlay == nullptr) {
+    return;
+  }
+
+  lv_obj_t* overlay = state->wifi_modal_overlay;
+  ResetWifiModalState(state);
   lv_obj_delete(overlay);
+}
+
+/**
+ * @brief 关闭 WLAN 连接底部弹窗并播放退出动画
+ * @param state 设置页状态
+ */
+void CloseWifiModal(SettingsViewState* state) {
+  if (state == nullptr || state->wifi_modal_overlay == nullptr) {
+    return;
+  }
+
+  lv_obj_t* overlay = state->wifi_modal_overlay;
+  lv_obj_t* sheet = state->wifi_modal_sheet;
+  if (state->wifi_password_keyboard != nullptr) {
+    HideSharedKeyboard(state->wifi_password_keyboard);
+  }
+  ResetWifiModalState(state);
+  if (!AnimatePromptSheetOut(overlay, sheet, kDetailSlideAnimationMs)) {
+    lv_obj_delete(overlay);
+  }
 }
 
 /**
@@ -2765,6 +2803,9 @@ bool CreateWifiSheetButton(lv_obj_t* parent, const char* text, int x, int y,
   button_config.radius = 24;
   button_config.background_color = background_color;
   button_config.disabled_background_color = kWifiConnectDisabledColor;
+  button_config.pressed_background_color =
+      primary ? 0x2F73E8 : kWifiConnectSecondaryPressedColor;
+  button_config.pressed_opacity = LV_OPA_COVER;
   button_config.text_color = primary ? 0xFFFFFF : kPrimaryTextColor;
   button_config.font = Font28();
   button_config.callback = callback;
@@ -2889,7 +2930,7 @@ bool ShowWifiConnectSheet(
       action.ssid[0] == '\0') {
     return false;
   }
-  CloseWifiModal(state);
+  CloseWifiModalImmediately(state);
   state->wifi_pending_action = action;
   state->wifi_connection_retry_ready = false;
 
@@ -2916,7 +2957,7 @@ bool ShowWifiConnectSheet(
 
   lv_obj_t* sheet = CreatePromptSheet(overlay, sheet_config);
   if (sheet == nullptr) {
-    CloseWifiModal(state);
+    CloseWifiModalImmediately(state);
     return false;
   }
   state->wifi_modal_sheet = sheet;
@@ -2927,7 +2968,7 @@ bool ShowWifiConnectSheet(
   lv_obj_t* title = CreateLabel(sheet, action.ssid,
       lv_color_hex(kPrimaryTextColor), Font32());
   if (title == nullptr) {
-    CloseWifiModal(state);
+    CloseWifiModalImmediately(state);
     return false;
   }
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 34);
@@ -2936,7 +2977,7 @@ bool ShowWifiConnectSheet(
       action.secure ? "Password required" : "Connect to this open network?",
       lv_color_hex(kSecondaryTextColor), Font24());
   if (ssid_label == nullptr) {
-    CloseWifiModal(state);
+    CloseWifiModalImmediately(state);
     return false;
   }
   lv_obj_align(ssid_label, LV_ALIGN_TOP_MID, 0, 78);
@@ -2946,7 +2987,7 @@ bool ShowWifiConnectSheet(
   if (action.secure) {
     lv_obj_t* text_area = lv_textarea_create(sheet);
     if (text_area == nullptr) {
-      CloseWifiModal(state);
+      CloseWifiModalImmediately(state);
       return false;
     }
     state->wifi_password_text_area = text_area;
@@ -2984,7 +3025,7 @@ bool ShowWifiConnectSheet(
         state->config.height * kWifiPasswordKeyboardHeightPercent / 100;
     lv_obj_t* keyboard = CreateSharedKeyboard(overlay, keyboard_config);
     if (keyboard == nullptr) {
-      CloseWifiModal(state);
+      CloseWifiModalImmediately(state);
       return false;
     }
     state->wifi_password_keyboard = keyboard;
@@ -2996,14 +3037,14 @@ bool ShowWifiConnectSheet(
         LV_EVENT_ALL, state);
     if (!AttachSharedKeyboardToTextArea(
             keyboard, text_area, kWifiPasswordAcceptedChars)) {
-      CloseWifiModal(state);
+      CloseWifiModalImmediately(state);
       return false;
     }
   } else {
     lv_obj_t* hint = CreateLabel(sheet, "No password required.",
         lv_color_hex(kSecondaryTextColor), Font24());
     if (hint == nullptr) {
-      CloseWifiModal(state);
+      CloseWifiModalImmediately(state);
       return false;
     }
     lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 136);
@@ -3023,7 +3064,7 @@ bool ShowWifiConnectSheet(
       !CreateWifiSheetButton(sheet, "Connect", right_button_x, button_y,
           button_width, WifiModalConnectClickedEventCallback, state, true,
           connect_enabled)) {
-    CloseWifiModal(state);
+    CloseWifiModalImmediately(state);
     return false;
   }
   UpdateWifiConnectButtonState(state);
@@ -3048,7 +3089,7 @@ bool ShowWifiDeleteNetworkSheet(SettingsViewState* state, const char* ssid,
     return false;
   }
 
-  CloseWifiModal(state);
+  CloseWifiModalImmediately(state);
   std::strncpy(state->wifi_pending_action.ssid, ssid,
       sizeof(state->wifi_pending_action.ssid) - 1);
   state->wifi_pending_action.ssid[
@@ -3056,7 +3097,7 @@ bool ShowWifiDeleteNetworkSheet(SettingsViewState* state, const char* ssid,
   state->wifi_delete_close_sub_page = close_sub_page;
   state->wifi_saved_delete_row = saved_delete_row;
 
-  const int sheet_height = 316;
+  const int sheet_height = 332;
   const int sheet_width =
       state->config.width - 2 * kWifiConnectSheetSideMargin;
   PromptSheetConfig sheet_config;
@@ -3079,7 +3120,7 @@ bool ShowWifiDeleteNetworkSheet(SettingsViewState* state, const char* ssid,
 
   lv_obj_t* sheet = CreatePromptSheet(overlay, sheet_config);
   if (sheet == nullptr) {
-    CloseWifiModal(state);
+    CloseWifiModalImmediately(state);
     return false;
   }
   state->wifi_modal_sheet = sheet;
@@ -3087,26 +3128,26 @@ bool ShowWifiDeleteNetworkSheet(SettingsViewState* state, const char* ssid,
       LV_EVENT_CLICKED, state);
   AddEdgeBackSwipeEvents(sheet, WifiModalEdgeBackEventCallback, state);
 
-  lv_obj_t* title = CreateLabel(sheet, "Delete network",
-      lv_color_hex(kPrimaryTextColor), Font32());
+  lv_obj_t* title = CreatePromptSheetLabel(sheet, "Delete network",
+      kPrimaryTextColor, Font32());
   if (title == nullptr) {
-    CloseWifiModal(state);
+    CloseWifiModalImmediately(state);
     return false;
   }
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 38);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 34);
 
-  lv_obj_t* message = CreateLabel(sheet,
+  lv_obj_t* message = CreatePromptSheetLabel(sheet,
       "Stop automatically connecting to this network. You may need to enter "
       "the password again.",
-      lv_color_hex(kSecondaryTextColor), Font28());
+      kSecondaryTextColor, Font24());
   if (message == nullptr) {
-    CloseWifiModal(state);
+    CloseWifiModalImmediately(state);
     return false;
   }
   lv_obj_set_width(message, sheet_width - 2 * kWifiConnectSheetInnerPadding);
   lv_label_set_long_mode(message, LV_LABEL_LONG_WRAP);
-  lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
-  lv_obj_align(message, LV_ALIGN_TOP_LEFT, kWifiConnectSheetInnerPadding, 98);
+  lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_align(message, LV_ALIGN_TOP_MID, 0, 78);
 
   const int button_width =
       (sheet_width - 2 * kWifiConnectSheetInnerPadding -
@@ -3123,7 +3164,7 @@ bool ShowWifiDeleteNetworkSheet(SettingsViewState* state, const char* ssid,
       !CreateWifiSheetButton(sheet, "OK", right_button_x, button_y,
           button_width, WifiDeleteConfirmClickedEventCallback, state, true,
           true)) {
-    CloseWifiModal(state);
+    CloseWifiModalImmediately(state);
     return false;
   }
 

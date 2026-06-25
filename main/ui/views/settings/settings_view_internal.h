@@ -2,7 +2,7 @@
  * @Description: Settings view internal helpers
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-05-23 00:00:00
+ * @LastEditTime: 2026-06-25 11:51:20
  * @License: GPL 3.0
  */
 #pragma once
@@ -15,6 +15,7 @@
 #include "lvgl.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/views/app_view_config.h"
+#include "ui/widgets/prompt/prompt_select_sheet.h"
 
 namespace lilygo_box::ui {
 
@@ -120,7 +121,8 @@ constexpr uint32_t kWifiCardColor = 0xF6F7F9;
 constexpr uint32_t kWifiMutedColor = 0xA5A5AD;
 constexpr uint32_t kWifiControlColor = 0xF0F1F3;
 constexpr uint32_t kWifiConnectDisabledColor = 0xBFD7FB;
-constexpr uint32_t kWifiConnectSecondaryColor = 0xF1F2F4;
+constexpr uint32_t kWifiConnectSecondaryColor = 0xF2F2F2;
+constexpr uint32_t kWifiConnectSecondaryPressedColor = 0xE6E6E6;
 constexpr uint32_t kNameEditInputColor = 0xF2F2F2;
 constexpr uint32_t kNameEditInputBorderColor = 0x4A86F7;
 constexpr const char* kDeviceNameAcceptedChars =
@@ -168,6 +170,8 @@ struct SettingsViewState {
   lv_obj_t* wifi_password_keyboard = nullptr;
   lv_obj_t* wifi_connect_button = nullptr;
   lv_obj_t* wifi_connect_button_label = nullptr;
+  lv_obj_t* auto_lock_value_label = nullptr;
+  PromptSelectSheetState auto_lock_select_sheet = {};
   // 管理已保存网络页中等待确认删除的行对象。
   lv_obj_t* wifi_saved_delete_row = nullptr;
   // WLAN 页面内容容器，扫描或连接状态变化时会整体重建。
@@ -184,7 +188,7 @@ struct SettingsViewState {
   lv_obj_t* wifi_value_label = nullptr;
   // WLAN 列表行点击参数池，避免 LVGL 回调使用临时地址。
   WifiNetworkAction wifi_actions[kWifiActionCapacity] = {};
-  // 已保存网络删除按钮参数池，不占用主 WLAN 列表行点击参数。
+  // 已保存网络删除按钮参数池，不占用 WLAN 列表行点击参数。
   WifiNetworkAction wifi_saved_delete_actions[
       app::kWifiSavedNetworkCapacity] = {};
   // 当前弹窗正在处理的 WLAN，复制出来避免列表刷新后地址失效。
@@ -234,7 +238,7 @@ struct SettingsViewState {
   int display_brightness_percent = 70;
   int audio_volume_percent = 60;
   int haptic_strength_percent = 45;
-  int auto_lock_minutes = 5;
+  int auto_lock_seconds = 5 * 60;
   char wifi_auto_connect_ssid[hal::kWifiSsidMaxLength + 1] = {};
 };
 
