@@ -218,7 +218,7 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
   lv_obj_align_to(bmu_bolt_label_, bmu_label_, LV_ALIGN_CENTER,
       kStatusBarBatteryBoltOffsetX, kStatusBarBatteryBoltOffsetY);
 
-  wifi_label_ = CreateLabel(object_, icon::kWifi,
+  wifi_label_ = CreateLabel(object_, icon::kSignalWifi4Bar,
       lv_color_hex(kStatusBarTextColor), MaterialIconFont32());
   if (wifi_label_ == nullptr) {
     lv_obj_delete(object_);

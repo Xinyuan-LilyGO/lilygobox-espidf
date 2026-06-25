@@ -1411,7 +1411,10 @@ bool IsWifiConnectBlocked(SettingsViewState* state) {
  * @return 1 到 4 的信号等级
  */
 int WifiSignalLevelForRssi(int rssi) {
-  if (rssi >= -55) {
+  if (rssi >= -50) {
+    return 5;
+  }
+  if (rssi >= -60) {
     return 4;
   }
   if (rssi >= -67) {
@@ -1430,14 +1433,16 @@ int WifiSignalLevelForRssi(int rssi) {
  */
 const char* WifiSignalIconForRssi(int rssi) {
   switch (WifiSignalLevelForRssi(rssi)) {
+    case 5:
+      return icon::kSignalWifi4Bar;
     case 4:
-      return icon::kAndroidWifi4Bar;
+      return icon::kNetworkWifi;
     case 3:
-      return icon::kAndroidWifi3Bar;
+      return icon::kNetworkWifi3Bar;
     case 2:
-      return icon::kWifi2Bar;
+      return icon::kNetworkWifi2Bar;
     default:
-      return icon::kWifi1Bar;
+      return icon::kNetworkWifi1Bar;
   }
 }
 
@@ -2481,8 +2486,10 @@ bool ShowWifiSubPage(SettingsViewState* state, const char* title,
  */
 const char* WifiSignalText(int rssi) {
   switch (WifiSignalLevelForRssi(rssi)) {
-    case 4:
+    case 5:
       return "Excellent";
+    case 4:
+      return "Very good";
     case 3:
       return "Good";
     case 2:

@@ -38,7 +38,7 @@ SettingsIconStyle ResolveSettingsIconStyle(app::SettingsIcon icon_type) {
     case app::SettingsIcon::kInfo:
       return {.symbol = icon::kInfo, .color = 0x8790B0};
     case app::SettingsIcon::kWifi:
-      return {.symbol = icon::kWifi, .color = 0x3F82F6};
+      return {.symbol = icon::kSignalWifi4Bar, .color = 0x3F82F6};
     case app::SettingsIcon::kBluetooth:
       return {.symbol = icon::kBluetooth, .color = 0x3E7FF1};
     case app::SettingsIcon::kCellTower:
