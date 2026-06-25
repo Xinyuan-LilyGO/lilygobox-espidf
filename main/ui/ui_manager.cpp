@@ -785,7 +785,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   imu_provider_ = imu;
   ethernet_provider_ = ethernet;
   wifi_provider_ = wifi;
-  system_status_cache_.Init(rtc_provider_, bmu_provider_);
+  system_status_cache_.Init(rtc_provider_, bmu_provider_, wifi_provider_);
 
   root_screen_ = lv_obj_create(nullptr);
   if (root_screen_ == nullptr) {
@@ -1118,6 +1118,9 @@ void UiManager::RefreshSystemStatus() {
   if (system_status_cache_.bmu_status_valid()) {
     UpdateBatteryStatus(system_status_cache_.bmu_status());
   }
+  if (system_status_cache_.wifi_status_valid()) {
+    UpdateWifiStatus(system_status_cache_.wifi_status());
+  }
 }
 
 void UiManager::RefreshSystemStatusNow() {
@@ -1128,6 +1131,10 @@ void UiManager::RefreshSystemStatusNow() {
   }
   if (system_status_cache_.bmu_status_valid()) {
     UpdateBatteryStatus(system_status_cache_.bmu_status());
+  }
+  system_status_cache_.RefreshWifi();
+  if (system_status_cache_.wifi_status_valid()) {
+    UpdateWifiStatus(system_status_cache_.wifi_status());
   }
 }
 
@@ -1165,6 +1172,10 @@ void UiManager::UpdateClockLabels(const hal::RtcStatus& status) {
 
 void UiManager::UpdateBatteryStatus(const hal::BmuStatus& status) {
   status_bar_.SetBatteryStatus(status.charge_percent, status.charging);
+}
+
+void UiManager::UpdateWifiStatus(const hal::WifiStatus& status) {
+  status_bar_.SetWifiStatus(status.connected, status.rssi);
 }
 
 lv_obj_t* UiManager::CreateAppGrid(lv_obj_t* parent) {

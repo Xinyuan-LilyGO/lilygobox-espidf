@@ -242,6 +242,12 @@ class UiManager final {
   void UpdateBatteryStatus(const hal::BmuStatus& status);
 
   /**
+   * @brief 根据 WiFi 状态刷新状态栏 WiFi 图标显示
+   * @param status WiFi 状态
+   */
+  void UpdateWifiStatus(const hal::WifiStatus& status);
+
+  /**
    * @brief 创建主屏 app 图标网格
    * @param parent 父对象
    * @return 创建成功返回对象指针，否则返回 nullptr

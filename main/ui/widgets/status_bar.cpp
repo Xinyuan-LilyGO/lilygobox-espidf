@@ -96,6 +96,47 @@ const char* BatteryIconFromPercent(int percent) {
 }
 
 /**
+ * @brief 根据 RSSI 计算 WiFi 信号等级
+ * @param rssi 信号强度，单位为 dBm
+ * @return 1 到 5 的信号等级
+ */
+int WifiSignalLevelForRssi(int rssi) {
+  if (rssi >= -50) {
+    return 5;
+  }
+  if (rssi >= -60) {
+    return 4;
+  }
+  if (rssi >= -67) {
+    return 3;
+  }
+  if (rssi >= -75) {
+    return 2;
+  }
+  return 1;
+}
+
+/**
+ * @brief 根据信号等级获取状态栏 WiFi 图标文本
+ * @param level WiFi 信号等级
+ * @return Material Symbols 图标文本
+ */
+const char* WifiIconForSignalLevel(int level) {
+  switch (level) {
+    case 5:
+      return icon::kSignalWifi4Bar;
+    case 4:
+      return icon::kNetworkWifi;
+    case 3:
+      return icon::kNetworkWifi3Bar;
+    case 2:
+      return icon::kNetworkWifi2Bar;
+    default:
+      return icon::kNetworkWifi1Bar;
+  }
+}
+
+/**
  * @brief 格式化状态栏电池百分比
  * @param percent 电池百分比，范围 0~100
  * @param buffer 输出缓冲区，至少 5 字节
@@ -225,6 +266,7 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
     object_ = nullptr;
     return false;
   }
+  lv_obj_add_flag(wifi_label_, LV_OBJ_FLAG_HIDDEN);
   lv_obj_align_to(
       wifi_label_, bmu_label_, LV_ALIGN_OUT_LEFT_MID, kStatusBarIconGap, 0);
 
@@ -296,6 +338,31 @@ void StatusBar::MoveToTop() {
   if (object_ != nullptr) {
     lv_obj_move_to_index(object_, -1);
   }
+}
+
+void StatusBar::SetWifiStatus(bool connected, int rssi) {
+  if (wifi_label_ == nullptr) {
+    return;
+  }
+
+  if (!connected) {
+    wifi_connected_ = false;
+    wifi_signal_level_ = -1;
+    lv_obj_add_flag(wifi_label_, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+
+  const int signal_level = WifiSignalLevelForRssi(rssi);
+  if (wifi_connected_ && wifi_signal_level_ == signal_level) {
+    return;
+  }
+
+  wifi_connected_ = true;
+  wifi_signal_level_ = signal_level;
+  lv_label_set_text(wifi_label_, WifiIconForSignalLevel(signal_level));
+  lv_obj_remove_flag(wifi_label_, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_align_to(
+      wifi_label_, bmu_label_, LV_ALIGN_OUT_LEFT_MID, kStatusBarIconGap, 0);
 }
 
 void StatusBar::SetTextColor(lv_color_t color) {

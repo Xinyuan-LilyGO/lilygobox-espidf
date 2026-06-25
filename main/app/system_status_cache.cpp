@@ -8,14 +8,24 @@
 #include "app/system_status_cache.h"
 
 namespace lilygo_box::app {
+namespace {
 
-void SystemStatusCache::Init(hal::RtcProvider* rtc, hal::BmuProvider* bmu) {
+constexpr uint32_t kWifiRefreshIntervalTicks = 3;
+
+}  // namespace
+
+void SystemStatusCache::Init(
+    hal::RtcProvider* rtc, hal::BmuProvider* bmu, hal::WifiProvider* wifi) {
   rtc_ = rtc;
   bmu_ = bmu;
+  wifi_ = wifi;
   rtc_status_ = hal::RtcStatus();
   bmu_status_ = hal::BmuStatus();
+  wifi_status_ = hal::WifiStatus();
+  refresh_count_ = 0;
   rtc_status_valid_ = false;
   bmu_status_valid_ = false;
+  wifi_status_valid_ = false;
 }
 
 bool SystemStatusCache::RefreshClock() {
@@ -50,9 +60,32 @@ bool SystemStatusCache::RefreshBattery() {
   return true;
 }
 
+bool SystemStatusCache::RefreshWifi() {
+  if (wifi_ == nullptr) {
+    wifi_status_valid_ = false;
+    return false;
+  }
+
+  hal::WifiStatus status;
+  if (!wifi_->ReadWifiStatus(&status)) {
+    wifi_status_ = hal::WifiStatus();
+    wifi_status_valid_ = true;
+    return false;
+  }
+
+  wifi_status_ = status;
+  wifi_status_valid_ = true;
+  return true;
+}
+
 void SystemStatusCache::RefreshSystemStatus() {
   RefreshClock();
   RefreshBattery();
+
+  if (refresh_count_ % kWifiRefreshIntervalTicks == 0) {
+    RefreshWifi();
+  }
+  ++refresh_count_;
 }
 
 }  // namespace lilygo_box::app
