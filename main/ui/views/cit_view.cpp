@@ -50,6 +50,7 @@ constexpr int kTestStartButtonHeight = 78;
 constexpr int kTouchTraceLineWidth = 6;
 constexpr int kTouchMarkerSize = 42;
 constexpr int kCitRefreshPeriodMs = 200;
+constexpr int kMicrophoneRefreshPeriodMs = 500;
 constexpr int kDiagnosticsRefreshPeriodMs = 1000;
 constexpr lv_style_selector_t kSwitchCheckedIndicatorSelector =
     static_cast<lv_style_selector_t>(LV_PART_INDICATOR) |
@@ -2725,6 +2726,9 @@ void DeleteTestPage(CitViewState* state) {
     return;
   }
 
+  if (state->refresh_timer != nullptr) {
+    lv_timer_set_period(state->refresh_timer, kCitRefreshPeriodMs);
+  }
   StopActiveTestHardware(state);
   lv_anim_delete(state, SetMicrophoneNeedleValue);
   DeleteWindowTransition(state->test_page);
@@ -2751,6 +2755,11 @@ bool ShowCitTest(CitViewState* state, size_t index) {
   const CitStatusRow& row = state->rows[index];
   if (row.entry == nullptr) {
     return false;
+  }
+  if (state->refresh_timer != nullptr) {
+    lv_timer_set_period(state->refresh_timer,
+        IsEntryId(*row.entry, "microphone") ? kMicrophoneRefreshPeriodMs
+                                            : kCitRefreshPeriodMs);
   }
 
   lv_obj_add_flag(state->root, kBlockLauncherGestureFlag);
