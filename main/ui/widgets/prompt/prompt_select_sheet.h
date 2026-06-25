@@ -63,6 +63,8 @@ struct PromptSelectSheetConfig {
   uint32_t selected_text_color = theme::LightNeutralTheme().action;
   uint32_t cancel_background_color =
       theme::LightNeutralTheme().button_secondary;
+  uint32_t cancel_pressed_color =
+      theme::LightNeutralTheme().surface_container_high;
   uint32_t pressed_color = theme::LightNeutralTheme().surface_container_low;
   lv_opa_t pressed_opacity = 190;
   lv_opa_t overlay_opacity = 115;

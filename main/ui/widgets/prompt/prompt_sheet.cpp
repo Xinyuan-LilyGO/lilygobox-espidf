@@ -125,13 +125,12 @@ lv_obj_t* CreatePromptSheetButton(
     return nullptr;
   }
 
-  lv_obj_t* button = lv_obj_create(parent);
+  lv_obj_t* button = lv_button_create(parent);
   if (button == nullptr) {
     return nullptr;
   }
   lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
-  lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(button, config.width, config.height);
   lv_obj_set_pos(button, config.x, config.y);
@@ -157,12 +156,18 @@ lv_obj_t* CreatePromptSheetButton(
   lv_obj_set_style_bg_opa(button, config.pressed_opacity,
       StyleSelector(LV_PART_MAIN, LV_STATE_PRESSED));
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
+  lv_obj_set_style_border_width(
+      button, 0, StyleSelector(LV_PART_MAIN, LV_STATE_PRESSED));
   lv_obj_set_style_outline_width(button, 0, LV_PART_MAIN);
+  lv_obj_set_style_outline_width(
+      button, 0, StyleSelector(LV_PART_MAIN, LV_STATE_PRESSED));
   lv_obj_set_style_outline_width(
       button, 0, StyleSelector(LV_PART_MAIN, LV_STATE_FOCUSED));
   lv_obj_set_style_outline_width(
       button, 0, StyleSelector(LV_PART_MAIN, LV_STATE_FOCUS_KEY));
   lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(
+      button, 0, StyleSelector(LV_PART_MAIN, LV_STATE_PRESSED));
   lv_obj_set_style_shadow_width(
       button, 0, StyleSelector(LV_PART_MAIN, LV_STATE_FOCUSED));
   lv_obj_set_style_shadow_width(

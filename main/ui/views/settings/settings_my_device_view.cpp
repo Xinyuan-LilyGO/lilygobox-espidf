@@ -494,15 +494,23 @@ bool CreateMyDeviceSnapshotArea(lv_obj_t* parent, int width,
   lv_obj_set_style_text_align(version, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_align(version, LV_ALIGN_TOP_MID, 0, kDetailVersionTop);
 
-  lv_obj_t* update_button = CreateBox(parent, kDetailUpdateWidth,
-      kDetailUpdateHeight, kDetailBlueColor, LV_OPA_COVER,
-      kDetailUpdateHeight / 3);
+  lv_obj_t* update_button = lv_button_create(parent);
   if (update_button == nullptr) {
     return false;
   }
-  lv_obj_add_flag(update_button, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(update_button, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(update_button, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
   lv_obj_add_flag(update_button, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(update_button, kDetailUpdateWidth, kDetailUpdateHeight);
   lv_obj_align(update_button, LV_ALIGN_TOP_MID, 0, kDetailUpdateTop);
+  lv_obj_set_style_bg_color(update_button, lv_color_hex(kDetailBlueColor),
+      LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(update_button, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(update_button, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(update_button, kDetailUpdateHeight / 3,
+      LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(update_button, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(update_button, 0, LV_PART_MAIN);
   if (!AddPressCancelOnLeave(update_button)) {
     return false;
   }

@@ -1806,12 +1806,22 @@ bool CreateWifiSmallLock(lv_obj_t* parent, int x, int y, uint32_t color) {
  * @return 创建成功返回对象指针，否则返回 nullptr
  */
 lv_obj_t* CreateWifiCircleArrow(lv_obj_t* parent) {
-  lv_obj_t* circle = CreateBox(parent, kWifiCircleButtonSize,
-      kWifiCircleButtonSize, kWifiControlColor, LV_OPA_COVER,
-      kWifiCircleButtonSize / 2);
+  lv_obj_t* circle = lv_button_create(parent);
   if (circle == nullptr) {
     return nullptr;
   }
+  lv_obj_remove_flag(circle, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(circle, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+  lv_obj_remove_flag(circle, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(circle, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(circle, kWifiCircleButtonSize, kWifiCircleButtonSize);
+  lv_obj_set_style_bg_color(circle, lv_color_hex(kWifiControlColor),
+      LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(circle, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(circle, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(circle, kWifiCircleButtonSize / 2, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(circle, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(circle, 0, LV_PART_MAIN);
   lv_obj_t* arrow = CreateLabel(circle, icon::kChevronRight,
       lv_color_hex(kWifiMutedColor), MaterialIconFont32());
   if (arrow == nullptr) {
@@ -2261,16 +2271,24 @@ bool CreateWifiSavedManageRow(
   lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
   lv_obj_align(name, LV_ALIGN_LEFT_MID, kWifiSidePadding, 0);
 
-  lv_obj_t* button = CreateBox(row, button_width, button_height, 0xFFECEE,
-      LV_OPA_COVER, button_height / 2);
+  lv_obj_t* button = lv_button_create(row);
   if (button == nullptr) {
     return false;
   }
-  lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+  lv_obj_add_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(button, button_width, button_height);
   lv_obj_align(button, LV_ALIGN_RIGHT_MID, -kWifiSidePadding, 0);
+  lv_obj_set_style_bg_color(button, lv_color_hex(0xFFECEE), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_color(
       button, lv_color_hex(0xFFD7DC), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
+  lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(button, button_height / 2, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
   if (!AddPressCancelOnLeave(button)) {
     return false;
   }
@@ -2300,19 +2318,28 @@ bool CreateWifiSavedManageRow(
  */
 bool CreateWifiRefreshButton(
     lv_obj_t* parent, SettingsViewState* state, int y, int width) {
-  lv_obj_t* button = CreateBox(parent, 54, 54, kWifiControlColor,
-      LV_OPA_COVER, 27);
+  lv_obj_t* button = lv_button_create(parent);
   if (button == nullptr) {
     return false;
   }
-  lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+  lv_obj_add_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(button, 54, 54);
   AddEdgeBackSwipeEvents(button, WifiEdgeBackEventCallback, state);
   lv_obj_add_event_cb(button, WifiRefreshButtonClickedEventCallback,
       LV_EVENT_CLICKED, state);
   lv_obj_set_pos(button, width - kWifiSidePadding - 54, y);
+  lv_obj_set_style_bg_color(button, lv_color_hex(kWifiControlColor),
+      LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_color(
       button, lv_color_hex(0xE6E7EA), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
+  lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(button, 27, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
   if (!AddPressCancelOnLeave(button)) {
     return false;
   }

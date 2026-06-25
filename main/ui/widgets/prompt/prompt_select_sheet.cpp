@@ -114,16 +114,28 @@ bool CreatePromptSelectOptionRow(lv_obj_t* parent,
     return false;
   }
 
-  lv_obj_t* row = lv_obj_create(parent);
+  lv_obj_t* row = lv_button_create(parent);
   if (row == nullptr) {
     return false;
   }
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
   lv_obj_set_size(row, config.sheet_width, config.option_height);
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
+  lv_obj_set_style_border_width(row, 0, LV_STATE_PRESSED);
+  lv_obj_set_style_border_width(row, 0, LV_STATE_FOCUSED);
+  lv_obj_set_style_border_width(row, 0, LV_STATE_FOCUS_KEY);
+  lv_obj_set_style_outline_width(row, 0, LV_PART_MAIN);
+  lv_obj_set_style_outline_width(row, 0, LV_STATE_PRESSED);
+  lv_obj_set_style_outline_width(row, 0, LV_STATE_FOCUSED);
+  lv_obj_set_style_outline_width(row, 0, LV_STATE_FOCUS_KEY);
+  lv_obj_set_style_shadow_width(row, 0, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(row, 0, LV_STATE_PRESSED);
+  lv_obj_set_style_shadow_width(row, 0, LV_STATE_FOCUSED);
+  lv_obj_set_style_shadow_width(row, 0, LV_STATE_FOCUS_KEY);
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(row, 0, LV_STATE_PRESSED);
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
   lv_obj_set_style_bg_color(row,
       lv_color_hex(selected ? config.selected_color : config.sheet_color),
@@ -277,7 +289,7 @@ bool ShowPromptSelectSheet(
   cancel_config.height = config.button_height;
   cancel_config.radius = config.button_radius;
   cancel_config.background_color = config.cancel_background_color;
-  cancel_config.pressed_background_color = config.pressed_color;
+  cancel_config.pressed_background_color = config.cancel_pressed_color;
   cancel_config.pressed_opacity = config.pressed_opacity;
   cancel_config.text_color = config.primary_text_color;
   cancel_config.font = config.cancel_font;
