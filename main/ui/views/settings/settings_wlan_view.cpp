@@ -710,8 +710,8 @@ bool TryStartWifiAutoConnect(SettingsViewState* state) {
     state->wifi_auto_connect_on_ready = false;
     return false;
   }
-  if ((status.connected || status.got_ip) &&
-      std::strcmp(status.ssid, saved->ssid) == 0) {
+  if (status.connected || status.got_ip) {
+    // 当前已经连接任意 WLAN 时不切换到自动连接 SSID，避免进入页面时断开用户手动连接。
     state->wifi_auto_connect_on_ready = false;
     return true;
   }
