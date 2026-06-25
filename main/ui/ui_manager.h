@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-12 23:01:06
+ * @LastEditTime: 2026-06-25 10:18:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -215,14 +215,6 @@ class UiManager final {
    * @return 创建成功返回对象指针，否则返回 nullptr
    */
   lv_obj_t* CreateClockGroup(lv_obj_t* parent);
-
-  /**
-   * @brief 从 RTC 读取时间并刷新所有时间显示
-   */
-
-  /**
-   * @brief 从 BMU 读取电池信息并刷新状态栏电量显示
-   */
 
   /**
    * @brief 刷新应用级系统状态信息

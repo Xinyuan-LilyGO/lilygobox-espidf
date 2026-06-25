@@ -12,6 +12,7 @@
 #include <cstring>
 
 #include "app/storage/settings_wifi_storage.h"
+#include "app/wifi_manager.h"
 #include "hal/providers/screen_provider.h"
 #include "ui/animation/transition_animation.h"
 #include "ui/font/material_symbols_assets.h"
@@ -684,9 +685,8 @@ bool TryStartWifiAutoConnect(SettingsViewState* state) {
     return false;
   }
 
-  const app::WifiSavedNetwork* saved =
-      FindSavedWifiNetworkConst(state->wifi_auto_connect_ssid);
-  if (saved == nullptr || (saved->secure && saved->password[0] == '\0')) {
+  app::WifiSavedNetwork target;
+  if (!app::LoadWifiAutoConnectTarget(&target)) {
     state->wifi_auto_connect_on_ready = false;
     return false;
   }
@@ -718,12 +718,12 @@ bool TryStartWifiAutoConnect(SettingsViewState* state) {
 
   WifiNetworkAction action;
   action.state = state;
-  std::snprintf(action.ssid, sizeof(action.ssid), "%s", saved->ssid);
+  std::snprintf(action.ssid, sizeof(action.ssid), "%s", target.ssid);
   std::snprintf(action.password, sizeof(action.password), "%s",
-      saved->password);
-  action.secure = saved->secure;
-  action.is_5g = saved->is_5g;
-  action.rssi = saved->rssi;
+      target.password);
+  action.secure = target.secure;
+  action.is_5g = target.is_5g;
+  action.rssi = target.rssi;
   action.saved = true;
   state->wifi_pending_action = action;
   state->wifi_auto_connect_on_ready = false;

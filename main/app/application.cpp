@@ -7,6 +7,9 @@
  */
 #include "app/application.h"
 
+#include <cstdint>
+
+#include "app/wifi_manager.h"
 #include "base/logger.h"
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
@@ -15,6 +18,14 @@
 #include "nvs_flash.h"
 
 namespace lilygo_box {
+namespace {
+
+constexpr uint32_t kStartupWifiAutoConnectWaitMs = 15 * 1000;
+constexpr uint32_t kStartupWifiAutoConnectPollMs = 200;
+constexpr uint32_t kStartupWifiAutoConnectTaskStackBytes = 4 * 1024;
+constexpr UBaseType_t kStartupWifiAutoConnectTaskPriority = 3;
+
+}  // namespace
 
 Application::Application()
     : device_provider_context_(hal::CreateDeviceProviderContext()) {}
@@ -92,6 +103,16 @@ bool Application::Init() {
       !device_provider_context_.wifi->StartWifi()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "StartWifi failed\n");
   }
+  if (device_provider_context_.wifi != nullptr) {
+    const BaseType_t task_result =
+        xTaskCreate(StartupWifiAutoConnectTaskEntry, "wifi_auto",
+            kStartupWifiAutoConnectTaskStackBytes, this,
+            kStartupWifiAutoConnectTaskPriority, nullptr);
+    if (task_result != pdPASS) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Create startup WiFi auto connect task failed\n");
+    }
+  }
   lvgl_port_.Lock();
   ui_manager_.SetStartupScreenProgress(66);
   lvgl_port_.Unlock();
@@ -121,6 +142,28 @@ bool Application::Init() {
 void Application::Run() {
   while (true) {
     vTaskDelay(pdMS_TO_TICKS(1000));
+  }
+}
+
+void Application::StartupWifiAutoConnectTaskEntry(void* context) {
+  auto* self = static_cast<Application*>(context);
+  if (self != nullptr) {
+    self->RunStartupWifiAutoConnectTask();
+  }
+  vTaskDelete(nullptr);
+}
+
+void Application::RunStartupWifiAutoConnectTask() {
+  app::WifiAutoConnectOptions options;
+  options.start_driver_if_needed = true;
+  options.wait_for_driver = true;
+  options.wait_timeout_ms = kStartupWifiAutoConnectWaitMs;
+  options.poll_interval_ms = kStartupWifiAutoConnectPollMs;
+  const app::WifiAutoConnectResult result =
+      app::TryStartWifiAutoConnect(device_provider_context_.wifi, options);
+  if (result == app::WifiAutoConnectResult::kFailed) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Startup WiFi auto connect failed to start\n");
   }
 }
 

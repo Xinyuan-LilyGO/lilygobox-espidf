@@ -29,6 +29,17 @@ class Application final {
   void Run();
 
  private:
+  /**
+   * @brief 启动后自动连接 WLAN 的后台任务入口
+   * @param context Application 实例
+   */
+  static void StartupWifiAutoConnectTaskEntry(void* context);
+
+  /**
+   * @brief 根据 NVS 中保存的 WLAN 偏好执行启动自动连接
+   */
+  void RunStartupWifiAutoConnectTask();
+
   hal::DeviceProviderContext device_provider_context_;
   hal::LvglPort lvgl_port_;
   ui::UiManager ui_manager_;
