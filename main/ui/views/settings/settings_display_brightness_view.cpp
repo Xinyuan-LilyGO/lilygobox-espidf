@@ -38,6 +38,7 @@ void SaveBrightnessPreferencesAsync(SettingsViewState* state) {
   }
 
   app::DisplayPreferences preferences;
+  app::LoadDisplayPreferencesFromNvs(&preferences);
   preferences.brightness_percent = state->display_brightness_percent;
   app::StartStorageTask("display_save", [preferences]() {
     app::SaveDisplayPreferencesToNvs(preferences);

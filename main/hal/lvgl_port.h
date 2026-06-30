@@ -7,6 +7,7 @@
  */
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 
@@ -45,6 +46,12 @@ class LvglPort final {
    * @return LVGL 显示对象指针
    */
   lv_display_t* lvgl_display() const { return lvgl_display_; }
+
+  /**
+   * @brief 设置 LVGL 指针输入是否屏蔽
+   * @param blocked true 表示屏蔽触摸输入，false 表示恢复输入
+   */
+  void SetInputBlocked(bool blocked);
 
   /**
    * @brief 锁定 LVGL API 访问
@@ -116,6 +123,7 @@ class LvglPort final {
   ScreenProvider* screen_ = nullptr;
   lv_display_t* lvgl_display_ = nullptr;
   lv_indev_t* input_device_ = nullptr;
+  std::atomic<bool> input_blocked_{false};
   bool active_edge_touch_flag_ = false;
   bool pending_edge_touch_flag_ = false;
   bool has_last_touch_point_ = false;

@@ -80,6 +80,12 @@ class UiManager final {
   bool SetStartupScreenProgress(int percent);
 
   /**
+   * @brief 判断系统启动界面是否仍在显示或执行动画
+   * @return 启动界面仍存在返回 true，否则返回 false
+   */
+  bool IsStartupScreenActive() const;
+
+  /**
    * @brief 设置全局状态栏文字和图标颜色
    * @param color 文字和图标颜色，格式为 0xRRGGBB
    */

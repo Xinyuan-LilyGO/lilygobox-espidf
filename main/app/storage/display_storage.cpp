@@ -8,6 +8,7 @@
 #include "app/storage/display_storage.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 
 #include "base/logger.h"
@@ -20,13 +21,20 @@ namespace {
 constexpr const char* kSettingsNvsNamespace = "settings";
 constexpr const char* kDisplayPreferencesNvsKey = "display_config";
 constexpr uint32_t kDisplayPreferencesMagic = 0x4453504C;
-constexpr uint32_t kDisplayPreferencesVersion = 1;
+constexpr uint32_t kDisplayPreferencesVersion = 2;
+constexpr int kDefaultLockTimeoutSeconds = 10;
+constexpr int kMinLockTimeoutSeconds = 0;
+constexpr int kMaxLockTimeoutSeconds = 24 * 60 * 60;
 
 struct DisplayPreferencesStorage {
   uint32_t magic = kDisplayPreferencesMagic;
   uint32_t version = kDisplayPreferencesVersion;
   uint8_t brightness_percent = 70;
+  uint32_t lock_timeout_seconds = kDefaultLockTimeoutSeconds;
 };
+
+constexpr size_t kDisplayPreferencesV1Size =
+    offsetof(DisplayPreferencesStorage, lock_timeout_seconds);
 
 esp_err_t OpenSettingsNvs(nvs_open_mode_t mode, nvs_handle_t* handle) {
   if (handle == nullptr) {
@@ -50,6 +58,9 @@ bool SaveDisplayPreferencesToNvs(const DisplayPreferences& preferences) {
   DisplayPreferencesStorage storage;
   storage.brightness_percent = static_cast<uint8_t>(
       std::clamp(preferences.brightness_percent, 0, 100));
+  storage.lock_timeout_seconds = static_cast<uint32_t>(std::clamp(
+      preferences.lock_timeout_seconds, kMinLockTimeoutSeconds,
+      kMaxLockTimeoutSeconds));
 
   nvs_handle_t handle = 0;
   if (OpenSettingsNvs(NVS_READWRITE, &handle) != ESP_OK) {
@@ -90,9 +101,14 @@ bool LoadDisplayPreferencesFromNvs(DisplayPreferences* preferences) {
   if (result == ESP_ERR_NVS_NOT_FOUND) {
     return false;
   }
-  if (result != ESP_OK || blob_size != sizeof(storage) ||
-      storage.magic != kDisplayPreferencesMagic ||
-      storage.version != kDisplayPreferencesVersion) {
+  const bool can_read_v1 = result == ESP_OK &&
+                           blob_size == kDisplayPreferencesV1Size &&
+                           storage.magic == kDisplayPreferencesMagic &&
+                           storage.version == 1;
+  const bool can_read_v2 = result == ESP_OK && blob_size == sizeof(storage) &&
+                           storage.magic == kDisplayPreferencesMagic &&
+                           storage.version == kDisplayPreferencesVersion;
+  if (!can_read_v1 && !can_read_v2) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Load display preferences failed (error code: %#X)\n", result);
     return false;
@@ -100,6 +116,10 @@ bool LoadDisplayPreferencesFromNvs(DisplayPreferences* preferences) {
 
   preferences->brightness_percent = std::clamp<int>(
       storage.brightness_percent, 0, 100);
+  preferences->lock_timeout_seconds = can_read_v2
+      ? std::clamp<int>(storage.lock_timeout_seconds, kMinLockTimeoutSeconds,
+            kMaxLockTimeoutSeconds)
+      : kDefaultLockTimeoutSeconds;
   return true;
 }
 

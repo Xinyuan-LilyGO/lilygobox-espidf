@@ -99,6 +99,24 @@ class ScreenProvider {
    * @return 设置成功返回 true，否则返回 false
    */
   virtual bool SetScreenBrightnessPercent(int percent) = 0;
+
+  /**
+   * @brief 让设备进入芯片睡眠状态
+   * @return 进入成功返回 true，否则返回 false
+   */
+  virtual bool EnterDeviceSleep() = 0;
+
+  /**
+   * @brief 从设备芯片睡眠状态恢复
+   * @return 恢复成功返回 true，否则返回 false
+   */
+  virtual bool ExitDeviceSleep() = 0;
+
+  /**
+   * @brief 读取锁屏唤醒物理按键按下状态
+   * @return 按键按下返回 true，否则返回 false
+   */
+  virtual bool IsLockWakeButtonPressed() = 0;
 };
 
 }  // namespace lilygo_box::hal

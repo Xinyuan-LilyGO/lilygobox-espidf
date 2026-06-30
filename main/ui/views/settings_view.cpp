@@ -476,6 +476,7 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
   app::DisplayPreferences display_preferences;
   if (app::LoadDisplayPreferencesFromNvs(&display_preferences)) {
     state->display_brightness_percent = display_preferences.brightness_percent;
+    state->auto_lock_seconds = display_preferences.lock_timeout_seconds;
   }
   app::SoundPreferences sound_preferences;
   if (app::LoadSoundPreferencesFromNvs(&sound_preferences)) {

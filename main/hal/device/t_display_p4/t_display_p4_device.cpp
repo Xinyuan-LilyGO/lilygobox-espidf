@@ -99,8 +99,7 @@ int ClampScreenBrightnessPercent(int percent) {
       percent, kScreenBrightnessMinPercent, kScreenBrightnessMaxPercent);
 }
 
-uint8_t ScreenBrightnessPercentToRm69a10Value(int percent) {
-  const int clamped_percent = ClampScreenBrightnessPercent(percent);
+uint8_t ScreenBrightnessPercentToRm69a10Value(int clamped_percent) {
   return static_cast<uint8_t>(
       clamped_percent * kRm69a10BrightnessMax / kScreenBrightnessMaxPercent);
 }
@@ -167,10 +166,29 @@ bool IsFiveGWifiChannel(int channel) {
   return channel > 14;
 }
 
+/**
+ * @brief 配置 ESP32-P4 BOOT 按键为输入上拉模式
+ * @return 配置成功返回 true，否则返回 false
+ */
+bool ConfigureBootButtonInput(cpp_bus_driver::Tool* tool) {
+  if (tool == nullptr) {
+    return false;
+  }
+  const bool result = tool->SetGpioMode(gpio::button::kEsp32p4Boot,
+      cpp_bus_driver::Tool::GpioMode::kInput,
+      cpp_bus_driver::Tool::GpioStatus::kPullup);
+  if (!result) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Configure BOOT button GPIO failed\n");
+  }
+  return result;
+}
+
 }  // namespace
 
 TDisplayP4Device::TDisplayP4Device()
-    : driver_(lilygo_device_driver::TDisplayP4Driver::GetInstance()) {}
+    : driver_(lilygo_device_driver::TDisplayP4Driver::GetInstance()),
+      tool_(std::make_unique<cpp_bus_driver::Tool>()) {}
 
 bool TDisplayP4Device::InitDevice() {
   const bool result =
@@ -184,6 +202,7 @@ bool TDisplayP4Device::InitDevice() {
         LogLevel::kError, __FILE__, __LINE__, "WaitForScreenReady failed\n");
     return false;
   }
+  ConfigureBootButtonInput(tool_.get());
   return true;
 }
 
@@ -2624,6 +2643,36 @@ bool TDisplayP4Device::SetScreenBrightnessPercent(int percent) {
       break;
   }
   return false;
+}
+
+bool TDisplayP4Device::EnterDeviceSleep() {
+  if (!WaitForScreenReady()) {
+    return false;
+  }
+  return driver_.SetSleep(
+      lilygo_device_driver::TDisplayP4Driver::SleepLevel::kChipSleep, true);
+}
+
+bool TDisplayP4Device::ExitDeviceSleep() {
+  const bool result = driver_.SetSleep(
+      lilygo_device_driver::TDisplayP4Driver::SleepLevel::kChipSleep, false);
+  if (!result) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Wake device from chip sleep failed\n");
+    return false;
+  }
+  return WaitForScreenReady();
+}
+
+bool TDisplayP4Device::IsLockWakeButtonPressed() {
+  static bool boot_button_configured = ConfigureBootButtonInput(tool_.get());
+  if (!boot_button_configured) {
+    boot_button_configured = ConfigureBootButtonInput(tool_.get());
+    if (!boot_button_configured || tool_ == nullptr) {
+      return false;
+    }
+  }
+  return !tool_->GpioRead(gpio::button::kEsp32p4Boot);
 }
 
 bool TDisplayP4Device::WaitForScreenReady() {

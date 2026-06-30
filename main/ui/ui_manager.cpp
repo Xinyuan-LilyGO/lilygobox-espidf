@@ -879,6 +879,10 @@ bool UiManager::SetStartupScreenProgress(int percent) {
   return StartStartupProgressAnimation(clamped_percent);
 }
 
+bool UiManager::IsStartupScreenActive() const {
+  return startup_screen_ != nullptr;
+}
+
 void UiManager::AppButtonEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;

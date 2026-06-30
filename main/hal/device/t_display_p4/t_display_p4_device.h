@@ -315,6 +315,24 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   bool SetScreenBrightnessPercent(int percent) override;
 
+  /**
+   * @brief 让设备进入芯片睡眠状态
+   * @return 进入成功返回 true，否则返回 false
+   */
+  bool EnterDeviceSleep() override;
+
+  /**
+   * @brief 从设备芯片睡眠状态恢复
+   * @return 恢复成功返回 true，否则返回 false
+   */
+  bool ExitDeviceSleep() override;
+
+  /**
+   * @brief 读取 BOOT 物理按键按下状态
+   * @return BOOT 键按下返回 true，否则返回 false
+   */
+  bool IsLockWakeButtonPressed() override;
+
  private:
   static constexpr int kScreenReadyTimeoutMs = 5000;
   static constexpr int kScreenReadyPollMs = 20;
@@ -688,6 +706,7 @@ class TDisplayP4Device final : public ScreenProvider,
   };
 
   lilygo_device_driver::TDisplayP4Driver& driver_;
+  std::unique_ptr<cpp_bus_driver::Tool> tool_;
   ScreenProviderFlushReadyHandler flush_ready_handler_;
   // 扬声器播放状态，供 UI 和后台播放任务共享
   SpeakerState speaker_;

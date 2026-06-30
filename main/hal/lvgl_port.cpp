@@ -119,6 +119,13 @@ bool LvglPort::ActiveInputEdgeTouch() {
   return self != nullptr && self->active_edge_touch_flag_;
 }
 
+void LvglPort::SetInputBlocked(bool blocked) {
+  input_blocked_.store(blocked);
+  active_edge_touch_flag_ = false;
+  pending_edge_touch_flag_ = false;
+  has_last_touch_point_ = false;
+}
+
 void LvglPort::Lock() { _lock_acquire(&lock_); }
 
 void LvglPort::Unlock() { _lock_release(&lock_); }
@@ -150,6 +157,14 @@ void LvglPort::FlushReadyCallback(void* context) {
 void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
   auto* self = static_cast<LvglPort*>(lv_indev_get_user_data(indev));
   if (self == nullptr || self->screen_ == nullptr) {
+    data->state = LV_INDEV_STATE_REL;
+    return;
+  }
+
+  if (self->input_blocked_.load()) {
+    self->active_edge_touch_flag_ = false;
+    self->pending_edge_touch_flag_ = false;
+    self->has_last_touch_point_ = false;
     data->state = LV_INDEV_STATE_REL;
     return;
   }
