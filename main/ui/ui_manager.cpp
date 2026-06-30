@@ -16,6 +16,7 @@
 #include "ui/app_view_factory.h"
 #include "ui/font/font_assets.h"
 #include "ui/font/material_symbols_assets.h"
+#include "ui/haptic_feedback.h"
 #include "ui/icon/icon_assets.h"
 #include "ui/input/app_view_gesture_flags.h"
 #include "ui/input/edge_back_gesture.h"
@@ -780,6 +781,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   gps_provider_ = gps;
   audio_provider_ = audio;
   haptic_provider_ = haptic;
+  RegisterUiHapticProvider(haptic_provider_);
   bmu_provider_ = bmu;
   rtc_provider_ = rtc;
   imu_provider_ = imu;

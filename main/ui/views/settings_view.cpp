@@ -18,6 +18,7 @@
 #include "hal/providers/wifi_provider.h"
 #include "ui/font/material_symbols_assets.h"
 #include "ui/input/press_cancel.h"
+#include "ui/haptic_feedback.h"
 #include "ui/views/settings/settings_view_internal.h"
 
 namespace lilygo_box::ui {
@@ -482,6 +483,8 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
     state->haptics_enabled = sound_preferences.haptics_enabled;
     state->haptic_strength_percent = sound_preferences.haptic_strength_percent;
   }
+  SetUiHapticPreferences(
+      state->haptics_enabled, state->haptic_strength_percent);
   lv_obj_add_event_cb(
       root, SettingsViewDeleteEventCallback, LV_EVENT_DELETE, state);
 

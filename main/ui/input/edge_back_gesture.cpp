@@ -12,6 +12,7 @@
 #include "hal/lvgl_port.h"
 #include "ui/font/font_assets.h"
 #include "ui/font/material_symbols_assets.h"
+#include "ui/haptic_feedback.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -317,6 +318,7 @@ bool HandleEdgeBackSwipeEvent(
     }
     state->tracking = state->from_left_edge || state->from_right_edge;
     state->active = false;
+    state->haptic_feedback_played = false;
     state->indicator_center_y = point.y;
     HideBackIndicator(false);
     return false;
@@ -350,12 +352,19 @@ bool HandleEdgeBackSwipeEvent(
       state->active = true;
     }
     UpdateBackIndicator(*state, screen_width, point);
+    if (back_distance < kBackGestureMinSwipeDistance) {
+      state->haptic_feedback_played = false;
+    } else if (!state->haptic_feedback_played) {
+      PlayUiHapticFeedback();
+      state->haptic_feedback_played = true;
+    }
     return false;
   }
 
   const bool was_active = state->active;
   state->tracking = false;
   state->active = false;
+  state->haptic_feedback_played = false;
   HideBackIndicator(true);
   if (!was_active && AbsInt(delta_y) > kBackGestureMaxVerticalOffset) {
     return false;

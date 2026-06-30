@@ -9,7 +9,10 @@
 
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <new>
+
+#include "ui/haptic_feedback.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -251,6 +254,9 @@ void SharedKeyboardModeEventCallback(lv_event_t* event) {
   }
 
   const uint32_t button_id = lv_keyboard_get_selected_button(keyboard);
+  if (button_id != std::numeric_limits<uint32_t>::max()) {
+    PlayUiHapticFeedback();
+  }
   const char* text = lv_keyboard_get_button_text(keyboard, button_id);
   if (text == nullptr) {
     return;

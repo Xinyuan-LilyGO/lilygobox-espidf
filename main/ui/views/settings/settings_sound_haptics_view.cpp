@@ -15,6 +15,7 @@
 #include "hal/providers/audio_provider.h"
 #include "hal/providers/haptic_provider.h"
 #include "ui/font/material_symbols_assets.h"
+#include "ui/haptic_feedback.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -60,6 +61,7 @@ void SaveHapticPreferencesAsync(SettingsViewState* state) {
   app::HapticPreferences preferences;
   preferences.enabled = state->haptics_enabled;
   preferences.strength_percent = state->haptic_strength_percent;
+  SetUiHapticPreferences(preferences.enabled, preferences.strength_percent);
   app::StartStorageTask("haptic_save", [preferences]() {
     app::SaveHapticPreferencesToNvs(preferences);
   });

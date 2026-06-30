@@ -23,6 +23,8 @@ struct EdgeBackSwipeState {
   bool tracking = false;
   // 是否已经进入有效侧滑阶段。
   bool active = false;
+  // 当前手势是否已经播放过完整显示振动反馈。
+  bool haptic_feedback_played = false;
   // 手势是否从左边缘开始。
   bool from_left_edge = false;
   // 手势是否从右边缘开始。
