@@ -14,7 +14,7 @@ struct DisplayPreferences {
   // 屏幕亮度百分比，范围 0~100，硬件层会保留最低亮度保护。
   int brightness_percent = 70;
   // 自动锁屏等待时间，单位秒，0 表示关闭自动锁屏。
-  int lock_timeout_seconds = 10;
+  int lock_timeout_seconds = 5 * 60;
 };
 
 /**

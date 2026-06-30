@@ -20,7 +20,7 @@ namespace {
 constexpr const char* kSettingsNvsNamespace = "settings";
 constexpr const char* kDisplayPreferencesNvsKey = "display_config";
 constexpr uint32_t kDisplayPreferencesMagic = 0x4453504C;
-constexpr int kDefaultLockTimeoutSeconds = 10;
+constexpr int kDefaultLockTimeoutSeconds = 5 * 60;
 constexpr int kMinLockTimeoutSeconds = 0;
 constexpr int kMaxLockTimeoutSeconds = 24 * 60 * 60;
 
