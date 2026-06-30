@@ -22,20 +22,16 @@ constexpr const char* kSettingsNvsNamespace = "settings";
 constexpr const char* kWifiSavedNetworksNvsKey = "wifi_saved";
 constexpr const char* kWifiPreferencesNvsKey = "wifi_config";
 constexpr uint32_t kWifiSavedNetworksMagic = 0x57494649;
-constexpr uint32_t kWifiSavedNetworksVersion = 1;
 constexpr uint32_t kWifiPreferencesMagic = 0x57465052;
-constexpr uint32_t kWifiPreferencesVersion = 1;
 
 struct WifiSavedNetworksStorage {
   uint32_t magic = kWifiSavedNetworksMagic;
-  uint32_t version = kWifiSavedNetworksVersion;
   uint32_t count = 0;
   WifiSavedNetwork networks[kWifiSavedNetworkCapacity] = {};
 };
 
 struct WifiPreferencesStorage {
   uint32_t magic = kWifiPreferencesMagic;
-  uint32_t version = kWifiPreferencesVersion;
   uint8_t enabled_requested = 0;
   char auto_connect_ssid[hal::kWifiSsidMaxLength + 1] = {};
 };
@@ -126,8 +122,7 @@ bool LoadWifiSavedNetworksFromNvs(
     return true;
   }
   if (result != ESP_OK || blob_size != sizeof(storage) ||
-      storage.magic != kWifiSavedNetworksMagic ||
-      storage.version != kWifiSavedNetworksVersion) {
+      storage.magic != kWifiSavedNetworksMagic) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Load WLAN credentials failed (error code: %#X)\n", result);
     return false;
@@ -192,8 +187,7 @@ bool LoadWifiPreferencesFromNvs(WifiPreferences* preferences) {
     return false;
   }
   if (result != ESP_OK || blob_size != sizeof(storage) ||
-      storage.magic != kWifiPreferencesMagic ||
-      storage.version != kWifiPreferencesVersion) {
+      storage.magic != kWifiPreferencesMagic) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Load WLAN preferences failed (error code: %#X)\n", result);
     return false;

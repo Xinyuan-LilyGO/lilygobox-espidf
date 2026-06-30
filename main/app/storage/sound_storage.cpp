@@ -22,11 +22,9 @@ namespace {
 constexpr const char* kSettingsNvsNamespace = "settings";
 constexpr const char* kLegacySoundPreferencesNvsKey = "sound_config";
 constexpr uint32_t kLegacySoundPreferencesMagic = 0x534E4448;
-constexpr uint32_t kLegacySoundPreferencesVersion = 1;
 
 struct LegacySoundPreferencesStorage {
   uint32_t magic = kLegacySoundPreferencesMagic;
-  uint32_t version = kLegacySoundPreferencesVersion;
   uint8_t volume_percent = 60;
   uint8_t haptics_enabled = 1;
   uint8_t haptic_strength_percent = 45;
@@ -68,8 +66,7 @@ bool LoadLegacySoundPreferencesFromNvs(SoundPreferences* preferences) {
     return false;
   }
   if (result != ESP_OK || blob_size != sizeof(storage) ||
-      storage.magic != kLegacySoundPreferencesMagic ||
-      storage.version != kLegacySoundPreferencesVersion) {
+      storage.magic != kLegacySoundPreferencesMagic) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Load legacy sound preferences failed (error code: %#X)\n", result);
     return false;

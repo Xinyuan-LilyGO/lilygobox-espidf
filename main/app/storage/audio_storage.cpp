@@ -20,11 +20,9 @@ namespace {
 constexpr const char* kSettingsNvsNamespace = "settings";
 constexpr const char* kAudioPreferencesNvsKey = "audio_config";
 constexpr uint32_t kAudioPreferencesMagic = 0x41554450;
-constexpr uint32_t kAudioPreferencesVersion = 1;
 
 struct AudioPreferencesStorage {
   uint32_t magic = kAudioPreferencesMagic;
-  uint32_t version = kAudioPreferencesVersion;
   uint8_t volume_percent = 60;
 };
 
@@ -91,8 +89,7 @@ bool LoadAudioPreferencesFromNvs(AudioPreferences* preferences) {
     return false;
   }
   if (result != ESP_OK || blob_size != sizeof(storage) ||
-      storage.magic != kAudioPreferencesMagic ||
-      storage.version != kAudioPreferencesVersion) {
+      storage.magic != kAudioPreferencesMagic) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Load audio preferences failed (error code: %#X)\n", result);
     return false;

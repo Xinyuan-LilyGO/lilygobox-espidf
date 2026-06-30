@@ -20,11 +20,9 @@ namespace {
 constexpr const char* kSettingsNvsNamespace = "settings";
 constexpr const char* kHapticPreferencesNvsKey = "haptic_config";
 constexpr uint32_t kHapticPreferencesMagic = 0x48505450;
-constexpr uint32_t kHapticPreferencesVersion = 1;
 
 struct HapticPreferencesStorage {
   uint32_t magic = kHapticPreferencesMagic;
-  uint32_t version = kHapticPreferencesVersion;
   uint8_t enabled = 1;
   uint8_t strength_percent = 45;
 };
@@ -93,8 +91,7 @@ bool LoadHapticPreferencesFromNvs(HapticPreferences* preferences) {
     return false;
   }
   if (result != ESP_OK || blob_size != sizeof(storage) ||
-      storage.magic != kHapticPreferencesMagic ||
-      storage.version != kHapticPreferencesVersion) {
+      storage.magic != kHapticPreferencesMagic) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Load haptic preferences failed (error code: %#X)\n", result);
     return false;
