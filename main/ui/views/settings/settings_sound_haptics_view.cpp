@@ -7,6 +7,13 @@
  */
 #include "ui/views/settings/settings_basic_view_common.h"
 
+#include <cstdint>
+
+#include "app/storage/audio_storage.h"
+#include "app/storage/haptic_storage.h"
+#include "app/storage/storage_task.h"
+#include "hal/providers/audio_provider.h"
+#include "hal/providers/haptic_provider.h"
 #include "ui/font/material_symbols_assets.h"
 
 namespace lilygo_box::ui {
@@ -26,6 +33,47 @@ SoundHapticsRefreshRequest g_sound_haptics_refresh_request = {};
  * @return 创建成功返回 true，否则返回 false
  */
 bool BuildSoundHapticsContent(lv_obj_t* body, SettingsViewState* state);
+
+/**
+ * @brief 异步保存音频设置偏好
+ * @param state 设置页状态
+ */
+void SaveAudioPreferencesAsync(SettingsViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+  app::AudioPreferences preferences;
+  preferences.volume_percent = state->audio_volume_percent;
+  app::StartStorageTask("audio_save", [preferences]() {
+    app::SaveAudioPreferencesToNvs(preferences);
+  });
+}
+
+/**
+ * @brief 异步保存振动设置偏好
+ * @param state 设置页状态
+ */
+void SaveHapticPreferencesAsync(SettingsViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+  app::HapticPreferences preferences;
+  preferences.enabled = state->haptics_enabled;
+  preferences.strength_percent = state->haptic_strength_percent;
+  app::StartStorageTask("haptic_save", [preferences]() {
+    app::SaveHapticPreferencesToNvs(preferences);
+  });
+}
+
+void PlaySettingsHapticPreview(SettingsViewState* state) {
+  if (state == nullptr || !state->haptics_enabled ||
+      state->config.haptic == nullptr) {
+    return;
+  }
+  const uint8_t gain = static_cast<uint8_t>(
+      state->haptic_strength_percent * UINT8_MAX / 100);
+  state->config.haptic->PlayHapticWaveform(1, 1, gain, true);
+}
 
 /**
  * @brief 异步重建声音与触感页面内容
@@ -50,6 +98,8 @@ void HapticsSwitchChangedEventCallback(lv_event_t* event) {
   lv_obj_t* target = lv_event_get_target_obj(event);
   if (state != nullptr && target != nullptr) {
     state->haptics_enabled = lv_obj_has_state(target, LV_STATE_CHECKED);
+    SaveHapticPreferencesAsync(state);
+    PlaySettingsHapticPreview(state);
     lv_obj_t* row = lv_obj_get_parent(target);
     lv_obj_t* body = row == nullptr ? nullptr : lv_obj_get_parent(row);
     if (body != nullptr) {
@@ -62,24 +112,66 @@ void HapticsSwitchChangedEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 保存音量滑动条值
+ * @brief 保存音量滑动条值并应用到硬件
  * @param event LVGL 事件对象
  */
 void VolumeSliderChangedEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (state != nullptr) {
     state->audio_volume_percent = SliderPercentFromEvent(event);
+    PlaySettingsHapticPreview(state);
+    if (state->config.audio != nullptr) {
+      state->config.audio->SetSpeakerVolumePercent(
+          state->audio_volume_percent);
+      state->config.audio->StartSpeakerToneLoop();
+    }
   }
 }
 
 /**
- * @brief 保存触感强度滑动条值
+ * @brief 音量滑动条按下后开始循环播放提示音
+ * @param event LVGL 事件对象
+ */
+void VolumeSliderPressedEventCallback(lv_event_t* event) {
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
+  if (state != nullptr && state->config.audio != nullptr) {
+    state->config.audio->SetSpeakerVolumePercent(state->audio_volume_percent);
+    state->config.audio->StartSpeakerToneLoop();
+  }
+}
+
+/**
+ * @brief 音量滑动条松开后停止循环播放提示音
+ * @param event LVGL 事件对象
+ */
+void VolumeSliderReleasedEventCallback(lv_event_t* event) {
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
+  if (state != nullptr) {
+    if (state->config.audio != nullptr) {
+      state->config.audio->StopSpeakerToneLoop();
+    }
+    SaveAudioPreferencesAsync(state);
+  }
+}
+
+/**
+ * @brief 设置滑动条松开后保存最终值
+ * @param event LVGL 事件对象
+ */
+void SettingsSliderReleasedEventCallback(lv_event_t* event) {
+  SaveHapticPreferencesAsync(
+      static_cast<SettingsViewState*>(lv_event_get_user_data(event)));
+}
+
+/**
+ * @brief 保存触感强度滑动条值并按当前强度预览振动
  * @param event LVGL 事件对象
  */
 void HapticSliderChangedEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (state != nullptr) {
     state->haptic_strength_percent = SliderPercentFromEvent(event);
+    PlaySettingsHapticPreview(state);
   }
 }
 
@@ -101,6 +193,16 @@ bool BuildSoundHapticsContent(lv_obj_t* body, SettingsViewState* state) {
           VolumeSliderChangedEventCallback, state)) {
     return false;
   }
+  lv_obj_t* volume_slider =
+      lv_obj_get_child(body, lv_obj_get_child_count(body) - 1);
+  if (volume_slider != nullptr) {
+    lv_obj_add_event_cb(volume_slider, VolumeSliderPressedEventCallback,
+        LV_EVENT_PRESSED, state);
+    lv_obj_add_event_cb(volume_slider, VolumeSliderReleasedEventCallback,
+        LV_EVENT_RELEASED, state);
+    lv_obj_add_event_cb(volume_slider, VolumeSliderReleasedEventCallback,
+        LV_EVENT_PRESS_LOST, state);
+  }
   y += 118;
   if (!CreateBasicDivider(body, y, state->config.width)) {
     return false;
@@ -114,9 +216,20 @@ bool BuildSoundHapticsContent(lv_obj_t* body, SettingsViewState* state) {
     return true;
   }
   y += kBasicRowHeight;
-  return CreateSliderRow(body, icon::kTouchApp, "Haptics",
-      state->haptic_strength_percent, y, state->config.width,
-      HapticSliderChangedEventCallback, state);
+  if (!CreateSliderRow(body, icon::kTouchApp, "Haptics",
+          state->haptic_strength_percent, y, state->config.width,
+          HapticSliderChangedEventCallback, state)) {
+    return false;
+  }
+  lv_obj_t* haptic_slider =
+      lv_obj_get_child(body, lv_obj_get_child_count(body) - 1);
+  if (haptic_slider != nullptr) {
+    lv_obj_add_event_cb(haptic_slider, SettingsSliderReleasedEventCallback,
+        LV_EVENT_RELEASED, state);
+    lv_obj_add_event_cb(haptic_slider, SettingsSliderReleasedEventCallback,
+        LV_EVENT_PRESS_LOST, state);
+  }
+  return true;
 }
 
 }  // namespace

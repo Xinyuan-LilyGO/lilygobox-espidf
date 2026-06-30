@@ -13,6 +13,8 @@
 
 #include "app/settings_catalog.h"
 #include "app/storage/display_storage.h"
+#include "app/storage/sound_storage.h"
+#include "app/storage/storage_task.h"
 #include "hal/providers/wifi_provider.h"
 #include "ui/font/material_symbols_assets.h"
 #include "ui/input/press_cancel.h"
@@ -22,6 +24,27 @@ namespace lilygo_box::ui {
 namespace {
 
 constexpr uint32_t kSettingsStatusBarTextColor = 0x111111;
+
+/**
+ * @brief 异步保存设置页当前偏好
+ * @param state 设置页状态
+ */
+void SaveSettingsPreferencesAsync(SettingsViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+  app::DisplayPreferences display_preferences;
+  display_preferences.brightness_percent = state->display_brightness_percent;
+  app::SoundPreferences sound_preferences;
+  sound_preferences.volume_percent = state->audio_volume_percent;
+  sound_preferences.haptics_enabled = state->haptics_enabled;
+  sound_preferences.haptic_strength_percent = state->haptic_strength_percent;
+  app::StartStorageTask("settings_save",
+      [display_preferences, sound_preferences]() {
+        app::SaveDisplayPreferencesToNvs(display_preferences);
+        app::SaveSoundPreferencesToNvs(sound_preferences);
+      });
+}
 
 // 设置入口图标样式。
 struct SettingsIconStyle {
@@ -119,13 +142,7 @@ void SettingsViewDeleteEventCallback(lv_event_t* event) {
     lv_timer_delete(state->wifi_refresh_timer);
     state->wifi_refresh_timer = nullptr;
   }
-  if (state != nullptr && state->display_brightness_save_timer != nullptr) {
-    app::DisplayPreferences display_preferences;
-    display_preferences.brightness_percent = state->display_brightness_percent;
-    app::SaveDisplayPreferencesToNvs(display_preferences);
-    lv_timer_delete(state->display_brightness_save_timer);
-    state->display_brightness_save_timer = nullptr;
-  }
+  SaveSettingsPreferencesAsync(state);
   delete state;
 }
 
@@ -458,6 +475,12 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
   app::DisplayPreferences display_preferences;
   if (app::LoadDisplayPreferencesFromNvs(&display_preferences)) {
     state->display_brightness_percent = display_preferences.brightness_percent;
+  }
+  app::SoundPreferences sound_preferences;
+  if (app::LoadSoundPreferencesFromNvs(&sound_preferences)) {
+    state->audio_volume_percent = sound_preferences.volume_percent;
+    state->haptics_enabled = sound_preferences.haptics_enabled;
+    state->haptic_strength_percent = sound_preferences.haptic_strength_percent;
   }
   lv_obj_add_event_cb(
       root, SettingsViewDeleteEventCallback, LV_EVENT_DELETE, state);

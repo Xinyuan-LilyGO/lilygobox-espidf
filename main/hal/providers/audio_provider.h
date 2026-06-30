@@ -45,6 +45,25 @@ class AudioProvider {
   virtual bool StartSpeakerTone() = 0;
 
   /**
+   * @brief 创建后台任务循环播放扬声器音频预览
+   * @return 任务创建成功或已经在播放返回 true，否则返回 false
+   */
+  virtual bool StartSpeakerToneLoop() = 0;
+
+  /**
+   * @brief 停止后台循环播放扬声器音频预览
+   * @return 停止命令发送成功返回 true，否则返回 false
+   */
+  virtual bool StopSpeakerToneLoop() = 0;
+
+  /**
+   * @brief 设置扬声器播放音量百分比
+   * @param percent 音量百分比，范围 0~100
+   * @return 设置成功返回 true，否则返回 false
+   */
+  virtual bool SetSpeakerVolumePercent(int percent) = 0;
+
+  /**
    * @brief 读取扬声器音频播放状态
    * @param status 播放状态输出地址
    * @return 读取成功返回 true，否则返回 false

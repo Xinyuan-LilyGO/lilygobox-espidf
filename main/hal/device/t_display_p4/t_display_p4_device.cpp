@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-31 22:35:02
+ * @LastEditTime: 2026-06-30 09:25:59
  * @License: GPL 3.0
  */
 #include "hal/device/t_display_p4/t_display_p4_device.h"
@@ -49,7 +49,11 @@ constexpr int kScreenBrightnessMaxPercent = 100;
 constexpr uint8_t kRm69a10BrightnessMax = UINT8_MAX;
 constexpr uint8_t kVibrationTestGain = 255;
 constexpr uint8_t kVibrationTestLoopCount = 1;
+constexpr uint8_t kAudioVolumeMax = UINT8_MAX;
+constexpr uint8_t kHapticStrengthMax = UINT8_MAX;
 constexpr uint32_t kVibrationTestPlayMs = 220;
+constexpr uint32_t kVibrationPreviewPlayMs = 10;
+constexpr uint32_t kVibrationPreviewMinIntervalMs = 45;
 constexpr uint32_t kVibrationTestStopMs = 180;
 constexpr size_t kSpeakerPlaybackChunkBytes = 4096;
 constexpr uint32_t kSpeakerPlaybackTaskStackBytes = 4 * 1024;
@@ -99,6 +103,11 @@ uint8_t ScreenBrightnessPercentToRm69a10Value(int percent) {
   const int clamped_percent = ClampScreenBrightnessPercent(percent);
   return static_cast<uint8_t>(
       clamped_percent * kRm69a10BrightnessMax / kScreenBrightnessMaxPercent);
+}
+
+uint8_t PercentToUint8Value(int percent, uint8_t max_value) {
+  const int clamped_percent = std::clamp(percent, 0, 100);
+  return static_cast<uint8_t>(clamped_percent * max_value / 100);
 }
 
 /**
@@ -860,57 +869,51 @@ bool TDisplayP4Device::ReadScreenTouchPoints(
   return false;
 }
 
-bool TDisplayP4Device::PlayHapticWaveform(uint8_t* waveform_count) {
+bool TDisplayP4Device::ReadHapticWaveformCount(uint8_t* waveform_count) {
   if (waveform_count != nullptr) {
     *waveform_count = 0;
   }
-
   if (!driver_.status().aw86224.init_flag && !driver_.InitAw86224()) {
     LogMessage(
         LogLevel::kWarning, __FILE__, __LINE__, "Aw86224 init retry failed\n");
     return false;
   }
-
   const auto info = cpp_bus_driver::Aw862xx::GetRamWaveformInfo(
       cpp_bus_driver::Aw862xx::RamWaveformLibrary::kRam12k041230_235);
-  if (info.waveform_count == 0) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Aw86224 RAM waveform count is zero\n");
+  if (waveform_count != nullptr) {
+    *waveform_count = info.waveform_count;
+  }
+  return info.waveform_count > 0;
+}
+
+bool TDisplayP4Device::PlayHapticWaveform(uint8_t waveform_sequence_number,
+    uint8_t loop_count, uint8_t gain, bool auto_brake) {
+  haptic_.waveform_sequence_number.store(waveform_sequence_number);
+  haptic_.loop_count.store(std::clamp<uint8_t>(loop_count, 1, 16));
+  haptic_.gain.store(gain);
+  haptic_.auto_brake.store(auto_brake);
+
+  const uint32_t now_ms = static_cast<uint32_t>(xTaskGetTickCount() *
+      portTICK_PERIOD_MS);
+  const uint32_t last_preview_ms = haptic_.last_preview_ms.load();
+  if (haptic_.running.load() ||
+      now_ms - last_preview_ms < kVibrationPreviewMinIntervalMs) {
+    return true;
+  }
+  haptic_.last_preview_ms.store(now_ms);
+
+  bool expected = false;
+  if (!haptic_.running.compare_exchange_strong(expected, true)) {
+    return true;
+  }
+
+  const BaseType_t result = xTaskCreate(HapticPlaybackTaskEntry,
+      "haptic_play", kSpeakerPlaybackTaskStackBytes, this,
+      kSpeakerPlaybackTaskPriority, nullptr);
+  if (result != pdPASS) {
+    haptic_.running.store(false);
     return false;
   }
-
-  LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-      "Aw86224 CIT vibration test: library=%s count=%u gain=%u\n",
-      info.name == nullptr ? "unknown" : info.name,
-      static_cast<unsigned int>(info.waveform_count),
-      static_cast<unsigned int>(kVibrationTestGain));
-
-  for (uint8_t sequence = 1; sequence <= info.waveform_count; ++sequence) {
-    if (!driver_.chip().aw86224->PlayRamWaveform(
-            sequence, kVibrationTestLoopCount, kVibrationTestGain)) {
-      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Aw86224 PlayRamWaveform failed, sequence=%u\n",
-          static_cast<unsigned int>(sequence));
-      driver_.chip().aw86224->StopRamPlaybackWaveform();
-      return false;
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(kVibrationTestPlayMs));
-
-    if (!driver_.chip().aw86224->StopRamPlaybackWaveform()) {
-      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Aw86224 StopRamPlaybackWaveform failed, sequence=%u\n",
-          static_cast<unsigned int>(sequence));
-      return false;
-    }
-
-    if (waveform_count != nullptr) {
-      *waveform_count = sequence;
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(kVibrationTestStopMs));
-  }
-
   return true;
 }
 
@@ -974,6 +977,8 @@ bool TDisplayP4Device::StartSpeakerTone() {
   speaker_.success.store(false);
   speaker_.bytes_written.store(0);
   speaker_.total_bytes.store(sizeof(c2_b16_s44100));
+  speaker_.loop_enabled.store(false);
+  speaker_.stop_requested.store(false);
 
   const BaseType_t result = xTaskCreate(SpeakerPlaybackTaskEntry,
       "speaker_play", kSpeakerPlaybackTaskStackBytes, this,
@@ -985,6 +990,53 @@ bool TDisplayP4Device::StartSpeakerTone() {
   }
 
   return true;
+}
+
+bool TDisplayP4Device::StartSpeakerToneLoop() {
+  speaker_.loop_enabled.store(true);
+  speaker_.stop_requested.store(false);
+
+  bool expected = false;
+  if (!speaker_.running.compare_exchange_strong(expected, true)) {
+    return true;
+  }
+
+  speaker_.completed.store(false);
+  speaker_.success.store(false);
+  speaker_.bytes_written.store(0);
+  speaker_.total_bytes.store(sizeof(c2_b16_s44100));
+
+  const BaseType_t result = xTaskCreate(SpeakerPlaybackTaskEntry,
+      "speaker_loop", kSpeakerPlaybackTaskStackBytes, this,
+      kSpeakerPlaybackTaskPriority, nullptr);
+  if (result != pdPASS) {
+    speaker_.running.store(false);
+    speaker_.completed.store(true);
+    speaker_.loop_enabled.store(false);
+    return false;
+  }
+
+  return true;
+}
+
+bool TDisplayP4Device::StopSpeakerToneLoop() {
+  speaker_.stop_requested.store(true);
+  speaker_.loop_enabled.store(false);
+  return true;
+}
+
+bool TDisplayP4Device::SetSpeakerVolumePercent(int percent) {
+  if (!driver_.status().es8311.init_flag && !driver_.InitEs8311()) {
+    LogMessage(
+        LogLevel::kWarning, __FILE__, __LINE__, "Es8311 init retry failed\n");
+    return false;
+  }
+  if (driver_.chip().es8311 == nullptr) {
+    return false;
+  }
+
+  const uint8_t volume = PercentToUint8Value(percent, kAudioVolumeMax);
+  return driver_.chip().es8311->SetDacVolume(volume);
 }
 
 bool TDisplayP4Device::ReadSpeakerToneStatus(SpeakerStatus* status) {
@@ -1010,11 +1062,66 @@ void TDisplayP4Device::SpeakerPlaybackTaskEntry(void* context) {
 
 void TDisplayP4Device::RunSpeakerPlaybackTask() {
   size_t bytes_written = 0;
-  const bool played = PlaySpeakerTone(&bytes_written);
-  speaker_.bytes_written.store(bytes_written);
+  bool played = false;
+  do {
+    size_t current_written = 0;
+    played = PlaySpeakerTone(&current_written) || played;
+    bytes_written += current_written;
+    speaker_.bytes_written.store(bytes_written);
+  } while (speaker_.loop_enabled.load() &&
+           !speaker_.stop_requested.load());
   speaker_.success.store(played);
   speaker_.completed.store(true);
+  speaker_.loop_enabled.store(false);
+  speaker_.stop_requested.store(false);
   speaker_.running.store(false);
+}
+
+void TDisplayP4Device::HapticPlaybackTaskEntry(void* context) {
+  auto* self = static_cast<TDisplayP4Device*>(context);
+  if (self != nullptr) {
+    self->RunHapticPlaybackTask();
+  }
+  vTaskDelete(nullptr);
+}
+
+void TDisplayP4Device::RunHapticPlaybackTask() {
+  if (!driver_.status().aw86224.init_flag && !driver_.InitAw86224()) {
+    LogMessage(
+        LogLevel::kWarning, __FILE__, __LINE__, "Aw86224 init retry failed\n");
+    haptic_.running.store(false);
+    return;
+  }
+
+  const uint8_t sequence = haptic_.waveform_sequence_number.load();
+  const uint8_t loop_count = haptic_.loop_count.load();
+  const uint8_t gain = haptic_.gain.load();
+  const bool auto_brake = haptic_.auto_brake.load();
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Aw86224 vibration playback: sequence=%u loop=%u gain=%u auto_brake=%u\n",
+      static_cast<unsigned int>(sequence),
+      static_cast<unsigned int>(loop_count), static_cast<unsigned int>(gain),
+      static_cast<unsigned int>(auto_brake ? 1 : 0));
+
+  if (!driver_.chip().aw86224->PlayRamWaveform(
+          sequence, loop_count, gain, auto_brake)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Aw86224 PlayRamWaveform failed, sequence=%u\n",
+        static_cast<unsigned int>(sequence));
+    driver_.chip().aw86224->StopRamPlaybackWaveform();
+    haptic_.running.store(false);
+    return;
+  }
+
+  vTaskDelay(pdMS_TO_TICKS(kVibrationPreviewPlayMs));
+
+  if (!driver_.chip().aw86224->StopRamPlaybackWaveform()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Aw86224 StopRamPlaybackWaveform failed, sequence=%u\n",
+        static_cast<unsigned int>(sequence));
+  }
+
+  haptic_.running.store(false);
 }
 
 bool TDisplayP4Device::StartMicrophone() {

@@ -9,6 +9,7 @@
 
 #include <cstdint>
 
+#include "app/storage/audio_storage.h"
 #include "app/storage/display_storage.h"
 #include "app/wifi_manager.h"
 #include "base/logger.h"
@@ -90,6 +91,12 @@ bool Application::Init() {
       app::LoadDisplayPreferencesFromNvs(&display_preferences);
   screen->StartScreenBacklight(
       has_display_preferences ? display_preferences.brightness_percent : 100);
+  app::AudioPreferences audio_preferences;
+  if (device_provider_context_.audio != nullptr &&
+      app::LoadAudioPreferencesFromNvs(&audio_preferences)) {
+    device_provider_context_.audio->SetSpeakerVolumePercent(
+        audio_preferences.volume_percent);
+  }
 
   lvgl_port_.Lock();
   const bool startup_result = ui_manager_.StartStartupScreenAnimation();

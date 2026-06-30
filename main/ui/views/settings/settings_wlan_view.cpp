@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "app/storage/storage_task.h"
 #include "app/storage/wifi_storage.h"
 #include "app/wifi_manager.h"
 #include "hal/providers/screen_provider.h"
@@ -113,7 +114,7 @@ void SaveWifiNetworkCredential(
     const WifiNetworkAction& action, const char* password);
 
 /**
- * @brief 将 WLAN 开关和自动连接偏好写入 ESP32-P4 NVS
+ * @brief 异步保存 WLAN 开关和自动连接偏好
  * @param state 设置页状态
  */
 void PersistWifiPreferencesToNvsInternal(const SettingsViewState* state);
@@ -1174,15 +1175,21 @@ void ReadWifiPageSsid(const hal::WifiStatus& status, char* buffer,
 }
 
 /**
- * @brief 将运行期已保存 WLAN 凭据写入 ESP32-P4 NVS
+ * @brief 异步保存运行期已保存 WLAN 凭据
  */
 void PersistSavedWifiNetworksToNvs() {
-  app::SaveWifiSavedNetworksToNvs(
-      g_wifi_saved_networks, g_wifi_saved_network_count);
+  std::array<app::WifiSavedNetwork, app::kWifiSavedNetworkCapacity> networks;
+  const size_t network_count = g_wifi_saved_network_count;
+  for (size_t i = 0; i < network_count; ++i) {
+    networks[i] = g_wifi_saved_networks[i];
+  }
+  app::StartStorageTask("wifi_saved_save", [networks, network_count]() {
+    app::SaveWifiSavedNetworksToNvs(networks.data(), network_count);
+  });
 }
 
 /**
- * @brief 将 WLAN 开关和自动连接偏好写入 ESP32-P4 NVS
+ * @brief 异步保存 WLAN 开关和自动连接偏好
  * @param state 设置页状态
  */
 void PersistWifiPreferencesToNvsInternal(const SettingsViewState* state) {
@@ -1195,7 +1202,9 @@ void PersistWifiPreferencesToNvsInternal(const SettingsViewState* state) {
   std::snprintf(preferences.auto_connect_ssid,
       sizeof(preferences.auto_connect_ssid), "%s",
       state->wifi_auto_connect_ssid);
-  app::SaveWifiPreferencesToNvs(preferences);
+  app::StartStorageTask("wifi_pref_save", [preferences]() {
+    app::SaveWifiPreferencesToNvs(preferences);
+  });
 }
 
 /**

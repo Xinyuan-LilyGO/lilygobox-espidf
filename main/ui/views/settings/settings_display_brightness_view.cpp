@@ -2,61 +2,50 @@
  * @Description: Settings display brightness page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-05-23 00:00:00
+ * @LastEditTime: 2026-06-30 09:20:47
  * @License: GPL 3.0
  */
 #include "ui/views/settings/settings_basic_view_common.h"
 
+#include <cstdint>
+
 #include "app/storage/display_storage.h"
+#include "app/storage/storage_task.h"
+#include "hal/providers/haptic_provider.h"
 #include "hal/providers/screen_provider.h"
 #include "ui/font/material_symbols_assets.h"
 
 namespace lilygo_box::ui {
 namespace {
 
-constexpr uint32_t kBrightnessSaveDebounceMs = 500;
+void PlaySettingsHapticPreview(SettingsViewState* state) {
+  if (state == nullptr || !state->haptics_enabled ||
+      state->config.haptic == nullptr) {
+    return;
+  }
+  const uint8_t gain = static_cast<uint8_t>(
+      state->haptic_strength_percent * UINT8_MAX / 100);
+  state->config.haptic->PlayHapticWaveform(1, 1, gain, true);
+}
 
 /**
- * @brief 亮度保存防抖定时器回调，将最后一次滑动值写入 NVS
- * @param timer LVGL 定时器对象，user data 为设置页状态
+ * @brief 异步保存显示亮度设置偏好
+ * @param state 设置页状态
  */
-void SaveBrightnessPreferencesTimerCallback(lv_timer_t* timer) {
-  auto* state = static_cast<SettingsViewState*>(lv_timer_get_user_data(timer));
+void SaveBrightnessPreferencesAsync(SettingsViewState* state) {
   if (state == nullptr) {
     return;
   }
 
   app::DisplayPreferences preferences;
   preferences.brightness_percent = state->display_brightness_percent;
-  app::SaveDisplayPreferencesToNvs(preferences);
-  lv_timer_delete(timer);
-  state->display_brightness_save_timer = nullptr;
+  app::StartStorageTask("display_save", [preferences]() {
+    app::SaveDisplayPreferencesToNvs(preferences);
+  });
 }
 
 /**
- * @brief 调度亮度偏好异步保存，连续滑动时只保存最后一次值
- * @param state 设置页状态
- */
-void ScheduleBrightnessPreferencesSave(SettingsViewState* state) {
-  if (state == nullptr) {
-    return;
-  }
-
-  if (state->display_brightness_save_timer == nullptr) {
-    state->display_brightness_save_timer = lv_timer_create(
-        SaveBrightnessPreferencesTimerCallback, kBrightnessSaveDebounceMs,
-        state);
-    if (state->display_brightness_save_timer != nullptr) {
-      lv_timer_set_repeat_count(state->display_brightness_save_timer, 1);
-    }
-    return;
-  }
-
-  lv_timer_reset(state->display_brightness_save_timer);
-}
-
-/**
- * @brief 保存屏幕亮度滑动条值
+ * @brief 保存屏幕亮度滑动条值并应用到硬件
  * @param event LVGL 事件对象
  */
 void BrightnessSliderChangedEventCallback(lv_event_t* event) {
@@ -64,11 +53,20 @@ void BrightnessSliderChangedEventCallback(lv_event_t* event) {
   if (state != nullptr) {
     const int brightness_percent = SliderPercentFromEvent(event);
     state->display_brightness_percent = brightness_percent;
-    ScheduleBrightnessPreferencesSave(state);
+    PlaySettingsHapticPreview(state);
     if (state->config.screen != nullptr) {
       state->config.screen->SetScreenBrightnessPercent(brightness_percent);
     }
   }
+}
+
+/**
+ * @brief 松开亮度滑动条时保存最终值
+ * @param event LVGL 事件对象
+ */
+void BrightnessSliderReleasedEventCallback(lv_event_t* event) {
+  SaveBrightnessPreferencesAsync(
+      static_cast<SettingsViewState*>(lv_event_get_user_data(event)));
 }
 
 /**
@@ -81,9 +79,21 @@ bool BuildDisplayBrightnessContent(lv_obj_t* body, SettingsViewState* state) {
   if (!CreateSectionLabel(body, "Brightness", 0, state->config.width)) {
     return false;
   }
-  return CreateSliderRow(body, icon::kSunny, "Screen brightness",
-      state->display_brightness_percent, kBasicSectionHeight,
-      state->config.width, BrightnessSliderChangedEventCallback, state);
+  if (!CreateSliderRow(body, icon::kSunny, "Screen brightness",
+          state->display_brightness_percent, kBasicSectionHeight,
+          state->config.width, BrightnessSliderChangedEventCallback, state)) {
+    return false;
+  }
+
+  lv_obj_t* brightness_slider =
+      lv_obj_get_child(body, lv_obj_get_child_count(body) - 1);
+  if (brightness_slider != nullptr) {
+    lv_obj_add_event_cb(brightness_slider, BrightnessSliderReleasedEventCallback,
+        LV_EVENT_RELEASED, state);
+    lv_obj_add_event_cb(brightness_slider, BrightnessSliderReleasedEventCallback,
+        LV_EVENT_PRESS_LOST, state);
+  }
+  return true;
 }
 
 }  // namespace

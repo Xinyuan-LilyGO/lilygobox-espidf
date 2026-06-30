@@ -63,11 +63,22 @@ class TDisplayP4Device final : public ScreenProvider,
   int ScreenBitsPerPixel() const override;
 
   /**
-   * @brief 播放 AW86224 RAM 振动波形
-   * @param waveform_count 实际播放的 RAM 波形数量输出地址
-   * @return 播放成功返回 true，否则返回 false
+   * @brief 读取 AW86224 可用 RAM 振动波形数量
+   * @param waveform_count 波形数量输出地址
+   * @return 读取成功返回 true，否则返回 false
    */
-  bool PlayHapticWaveform(uint8_t* waveform_count) override;
+  bool ReadHapticWaveformCount(uint8_t* waveform_count) override;
+
+  /**
+   * @brief 播放 AW86224 指定 RAM 振动波形
+   * @param waveform_sequence_number RAM 波形 sequence 编号
+   * @param loop_count 播放循环次数，范围 1~16
+   * @param gain 振动增益，范围 0~255
+   * @param auto_brake true 表示启用自动制动，false 表示关闭自动制动
+   * @return 播放任务启动成功返回 true，否则返回 false
+   */
+  bool PlayHapticWaveform(uint8_t waveform_sequence_number,
+      uint8_t loop_count, uint8_t gain, bool auto_brake) override;
 
   /**
    * @brief 播放 ES8311 扬声器音频提示
@@ -81,6 +92,25 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 任务创建成功返回 true，否则返回 false
    */
   bool StartSpeakerTone() override;
+
+  /**
+   * @brief 创建后台任务循环播放 ES8311 扬声器音频预览
+   * @return 任务创建成功或已经在播放返回 true，否则返回 false
+   */
+  bool StartSpeakerToneLoop() override;
+
+  /**
+   * @brief 停止后台循环播放 ES8311 扬声器音频预览
+   * @return 停止命令发送成功返回 true，否则返回 false
+   */
+  bool StopSpeakerToneLoop() override;
+
+  /**
+   * @brief 设置 ES8311 扬声器播放音量百分比
+   * @param percent 音量百分比，范围 0~100
+   * @return 设置成功返回 true，否则返回 false
+   */
+  bool SetSpeakerVolumePercent(int percent) override;
 
   /**
    * @brief 读取 ES8311 扬声器播放状态
@@ -325,6 +355,17 @@ class TDisplayP4Device final : public ScreenProvider,
   void RunSpeakerPlaybackTask();
 
   /**
+   * @brief 振动播放任务入口
+   * @param context 设备对象指针
+   */
+  static void HapticPlaybackTaskEntry(void* context);
+
+  /**
+   * @brief 执行后台振动播放
+   */
+  void RunHapticPlaybackTask();
+
+  /**
    * @brief 麦克风采样读取任务入口
    * @param context 设备对象指针
    */
@@ -483,6 +524,25 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<size_t> bytes_written{0};
     // 播放音频总字节数
     std::atomic<size_t> total_bytes{0};
+    // 是否循环播放音频预览
+    std::atomic<bool> loop_enabled{false};
+    // 是否请求停止循环播放音频预览
+    std::atomic<bool> stop_requested{false};
+  };
+
+  struct HapticState {
+    // 振动任务是否正在运行
+    std::atomic<bool> running{false};
+    // RAM 波形 sequence 编号
+    std::atomic<uint8_t> waveform_sequence_number{1};
+    // 播放循环次数
+    std::atomic<uint8_t> loop_count{1};
+    // 振动增益
+    std::atomic<uint8_t> gain{255};
+    // 是否启用自动制动
+    std::atomic<bool> auto_brake{true};
+    // 最近一次快速预览启动时间，单位 ms
+    std::atomic<uint32_t> last_preview_ms{0};
   };
 
   struct MicrophoneState {
@@ -621,6 +681,8 @@ class TDisplayP4Device final : public ScreenProvider,
   ScreenProviderFlushReadyHandler flush_ready_handler_;
   // 扬声器播放状态，供 UI 和后台播放任务共享
   SpeakerState speaker_;
+  // 振动播放状态，供 UI 和后台播放任务共享
+  HapticState haptic_;
   // 麦克风采样状态，供 UI 和后台采样任务共享
   MicrophoneState microphone_;
   // 以太网运行状态，供事件回调和 UI 查询共享

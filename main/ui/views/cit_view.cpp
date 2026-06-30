@@ -21,6 +21,8 @@
 #include "app/device_info_snapshot.h"
 #include "app/system_status_cache.h"
 #include "esp_err.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "hal/providers/providers.h"
 #include "ui/input/app_view_gesture_flags.h"
 #include "ui/input/edge_back_gesture.h"
@@ -1938,17 +1940,28 @@ void GenericStartButtonEventCallback(lv_event_t* event) {
     lv_refr_now(nullptr);
 
     uint8_t waveform_count = 0;
-    const bool played = state->haptic != nullptr &&
-                        state->haptic->PlayHapticWaveform(&waveform_count);
+    bool played = state->haptic != nullptr &&
+                  state->haptic->ReadHapticWaveformCount(&waveform_count);
+    uint8_t played_count = 0;
+    if (played) {
+      for (uint8_t sequence = 1; sequence <= waveform_count; ++sequence) {
+        if (!state->haptic->PlayHapticWaveform(sequence, 1, UINT8_MAX, true)) {
+          played = false;
+          break;
+        }
+        ++played_count;
+        vTaskDelay(pdMS_TO_TICKS(220));
+      }
+    }
     char text[160] = {};
     std::snprintf(text, sizeof(text),
         "vibration data:\n"
         "status: %s\n"
         "played waveforms: %u\n"
         "gain: 255\n"
-        "loop count: 15",
+        "loop count: 1",
         played ? "played all RAM waveforms" : "playback failed",
-        static_cast<unsigned int>(waveform_count));
+        static_cast<unsigned int>(played_count));
     lv_label_set_text(state->test_data_label, text);
     return;
   }
