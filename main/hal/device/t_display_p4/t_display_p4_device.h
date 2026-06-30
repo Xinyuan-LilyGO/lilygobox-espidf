@@ -541,6 +541,16 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<uint8_t> gain{255};
     // 是否启用自动制动
     std::atomic<bool> auto_brake{true};
+    // 是否已经配置过 RAM 播放参数
+    bool ram_playback_configured = false;
+    // 已配置的 RAM 波形 sequence 编号
+    uint8_t configured_sequence_number = 0;
+    // 已配置的播放循环次数
+    uint8_t configured_loop_count = 0;
+    // 已配置的振动增益
+    uint8_t configured_gain = 0;
+    // 已配置的自动制动状态
+    bool configured_auto_brake = false;
     // 最近一次快速预览启动时间，单位 ms
     std::atomic<uint32_t> last_preview_ms{0};
   };

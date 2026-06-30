@@ -1103,10 +1103,39 @@ void TDisplayP4Device::RunHapticPlaybackTask() {
       static_cast<unsigned int>(loop_count), static_cast<unsigned int>(gain),
       static_cast<unsigned int>(auto_brake ? 1 : 0));
 
-  if (!driver_.chip().aw86224->PlayRamWaveform(
-          sequence, loop_count, gain, auto_brake)) {
+  const bool needs_configure = !haptic_.ram_playback_configured ||
+                               haptic_.configured_sequence_number != sequence ||
+                               haptic_.configured_loop_count != loop_count ||
+                               haptic_.configured_auto_brake != auto_brake;
+  if (needs_configure) {
+    if (!driver_.chip().aw86224->ConfigureRamPlaybackWaveform(
+            sequence, loop_count - 1, gain, auto_brake)) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Aw86224 ConfigureRamPlaybackWaveform failed, sequence=%u\n",
+          static_cast<unsigned int>(sequence));
+      driver_.chip().aw86224->StopRamPlaybackWaveform();
+      haptic_.running.store(false);
+      return;
+    }
+    haptic_.ram_playback_configured = true;
+    haptic_.configured_sequence_number = sequence;
+    haptic_.configured_loop_count = loop_count;
+    haptic_.configured_auto_brake = auto_brake;
+    haptic_.configured_gain = gain;
+  } else if (haptic_.configured_gain != gain) {
+    if (!driver_.chip().aw86224->SetRrtModeGain(gain)) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Aw86224 SetRrtModeGain failed, gain=%u\n",
+          static_cast<unsigned int>(gain));
+      haptic_.running.store(false);
+      return;
+    }
+    haptic_.configured_gain = gain;
+  }
+
+  if (!driver_.chip().aw86224->StartRamPlaybackWaveform()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Aw86224 PlayRamWaveform failed, sequence=%u\n",
+        "Aw86224 StartRamPlaybackWaveform failed, sequence=%u\n",
         static_cast<unsigned int>(sequence));
     driver_.chip().aw86224->StopRamPlaybackWaveform();
     haptic_.running.store(false);
