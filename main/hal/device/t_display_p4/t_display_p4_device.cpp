@@ -955,7 +955,7 @@ bool TDisplayP4Device::PlaySpeakerTone(size_t* bytes_written) {
   const size_t duration_ms =
       ((audio_size / frame_size) * 1000U) / kSpeakerPlaybackSampleRateHz;
 
-  LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
       "ES8311 speaker playback: bytes=%u, sample_rate=%u, channels=%u, "
       "duration=%u ms\n",
       static_cast<unsigned int>(audio_size),

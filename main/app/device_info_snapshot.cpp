@@ -10,6 +10,7 @@
 #include <cstdio>
 
 #include "app/device_identity.h"
+#include "base/logger.h"
 #include "esp_app_desc.h"
 #include "esp_chip_info.h"
 #include "esp_err.h"
@@ -83,7 +84,10 @@ void FormatMacAddress(char* buffer, size_t size) {
   }
 
   uint8_t mac[6] = {};
-  if (esp_efuse_mac_get_default(mac) != ESP_OK) {
+  const esp_err_t result = esp_efuse_mac_get_default(mac);
+  if (result != ESP_OK) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Read efuse MAC failed, result=%d\n", static_cast<int>(result));
     std::snprintf(buffer, size, "unknown");
     return;
   }
@@ -99,11 +103,15 @@ void FormatMacAddress(char* buffer, size_t size) {
  */
 bool ReadRunningImageSize(size_t* image_size) {
   if (image_size == nullptr) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "ReadRunningImageSize received empty output pointer\n");
     return false;
   }
 
   const esp_partition_t* running_partition = esp_ota_get_running_partition();
   if (running_partition == nullptr) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Get running partition failed\n");
     return false;
   }
 
@@ -112,8 +120,12 @@ bool ReadRunningImageSize(size_t* image_size) {
   partition.size = running_partition->size;
 
   esp_image_metadata_t metadata = {};
-  if (esp_image_get_metadata(&partition, &metadata) != ESP_OK ||
-      metadata.image_len == 0) {
+  const esp_err_t metadata_result = esp_image_get_metadata(&partition, &metadata);
+  if (metadata_result != ESP_OK || metadata.image_len == 0) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Read running image metadata failed, result=%d, image_len=%u\n",
+        static_cast<int>(metadata_result),
+        static_cast<unsigned int>(metadata.image_len));
     return false;
   }
 
@@ -145,6 +157,8 @@ hal::DeviceInfo ReadDeviceInfo(hal::DeviceInfoProvider* provider) {
 bool ReadCurrentDeviceInfoSnapshot(
     hal::DeviceInfoProvider* provider, CurrentDeviceInfoSnapshot* info) {
   if (info == nullptr) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "ReadCurrentDeviceInfoSnapshot received empty output pointer\n");
     return false;
   }
 
@@ -159,7 +173,12 @@ bool ReadCurrentDeviceInfoSnapshot(
   info->chip.cores = chip_info.cores;
   info->chip.flash_features =
       (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external";
-  esp_flash_get_size(nullptr, &info->chip.flash_total_bytes);
+  const esp_err_t flash_size_result =
+      esp_flash_get_size(nullptr, &info->chip.flash_total_bytes);
+  if (flash_size_result != ESP_OK) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Read flash size failed, result=%d\n", static_cast<int>(flash_size_result));
+  }
   info->chip.running_image_size_valid =
       ReadRunningImageSize(&info->chip.running_image_bytes);
 

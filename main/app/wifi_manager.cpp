@@ -11,6 +11,7 @@
 #include <cstring>
 
 #include "app/storage/wifi_storage.h"
+#include "base/logger.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -95,6 +96,8 @@ bool LoadWifiAutoConnectTarget(WifiSavedNetwork* target) {
 WifiAutoConnectResult TryStartWifiAutoConnect(
     hal::WifiProvider* wifi, const WifiAutoConnectOptions& options) {
   if (wifi == nullptr) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "WiFi auto connect provider is unavailable\n");
     return WifiAutoConnectResult::kUnavailable;
   }
 
@@ -111,9 +114,13 @@ WifiAutoConnectResult TryStartWifiAutoConnect(
   if (!status.driver_initialized || status.init_task_running) {
     if (options.start_driver_if_needed && !status.driver_initialized &&
         !wifi->StartWifi()) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "StartWifi failed before auto connect\n");
       return WifiAutoConnectResult::kFailed;
     }
     if (!WaitForWifiDriverReady(wifi, options)) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "WiFi driver is not ready for auto connect\n");
       return WifiAutoConnectResult::kWaitingForDriver;
     }
     status = ReadWifiStatusOrDefault(wifi);
@@ -123,10 +130,14 @@ WifiAutoConnectResult TryStartWifiAutoConnect(
     return WifiAutoConnectResult::kAlreadyConnected;
   }
   if (!status.driver_initialized || status.init_task_running) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "WiFi driver remains unavailable after auto connect wait\n");
     return WifiAutoConnectResult::kWaitingForDriver;
   }
 
   if (!wifi->ConnectWifi(target.ssid, target.password)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "ConnectWifi failed for auto connect target ssid=%s\n", target.ssid);
     return WifiAutoConnectResult::kFailed;
   }
   return WifiAutoConnectResult::kStarted;

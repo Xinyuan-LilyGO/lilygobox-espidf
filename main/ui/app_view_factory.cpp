@@ -9,6 +9,7 @@
 
 #include <cstring>
 
+#include "base/logger.h"
 #include "ui/font/font_assets.h"
 #include "ui/views/cit_view.h"
 #include "ui/views/settings_view.h"
@@ -75,6 +76,8 @@ lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color,
 lv_obj_t* CreateBackButton(lv_obj_t* parent, const AppViewConfig& config) {
   lv_obj_t* button = lv_button_create(parent);
   if (button == nullptr) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Create back button failed\n");
     return nullptr;
   }
 
@@ -91,6 +94,8 @@ lv_obj_t* CreateBackButton(lv_obj_t* parent, const AppViewConfig& config) {
   lv_obj_t* label =
       CreateLabel(button, "Back", lv_color_hex(0xF5F7FA), Font24());
   if (label == nullptr) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Create back button label failed\n");
     lv_obj_delete(button);
     return nullptr;
   }
@@ -123,6 +128,9 @@ lv_obj_t* CreatePlaceholderAppView(lv_obj_t* parent,
     const app::AppEntry& app_entry, const AppViewConfig& config) {
   lv_obj_t* container = lv_obj_create(parent);
   if (container == nullptr) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Create placeholder app view container failed, app_id=%s\n",
+        app_entry.id == nullptr ? "" : app_entry.id);
     return nullptr;
   }
 
@@ -139,6 +147,9 @@ lv_obj_t* CreatePlaceholderAppView(lv_obj_t* parent,
   lv_obj_t* title =
       CreateLabel(container, app_entry.title, lv_color_hex(0xF5F7FA), Font48());
   if (title == nullptr) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Create placeholder app title failed, app_id=%s\n",
+        app_entry.id == nullptr ? "" : app_entry.id);
     lv_obj_delete(container);
     return nullptr;
   }
@@ -147,6 +158,9 @@ lv_obj_t* CreatePlaceholderAppView(lv_obj_t* parent,
   lv_obj_t* subtitle = CreateLabel(
       container, app_entry.subtitle, lv_color_hex(0xAAB2BD), Font24());
   if (subtitle == nullptr) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Create placeholder app subtitle failed, app_id=%s\n",
+        app_entry.id == nullptr ? "" : app_entry.id);
     lv_obj_delete(container);
     return nullptr;
   }
@@ -155,12 +169,18 @@ lv_obj_t* CreatePlaceholderAppView(lv_obj_t* parent,
   lv_obj_t* message = CreateLabel(container, "View implementation pending",
       lv_color_hex(0x51D88A), Font24());
   if (message == nullptr) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Create placeholder app message failed, app_id=%s\n",
+        app_entry.id == nullptr ? "" : app_entry.id);
     lv_obj_delete(container);
     return nullptr;
   }
   lv_obj_align_to(message, subtitle, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 24);
 
   if (CreateBackButton(container, config) == nullptr) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Create placeholder app back button failed, app_id=%s\n",
+        app_entry.id == nullptr ? "" : app_entry.id);
     lv_obj_delete(container);
     return nullptr;
   }
@@ -173,6 +193,9 @@ lv_obj_t* CreatePlaceholderAppView(lv_obj_t* parent,
 lv_obj_t* CreateAppView(lv_obj_t* parent, const app::AppEntry& app_entry,
     const AppViewConfig& config) {
   if (parent == nullptr || config.width <= 0 || config.height <= 0) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "CreateAppView received invalid input, parent=%p, width=%d, height=%d\n",
+        parent, config.width, config.height);
     return nullptr;
   }
 
