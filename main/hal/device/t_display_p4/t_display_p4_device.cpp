@@ -2650,12 +2650,12 @@ bool TDisplayP4Device::EnterDeviceSleep() {
     return false;
   }
   return driver_.SetSleep(
-      lilygo_device_driver::TDisplayP4Driver::SleepLevel::kChipSleep, true);
+      lilygo_device_driver::TDisplayP4Driver::SleepLevel::kLight, true);
 }
 
 bool TDisplayP4Device::ExitDeviceSleep() {
   const bool result = driver_.SetSleep(
-      lilygo_device_driver::TDisplayP4Driver::SleepLevel::kChipSleep, false);
+      lilygo_device_driver::TDisplayP4Driver::SleepLevel::kLight, false);
   if (!result) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Wake device from chip sleep failed\n");
