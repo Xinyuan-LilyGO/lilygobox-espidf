@@ -20,6 +20,7 @@
 #include "freertos/task.h"
 #include "hal/device_provider_factory.h"
 #include "nvs_flash.h"
+#include "ui/haptic_feedback.h"
 
 namespace lilygo_box {
 namespace {
@@ -307,6 +308,7 @@ void Application::RunScreenLockTask() {
     }
 
     if (wake_button_clicked) {
+      ui::PlayUiHapticFeedback();
       lvgl_port_.SetInputBlocked(true);
       if (EnterScreenLockSleep()) {
         screen_locked_.store(true);
