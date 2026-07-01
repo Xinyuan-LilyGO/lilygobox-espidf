@@ -56,9 +56,41 @@ class Application final {
   void RunScreenLockTask();
 
   /**
-   * @brief 恢复屏幕亮度并退出锁屏状态
+   * @brief 显示锁屏页面并让设备进入休眠
+   * @return 进入休眠成功返回 true，否则返回 false
+   */
+  bool EnterScreenLockSleep();
+
+  /**
+   * @brief 恢复屏幕亮度并显示已准备好的锁屏页面
    */
   void WakeScreenFromLock();
+
+  /**
+   * @brief 锁屏页面亮屏态下立即进入休眠
+   * @return 进入休眠成功返回 true，否则返回 false
+   */
+  bool SleepAwakeLockScreenNow();
+
+  /**
+   * @brief 锁屏页面亮屏态下按超时流程重新进入休眠
+   * @return 进入休眠成功返回 true，否则返回 false
+   */
+  bool SleepAwakeLockScreenWithTimeout();
+
+  /**
+   * @brief 退出锁屏页面并恢复 LVGL 输入
+   */
+  void UnlockScreen();
+
+  /**
+   * @brief 判断触摸轨迹是否满足上滑解锁手势
+   * @param start 起始触摸点
+   * @param current 当前触摸点
+   * @return 满足上滑解锁返回 true，否则返回 false
+   */
+  bool IsUnlockSwipe(const hal::TouchPoint& start,
+      const hal::TouchPoint& current) const;
 
   /**
    * @brief 将屏幕亮度渐变到目标值
@@ -77,6 +109,7 @@ class Application final {
   ui::UiManager ui_manager_;
   std::atomic<int> current_screen_brightness_percent_{100};
   std::atomic<bool> screen_locked_{false};
+  std::atomic<bool> lock_screen_awake_{false};
 };
 
 }  // namespace lilygo_box

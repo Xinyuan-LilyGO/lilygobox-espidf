@@ -102,6 +102,33 @@ class UiManager final {
    */
   void RefreshSystemStatusNow();
 
+  /**
+   * @brief 显示锁屏覆盖页面
+   * @return 显示成功返回 true，否则返回 false
+   */
+  bool ShowLockScreen();
+
+  /**
+   * @brief 隐藏并销毁锁屏覆盖页面
+   */
+  void HideLockScreen();
+
+  /**
+   * @brief 根据上滑拖拽距离更新锁屏页面位置和透明度
+   * @param offset_y Y 轴偏移，负数表示向上移动
+   */
+  void SetLockScreenDragOffset(int offset_y);
+
+  /**
+   * @brief 播放锁屏页面回弹动画
+   */
+  void ResetLockScreenDrag();
+
+  /**
+   * @brief 播放锁屏页面上滑退出动画
+   */
+  void PlayLockScreenUnlockAnimation();
+
  private:
   struct AppButtonContext {
     UiManager* manager = nullptr;
@@ -320,6 +347,7 @@ class UiManager final {
   StatusBar status_bar_;
   lv_obj_t* startup_screen_ = nullptr;
   lv_obj_t* startup_progress_fill_ = nullptr;
+  lv_obj_t* lock_screen_ = nullptr;
   int startup_progress_percent_ = 0;
   int startup_progress_target_percent_ = 0;
   int startup_progress_pending_percent_ = 0;

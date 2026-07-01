@@ -21,6 +21,7 @@
 #include "ui/input/app_view_gesture_flags.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"
+#include "ui/views/lock_screen_view.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -854,6 +855,60 @@ void UiManager::SetStatusBarVisible(bool visible) {
   status_bar_.SetVisible(visible);
 }
 
+bool UiManager::ShowLockScreen() {
+  if (root_screen_ == nullptr || screen_ == nullptr) {
+    return false;
+  }
+
+  RefreshSystemStatusNow();
+  if (lock_screen_ != nullptr) {
+    UpdateLockScreenViewClock(
+        lock_screen_, clock_time_text_, home_date_text_, home_week_text_);
+    lv_obj_clear_flag(lock_screen_, LV_OBJ_FLAG_HIDDEN);
+    ::lilygo_box::ui::SetLockScreenDragOffset(lock_screen_, 0);
+    lv_obj_move_to_index(lock_screen_, -1);
+    status_bar_.MoveToTop();
+    return true;
+  }
+
+  LockScreenViewOptions options = {
+      .screen_width = screen_->ScreenWidth(),
+      .screen_height = screen_->ScreenHeight(),
+      .time_text = clock_time_text_,
+      .date_text = home_date_text_,
+      .week_text = home_week_text_,
+  };
+  lock_screen_ = CreateLockScreenView(root_screen_, options);
+  if (lock_screen_ == nullptr) {
+    return false;
+  }
+
+  ::lilygo_box::ui::SetLockScreenDragOffset(lock_screen_, 0);
+  status_bar_.MoveToTop();
+  return true;
+}
+
+void UiManager::HideLockScreen() {
+  if (lock_screen_ == nullptr) {
+    return;
+  }
+
+  lv_obj_delete(lock_screen_);
+  lock_screen_ = nullptr;
+}
+
+void UiManager::SetLockScreenDragOffset(int offset_y) {
+  ::lilygo_box::ui::SetLockScreenDragOffset(lock_screen_, offset_y);
+}
+
+void UiManager::ResetLockScreenDrag() {
+  ::lilygo_box::ui::StartLockScreenResetAnimation(lock_screen_);
+}
+
+void UiManager::PlayLockScreenUnlockAnimation() {
+  ::lilygo_box::ui::StartLockScreenUnlockAnimation(lock_screen_);
+}
+
 bool UiManager::SetStartupScreenProgress(int percent) {
   if (startup_screen_ == nullptr || startup_progress_fill_ == nullptr) {
     return false;
@@ -1154,6 +1209,10 @@ void UiManager::UpdateClockLabels(const hal::RtcStatus& status) {
     if (home_time_label_ != nullptr) {
       lv_label_set_text(home_time_label_, clock_time_text_);
     }
+    if (lock_screen_ != nullptr) {
+      UpdateLockScreenViewClock(
+          lock_screen_, clock_time_text_, home_date_text_, home_week_text_);
+    }
   }
 
   char date_text[sizeof(home_date_text_)] = {};
@@ -1164,6 +1223,10 @@ void UiManager::UpdateClockLabels(const hal::RtcStatus& status) {
     if (home_date_label_ != nullptr) {
       lv_label_set_text(home_date_label_, home_date_text_);
     }
+    if (lock_screen_ != nullptr) {
+      UpdateLockScreenViewClock(
+          lock_screen_, clock_time_text_, home_date_text_, home_week_text_);
+    }
   }
 
   const char* week_text = WeekName(status.week);
@@ -1172,6 +1235,10 @@ void UiManager::UpdateClockLabels(const hal::RtcStatus& status) {
     home_week_text_[sizeof(home_week_text_) - 1] = '\0';
     if (home_week_label_ != nullptr) {
       lv_label_set_text(home_week_label_, home_week_text_);
+    }
+    if (lock_screen_ != nullptr) {
+      UpdateLockScreenViewClock(
+          lock_screen_, clock_time_text_, home_date_text_, home_week_text_);
     }
   }
 }

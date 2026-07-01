@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 
 #include "app/storage/audio_storage.h"
 #include "app/storage/display_storage.h"
@@ -31,8 +32,13 @@ constexpr uint32_t kScreenLockTaskStackBytes = 4 * 1024;
 constexpr UBaseType_t kScreenLockTaskPriority = 3;
 constexpr uint32_t kScreenLockPollMs = 100;
 constexpr uint32_t kScreenLockSleepConfirmMs = 3 * 1000;
+constexpr uint32_t kAwakeLockScreenSleepTimeoutMs = 10 * 1000;
 constexpr uint32_t kScreenLockFadeMs = 300;
+constexpr uint32_t kScreenLockPreSleepFlushMs = 80;
 constexpr int kScreenLockFadeStepCount = 12;
+constexpr int kScreenUnlockSwipeMinDistance = 120;
+constexpr uint32_t kScreenUnlockAnimationWaitMs = 240;
+constexpr int kScreenUnlockSwipeMaxHorizontalDrift = 90;
 
 }  // namespace
 
@@ -217,6 +223,10 @@ void Application::RunScreenLockTask() {
   uint32_t last_touch_ms = static_cast<uint32_t>(xTaskGetTickCount() *
       portTICK_PERIOD_MS);
   bool was_wake_button_pressed = screen->IsLockWakeButtonPressed();
+  uint32_t lock_screen_last_interaction_ms = last_touch_ms;
+  bool unlock_touch_active = false;
+  bool unlock_drag_ready = false;
+  hal::TouchPoint unlock_touch_start = {};
   while (true) {
     const uint32_t now_ms = static_cast<uint32_t>(xTaskGetTickCount() *
         portTICK_PERIOD_MS);
@@ -227,8 +237,70 @@ void Application::RunScreenLockTask() {
     was_wake_button_pressed = wake_button_pressed;
     if (screen_locked_.load()) {
       if (wake_button_clicked) {
-        WakeScreenFromLock();
-        last_touch_ms = now_ms;
+        if (lock_screen_awake_.load()) {
+          SleepAwakeLockScreenNow();
+          unlock_touch_active = false;
+          unlock_drag_ready = false;
+        } else {
+          WakeScreenFromLock();
+          last_touch_ms = now_ms;
+          lock_screen_last_interaction_ms = now_ms;
+          unlock_touch_active = false;
+          unlock_drag_ready = false;
+        }
+      }
+
+      if (lock_screen_awake_.load()) {
+        if (screen->ReadScreenTouch(&point)) {
+          lock_screen_last_interaction_ms = now_ms;
+          if (!unlock_touch_active) {
+            unlock_touch_start = point;
+            unlock_touch_active = true;
+            unlock_drag_ready = false;
+          } else {
+            const int drag_distance = std::max(0, unlock_touch_start.y - point.y);
+            const int drag_offset =
+                -std::min(drag_distance, screen->ScreenHeight());
+            lvgl_port_.Lock();
+            ui_manager_.SetLockScreenDragOffset(drag_offset);
+            lvgl_port_.Unlock();
+            unlock_drag_ready = IsUnlockSwipe(unlock_touch_start, point);
+          }
+        } else {
+          if (unlock_touch_active) {
+            if (unlock_drag_ready) {
+              lvgl_port_.Lock();
+              ui_manager_.PlayLockScreenUnlockAnimation();
+              lvgl_port_.Unlock();
+              vTaskDelay(pdMS_TO_TICKS(kScreenUnlockAnimationWaitMs));
+              UnlockScreen();
+              last_touch_ms = static_cast<uint32_t>(xTaskGetTickCount() *
+                  portTICK_PERIOD_MS);
+              unlock_touch_active = false;
+              unlock_drag_ready = false;
+              vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
+              continue;
+            } else {
+              lvgl_port_.Lock();
+              ui_manager_.ResetLockScreenDrag();
+              lvgl_port_.Unlock();
+            }
+          }
+          unlock_touch_active = false;
+          unlock_drag_ready = false;
+          const uint32_t lock_screen_idle_ms =
+              now_ms - lock_screen_last_interaction_ms;
+          const uint32_t lock_screen_dim_start_ms =
+              kAwakeLockScreenSleepTimeoutMs - kScreenLockSleepConfirmMs;
+          if (lock_screen_idle_ms >= lock_screen_dim_start_ms) {
+            if (!SleepAwakeLockScreenWithTimeout()) {
+              lock_screen_last_interaction_ms = static_cast<uint32_t>(
+                  xTaskGetTickCount() * portTICK_PERIOD_MS);
+            }
+            unlock_touch_active = false;
+            unlock_drag_ready = false;
+          }
+        }
       }
       vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
       continue;
@@ -236,9 +308,13 @@ void Application::RunScreenLockTask() {
 
     if (wake_button_clicked) {
       lvgl_port_.SetInputBlocked(true);
-      if (screen->EnterDeviceSleep()) {
+      if (EnterScreenLockSleep()) {
         screen_locked_.store(true);
+        lock_screen_awake_.store(false);
       } else {
+        lvgl_port_.Lock();
+        ui_manager_.HideLockScreen();
+        lvgl_port_.Unlock();
         lvgl_port_.SetInputBlocked(false);
         last_touch_ms = now_ms;
       }
@@ -308,9 +384,13 @@ void Application::RunScreenLockTask() {
       continue;
     }
 
-    if (screen->EnterDeviceSleep()) {
+    if (EnterScreenLockSleep()) {
       screen_locked_.store(true);
+      lock_screen_awake_.store(false);
     } else {
+      lvgl_port_.Lock();
+      ui_manager_.HideLockScreen();
+      lvgl_port_.Unlock();
       FadeScreenBrightnessTo(start_brightness);
       lvgl_port_.SetInputBlocked(false);
       last_touch_ms = static_cast<uint32_t>(xTaskGetTickCount() *
@@ -319,6 +399,30 @@ void Application::RunScreenLockTask() {
   }
 }
 
+/**
+ * @brief 显示锁屏页面并让设备进入休眠
+ * @return 进入休眠成功返回 true，否则返回 false
+ */
+bool Application::EnterScreenLockSleep() {
+  hal::ScreenProvider* screen = device_provider_context_.screen.get();
+  if (screen == nullptr) {
+    return false;
+  }
+
+  lvgl_port_.Lock();
+  const bool shown = ui_manager_.ShowLockScreen();
+  lvgl_port_.Unlock();
+  if (!shown) {
+    return false;
+  }
+
+  vTaskDelay(pdMS_TO_TICKS(kScreenLockPreSleepFlushMs));
+  return screen->EnterDeviceSleep();
+}
+
+/**
+ * @brief 恢复屏幕亮度并显示已准备好的锁屏页面
+ */
 void Application::WakeScreenFromLock() {
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
   if (screen == nullptr) {
@@ -331,8 +435,118 @@ void Application::WakeScreenFromLock() {
   }
   screen->SetScreenBrightnessPercent(preferences.brightness_percent);
   current_screen_brightness_percent_.store(preferences.brightness_percent);
+  lvgl_port_.Lock();
+  const bool shown = ui_manager_.ShowLockScreen();
+  lvgl_port_.Unlock();
+  if (shown) {
+    lock_screen_awake_.store(true);
+  } else {
+    UnlockScreen();
+  }
+}
+
+/**
+ * @brief 锁屏页面亮屏态下立即进入休眠
+ * @return 进入休眠成功返回 true，否则返回 false
+ */
+bool Application::SleepAwakeLockScreenNow() {
+  hal::ScreenProvider* screen = device_provider_context_.screen.get();
+  if (screen == nullptr) {
+    return false;
+  }
+
+  if (!screen->EnterDeviceSleep()) {
+    return false;
+  }
+
+  lock_screen_awake_.store(false);
+  return true;
+}
+
+/**
+ * @brief 锁屏页面亮屏态下按超时流程重新进入休眠
+ * @return 进入休眠成功返回 true，否则返回 false
+ */
+bool Application::SleepAwakeLockScreenWithTimeout() {
+  hal::ScreenProvider* screen = device_provider_context_.screen.get();
+  if (screen == nullptr) {
+    return false;
+  }
+
+  const app::DisplayPreferences preferences = LoadDisplayPreferencesOrDefault();
+  const int start_brightness = current_screen_brightness_percent_.load();
+  const int target_brightness =
+      std::max(1, preferences.brightness_percent / kScreenLockFadeStepCount);
+  bool fade_canceled = false;
+  for (int step = 1; step <= kScreenLockFadeStepCount; ++step) {
+    const int brightness = start_brightness +
+        (target_brightness - start_brightness) * step / kScreenLockFadeStepCount;
+    screen->SetScreenBrightnessPercent(brightness);
+    current_screen_brightness_percent_.store(brightness);
+    vTaskDelay(pdMS_TO_TICKS(
+        std::max<uint32_t>(1, kScreenLockFadeMs / kScreenLockFadeStepCount)));
+
+    hal::TouchPoint point;
+    if (screen->ReadScreenTouch(&point) || screen->IsLockWakeButtonPressed()) {
+      FadeScreenBrightnessTo(preferences.brightness_percent);
+      fade_canceled = true;
+      break;
+    }
+  }
+  if (fade_canceled) {
+    lock_screen_awake_.store(true);
+    return false;
+  }
+
+  const uint32_t confirm_start_ms =
+      static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+  while (static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) -
+             confirm_start_ms <
+         kScreenLockSleepConfirmMs) {
+    hal::TouchPoint point;
+    if (screen->ReadScreenTouch(&point) || screen->IsLockWakeButtonPressed()) {
+      FadeScreenBrightnessTo(preferences.brightness_percent);
+      lock_screen_awake_.store(true);
+      return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
+  }
+
+  if (!screen->EnterDeviceSleep()) {
+    FadeScreenBrightnessTo(preferences.brightness_percent);
+    lock_screen_awake_.store(true);
+    return false;
+  }
+
+  current_screen_brightness_percent_.store(target_brightness);
+  lock_screen_awake_.store(false);
+  return true;
+}
+
+/**
+ * @brief 退出锁屏页面并恢复 LVGL 输入
+ */
+void Application::UnlockScreen() {
+  lvgl_port_.Lock();
+  ui_manager_.HideLockScreen();
+  lvgl_port_.Unlock();
   lvgl_port_.SetInputBlocked(false);
+  lock_screen_awake_.store(false);
   screen_locked_.store(false);
+}
+
+/**
+ * @brief 判断触摸轨迹是否满足上滑解锁手势
+ * @param start 起始触摸点
+ * @param current 当前触摸点
+ * @return 满足上滑解锁返回 true，否则返回 false
+ */
+bool Application::IsUnlockSwipe(const hal::TouchPoint& start,
+    const hal::TouchPoint& current) const {
+  const int vertical_distance = start.y - current.y;
+  const int horizontal_drift = std::abs(current.x - start.x);
+  return vertical_distance >= kScreenUnlockSwipeMinDistance &&
+         horizontal_drift <= kScreenUnlockSwipeMaxHorizontalDrift;
 }
 
 void Application::FadeScreenBrightnessTo(int target_percent) {
