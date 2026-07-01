@@ -64,6 +64,12 @@ const lv_font_t* Font36() { return &lvgl_font_google_sans_flex_36; }
 const lv_font_t* Font48() { return &lvgl_font_google_sans_flex_48; }
 
 /**
+ * @brief 获取 64 号 Google Sans 字体
+ * @return 字体指针
+ */
+const lv_font_t* Font64() { return &lvgl_font_google_sans_flex_64; }
+
+/**
  * @brief 获取 32 号 Material Symbols 字体
  * @return 字体指针
  */

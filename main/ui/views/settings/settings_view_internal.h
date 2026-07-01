@@ -197,6 +197,13 @@ struct SettingsViewState {
   lv_obj_t* settings_nested_page = nullptr;
   // WLAN 页面定时刷新器，用来轮询 HAL 扫描和连接状态。
   lv_timer_t* wifi_refresh_timer = nullptr;
+  lv_timer_t* battery_refresh_timer = nullptr;
+  lv_obj_t* battery_overview_fill = nullptr;
+  lv_obj_t* battery_overview_time_label = nullptr;
+  lv_obj_t* battery_overview_status_icon_label = nullptr;
+  lv_obj_t* battery_overview_status_label = nullptr;
+  lv_obj_t* battery_health_value_label = nullptr;
+  lv_obj_t* battery_cycle_value_label = nullptr;
   lv_obj_t* device_name_value_label = nullptr;
   // 设置主页 WLAN 行右侧的 On/Off 文本。
   lv_obj_t* wifi_value_label = nullptr;
@@ -299,6 +306,12 @@ const lv_font_t* Font36();
  * @return 字体指针
  */
 const lv_font_t* Font48();
+
+/**
+ * @brief 获取 64 号 Google Sans 字体
+ * @return 字体指针
+ */
+const lv_font_t* Font64();
 
 /**
  * @brief 获取 32 号 Material Symbols 字体
