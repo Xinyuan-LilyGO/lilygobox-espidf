@@ -11,6 +11,7 @@
 
 #include "base/logger.h"
 #include "ui/font/font_assets.h"
+#include "ui/views/camera_view.h"
 #include "ui/views/cit_view.h"
 #include "ui/views/settings_view.h"
 
@@ -199,6 +200,9 @@ lv_obj_t* CreateAppView(lv_obj_t* parent, const app::AppEntry& app_entry,
     return nullptr;
   }
 
+  if (IsAppId(app_entry, "camera")) {
+    return CreateCameraView(parent, app_entry, config);
+  }
   if (IsAppId(app_entry, "cit")) {
     return CreateCitView(parent, app_entry, config);
   }

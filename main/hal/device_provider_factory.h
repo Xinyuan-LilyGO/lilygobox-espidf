@@ -23,6 +23,7 @@ struct DeviceProviderContext {
   AudioProvider* audio = nullptr;
   HapticProvider* haptic = nullptr;
   BmuProvider* bmu = nullptr;
+  CameraProvider* camera = nullptr;
   RtcProvider* rtc = nullptr;
   EthernetProvider* ethernet = nullptr;
   WifiProvider* wifi = nullptr;

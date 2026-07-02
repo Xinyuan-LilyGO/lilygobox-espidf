@@ -4,6 +4,7 @@ set(src_dirs
     "app/storage"
     "base"
     "hal"
+    "hal/ppa"
     "hal/providers"
     "ui"
     "ui/animation"
@@ -24,8 +25,10 @@ idf_component_register(
     SRC_DIRS ${src_dirs}
     INCLUDE_DIRS "."
     REQUIRES
+        esp_driver_ppa
         esp_lcd
         esp_timer
+        esp_video
         lvgl
         lilygo_device_driver
     PRIV_REQUIRES

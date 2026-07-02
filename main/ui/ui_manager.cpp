@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <utility>
 
 #include "app/app_catalog.h"
 #include "ui/app_view_factory.h"
@@ -769,6 +770,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
     hal::AudioProvider* audio,
     hal::HapticProvider* haptic,
     hal::BmuProvider* bmu,
+    hal::CameraProvider* camera,
     hal::RtcProvider* rtc,
     hal::ImuProvider* imu,
     hal::EthernetProvider* ethernet,
@@ -784,6 +786,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   haptic_provider_ = haptic;
   RegisterUiHapticProvider(haptic_provider_);
   bmu_provider_ = bmu;
+  camera_provider_ = camera;
   rtc_provider_ = rtc;
   imu_provider_ = imu;
   ethernet_provider_ = ethernet;
@@ -868,6 +871,7 @@ bool UiManager::ShowLockScreen() {
     ::lilygo_box::ui::SetLockScreenDragOffset(lock_screen_, 0);
     lv_obj_move_to_index(lock_screen_, -1);
     status_bar_.MoveToTop();
+    NotifyLockScreenVisibilityChanged(true);
     return true;
   }
 
@@ -885,6 +889,7 @@ bool UiManager::ShowLockScreen() {
 
   ::lilygo_box::ui::SetLockScreenDragOffset(lock_screen_, 0);
   status_bar_.MoveToTop();
+  NotifyLockScreenVisibilityChanged(true);
   return true;
 }
 
@@ -895,6 +900,7 @@ void UiManager::HideLockScreen() {
 
   lv_obj_delete(lock_screen_);
   lock_screen_ = nullptr;
+  NotifyLockScreenVisibilityChanged(false);
 }
 
 void UiManager::SetLockScreenDragOffset(int offset_y) {
@@ -1764,6 +1770,7 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   config.audio = audio_provider_;
   config.haptic = haptic_provider_;
   config.bmu = bmu_provider_;
+  config.camera = camera_provider_;
   config.rtc = rtc_provider_;
   config.imu = imu_provider_;
   config.ethernet = ethernet_provider_;
@@ -1777,6 +1784,10 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   };
   config.set_status_bar_visible = [this](bool visible) {
     SetStatusBarVisible(visible);
+  };
+  config.set_lock_screen_visibility_callback = [this](
+      std::function<void(bool visible)> callback) {
+    active_view_lock_screen_callback_ = std::move(callback);
   };
 
   SetStatusBarVisible(true);
@@ -1804,11 +1815,13 @@ bool UiManager::ShowAppView(const app::AppEntry& app_entry) {
   lv_obj_remove_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_style_opa(launcher_container_, LV_OPA_COVER, LV_PART_MAIN);
   if (active_view_container_ != nullptr) {
+    active_view_lock_screen_callback_ = nullptr;
     lv_obj_delete(active_view_container_);
     active_view_container_ = nullptr;
   }
 
   if (!CreateActiveAppView(app_entry)) {
+    active_view_lock_screen_callback_ = nullptr;
     return false;
   }
   app_back_swipe_ = EdgeBackSwipeState();
@@ -1830,6 +1843,7 @@ void UiManager::ShowLauncher() {
     return;
   }
 
+  active_view_lock_screen_callback_ = nullptr;
   lv_obj_delete(active_view_container_);
   active_view_container_ = nullptr;
   lv_obj_remove_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
@@ -1837,6 +1851,12 @@ void UiManager::ShowLauncher() {
   SetStatusBarTextColor(kStatusBarLightTextColor);
   SetStatusBarVisible(true);
   status_bar_.MoveToTop();
+}
+
+void UiManager::NotifyLockScreenVisibilityChanged(bool visible) {
+  if (active_view_lock_screen_callback_) {
+    active_view_lock_screen_callback_(visible);
+  }
 }
 
 void UiManager::UpdatePageIndicator(size_t page_index) {

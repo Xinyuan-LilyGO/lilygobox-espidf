@@ -10,6 +10,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 
 #include "app/app_catalog.h"
 #include "app/system_status_cache.h"
@@ -23,6 +24,7 @@
 namespace lilygo_box::hal {
 class AudioProvider;
 class BmuProvider;
+class CameraProvider;
 class DeviceDiagnosticsProvider;
 class DeviceInfoProvider;
 class EthernetProvider;
@@ -48,6 +50,7 @@ class UiManager final {
    * @param audio 音频提供者指针
    * @param haptic 振动提供者指针
    * @param bmu BMU 电池管理提供者指针
+   * @param camera 摄像头提供者指针
    * @param rtc RTC 提供者指针
    * @param imu IMU 提供者指针
    * @param ethernet 以太网提供者指针
@@ -61,6 +64,7 @@ class UiManager final {
       hal::AudioProvider* audio,
       hal::HapticProvider* haptic,
       hal::BmuProvider* bmu,
+      hal::CameraProvider* camera,
       hal::RtcProvider* rtc,
       hal::ImuProvider* imu,
       hal::EthernetProvider* ethernet,
@@ -332,6 +336,12 @@ class UiManager final {
    */
   void ShowLauncher();
 
+  /**
+   * @brief 通知当前 app 锁屏显示状态变化
+   * @param visible true 表示锁屏已显示，false 表示锁屏已隐藏
+   */
+  void NotifyLockScreenVisibilityChanged(bool visible);
+
   hal::ScreenProvider* screen_ = nullptr;
   hal::DeviceDiagnosticsProvider* diagnostics_provider_ = nullptr;
   hal::DeviceInfoProvider* device_info_provider_ = nullptr;
@@ -339,6 +349,7 @@ class UiManager final {
   hal::AudioProvider* audio_provider_ = nullptr;
   hal::HapticProvider* haptic_provider_ = nullptr;
   hal::BmuProvider* bmu_provider_ = nullptr;
+  hal::CameraProvider* camera_provider_ = nullptr;
   hal::RtcProvider* rtc_provider_ = nullptr;
   hal::ImuProvider* imu_provider_ = nullptr;
   hal::EthernetProvider* ethernet_provider_ = nullptr;
@@ -360,6 +371,7 @@ class UiManager final {
   lv_obj_t* home_week_label_ = nullptr;
   lv_obj_t* reserved_page_ = nullptr;
   lv_obj_t* active_view_container_ = nullptr;
+  std::function<void(bool visible)> active_view_lock_screen_callback_;
   EdgeBackSwipeState app_back_swipe_ = {};
   lv_timer_t* system_status_refresh_timer_ = nullptr;
   app::SystemStatusCache system_status_cache_;

@@ -10,8 +10,13 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 
 #include "esp_wifi_types.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+#include "hal/ppa/ppa_srm_helper.h"
 #include "hal/providers/providers.h"
 #include "t_display_p4_driver.h"
 
@@ -24,6 +29,7 @@ class TDisplayP4Device final : public ScreenProvider,
                                public ImuProvider,
                                public AudioProvider,
                                public HapticProvider,
+                               public CameraProvider,
                                public BmuProvider,
                                public RtcProvider,
                                public EthernetProvider,
@@ -144,6 +150,35 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 读取成功返回 true，否则返回 false
    */
   bool ReadMicrophoneStatus(MicrophoneStatus* status) override;
+
+  /**
+   * @brief 启动摄像头预览并直接写入屏幕
+   * @return 启动成功返回 true，否则返回 false
+   */
+  bool StartCameraPreview() override;
+
+  /**
+   * @brief 停止摄像头预览
+   * @return 停止成功或已经停止返回 true，否则返回 false
+   */
+  bool StopCameraPreview() override;
+
+  /**
+   * @brief 获取最新摄像头预览帧信息
+   * @param info 预览帧信息输出地址
+   * @return 获取成功返回 true，否则返回 false
+   */
+  bool GetCameraPreviewFrameInfo(CameraPreviewFrameInfo* info) override;
+
+  /**
+   * @brief 复制最新摄像头预览帧到调用方缓冲区
+   * @param buffer 输出缓冲区
+   * @param buffer_size 输出缓冲区大小
+   * @param info 预览帧信息输出地址
+   * @return 复制成功返回 true，否则返回 false
+   */
+  bool CopyCameraPreviewFrame(uint8_t* buffer, size_t buffer_size,
+      CameraPreviewFrameInfo* info) override;
 
   /**
    * @brief 启动 L76K GPS 测试并唤醒模块
@@ -395,6 +430,37 @@ class TDisplayP4Device final : public ScreenProvider,
   void RunMicrophoneCaptureTask();
 
   /**
+   * @brief 摄像头预览任务入口
+   * @param context 设备对象指针
+   */
+  static void CameraPreviewTaskEntry(void* context);
+
+  /**
+   * @brief 执行摄像头预览任务
+   */
+  void RunCameraPreviewTask();
+
+  /**
+   * @brief 初始化 ESP-IDF camera video 设备
+   * @return 初始化成功返回 true，否则返回 false
+   */
+  bool InitializeCameraPreview();
+
+  /**
+   * @brief 关闭 camera video 设备并释放缓冲区
+   */
+  void DeinitializeCameraPreview();
+
+  /**
+   * @brief 处理一帧摄像头数据并更新预览缓冲区
+   * @param buffer 摄像头帧缓冲区
+   * @param width 摄像头帧宽度
+   * @param height 摄像头帧高度
+   * @return 处理成功返回 true，否则返回 false
+   */
+  bool RenderCameraFrame(uint8_t* buffer, uint32_t width, uint32_t height);
+
+  /**
    * @brief 以太网初始化任务入口
    * @param context 设备对象指针
    */
@@ -588,6 +654,53 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<size_t> bytes_read{0};
   };
 
+  struct HeapCapsBufferDeleter {
+    /**
+     * @brief 释放 heap_caps 分配的内存
+     * @param pointer 内存指针
+     */
+    void operator()(uint8_t* pointer) const;
+  };
+
+  struct CameraPreviewState {
+    // 摄像头预览资源是否已经初始化
+    std::atomic<bool> initialized{false};
+    // 摄像头预览任务是否正在运行
+    std::atomic<bool> running{false};
+    // 摄像头预览任务是否请求停止
+    std::atomic<bool> stop_requested{false};
+    // 摄像头预览任务句柄
+    TaskHandle_t task_handle = nullptr;
+    // video 设备文件描述符
+    int video_fd = -1;
+    // 摄像头帧宽度
+    uint32_t frame_width = 0;
+    // 摄像头帧高度
+    uint32_t frame_height = 0;
+    // 摄像头帧缓冲区长度
+    size_t frame_buffer_sizes[2] = {};
+    // 摄像头 MMAP 缓冲区地址
+    void* frame_buffers[2] = {};
+    // PPA 输出缓冲区互斥锁
+    SemaphoreHandle_t output_mutex = nullptr;
+    // PPA 输出缓冲区
+    std::unique_ptr<uint8_t, HeapCapsBufferDeleter> output_buffer;
+    // PPA 输出缓冲区长度
+    size_t output_buffer_size = 0;
+    // PPA 输出图像宽度
+    uint32_t output_width = 0;
+    // PPA 输出图像高度
+    uint32_t output_height = 0;
+    // PPA 输出图像 stride
+    uint32_t output_stride = 0;
+    // 启动后需要清空 PPA 输出缓冲区的帧数
+    uint32_t clear_output_frames_remaining = 0;
+    // 预览帧序号
+    std::atomic<uint32_t> frame_sequence{0};
+    // PPA SRM helper
+    PpaSrmHelper ppa;
+  };
+
   struct EthernetState {
     // 初始化任务是否正在运行
     std::atomic<bool> init_task_running{false};
@@ -714,6 +827,8 @@ class TDisplayP4Device final : public ScreenProvider,
   HapticState haptic_;
   // 麦克风采样状态，供 UI 和后台采样任务共享
   MicrophoneState microphone_;
+  // 摄像头预览状态，供 UI 和后台预览任务共享
+  CameraPreviewState camera_preview_;
   // 以太网运行状态，供事件回调和 UI 查询共享
   EthernetState ethernet_;
   // WiFi 运行状态，供事件回调和 UI 查询共享

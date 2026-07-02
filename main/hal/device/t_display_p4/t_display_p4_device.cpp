@@ -7,9 +7,14 @@
  */
 #include "hal/device/t_display_p4/t_display_p4_device.h"
 
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <sys/time.h>
+#include <unistd.h>
 
 #include <algorithm>
+#include <cstring>
 #include <array>
 #include <atomic>
 #include <cmath>
@@ -25,6 +30,7 @@
 #include "base/logger.h"
 #include "esp_err.h"
 #include "esp_eth.h"
+#include "esp_heap_caps.h"
 #include "esp_eth_mac.h"
 #include "esp_eth_phy_802_3.h"
 #include "esp_event.h"
@@ -33,11 +39,14 @@
 #include "esp_netif.h"
 #include "esp_sntp.h"
 #include "esp_timer.h"
+#include "esp_video_device.h"
+#include "esp_video_init.h"
 #include "esp_wifi.h"
 #include "esp_wifi_default.h"
 #include "esp_wifi_remote.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "linux/videodev2.h"
 
 namespace lilygo_box::hal {
 namespace device = lilygo_device_driver::t_display_p4::device;
@@ -68,7 +77,14 @@ constexpr uint32_t kMicrophoneReadDelayMs = 40;
 constexpr int kMicrophoneLevelFullScale = 1000;
 constexpr int kMicrophoneLevelRiseDivisor = 4;
 constexpr int kMicrophoneLevelFallDivisor = 8;
+constexpr uint32_t kCameraPreviewTaskStackBytes = 6 * 1024;
+constexpr UBaseType_t kCameraPreviewTaskPriority = 5;
+constexpr uint32_t kCameraBufferCount = 2;
+constexpr uint32_t kCameraFrameIntervalMs = 100;
+constexpr uint32_t kCameraStopWaitTimeoutMs = 5000;
+constexpr uint32_t kCameraOutputClearFrameCount = 3;
 constexpr float kRadiansToDegrees = 57.2957795F;
+constexpr const char* kCameraDeviceName = ESP_VIDEO_MIPI_CSI_DEVICE_NAME;
 constexpr size_t kGpsMaxReadBufferBytes = 4096;
 constexpr uint32_t kEthernetInitTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kEthernetInitTaskPriority = 3;
@@ -1242,6 +1258,374 @@ bool TDisplayP4Device::ReadMicrophoneStatus(MicrophoneStatus* status) {
   status->peak_sample = microphone_.peak_sample.load();
   status->bytes_read = microphone_.bytes_read.load();
   return true;
+}
+
+void TDisplayP4Device::HeapCapsBufferDeleter::operator()(uint8_t* pointer)
+    const {
+  if (pointer != nullptr) {
+    heap_caps_free(pointer);
+  }
+}
+
+bool TDisplayP4Device::StartCameraPreview() {
+  if (camera_preview_.running.load() || camera_preview_.initialized.load()) {
+    return true;
+  }
+
+  camera_preview_.stop_requested.store(false);
+  if (!InitializeCameraPreview()) {
+    DeinitializeCameraPreview();
+    camera_preview_.stop_requested.store(true);
+    return false;
+  }
+
+  BaseType_t result = xTaskCreate(CameraPreviewTaskEntry,
+      "camera_preview", kCameraPreviewTaskStackBytes, this,
+      kCameraPreviewTaskPriority, &camera_preview_.task_handle);
+  if (result != pdPASS) {
+    camera_preview_.task_handle = nullptr;
+    camera_preview_.stop_requested.store(true);
+    DeinitializeCameraPreview();
+    return false;
+  }
+  return true;
+}
+
+bool TDisplayP4Device::StopCameraPreview() {
+  camera_preview_.stop_requested.store(true);
+  if (camera_preview_.video_fd >= 0) {
+    int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    ioctl(camera_preview_.video_fd, VIDIOC_STREAMOFF, &type);
+  }
+  const uint32_t start_ms = static_cast<uint32_t>(
+      xTaskGetTickCount() * portTICK_PERIOD_MS);
+  TaskHandle_t task_handle = camera_preview_.task_handle;
+  while (task_handle != nullptr && camera_preview_.running.load()) {
+    if (static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) -
+            start_ms >=
+        kCameraStopWaitTimeoutMs) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "StopCameraPreview timed out\n");
+      return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+    task_handle = camera_preview_.task_handle;
+  }
+  return true;
+}
+
+bool TDisplayP4Device::GetCameraPreviewFrameInfo(
+    CameraPreviewFrameInfo* info) {
+  if (info == nullptr || camera_preview_.output_buffer == nullptr ||
+      camera_preview_.frame_sequence.load() == 0) {
+    return false;
+  }
+
+  info->data_size = camera_preview_.output_buffer_size;
+  info->width = camera_preview_.output_width;
+  info->height = camera_preview_.output_height;
+  info->stride = camera_preview_.output_stride;
+  info->bits_per_pixel = ScreenBitsPerPixel();
+  info->sequence = camera_preview_.frame_sequence.load();
+  return true;
+}
+
+bool TDisplayP4Device::CopyCameraPreviewFrame(uint8_t* buffer,
+    size_t buffer_size, CameraPreviewFrameInfo* info) {
+  if (buffer == nullptr || info == nullptr ||
+      !GetCameraPreviewFrameInfo(info) || buffer_size < info->data_size ||
+      camera_preview_.output_mutex == nullptr) {
+    return false;
+  }
+
+  if (xSemaphoreTake(camera_preview_.output_mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
+    return false;
+  }
+  std::memcpy(buffer, camera_preview_.output_buffer.get(), info->data_size);
+  info->sequence = camera_preview_.frame_sequence.load();
+  xSemaphoreGive(camera_preview_.output_mutex);
+  return true;
+}
+
+void TDisplayP4Device::CameraPreviewTaskEntry(void* context) {
+  static_cast<TDisplayP4Device*>(context)->RunCameraPreviewTask();
+}
+
+void TDisplayP4Device::RunCameraPreviewTask() {
+  camera_preview_.running.store(true);
+  while (!camera_preview_.stop_requested.load()) {
+    v4l2_buffer buffer = {};
+    buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    buffer.memory = V4L2_MEMORY_MMAP;
+    if (ioctl(camera_preview_.video_fd, VIDIOC_DQBUF, &buffer) != 0) {
+      vTaskDelay(pdMS_TO_TICKS(10));
+      continue;
+    }
+
+    if (buffer.index < kCameraBufferCount) {
+      RenderCameraFrame(
+          static_cast<uint8_t*>(camera_preview_.frame_buffers[buffer.index]),
+          camera_preview_.frame_width, camera_preview_.frame_height);
+    }
+    ioctl(camera_preview_.video_fd, VIDIOC_QBUF, &buffer);
+    vTaskDelay(pdMS_TO_TICKS(kCameraFrameIntervalMs));
+  }
+
+  DeinitializeCameraPreview();
+  camera_preview_.running.store(false);
+  camera_preview_.task_handle = nullptr;
+  vTaskDelete(nullptr);
+}
+
+bool TDisplayP4Device::InitializeCameraPreview() {
+  if (!IsScreenReady()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Camera preview start failed: screen is not ready\n");
+    return false;
+  }
+
+  esp_video_init_csi_config_t csi_config = {};
+  csi_config.sccb_config.init_sccb = false;
+  csi_config.sccb_config.i2c_handle =
+      driver_.bus().sgm38121_i2c_bus->bus_handle();
+  csi_config.sccb_config.freq = static_cast<uint32_t>(100000);
+  csi_config.reset_pin = GPIO_NUM_NC;
+  csi_config.pwdn_pin = GPIO_NUM_NC;
+  csi_config.dont_init_ldo = true;
+
+  esp_video_init_config_t camera_config = {};
+  camera_config.csi = &csi_config;
+  esp_err_t result = esp_video_init(&camera_config);
+  if (result != ESP_OK) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "esp_video_init failed (error code: %#X)\n", result);
+    return false;
+  }
+
+  camera_preview_.video_fd = open(kCameraDeviceName, O_RDONLY | O_NONBLOCK);
+  if (camera_preview_.video_fd < 0) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Open camera video device failed\n");
+    return false;
+  }
+
+  v4l2_format format = {};
+  format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  if (ioctl(camera_preview_.video_fd, VIDIOC_G_FMT, &format) != 0) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "VIDIOC_G_FMT failed\n");
+    return false;
+  }
+  camera_preview_.frame_width = format.fmt.pix.width;
+  camera_preview_.frame_height = format.fmt.pix.height;
+#if defined(CONFIG_CAMERA_TYPE_OV5645)
+  format.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB565;
+#elif defined(CONFIG_SCREEN_PIXEL_FORMAT_RGB888)
+  format.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB24;
+#else
+  format.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB565;
+#endif
+  if (ioctl(camera_preview_.video_fd, VIDIOC_S_FMT, &format) != 0) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "VIDIOC_S_FMT failed\n");
+    return false;
+  }
+  camera_preview_.frame_width = format.fmt.pix.width;
+  camera_preview_.frame_height = format.fmt.pix.height;
+
+  v4l2_requestbuffers request = {};
+  request.count = kCameraBufferCount;
+  request.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  request.memory = V4L2_MEMORY_MMAP;
+  if (ioctl(camera_preview_.video_fd, VIDIOC_REQBUFS, &request) != 0 ||
+      request.count < kCameraBufferCount) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "VIDIOC_REQBUFS failed or returned too few buffers\n");
+    return false;
+  }
+
+  for (uint32_t index = 0; index < kCameraBufferCount; ++index) {
+    v4l2_buffer buffer = {};
+    buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    buffer.memory = V4L2_MEMORY_MMAP;
+    buffer.index = index;
+    if (ioctl(camera_preview_.video_fd, VIDIOC_QUERYBUF, &buffer) != 0) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "VIDIOC_QUERYBUF failed\n");
+      return false;
+    }
+    camera_preview_.frame_buffer_sizes[index] = buffer.length;
+    camera_preview_.frame_buffers[index] = mmap(nullptr, buffer.length,
+        PROT_READ | PROT_WRITE, MAP_SHARED, camera_preview_.video_fd,
+        buffer.m.offset);
+    if (camera_preview_.frame_buffers[index] == MAP_FAILED) {
+      camera_preview_.frame_buffers[index] = nullptr;
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Camera buffer mmap failed\n");
+      return false;
+    }
+    if (ioctl(camera_preview_.video_fd, VIDIOC_QBUF, &buffer) != 0) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "VIDIOC_QBUF failed\n");
+      return false;
+    }
+  }
+
+  if (camera_preview_.output_mutex == nullptr) {
+    camera_preview_.output_mutex = xSemaphoreCreateMutex();
+    if (camera_preview_.output_mutex == nullptr) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Camera output mutex allocation failed\n");
+      return false;
+    }
+  }
+
+  if (!camera_preview_.ppa.Init()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "PPA SRM init failed\n");
+    return false;
+  }
+  const size_t bytes_per_pixel = ScreenBitsPerPixel() / 8;
+  const uint32_t width_limited_height =
+      camera_preview_.frame_height * ScreenWidth() / camera_preview_.frame_width;
+  if (width_limited_height <= ScreenHeight()) {
+    camera_preview_.output_width = ScreenWidth();
+    camera_preview_.output_height = width_limited_height;
+  } else {
+    camera_preview_.output_height = ScreenHeight();
+    camera_preview_.output_width =
+        camera_preview_.frame_width * ScreenHeight() / camera_preview_.frame_height;
+  }
+  camera_preview_.output_width = std::max<uint32_t>(1, camera_preview_.output_width);
+  camera_preview_.output_height = std::max<uint32_t>(1, camera_preview_.output_height);
+  camera_preview_.output_stride = camera_preview_.output_width * bytes_per_pixel;
+  camera_preview_.output_buffer_size = AlignUp(
+      camera_preview_.output_stride * camera_preview_.output_height,
+      camera_preview_.ppa.CacheLineSize());
+  void* output_buffer = heap_caps_aligned_calloc(
+      camera_preview_.ppa.CacheLineSize(), 1,
+      camera_preview_.output_buffer_size, MALLOC_CAP_SPIRAM);
+  if (output_buffer == nullptr) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Camera output buffer allocation failed\n");
+    return false;
+  }
+  camera_preview_.output_buffer.reset(static_cast<uint8_t*>(output_buffer));
+  camera_preview_.clear_output_frames_remaining = kCameraOutputClearFrameCount;
+
+  int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  if (ioctl(camera_preview_.video_fd, VIDIOC_STREAMON, &type) != 0) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "VIDIOC_STREAMON failed\n");
+    return false;
+  }
+
+  camera_preview_.initialized.store(true);
+  LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+      "Camera preview started (%lux%lu)\n", camera_preview_.frame_width,
+      camera_preview_.frame_height);
+  return true;
+}
+
+void TDisplayP4Device::DeinitializeCameraPreview() {
+  if (camera_preview_.video_fd >= 0) {
+    int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    ioctl(camera_preview_.video_fd, VIDIOC_STREAMOFF, &type);
+  }
+  for (uint32_t index = 0; index < kCameraBufferCount; ++index) {
+    if (camera_preview_.frame_buffers[index] != nullptr) {
+      munmap(camera_preview_.frame_buffers[index],
+          camera_preview_.frame_buffer_sizes[index]);
+      camera_preview_.frame_buffers[index] = nullptr;
+      camera_preview_.frame_buffer_sizes[index] = 0;
+    }
+  }
+  if (camera_preview_.video_fd >= 0) {
+    close(camera_preview_.video_fd);
+    camera_preview_.video_fd = -1;
+  }
+  camera_preview_.output_buffer.reset();
+  if (camera_preview_.output_mutex != nullptr) {
+    vSemaphoreDelete(camera_preview_.output_mutex);
+    camera_preview_.output_mutex = nullptr;
+  }
+  camera_preview_.output_buffer_size = 0;
+  camera_preview_.output_width = 0;
+  camera_preview_.output_height = 0;
+  camera_preview_.output_stride = 0;
+  camera_preview_.clear_output_frames_remaining = 0;
+  camera_preview_.frame_sequence.store(0);
+  camera_preview_.initialized.store(false);
+  camera_preview_.ppa.Deinit();
+  esp_err_t result = esp_video_deinit();
+  if (result != ESP_OK) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "esp_video_deinit failed (error code: %#X)\n", result);
+  }
+}
+
+bool TDisplayP4Device::RenderCameraFrame(
+    uint8_t* buffer, uint32_t width, uint32_t height) {
+  if (buffer == nullptr || camera_preview_.output_buffer == nullptr ||
+      camera_preview_.output_mutex == nullptr) {
+    return false;
+  }
+
+  const uint32_t output_width = camera_preview_.output_width;
+  const uint32_t output_height = camera_preview_.output_height;
+  const size_t aligned_output_size = camera_preview_.output_buffer_size;
+#if defined(CONFIG_CAMERA_TYPE_OV5645)
+  const ppa_srm_color_mode_t input_color_mode = PPA_SRM_COLOR_MODE_RGB565;
+#elif defined(CONFIG_SCREEN_PIXEL_FORMAT_RGB888)
+  const ppa_srm_color_mode_t input_color_mode = PPA_SRM_COLOR_MODE_RGB888;
+#else
+  const ppa_srm_color_mode_t input_color_mode = PPA_SRM_COLOR_MODE_RGB565;
+#endif
+#if defined(CONFIG_SCREEN_PIXEL_FORMAT_RGB888)
+  const ppa_srm_color_mode_t output_color_mode = PPA_SRM_COLOR_MODE_RGB888;
+#else
+  const ppa_srm_color_mode_t output_color_mode = PPA_SRM_COLOR_MODE_RGB565;
+#endif
+  PpaSrmImageConfig input = {
+      .buffer = buffer,
+      .pic_width = width,
+      .pic_height = height,
+      .block_width = width,
+      .block_height = height,
+      .block_offset_x = 0,
+      .block_offset_y = 0,
+      .color_mode = input_color_mode,
+  };
+  PpaSrmImageConfig output = {
+      .buffer = camera_preview_.output_buffer.get(),
+      .buffer_size = aligned_output_size,
+      .pic_width = output_width,
+      .pic_height = output_height,
+      .block_width = output_width,
+      .block_height = output_height,
+      .block_offset_x = 0,
+      .block_offset_y = 0,
+      .color_mode = output_color_mode,
+  };
+  PpaSrmTransformConfig transform = {
+      .scale_x = static_cast<float>(output_width) / static_cast<float>(width),
+      .scale_y = static_cast<float>(output_height) / static_cast<float>(height),
+      .mirror_y = driver_.screen_type() == device::ScreenType::kHi8561,
+  };
+  if (xSemaphoreTake(camera_preview_.output_mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
+    return false;
+  }
+  if (camera_preview_.clear_output_frames_remaining > 0) {
+    std::memset(camera_preview_.output_buffer.get(), 0,
+        camera_preview_.output_buffer_size);
+    --camera_preview_.clear_output_frames_remaining;
+  }
+  const bool transformed = camera_preview_.ppa.Transform(input, output, transform);
+  if (transformed) {
+    camera_preview_.frame_sequence.fetch_add(1);
+  }
+  xSemaphoreGive(camera_preview_.output_mutex);
+  return transformed;
 }
 
 bool TDisplayP4Device::StartGps() {

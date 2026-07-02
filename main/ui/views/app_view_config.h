@@ -22,6 +22,7 @@ class ThemeProvider;
 namespace lilygo_box::hal {
 class AudioProvider;
 class BmuProvider;
+class CameraProvider;
 class DeviceDiagnosticsProvider;
 class DeviceInfoProvider;
 class EthernetProvider;
@@ -55,6 +56,8 @@ struct AppViewConfig {
   hal::HapticProvider* haptic = nullptr;
   // 电池管理状态提供者。
   hal::BmuProvider* bmu = nullptr;
+  // 摄像头预览提供者。
+  hal::CameraProvider* camera = nullptr;
   // 实时时钟状态提供者。
   hal::RtcProvider* rtc = nullptr;
   // 姿态传感器状态提供者。
@@ -75,6 +78,9 @@ struct AppViewConfig {
   std::function<void(uint32_t color)> set_status_bar_text_color;
   // 设置状态栏是否显示。
   std::function<void(bool visible)> set_status_bar_visible;
+  // 注册锁屏显示状态变化回调，active app 销毁时传入空回调清除注册。
+  std::function<void(std::function<void(bool visible)> callback)>
+      set_lock_screen_visibility_callback;
 };
 
 }  // namespace lilygo_box::ui

@@ -10,6 +10,9 @@ dependencies:
   espressif/esp_wifi_remote:
     version: ">=1.6.1,<2.0"
 
+  espressif/esp_video:
+    override_path: "../libraries/esp-video-components/esp_video"
+
   cpp_bus_driver:
     override_path: "../libraries/cpp_bus_driver"
 

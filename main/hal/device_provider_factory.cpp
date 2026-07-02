@@ -31,6 +31,7 @@ DeviceProviderContext CreateDeviceProviderContext() {
   context.audio = device.get();
   context.haptic = device.get();
   context.bmu = device.get();
+  context.camera = device.get();
   context.rtc = device.get();
   context.ethernet = device.get();
   context.wifi = device.get();
