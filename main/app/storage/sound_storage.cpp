@@ -1,120 +1,65 @@
-/*
- * @Description: Settings sound and haptics NVS storage compatibility helpers
+/**
+ * @Description: 声音偏好存储实现
  * @Author: LILYGO_L
  * @Date: 2026-06-25 00:00:00
- * @LastEditTime: 2026-06-25 00:00:00
+ * @LastEditTime: 2026-07-03 00:00:00
  * @License: GPL 3.0
  */
 #include "app/storage/sound_storage.h"
 
 #include <algorithm>
-#include <cstdint>
+#include <atomic>
 
-#include "app/storage/audio_storage.h"
-#include "app/storage/haptic_storage.h"
-#include "base/logger.h"
 #include "esp_err.h"
 #include "nvs.h"
 
 namespace lilygo_box::app {
 namespace {
 
-constexpr const char* kSettingsNvsNamespace = "settings";
-constexpr const char* kLegacySoundPreferencesNvsKey = "sound_config";
-constexpr uint32_t kLegacySoundPreferencesMagic = 0x534E4448;
+constexpr const char* kNvsNamespace = "settings";
+constexpr const char* kNvsKey = "audio_config";
+constexpr uint32_t kMagic = 0x41554450;
 
-struct LegacySoundPreferencesStorage {
-  uint32_t magic = kLegacySoundPreferencesMagic;
+struct Blob {
+  uint32_t magic = kMagic;
   uint8_t volume_percent = 60;
-  uint8_t haptics_enabled = 1;
-  uint8_t haptic_strength_percent = 45;
 };
 
-esp_err_t OpenSettingsNvs(nvs_open_mode_t mode, nvs_handle_t* handle) {
-  if (handle == nullptr) {
-    return ESP_ERR_INVALID_ARG;
-  }
-
-  const esp_err_t result = nvs_open(kSettingsNvsNamespace, mode, handle);
-  if (result == ESP_ERR_NVS_NOT_FOUND && mode == NVS_READONLY) {
-    return result;
-  }
-  if (result != ESP_OK) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Open settings NVS failed (error code: %#X)\n", result);
-  }
-  return result;
-}
-
-bool LoadLegacySoundPreferencesFromNvs(SoundPreferences* preferences) {
-  if (preferences == nullptr) {
-    return false;
-  }
-
-  nvs_handle_t handle = 0;
-  const esp_err_t open_result = OpenSettingsNvs(NVS_READONLY, &handle);
-  if (open_result != ESP_OK) {
-    return false;
-  }
-
-  LegacySoundPreferencesStorage storage;
-  size_t blob_size = sizeof(storage);
-  const esp_err_t result = nvs_get_blob(
-      handle, kLegacySoundPreferencesNvsKey, &storage, &blob_size);
-  nvs_close(handle);
-  if (result == ESP_ERR_NVS_NOT_FOUND) {
-    return false;
-  }
-  if (result != ESP_OK || blob_size != sizeof(storage) ||
-      storage.magic != kLegacySoundPreferencesMagic) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Load legacy sound preferences failed (error code: %#X)\n", result);
-    return false;
-  }
-
-  preferences->volume_percent = std::clamp<int>(storage.volume_percent, 0, 100);
-  preferences->haptics_enabled = storage.haptics_enabled != 0;
-  preferences->haptic_strength_percent = std::clamp<int>(
-      storage.haptic_strength_percent, 0, 100);
-  return true;
-}
+std::atomic<int> g_volume{60};
 
 }  // namespace
 
-bool SaveSoundPreferencesToNvs(const SoundPreferences& preferences) {
-  AudioPreferences audio_preferences;
-  audio_preferences.volume_percent = preferences.volume_percent;
-  HapticPreferences haptic_preferences;
-  haptic_preferences.enabled = preferences.haptics_enabled;
-  haptic_preferences.strength_percent = preferences.haptic_strength_percent;
-  const bool audio_saved = SaveAudioPreferencesToNvs(audio_preferences);
-  const bool haptic_saved = SaveHapticPreferencesToNvs(haptic_preferences);
-  return audio_saved && haptic_saved;
+void InitSoundCache() {
+  nvs_handle_t handle = 0;
+  if (nvs_open(kNvsNamespace, NVS_READONLY, &handle) != ESP_OK) return;
+
+  Blob blob;
+  size_t sz = sizeof(blob);
+  if (nvs_get_blob(handle, kNvsKey, &blob, &sz) == ESP_OK &&
+      sz == sizeof(blob) && blob.magic == kMagic) {
+    g_volume.store(std::clamp<int>(blob.volume_percent, 0, 100));
+  }
+  nvs_close(handle);
 }
 
-bool LoadSoundPreferencesFromNvs(SoundPreferences* preferences) {
-  if (preferences == nullptr) {
-    return false;
-  }
+SoundPreferences GetSoundPreferences() {
+  return {g_volume.load()};
+}
 
-  bool loaded = false;
-  AudioPreferences audio_preferences;
-  if (LoadAudioPreferencesFromNvs(&audio_preferences)) {
-    preferences->volume_percent = audio_preferences.volume_percent;
-    loaded = true;
-  }
+bool UpdateSoundPreferences(const SoundPreferences& prefs) {
+  g_volume.store(prefs.volume_percent);
 
-  HapticPreferences haptic_preferences;
-  if (LoadHapticPreferencesFromNvs(&haptic_preferences)) {
-    preferences->haptics_enabled = haptic_preferences.enabled;
-    preferences->haptic_strength_percent = haptic_preferences.strength_percent;
-    loaded = true;
-  }
+  nvs_handle_t handle = 0;
+  if (nvs_open(kNvsNamespace, NVS_READWRITE, &handle) != ESP_OK) return false;
 
-  if (loaded) {
-    return true;
-  }
-  return LoadLegacySoundPreferencesFromNvs(preferences);
+  Blob blob;
+  blob.volume_percent = static_cast<uint8_t>(
+      std::clamp(prefs.volume_percent, 0, 100));
+
+  bool ok = nvs_set_blob(handle, kNvsKey, &blob, sizeof(blob)) == ESP_OK &&
+            nvs_commit(handle) == ESP_OK;
+  nvs_close(handle);
+  return ok;
 }
 
 }  // namespace lilygo_box::app

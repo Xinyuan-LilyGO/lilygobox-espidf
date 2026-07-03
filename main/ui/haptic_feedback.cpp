@@ -29,11 +29,9 @@ void EnsureHapticPreferencesLoaded() {
     return;
   }
 
-  app::HapticPreferences preferences;
-  if (app::LoadHapticPreferencesFromNvs(&preferences)) {
-    g_haptic_enabled = preferences.enabled;
-    g_haptic_strength_percent = preferences.strength_percent;
-  }
+  app::HapticPreferences preferences = app::GetHapticPreferences();
+  g_haptic_enabled = preferences.enabled;
+  g_haptic_strength_percent = preferences.strength_percent;
   g_haptic_preferences_loaded = true;
 }
 

@@ -1,8 +1,8 @@
-/*
- * @Description: Settings WLAN NVS storage helpers
+/**
+ * @Description: WLAN 偏好存储，内部维护内存缓存
  * @Author: LILYGO_L
  * @Date: 2026-06-23 00:00:00
- * @LastEditTime: 2026-06-25 10:47:16
+ * @LastEditTime: 2026-07-03 00:00:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -38,36 +38,40 @@ struct WifiPreferences {
 };
 
 /**
- * @brief 将已保存 WLAN 凭据写入 ESP32-P4 NVS
+ * @brief 将已保存 WLAN 凭据写入 NVS
  * @param networks 已保存 WLAN 凭据数组
  * @param count 已保存 WLAN 凭据数量
- * @return 保存成功返回 true，否则返回 false
+ * @return 保存成功返回 true
  */
 bool SaveWifiSavedNetworksToNvs(
     const WifiSavedNetwork* networks, size_t count);
 
 /**
- * @brief 从 ESP32-P4 NVS 读取已保存 WLAN 凭据
+ * @brief 从 NVS 读取已保存 WLAN 凭据
  * @param networks 已保存 WLAN 凭据输出数组
  * @param capacity 输出数组容量
- * @param count 实际读取到的 WLAN 凭据数量
- * @return 读取成功或没有保存内容返回 true，读取异常返回 false
+ * @param count 实际读取到的数量
+ * @return 读取成功返回 true
  */
 bool LoadWifiSavedNetworksFromNvs(
     WifiSavedNetwork* networks, size_t capacity, size_t* count);
 
 /**
- * @brief 将 WLAN 开关和自动连接偏好写入 ESP32-P4 NVS
- * @param preferences WLAN 用户偏好
- * @return 保存成功返回 true，否则返回 false
+ * @brief 初始化 WLAN 偏好缓存，从 NVS 加载到内存
  */
-bool SaveWifiPreferencesToNvs(const WifiPreferences& preferences);
+void InitWifiCache();
 
 /**
- * @brief 从 ESP32-P4 NVS 读取 WLAN 开关和自动连接偏好
- * @param preferences WLAN 用户偏好输出地址
- * @return 读取成功返回 true，没有保存内容或读取异常返回 false
+ * @brief 读取 WLAN 偏好（纯内存，零 NVS 访问）
+ * @return WLAN 偏好
  */
-bool LoadWifiPreferencesFromNvs(WifiPreferences* preferences);
+WifiPreferences GetWifiPreferences();
+
+/**
+ * @brief 更新 WLAN 偏好并持久化到 NVS
+ * @param preferences 新的 WLAN 偏好
+ * @return 更新成功返回 true
+ */
+bool UpdateWifiPreferences(const WifiPreferences& preferences);
 
 }  // namespace lilygo_box::app

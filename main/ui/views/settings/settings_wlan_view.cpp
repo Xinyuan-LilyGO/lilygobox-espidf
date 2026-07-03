@@ -11,7 +11,7 @@
 #include <cstdio>
 #include <cstring>
 
-#include "app/storage/storage_task.h"
+#include "app/storage/storage.h"
 #include "app/storage/wifi_storage.h"
 #include "app/wifi_manager.h"
 #include "hal/providers/screen_provider.h"
@@ -1202,9 +1202,7 @@ void PersistWifiPreferencesToNvsInternal(const SettingsViewState* state) {
   std::snprintf(preferences.auto_connect_ssid,
       sizeof(preferences.auto_connect_ssid), "%s",
       state->wifi_auto_connect_ssid);
-  app::StartStorageTask("wifi_pref_save", [preferences]() {
-    app::SaveWifiPreferencesToNvs(preferences);
-  });
+  app::UpdateWifiPreferences(preferences);
 }
 
 /**
@@ -1230,14 +1228,7 @@ void LoadWifiPreferencesFromNvsInternal(
     return;
   }
 
-  state->wifi_enabled_requested = fallback_enabled;
-  state->wifi_auto_connect_ssid[0] = '\0';
-
-  app::WifiPreferences preferences;
-  if (!app::LoadWifiPreferencesFromNvs(&preferences)) {
-    return;
-  }
-
+  app::WifiPreferences preferences = app::GetWifiPreferences();
   state->wifi_enabled_requested = preferences.enabled_requested;
   std::snprintf(state->wifi_auto_connect_ssid,
       sizeof(state->wifi_auto_connect_ssid), "%s",

@@ -1,8 +1,8 @@
-/*
- * @Description: Settings haptic NVS storage helpers
+/**
+ * @Description: 振动偏好存储，内部维护内存缓存
  * @Author: LILYGO_L
  * @Date: 2026-06-25 00:00:00
- * @LastEditTime: 2026-06-25 00:00:00
+ * @LastEditTime: 2026-07-03 00:00:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -11,24 +11,26 @@ namespace lilygo_box::app {
 
 // 振动设置用户偏好。
 struct HapticPreferences {
-  // 系统触感开关。
   bool enabled = true;
-  // 振动强度百分比，范围 0~100。
   int strength_percent = 45;
 };
 
 /**
- * @brief 将振动设置偏好写入 ESP32-P4 NVS
- * @param preferences 振动设置偏好
- * @return 保存成功返回 true，否则返回 false
+ * @brief 初始化振动偏好缓存，从 NVS 加载到内存
  */
-bool SaveHapticPreferencesToNvs(const HapticPreferences& preferences);
+void InitHapticCache();
 
 /**
- * @brief 从 ESP32-P4 NVS 读取振动设置偏好
- * @param preferences 振动设置偏好输出地址
- * @return 读取成功返回 true，没有保存内容或读取异常返回 false
+ * @brief 读取振动偏好（纯内存，零 NVS 访问）
+ * @return 振动偏好
  */
-bool LoadHapticPreferencesFromNvs(HapticPreferences* preferences);
+HapticPreferences GetHapticPreferences();
+
+/**
+ * @brief 更新振动偏好并持久化到 NVS
+ * @param preferences 新的振动偏好
+ * @return 更新成功返回 true
+ */
+bool UpdateHapticPreferences(const HapticPreferences& preferences);
 
 }  // namespace lilygo_box::app

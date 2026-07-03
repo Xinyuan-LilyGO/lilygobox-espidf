@@ -1,113 +1,72 @@
 /**
- * @Description: Settings display NVS storage helpers
+ * @Description: 显示偏好存储实现
  * @Author: LILYGO_L
  * @Date: 2026-06-25 00:00:00
- * @LastEditTime: 2026-06-25 00:00:00
+ * @LastEditTime: 2026-07-03 00:00:00
  * @License: GPL 3.0
  */
 #include "app/storage/display_storage.h"
 
 #include <algorithm>
-#include <cstdint>
+#include <atomic>
 
-#include "base/logger.h"
 #include "esp_err.h"
 #include "nvs.h"
 
 namespace lilygo_box::app {
 namespace {
 
-constexpr const char* kSettingsNvsNamespace = "settings";
-constexpr const char* kDisplayPreferencesNvsKey = "display_config";
-constexpr uint32_t kDisplayPreferencesMagic = 0x4453504C;
-constexpr int kDefaultLockTimeoutSeconds = 5 * 60;
-constexpr int kMinLockTimeoutSeconds = 0;
-constexpr int kMaxLockTimeoutSeconds = 24 * 60 * 60;
+constexpr const char* kNvsNamespace = "settings";
+constexpr const char* kNvsKey = "display_config";
+constexpr uint32_t kMagic = 0x4453504C;
 
-struct DisplayPreferencesStorage {
-  uint32_t magic = kDisplayPreferencesMagic;
+struct Blob {
+  uint32_t magic = kMagic;
   uint8_t brightness_percent = 70;
-  uint32_t lock_timeout_seconds = kDefaultLockTimeoutSeconds;
+  uint32_t lock_timeout_seconds = 300;
 };
 
-esp_err_t OpenSettingsNvs(nvs_open_mode_t mode, nvs_handle_t* handle) {
-  if (handle == nullptr) {
-    return ESP_ERR_INVALID_ARG;
-  }
-
-  const esp_err_t result = nvs_open(kSettingsNvsNamespace, mode, handle);
-  if (result == ESP_ERR_NVS_NOT_FOUND && mode == NVS_READONLY) {
-    return result;
-  }
-  if (result != ESP_OK) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Open settings NVS failed (error code: %#X)\n", result);
-  }
-  return result;
-}
+std::atomic<int> g_brightness{70};
+std::atomic<int> g_lock_timeout{300};
 
 }  // namespace
 
-bool SaveDisplayPreferencesToNvs(const DisplayPreferences& preferences) {
-  DisplayPreferencesStorage storage;
-  storage.brightness_percent = static_cast<uint8_t>(
-      std::clamp(preferences.brightness_percent, 0, 100));
-  storage.lock_timeout_seconds = static_cast<uint32_t>(std::clamp(
-      preferences.lock_timeout_seconds, kMinLockTimeoutSeconds,
-      kMaxLockTimeoutSeconds));
-
+void InitDisplayCache() {
   nvs_handle_t handle = 0;
-  if (OpenSettingsNvs(NVS_READWRITE, &handle) != ESP_OK) {
-    return false;
-  }
+  if (nvs_open(kNvsNamespace, NVS_READONLY, &handle) != ESP_OK) return;
 
-  esp_err_t result = nvs_set_blob(
-      handle, kDisplayPreferencesNvsKey, &storage, sizeof(storage));
-  if (result == ESP_OK) {
-    result = nvs_commit(handle);
+  Blob blob;
+  size_t sz = sizeof(blob);
+  if (nvs_get_blob(handle, kNvsKey, &blob, &sz) == ESP_OK &&
+      sz == sizeof(blob) && blob.magic == kMagic) {
+    g_brightness.store(std::clamp<int>(blob.brightness_percent, 0, 100));
+    g_lock_timeout.store(std::clamp<int>(
+        static_cast<int>(blob.lock_timeout_seconds), 0, 24 * 60 * 60));
   }
   nvs_close(handle);
-
-  if (result != ESP_OK) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Save display preferences failed (error code: %#X)\n", result);
-    return false;
-  }
-  return true;
 }
 
-bool LoadDisplayPreferencesFromNvs(DisplayPreferences* preferences) {
-  if (preferences == nullptr) {
-    return false;
-  }
+DisplayPreferences GetDisplayPreferences() {
+  return {g_brightness.load(), g_lock_timeout.load()};
+}
+
+bool UpdateDisplayPreferences(const DisplayPreferences& prefs) {
+  g_brightness.store(prefs.brightness_percent);
+  g_lock_timeout.store(prefs.lock_timeout_seconds);
 
   nvs_handle_t handle = 0;
-  const esp_err_t open_result = OpenSettingsNvs(NVS_READONLY, &handle);
-  if (open_result != ESP_OK) {
-    return false;
-  }
+  if (nvs_open(kNvsNamespace, NVS_READWRITE, &handle) != ESP_OK) return false;
 
-  DisplayPreferencesStorage storage;
-  size_t blob_size = sizeof(storage);
-  const esp_err_t result = nvs_get_blob(
-      handle, kDisplayPreferencesNvsKey, &storage, &blob_size);
+  Blob blob;
+  blob.brightness_percent = static_cast<uint8_t>(
+      std::clamp(prefs.brightness_percent, 0, 100));
+  blob.lock_timeout_seconds = static_cast<uint32_t>(std::clamp(
+      prefs.lock_timeout_seconds, 0, 24 * 60 * 60));
+
+  bool ok = nvs_set_blob(handle, kNvsKey, &blob, sizeof(blob)) == ESP_OK &&
+            nvs_commit(handle) == ESP_OK;
   nvs_close(handle);
-  if (result == ESP_ERR_NVS_NOT_FOUND) {
-    return false;
-  }
-  if (result != ESP_OK || blob_size != sizeof(storage) ||
-      storage.magic != kDisplayPreferencesMagic) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Load display preferences failed (error code: %#X)\n", result);
-    return false;
-  }
-
-  preferences->brightness_percent = std::clamp<int>(
-      storage.brightness_percent, 0, 100);
-  preferences->lock_timeout_seconds = std::clamp<int>(
-      storage.lock_timeout_seconds, kMinLockTimeoutSeconds,
-      kMaxLockTimeoutSeconds);
-  return true;
+  return ok;
 }
 
 }  // namespace lilygo_box::app

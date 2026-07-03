@@ -10,7 +10,6 @@
 #include <cstdio>
 
 #include "app/storage/display_storage.h"
-#include "app/storage/storage_task.h"
 #include "ui/font/material_symbols_assets.h"
 #include "ui/input/press_cancel.h"
 #include "ui/widgets/prompt/prompt_select_sheet.h"
@@ -75,12 +74,9 @@ void AutoLockSelectedCallback(void* context, int value) {
     lv_label_set_text(state->auto_lock_value_label, text);
   }
 
-  app::DisplayPreferences preferences;
-  app::LoadDisplayPreferencesFromNvs(&preferences);
+  app::DisplayPreferences preferences = app::GetDisplayPreferences();
   preferences.lock_timeout_seconds = value;
-  app::StartStorageTask("lock_save", [preferences]() {
-    app::SaveDisplayPreferencesToNvs(preferences);
-  });
+  app::UpdateDisplayPreferences(preferences);
 }
 
 /**

@@ -10,7 +10,6 @@
 #include <cstdint>
 
 #include "app/storage/display_storage.h"
-#include "app/storage/storage_task.h"
 #include "hal/providers/haptic_provider.h"
 #include "hal/providers/screen_provider.h"
 #include "ui/font/material_symbols_assets.h"
@@ -37,12 +36,9 @@ void SaveBrightnessPreferencesAsync(SettingsViewState* state) {
     return;
   }
 
-  app::DisplayPreferences preferences;
-  app::LoadDisplayPreferencesFromNvs(&preferences);
+  app::DisplayPreferences preferences = app::GetDisplayPreferences();
   preferences.brightness_percent = state->display_brightness_percent;
-  app::StartStorageTask("display_save", [preferences]() {
-    app::SaveDisplayPreferencesToNvs(preferences);
-  });
+  app::UpdateDisplayPreferences(preferences);
 }
 
 /**

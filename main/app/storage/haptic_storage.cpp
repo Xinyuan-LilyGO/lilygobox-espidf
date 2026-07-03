@@ -1,106 +1,70 @@
-/*
- * @Description: Settings haptic NVS storage helpers
+/**
+ * @Description: 振动偏好存储实现
  * @Author: LILYGO_L
  * @Date: 2026-06-25 00:00:00
- * @LastEditTime: 2026-06-25 00:00:00
+ * @LastEditTime: 2026-07-03 00:00:00
  * @License: GPL 3.0
  */
 #include "app/storage/haptic_storage.h"
 
 #include <algorithm>
-#include <cstdint>
+#include <atomic>
 
-#include "base/logger.h"
 #include "esp_err.h"
 #include "nvs.h"
 
 namespace lilygo_box::app {
 namespace {
 
-constexpr const char* kSettingsNvsNamespace = "settings";
-constexpr const char* kHapticPreferencesNvsKey = "haptic_config";
-constexpr uint32_t kHapticPreferencesMagic = 0x48505450;
+constexpr const char* kNvsNamespace = "settings";
+constexpr const char* kNvsKey = "haptic_config";
+constexpr uint32_t kMagic = 0x48505443;
 
-struct HapticPreferencesStorage {
-  uint32_t magic = kHapticPreferencesMagic;
+struct Blob {
+  uint32_t magic = kMagic;
   uint8_t enabled = 1;
   uint8_t strength_percent = 45;
 };
 
-esp_err_t OpenSettingsNvs(nvs_open_mode_t mode, nvs_handle_t* handle) {
-  if (handle == nullptr) {
-    return ESP_ERR_INVALID_ARG;
-  }
-
-  const esp_err_t result = nvs_open(kSettingsNvsNamespace, mode, handle);
-  if (result == ESP_ERR_NVS_NOT_FOUND && mode == NVS_READONLY) {
-    return result;
-  }
-  if (result != ESP_OK) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Open settings NVS failed (error code: %#X)\n", result);
-  }
-  return result;
-}
+std::atomic<bool> g_enabled{true};
+std::atomic<int> g_strength{45};
 
 }  // namespace
 
-bool SaveHapticPreferencesToNvs(const HapticPreferences& preferences) {
-  HapticPreferencesStorage storage;
-  storage.enabled = preferences.enabled ? 1 : 0;
-  storage.strength_percent = static_cast<uint8_t>(
-      std::clamp(preferences.strength_percent, 0, 100));
-
+void InitHapticCache() {
   nvs_handle_t handle = 0;
-  if (OpenSettingsNvs(NVS_READWRITE, &handle) != ESP_OK) {
-    return false;
-  }
+  if (nvs_open(kNvsNamespace, NVS_READONLY, &handle) != ESP_OK) return;
 
-  esp_err_t result = nvs_set_blob(
-      handle, kHapticPreferencesNvsKey, &storage, sizeof(storage));
-  if (result == ESP_OK) {
-    result = nvs_commit(handle);
+  Blob blob;
+  size_t sz = sizeof(blob);
+  if (nvs_get_blob(handle, kNvsKey, &blob, &sz) == ESP_OK &&
+      sz == sizeof(blob) && blob.magic == kMagic) {
+    g_enabled.store(blob.enabled != 0);
+    g_strength.store(std::clamp<int>(blob.strength_percent, 0, 100));
   }
   nvs_close(handle);
-
-  if (result != ESP_OK) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Save haptic preferences failed (error code: %#X)\n", result);
-    return false;
-  }
-  return true;
 }
 
-bool LoadHapticPreferencesFromNvs(HapticPreferences* preferences) {
-  if (preferences == nullptr) {
-    return false;
-  }
+HapticPreferences GetHapticPreferences() {
+  return {g_enabled.load(), g_strength.load()};
+}
+
+bool UpdateHapticPreferences(const HapticPreferences& prefs) {
+  g_enabled.store(prefs.enabled);
+  g_strength.store(prefs.strength_percent);
 
   nvs_handle_t handle = 0;
-  const esp_err_t open_result = OpenSettingsNvs(NVS_READONLY, &handle);
-  if (open_result != ESP_OK) {
-    return false;
-  }
+  if (nvs_open(kNvsNamespace, NVS_READWRITE, &handle) != ESP_OK) return false;
 
-  HapticPreferencesStorage storage;
-  size_t blob_size = sizeof(storage);
-  const esp_err_t result = nvs_get_blob(
-      handle, kHapticPreferencesNvsKey, &storage, &blob_size);
+  Blob blob;
+  blob.enabled = prefs.enabled ? 1 : 0;
+  blob.strength_percent = static_cast<uint8_t>(
+      std::clamp(prefs.strength_percent, 0, 100));
+
+  bool ok = nvs_set_blob(handle, kNvsKey, &blob, sizeof(blob)) == ESP_OK &&
+            nvs_commit(handle) == ESP_OK;
   nvs_close(handle);
-  if (result == ESP_ERR_NVS_NOT_FOUND) {
-    return false;
-  }
-  if (result != ESP_OK || blob_size != sizeof(storage) ||
-      storage.magic != kHapticPreferencesMagic) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Load haptic preferences failed (error code: %#X)\n", result);
-    return false;
-  }
-
-  preferences->enabled = storage.enabled != 0;
-  preferences->strength_percent = std::clamp<int>(
-      storage.strength_percent, 0, 100);
-  return true;
+  return ok;
 }
 
 }  // namespace lilygo_box::app

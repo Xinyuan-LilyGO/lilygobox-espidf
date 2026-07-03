@@ -11,8 +11,9 @@
 #include <cstdint>
 #include <cstdlib>
 
-#include "app/storage/audio_storage.h"
 #include "app/storage/display_storage.h"
+#include "app/storage/sound_storage.h"
+#include "app/storage/storage.h"
 #include "app/wifi_manager.h"
 #include "base/logger.h"
 #include "esp_err.h"
@@ -100,17 +101,14 @@ bool Application::Init() {
     LogMessage(LogLevel::kError, __FILE__, __LINE__, "Start failed\n");
     return false;
   }
-  app::DisplayPreferences display_preferences;
-  const bool has_display_preferences =
-      app::LoadDisplayPreferencesFromNvs(&display_preferences);
-  current_screen_brightness_percent_.store(
-      has_display_preferences ? display_preferences.brightness_percent : 100);
+  app::InitStorage();
+  app::DisplayPreferences display_preferences = app::GetDisplayPreferences();
+  current_screen_brightness_percent_.store(display_preferences.brightness_percent);
   screen->StartScreenBacklight(current_screen_brightness_percent_.load());
-  app::AudioPreferences audio_preferences;
-  if (device_provider_context_.audio != nullptr &&
-      app::LoadAudioPreferencesFromNvs(&audio_preferences)) {
+  if (device_provider_context_.audio != nullptr) {
+    app::SoundPreferences sound_preferences = app::GetSoundPreferences();
     device_provider_context_.audio->SetSpeakerVolumePercent(
-        audio_preferences.volume_percent);
+        sound_preferences.volume_percent);
   }
 
   lvgl_port_.Lock();
@@ -569,9 +567,7 @@ void Application::FadeScreenBrightnessTo(int target_percent) {
 }
 
 app::DisplayPreferences Application::LoadDisplayPreferencesOrDefault() const {
-  app::DisplayPreferences preferences;
-  app::LoadDisplayPreferencesFromNvs(&preferences);
-  return preferences;
+  return app::GetDisplayPreferences();
 }
 
 }  // namespace lilygo_box

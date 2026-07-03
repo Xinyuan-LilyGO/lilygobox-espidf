@@ -9,9 +9,8 @@
 
 #include <cstdint>
 
-#include "app/storage/audio_storage.h"
 #include "app/storage/haptic_storage.h"
-#include "app/storage/storage_task.h"
+#include "app/storage/sound_storage.h"
 #include "hal/providers/audio_provider.h"
 #include "hal/providers/haptic_provider.h"
 #include "ui/font/material_symbols_assets.h"
@@ -39,15 +38,13 @@ bool BuildSoundHapticsContent(lv_obj_t* body, SettingsViewState* state);
  * @brief 异步保存音频设置偏好
  * @param state 设置页状态
  */
-void SaveAudioPreferencesAsync(SettingsViewState* state) {
+void SaveSoundPreferencesAsync(SettingsViewState* state) {
   if (state == nullptr) {
     return;
   }
-  app::AudioPreferences preferences;
+  app::SoundPreferences preferences = app::GetSoundPreferences();
   preferences.volume_percent = state->audio_volume_percent;
-  app::StartStorageTask("audio_save", [preferences]() {
-    app::SaveAudioPreferencesToNvs(preferences);
-  });
+  app::UpdateSoundPreferences(preferences);
 }
 
 /**
@@ -58,13 +55,11 @@ void SaveHapticPreferencesAsync(SettingsViewState* state) {
   if (state == nullptr) {
     return;
   }
-  app::HapticPreferences preferences;
+  app::HapticPreferences preferences = app::GetHapticPreferences();
   preferences.enabled = state->haptics_enabled;
   preferences.strength_percent = state->haptic_strength_percent;
   SetUiHapticPreferences(preferences.enabled, preferences.strength_percent);
-  app::StartStorageTask("haptic_save", [preferences]() {
-    app::SaveHapticPreferencesToNvs(preferences);
-  });
+  app::UpdateHapticPreferences(preferences);
 }
 
 void PlaySettingsHapticPreview(SettingsViewState* state) {
@@ -152,7 +147,7 @@ void VolumeSliderReleasedEventCallback(lv_event_t* event) {
     if (state->config.audio != nullptr) {
       state->config.audio->StopSpeakerToneLoop();
     }
-    SaveAudioPreferencesAsync(state);
+    SaveSoundPreferencesAsync(state);
   }
 }
 

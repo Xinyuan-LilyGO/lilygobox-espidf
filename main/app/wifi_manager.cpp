@@ -65,9 +65,8 @@ bool LoadWifiAutoConnectTarget(WifiSavedNetwork* target) {
     return false;
   }
 
-  WifiPreferences preferences;
-  if (!LoadWifiPreferencesFromNvs(&preferences) ||
-      !preferences.enabled_requested ||
+  WifiPreferences preferences = GetWifiPreferences();
+  if (!preferences.enabled_requested ||
       preferences.auto_connect_ssid[0] == '\0') {
     return false;
   }

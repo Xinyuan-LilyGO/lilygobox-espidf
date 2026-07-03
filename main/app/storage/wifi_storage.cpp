@@ -1,203 +1,146 @@
-/*
- * @Description: Settings WLAN NVS storage helpers
+/**
+ * @Description: WLAN 偏好存储实现
  * @Author: LILYGO_L
  * @Date: 2026-06-23 00:00:00
- * @LastEditTime: 2026-06-23 00:00:00
+ * @LastEditTime: 2026-07-03 00:00:00
  * @License: GPL 3.0
  */
 #include "app/storage/wifi_storage.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <cstdint>
 
 #include "base/logger.h"
 #include "esp_err.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "nvs.h"
 
 namespace lilygo_box::app {
 namespace {
 
-constexpr const char* kSettingsNvsNamespace = "settings";
-constexpr const char* kWifiSavedNetworksNvsKey = "wifi_saved";
-constexpr const char* kWifiPreferencesNvsKey = "wifi_config";
-constexpr uint32_t kWifiSavedNetworksMagic = 0x57494649;
-constexpr uint32_t kWifiPreferencesMagic = 0x57465052;
+constexpr const char* kNvsNamespace = "settings";
+constexpr const char* kWifiSavedNvsKey = "wifi_saved";
+constexpr const char* kWifiPrefsNvsKey = "wifi_config";
+constexpr uint32_t kWifiSavedMagic = 0x57494649;
+constexpr uint32_t kWifiPrefsMagic = 0x57465052;
 
-struct WifiSavedNetworksStorage {
-  uint32_t magic = kWifiSavedNetworksMagic;
+struct SavedBlob {
+  uint32_t magic = kWifiSavedMagic;
   uint32_t count = 0;
   WifiSavedNetwork networks[kWifiSavedNetworkCapacity] = {};
 };
 
-struct WifiPreferencesStorage {
-  uint32_t magic = kWifiPreferencesMagic;
+struct PrefsBlob {
+  uint32_t magic = kWifiPrefsMagic;
   uint8_t enabled_requested = 0;
   char auto_connect_ssid[hal::kWifiSsidMaxLength + 1] = {};
 };
 
-/**
- * @brief 打开设置 NVS 命名空间
- * @param mode NVS 打开模式
- * @param handle NVS 句柄输出地址
- * @return 打开成功返回 ESP_OK，否则返回错误码
- */
-esp_err_t OpenSettingsNvs(nvs_open_mode_t mode, nvs_handle_t* handle) {
-  if (handle == nullptr) {
-    return ESP_ERR_INVALID_ARG;
-  }
-
-  const esp_err_t result = nvs_open(kSettingsNvsNamespace, mode, handle);
-  if (result == ESP_ERR_NVS_NOT_FOUND && mode == NVS_READONLY) {
-    return result;
-  }
-  if (result != ESP_OK) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Open settings NVS failed (error code: %#X)\n", result);
-  }
-  return result;
-}
+std::atomic<bool> g_enabled{false};
+SemaphoreHandle_t g_mutex = nullptr;
+char g_auto_connect_ssid[hal::kWifiSsidMaxLength + 1] = {};
 
 }  // namespace
 
 bool SaveWifiSavedNetworksToNvs(
     const WifiSavedNetwork* networks, size_t count) {
-  if (networks == nullptr && count > 0) {
-    return false;
-  }
+  if (networks == nullptr && count > 0) return false;
 
-  WifiSavedNetworksStorage storage;
-  storage.count =
-      static_cast<uint32_t>(std::min(count, kWifiSavedNetworkCapacity));
-  for (size_t i = 0; i < storage.count; ++i) {
-    storage.networks[i] = networks[i];
+  SavedBlob blob;
+  blob.count = static_cast<uint32_t>(std::min(count, kWifiSavedNetworkCapacity));
+  for (size_t i = 0; i < blob.count; ++i) {
+    blob.networks[i] = networks[i];
   }
 
   nvs_handle_t handle = 0;
-  if (OpenSettingsNvs(NVS_READWRITE, &handle) != ESP_OK) {
-    return false;
-  }
-
-  esp_err_t result = nvs_set_blob(
-      handle, kWifiSavedNetworksNvsKey, &storage, sizeof(storage));
-  if (result == ESP_OK) {
-    result = nvs_commit(handle);
-  }
+  if (nvs_open(kNvsNamespace, NVS_READWRITE, &handle) != ESP_OK) return false;
+  bool ok = nvs_set_blob(handle, kWifiSavedNvsKey, &blob, sizeof(blob)) == ESP_OK &&
+            nvs_commit(handle) == ESP_OK;
   nvs_close(handle);
-
-  if (result != ESP_OK) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Save WLAN credentials failed (error code: %#X)\n", result);
-    return false;
-  }
-  return true;
+  return ok;
 }
 
 bool LoadWifiSavedNetworksFromNvs(
     WifiSavedNetwork* networks, size_t capacity, size_t* count) {
-  if (networks == nullptr || count == nullptr) {
-    return false;
-  }
-
+  if (networks == nullptr || count == nullptr) return false;
   *count = 0;
-  for (size_t i = 0; i < capacity; ++i) {
-    networks[i] = WifiSavedNetwork();
-  }
 
   nvs_handle_t handle = 0;
-  const esp_err_t open_result = OpenSettingsNvs(NVS_READONLY, &handle);
-  if (open_result == ESP_ERR_NVS_NOT_FOUND) {
-    return true;
-  }
-  if (open_result != ESP_OK) {
-    return false;
-  }
+  if (nvs_open(kNvsNamespace, NVS_READONLY, &handle) != ESP_OK) return true;
 
-  WifiSavedNetworksStorage storage;
-  size_t blob_size = sizeof(storage);
-  const esp_err_t result = nvs_get_blob(
-      handle, kWifiSavedNetworksNvsKey, &storage, &blob_size);
-  nvs_close(handle);
-  if (result == ESP_ERR_NVS_NOT_FOUND) {
-    return true;
-  }
-  if (result != ESP_OK || blob_size != sizeof(storage) ||
-      storage.magic != kWifiSavedNetworksMagic) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Load WLAN credentials failed (error code: %#X)\n", result);
-    return false;
-  }
-
-  const size_t storage_count = std::min<size_t>(
-      storage.count, kWifiSavedNetworkCapacity);
-  for (size_t i = 0; i < storage_count && *count < capacity; ++i) {
-    if (storage.networks[i].ssid[0] == '\0') {
-      continue;
+  SavedBlob blob;
+  size_t sz = sizeof(blob);
+  if (nvs_get_blob(handle, kWifiSavedNvsKey, &blob, &sz) == ESP_OK &&
+      sz == sizeof(blob) && blob.magic == kWifiSavedMagic) {
+    size_t n = std::min<size_t>(blob.count, kWifiSavedNetworkCapacity);
+    for (size_t i = 0; i < n && *count < capacity; ++i) {
+      if (blob.networks[i].ssid[0] == '\0') continue;
+      networks[*count] = blob.networks[i];
+      ++(*count);
     }
-    networks[*count] = storage.networks[i];
-    ++(*count);
   }
+  nvs_close(handle);
   return true;
 }
 
-bool SaveWifiPreferencesToNvs(const WifiPreferences& preferences) {
-  WifiPreferencesStorage storage;
-  storage.enabled_requested = preferences.enabled_requested ? 1 : 0;
-  std::snprintf(storage.auto_connect_ssid,
-      sizeof(storage.auto_connect_ssid), "%s",
-      preferences.auto_connect_ssid);
+void InitWifiCache() {
+  if (g_mutex == nullptr) {
+    g_mutex = xSemaphoreCreateMutex();
+  }
+  if (g_mutex == nullptr) return;
 
   nvs_handle_t handle = 0;
-  if (OpenSettingsNvs(NVS_READWRITE, &handle) != ESP_OK) {
-    return false;
-  }
+  if (nvs_open(kNvsNamespace, NVS_READONLY, &handle) != ESP_OK) return;
 
-  esp_err_t result = nvs_set_blob(
-      handle, kWifiPreferencesNvsKey, &storage, sizeof(storage));
-  if (result == ESP_OK) {
-    result = nvs_commit(handle);
+  PrefsBlob blob;
+  size_t sz = sizeof(blob);
+  if (nvs_get_blob(handle, kWifiPrefsNvsKey, &blob, &sz) == ESP_OK &&
+      sz == sizeof(blob) && blob.magic == kWifiPrefsMagic) {
+    g_enabled.store(blob.enabled_requested != 0);
+    xSemaphoreTake(g_mutex, portMAX_DELAY);
+    std::snprintf(g_auto_connect_ssid, sizeof(g_auto_connect_ssid),
+                  "%s", blob.auto_connect_ssid);
+    xSemaphoreGive(g_mutex);
   }
   nvs_close(handle);
-
-  if (result != ESP_OK) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Save WLAN preferences failed (error code: %#X)\n", result);
-    return false;
-  }
-  return true;
 }
 
-bool LoadWifiPreferencesFromNvs(WifiPreferences* preferences) {
-  if (preferences == nullptr) {
-    return false;
+WifiPreferences GetWifiPreferences() {
+  WifiPreferences prefs;
+  prefs.enabled_requested = g_enabled.load();
+  if (g_mutex != nullptr) {
+    xSemaphoreTake(g_mutex, portMAX_DELAY);
+    std::snprintf(prefs.auto_connect_ssid, sizeof(prefs.auto_connect_ssid),
+                  "%s", g_auto_connect_ssid);
+    xSemaphoreGive(g_mutex);
   }
+  return prefs;
+}
+
+bool UpdateWifiPreferences(const WifiPreferences& prefs) {
+  if (g_mutex == nullptr) return false;
+
+  g_enabled.store(prefs.enabled_requested);
+  xSemaphoreTake(g_mutex, portMAX_DELAY);
+  std::snprintf(g_auto_connect_ssid, sizeof(g_auto_connect_ssid),
+                "%s", prefs.auto_connect_ssid);
+  xSemaphoreGive(g_mutex);
 
   nvs_handle_t handle = 0;
-  const esp_err_t open_result = OpenSettingsNvs(NVS_READONLY, &handle);
-  if (open_result != ESP_OK) {
-    return false;
-  }
+  if (nvs_open(kNvsNamespace, NVS_READWRITE, &handle) != ESP_OK) return false;
 
-  WifiPreferencesStorage storage;
-  size_t blob_size = sizeof(storage);
-  const esp_err_t result = nvs_get_blob(
-      handle, kWifiPreferencesNvsKey, &storage, &blob_size);
+  PrefsBlob blob;
+  blob.enabled_requested = prefs.enabled_requested ? 1 : 0;
+  std::snprintf(blob.auto_connect_ssid, sizeof(blob.auto_connect_ssid),
+                "%s", prefs.auto_connect_ssid);
+
+  bool ok = nvs_set_blob(handle, kWifiPrefsNvsKey, &blob, sizeof(blob)) == ESP_OK &&
+            nvs_commit(handle) == ESP_OK;
   nvs_close(handle);
-  if (result == ESP_ERR_NVS_NOT_FOUND) {
-    return false;
-  }
-  if (result != ESP_OK || blob_size != sizeof(storage) ||
-      storage.magic != kWifiPreferencesMagic) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Load WLAN preferences failed (error code: %#X)\n", result);
-    return false;
-  }
-
-  preferences->enabled_requested = storage.enabled_requested != 0;
-  std::snprintf(preferences->auto_connect_ssid,
-      sizeof(preferences->auto_connect_ssid), "%s",
-      storage.auto_connect_ssid);
-  return true;
+  return ok;
 }
 
 }  // namespace lilygo_box::app
