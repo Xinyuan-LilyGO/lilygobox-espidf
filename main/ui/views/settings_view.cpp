@@ -36,6 +36,7 @@ void SaveSettingsPreferencesAsync(SettingsViewState* state) {
   }
   app::DisplayPreferences display_preferences;
   display_preferences.brightness_percent = state->display_brightness_percent;
+  display_preferences.lock_timeout_seconds = state->auto_lock_seconds;
   app::SoundPreferences sound_preferences;
   sound_preferences.volume_percent = state->audio_volume_percent;
   sound_preferences.haptics_enabled = state->haptics_enabled;
