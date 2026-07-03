@@ -1293,10 +1293,8 @@ bool TDisplayP4Device::StartCameraPreview() {
 
 bool TDisplayP4Device::StopCameraPreview() {
   camera_preview_.stop_requested.store(true);
-  if (camera_preview_.video_fd >= 0) {
-    int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    ioctl(camera_preview_.video_fd, VIDIOC_STREAMOFF, &type);
-  }
+  // 不在这里发 VIDIOC_STREAMOFF — 让 RunCameraPreviewTask 退出时由
+  // DeinitializeCameraPreview 统一处理，避免与正在运行的 DQBUF/PPA 产生 I2C 竞态
   const uint32_t start_ms = static_cast<uint32_t>(
       xTaskGetTickCount() * portTICK_PERIOD_MS);
   TaskHandle_t task_handle = camera_preview_.task_handle;
