@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-02 09:20:54
+ * @LastEditTime: 2026-07-03 17:51:19
  * @License: GPL 3.0
  */
 #include "hal/device/t_display_p4/t_display_p4_device.h"
@@ -80,7 +80,7 @@ constexpr int kMicrophoneLevelFallDivisor = 8;
 constexpr uint32_t kCameraPreviewTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kCameraPreviewTaskPriority = 5;
 constexpr uint32_t kCameraBufferCount = 2;
-constexpr uint32_t kCameraFrameIntervalMs = 100;
+constexpr uint32_t kCameraFrameIntervalMs = 10;
 constexpr uint32_t kCameraStopWaitTimeoutMs = 5000;
 constexpr uint32_t kCameraOutputClearFrameCount = 3;
 constexpr float kRadiansToDegrees = 57.2957795F;
