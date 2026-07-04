@@ -130,6 +130,20 @@ void LvglPort::Lock() { _lock_acquire(&lock_); }
 
 void LvglPort::Unlock() { _lock_release(&lock_); }
 
+void LvglPort::SetDisplayRotation(int angle) {
+  if (lvgl_display_ == nullptr) return;
+
+  lv_display_rotation_t rotation = LV_DISPLAY_ROTATION_0;
+  switch (angle) {
+    case 90:  rotation = LV_DISPLAY_ROTATION_90;  break;
+    case 180: rotation = LV_DISPLAY_ROTATION_180; break;
+    case 270: rotation = LV_DISPLAY_ROTATION_270; break;
+    default:  rotation = LV_DISPLAY_ROTATION_0;   break;
+  }
+  // 回调在 LVGL 线程，无需额外加锁
+  lv_display_set_rotation(lvgl_display_, rotation);
+}
+
 void LvglPort::FlushCallback(
     lv_display_t* lvgl_display, const lv_area_t* area, uint8_t* pixel_map) {
   auto* self = static_cast<LvglPort*>(lv_display_get_user_data(lvgl_display));

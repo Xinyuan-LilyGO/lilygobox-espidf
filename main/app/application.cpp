@@ -22,6 +22,7 @@
 #include "hal/device_provider_factory.h"
 #include "nvs_flash.h"
 #include "ui/haptic_feedback.h"
+#include "ui/views/settings/settings_view_internal.h"
 
 namespace lilygo_box {
 namespace {
@@ -102,6 +103,7 @@ bool Application::Init() {
     return false;
   }
   app::InitStorage();
+  lilygo_box::ui::SetLvglPortForRotation(&lvgl_port_);
   app::DisplayPreferences display_preferences = app::GetDisplayPreferences();
   current_screen_brightness_percent_.store(display_preferences.brightness_percent);
   screen->StartScreenBacklight(current_screen_brightness_percent_.load());

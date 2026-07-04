@@ -54,6 +54,12 @@ class LvglPort final {
   void SetInputBlocked(bool blocked);
 
   /**
+   * @brief 设置 LVGL 软件旋转角度
+   * @param angle 旋转角度，须为 0/90/180/270
+   */
+  void SetDisplayRotation(int angle);
+
+  /**
    * @brief 锁定 LVGL API 访问
    */
   void Lock();

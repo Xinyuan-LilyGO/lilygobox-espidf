@@ -2,7 +2,7 @@
  * @Description: Settings lock screen page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-06-25 00:00:00
+ * @LastEditTime: 2026-07-04 18:18:46
  * @License: GPL 3.0
  */
 #include "ui/views/settings/settings_basic_view_common.h"
@@ -31,8 +31,8 @@ constexpr int kAutoLockSheetSideMargin = 34;
 constexpr int kAutoLockSheetBottomMargin = 32;
 constexpr int kAutoLockSheetRadius = 48;
 constexpr int kAutoLockSheetInnerPadding = 32;
-constexpr int kAutoLockSheetHeight = 740;
-constexpr int kAutoLockOptionTop = 132;
+constexpr int kAutoLockSheetHeight = 755;
+constexpr int kAutoLockOptionTop = 155;
 constexpr int kAutoLockOptionHeight = 78;
 constexpr uint32_t kAutoLockSelectedColor =
     theme::LightNeutralTheme().action_container;

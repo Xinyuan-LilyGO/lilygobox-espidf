@@ -18,6 +18,10 @@
 #include "ui/views/app_view_config.h"
 #include "ui/widgets/prompt/prompt_select_sheet.h"
 
+namespace lilygo_box::hal {
+class LvglPort;
+}  // namespace lilygo_box::hal
+
 namespace lilygo_box::ui {
 
 constexpr int kPagePaddingX = 34;
@@ -186,6 +190,8 @@ struct SettingsViewState {
   lv_obj_t* wifi_connect_button_label = nullptr;
   lv_obj_t* auto_lock_value_label = nullptr;
   PromptSelectSheetState auto_lock_select_sheet = {};
+  lv_obj_t* screen_rotation_value_label = nullptr;
+  PromptSelectSheetState screen_rotation_select_sheet = {};
   // 管理已保存网络页中等待确认删除的行对象。
   lv_obj_t* wifi_saved_delete_row = nullptr;
   // WLAN 页面内容容器，扫描或连接状态变化时会整体重建。
@@ -260,6 +266,7 @@ struct SettingsViewState {
   int audio_volume_percent = 60;
   int haptic_strength_percent = 45;
   int auto_lock_seconds = 5 * 60;
+  int screen_rotation_angle = 0;
   char wifi_auto_connect_ssid[hal::kWifiSsidMaxLength + 1] = {};
 };
 
@@ -448,6 +455,12 @@ bool ShowLockScreenPage(SettingsViewState* state);
  * @return 打开成功返回 true，否则返回 false
  */
 bool ShowDisplayBrightnessPage(SettingsViewState* state);
+
+/**
+ * @brief 设置屏幕旋转使用的 LVGL 端口
+ * @param port LVGL 端口指针
+ */
+void SetLvglPortForRotation(hal::LvglPort* port);
 
 /**
  * @brief 从设置主页打开声音与触感详情页
