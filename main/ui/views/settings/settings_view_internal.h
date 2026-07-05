@@ -450,6 +450,30 @@ bool ShowPersonalHotspotPage(SettingsViewState* state);
 bool ShowLockScreenPage(SettingsViewState* state);
 
 /**
+ * @brief 设置旋转后自动恢复的子页面 ID
+ * @param page_id 子页面 ID（如 "display_brightness"），nullptr 表示清除
+ */
+void SetSettingsRestoreSubPage(const char* page_id);
+
+/**
+ * @brief 获取旋转后自动恢复的子页面 ID
+ * @return 子页面 ID，nullptr 表示不需要恢复
+ */
+const char* GetSettingsRestoreSubPage();
+
+/**
+ * @brief 标记旋转恢复时是否需要跳过页面动画
+ * @return true 表示跳过动画
+ */
+bool IsSkipPageAnimation();
+
+/**
+ * @brief 消耗旋转恢复跳过动画标志，读取并清除
+ * @return true 表示需要跳过动画，且标志已清除
+ */
+bool ConsumeSkipPageAnimation();
+
+/**
  * @brief 从设置主页打开显示与亮度详情页
  * @param state 设置页状态
  * @return 打开成功返回 true，否则返回 false

@@ -176,6 +176,12 @@ class UiManager final {
   static void SystemStatusRefreshTimerCallback(lv_timer_t* timer);
 
   /**
+   * @brief 处理根屏幕尺寸变化或刷新事件，用于旋转后重新计算布局
+   * @param event LVGL 事件对象
+   */
+  static void RootLayoutRefreshEventCallback(lv_event_t* event);
+
+  /**
    * @brief 设置系统启动界面进度条宽度
    * @param user_data UI 管理器对象
    * @param width 进度条宽度
@@ -200,6 +206,23 @@ class UiManager final {
    * @param animation LVGL 动画对象
    */
   static void StartupFadeCompletedCallback(lv_anim_t* animation);
+
+  /**
+   * @brief 获取当前 LVGL 逻辑布局宽度，旋转后会随 display 更新
+   * @return 当前布局宽度
+   */
+  int LayoutWidth() const;
+
+  /**
+   * @brief 获取当前 LVGL 逻辑布局高度，旋转后会随 display 更新
+   * @return 当前布局高度
+   */
+  int LayoutHeight() const;
+
+  /**
+   * @brief 根屏幕尺寸变化后重新创建依赖宽高的布局
+   */
+  void RelayoutForScreenSize();
 
   /**
    * @brief 创建系统启动界面
@@ -362,7 +385,11 @@ class UiManager final {
   int startup_progress_percent_ = 0;
   int startup_progress_target_percent_ = 0;
   int startup_progress_pending_percent_ = 0;
+  int layout_width_ = 0;
+  int layout_height_ = 0;
   bool startup_progress_animating_ = false;
+  bool relayouting_ = false;
+  const app::AppEntry* active_app_entry_ = nullptr;
   lv_obj_t* launcher_container_ = nullptr;
   lv_obj_t* page_scroller_ = nullptr;
   lv_obj_t* home_page_ = nullptr;

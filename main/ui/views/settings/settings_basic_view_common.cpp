@@ -37,6 +37,7 @@ void CloseNestedPage(SettingsViewState* state, bool animated);
  * @param animation LVGL 动画对象
  */
 void ExtraCloseCompletedCallback(lv_anim_t* animation) {
+  SetSettingsRestoreSubPage(nullptr);
   auto* state =
       static_cast<SettingsViewState*>(lv_anim_get_user_data(animation));
   if (state == nullptr || state->settings_extra_page == nullptr) {
@@ -56,6 +57,7 @@ void ExtraCloseCompletedCallback(lv_anim_t* animation) {
  * @param animation LVGL 动画对象
  */
 void NestedCloseCompletedCallback(lv_anim_t* animation) {
+  SetSettingsRestoreSubPage(nullptr);
   auto* state =
       static_cast<SettingsViewState*>(lv_anim_get_user_data(animation));
   if (state == nullptr || state->settings_nested_page == nullptr) {
@@ -158,7 +160,7 @@ void ExtraEdgeBackEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->settings_extra_page == nullptr ||
       state->settings_extra_closing || state->config.screen == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, state->config.screen->ScreenWidth(),
+      !HandleEdgeBackSwipeEvent(event, state->config.width,
           &state->settings_extra_swipe)) {
     return;
   }
@@ -176,7 +178,7 @@ void NestedEdgeBackEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->settings_nested_page == nullptr ||
       state->settings_nested_closing || state->config.screen == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, state->config.screen->ScreenWidth(),
+      !HandleEdgeBackSwipeEvent(event, state->config.width,
           &state->settings_nested_swipe)) {
     return;
   }
@@ -313,7 +315,10 @@ bool ShowBasicPage(SettingsViewState* state, const char* title,
   }
 
   EnableEdgeBackSwipeEventBubble(page);
-  if (!StartSlideLeftWindowTransition(page, state->config.width,
+  if (ConsumeSkipPageAnimation()) {
+    // 旋转恢复时跳过滑入动画，直接把页面放到最终位置
+    lv_obj_set_x(page, 0);
+  } else if (!StartSlideLeftWindowTransition(page, state->config.width,
           kDetailSlideAnimationMs, state, nullptr)) {
     CloseExtraPage(state, false);
     return false;

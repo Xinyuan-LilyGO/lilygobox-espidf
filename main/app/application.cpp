@@ -105,6 +105,9 @@ bool Application::Init() {
   app::InitStorage();
   lilygo_box::ui::SetLvglPortForRotation(&lvgl_port_);
   app::DisplayPreferences display_preferences = app::GetDisplayPreferences();
+  lvgl_port_.Lock();
+  lvgl_port_.SetDisplayRotation(display_preferences.screen_rotation_angle);
+  lvgl_port_.Unlock();
   current_screen_brightness_percent_.store(display_preferences.brightness_percent);
   screen->StartScreenBacklight(current_screen_brightness_percent_.load());
   if (device_provider_context_.audio != nullptr) {

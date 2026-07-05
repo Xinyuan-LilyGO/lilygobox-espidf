@@ -387,7 +387,7 @@ void WifiEdgeBackEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->wifi_page == nullptr ||
       state->wifi_closing || state->config.screen == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, state->config.screen->ScreenWidth(),
+      !HandleEdgeBackSwipeEvent(event, state->config.width,
           &state->wifi_swipe)) {
     return;
   }
@@ -555,7 +555,7 @@ void WifiModalEdgeBackEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->wifi_modal_overlay == nullptr ||
       state->config.screen == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, state->config.screen->ScreenWidth(),
+      !HandleEdgeBackSwipeEvent(event, state->config.width,
           &state->wifi_swipe)) {
     return;
   }
@@ -603,7 +603,7 @@ void WifiSubEdgeBackEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->wifi_sub_page == nullptr ||
       state->wifi_sub_closing || state->config.screen == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, state->config.screen->ScreenWidth(),
+      !HandleEdgeBackSwipeEvent(event, state->config.width,
           &state->wifi_sub_swipe)) {
     return;
   }

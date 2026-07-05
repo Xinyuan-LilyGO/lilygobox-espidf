@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <new>
 
 #include "app/settings_catalog.h"
@@ -25,6 +26,29 @@ namespace lilygo_box::ui {
 namespace {
 
 constexpr uint32_t kSettingsStatusBarTextColor = 0x111111;
+
+// 保存旋转后需要自动恢复的子页面 ID
+const char* g_restore_sub_page = nullptr;
+// 旋转恢复时跳过页面切换动画，避免看到列表页闪现
+bool g_skip_page_animation = false;
+
+}  // namespace
+
+bool IsSkipPageAnimation() { return g_skip_page_animation; }
+
+bool ConsumeSkipPageAnimation() {
+  const bool skip = g_skip_page_animation;
+  g_skip_page_animation = false;
+  return skip;
+}
+
+void SetSettingsRestoreSubPage(const char* page_id) {
+  g_restore_sub_page = page_id;
+}
+
+const char* GetSettingsRestoreSubPage() {
+  return g_restore_sub_page;
+}
 
 // 设置入口图标样式。
 struct SettingsIconStyle {
@@ -410,8 +434,6 @@ bool CreateSettingsList(
   return true;
 }
 
-}  // namespace
-
 /**
  * @brief 按当前 WLAN 开关请求状态刷新设置主页 WLAN 行右侧文字
  * @param state 设置页状态
@@ -454,6 +476,7 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
   app::DisplayPreferences display_preferences = app::GetDisplayPreferences();
   state->display_brightness_percent = display_preferences.brightness_percent;
   state->auto_lock_seconds = display_preferences.lock_timeout_seconds;
+  state->screen_rotation_angle = display_preferences.screen_rotation_angle;
   app::SoundPreferences sound_preferences = app::GetSoundPreferences();
   state->audio_volume_percent = sound_preferences.volume_percent;
   app::HapticPreferences haptic_preferences = app::GetHapticPreferences();
@@ -499,6 +522,14 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
   if (!CreateSettingsList(list, config.width, state)) {
     lv_obj_delete(root);
     return nullptr;
+  }
+
+  if (g_restore_sub_page != nullptr) {
+    g_skip_page_animation = true;
+    if (std::strcmp(g_restore_sub_page, "display_brightness") == 0) {
+      ShowDisplayBrightnessPage(state);
+    }
+    // 后续其他子页面可以在这里扩展
   }
 
   return root;

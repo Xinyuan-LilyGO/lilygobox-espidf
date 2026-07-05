@@ -280,7 +280,7 @@ void MyDeviceEdgeBackEventCallback(lv_event_t* event) {
   if (state == nullptr || state->detail_page == nullptr ||
       state->detail_closing || state->name_edit_page != nullptr ||
       state->name_edit_closing || state->config.screen == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, state->config.screen->ScreenWidth(),
+      !HandleEdgeBackSwipeEvent(event, state->config.width,
           &state->detail_swipe)) {
     return;
   }
@@ -298,7 +298,7 @@ void DeviceNameEditSwipeEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->name_edit_page == nullptr ||
       state->name_edit_closing || state->config.screen == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, state->config.screen->ScreenWidth(),
+      !HandleEdgeBackSwipeEvent(event, state->config.width,
           &state->name_edit_swipe)) {
     return;
   }

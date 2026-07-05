@@ -12,6 +12,7 @@
 #include <cstdint>
 
 #include "freertos/FreeRTOS.h"
+#include "hal/ppa/ppa_srm_helper.h"
 #include "hal/providers/screen_provider.h"
 #include "lvgl.h"
 #include "sys/lock.h"
@@ -21,6 +22,7 @@ namespace lilygo_box::hal {
 class LvglPort final {
  public:
   LvglPort() = default;
+  ~LvglPort();
 
   /**
    * @brief 初始化 LVGL 显示、输入和 tick timer
@@ -116,6 +118,12 @@ class LvglPort final {
   lv_color_format_t ColorFormat() const;
 
   /**
+   * @brief 获取当前 PPA 颜色格式
+   * @return PPA 颜色格式
+   */
+  ppa_srm_color_mode_t PpaColorMode() const;
+
+  /**
    * @brief 获取绘制缓冲区字节数
    * @return 绘制缓冲区字节数
    */
@@ -126,6 +134,25 @@ class LvglPort final {
    */
   void TaskLoop();
 
+  /**
+   * @brief 获取旋转后的临时缓冲区
+   * @param size 需要的缓冲区大小
+   * @return 缓冲区地址，分配失败返回 nullptr
+   */
+  void* EnsureRotationBuffer(size_t size);
+
+  /**
+   * @brief 使用 PPA 或 LVGL 软件旋转刷新区域
+   * @param lvgl_display LVGL 显示对象
+   * @param area 待旋转区域
+   * @param pixel_map 原始像素数据
+   * @param rotated_area 旋转后的区域输出
+   * @param rotated_pixel_map 旋转后的像素数据输出
+   * @return 旋转成功返回 true
+   */
+  bool RotateFlushBuffer(lv_display_t* lvgl_display, const lv_area_t* area,
+      uint8_t* pixel_map, lv_area_t* rotated_area, uint8_t** rotated_pixel_map);
+
   ScreenProvider* screen_ = nullptr;
   lv_display_t* lvgl_display_ = nullptr;
   lv_indev_t* input_device_ = nullptr;
@@ -133,6 +160,10 @@ class LvglPort final {
   bool active_edge_touch_flag_ = false;
   bool pending_edge_touch_flag_ = false;
   bool has_last_touch_point_ = false;
+  bool ppa_rotation_available_ = false;
+  PpaSrmHelper ppa_rotation_;
+  void* rotation_buffer_ = nullptr;
+  size_t rotation_buffer_size_ = 0;
   lv_point_t last_touch_point_ = {};
   _lock_t lock_ = nullptr;
 };

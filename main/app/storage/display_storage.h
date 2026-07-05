@@ -13,6 +13,7 @@ namespace lilygo_box::app {
 struct DisplayPreferences {
   int brightness_percent = 70;
   int lock_timeout_seconds = 5 * 60;
+  int screen_rotation_angle = 0;
 };
 
 /**

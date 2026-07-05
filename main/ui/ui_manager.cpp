@@ -187,6 +187,66 @@ int ScreenEdgeInset(int screen_width, int screen_height) {
 }
 
 /**
+ * @brief 根据屏幕横竖屏状态计算桌面应用图标列数
+ * @param screen_width 屏幕宽度
+ * @param screen_height 屏幕高度
+ * @return 列数
+ */
+int AppColumnCount(int screen_width, int screen_height) {
+  return screen_width > screen_height ? 5 : kHomeAppColumns;
+}
+
+/**
+ * @brief 根据屏幕横竖屏状态计算 dock 图标列数
+ * @param screen_width 屏幕宽度
+ * @param screen_height 屏幕高度
+ * @return 列数
+ */
+int DockColumnCount(int screen_width, int screen_height) {
+  return screen_width > screen_height ? 4 : kDockColumns;
+}
+
+/**
+ * @brief 根据屏幕横竖屏状态计算 dock 高度
+ * @param screen_width 屏幕宽度
+ * @param screen_height 屏幕高度
+ * @return dock 高度
+ */
+int DockHeight(int screen_width, int screen_height) {
+  return screen_width > screen_height ? 128 : kDockHeight;
+}
+
+/**
+ * @brief 根据屏幕横竖屏状态计算页面指示器距底部偏移
+ * @param screen_width 屏幕宽度
+ * @param screen_height 屏幕高度
+ * @return 距底部偏移量
+ */
+int PageIndicatorBottom(int screen_width, int screen_height) {
+  return DockHeight(screen_width, screen_height) + 8;
+}
+
+/**
+ * @brief 根据屏幕横竖屏状态计算时钟区域顶部偏移
+ * @param screen_width 屏幕宽度
+ * @param screen_height 屏幕高度
+ * @return 顶部 Y 坐标
+ */
+int ClockTop(int screen_width, int screen_height) {
+  return screen_width > screen_height ? 56 : kClockTop;
+}
+
+/**
+ * @brief 根据屏幕横竖屏状态计算时钟区域高度
+ * @param screen_width 屏幕宽度
+ * @param screen_height 屏幕高度
+ * @return 时钟区域高度
+ */
+int ClockGroupHeight(int screen_width, int screen_height) {
+  return screen_width > screen_height ? std::max(88, screen_height * 38 / 100) : 282;
+}
+
+/**
  * @brief 限制图标网格水平缩进不超过可用空间
  * @param screen_width 屏幕宽度
  * @param requested_inset 请求缩进
@@ -226,7 +286,16 @@ int ColumnGap(int screen_width, int inset_x, int columns, int cell_width) {
  * @param screen_height 屏幕高度
  * @return 顶部 Y 坐标
  */
-int HomeGridTop(int screen_height) { return screen_height * 35 / 100; }
+/**
+ * @brief 计算桌面应用网格顶部位置
+ * @param screen_width 屏幕宽度
+ * @param screen_height 屏幕高度
+ * @return 顶部 Y 坐标
+ */
+int HomeGridTop(int screen_width, int screen_height) {
+  return screen_width > screen_height ? screen_height * 44 / 100
+                                      : screen_height * 35 / 100;
+}
 
 /**
  * @brief 获取月份显示名称
@@ -804,6 +873,13 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   lv_obj_set_style_border_width(root_screen_, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(root_screen_, 0, LV_PART_MAIN);
   AddEdgeBackSwipeEvents(root_screen_, AppBackSwipeEventCallback, this);
+  lv_obj_add_event_cb(root_screen_, RootLayoutRefreshEventCallback,
+      LV_EVENT_SIZE_CHANGED, this);
+  lv_obj_add_event_cb(root_screen_, RootLayoutRefreshEventCallback,
+      LV_EVENT_REFRESH, this);
+
+  layout_width_ = LayoutWidth();
+  layout_height_ = LayoutHeight();
 
   CreateWallpaperObjects(root_screen_);
   launcher_container_ = CreateLauncher(root_screen_);
@@ -811,7 +887,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
     return false;
   }
 
-  if (!status_bar_.Init(root_screen_, screen_->ScreenWidth())) {
+  if (!status_bar_.Init(root_screen_, LayoutWidth())) {
     return false;
   }
   status_bar_.MoveToTop();
@@ -876,8 +952,8 @@ bool UiManager::ShowLockScreen() {
   }
 
   LockScreenViewOptions options = {
-      .screen_width = screen_->ScreenWidth(),
-      .screen_height = screen_->ScreenHeight(),
+      .screen_width = LayoutWidth(),
+      .screen_height = LayoutHeight(),
       .time_text = clock_time_text_,
       .date_text = home_date_text_,
       .week_text = home_week_text_,
@@ -995,7 +1071,7 @@ void UiManager::AppBackSwipeEventCallback(lv_event_t* event) {
   }
 
   if (!HandleEdgeBackSwipeEvent(
-          event, self->screen_->ScreenWidth(), &self->app_back_swipe_)) {
+          event, self->LayoutWidth(), &self->app_back_swipe_)) {
     return;
   }
 
@@ -1034,7 +1110,7 @@ void UiManager::PageScrollEventCallback(lv_event_t* event) {
 
   const int scroll_x =
       static_cast<int>(lv_obj_get_scroll_x(self->page_scroller_));
-  const size_t page_index = scroll_x >= self->screen_->ScreenWidth() / 2 ? 1 : 0;
+  const size_t page_index = scroll_x >= self->LayoutWidth() / 2 ? 1 : 0;
   self->UpdatePageIndicator(page_index);
 }
 
@@ -1043,6 +1119,149 @@ void UiManager::SystemStatusRefreshTimerCallback(lv_timer_t* timer) {
   if (self != nullptr) {
     self->RefreshSystemStatus();
   }
+}
+
+void UiManager::RootLayoutRefreshEventCallback(lv_event_t* event) {
+  const lv_event_code_t code = lv_event_get_code(event);
+  if (code != LV_EVENT_SIZE_CHANGED && code != LV_EVENT_REFRESH) {
+    return;
+  }
+
+  auto* self = static_cast<UiManager*>(lv_event_get_user_data(event));
+  if (self != nullptr) {
+    self->RelayoutForScreenSize();
+  }
+}
+
+int UiManager::LayoutWidth() const {
+  lv_display_t* display = lv_display_get_default();
+  if (display != nullptr) {
+    const int width = static_cast<int>(
+        lv_display_get_horizontal_resolution(display));
+    if (width > 0) {
+      return width;
+    }
+  }
+  if (root_screen_ != nullptr) {
+    const int width = static_cast<int>(lv_obj_get_width(root_screen_));
+    if (width > 0) {
+      return width;
+    }
+  }
+  return screen_ != nullptr ? screen_->ScreenWidth() : 0;
+}
+
+int UiManager::LayoutHeight() const {
+  lv_display_t* display = lv_display_get_default();
+  if (display != nullptr) {
+    const int height = static_cast<int>(
+        lv_display_get_vertical_resolution(display));
+    if (height > 0) {
+      return height;
+    }
+  }
+  if (root_screen_ != nullptr) {
+    const int height = static_cast<int>(lv_obj_get_height(root_screen_));
+    if (height > 0) {
+      return height;
+    }
+  }
+  return screen_ != nullptr ? screen_->ScreenHeight() : 0;
+}
+
+void UiManager::RelayoutForScreenSize() {
+  if (relayouting_ || root_screen_ == nullptr) {
+    return;
+  }
+
+  const int new_width = LayoutWidth();
+  const int new_height = LayoutHeight();
+  if (new_width <= 0 || new_height <= 0 ||
+      (new_width == layout_width_ && new_height == layout_height_)) {
+    return;
+  }
+
+  relayouting_ = true;
+  layout_width_ = new_width;
+  layout_height_ = new_height;
+  const app::AppEntry* reopen_app = active_app_entry_;
+  active_app_entry_ = nullptr;
+  const bool startup_active = startup_screen_ != nullptr;
+  const int startup_percent = std::max(startup_progress_percent_,
+      std::max(startup_progress_target_percent_, startup_progress_pending_percent_));
+  lv_anim_delete(this, SetStartupProgressWidth);
+  startup_progress_animating_ = false;
+  startup_progress_pending_percent_ = 0;
+
+  if (lock_screen_ != nullptr) {
+    lv_obj_delete(lock_screen_);
+    lock_screen_ = nullptr;
+    NotifyLockScreenVisibilityChanged(false);
+  }
+  if (startup_screen_ != nullptr) {
+    lv_obj_delete(startup_screen_);
+    startup_screen_ = nullptr;
+    startup_progress_fill_ = nullptr;
+  }
+  if (launcher_container_ != nullptr) {
+    lv_obj_delete(launcher_container_);
+    launcher_container_ = nullptr;
+    page_scroller_ = nullptr;
+    home_page_ = nullptr;
+    reserved_page_ = nullptr;
+    home_time_label_ = nullptr;
+    home_date_label_ = nullptr;
+    home_week_label_ = nullptr;
+    page_indicator_ = nullptr;
+    first_page_dot_ = nullptr;
+    second_page_dot_ = nullptr;
+  }
+  if (active_view_container_ != nullptr) {
+    active_view_lock_screen_callback_ = nullptr;
+    lv_obj_delete(active_view_container_);
+    active_view_container_ = nullptr;
+  }
+
+  if (status_bar_.object() != nullptr) {
+    lv_obj_set_width(status_bar_.object(), LayoutWidth());
+    lv_obj_align(status_bar_.object(), LV_ALIGN_TOP_MID, 0, 0);
+    status_bar_.MoveToTop();
+  }
+
+  launcher_container_ = CreateLauncher(root_screen_);
+  if (launcher_container_ != nullptr) {
+    if (system_status_cache_.rtc_status_valid()) {
+      UpdateClockLabels(system_status_cache_.rtc_status());
+    }
+    if (system_status_cache_.bmu_status_valid()) {
+      UpdateBatteryStatus(system_status_cache_.bmu_status());
+    }
+    if (system_status_cache_.wifi_status_valid()) {
+      UpdateWifiStatus(system_status_cache_.wifi_status());
+    }
+    UpdatePageIndicator(page_index_);
+  }
+
+  if (reopen_app != nullptr) {
+    ShowAppView(*reopen_app);
+  } else if (startup_active) {
+    startup_screen_ = CreateStartupScreen(root_screen_);
+    if (startup_screen_ != nullptr) {
+      lv_obj_clear_flag(startup_screen_, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_move_to_index(startup_screen_, -1);
+      if (startup_progress_fill_ != nullptr) {
+        lv_obj_t* track = lv_obj_get_parent(startup_progress_fill_);
+        if (track != nullptr) {
+          lv_obj_set_width(startup_progress_fill_,
+              lv_obj_get_width(track) *
+                  std::clamp(startup_percent, 0, 100) / 100);
+        }
+      }
+    }
+  }
+
+  lv_obj_invalidate(root_screen_);
+  relayouting_ = false;
 }
 
 lv_obj_t* UiManager::CreateLauncher(lv_obj_t* parent) {
@@ -1054,7 +1273,7 @@ lv_obj_t* UiManager::CreateLauncher(lv_obj_t* parent) {
   lv_obj_remove_flag(launcher, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(launcher, LV_OBJ_FLAG_GESTURE_BUBBLE);
   MakeTransparent(launcher);
-  lv_obj_set_size(launcher, screen_->ScreenWidth(), screen_->ScreenHeight());
+  lv_obj_set_size(launcher, LayoutWidth(), LayoutHeight());
   lv_obj_align(launcher, LV_ALIGN_CENTER, 0, 0);
 
   page_scroller_ = CreatePageScroller(launcher);
@@ -1085,7 +1304,7 @@ lv_obj_t* UiManager::CreatePageScroller(lv_obj_t* parent) {
   }
 
   MakeTransparent(scroller);
-  lv_obj_set_size(scroller, screen_->ScreenWidth(), screen_->ScreenHeight());
+  lv_obj_set_size(scroller, LayoutWidth(), LayoutHeight());
   lv_obj_align(scroller, LV_ALIGN_CENTER, 0, 0);
   lv_obj_set_scroll_dir(scroller, LV_DIR_HOR);
   lv_obj_set_scroll_snap_x(scroller, LV_SCROLL_SNAP_CENTER);
@@ -1105,7 +1324,7 @@ lv_obj_t* UiManager::CreatePageScroller(lv_obj_t* parent) {
   lv_obj_remove_flag(home_page_, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(home_page_, LV_OBJ_FLAG_SNAPPABLE);
   MakeTransparent(home_page_);
-  lv_obj_set_size(home_page_, screen_->ScreenWidth(), screen_->ScreenHeight());
+  lv_obj_set_size(home_page_, LayoutWidth(), LayoutHeight());
   lv_obj_set_pos(home_page_, 0, 0);
 
   reserved_page_ = lv_obj_create(scroller);
@@ -1116,8 +1335,8 @@ lv_obj_t* UiManager::CreatePageScroller(lv_obj_t* parent) {
   lv_obj_remove_flag(reserved_page_, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(reserved_page_, LV_OBJ_FLAG_SNAPPABLE);
   MakeTransparent(reserved_page_);
-  lv_obj_set_size(reserved_page_, screen_->ScreenWidth(), screen_->ScreenHeight());
-  lv_obj_set_pos(reserved_page_, screen_->ScreenWidth(), 0);
+  lv_obj_set_size(reserved_page_, LayoutWidth(), LayoutHeight());
+  lv_obj_set_pos(reserved_page_, LayoutWidth(), 0);
 
   if (CreateClockGroup(home_page_) == nullptr ||
       CreateAppGrid(home_page_) == nullptr) {
@@ -1138,8 +1357,12 @@ lv_obj_t* UiManager::CreateClockGroup(lv_obj_t* parent) {
   lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(group, LV_OBJ_FLAG_GESTURE_BUBBLE);
   MakeTransparent(group);
-  lv_obj_set_size(group, screen_->ScreenWidth() - 2 * kHorizontalPadding, 282);
-  lv_obj_align(group, LV_ALIGN_TOP_LEFT, kHorizontalPadding, kClockTop);
+  const int screen_width = LayoutWidth();
+  const int screen_height = LayoutHeight();
+  lv_obj_set_size(group, screen_width - 2 * kHorizontalPadding,
+      ClockGroupHeight(screen_width, screen_height));
+  lv_obj_align(group, LV_ALIGN_TOP_LEFT, kHorizontalPadding,
+      ClockTop(screen_width, screen_height));
 
   lv_obj_t* time_label = CreateLabel(group, "09:15", lv_color_hex(0xFFFFFF));
   if (time_label == nullptr) {
@@ -1276,17 +1499,20 @@ lv_obj_t* UiManager::CreateAppGrid(lv_obj_t* parent) {
 
   const int cell_width = IconCellWidth();
   const int cell_height = IconCellHeight();
-  const int rows = RowCount(button_context_count_, kHomeAppColumns);
+  const int screen_width = LayoutWidth();
+  const int screen_height = LayoutHeight();
+  const int columns = AppColumnCount(screen_width, screen_height);
+  const int rows = RowCount(button_context_count_, columns);
   const int row_gaps = std::max(0, rows - 1) * kAppRowGap;
   const int grid_height = rows * cell_height + row_gaps;
-  const int inset_x = ClampInset(screen_->ScreenWidth(),
-      ScreenEdgeInset(screen_->ScreenWidth(), screen_->ScreenHeight()), kHomeAppColumns,
-      cell_width);
+  const int inset_x = ClampInset(screen_width,
+      ScreenEdgeInset(screen_width, screen_height), columns, cell_width);
   const int column_gap =
-      ColumnGap(screen_->ScreenWidth(), inset_x, kHomeAppColumns, cell_width);
+      ColumnGap(screen_width, inset_x, columns, cell_width);
 
-  lv_obj_set_size(grid, screen_->ScreenWidth(), grid_height);
-  lv_obj_align(grid, LV_ALIGN_TOP_LEFT, 0, HomeGridTop(screen_->ScreenHeight()));
+  lv_obj_set_size(grid, screen_width, grid_height);
+  lv_obj_align(grid, LV_ALIGN_TOP_LEFT, 0,
+      HomeGridTop(screen_width, screen_height));
 
   for (size_t i = 0; i < button_context_count_; ++i) {
     button_contexts_[i].manager = this;
@@ -1298,8 +1524,8 @@ lv_obj_t* UiManager::CreateAppGrid(lv_obj_t* parent) {
       return nullptr;
     }
 
-    const int column = static_cast<int>(i % kHomeAppColumns);
-    const int row = static_cast<int>(i / kHomeAppColumns);
+    const int column = static_cast<int>(i % columns);
+    const int row = static_cast<int>(i / columns);
     const int x = inset_x + column * (cell_width + column_gap);
     const int y = row * (cell_height + kAppRowGap);
     lv_obj_align(cell, LV_ALIGN_TOP_LEFT, x, y);
@@ -1404,7 +1630,10 @@ lv_obj_t* UiManager::CreateDock(lv_obj_t* parent) {
   lv_obj_remove_flag(dock, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(dock, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_add_flag(dock, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
-  lv_obj_set_size(dock, screen_->ScreenWidth(), kDockHeight);
+  const int screen_width = LayoutWidth();
+  const int screen_height = LayoutHeight();
+  const int dock_columns = DockColumnCount(screen_width, screen_height);
+  lv_obj_set_size(dock, screen_width, DockHeight(screen_width, screen_height));
   lv_obj_align(dock, LV_ALIGN_BOTTOM_MID, 0, 0);
   lv_obj_set_style_bg_color(dock, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(dock, 28, LV_PART_MAIN);
@@ -1413,11 +1642,11 @@ lv_obj_t* UiManager::CreateDock(lv_obj_t* parent) {
   lv_obj_set_style_pad_all(dock, 0, LV_PART_MAIN);
 
   const int cell_width = IconCellWidth();
-  const int inset_x = ClampInset(screen_->ScreenWidth(),
-      ScreenEdgeInset(screen_->ScreenWidth(), screen_->ScreenHeight()) + kDockInsetExtra,
-      kDockColumns, cell_width);
+  const int inset_x = ClampInset(screen_width,
+      ScreenEdgeInset(screen_width, screen_height) + kDockInsetExtra,
+      dock_columns, cell_width);
   const int column_gap =
-      ColumnGap(screen_->ScreenWidth(), inset_x, kDockColumns, cell_width);
+      ColumnGap(screen_width, inset_x, dock_columns, cell_width);
 
   const app::AppCatalog& dock_catalog = app::GetDockAppCatalog();
   dock_button_context_count_ = dock_catalog.entry_count;
@@ -1436,7 +1665,7 @@ lv_obj_t* UiManager::CreateDock(lv_obj_t* parent) {
       return nullptr;
     }
 
-    const int column = static_cast<int>(i % kDockColumns);
+    const int column = static_cast<int>(i % dock_columns);
     const int x = inset_x + column * (cell_width + column_gap);
     lv_obj_align(cell, LV_ALIGN_TOP_LEFT, x, kDockTopPadding);
   }
@@ -1543,7 +1772,8 @@ lv_obj_t* UiManager::CreatePageIndicator(lv_obj_t* parent) {
   lv_obj_add_flag(indicator, LV_OBJ_FLAG_GESTURE_BUBBLE);
   MakeTransparent(indicator);
   lv_obj_set_size(indicator, 48, 18);
-  lv_obj_align(indicator, LV_ALIGN_BOTTOM_MID, 0, -kPageIndicatorBottom);
+  lv_obj_align(indicator, LV_ALIGN_BOTTOM_MID, 0,
+      -PageIndicatorBottom(LayoutWidth(), LayoutHeight()));
 
   first_page_dot_ =
       CreateCircle(indicator, 12, -10, 0, LV_ALIGN_CENTER, 0xFFFFFF, 240);
@@ -1560,7 +1790,7 @@ lv_obj_t* UiManager::CreatePageIndicator(lv_obj_t* parent) {
 }
 
 lv_obj_t* UiManager::CreateStartupScreen(lv_obj_t* parent) {
-  if (parent == nullptr || screen_ == nullptr) {
+  if (parent == nullptr) {
     return nullptr;
   }
 
@@ -1571,7 +1801,7 @@ lv_obj_t* UiManager::CreateStartupScreen(lv_obj_t* parent) {
 
   lv_obj_remove_flag(startup, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(startup, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(startup, screen_->ScreenWidth(), screen_->ScreenHeight());
+  lv_obj_set_size(startup, LayoutWidth(), LayoutHeight());
   lv_obj_set_pos(startup, 0, 0);
   lv_obj_set_style_bg_color(
       startup, lv_color_hex(kStartupBackgroundColor), LV_PART_MAIN);
@@ -1590,10 +1820,10 @@ lv_obj_t* UiManager::CreateStartupScreen(lv_obj_t* parent) {
   SetTextStyle(title, lv_color_hex(kStartupTextColor), Font32());
 
   const int progress_width = std::min(kStartupProgressMaxWidth,
-      screen_->ScreenWidth() * kStartupProgressWidthPercent / 100);
+      LayoutWidth() * kStartupProgressWidthPercent / 100);
   const int progress_height = std::max(
       kStartupProgressMinHeight,
-      screen_->ScreenHeight() / kStartupProgressHeightDivisor);
+      LayoutHeight() / kStartupProgressHeightDivisor);
   lv_obj_t* track = lv_obj_create(startup);
   if (track == nullptr) {
     lv_obj_delete(startup);
@@ -1761,8 +1991,8 @@ void UiManager::DestroyStartupScreen() {
 
 bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   AppViewConfig config;
-  config.width = screen_->ScreenWidth();
-  config.height = screen_->ScreenHeight();
+  config.width = LayoutWidth();
+  config.height = LayoutHeight();
   config.screen = screen_;
   config.diagnostics = diagnostics_provider_;
   config.device_info = device_info_provider_;
@@ -1798,7 +2028,7 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   }
 
   lv_obj_set_pos(active_view_container_, 0, 0);
-  lv_obj_set_size(active_view_container_, screen_->ScreenWidth(), screen_->ScreenHeight());
+  lv_obj_set_size(active_view_container_, LayoutWidth(), LayoutHeight());
   app_back_swipe_ = EdgeBackSwipeState();
   EnableEdgeBackSwipeEventBubble(active_view_container_);
   AddEdgeBackSwipeEvents(
@@ -1811,6 +2041,7 @@ bool UiManager::ShowAppView(const app::AppEntry& app_entry) {
   if (root_screen_ == nullptr || launcher_container_ == nullptr) {
     return false;
   }
+  active_app_entry_ = &app_entry;
 
   lv_obj_remove_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_style_opa(launcher_container_, LV_OPA_COVER, LV_PART_MAIN);
@@ -1821,6 +2052,7 @@ bool UiManager::ShowAppView(const app::AppEntry& app_entry) {
   }
 
   if (!CreateActiveAppView(app_entry)) {
+    active_app_entry_ = nullptr;
     active_view_lock_screen_callback_ = nullptr;
     return false;
   }
@@ -1830,6 +2062,7 @@ bool UiManager::ShowAppView(const app::AppEntry& app_entry) {
 }
 
 void UiManager::ShowLauncher() {
+  active_app_entry_ = nullptr;
   app_back_swipe_ = EdgeBackSwipeState();
   if (active_view_container_ == nullptr || root_screen_ == nullptr ||
       launcher_container_ == nullptr) {

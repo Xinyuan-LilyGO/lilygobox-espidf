@@ -2,7 +2,7 @@
  * @Description: Settings display brightness page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-07-04 18:18:56
+ * @LastEditTime: 2026-07-05 13:31:02
  * @License: GPL 3.0
  */
 #include "ui/views/settings/settings_basic_view_common.h"
@@ -24,12 +24,8 @@ namespace {
 hal::LvglPort* g_lvgl_port = nullptr;
 int g_pending_rotation_angle = -1;
 
-void ApplyPendingRotation(void* /*ctx*/) {
-  if (g_lvgl_port != nullptr && g_pending_rotation_angle >= 0) {
-    g_lvgl_port->SetDisplayRotation(g_pending_rotation_angle);
-    g_pending_rotation_angle = -1;
-  }
-}
+// sheet 收缩动画时长 (ms)，旋转需等待其播完后再执行
+constexpr uint32_t kSheetDismissAnimationMs = 200;
 
 // 屏幕旋转角度选项
 constexpr PromptSelectSheetOption kScreenRotationOptions[] = {
@@ -49,6 +45,13 @@ constexpr int kScreenRotationOptionTop = 155;
 constexpr int kScreenRotationOptionHeight = 78;
 constexpr uint32_t kScreenRotationSelectedColor =
     theme::LightNeutralTheme().action_container;
+
+void ApplyPendingRotation(void* /*ctx*/) {
+  if (g_lvgl_port != nullptr && g_pending_rotation_angle >= 0) {
+    g_lvgl_port->SetDisplayRotation(g_pending_rotation_angle);
+    g_pending_rotation_angle = -1;
+  }
+}
 
 void PlaySettingsHapticPreview(SettingsViewState* state) {
   if (state == nullptr || !state->haptics_enabled ||
@@ -124,15 +127,26 @@ void ScreenRotationSelectedCallback(void* context, int value) {
   }
 
   state->screen_rotation_angle = value;
+  app::DisplayPreferences preferences = app::GetDisplayPreferences();
+  preferences.screen_rotation_angle = value;
+  app::UpdateDisplayPreferences(preferences);
   if (state->screen_rotation_value_label != nullptr) {
     char text[16] = {};
     FormatScreenRotationValue(value, text, sizeof(text));
     lv_label_set_text(state->screen_rotation_value_label, text);
   }
   if (g_lvgl_port != nullptr) {
-    // 推迟到下一个 LVGL tick 执行旋转，避免在 prompt sheet 回调链中修改 display
+    // 推迟到 sheet 收缩动画完成后执行旋转，避免动画被打断
     g_pending_rotation_angle = value;
-    lv_async_call(ApplyPendingRotation, nullptr);
+    lv_timer_t* timer = lv_timer_create(
+        [](lv_timer_t* t) {
+          lv_timer_del(t);
+          ApplyPendingRotation(nullptr);
+        },
+        kSheetDismissAnimationMs, nullptr);
+    if (timer != nullptr) {
+      lv_timer_set_repeat_count(timer, 1);
+    }
   }
 }
 
@@ -314,6 +328,7 @@ bool BuildDisplayBrightnessContent(lv_obj_t* body, SettingsViewState* state) {
  * @return 打开成功返回 true，否则返回 false
  */
 bool ShowDisplayBrightnessPage(SettingsViewState* state) {
+  SetSettingsRestoreSubPage("display_brightness");
   return ShowBasicPage(state, "Display & Brightness",
       BuildDisplayBrightnessContent);
 }

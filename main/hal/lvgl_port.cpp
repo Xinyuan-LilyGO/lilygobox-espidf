@@ -14,6 +14,8 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "draw/lv_draw_buf.h"
+#include "draw/sw/lv_draw_sw_utils.h"
 
 namespace lilygo_box::hal {
 namespace {
@@ -31,7 +33,28 @@ bool IsValidTouchPoint(const TouchPoint& point, int screen_width,
          point.y < screen_height;
 }
 
+ppa_srm_rotation_angle_t ToPpaRotation(lv_display_rotation_t rotation) {
+  switch (rotation) {
+    case LV_DISPLAY_ROTATION_90:
+      return PPA_SRM_ROTATION_ANGLE_90;
+    case LV_DISPLAY_ROTATION_180:
+      return PPA_SRM_ROTATION_ANGLE_180;
+    case LV_DISPLAY_ROTATION_270:
+      return PPA_SRM_ROTATION_ANGLE_270;
+    default:
+      return PPA_SRM_ROTATION_ANGLE_0;
+  }
+}
+
 }  // namespace
+
+LvglPort::~LvglPort() {
+  if (rotation_buffer_ != nullptr) {
+    heap_caps_free(rotation_buffer_);
+    rotation_buffer_ = nullptr;
+    rotation_buffer_size_ = 0;
+  }
+}
 
 bool LvglPort::Init(ScreenProvider* screen) {
   if (screen == nullptr) {
@@ -49,6 +72,8 @@ bool LvglPort::Init(ScreenProvider* screen) {
 
   lv_display_set_user_data(lvgl_display_, this);
   lv_display_set_color_format(lvgl_display_, ColorFormat());
+  lv_display_set_physical_resolution(
+      lvgl_display_, screen_->ScreenWidth(), screen_->ScreenHeight());
 
   void* buffer = heap_caps_malloc(DrawBufferSize(), MALLOC_CAP_SPIRAM);
   if (buffer == nullptr) {
@@ -60,6 +85,11 @@ bool LvglPort::Init(ScreenProvider* screen) {
   lv_display_set_buffers(lvgl_display_, buffer, nullptr, DrawBufferSize(),
       LV_DISPLAY_RENDER_MODE_PARTIAL);
   lv_display_set_flush_cb(lvgl_display_, FlushCallback);
+  ppa_rotation_available_ = ppa_rotation_.Init();
+  if (!ppa_rotation_available_) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "PPA rotation init failed, using LVGL software rotation\n");
+  }
 
   input_device_ = lv_indev_create();
   if (input_device_ == nullptr) {
@@ -68,6 +98,7 @@ bool LvglPort::Init(ScreenProvider* screen) {
   lv_indev_set_type(input_device_, LV_INDEV_TYPE_POINTER);
   lv_indev_set_user_data(input_device_, this);
   lv_indev_set_read_cb(input_device_, TouchReadCallback);
+  lv_indev_set_display(input_device_, lvgl_display_);
 
   if (!screen_->RegisterScreenFlushReadyCallback(FlushReadyCallback, this)) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
@@ -142,6 +173,10 @@ void LvglPort::SetDisplayRotation(int angle) {
   }
   // 回调在 LVGL 线程，无需额外加锁
   lv_display_set_rotation(lvgl_display_, rotation);
+  lv_obj_t* active_screen = lv_screen_active();
+  if (active_screen != nullptr) {
+    lv_obj_send_event(active_screen, LV_EVENT_REFRESH, nullptr);
+  }
 }
 
 void LvglPort::FlushCallback(
@@ -152,8 +187,16 @@ void LvglPort::FlushCallback(
     return;
   }
 
-  const bool result = self->screen_->WriteScreenPixels(
-      area->x1, area->y1, area->x2 + 1, area->y2 + 1, pixel_map);
+  lv_area_t flush_area = *area;
+  uint8_t* flush_pixels = pixel_map;
+  if (!self->RotateFlushBuffer(
+          lvgl_display, area, pixel_map, &flush_area, &flush_pixels)) {
+    lv_display_flush_ready(lvgl_display);
+    return;
+  }
+
+  const bool result = self->screen_->WriteScreenPixels(flush_area.x1,
+      flush_area.y1, flush_area.x2 + 1, flush_area.y2 + 1, flush_pixels);
   if (!result) {
     LogMessage(
         LogLevel::kError, __FILE__, __LINE__, "WriteScreenPixels failed\n");
@@ -246,10 +289,113 @@ lv_color_format_t LvglPort::ColorFormat() const {
   }
 }
 
+ppa_srm_color_mode_t LvglPort::PpaColorMode() const {
+  switch (screen_->ScreenBitsPerPixel()) {
+    case 24:
+      return PPA_SRM_COLOR_MODE_RGB888;
+    case 16:
+    default:
+      return PPA_SRM_COLOR_MODE_RGB565;
+  }
+}
+
 size_t LvglPort::DrawBufferSize() const {
   const size_t bytes_per_pixel = screen_->ScreenBitsPerPixel() / 8;
   return static_cast<size_t>(screen_->ScreenWidth()) * screen_->ScreenHeight() *
          bytes_per_pixel;
+}
+
+void* LvglPort::EnsureRotationBuffer(size_t size) {
+  if (rotation_buffer_ != nullptr && rotation_buffer_size_ >= size) {
+    return rotation_buffer_;
+  }
+
+  if (rotation_buffer_ != nullptr) {
+    heap_caps_free(rotation_buffer_);
+    rotation_buffer_ = nullptr;
+    rotation_buffer_size_ = 0;
+  }
+
+  const size_t cache_line_size = ppa_rotation_.CacheLineSize();
+  const size_t alignment = cache_line_size > 0
+      ? std::max<size_t>(cache_line_size, sizeof(void*))
+      : sizeof(void*);
+  const size_t aligned_size = AlignUp(size, alignment);
+  rotation_buffer_ = heap_caps_aligned_alloc(
+      alignment, aligned_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (rotation_buffer_ == nullptr) {
+    rotation_buffer_ = heap_caps_aligned_alloc(
+        alignment, aligned_size, MALLOC_CAP_8BIT);
+  }
+  if (rotation_buffer_ == nullptr) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "LVGL rotation buffer allocation failed (%u bytes)\n",
+        static_cast<unsigned>(aligned_size));
+    return nullptr;
+  }
+
+  rotation_buffer_size_ = aligned_size;
+  return rotation_buffer_;
+}
+
+bool LvglPort::RotateFlushBuffer(lv_display_t* lvgl_display,
+    const lv_area_t* area, uint8_t* pixel_map, lv_area_t* rotated_area,
+    uint8_t** rotated_pixel_map) {
+  const lv_display_rotation_t rotation = lv_display_get_rotation(lvgl_display);
+  if (rotation == LV_DISPLAY_ROTATION_0) {
+    *rotated_area = *area;
+    *rotated_pixel_map = pixel_map;
+    return true;
+  }
+
+  *rotated_area = *area;
+  lv_display_rotate_area(lvgl_display, rotated_area);
+
+  const int32_t src_width = lv_area_get_width(area);
+  const int32_t src_height = lv_area_get_height(area);
+  const uint32_t src_stride =
+      lv_draw_buf_width_to_stride(src_width, ColorFormat());
+  const uint32_t dest_stride = lv_draw_buf_width_to_stride(
+      lv_area_get_width(rotated_area), ColorFormat());
+  const size_t dest_size =
+      static_cast<size_t>(dest_stride) * lv_area_get_height(rotated_area);
+  void* dest = EnsureRotationBuffer(dest_size);
+  if (dest == nullptr) {
+    return false;
+  }
+
+  bool ppa_done = false;
+  if (ppa_rotation_available_) {
+    PpaSrmImageConfig input;
+    input.buffer = pixel_map;
+    input.buffer_size = static_cast<size_t>(src_stride) * src_height;
+    input.pic_width = static_cast<uint32_t>(src_width);
+    input.pic_height = static_cast<uint32_t>(src_height);
+    input.block_width = static_cast<uint32_t>(src_width);
+    input.block_height = static_cast<uint32_t>(src_height);
+    input.color_mode = PpaColorMode();
+
+    PpaSrmImageConfig output;
+    output.buffer = dest;
+    output.buffer_size = rotation_buffer_size_;
+    output.pic_width = static_cast<uint32_t>(lv_area_get_width(rotated_area));
+    output.pic_height = static_cast<uint32_t>(lv_area_get_height(rotated_area));
+    output.block_width = output.pic_width;
+    output.block_height = output.pic_height;
+    output.color_mode = PpaColorMode();
+
+    PpaSrmTransformConfig transform;
+    transform.rotation_angle = ToPpaRotation(rotation);
+    ppa_done = ppa_rotation_.Transform(input, output, transform);
+  }
+
+  if (!ppa_done) {
+    lv_draw_sw_rotate(pixel_map, dest, src_width, src_height, src_stride,
+        dest_stride, rotation, ColorFormat());
+  }
+
+  *rotated_pixel_map = static_cast<uint8_t*>(dest);
+  return true;
 }
 
 void LvglPort::TaskLoop() {
