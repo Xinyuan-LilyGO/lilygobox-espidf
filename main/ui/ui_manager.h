@@ -118,10 +118,10 @@ class UiManager final {
   void HideLockScreen();
 
   /**
-   * @brief 根据上滑拖拽距离更新锁屏页面位置和透明度
-   * @param offset_y Y 轴偏移，负数表示向上移动
+   * @brief 根据视觉上滑拖拽距离更新锁屏页面位置
+   * @param offset Y 轴偏移，负数表示向上移动
    */
-  void SetLockScreenDragOffset(int offset_y);
+  void SetLockScreenDragOffset(int offset);
 
   /**
    * @brief 播放锁屏页面回弹动画

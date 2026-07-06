@@ -39,11 +39,11 @@ void UpdateLockScreenViewClock(lv_obj_t* lock_screen, const char* time_text,
     const char* date_text, const char* week_text);
 
 /**
- * @brief 根据上滑拖拽距离更新锁屏页面位置
+ * @brief 根据视觉上滑拖拽距离更新锁屏页面位置
  * @param lock_screen 锁屏页面对象
- * @param offset_y Y 轴偏移，负数表示向上移动
+ * @param offset Y 轴偏移，负数表示向上移动
  */
-void SetLockScreenDragOffset(lv_obj_t* lock_screen, int offset_y);
+void SetLockScreenDragOffset(lv_obj_t* lock_screen, int offset);
 
 /**
  * @brief 播放锁屏页面回弹动画

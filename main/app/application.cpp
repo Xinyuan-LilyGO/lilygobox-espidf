@@ -43,6 +43,33 @@ constexpr int kScreenUnlockSwipeMinDistance = 120;
 constexpr uint32_t kScreenUnlockAnimationWaitMs = 240;
 constexpr int kScreenUnlockSwipeMaxHorizontalDrift = 90;
 
+hal::TouchPoint RotateTouchPointToDisplay(const hal::TouchPoint& point,
+    int rotation_angle, int screen_width, int screen_height) {
+  hal::TouchPoint rotated = point;
+  switch (rotation_angle) {
+    case 90:
+      rotated.x = screen_height - point.y;
+      rotated.y = point.x;
+      break;
+    case 180:
+      rotated.x = screen_width - point.x;
+      rotated.y = screen_height - point.y;
+      break;
+    case 270:
+      rotated.x = point.y;
+      rotated.y = screen_width - point.x;
+      break;
+    default:
+      break;
+  }
+  return rotated;
+}
+
+int RotatedScreenHeight(int rotation_angle, int screen_width, int screen_height) {
+  return (rotation_angle == 90 || rotation_angle == 270) ? screen_width
+                                                          : screen_height;
+}
+
 }  // namespace
 
 Application::Application()
@@ -262,9 +289,20 @@ void Application::RunScreenLockTask() {
             unlock_touch_active = true;
             unlock_drag_ready = false;
           } else {
-            const int drag_distance = std::max(0, unlock_touch_start.y - point.y);
-            const int drag_offset =
-                -std::min(drag_distance, screen->ScreenHeight());
+            const app::DisplayPreferences preferences =
+                LoadDisplayPreferencesOrDefault();
+            const hal::TouchPoint visual_start = RotateTouchPointToDisplay(
+                unlock_touch_start, preferences.screen_rotation_angle,
+                screen->ScreenWidth(), screen->ScreenHeight());
+            const hal::TouchPoint visual_current = RotateTouchPointToDisplay(
+                point, preferences.screen_rotation_angle, screen->ScreenWidth(),
+                screen->ScreenHeight());
+            const int drag_distance =
+                std::max(0, visual_start.y - visual_current.y);
+            const int drag_limit = RotatedScreenHeight(
+                preferences.screen_rotation_angle, screen->ScreenWidth(),
+                screen->ScreenHeight());
+            const int drag_offset = -std::min(drag_distance, drag_limit);
             lvgl_port_.Lock();
             ui_manager_.SetLockScreenDragOffset(drag_offset);
             lvgl_port_.Unlock();
@@ -541,15 +579,27 @@ void Application::UnlockScreen() {
 }
 
 /**
- * @brief 判断触摸轨迹是否满足上滑解锁手势
+ * @brief 判断触摸轨迹是否满足当前旋转画面里的上滑解锁手势
  * @param start 起始触摸点
  * @param current 当前触摸点
- * @return 满足上滑解锁返回 true，否则返回 false
+ * @return 满足视觉上滑解锁返回 true，否则返回 false
  */
 bool Application::IsUnlockSwipe(const hal::TouchPoint& start,
     const hal::TouchPoint& current) const {
-  const int vertical_distance = start.y - current.y;
-  const int horizontal_drift = std::abs(current.x - start.x);
+  const hal::ScreenProvider* screen = device_provider_context_.screen.get();
+  if (screen == nullptr) {
+    return false;
+  }
+
+  const app::DisplayPreferences preferences = LoadDisplayPreferencesOrDefault();
+  const hal::TouchPoint visual_start = RotateTouchPointToDisplay(start,
+      preferences.screen_rotation_angle, screen->ScreenWidth(),
+      screen->ScreenHeight());
+  const hal::TouchPoint visual_current = RotateTouchPointToDisplay(current,
+      preferences.screen_rotation_angle, screen->ScreenWidth(),
+      screen->ScreenHeight());
+  const int vertical_distance = visual_start.y - visual_current.y;
+  const int horizontal_drift = std::abs(visual_current.x - visual_start.x);
   return vertical_distance >= kScreenUnlockSwipeMinDistance &&
          horizontal_drift <= kScreenUnlockSwipeMaxHorizontalDrift;
 }

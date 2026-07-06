@@ -990,8 +990,8 @@ void UiManager::HideLockScreen() {
   NotifyLockScreenVisibilityChanged(false);
 }
 
-void UiManager::SetLockScreenDragOffset(int offset_y) {
-  ::lilygo_box::ui::SetLockScreenDragOffset(lock_screen_, offset_y);
+void UiManager::SetLockScreenDragOffset(int offset) {
+  ::lilygo_box::ui::SetLockScreenDragOffset(lock_screen_, offset);
 }
 
 void UiManager::ResetLockScreenDrag() {

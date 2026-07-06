@@ -270,16 +270,16 @@ void UpdateLockScreenViewClock(lv_obj_t* lock_screen, const char* time_text,
 }
 
 /**
- * @brief 根据上滑拖拽距离更新锁屏页面位置
+ * @brief 根据视觉上滑拖拽距离更新锁屏页面位置
  * @param lock_screen 锁屏页面对象
- * @param offset_y Y 轴偏移，负数表示向上移动
+ * @param offset Y 轴偏移，负数表示向上移动
  */
-void SetLockScreenDragOffset(lv_obj_t* lock_screen, int offset_y) {
+void SetLockScreenDragOffset(lv_obj_t* lock_screen, int offset) {
   if (lock_screen == nullptr) {
     return;
   }
 
-  const int clamped_offset = std::min(offset_y, 0);
+  const int clamped_offset = std::min(offset, 0);
   lv_anim_delete(lock_screen, SetObjectY);
   lv_obj_set_y(lock_screen, clamped_offset);
 }
@@ -304,7 +304,7 @@ void StartLockScreenResetAnimation(lv_obj_t* lock_screen) {
 }
 
 /**
- * @brief 播放锁屏页面上滑退出动画
+ * @brief 播放锁屏页面解锁退出动画
  * @param lock_screen 锁屏页面对象
  */
 void StartLockScreenUnlockAnimation(lv_obj_t* lock_screen) {
