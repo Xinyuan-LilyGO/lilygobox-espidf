@@ -48,6 +48,7 @@ constexpr int kIconLabelHeight = 34;
 constexpr int kHomeAppColumns = 4;
 constexpr int kDockColumns = 3;
 constexpr int kAppRowGap = 30;
+constexpr int kMaxColumnGap = 40;
 constexpr int kDockHeight = 160;
 constexpr int kDockIconSize = 98;
 constexpr uint32_t kIconGlowColor = 0x242424;
@@ -60,6 +61,7 @@ constexpr lv_opa_t kDockIconGlowOpacity = 108;
 constexpr lv_opa_t kIconPressedGlowOpacity = 136;
 constexpr int kDockTopPadding = 10;
 constexpr int kDockInsetExtra = 40;
+constexpr int kLandscapeClockWidth = 320;
 constexpr int kPageIndicatorBottom = kDockHeight + 8;
 constexpr uint32_t kStartupProgressFullMs = 1000;
 constexpr uint32_t kStartupProgressMinStepMs = 200;
@@ -183,6 +185,9 @@ int RowCount(size_t item_count, int columns) {
  * @return 边缘缩进
  */
 int ScreenEdgeInset(int screen_width, int screen_height) {
+  if (screen_width > screen_height) {
+    return screen_width / 5;
+  }
   return std::max(8, std::min(screen_width, screen_height) / 25);
 }
 
@@ -213,7 +218,9 @@ int DockColumnCount(int screen_width, int screen_height) {
  * @return dock 高度
  */
 int DockHeight(int screen_width, int screen_height) {
-  return screen_width > screen_height ? 128 : kDockHeight;
+  return screen_width > screen_height
+             ? IconCellHeight() + kDockTopPadding
+             : kDockHeight;
 }
 
 /**
@@ -243,7 +250,7 @@ int ClockTop(int screen_width, int screen_height) {
  * @return 时钟区域高度
  */
 int ClockGroupHeight(int screen_width, int screen_height) {
-  return screen_width > screen_height ? std::max(88, screen_height * 38 / 100) : 282;
+  return screen_width > screen_height ? std::max(230, screen_height * 38 / 100) : 282;
 }
 
 /**
@@ -278,7 +285,8 @@ int ColumnGap(int screen_width, int inset_x, int columns, int cell_width) {
   }
 
   const int used_width = 2 * inset_x + columns * cell_width;
-  return std::max(0, (screen_width - used_width) / (columns - 1));
+  return std::clamp(
+      (screen_width - used_width) / (columns - 1), 0, kMaxColumnGap);
 }
 
 /**
@@ -293,8 +301,11 @@ int ColumnGap(int screen_width, int inset_x, int columns, int cell_width) {
  * @return 顶部 Y 坐标
  */
 int HomeGridTop(int screen_width, int screen_height) {
-  return screen_width > screen_height ? screen_height * 44 / 100
-                                      : screen_height * 35 / 100;
+  if (screen_width > screen_height) {
+    return ClockTop(screen_width, screen_height) +
+           ClockGroupHeight(screen_width, screen_height) + 8;
+  }
+  return screen_height * 35 / 100;
 }
 
 /**
@@ -1359,8 +1370,11 @@ lv_obj_t* UiManager::CreateClockGroup(lv_obj_t* parent) {
   MakeTransparent(group);
   const int screen_width = LayoutWidth();
   const int screen_height = LayoutHeight();
-  lv_obj_set_size(group, screen_width - 2 * kHorizontalPadding,
-      ClockGroupHeight(screen_width, screen_height));
+  const int clock_width = screen_width > screen_height
+                              ? kLandscapeClockWidth
+                              : screen_width - 2 * kHorizontalPadding;
+  lv_obj_set_size(
+      group, clock_width, ClockGroupHeight(screen_width, screen_height));
   lv_obj_align(group, LV_ALIGN_TOP_LEFT, kHorizontalPadding,
       ClockTop(screen_width, screen_height));
 
@@ -1505,14 +1519,25 @@ lv_obj_t* UiManager::CreateAppGrid(lv_obj_t* parent) {
   const int rows = RowCount(button_context_count_, columns);
   const int row_gaps = std::max(0, rows - 1) * kAppRowGap;
   const int grid_height = rows * cell_height + row_gaps;
-  const int inset_x = ClampInset(screen_width,
+  int inset_x = ClampInset(screen_width,
       ScreenEdgeInset(screen_width, screen_height), columns, cell_width);
-  const int column_gap =
-      ColumnGap(screen_width, inset_x, columns, cell_width);
+  int column_gap = ColumnGap(screen_width, inset_x, columns, cell_width);
 
-  lv_obj_set_size(grid, screen_width, grid_height);
-  lv_obj_align(grid, LV_ALIGN_TOP_LEFT, 0,
-      HomeGridTop(screen_width, screen_height));
+  if (screen_width > screen_height) {
+    const int clock_right = kHorizontalPadding + kLandscapeClockWidth;
+    const int grid_x = clock_right + kHorizontalPadding;
+    const int grid_width = screen_width - grid_x;
+    inset_x = ClampInset(grid_width, std::max(8, screen_height / 25),
+        columns, cell_width);
+    column_gap = ColumnGap(grid_width, inset_x, columns, cell_width);
+    lv_obj_set_size(grid, grid_width, grid_height);
+    lv_obj_align(grid, LV_ALIGN_TOP_LEFT, grid_x,
+        ClockTop(screen_width, screen_height) + 20);
+  } else {
+    lv_obj_set_size(grid, screen_width, grid_height);
+    lv_obj_align(grid, LV_ALIGN_TOP_LEFT, 0,
+        HomeGridTop(screen_width, screen_height));
+  }
 
   for (size_t i = 0; i < button_context_count_; ++i) {
     button_contexts_[i].manager = this;
@@ -1642,9 +1667,12 @@ lv_obj_t* UiManager::CreateDock(lv_obj_t* parent) {
   lv_obj_set_style_pad_all(dock, 0, LV_PART_MAIN);
 
   const int cell_width = IconCellWidth();
-  const int inset_x = ClampInset(screen_width,
-      ScreenEdgeInset(screen_width, screen_height) + kDockInsetExtra,
-      dock_columns, cell_width);
+  const int dock_inset = screen_width > screen_height
+                             ? std::max(8, screen_height / 8)
+                             : ScreenEdgeInset(screen_width, screen_height) +
+                                   kDockInsetExtra;
+  const int inset_x =
+      ClampInset(screen_width, dock_inset, dock_columns, cell_width);
   const int column_gap =
       ColumnGap(screen_width, inset_x, dock_columns, cell_width);
 
