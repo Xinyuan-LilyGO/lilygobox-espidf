@@ -352,15 +352,17 @@ class TDisplayP4Device final : public ScreenProvider,
 
   /**
    * @brief 让设备进入芯片睡眠状态
+   * @param deep_sleep true 使用深度睡眠级别，false 使用轻度睡眠级别
    * @return 进入成功返回 true，否则返回 false
    */
-  bool EnterDeviceSleep() override;
+  bool EnterDeviceSleep(bool deep_sleep = false) override;
 
   /**
    * @brief 从设备芯片睡眠状态恢复
+   * @param deep_sleep true 恢复深度睡眠级别，false 恢复轻度睡眠级别
    * @return 恢复成功返回 true，否则返回 false
    */
-  bool ExitDeviceSleep() override;
+  bool ExitDeviceSleep(bool deep_sleep = false) override;
 
   /**
    * @brief 读取 BOOT 物理按键按下状态

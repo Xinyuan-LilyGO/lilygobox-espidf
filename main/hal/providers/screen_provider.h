@@ -102,15 +102,17 @@ class ScreenProvider {
 
   /**
    * @brief 让设备进入芯片睡眠状态
+   * @param deep_sleep true 使用深度睡眠级别，false 使用轻度睡眠级别
    * @return 进入成功返回 true，否则返回 false
    */
-  virtual bool EnterDeviceSleep() = 0;
+  virtual bool EnterDeviceSleep(bool deep_sleep = false) = 0;
 
   /**
    * @brief 从设备芯片睡眠状态恢复
+   * @param deep_sleep true 恢复深度睡眠级别，false 恢复轻度睡眠级别
    * @return 恢复成功返回 true，否则返回 false
    */
-  virtual bool ExitDeviceSleep() = 0;
+  virtual bool ExitDeviceSleep(bool deep_sleep = false) = 0;
 
   /**
    * @brief 读取锁屏唤醒物理按键按下状态

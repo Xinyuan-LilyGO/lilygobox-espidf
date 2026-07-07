@@ -17,6 +17,8 @@
 #include "app/wifi_manager.h"
 #include "base/logger.h"
 #include "esp_err.h"
+#include "esp_sleep.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal/device_provider_factory.h"
@@ -43,6 +45,7 @@ constexpr int kScreenUnlockSwipeMinDistance = 120;
 constexpr uint32_t kScreenUnlockAnimationWaitMs = 240;
 constexpr int kScreenUnlockSwipeMaxHorizontalDrift = 90;
 constexpr uint32_t kPowerMenuLongPressMs = 1200;
+constexpr uint32_t kPowerActionPreSleepSettleMs = 30;
 
 hal::TouchPoint RotateTouchPointToDisplay(const hal::TouchPoint& point,
     int rotation_angle, int screen_width, int screen_height) {
@@ -281,7 +284,8 @@ void Application::RunScreenLockTask() {
         WakeScreenFromLock();
       }
       lvgl_port_.Lock();
-      ui_manager_.ShowPowerMenu();
+      ui_manager_.ShowPowerMenu([this]() { RestartDevice(); },
+          [this]() { PowerOffDevice(); });
       lvgl_port_.Unlock();
       wake_button_long_press_handled = true;
       unlock_touch_active = false;
@@ -510,6 +514,30 @@ void Application::WakeScreenFromLock() {
   } else {
     UnlockScreen();
   }
+}
+
+/**
+ * @brief 让设备进入深度睡眠级关断状态并重启
+ */
+void Application::RestartDevice() {
+  vTaskDelay(pdMS_TO_TICKS(kPowerActionPreSleepSettleMs));
+  hal::ScreenProvider* screen = device_provider_context_.screen.get();
+  if (screen != nullptr) {
+    screen->EnterDeviceSleep(true);
+  }
+  esp_restart();
+}
+
+/**
+ * @brief 让设备进入深度睡眠级关断状态
+ */
+void Application::PowerOffDevice() {
+  vTaskDelay(pdMS_TO_TICKS(kPowerActionPreSleepSettleMs));
+  hal::ScreenProvider* screen = device_provider_context_.screen.get();
+  if (screen != nullptr) {
+    screen->EnterDeviceSleep(true);
+  }
+  esp_deep_sleep_start();
 }
 
 /**

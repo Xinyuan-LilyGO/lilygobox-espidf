@@ -970,7 +970,8 @@ void UiManager::PlayLockScreenUnlockAnimation() {
   ::lilygo_box::ui::StartLockScreenUnlockAnimation(lock_screen_);
 }
 
-bool UiManager::ShowPowerMenu() {
+bool UiManager::ShowPowerMenu(std::function<void()> restart_callback,
+    std::function<void()> power_off_callback) {
   if (root_screen_ == nullptr) {
     return false;
   }
@@ -984,6 +985,8 @@ bool UiManager::ShowPowerMenu() {
       .screen_width = LayoutWidth(),
       .screen_height = LayoutHeight(),
       .dismiss_callback = [this]() { HidePowerMenu(); },
+      .restart_callback = std::move(restart_callback),
+      .power_off_callback = std::move(power_off_callback),
   };
   power_menu_ = CreatePowerMenuView(root_screen_, options);
   if (power_menu_ == nullptr) {

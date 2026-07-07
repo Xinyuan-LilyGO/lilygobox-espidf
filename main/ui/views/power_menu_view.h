@@ -16,6 +16,8 @@ struct PowerMenuViewOptions {
   int screen_width = 0;
   int screen_height = 0;
   std::function<void()> dismiss_callback;
+  std::function<void()> restart_callback;
+  std::function<void()> power_off_callback;
 };
 
 /**

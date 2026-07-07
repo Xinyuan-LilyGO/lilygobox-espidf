@@ -67,6 +67,16 @@ class Application final {
   void WakeScreenFromLock();
 
   /**
+   * @brief 让设备进入深度睡眠级关断状态并重启
+   */
+  void RestartDevice();
+
+  /**
+   * @brief 让设备进入深度睡眠级关断状态
+   */
+  void PowerOffDevice();
+
+  /**
    * @brief 锁屏页面亮屏态下立即进入休眠
    * @return 进入休眠成功返回 true，否则返回 false
    */

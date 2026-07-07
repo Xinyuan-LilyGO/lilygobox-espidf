@@ -28,6 +28,8 @@ constexpr int kButtonLabelHeight = 34;
 
 struct PowerMenuDismissState {
   std::function<void()> callback;
+  std::function<void()> restart_callback;
+  std::function<void()> power_off_callback;
   bool dismissed = false;
   EdgeBackSwipeState edge_swipe = {};
 };
@@ -66,14 +68,40 @@ void SetTextStyle(lv_obj_t* object, uint32_t color, const lv_font_t* font) {
 }
 
 /**
- * @brief 处理关机菜单按钮点击事件
+ * @brief 处理关机菜单重启按钮点击事件
  * @param event LVGL 事件对象
  */
-void PowerMenuButtonEventCallback(lv_event_t* event) {
-  if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
-    PlayUiHapticFeedback();
-    lv_event_stop_bubbling(event);
-    lv_event_stop_processing(event);
+void PowerMenuRestartButtonEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+
+  auto* state =
+      static_cast<PowerMenuDismissState*>(lv_event_get_user_data(event));
+  if (state != nullptr && state->restart_callback) {
+    state->restart_callback();
+  }
+}
+
+/**
+ * @brief 处理关机菜单关机按钮点击事件
+ * @param event LVGL 事件对象
+ */
+void PowerMenuPowerOffButtonEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+
+  auto* state =
+      static_cast<PowerMenuDismissState*>(lv_event_get_user_data(event));
+  if (state != nullptr && state->power_off_callback) {
+    state->power_off_callback();
   }
 }
 
@@ -161,10 +189,12 @@ lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, uint32_t color,
  * @param parent 父对象
  * @param icon 按钮图标文本
  * @param text 按钮标题文本
+ * @param event_callback 按钮点击事件回调
+ * @param event_user_data 按钮事件用户数据
  * @return 创建成功返回按钮项对象，失败返回 nullptr
  */
 lv_obj_t* CreateActionItem(lv_obj_t* parent, const char* icon,
-    const char* text) {
+    const char* text, lv_event_cb_t event_callback, void* event_user_data) {
   lv_obj_t* item = lv_obj_create(parent);
   if (item == nullptr) {
     return nullptr;
@@ -192,8 +222,8 @@ lv_obj_t* CreateActionItem(lv_obj_t* parent, const char* icon,
   lv_obj_set_style_shadow_opa(button, 36, LV_PART_MAIN);
   lv_obj_set_style_shadow_color(button, lv_color_hex(0x000000), LV_PART_MAIN);
   lv_obj_align(button, LV_ALIGN_TOP_MID, 0, 0);
-  lv_obj_add_event_cb(
-      button, PowerMenuButtonEventCallback, LV_EVENT_CLICKED, nullptr);
+  lv_obj_add_event_cb(button, event_callback, LV_EVENT_CLICKED,
+      event_user_data);
 
   lv_obj_t* icon_label =
       CreateLabel(button, icon, kTextColor, PowerIconFont56());
@@ -245,6 +275,8 @@ lv_obj_t* CreatePowerMenuView(lv_obj_t* parent,
   lv_obj_set_style_pad_all(overlay, 0, LV_PART_MAIN);
   auto* dismiss_state = new PowerMenuDismissState{
       .callback = options.dismiss_callback,
+      .restart_callback = options.restart_callback,
+      .power_off_callback = options.power_off_callback,
   };
   AddDismissEvents(overlay, dismiss_state);
   lv_obj_add_event_cb(
@@ -268,10 +300,10 @@ lv_obj_t* CreatePowerMenuView(lv_obj_t* parent,
   lv_obj_center(panel);
   AddDismissEvents(panel, dismiss_state);
 
-  lv_obj_t* restart =
-      CreateActionItem(panel, icon::kRestartAlt, "Restart");
-  lv_obj_t* power_off =
-      CreateActionItem(panel, icon::kPowerSettingsNew, "Power off");
+  lv_obj_t* restart = CreateActionItem(panel, icon::kRestartAlt, "Restart",
+      PowerMenuRestartButtonEventCallback, dismiss_state);
+  lv_obj_t* power_off = CreateActionItem(panel, icon::kPowerSettingsNew,
+      "Power off", PowerMenuPowerOffButtonEventCallback, dismiss_state);
   if (restart == nullptr || power_off == nullptr) {
     lv_obj_delete(overlay);
     return nullptr;

@@ -3027,17 +3027,24 @@ bool TDisplayP4Device::SetScreenBrightnessPercent(int percent) {
   return false;
 }
 
-bool TDisplayP4Device::EnterDeviceSleep() {
+bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
   if (!WaitForScreenReady()) {
     return false;
   }
+  const lilygo_device_driver::TDisplayP4Driver::SleepLevel sleep_level =
+      deep_sleep
+          ? lilygo_device_driver::TDisplayP4Driver::SleepLevel::kDeep
+          : lilygo_device_driver::TDisplayP4Driver::SleepLevel::kLight;
   return driver_.SetSleep(
-      lilygo_device_driver::TDisplayP4Driver::SleepLevel::kLight, true);
+      sleep_level, true);
 }
 
-bool TDisplayP4Device::ExitDeviceSleep() {
-  const bool result = driver_.SetSleep(
-      lilygo_device_driver::TDisplayP4Driver::SleepLevel::kLight, false);
+bool TDisplayP4Device::ExitDeviceSleep(bool deep_sleep) {
+  const lilygo_device_driver::TDisplayP4Driver::SleepLevel sleep_level =
+      deep_sleep
+          ? lilygo_device_driver::TDisplayP4Driver::SleepLevel::kDeep
+          : lilygo_device_driver::TDisplayP4Driver::SleepLevel::kLight;
+  const bool result = driver_.SetSleep(sleep_level, false);
   if (!result) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Wake device from chip sleep failed\n");
