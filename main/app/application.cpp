@@ -8,6 +8,7 @@
 #include "app/application.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdint>
 #include <cstdlib>
 
@@ -23,6 +24,7 @@
 #include "freertos/task.h"
 #include "hal/device_provider_factory.h"
 #include "nvs_flash.h"
+#include "ui/font/material_symbols_assets.h"
 #include "ui/haptic_feedback.h"
 #include "ui/views/settings/settings_view_internal.h"
 
@@ -38,6 +40,7 @@ constexpr UBaseType_t kScreenLockTaskPriority = 3;
 constexpr uint32_t kScreenLockPollMs = 100;
 constexpr uint32_t kScreenLockSleepConfirmMs = 3 * 1000;
 constexpr uint32_t kAwakeLockScreenSleepTimeoutMs = 10 * 1000;
+constexpr uint32_t kLowBatteryStartupWarningMs = 10 * 1000;
 constexpr uint32_t kScreenLockFadeMs = 300;
 constexpr uint32_t kScreenLockPreSleepFlushMs = 80;
 constexpr int kScreenLockFadeStepCount = 12;
@@ -46,6 +49,9 @@ constexpr uint32_t kScreenUnlockAnimationWaitMs = 240;
 constexpr int kScreenUnlockSwipeMaxHorizontalDrift = 90;
 constexpr uint32_t kPowerMenuLongPressMs = 1200;
 constexpr uint32_t kPowerActionPreSleepSettleMs = 30;
+constexpr int kLowBatteryStartupThresholdPercent = 10;
+constexpr uint32_t kLowBatteryStartupIconColor = 0xFF3B30;
+constexpr uint32_t kBatteryFaultStartupIconColor = 0xFF9500;
 
 hal::TouchPoint RotateTouchPointToDisplay(const hal::TouchPoint& point,
     int rotation_angle, int screen_width, int screen_height) {
@@ -140,12 +146,50 @@ bool Application::Init() {
   lvgl_port_.SetDisplayRotation(display_preferences.screen_rotation_angle);
   lvgl_port_.Unlock();
   current_screen_brightness_percent_.store(display_preferences.brightness_percent);
-  screen->StartScreenBacklight(current_screen_brightness_percent_.load());
   if (device_provider_context_.audio != nullptr) {
     app::SoundPreferences sound_preferences = app::GetSoundPreferences();
     device_provider_context_.audio->SetSpeakerVolumePercent(
         sound_preferences.volume_percent);
   }
+
+  hal::BmuStatus startup_bmu_status;
+  const bool startup_bmu_ready = device_provider_context_.bmu != nullptr &&
+      device_provider_context_.bmu->ReadBmuStatus(&startup_bmu_status) &&
+      startup_bmu_status.ready && startup_bmu_status.pack_present;
+  if (!startup_bmu_ready) {
+    lvgl_port_.Lock();
+    const bool shown = ui_manager_.ShowBatteryStartupWarning(
+        ui::icon::kBatteryAndroidQuestion, kBatteryFaultStartupIconColor,
+        "BMU fault");
+    lvgl_port_.Unlock();
+    if (!shown) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "ShowBatteryStartupWarning failed\n");
+    }
+    screen->StartScreenBacklight(current_screen_brightness_percent_.load());
+    vTaskDelay(pdMS_TO_TICKS(kLowBatteryStartupWarningMs));
+    PowerOffDevice();
+    return false;
+  }
+  if (startup_bmu_status.charge_percent < kLowBatteryStartupThresholdPercent) {
+    char percent_text[16] = {};
+    std::snprintf(percent_text, sizeof(percent_text), "%d%%",
+        std::clamp(startup_bmu_status.charge_percent, 0, 100));
+    lvgl_port_.Lock();
+    const bool shown = ui_manager_.ShowBatteryStartupWarning(
+        ui::icon::kBatteryAndroid0, kLowBatteryStartupIconColor, percent_text);
+    lvgl_port_.Unlock();
+    if (!shown) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "ShowBatteryStartupWarning failed\n");
+    }
+    screen->StartScreenBacklight(current_screen_brightness_percent_.load());
+    vTaskDelay(pdMS_TO_TICKS(kLowBatteryStartupWarningMs));
+    PowerOffDevice();
+    return false;
+  }
+
+  screen->StartScreenBacklight(current_screen_brightness_percent_.load());
 
   lvgl_port_.Lock();
   const bool startup_result = ui_manager_.StartStartupScreenAnimation();

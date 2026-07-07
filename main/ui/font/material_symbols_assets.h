@@ -20,6 +20,7 @@ inline constexpr char kBatteryAndroid3[] = "\xEF\x8C\x8A";
 inline constexpr char kBatteryAndroid4[] = "\xEF\x8C\x89";
 inline constexpr char kBatteryAndroid5[] = "\xEF\x8C\x88";
 inline constexpr char kBatteryAndroid6[] = "\xEF\x8C\x87";
+inline constexpr char kBatteryAndroidQuestion[] = "\xEF\x8C\x82";
 inline constexpr char kBatteryAndroidFull[] = "\xEF\x8C\x84";
 inline constexpr char kBolt[] = "\xEE\xA8\x8B";
 inline constexpr char kBluetooth[] = "\xEE\x86\xA7";

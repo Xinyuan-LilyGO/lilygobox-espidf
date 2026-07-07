@@ -73,6 +73,8 @@ constexpr uint32_t kStartupBackgroundColor = 0xFFFFFF;
 constexpr uint32_t kStartupTextColor = 0x111111;
 constexpr uint32_t kStartupProgressTrackColor = 0xE8E8E8;
 constexpr uint32_t kStartupProgressFillColor = 0x1C1C1C;
+constexpr uint32_t kLowBatteryStartupBackgroundColor = 0x000000;
+constexpr uint32_t kLowBatteryStartupTextColor = 0xFFFFFF;
 constexpr uint32_t kStatusBarLightTextColor = 0xFFFFFF;
 constexpr int kStartupProgressMaxWidth = 360;
 constexpr int kStartupProgressWidthPercent = 54;
@@ -80,6 +82,8 @@ constexpr int kStartupProgressMinHeight = 6;
 constexpr int kStartupProgressHeightDivisor = 150;
 constexpr int kStartupProgressOffsetY = -30;
 constexpr int kStartupTitleGap = 20;
+constexpr int kLowBatteryStartupIconOffsetY = -36;
+constexpr int kLowBatteryStartupPercentGap = 18;
 
 struct IconStyle {
   const char* symbol;
@@ -902,6 +906,55 @@ bool UiManager::StartStartupScreenAnimation() {
   startup_progress_pending_percent_ = 0;
   startup_progress_animating_ = false;
   lv_obj_invalidate(startup_screen_);
+  return true;
+}
+
+bool UiManager::ShowBatteryStartupWarning(
+    const char* icon_text, uint32_t icon_color, const char* message) {
+  if (root_screen_ == nullptr || icon_text == nullptr || message == nullptr) {
+    return false;
+  }
+
+  if (startup_screen_ != nullptr) {
+    lv_obj_add_flag(startup_screen_, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  lv_obj_t* warning = lv_obj_create(root_screen_);
+  if (warning == nullptr) {
+    return false;
+  }
+  lv_obj_remove_flag(warning, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(warning, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(warning, LayoutWidth(), LayoutHeight());
+  lv_obj_set_pos(warning, 0, 0);
+  lv_obj_set_style_bg_color(
+      warning, lv_color_hex(kLowBatteryStartupBackgroundColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(warning, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(warning, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(warning, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(warning, 0, LV_PART_MAIN);
+
+  lv_obj_t* icon = lv_label_create(warning);
+  if (icon == nullptr) {
+    lv_obj_delete(warning);
+    return false;
+  }
+  lv_label_set_text(icon, icon_text);
+  SetTextStyle(icon, lv_color_hex(icon_color), MaterialIconFont56());
+  lv_obj_align(icon, LV_ALIGN_CENTER, 0, kLowBatteryStartupIconOffsetY);
+
+  lv_obj_t* label = lv_label_create(warning);
+  if (label == nullptr) {
+    lv_obj_delete(warning);
+    return false;
+  }
+  lv_label_set_text(label, message);
+  SetTextStyle(label, lv_color_hex(kLowBatteryStartupTextColor), Font32());
+  lv_obj_align_to(label, icon, LV_ALIGN_OUT_BOTTOM_MID, 0,
+      kLowBatteryStartupPercentGap);
+
+  lv_obj_move_to_index(warning, -1);
+  lv_obj_invalidate(warning);
   return true;
 }
 

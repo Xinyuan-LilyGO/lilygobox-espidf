@@ -77,6 +77,16 @@ class UiManager final {
   bool StartStartupScreenAnimation();
 
   /**
+   * @brief 显示启动阶段的电池保护提示页
+   * @param icon 图标文本
+   * @param icon_color 图标颜色
+   * @param message 提示文本
+   * @return 显示成功返回 true，否则返回 false
+   */
+  bool ShowBatteryStartupWarning(
+      const char* icon, uint32_t icon_color, const char* message);
+
+  /**
    * @brief 设置系统启动界面进度
    * @param percent 进度百分比，范围 0 到 100
    * @return 设置成功返回 true，否则返回 false
