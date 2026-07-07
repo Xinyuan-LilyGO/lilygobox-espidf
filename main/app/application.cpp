@@ -33,7 +33,7 @@ constexpr uint32_t kStartupWifiAutoConnectWaitMs = 15 * 1000;
 constexpr uint32_t kStartupWifiAutoConnectPollMs = 200;
 constexpr uint32_t kStartupWifiAutoConnectTaskStackBytes = 4 * 1024;
 constexpr UBaseType_t kStartupWifiAutoConnectTaskPriority = 3;
-constexpr uint32_t kScreenLockTaskStackBytes = 4 * 1024;
+constexpr uint32_t kScreenLockTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kScreenLockTaskPriority = 3;
 constexpr uint32_t kScreenLockPollMs = 100;
 constexpr uint32_t kScreenLockSleepConfirmMs = 3 * 1000;
@@ -280,13 +280,9 @@ void Application::RunScreenLockTask() {
     if (wake_button_pressed && !wake_button_long_press_handled &&
         now_ms - wake_button_press_start_ms >= kPowerMenuLongPressMs) {
       ui::PlayUiHapticFeedback();
-      if (screen_locked_.load() && !lock_screen_awake_.load()) {
-        WakeScreenFromLock();
+      if (ShowPowerMenuFromLockButton()) {
+        lock_screen_last_interaction_ms = now_ms;
       }
-      lvgl_port_.Lock();
-      ui_manager_.ShowPowerMenu([this]() { RestartDevice(); },
-          [this]() { PowerOffDevice(); });
-      lvgl_port_.Unlock();
       wake_button_long_press_handled = true;
       unlock_touch_active = false;
       unlock_drag_ready = false;
@@ -296,6 +292,12 @@ void Application::RunScreenLockTask() {
     was_wake_button_pressed = wake_button_pressed;
     if (screen_locked_.load()) {
       if (wake_button_clicked) {
+        const bool power_menu_hidden = HidePowerMenuFromLockButton();
+        if (power_menu_hidden) {
+          lock_screen_last_interaction_ms = now_ms;
+          unlock_touch_active = false;
+          unlock_drag_ready = false;
+        }
         if (lock_screen_awake_.load()) {
           SleepAwakeLockScreenNow();
           unlock_touch_active = false;
@@ -310,7 +312,28 @@ void Application::RunScreenLockTask() {
       }
 
       if (lock_screen_awake_.load()) {
-        if (screen->ReadScreenTouch(&point)) {
+        if (power_menu_visible_.load()) {
+          unlock_touch_active = false;
+          unlock_drag_ready = false;
+          const bool lock_wake_input_active =
+              screen->ReadScreenTouch(&point) || wake_button_pressed;
+          if (lock_wake_input_active) {
+            lock_screen_last_interaction_ms = now_ms;
+          } else {
+            lvgl_port_.SetInputBlocked(false);
+            const uint32_t lock_screen_idle_ms =
+                now_ms - lock_screen_last_interaction_ms;
+            const uint32_t lock_screen_dim_start_ms =
+                kAwakeLockScreenSleepTimeoutMs - kScreenLockSleepConfirmMs;
+            if (lock_screen_idle_ms >= lock_screen_dim_start_ms) {
+              lvgl_port_.SetInputBlocked(true);
+              if (!SleepAwakeLockScreenWithTimeout()) {
+                lock_screen_last_interaction_ms = static_cast<uint32_t>(
+                    xTaskGetTickCount() * portTICK_PERIOD_MS);
+              }
+            }
+          }
+        } else if (screen->ReadScreenTouch(&point)) {
           lock_screen_last_interaction_ms = now_ms;
           if (!unlock_touch_active) {
             unlock_touch_start = point;
@@ -377,6 +400,7 @@ void Application::RunScreenLockTask() {
     }
 
     if (wake_button_clicked) {
+      HidePowerMenuFromLockButton();
       ui::PlayUiHapticFeedback();
       lvgl_port_.SetInputBlocked(true);
       if (EnterScreenLockSleep()) {
@@ -517,6 +541,73 @@ void Application::WakeScreenFromLock() {
 }
 
 /**
+ * @brief 长按锁屏键时唤醒锁屏并显示关机菜单
+ * @return 显示成功返回 true，否则返回 false
+ */
+bool Application::ShowPowerMenuFromLockButton() {
+  hal::ScreenProvider* screen = device_provider_context_.screen.get();
+  if (screen == nullptr) {
+    return false;
+  }
+
+  const bool locked = screen_locked_.load();
+  bool lock_screen_was_sleeping = locked && !lock_screen_awake_.load();
+  if (lock_screen_was_sleeping) {
+    const app::DisplayPreferences preferences =
+        LoadDisplayPreferencesOrDefault();
+    if (!screen->ExitDeviceSleep()) {
+      return false;
+    }
+    screen->SetScreenBrightnessPercent(preferences.brightness_percent);
+    current_screen_brightness_percent_.store(preferences.brightness_percent);
+  }
+
+  lvgl_port_.SetInputBlocked(false);
+  lvgl_port_.Lock();
+  bool lock_screen_ready = true;
+  if (locked) {
+    lock_screen_ready = ui_manager_.ShowLockScreen();
+  }
+  const bool power_menu_shown =
+      lock_screen_ready &&
+      ui_manager_.ShowPowerMenu([this]() { RestartDevice(); },
+          [this]() { PowerOffDevice(); },
+          [this]() { HandlePowerMenuDismissed(); });
+  lvgl_port_.Unlock();
+
+  if (locked && lock_screen_ready) {
+    lock_screen_awake_.store(true);
+  }
+  power_menu_visible_.store(power_menu_shown);
+  if (!power_menu_shown && locked && !lock_screen_awake_.load()) {
+    lvgl_port_.SetInputBlocked(true);
+  }
+  if (!lock_screen_ready && lock_screen_was_sleeping) {
+    UnlockScreen();
+  }
+  return power_menu_shown;
+}
+
+/**
+ * @brief 单击锁屏键前清理已经显示的关机菜单
+ * @return 关闭了关机菜单返回 true，否则返回 false
+ */
+bool Application::HidePowerMenuFromLockButton() {
+  if (!power_menu_visible_.load()) {
+    return false;
+  }
+
+  lvgl_port_.Lock();
+  ui_manager_.HidePowerMenu();
+  lvgl_port_.Unlock();
+  power_menu_visible_.store(false);
+  if (screen_locked_.load() && !lock_screen_awake_.load()) {
+    lvgl_port_.SetInputBlocked(true);
+  }
+  return true;
+}
+
+/**
  * @brief 让设备进入深度睡眠级关断状态并重启
  */
 void Application::RestartDevice() {
@@ -541,6 +632,16 @@ void Application::PowerOffDevice() {
 }
 
 /**
+ * @brief 处理关机菜单被遮罩点击或滑动手势关闭后的状态恢复
+ */
+void Application::HandlePowerMenuDismissed() {
+  power_menu_visible_.store(false);
+  if (screen_locked_.load() && !lock_screen_awake_.load()) {
+    lvgl_port_.SetInputBlocked(true);
+  }
+}
+
+/**
  * @brief 锁屏页面亮屏态下立即进入休眠
  * @return 进入休眠成功返回 true，否则返回 false
  */
@@ -554,6 +655,7 @@ bool Application::SleepAwakeLockScreenNow() {
     return false;
   }
 
+  lvgl_port_.SetInputBlocked(true);
   lock_screen_awake_.store(false);
   return true;
 }
@@ -613,6 +715,7 @@ bool Application::SleepAwakeLockScreenWithTimeout() {
     return false;
   }
 
+  lvgl_port_.SetInputBlocked(true);
   current_screen_brightness_percent_.store(target_brightness);
   lock_screen_awake_.store(false);
   return true;

@@ -137,10 +137,12 @@ class UiManager final {
    * @brief 显示长按锁屏键后的关机菜单覆盖层
    * @param restart_callback 点击重启按钮时调用的回调
    * @param power_off_callback 点击关机按钮时调用的回调
+   * @param dismiss_callback 点击遮罩或滑动退出时调用的回调
    * @return 显示成功返回 true，否则返回 false
    */
   bool ShowPowerMenu(std::function<void()> restart_callback,
-      std::function<void()> power_off_callback);
+      std::function<void()> power_off_callback,
+      std::function<void()> dismiss_callback);
 
   /**
    * @brief 隐藏关机菜单覆盖层

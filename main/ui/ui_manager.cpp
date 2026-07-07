@@ -971,7 +971,8 @@ void UiManager::PlayLockScreenUnlockAnimation() {
 }
 
 bool UiManager::ShowPowerMenu(std::function<void()> restart_callback,
-    std::function<void()> power_off_callback) {
+    std::function<void()> power_off_callback,
+    std::function<void()> dismiss_callback) {
   if (root_screen_ == nullptr) {
     return false;
   }
@@ -984,7 +985,13 @@ bool UiManager::ShowPowerMenu(std::function<void()> restart_callback,
   PowerMenuViewOptions options = {
       .screen_width = LayoutWidth(),
       .screen_height = LayoutHeight(),
-      .dismiss_callback = [this]() { HidePowerMenu(); },
+      .dismiss_callback = [this, dismiss_callback = std::move(
+                              dismiss_callback)]() {
+        HidePowerMenu();
+        if (dismiss_callback) {
+          dismiss_callback();
+        }
+      },
       .restart_callback = std::move(restart_callback),
       .power_off_callback = std::move(power_off_callback),
   };

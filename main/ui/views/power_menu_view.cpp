@@ -111,8 +111,9 @@ void PowerMenuPowerOffButtonEventCallback(lv_event_t* event) {
  */
 void DismissPowerMenu(PowerMenuDismissState* state) {
   if (state != nullptr && !state->dismissed && state->callback) {
+    std::function<void()> callback = state->callback;
     state->dismissed = true;
-    state->callback();
+    callback();
   }
 }
 

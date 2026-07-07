@@ -67,6 +67,18 @@ class Application final {
   void WakeScreenFromLock();
 
   /**
+   * @brief 长按锁屏键时唤醒锁屏并显示关机菜单
+   * @return 显示成功返回 true，否则返回 false
+   */
+  bool ShowPowerMenuFromLockButton();
+
+  /**
+   * @brief 单击锁屏键前清理已经显示的关机菜单
+   * @return 关闭了关机菜单返回 true，否则返回 false
+   */
+  bool HidePowerMenuFromLockButton();
+
+  /**
    * @brief 让设备进入深度睡眠级关断状态并重启
    */
   void RestartDevice();
@@ -75,6 +87,11 @@ class Application final {
    * @brief 让设备进入深度睡眠级关断状态
    */
   void PowerOffDevice();
+
+  /**
+   * @brief 处理关机菜单被遮罩点击或滑动手势关闭后的状态恢复
+   */
+  void HandlePowerMenuDismissed();
 
   /**
    * @brief 锁屏页面亮屏态下立即进入休眠
@@ -120,6 +137,7 @@ class Application final {
   std::atomic<int> current_screen_brightness_percent_{100};
   std::atomic<bool> screen_locked_{false};
   std::atomic<bool> lock_screen_awake_{false};
+  std::atomic<bool> power_menu_visible_{false};
 };
 
 }  // namespace lilygo_box
