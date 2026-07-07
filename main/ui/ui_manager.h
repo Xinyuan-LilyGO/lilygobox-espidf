@@ -133,6 +133,17 @@ class UiManager final {
    */
   void PlayLockScreenUnlockAnimation();
 
+  /**
+   * @brief 显示长按锁屏键后的关机菜单覆盖层
+   * @return 显示成功返回 true，否则返回 false
+   */
+  bool ShowPowerMenu();
+
+  /**
+   * @brief 隐藏关机菜单覆盖层
+   */
+  void HidePowerMenu();
+
  private:
   struct AppButtonContext {
     UiManager* manager = nullptr;
@@ -382,6 +393,7 @@ class UiManager final {
   lv_obj_t* startup_screen_ = nullptr;
   lv_obj_t* startup_progress_fill_ = nullptr;
   lv_obj_t* lock_screen_ = nullptr;
+  lv_obj_t* power_menu_ = nullptr;
   int startup_progress_percent_ = 0;
   int startup_progress_target_percent_ = 0;
   int startup_progress_pending_percent_ = 0;

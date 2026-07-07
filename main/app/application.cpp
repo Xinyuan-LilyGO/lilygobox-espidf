@@ -42,6 +42,7 @@ constexpr int kScreenLockFadeStepCount = 12;
 constexpr int kScreenUnlockSwipeMinDistance = 120;
 constexpr uint32_t kScreenUnlockAnimationWaitMs = 240;
 constexpr int kScreenUnlockSwipeMaxHorizontalDrift = 90;
+constexpr uint32_t kPowerMenuLongPressMs = 1200;
 
 hal::TouchPoint RotateTouchPointToDisplay(const hal::TouchPoint& point,
     int rotation_angle, int screen_width, int screen_height) {
@@ -254,6 +255,8 @@ void Application::RunScreenLockTask() {
   uint32_t last_touch_ms = static_cast<uint32_t>(xTaskGetTickCount() *
       portTICK_PERIOD_MS);
   bool was_wake_button_pressed = screen->IsLockWakeButtonPressed();
+  uint32_t wake_button_press_start_ms = last_touch_ms;
+  bool wake_button_long_press_handled = was_wake_button_pressed;
   uint32_t lock_screen_last_interaction_ms = last_touch_ms;
   bool unlock_touch_active = false;
   bool unlock_drag_ready = false;
@@ -263,8 +266,29 @@ void Application::RunScreenLockTask() {
         portTICK_PERIOD_MS);
     hal::TouchPoint point;
     const bool wake_button_pressed = screen->IsLockWakeButtonPressed();
-    const bool wake_button_clicked =
+    const bool wake_button_pressed_edge =
         wake_button_pressed && !was_wake_button_pressed;
+    const bool wake_button_released =
+        !wake_button_pressed && was_wake_button_pressed;
+    if (wake_button_pressed_edge) {
+      wake_button_press_start_ms = now_ms;
+      wake_button_long_press_handled = false;
+    }
+    if (wake_button_pressed && !wake_button_long_press_handled &&
+        now_ms - wake_button_press_start_ms >= kPowerMenuLongPressMs) {
+      ui::PlayUiHapticFeedback();
+      if (screen_locked_.load() && !lock_screen_awake_.load()) {
+        WakeScreenFromLock();
+      }
+      lvgl_port_.Lock();
+      ui_manager_.ShowPowerMenu();
+      lvgl_port_.Unlock();
+      wake_button_long_press_handled = true;
+      unlock_touch_active = false;
+      unlock_drag_ready = false;
+    }
+    const bool wake_button_clicked =
+        wake_button_released && !wake_button_long_press_handled;
     was_wake_button_pressed = wake_button_pressed;
     if (screen_locked_.load()) {
       if (wake_button_clicked) {

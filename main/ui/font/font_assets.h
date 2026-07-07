@@ -26,6 +26,7 @@ extern const lv_font_t lvgl_font_material_symbols_20;
 extern const lv_font_t lvgl_font_material_symbols_32;
 extern const lv_font_t lvgl_font_material_symbols_36;
 extern const lv_font_t lvgl_font_material_symbols_56;
+extern const lv_font_t lvgl_font_power_menu_symbols_56;
 
 #ifdef __cplusplus
 }

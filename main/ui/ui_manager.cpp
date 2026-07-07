@@ -23,6 +23,7 @@
 #include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"
 #include "ui/views/lock_screen_view.h"
+#include "ui/views/power_menu_view.h"
 #include "ui/wallpaper.h"
 
 namespace lilygo_box::ui {
@@ -969,6 +970,37 @@ void UiManager::PlayLockScreenUnlockAnimation() {
   ::lilygo_box::ui::StartLockScreenUnlockAnimation(lock_screen_);
 }
 
+bool UiManager::ShowPowerMenu() {
+  if (root_screen_ == nullptr) {
+    return false;
+  }
+
+  if (power_menu_ != nullptr) {
+    lv_obj_move_to_index(power_menu_, -1);
+    return true;
+  }
+
+  PowerMenuViewOptions options = {
+      .screen_width = LayoutWidth(),
+      .screen_height = LayoutHeight(),
+      .dismiss_callback = [this]() { HidePowerMenu(); },
+  };
+  power_menu_ = CreatePowerMenuView(root_screen_, options);
+  if (power_menu_ == nullptr) {
+    return false;
+  }
+  lv_obj_move_to_index(power_menu_, -1);
+  return true;
+}
+
+void UiManager::HidePowerMenu() {
+  if (power_menu_ == nullptr) {
+    return;
+  }
+  lv_obj_delete(power_menu_);
+  power_menu_ = nullptr;
+}
+
 bool UiManager::SetStartupScreenProgress(int percent) {
   if (startup_screen_ == nullptr || startup_progress_fill_ == nullptr) {
     return false;
@@ -1175,6 +1207,10 @@ void UiManager::RelayoutForScreenSize() {
     lv_obj_delete(lock_screen_);
     lock_screen_ = nullptr;
     NotifyLockScreenVisibilityChanged(false);
+  }
+  if (power_menu_ != nullptr) {
+    lv_obj_delete(power_menu_);
+    power_menu_ = nullptr;
   }
   if (startup_screen_ != nullptr) {
     lv_obj_delete(startup_screen_);
