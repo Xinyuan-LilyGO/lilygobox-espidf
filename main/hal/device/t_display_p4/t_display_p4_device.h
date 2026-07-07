@@ -695,6 +695,8 @@ class TDisplayP4Device final : public ScreenProvider,
     uint32_t output_height = 0;
     // PPA 输出图像 stride
     uint32_t output_stride = 0;
+    // PPA 输出图像旋转角度
+    int output_rotation_angle = 0;
     // 启动后需要清空 PPA 输出缓冲区的帧数
     uint32_t clear_output_frames_remaining = 0;
     // 预览帧序号

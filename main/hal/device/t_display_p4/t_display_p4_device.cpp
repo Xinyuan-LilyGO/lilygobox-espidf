@@ -26,6 +26,7 @@
 #include <new>
 #include <string>
 
+#include "app/storage/display_storage.h"
 #include "audio/new_notification_010_c2_b16_s44100.h"
 #include "base/logger.h"
 #include "esp_err.h"
@@ -109,6 +110,44 @@ constexpr uint32_t kWifiSntpSyncIntervalMs = 20 * 1000;
 
 // 当前接收 SNTP 同步回调的设备实例
 std::atomic<TDisplayP4Device*> g_wifi_time_sync_owner{nullptr};
+
+/**
+ * @brief 将屏幕旋转角度规整到摄像头预览支持的范围
+ * @param angle 屏幕旋转角度
+ * @return 规整后的角度
+ */
+int NormalizeCameraPreviewRotationAngle(int angle) {
+  angle %= 360;
+  if (angle < 0) {
+    angle += 360;
+  }
+  switch (angle) {
+    case 90:
+    case 180:
+    case 270:
+      return angle;
+    default:
+      return 0;
+  }
+}
+
+/**
+ * @brief 将屏幕旋转角度转换为 PPA 旋转角度
+ * @param angle 屏幕旋转角度
+ * @return PPA 旋转角度
+ */
+ppa_srm_rotation_angle_t ToCameraPreviewPpaRotation(int angle) {
+  switch (NormalizeCameraPreviewRotationAngle(angle)) {
+    case 90:
+      return PPA_SRM_ROTATION_ANGLE_270;
+    case 180:
+      return PPA_SRM_ROTATION_ANGLE_180;
+    case 270:
+      return PPA_SRM_ROTATION_ANGLE_90;
+    default:
+      return PPA_SRM_ROTATION_ANGLE_0;
+  }
+}
 
 int ClampScreenBrightnessPercent(int percent) {
   return std::clamp(
@@ -1484,16 +1523,17 @@ bool TDisplayP4Device::InitializeCameraPreview() {
     return false;
   }
   const size_t bytes_per_pixel = ScreenBitsPerPixel() / 8;
-  const uint32_t width_limited_height =
-      camera_preview_.frame_height * ScreenWidth() / camera_preview_.frame_width;
-  if (width_limited_height <= ScreenHeight()) {
-    camera_preview_.output_width = ScreenWidth();
-    camera_preview_.output_height = width_limited_height;
-  } else {
-    camera_preview_.output_height = ScreenHeight();
-    camera_preview_.output_width =
-        camera_preview_.frame_width * ScreenHeight() / camera_preview_.frame_height;
-  }
+  camera_preview_.output_rotation_angle = NormalizeCameraPreviewRotationAngle(
+      app::GetDisplayPreferences().screen_rotation_angle);
+  const bool output_rotated =
+      camera_preview_.output_rotation_angle == 90 ||
+      camera_preview_.output_rotation_angle == 270;
+  const uint32_t output_screen_width =
+      output_rotated ? ScreenHeight() : ScreenWidth();
+  const uint32_t output_screen_height =
+      output_rotated ? ScreenWidth() : ScreenHeight();
+  camera_preview_.output_width = output_screen_width;
+  camera_preview_.output_height = output_screen_height;
   camera_preview_.output_width = std::max<uint32_t>(1, camera_preview_.output_width);
   camera_preview_.output_height = std::max<uint32_t>(1, camera_preview_.output_height);
   camera_preview_.output_stride = camera_preview_.output_width * bytes_per_pixel;
@@ -1551,6 +1591,7 @@ void TDisplayP4Device::DeinitializeCameraPreview() {
   camera_preview_.output_width = 0;
   camera_preview_.output_height = 0;
   camera_preview_.output_stride = 0;
+  camera_preview_.output_rotation_angle = 0;
   camera_preview_.clear_output_frames_remaining = 0;
   camera_preview_.frame_sequence.store(0);
   camera_preview_.initialized.store(false);
@@ -1571,6 +1612,23 @@ bool TDisplayP4Device::RenderCameraFrame(
 
   const uint32_t output_width = camera_preview_.output_width;
   const uint32_t output_height = camera_preview_.output_height;
+  const int output_rotation_angle = camera_preview_.output_rotation_angle;
+  const bool output_rotated =
+      output_rotation_angle == 90 || output_rotation_angle == 270;
+  const uint32_t rotated_source_width = output_rotated ? height : width;
+  const uint32_t rotated_source_height = output_rotated ? width : height;
+  const float scale = std::min(
+      static_cast<float>(output_width) / static_cast<float>(rotated_source_width),
+      static_cast<float>(output_height) /
+          static_cast<float>(rotated_source_height));
+  const uint32_t scaled_width = std::max<uint32_t>(
+      1, static_cast<uint32_t>(std::round(rotated_source_width * scale)));
+  const uint32_t scaled_height = std::max<uint32_t>(
+      1, static_cast<uint32_t>(std::round(rotated_source_height * scale)));
+  const uint32_t output_offset_x =
+      output_width > scaled_width ? (output_width - scaled_width) / 2 : 0;
+  const uint32_t output_offset_y =
+      output_height > scaled_height ? (output_height - scaled_height) / 2 : 0;
   const size_t aligned_output_size = camera_preview_.output_buffer_size;
 #if defined(CONFIG_CAMERA_TYPE_OV5645)
   const ppa_srm_color_mode_t input_color_mode = PPA_SRM_COLOR_MODE_RGB565;
@@ -1601,22 +1659,26 @@ bool TDisplayP4Device::RenderCameraFrame(
       .pic_height = output_height,
       .block_width = output_width,
       .block_height = output_height,
-      .block_offset_x = 0,
-      .block_offset_y = 0,
+      .block_offset_x = output_offset_x,
+      .block_offset_y = output_offset_y,
       .color_mode = output_color_mode,
   };
   PpaSrmTransformConfig transform = {
-      .scale_x = static_cast<float>(output_width) / static_cast<float>(width),
-      .scale_y = static_cast<float>(output_height) / static_cast<float>(height),
+      .rotation_angle = ToCameraPreviewPpaRotation(output_rotation_angle),
+      .scale_x = scale,
+      .scale_y = scale,
       .mirror_y = driver_.screen_type() == device::ScreenType::kHi8561,
   };
   if (xSemaphoreTake(camera_preview_.output_mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
     return false;
   }
-  if (camera_preview_.clear_output_frames_remaining > 0) {
+  if (camera_preview_.clear_output_frames_remaining > 0 ||
+      output_offset_x > 0 || output_offset_y > 0) {
     std::memset(camera_preview_.output_buffer.get(), 0,
         camera_preview_.output_buffer_size);
-    --camera_preview_.clear_output_frames_remaining;
+    if (camera_preview_.clear_output_frames_remaining > 0) {
+      --camera_preview_.clear_output_frames_remaining;
+    }
   }
   const bool transformed = camera_preview_.ppa.Transform(input, output, transform);
   if (transformed) {
