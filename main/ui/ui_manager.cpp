@@ -23,6 +23,7 @@
 #include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"
 #include "ui/views/lock_screen_view.h"
+#include "ui/wallpaper.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -808,39 +809,6 @@ lv_obj_t* CreateCircle(lv_obj_t* parent, int size, int x, int y,
   return circle;
 }
 
-/**
- * @brief 创建壁纸层级圆形对象
- * @param parent 父对象
- * @param size 圆形尺寸
- * @param x X 偏移
- * @param y Y 偏移
- * @param align 对齐方式
- * @param color 填充颜色
- * @param opacity 透明度
- * @return 创建成功返回对象指针，否则返回 nullptr
- */
-lv_obj_t* CreateToneCircle(lv_obj_t* parent, int size, int x, int y,
-    lv_align_t align, uint32_t color, lv_opa_t opacity) {
-  return CreateCircle(parent, size, x, y, align, color, opacity);
-}
-
-/**
- * @brief 创建桌面壁纸对象
- * @param parent 父对象
- */
-void CreateWallpaperObjects(lv_obj_t* parent) {
-  CreateToneCircle(
-      parent, 1120, 0, 70, LV_ALIGN_TOP_MID, 0xDCDCDC, LV_OPA_COVER);
-  CreateToneCircle(
-      parent, 1000, 0, 140, LV_ALIGN_TOP_MID, 0xC8C8C8, LV_OPA_COVER);
-
-  CreateToneCircle(
-      parent, 940, 0, 300, LV_ALIGN_TOP_MID, 0xB7B7B7, LV_OPA_COVER);
-
-  CreateToneCircle(
-      parent, 1040, 0, 640, LV_ALIGN_BOTTOM_MID, 0x9F9F9F, LV_OPA_COVER);
-}
-
 }  // namespace
 
 bool UiManager::Init(hal::ScreenProvider* screen,
@@ -892,7 +860,6 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   layout_width_ = LayoutWidth();
   layout_height_ = LayoutHeight();
 
-  CreateWallpaperObjects(root_screen_);
   launcher_container_ = CreateLauncher(root_screen_);
   if (launcher_container_ == nullptr) {
     return false;
@@ -1252,6 +1219,7 @@ void UiManager::RelayoutForScreenSize() {
     }
     UpdatePageIndicator(page_index_);
   }
+  status_bar_.MoveToTop();
 
   if (reopen_app != nullptr) {
     ShowAppView(*reopen_app);
@@ -1283,9 +1251,12 @@ lv_obj_t* UiManager::CreateLauncher(lv_obj_t* parent) {
 
   lv_obj_remove_flag(launcher, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(launcher, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_add_flag(launcher, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
   MakeTransparent(launcher);
   lv_obj_set_size(launcher, LayoutWidth(), LayoutHeight());
   lv_obj_align(launcher, LV_ALIGN_CENTER, 0, 0);
+
+  CreateWallpaperObjects(launcher, LayoutWidth(), LayoutHeight());
 
   page_scroller_ = CreatePageScroller(launcher);
   if (page_scroller_ == nullptr) {
