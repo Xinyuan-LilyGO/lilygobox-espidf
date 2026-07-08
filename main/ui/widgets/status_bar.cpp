@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-12 01:08:42
- * @LastEditTime: 2026-06-24 16:35:57
+ * @LastEditTime: 2026-07-08 15:06:23
  * @License: GPL 3.0
  */
 #include "ui/widgets/status_bar.h"
@@ -23,7 +23,12 @@ constexpr int kStatusBarPadding = 40;
 constexpr int kStatusBarIconGap = -10;
 constexpr int kStatusBarBatteryPercentGap = 4;
 constexpr int kStatusBarBatteryBoltOffsetX = -1;
-constexpr int kStatusBarBatteryBoltOffsetY = -1;
+constexpr int kStatusBarBatteryBoltOffsetY = 0;
+constexpr int kStatusBarBatteryFillMaxWidth = 30;
+constexpr int kStatusBarBatteryFillHeight = 16;
+constexpr int kStatusBarBatteryFillOffsetX = 5;
+constexpr int kStatusBarBatteryFillOffsetY = 0;
+constexpr int kStatusBarBatteryFillRadius = 2;
 constexpr uint32_t kStatusBarBackgroundColor = 0x000000;
 constexpr uint32_t kStatusBarTextColor = 0xFFFFFF;
 constexpr uint32_t kStatusBarBatteryChargingColor = 0x27C769;
@@ -47,10 +52,10 @@ void SetTextStyle(lv_obj_t* object, lv_color_t color, const lv_font_t* font) {
 const lv_font_t* Font24() { return &lvgl_font_google_sans_flex_24; }
 
 /**
- * @brief 获取 20 号 Material Symbols 字体
+ * @brief 获取 24 号 Material Symbols 字体
  * @return 字体指针
  */
-const lv_font_t* MaterialIconFont20() { return &lvgl_font_material_symbols_20; }
+const lv_font_t* MaterialIconFont22() { return &lvgl_font_material_symbols_22; }
 
 /**
  * @brief 获取 32 号 Material Symbols 字体
@@ -59,41 +64,10 @@ const lv_font_t* MaterialIconFont20() { return &lvgl_font_material_symbols_20; }
 const lv_font_t* MaterialIconFont32() { return &lvgl_font_material_symbols_32; }
 
 /**
- * @brief 获取 36 号 Material Symbols 字体
+ * @brief 获取 40 号 Material Symbols 字体
  * @return 字体指针
  */
-
-const lv_font_t* MaterialIconFont36() { return &lvgl_font_material_symbols_36; }
-
-/**
- * @brief 根据电量百分比选择电池图标
- * @param percent 电量百分比
- * @return 电池图标文本
- */
-const char* BatteryIconFromPercent(int percent) {
-  if (percent >= 95) {
-    return icon::kBatteryAndroidFull;
-  }
-  if (percent >= 80) {
-    return icon::kBatteryAndroid6;
-  }
-  if (percent >= 65) {
-    return icon::kBatteryAndroid5;
-  }
-  if (percent >= 50) {
-    return icon::kBatteryAndroid4;
-  }
-  if (percent >= 35) {
-    return icon::kBatteryAndroid3;
-  }
-  if (percent >= 20) {
-    return icon::kBatteryAndroid2;
-  }
-  if (percent >= 5) {
-    return icon::kBatteryAndroid1;
-  }
-  return icon::kBatteryAndroid0;
-}
+const lv_font_t* MaterialIconFont44() { return &lvgl_font_material_symbols_44; }
 
 /**
  * @brief 根据 RSSI 计算 WiFi 信号等级
@@ -194,6 +168,51 @@ void MakeTransparent(lv_obj_t* object) {
   lv_obj_set_style_pad_all(object, 0, LV_PART_MAIN);
 }
 
+/**
+ * @brief 获取状态栏电池填充条颜色
+ * @param percent 电池百分比
+ * @param charging 是否正在充电
+ * @param text_color 默认文字颜色
+ * @return 填充条颜色
+ */
+uint32_t BatteryFillColor(int percent, bool charging, uint32_t text_color) {
+  if (charging) {
+    return kStatusBarBatteryChargingColor;
+  }
+  if (percent >= 0 && percent < 10) {
+    return kStatusBarBatteryLowColor;
+  }
+  return text_color;
+}
+
+/**
+ * @brief 更新状态栏电池填充条
+ * @param fill 填充条对象
+ * @param shell 电池外壳对象
+ * @param percent 电池百分比
+ * @param color 填充条颜色
+ */
+void UpdateBatteryFill(
+    lv_obj_t* fill, lv_obj_t* shell, int percent, uint32_t color) {
+  if (fill == nullptr || shell == nullptr) {
+    return;
+  }
+
+  const int clamped_percent = std::clamp(percent, 0, 100);
+  if (clamped_percent <= 0) {
+    lv_obj_add_flag(fill, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+
+  const int fill_width = std::max(
+      1, kStatusBarBatteryFillMaxWidth * clamped_percent / 100);
+  lv_obj_set_size(fill, fill_width, kStatusBarBatteryFillHeight);
+  lv_obj_set_style_bg_color(fill, lv_color_hex(color), LV_PART_MAIN);
+  lv_obj_clear_flag(fill, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_align_to(fill, shell, LV_ALIGN_LEFT_MID, kStatusBarBatteryFillOffsetX,
+      kStatusBarBatteryFillOffsetY);
+}
+
 }  // namespace
 
 bool StatusBar::Init(lv_obj_t* parent, int width) {
@@ -238,8 +257,8 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
   lv_obj_align(bmu_percent_label_, LV_ALIGN_RIGHT_MID, 0, 0);
 
   bmu_label_ =
-      CreateLabel(object_, icon::kBatteryAndroid3,
-          lv_color_hex(kStatusBarTextColor), MaterialIconFont36());
+      CreateLabel(object_, icon::kBatteryAndroid0,
+          lv_color_hex(kStatusBarTextColor), MaterialIconFont44());
   if (bmu_label_ == nullptr) {
     lv_obj_delete(object_);
     object_ = nullptr;
@@ -248,8 +267,29 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
   lv_obj_align_to(bmu_label_, bmu_percent_label_, LV_ALIGN_OUT_LEFT_MID,
       -kStatusBarBatteryPercentGap, 0);
 
+  bmu_fill_ = lv_obj_create(object_);
+  if (bmu_fill_ == nullptr) {
+    lv_obj_delete(object_);
+    object_ = nullptr;
+    return false;
+  }
+  lv_obj_remove_flag(bmu_fill_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(bmu_fill_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(bmu_fill_, 1, kStatusBarBatteryFillHeight);
+  lv_obj_set_style_bg_color(
+      bmu_fill_, lv_color_hex(kStatusBarTextColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(bmu_fill_, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(bmu_fill_, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(bmu_fill_, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(
+      bmu_fill_, kStatusBarBatteryFillRadius, LV_PART_MAIN);
+  lv_obj_add_flag(bmu_fill_, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_align_to(bmu_fill_, bmu_label_, LV_ALIGN_LEFT_MID,
+      kStatusBarBatteryFillOffsetX, kStatusBarBatteryFillOffsetY);
+  lv_obj_move_to_index(bmu_fill_, lv_obj_get_index(bmu_label_));
+
   bmu_bolt_label_ = CreateLabel(object_, icon::kBolt,
-      lv_color_hex(kStatusBarTextColor), MaterialIconFont20());
+      lv_color_hex(kStatusBarTextColor), MaterialIconFont22());
   if (bmu_bolt_label_ == nullptr) {
     lv_obj_delete(object_);
     object_ = nullptr;
@@ -258,6 +298,7 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
   lv_obj_add_flag(bmu_bolt_label_, LV_OBJ_FLAG_HIDDEN);
   lv_obj_align_to(bmu_bolt_label_, bmu_label_, LV_ALIGN_CENTER,
       kStatusBarBatteryBoltOffsetX, kStatusBarBatteryBoltOffsetY);
+  lv_obj_move_to_index(bmu_bolt_label_, -1);
 
   wifi_label_ = CreateLabel(object_, icon::kSignalWifi4Bar,
       lv_color_hex(kStatusBarTextColor), MaterialIconFont32());
@@ -302,20 +343,15 @@ void StatusBar::SetBatteryStatus(int percent, bool charging) {
         bmu_percent_text_, percent_text, sizeof(bmu_percent_text_) - 1);
     bmu_percent_text_[sizeof(bmu_percent_text_) - 1] = '\0';
     lv_label_set_text(bmu_percent_label_, bmu_percent_text_);
-    lv_label_set_text(bmu_label_, BatteryIconFromPercent(clamped_percent));
   }
   if (charging_changed) {
     bmu_charging_ = charging;
   }
 
-  uint32_t battery_color = text_color_hex_;
-  if (charging) {
-    battery_color = kStatusBarBatteryChargingColor;
-  } else if (clamped_percent < 10) {
-    battery_color = kStatusBarBatteryLowColor;
-  }
+  const uint32_t battery_color =
+      BatteryFillColor(clamped_percent, charging, text_color_hex_);
   lv_obj_set_style_text_color(
-      bmu_label_, lv_color_hex(battery_color), LV_PART_MAIN);
+      bmu_label_, lv_color_hex(text_color_hex_), LV_PART_MAIN);
   if (bmu_bolt_label_ != nullptr) {
     if (charging) {
       lv_obj_remove_flag(bmu_bolt_label_, LV_OBJ_FLAG_HIDDEN);
@@ -329,6 +365,17 @@ void StatusBar::SetBatteryStatus(int percent, bool charging) {
   if (bmu_bolt_label_ != nullptr) {
     lv_obj_align_to(bmu_bolt_label_, bmu_label_, LV_ALIGN_CENTER,
       kStatusBarBatteryBoltOffsetX, kStatusBarBatteryBoltOffsetY);
+    lv_obj_move_to_index(bmu_bolt_label_, -1);
+  }
+  UpdateBatteryFill(bmu_fill_, bmu_label_, clamped_percent, battery_color);
+  if (bmu_fill_ != nullptr) {
+    lv_obj_move_to_index(bmu_fill_, lv_obj_get_index(bmu_label_));
+  }
+  if (bmu_label_ != nullptr) {
+    lv_obj_move_to_index(bmu_label_, -1);
+  }
+  if (bmu_bolt_label_ != nullptr) {
+    lv_obj_move_to_index(bmu_bolt_label_, -1);
   }
   lv_obj_align_to(
       wifi_label_, bmu_label_, LV_ALIGN_OUT_LEFT_MID, kStatusBarIconGap, 0);
@@ -374,14 +421,12 @@ void StatusBar::SetTextColor(lv_color_t color) {
     lv_obj_set_style_text_color(wifi_label_, color, LV_PART_MAIN);
   }
   if (bmu_label_ != nullptr) {
-    uint32_t battery_color = text_color_hex_;
-    if (bmu_charging_) {
-      battery_color = kStatusBarBatteryChargingColor;
-    } else if (bmu_percent_ >= 0 && bmu_percent_ < 10) {
-      battery_color = kStatusBarBatteryLowColor;
-    }
     lv_obj_set_style_text_color(
-        bmu_label_, lv_color_hex(battery_color), LV_PART_MAIN);
+        bmu_label_, lv_color_hex(text_color_hex_), LV_PART_MAIN);
+  }
+  if (bmu_fill_ != nullptr) {
+    UpdateBatteryFill(bmu_fill_, bmu_label_, bmu_percent_,
+        BatteryFillColor(bmu_percent_, bmu_charging_, text_color_hex_));
   }
   if (bmu_bolt_label_ != nullptr) {
     lv_obj_set_style_text_color(bmu_bolt_label_, color, LV_PART_MAIN);

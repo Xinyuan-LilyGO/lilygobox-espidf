@@ -2,7 +2,7 @@
  * @Description: None
  * @Author: LILYGO_L
  * @Date: 2026-05-12 01:08:42
- * @LastEditTime: 2026-05-12 01:08:42
+ * @LastEditTime: 2026-07-08 12:08:51
  * @License: GPL 3.0
  */
 #pragma once
@@ -71,6 +71,7 @@ class StatusBar final {
   lv_obj_t* time_label_ = nullptr;
   lv_obj_t* wifi_label_ = nullptr;
   lv_obj_t* bmu_label_ = nullptr;
+  lv_obj_t* bmu_fill_ = nullptr;
   lv_obj_t* bmu_bolt_label_ = nullptr;
   lv_obj_t* bmu_percent_label_ = nullptr;
   uint32_t text_color_hex_ = 0xFFFFFF;
