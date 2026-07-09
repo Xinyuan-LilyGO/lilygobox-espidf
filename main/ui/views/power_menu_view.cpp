@@ -44,7 +44,9 @@ const lv_font_t* Font24() { return &lvgl_font_google_sans_flex_24; }
  * @brief 获取 56 号关机菜单图标字体
  * @return 字体指针
  */
-const lv_font_t* PowerIconFont56() { return &lvgl_font_power_menu_symbols_56; }
+const lv_font_t* PowerIconFont56() {
+  return &lvgl_font_material_symbols_fill_56;
+}
 
 /**
  * @brief 清除对象背景、边框和内边距
