@@ -32,6 +32,7 @@ inline constexpr char kGpsFixed[] = "\xEE\x95\x9C";
 inline constexpr char kHome[] = "\xEE\xA6\xB2";
 inline constexpr char kImage[] = "\xEE\x8F\xB4";
 inline constexpr char kInfo[] = "\xEE\xA2\x8E";
+inline constexpr char kKeyboardArrowDown[] = "\xEE\x8C\x93";
 inline constexpr char kKeyboardArrowUp[] = "\xEE\x8C\x96";
 inline constexpr char kLock[] = "\xEE\xA2\x99";
 inline constexpr char kMemory[] = "\xEE\x8C\xA2";
