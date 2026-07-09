@@ -466,6 +466,38 @@ function ellipsePoints(cx, cy, rx, ry, matrix) {
   return points;
 }
 
+function roundedRectPoints(x, y, width, height, rx, ry, matrix) {
+  rx = Math.max(0, Math.min(rx, width / 2));
+  ry = Math.max(0, Math.min(ry, height / 2));
+  if (rx === 0 || ry === 0) {
+    return [
+      applyMatrix({x, y}, matrix),
+      applyMatrix({x: x + width, y}, matrix),
+      applyMatrix({x: x + width, y: y + height}, matrix),
+      applyMatrix({x, y: y + height}, matrix),
+    ];
+  }
+
+  const steps = 18;
+  const corners = [
+    {cx: x + width - rx, cy: y + ry, start: -Math.PI / 2, end: 0},
+    {cx: x + width - rx, cy: y + height - ry, start: 0, end: Math.PI / 2},
+    {cx: x + rx, cy: y + height - ry, start: Math.PI / 2, end: Math.PI},
+    {cx: x + rx, cy: y + ry, start: Math.PI, end: Math.PI * 1.5},
+  ];
+  const points = [];
+  for (const corner of corners) {
+    for (let i = 0; i <= steps; ++i) {
+      const angle = corner.start + ((corner.end - corner.start) * i) / steps;
+      points.push(applyMatrix({
+        x: corner.cx + Math.cos(angle) * rx,
+        y: corner.cy + Math.sin(angle) * ry,
+      }, matrix));
+    }
+  }
+  return points;
+}
+
 function addStyledShape(shapes, points, style) {
   if (style.fill != null && style.opacity > 0) {
     shapes.push({
@@ -515,13 +547,11 @@ function collectShapes(svg) {
       const y = Number(attrs.y || 0);
       const w = Number(attrs.width || 0);
       const h = Number(attrs.height || 0);
+      const rx = Number(attrs.rx || attrs.ry || 0);
+      const ry = Number(attrs.ry || attrs.rx || 0);
       const matrix = parseTransform(attrs.transform);
-      addStyledShape(shapes, [
-        applyMatrix({x, y}, matrix),
-        applyMatrix({x: x + w, y}, matrix),
-        applyMatrix({x: x + w, y: y + h}, matrix),
-        applyMatrix({x, y: y + h}, matrix),
-      ], style);
+      addStyledShape(shapes, roundedRectPoints(x, y, w, h, rx, ry, matrix),
+          style);
     } else if (match[1] === "circle") {
       const cx = Number(attrs.cx || 0);
       const cy = Number(attrs.cy || 0);

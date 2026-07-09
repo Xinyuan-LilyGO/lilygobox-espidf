@@ -749,6 +749,18 @@ IconStyle GetIconStyle(const app::AppEntry& app_entry) {
     };
   }
 
+  if (IsId(app_entry.id, "files")) {
+    return {
+        .symbol = nullptr,
+        .image = &files_inner_icon_68x68,
+        .shell_color = 0xD98F3B,
+        .surface_color = 0xFFE9A8,
+        .pressed_shell_color = 0xB8742E,
+        .image_offset_x = 0,
+        .image_offset_y = 0,
+    };
+  }
+
   if (IsId(app_entry.id, "camera")) {
     return {
         .symbol = nullptr,
