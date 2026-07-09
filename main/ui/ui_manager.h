@@ -163,6 +163,9 @@ class UiManager final {
   struct AppButtonContext {
     UiManager* manager = nullptr;
     const app::AppEntry* app_entry = nullptr;
+    lv_obj_t* icon_button = nullptr;
+    lv_obj_t* icon_surface = nullptr;
+    int normal_icon_size = 0;
   };
 
   /**
@@ -176,6 +179,12 @@ class UiManager final {
    * @param timer LVGL 定时器对象
    */
   static void AppButtonOpenDelayCallback(lv_timer_t* timer);
+
+  /**
+   * @brief 强制恢复 app 图标按压反馈到原始尺寸
+   * @param context app 图标按钮上下文
+   */
+  static void ResetAppIconPressedFeedback(AppButtonContext* context);
 
   /**
    * @brief 处理返回按钮点击事件

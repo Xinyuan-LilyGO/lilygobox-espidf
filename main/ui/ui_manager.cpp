@@ -568,6 +568,8 @@ void InnerImageSurfaceSizeAnimCallback(void* object, int32_t size) {
  */
 void StartSizeAnimation(lv_obj_t* object, int target_size,
     lv_anim_exec_xcb_t callback, bool pressed) {
+  lv_anim_delete(object, callback);
+
   const int current_size = lv_obj_get_width(object);
   if (current_size == target_size) {
     callback(object, target_size);
@@ -1116,6 +1118,8 @@ void UiManager::AppButtonEventCallback(lv_event_t* event) {
     return;
   }
 
+  ResetAppIconPressedFeedback(context);
+
   lv_timer_t* timer = lv_timer_create(
       AppButtonOpenDelayCallback, kIconReleaseAnimationMs, context);
   if (timer == nullptr) {
@@ -1124,6 +1128,24 @@ void UiManager::AppButtonEventCallback(lv_event_t* event) {
   }
 
   lv_timer_set_repeat_count(timer, 1);
+}
+
+void UiManager::ResetAppIconPressedFeedback(AppButtonContext* context) {
+  if (context == nullptr || context->icon_button == nullptr ||
+      context->normal_icon_size <= 0) {
+    return;
+  }
+
+  lv_anim_delete(context->icon_button, AppIconButtonSizeAnimCallback);
+  lv_anim_delete(context->icon_button, DockIconButtonSizeAnimCallback);
+  SetIconButtonSize(context->icon_button, context->normal_icon_size,
+      context->normal_icon_size);
+  lv_obj_remove_state(context->icon_button, LV_STATE_PRESSED);
+
+  if (context->icon_surface != nullptr) {
+    lv_anim_delete(context->icon_surface, InnerImageSurfaceSizeAnimCallback);
+    SetInnerImageSurfaceSize(context->icon_surface, kInnerIconSurfaceSize);
+  }
 }
 
 void UiManager::AppButtonOpenDelayCallback(lv_timer_t* timer) {
@@ -1624,6 +1646,9 @@ lv_obj_t* UiManager::CreateAppGrid(lv_obj_t* parent) {
   for (size_t i = 0; i < button_context_count_; ++i) {
     button_contexts_[i].manager = this;
     button_contexts_[i].app_entry = &app_catalog.entries[i];
+    button_contexts_[i].icon_button = nullptr;
+    button_contexts_[i].icon_surface = nullptr;
+    button_contexts_[i].normal_icon_size = 0;
 
     lv_obj_t* cell = CreateAppIcon(grid, &button_contexts_[i], cell_width);
     if (cell == nullptr) {
@@ -1686,6 +1711,9 @@ lv_obj_t* UiManager::CreateAppIcon(
       return nullptr;
     }
   }
+  context->icon_button = button;
+  context->icon_surface = icon_parent == button ? nullptr : icon_parent;
+  context->normal_icon_size = kAppIconSize;
   lv_obj_add_event_cb(button, AppIconPressedEventCallback, LV_EVENT_ALL,
       icon_parent == button ? nullptr : icon_parent);
 
@@ -1767,6 +1795,9 @@ lv_obj_t* UiManager::CreateDock(lv_obj_t* parent) {
   for (size_t i = 0; i < dock_button_context_count_; ++i) {
     dock_button_contexts_[i].manager = this;
     dock_button_contexts_[i].app_entry = &dock_catalog.entries[i];
+    dock_button_contexts_[i].icon_button = nullptr;
+    dock_button_contexts_[i].icon_surface = nullptr;
+    dock_button_contexts_[i].normal_icon_size = 0;
 
     lv_obj_t* cell =
         CreateDockIcon(dock, &dock_button_contexts_[i], cell_width);
@@ -1830,6 +1861,9 @@ lv_obj_t* UiManager::CreateDockIcon(
       return nullptr;
     }
   }
+  context->icon_button = icon_box;
+  context->icon_surface = icon_parent == icon_box ? nullptr : icon_parent;
+  context->normal_icon_size = kDockIconSize;
   lv_obj_add_event_cb(icon_box, DockIconPressedEventCallback, LV_EVENT_ALL,
       icon_parent == icon_box ? nullptr : icon_parent);
 
