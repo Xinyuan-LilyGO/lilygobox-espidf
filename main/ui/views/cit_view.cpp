@@ -67,7 +67,6 @@ constexpr uint32_t kCitTitleColor = 0xFFFFFF;
 constexpr uint32_t kListBackgroundColor =
     theme::LightNeutralTheme().surface_container_low;
 constexpr uint32_t kRowPressedColor = theme::LightNeutralTheme().state_layer;
-constexpr lv_opa_t kRowPressedOpacity = 170;
 constexpr int kRowPressedHeight = kRowHeight;
 constexpr int kRowPressedRadius = 0;
 constexpr uint32_t kReadyColor = 0x138A3D;
@@ -2913,7 +2912,7 @@ lv_obj_t* CreateStatusRow(
   lv_obj_align(pressed_background, LV_ALIGN_TOP_MID, 0, 0);
   lv_obj_set_style_bg_color(
       pressed_background, lv_color_hex(kRowPressedColor), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(pressed_background, kRowPressedOpacity, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(pressed_background, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(pressed_background, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(pressed_background, kRowPressedRadius, LV_PART_MAIN);
   lv_obj_set_style_pad_all(pressed_background, 0, LV_PART_MAIN);
