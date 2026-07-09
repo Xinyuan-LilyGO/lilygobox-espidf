@@ -918,7 +918,7 @@ bool CreateEmptyMusicContent(lv_obj_t* parent, const AppViewConfig& config) {
   if (scan_button == nullptr) {
     return false;
   }
-  lv_obj_set_size(scan_button, 180, 62);
+  lv_obj_set_size(scan_button, 230, 62);
   lv_obj_set_style_radius(scan_button, 31, LV_PART_MAIN);
   lv_obj_set_style_bg_color(scan_button, lv_color_hex(kPrimaryColor),
       LV_PART_MAIN);
@@ -927,7 +927,8 @@ bool CreateEmptyMusicContent(lv_obj_t* parent, const AppViewConfig& config) {
   lv_obj_set_style_shadow_width(scan_button, 0, LV_PART_MAIN);
   lv_obj_align_to(scan_button, message, LV_ALIGN_OUT_BOTTOM_MID, 0, 26);
   lv_obj_t* scan_label =
-      CreateLabel(scan_button, "Scan Music", lv_color_hex(0xFFFFFF), Font24());
+      CreateLabel(scan_button, "Refresh Music", lv_color_hex(0xFFFFFF),
+          Font24());
   if (scan_label != nullptr) {
     lv_obj_center(scan_label);
   }
