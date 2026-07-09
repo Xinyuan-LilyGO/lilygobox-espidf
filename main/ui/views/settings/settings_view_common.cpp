@@ -2,7 +2,7 @@
  * @Description: Settings view shared helpers
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-05-23 00:00:00
+ * @LastEditTime: 2026-07-09 16:17:53
  * @License: GPL 3.0
  */
 #include "ui/views/settings/settings_view_internal.h"
@@ -75,6 +75,14 @@ const lv_font_t* Font64() { return &lvgl_font_google_sans_flex_64; }
  */
 const lv_font_t* MaterialIconFont32() {
   return &lvgl_font_material_symbols_32;
+}
+
+/**
+ * @brief 获取 44 号 Material Symbols 字体
+ * @return 字体指针
+ */
+const lv_font_t* MaterialIconFont44() {
+  return &lvgl_font_material_symbols_44;
 }
 
 /**
@@ -218,17 +226,26 @@ lv_obj_t* CreateToolbarButton(lv_obj_t* parent, int x, int y,
     return nullptr;
   }
 
+  lv_obj_remove_style_all(button);
   lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(button, LV_OBJ_FLAG_PRESS_LOCK);
   lv_obj_add_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(button, kNameEditButtonSize, kNameEditButtonSize);
   lv_obj_set_pos(button, x, y);
   lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      button, lv_color_hex(kPressedColor), LV_STATE_PRESSED);
-  lv_obj_set_style_bg_opa(button, kPressedOpacity, LV_STATE_PRESSED);
+  lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, LV_STATE_PRESSED);
+  lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, LV_STATE_FOCUSED);
+  lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, LV_STATE_FOCUS_KEY);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(button, kNameEditButtonSize / 2, LV_PART_MAIN);
+  lv_obj_set_style_outline_width(button, 0, LV_PART_MAIN);
+  lv_obj_set_style_outline_width(button, 0, LV_STATE_PRESSED);
+  lv_obj_set_style_outline_width(button, 0, LV_STATE_FOCUSED);
+  lv_obj_set_style_outline_width(button, 0, LV_STATE_FOCUS_KEY);
+  lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(button, 0, LV_STATE_PRESSED);
+  lv_obj_set_style_shadow_width(button, 0, LV_STATE_FOCUSED);
+  lv_obj_set_style_shadow_width(button, 0, LV_STATE_FOCUS_KEY);
+  lv_obj_set_style_radius(button, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
   if (!AddPressCancelOnLeave(button)) {
     return nullptr;

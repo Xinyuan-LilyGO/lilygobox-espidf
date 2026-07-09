@@ -392,7 +392,7 @@ void DeviceNameEditConfirmClickedEventCallback(lv_event_t* event) {
  */
 bool CreateCloseIcon(lv_obj_t* parent) {
   lv_obj_t* icon = CreateLabel(parent, icon::kClose,
-      lv_color_hex(kDetailBackColor), MaterialIconFont32());
+      lv_color_hex(kDetailBackColor), MaterialIconFont44());
   if (icon == nullptr) {
     return false;
   }
@@ -407,7 +407,7 @@ bool CreateCloseIcon(lv_obj_t* parent) {
  */
 bool CreateCheckIcon(lv_obj_t* parent) {
   lv_obj_t* icon = CreateLabel(parent, icon::kCheck,
-      lv_color_hex(kDetailBackColor), MaterialIconFont32());
+      lv_color_hex(kDetailBackColor), MaterialIconFont44());
   if (icon == nullptr) {
     return false;
   }
@@ -437,18 +437,26 @@ bool CreateMyDeviceHeader(
   if (back_button == nullptr) {
     return false;
   }
+  lv_obj_remove_style_all(back_button);
   lv_obj_remove_flag(back_button, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(back_button, LV_OBJ_FLAG_PRESS_LOCK);
   lv_obj_add_flag(back_button, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(back_button, kDetailBackButtonSize, kDetailBackButtonSize);
   lv_obj_set_pos(back_button, kDetailBackButtonLeft, kDetailBackButtonTop);
   lv_obj_set_style_bg_opa(back_button, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      back_button, lv_color_hex(kPressedColor), LV_STATE_PRESSED);
-  lv_obj_set_style_bg_opa(back_button, kPressedOpacity, LV_STATE_PRESSED);
+  lv_obj_set_style_bg_opa(back_button, LV_OPA_TRANSP, LV_STATE_PRESSED);
+  lv_obj_set_style_bg_opa(back_button, LV_OPA_TRANSP, LV_STATE_FOCUSED);
+  lv_obj_set_style_bg_opa(back_button, LV_OPA_TRANSP, LV_STATE_FOCUS_KEY);
   lv_obj_set_style_border_width(back_button, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(
-      back_button, kDetailBackButtonSize / 2, LV_PART_MAIN);
+  lv_obj_set_style_outline_width(back_button, 0, LV_PART_MAIN);
+  lv_obj_set_style_outline_width(back_button, 0, LV_STATE_PRESSED);
+  lv_obj_set_style_outline_width(back_button, 0, LV_STATE_FOCUSED);
+  lv_obj_set_style_outline_width(back_button, 0, LV_STATE_FOCUS_KEY);
+  lv_obj_set_style_shadow_width(back_button, 0, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(back_button, 0, LV_STATE_PRESSED);
+  lv_obj_set_style_shadow_width(back_button, 0, LV_STATE_FOCUSED);
+  lv_obj_set_style_shadow_width(back_button, 0, LV_STATE_FOCUS_KEY);
+  lv_obj_set_style_radius(back_button, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(back_button, 0, LV_PART_MAIN);
   if (!AddPressCancelOnLeave(back_button)) {
     return false;
@@ -458,11 +466,11 @@ bool CreateMyDeviceHeader(
 
   lv_obj_t* back_icon = CreateLabel(
       back_button, icon::kArrowBack, lv_color_hex(kDetailBackColor),
-      MaterialIconFont32());
+      MaterialIconFont44());
   if (back_icon == nullptr) {
     return false;
   }
-  lv_obj_center(back_icon);
+  lv_obj_align(back_icon, LV_ALIGN_CENTER, kDetailBackIconOffsetX, 0);
   return true;
 }
 

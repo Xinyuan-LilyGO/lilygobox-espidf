@@ -206,11 +206,11 @@ bool CreateBasicHeader(
     return false;
   }
   lv_obj_t* back_icon = CreateLabel(back_button, icon::kArrowBack,
-      lv_color_hex(kDetailBackColor), MaterialIconFont32());
+      lv_color_hex(kDetailBackColor), MaterialIconFont44());
   if (back_icon == nullptr) {
     return false;
   }
-  lv_obj_center(back_icon);
+  lv_obj_align(back_icon, LV_ALIGN_CENTER, kDetailBackIconOffsetX, 0);
 
   lv_obj_t* title_label =
       CreateLabel(page, title, lv_color_hex(kTitleColor), Font48());

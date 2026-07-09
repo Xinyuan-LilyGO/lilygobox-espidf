@@ -49,6 +49,7 @@ constexpr lv_opa_t kPressedOpacity = 190;
 constexpr int kDetailBackButtonSize = 62;
 constexpr int kDetailBackButtonLeft = 18;
 constexpr int kDetailBackButtonTop = 66;
+constexpr int kDetailBackIconOffsetX = -4;
 constexpr int kDetailTitleTop = 78;
 constexpr int kDetailBodyTop = 148;
 constexpr int kDetailSidePadding = 26;
@@ -142,7 +143,8 @@ constexpr uint32_t kWifiConnectSecondaryPressedColor =
     theme::LightNeutralTheme().button_secondary_pressed;
 constexpr uint32_t kNameEditInputColor =
     theme::LightNeutralTheme().surface_container;
-constexpr uint32_t kNameEditInputBorderColor = theme::LightNeutralTheme().outline;
+constexpr uint32_t kNameEditInputBorderColor =
+    theme::LightNeutralTheme().action;
 constexpr const char* kDeviceNameAcceptedChars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_. ";
 constexpr const char* kWifiPasswordAcceptedChars =
@@ -325,6 +327,12 @@ const lv_font_t* Font64();
  * @return 字体指针
  */
 const lv_font_t* MaterialIconFont32();
+
+/**
+ * @brief 鑾峰彇 44 鍙?Material Symbols 瀛椾綋
+ * @return 瀛椾綋鎸囬拡
+ */
+const lv_font_t* MaterialIconFont44();
 
 /**
  * @brief 创建文本标签
