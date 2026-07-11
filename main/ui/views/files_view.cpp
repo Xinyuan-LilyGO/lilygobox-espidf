@@ -2,7 +2,7 @@
  * @Description: Lightweight SD card file browser
  * @Author: LILYGO_L
  * @Date: 2026-07-09 00:00:00
- * @LastEditTime: 2026-07-11 20:43:46
+ * @LastEditTime: 2026-07-12 01:35:14
  * @License: GPL 3.0
  */
 #include "ui/views/files_view.h"
@@ -26,6 +26,7 @@
 #include "ui/font/material_symbols_assets.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/theme/theme_provider.h"
+#include "ui/widgets/navigation_drawer.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -36,7 +37,6 @@ constexpr uint32_t kSecondaryTextColor =
     theme::LightNeutralTheme().on_surface_variant;
 constexpr uint32_t kIconColor = theme::LightNeutralTheme().on_surface_variant;
 constexpr uint32_t kDividerColor = theme::LightNeutralTheme().outline_variant;
-constexpr uint32_t kDrawerScrimColor = 0x000000;
 constexpr uint32_t kPressedColor = theme::LightNeutralTheme().state_layer;
 constexpr uint32_t kSelectedStorageColor =
     theme::LightNeutralTheme().action_container_pressed;
@@ -44,12 +44,9 @@ constexpr uint32_t kActionColor = theme::LightNeutralTheme().action;
 constexpr uint32_t kActionTextColor = theme::LightNeutralTheme().on_action;
 constexpr uint32_t kStatusIconBackgroundColor =
     theme::LightNeutralTheme().action_container;
-constexpr int kHeaderTop = 66;
+constexpr int kHeaderTop = 68;
 constexpr int kHeaderSidePadding = 28;
 constexpr int kHeaderTitleX = 112;
-constexpr int kDrawerWidthPercent = 78;
-constexpr int kDrawerAnimationMs = 220;
-constexpr int kDrawerItemHeight = 96;
 constexpr int kBreadcrumbTop = 158;
 constexpr int kBreadcrumbHeight = 48;
 constexpr int kBreadcrumbTextMaxWidth = 156;
@@ -70,11 +67,9 @@ struct FilesViewState {
   lv_obj_t* title_label = nullptr;
   lv_obj_t* subtitle_label = nullptr;
   lv_obj_t* content = nullptr;
-  lv_obj_t* drawer_overlay = nullptr;
-  lv_obj_t* drawer_panel = nullptr;
+  NavigationDrawerState drawer;
   lv_timer_t* storage_retry_timer = nullptr;
   lv_timer_t* storage_monitor_timer = nullptr;
-  EdgeBackSwipeState drawer_swipe;
   EdgeBackSwipeState directory_swipe;
   std::string current_path;
   int storage_missing_checks = 0;
@@ -235,17 +230,6 @@ lv_obj_t* CreateIconButton(lv_obj_t* parent, const char* symbol) {
     lv_obj_center(icon_label);
   }
   return button;
-}
-
-/**
- * @brief 设置对象的 X 坐标
- * @param object LVGL 对象
- * @param x X 坐标
- */
-void SetObjectX(void* object, int32_t x) {
-  if (object != nullptr) {
-    lv_obj_set_x(static_cast<lv_obj_t*>(object), x);
-  }
 }
 
 /**
@@ -1182,77 +1166,9 @@ void DirectoryEdgeBackEventCallback(lv_event_t* event) {
   }
 }
 
-/**
- * @brief 处理抽屉关闭动画完成事件
- * @param animation LVGL 动画对象
- */
-void DrawerCloseCompletedCallback(lv_anim_t* animation) {
-  auto* state = static_cast<FilesViewState*>(lv_anim_get_user_data(animation));
-  if (state == nullptr || state->drawer_overlay == nullptr) {
-    return;
-  }
-  lv_obj_t* overlay = state->drawer_overlay;
-  state->drawer_overlay = nullptr;
-  state->drawer_panel = nullptr;
-  lv_obj_delete(overlay);
-}
-
-/**
- * @brief 关闭文件管理导航抽屉
- * @param state 文件管理页面状态
- */
 void CloseDrawer(FilesViewState* state) {
-  if (state == nullptr || state->drawer_overlay == nullptr) {
-    return;
-  }
-  if (state->drawer_panel == nullptr) {
-    lv_obj_t* overlay = state->drawer_overlay;
-    state->drawer_overlay = nullptr;
-    lv_obj_delete(overlay);
-    return;
-  }
-
-  const int drawer_width = lv_obj_get_width(state->drawer_panel);
-  lv_anim_delete(state->drawer_panel, SetObjectX);
-  lv_anim_t animation;
-  lv_anim_init(&animation);
-  lv_anim_set_var(&animation, state->drawer_panel);
-  lv_anim_set_values(&animation, lv_obj_get_x(state->drawer_panel),
-                     -drawer_width);
-  lv_anim_set_duration(&animation, kDrawerAnimationMs);
-  lv_anim_set_path_cb(&animation, lv_anim_path_ease_in);
-  lv_anim_set_exec_cb(&animation, SetObjectX);
-  lv_anim_set_user_data(&animation, state);
-  lv_anim_set_completed_cb(&animation, DrawerCloseCompletedCallback);
-  lv_anim_start(&animation);
-}
-
-/**
- * @brief 处理抽屉遮罩点击事件
- * @param event LVGL 事件对象
- */
-void DrawerOverlayClickedEventCallback(lv_event_t* event) {
-  if (lv_event_get_code(event) != LV_EVENT_CLICKED ||
-      lv_event_get_target_obj(event) !=
-          lv_event_get_current_target_obj(event)) {
-    return;
-  }
-  CloseDrawer(static_cast<FilesViewState*>(lv_event_get_user_data(event)));
-}
-
-/**
- * @brief 处理抽屉页面的边缘返回手势
- * @param event LVGL 事件对象
- */
-void DrawerEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<FilesViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr) {
-    return;
-  }
-  lv_event_stop_bubbling(event);
-  if (HandleEdgeBackSwipeEvent(event, state->config.width,
-                               &state->drawer_swipe)) {
-    CloseDrawer(state);
+  if (state != nullptr) {
+    CloseNavigationDrawer(&state->drawer);
   }
 }
 
@@ -1286,54 +1202,6 @@ void DrawerStorageClickedEventCallback(lv_event_t* event) {
     RenderDirectoryContent(state, base_path);
   }
   CloseDrawer(state);
-}
-
-/**
- * @brief 创建导航抽屉操作行
- * @param parent 父对象
- * @param drawer_width 抽屉宽度
- * @param symbol 图标字符
- * @param text 行标题
- * @param y 行顶部 Y 坐标
- * @param state 文件管理页面状态
- * @param callback 点击事件回调
- * @return 创建成功返回操作行对象，否则返回 nullptr
- */
-lv_obj_t* CreateDrawerItem(lv_obj_t* parent, int drawer_width,
-                           const char* symbol, const char* text, int y,
-                           FilesViewState* state, lv_event_cb_t callback) {
-  lv_obj_t* row = lv_button_create(parent);
-  if (row == nullptr) {
-    return nullptr;
-  }
-  lv_obj_remove_style_all(row);
-  lv_obj_add_flag(row, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_add_flag(row, LV_OBJ_FLAG_EVENT_BUBBLE);
-  lv_obj_set_size(row, drawer_width, kDrawerItemHeight);
-  lv_obj_set_pos(row, 0, y);
-  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-  if (callback != nullptr) {
-    lv_obj_set_style_bg_color(row, lv_color_hex(kPressedColor),
-                              LV_STATE_PRESSED);
-    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
-    lv_obj_add_event_cb(row, callback, LV_EVENT_CLICKED, state);
-  } else {
-    lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
-  }
-
-  lv_obj_t* icon_label = CreateMaterialIcon(
-      row, symbol, lv_color_hex(kIconColor), FilesDrawerIconFont44());
-  if (icon_label != nullptr) {
-    lv_obj_align(icon_label, LV_ALIGN_LEFT_MID, 34, 0);
-  }
-  lv_obj_t* label =
-      CreateLabel(row, text, lv_color_hex(kPrimaryTextColor), Font28());
-  if (label != nullptr) {
-    lv_obj_set_width(label, drawer_width - 130);
-    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
-    lv_obj_align(label, LV_ALIGN_LEFT_MID, 94, 0);
-  }
-  return row;
 }
 
 /**
@@ -1446,79 +1314,35 @@ lv_obj_t* CreateStorageStateDrawerItem(lv_obj_t* parent, int drawer_width,
 }
 
 /**
- * @brief 创建导航抽屉分隔线
- * @param parent 父对象
- * @param drawer_width 抽屉宽度
- * @param y 分隔线 Y 坐标
- */
-void CreateDrawerDivider(lv_obj_t* parent, int drawer_width, int y) {
-  lv_obj_t* divider = lv_obj_create(parent);
-  if (divider == nullptr) {
-    return;
-  }
-  lv_obj_set_size(divider, drawer_width, 2);
-  lv_obj_set_pos(divider, 0, y);
-  lv_obj_set_style_bg_color(divider, lv_color_hex(kDividerColor), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(divider, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(divider, 0, LV_PART_MAIN);
-}
-
-/**
  * @brief 显示文件管理导航抽屉
  * @param state 文件管理页面状态
  */
 void ShowDrawer(FilesViewState* state) {
   if (state == nullptr || state->root == nullptr ||
-      state->drawer_overlay != nullptr) {
+      IsNavigationDrawerOpen(&state->drawer)) {
     return;
   }
 
-  lv_obj_t* overlay = lv_obj_create(state->root);
-  if (overlay == nullptr) {
-    return;
-  }
-  state->drawer_overlay = overlay;
-  lv_obj_set_size(overlay, state->config.width, state->config.height);
-  lv_obj_set_style_bg_color(overlay, lv_color_hex(kDrawerScrimColor),
-                            LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(overlay, LV_OPA_50, LV_PART_MAIN);
-  lv_obj_set_style_border_width(overlay, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(overlay, 0, LV_PART_MAIN);
-  lv_obj_remove_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_event_cb(overlay, DrawerOverlayClickedEventCallback,
-                      LV_EVENT_CLICKED, state);
-  state->drawer_swipe = EdgeBackSwipeState();
-  AddEdgeBackSwipeEvents(overlay, DrawerEdgeBackEventCallback, state);
-  lv_obj_remove_flag(overlay, LV_OBJ_FLAG_EVENT_BUBBLE);
-
-  const int drawer_width = state->config.width * kDrawerWidthPercent / 100;
-  lv_obj_t* drawer = lv_obj_create(overlay);
+  NavigationDrawerConfig drawer_config;
+  drawer_config.screen_width = state->config.width;
+  drawer_config.screen_height = state->config.height;
+  drawer_config.background_color = kBackgroundColor;
+  drawer_config.primary_text_color = kPrimaryTextColor;
+  drawer_config.icon_color = kIconColor;
+  drawer_config.pressed_color = kPressedColor;
+  drawer_config.divider_color = kDividerColor;
+  drawer_config.title = "Files";
+  drawer_config.title_font = Font36();
+  drawer_config.item_font = Font28();
+  drawer_config.icon_font = FilesDrawerIconFont44();
+  lv_obj_t* drawer = OpenNavigationDrawer(
+      state->root, &state->drawer, drawer_config);
   if (drawer == nullptr) {
-    CloseDrawer(state);
     return;
   }
-  state->drawer_panel = drawer;
-  lv_obj_set_size(drawer, drawer_width, state->config.height);
-  lv_obj_set_pos(drawer, -drawer_width, 0);
-  lv_obj_set_style_bg_color(drawer, lv_color_hex(kBackgroundColor),
-                            LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(drawer, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(drawer, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(drawer, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(drawer, 0, LV_PART_MAIN);
-  lv_obj_set_scroll_dir(drawer, LV_DIR_VER);
-  lv_obj_set_scrollbar_mode(drawer, LV_SCROLLBAR_MODE_ACTIVE);
-  AddEdgeBackSwipeEvents(drawer, DrawerEdgeBackEventCallback, state);
-  lv_obj_remove_flag(drawer, LV_OBJ_FLAG_EVENT_BUBBLE);
+  const int drawer_width = NavigationDrawerWidth(&state->drawer);
 
-  lv_obj_t* drawer_title =
-      CreateLabel(drawer, "Files", lv_color_hex(kPrimaryTextColor), Font36());
-  if (drawer_title != nullptr) {
-    lv_obj_align(drawer_title, LV_ALIGN_TOP_LEFT, 34, 30);
-  }
-
-  int drawer_y = 92;
+  int drawer_y = kNavigationDrawerContentTop;
   const bool mounted = state->config.storage != nullptr &&
                        state->config.storage->IsSdCardMounted();
   if (mounted) {
@@ -1537,23 +1361,14 @@ void ShowDrawer(FilesViewState* state) {
   }
   drawer_y += 116;
 
-  CreateDrawerItem(drawer, drawer_width, icon::kRefresh, "Refresh storage",
-                   drawer_y, state, DrawerRefreshClickedEventCallback);
-  drawer_y += kDrawerItemHeight + 12;
-  CreateDrawerDivider(drawer, drawer_width, drawer_y);
+  CreateNavigationDrawerItem(&state->drawer, icon::kRefresh,
+      "Refresh storage", drawer_y, DrawerRefreshClickedEventCallback, state);
+  drawer_y += kNavigationDrawerItemHeight + 12;
+  CreateNavigationDrawerDivider(&state->drawer, drawer_y);
   drawer_y += 18;
-  CreateDrawerItem(drawer, drawer_width, icon::kSettings, "Settings", drawer_y,
-                   state, nullptr);
-
-  lv_anim_delete(drawer, SetObjectX);
-  lv_anim_t animation;
-  lv_anim_init(&animation);
-  lv_anim_set_var(&animation, drawer);
-  lv_anim_set_values(&animation, -drawer_width, 0);
-  lv_anim_set_duration(&animation, kDrawerAnimationMs);
-  lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
-  lv_anim_set_exec_cb(&animation, SetObjectX);
-  lv_anim_start(&animation);
+  CreateNavigationDrawerItem(&state->drawer, icon::kSettings, "Settings",
+      drawer_y, nullptr, state);
+  PresentNavigationDrawer(&state->drawer);
 }
 
 /**
@@ -1577,6 +1392,7 @@ bool CreateHeader(lv_obj_t* parent, FilesViewState* state) {
   if (menu == nullptr) {
     return false;
   }
+  lv_obj_set_style_bg_opa(menu, LV_OPA_TRANSP, LV_STATE_PRESSED);
   lv_obj_align(menu, LV_ALIGN_TOP_LEFT, kHeaderSidePadding - 8, kHeaderTop - 2);
   lv_obj_add_event_cb(menu, MenuButtonClickedEventCallback, LV_EVENT_CLICKED,
                       state);

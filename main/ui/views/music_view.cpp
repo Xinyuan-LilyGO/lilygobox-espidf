@@ -1,8 +1,8 @@
 ﻿/*
- * @Description: Music app view
+ * @Description: 音乐应用视图
  * @Author: LILYGO_L
  * @Date: 2026-07-08 00:00:00
- * @LastEditTime: 2026-07-09 13:34:34
+ * @LastEditTime: 2026-07-12 01:33:27
  * @License: GPL 3.0
  */
 #include "ui/views/music_view.h"
@@ -13,9 +13,13 @@
 #include <functional>
 
 #include "base/logger.h"
+#include "ui/animation/transition_animation.h"
 #include "ui/font/font_assets.h"
 #include "ui/font/material_symbols_assets.h"
 #include "ui/input/edge_back_gesture.h"
+#include "ui/widgets/navigation_drawer.h"
+#include "ui/widgets/prompt/prompt_dialog.h"
+#include "ui/widgets/prompt/prompt_select_sheet.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -26,9 +30,11 @@ constexpr uint32_t kSecondaryContainerColor = 0xF8DBD5;
 constexpr uint32_t kPrimaryColor = 0x874E43;
 constexpr uint32_t kMainTextColor = 0x24201F;
 constexpr uint32_t kSecondaryTextColor = 0x716864;
+constexpr uint32_t kDividerColor = 0xDED8D5;
+constexpr uint32_t kPressedColor = 0xF0E5E2;
 
 constexpr int kMainPadding = 32;
-constexpr int kHeaderTop = 70;
+constexpr int kHeaderTop = 68;
 constexpr int kTabTop = 164;
 constexpr int kMiniPlayerHeight = 104;
 constexpr int kMiniPlayerRadius = 22;
@@ -40,6 +46,19 @@ constexpr int kProgressThumbNormalWidth = 10;
 constexpr int kProgressThumbPressedWidth = 13;
 constexpr int kProgressThumbPressedHeight = 60;
 constexpr int kDefaultTrackDurationSeconds = 90;
+constexpr int kSettingsAnimationMs = 240;
+
+constexpr int kMusicFolderOptionCount = 8;
+constexpr PromptSelectSheetOption kMusicFolderOptions[] = {
+    {0, "/sdcard/Music"},
+    {1, "/sdcard/Download"},
+    {2, "/sdcard"},
+    {3, "/sdcard/Podcasts"},
+    {4, "/sdcard/Recordings"},
+    {5, "/sdcard/Audiobooks"},
+    {6, "/sdcard/Notifications"},
+    {7, "/sdcard/Ringtones"},
+};
 
 enum class MusicControlIcon {
   kPlay,
@@ -55,8 +74,32 @@ struct MusicViewState {
   lv_obj_t* play_button = nullptr;
   lv_obj_t* current_time_label = nullptr;
   lv_obj_t* total_time_label = nullptr;
+  lv_obj_t* settings_page = nullptr;
+  lv_obj_t* sources_page = nullptr;
+  lv_obj_t* sources_body = nullptr;
+  lv_obj_t* sources_summary_label = nullptr;
+  NavigationDrawerState drawer;
+  PromptSelectSheetState folder_select_sheet;
+  PromptDialogState sources_dialog;
+  PromptDialogState folder_dialog;
   EdgeBackSwipeState player_edge_swipe;
+  EdgeBackSwipeState settings_edge_swipe;
+  EdgeBackSwipeState sources_edge_swipe;
+  int selected_folder = 0;
+  bool source_enabled[kMusicFolderOptionCount] = {
+      true, false, false, false, false, false, false, false};
+  bool draft_source_enabled[kMusicFolderOptionCount] = {};
+  bool picker_source_enabled[kMusicFolderOptionCount] = {};
   bool playing = false;
+  bool settings_closing = false;
+  bool sources_closing = false;
+};
+
+struct MusicSourceAction {
+  MusicViewState* state = nullptr;
+  lv_obj_t* row = nullptr;
+  lv_obj_t* check = nullptr;
+  int source = 0;
 };
 
 /**
@@ -105,6 +148,12 @@ const lv_font_t* Font28() { return &lvgl_font_google_sans_flex_28; }
 const lv_font_t* Font32() { return &lvgl_font_google_sans_flex_32; }
 
 /**
+ * @brief 获取 36 号 Google Sans 字体
+ * @return 字体指针
+ */
+const lv_font_t* Font36() { return &lvgl_font_google_sans_flex_36; }
+
+/**
  * @brief 获取 48 号 Google Sans 字体
  * @return 字体指针
  */
@@ -115,6 +164,46 @@ const lv_font_t* Font48() { return &lvgl_font_google_sans_flex_48; }
  * @return 字体指针
  */
 const lv_font_t* MaterialIconFont56() { return &lvgl_font_material_symbols_56; }
+
+/**
+ * @brief 获取 32 号 Material Symbols 字体
+ * @return 字体指针
+ */
+const lv_font_t* MaterialIconFont32() {
+  return &lvgl_font_material_symbols_32;
+}
+
+/**
+ * @brief 获取 44 号 Material Symbols 字体
+ * @return 字体指针
+ */
+const lv_font_t* MaterialIconFont44() {
+  return &lvgl_font_material_symbols_44;
+}
+
+/**
+ * @brief 获取 44 号操作类 Material Symbols 字体
+ * @return 字体指针
+ */
+const lv_font_t* MaterialActionIconFont44() {
+  return &lvgl_font_material_symbols_action_44;
+}
+
+/**
+ * @brief 获取 44 号填充 Material Symbols 字体
+ * @return 字体指针
+ */
+const lv_font_t* MaterialFillIconFont44() {
+  return &lvgl_font_material_symbols_fill_44;
+}
+
+/**
+ * @brief 获取 56 号填充 Material Symbols 字体
+ * @return 字体指针
+ */
+const lv_font_t* MaterialFillIconFont56() {
+  return &lvgl_font_material_symbols_fill_56;
+}
 
 /**
  * @brief 创建文本标签
@@ -1019,6 +1108,1048 @@ bool CreateMiniPlayer(lv_obj_t* parent, MusicViewState* state) {
   return true;
 }
 
+const char* MusicFolderPath(int value) {
+  for (const auto& option : kMusicFolderOptions) {
+    if (option.value == value) {
+      return option.text;
+    }
+  }
+  return kMusicFolderOptions[0].text;
+}
+
+bool RenderMusicSourcesContent(MusicViewState* state);
+
+int MusicSourceCount(const MusicViewState* state) {
+  if (state == nullptr) {
+    return 0;
+  }
+  int count = 0;
+  for (bool enabled : state->source_enabled) {
+    if (enabled) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+void UpdateMusicSourcesSummary(MusicViewState* state) {
+  if (state == nullptr || state->sources_summary_label == nullptr) {
+    return;
+  }
+  const int count = MusicSourceCount(state);
+  char text[24] = {};
+  if (count == 0) {
+    std::snprintf(text, sizeof(text), "No folders");
+  } else {
+    std::snprintf(text, sizeof(text), "%d %s", count,
+                  count == 1 ? "folder" : "folders");
+  }
+  lv_label_set_text(state->sources_summary_label, text);
+}
+
+void MusicFolderSelectedCallback(void* context, int value) {
+  auto* state = static_cast<MusicViewState*>(context);
+  if (state == nullptr || value < 0 ||
+      value >= kMusicFolderOptionCount) {
+    return;
+  }
+  state->selected_folder = value;
+  state->source_enabled[value] = true;
+  UpdateMusicSourcesSummary(state);
+  RenderMusicSourcesContent(state);
+}
+
+bool ShowMusicFolderSheet(MusicViewState* state) {
+  if (state == nullptr || state->root == nullptr) {
+    return false;
+  }
+
+  PromptSelectSheetConfig config;
+  config.screen_width = state->config.width;
+  config.screen_height = state->config.height;
+  config.sheet_width = state->config.width - 32;
+  config.sheet_height = std::min(state->config.height - 32, 510);
+  config.side_margin = 16;
+  config.bottom_margin = 16;
+  config.sheet_radius = 28;
+  config.inner_padding = 24;
+  config.option_top = 142;
+  config.option_height = 68;
+  config.button_height = 60;
+  config.button_radius = 30;
+  config.sheet_color = kMainBackgroundColor;
+  config.selected_color = kSecondaryContainerColor;
+  config.primary_text_color = kMainTextColor;
+  config.secondary_text_color = kSecondaryTextColor;
+  config.selected_text_color = kPrimaryColor;
+  config.cancel_background_color = kSurfaceContainerColor;
+  config.pressed_color = kPressedColor;
+  config.title = "Add music source";
+  config.message = "Choose a folder to include in music searches.";
+  config.check_icon = icon::kCheck;
+  config.options = kMusicFolderOptions;
+  config.option_count =
+      sizeof(kMusicFolderOptions) / sizeof(kMusicFolderOptions[0]);
+  config.selected_value = state->selected_folder;
+  config.title_font = Font32();
+  config.message_font = Font24();
+  config.option_font = Font24();
+  config.cancel_font = Font24();
+  config.icon_font = MaterialIconFont32();
+  config.state = &state->folder_select_sheet;
+  config.callback = MusicFolderSelectedCallback;
+  config.callback_context = state;
+  return ShowPromptSelectSheet(state->root, config);
+}
+
+bool ShowMusicSourcesPage(MusicViewState* state);
+void CloseMusicSourcesPage(MusicViewState* state);
+bool ShowMusicSourcesPrompt(MusicViewState* state);
+
+/**
+ * @brief 处理音乐设置页音乐源行点击事件
+ * @param event LVGL 事件对象
+ */
+void MusicSourcesRowClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  ShowMusicSourcesPrompt(
+      static_cast<MusicViewState*>(lv_event_get_user_data(event)));
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+}
+
+void SettingsCloseCompletedCallback(lv_anim_t* animation) {
+  auto* state = static_cast<MusicViewState*>(
+      lv_anim_get_user_data(animation));
+  if (state == nullptr || state->settings_page == nullptr) {
+    return;
+  }
+  lv_obj_t* page = state->settings_page;
+  state->settings_page = nullptr;
+  state->sources_summary_label = nullptr;
+  state->settings_closing = false;
+  state->settings_edge_swipe = EdgeBackSwipeState();
+  lv_obj_delete(page);
+}
+
+void CloseMusicSettingsPage(MusicViewState* state) {
+  if (state == nullptr || state->settings_page == nullptr ||
+      state->settings_closing) {
+    return;
+  }
+  if (state->sources_page != nullptr) {
+    CloseMusicSourcesPage(state);
+    return;
+  }
+  state->settings_closing = true;
+  if (!StartSlideRightWindowTransition(state->settings_page,
+      state->config.width, kSettingsAnimationMs, state,
+      SettingsCloseCompletedCallback)) {
+    lv_obj_t* page = state->settings_page;
+    state->settings_page = nullptr;
+    state->sources_summary_label = nullptr;
+    state->settings_closing = false;
+    state->settings_edge_swipe = EdgeBackSwipeState();
+    lv_obj_delete(page);
+  }
+}
+
+void SettingsBackClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  CloseMusicSettingsPage(
+      static_cast<MusicViewState*>(lv_event_get_user_data(event)));
+}
+
+void SettingsEdgeBackEventCallback(lv_event_t* event) {
+  auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->settings_page == nullptr ||
+      !HandleEdgeBackSwipeEvent(event, state->config.width,
+          &state->settings_edge_swipe)) {
+    return;
+  }
+  CloseMusicSettingsPage(state);
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+}
+
+/**
+ * @brief 创建音乐设置页音乐源入口行
+ * @param page 设置页面对象
+ * @param state 音乐视图状态
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateMusicSourcesSettingRow(
+    lv_obj_t* page, MusicViewState* state) {
+  lv_obj_t* row = lv_button_create(page);
+  if (row == nullptr) {
+    return false;
+  }
+  lv_obj_remove_style_all(row);
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(row, state->config.width, 120);
+  lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 300);
+  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(row, lv_color_hex(kSurfaceContainerColor),
+                            LV_STATE_PRESSED);
+  lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
+  lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
+  lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(row, 0, LV_PART_MAIN);
+  lv_obj_add_event_cb(row, MusicSourcesRowClickedEventCallback,
+                      LV_EVENT_CLICKED, state);
+
+  lv_obj_t* title = CreateLabel(
+      row, "Music sources", lv_color_hex(kMainTextColor), Font28());
+  if (title != nullptr) {
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 34, 23);
+  }
+  lv_obj_t* subtitle = CreateLabel(row, "Manage music loading locations",
+      lv_color_hex(kSecondaryTextColor), Font24());
+  if (subtitle != nullptr) {
+    lv_obj_set_width(subtitle, state->config.width - 68);
+    lv_label_set_long_mode(subtitle, LV_LABEL_LONG_DOT);
+    lv_obj_align(subtitle, LV_ALIGN_TOP_LEFT, 34, 65);
+  }
+  return true;
+}
+
+/**
+ * @brief 创建与系统设置页一致的标题和返回按钮
+ * @param page 页面对象
+ * @param title 页面标题
+ * @param callback 返回按钮点击回调
+ * @param state 音乐视图状态
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateSettingsStyleHeader(lv_obj_t* page, const char* title,
+    lv_event_cb_t callback, MusicViewState* state) {
+  lv_obj_t* back = lv_button_create(page);
+  if (back == nullptr) {
+    return false;
+  }
+  lv_obj_remove_style_all(back);
+  lv_obj_remove_flag(back, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(back, LV_OBJ_FLAG_PRESS_LOCK);
+  lv_obj_add_flag(back, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(back, 62, 62);
+  lv_obj_set_pos(back, 18, 66);
+  lv_obj_set_style_bg_opa(back, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(back, LV_OPA_TRANSP, LV_STATE_PRESSED);
+  lv_obj_add_event_cb(back, callback, LV_EVENT_CLICKED, state);
+
+  lv_obj_t* back_icon = CreateLabel(back, icon::kArrowBack,
+      lv_color_hex(kMainTextColor), MaterialIconFont44());
+  if (back_icon == nullptr) {
+    return false;
+  }
+  lv_obj_align(back_icon, LV_ALIGN_CENTER, -4, 0);
+
+  lv_obj_t* title_label = CreateLabel(
+      page, title, lv_color_hex(kMainTextColor), Font48());
+  if (title_label == nullptr) {
+    return false;
+  }
+  lv_obj_align(title_label, LV_ALIGN_TOP_LEFT, 34, 154);
+  return true;
+}
+
+void MusicSourceActionDeleteEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) == LV_EVENT_DELETE) {
+    delete static_cast<MusicSourceAction*>(lv_event_get_user_data(event));
+  }
+}
+
+void MusicSourceRemoveClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* action = static_cast<MusicSourceAction*>(
+      lv_event_get_user_data(event));
+  if (action == nullptr || action->state == nullptr || action->source < 0 ||
+      action->source >= kMusicFolderOptionCount) {
+    return;
+  }
+  action->state->source_enabled[action->source] = false;
+  if (action->row != nullptr) {
+    lv_obj_add_flag(action->row, LV_OBJ_FLAG_HIDDEN);
+  }
+  UpdateMusicSourcesSummary(action->state);
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+}
+
+void AddMusicSourceClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  ShowMusicFolderSheet(
+      static_cast<MusicViewState*>(lv_event_get_user_data(event)));
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+}
+
+bool CreateMusicSourceRow(
+    MusicViewState* state, int source, int y) {
+  lv_obj_t* row = lv_obj_create(state->sources_body);
+  if (row == nullptr) {
+    return false;
+  }
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(row, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(row, state->config.width - 32, 100);
+  lv_obj_set_pos(row, 16, y);
+  lv_obj_set_style_bg_color(row, lv_color_hex(kSurfaceContainerColor),
+                            LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(row, 20, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
+
+  lv_obj_t* folder_icon = CreateLabel(row, icon::kFolder,
+      lv_color_hex(kPrimaryColor), MaterialFillIconFont44());
+  if (folder_icon != nullptr) {
+    lv_obj_align(folder_icon, LV_ALIGN_LEFT_MID, 18, 0);
+  }
+  lv_obj_t* path = CreateLabel(row, MusicFolderPath(source),
+      lv_color_hex(kMainTextColor), Font24());
+  if (path != nullptr) {
+    lv_obj_set_width(path, state->config.width - 190);
+    lv_label_set_long_mode(path, LV_LABEL_LONG_DOT);
+    lv_obj_align(path, LV_ALIGN_TOP_LEFT, 74, 18);
+  }
+  lv_obj_t* detail = CreateLabel(row, "Included in library search",
+      lv_color_hex(kSecondaryTextColor), Font22());
+  if (detail != nullptr) {
+    lv_obj_align(detail, LV_ALIGN_TOP_LEFT, 74, 56);
+  }
+
+  lv_obj_t* remove = lv_button_create(row);
+  if (remove == nullptr) {
+    return false;
+  }
+  lv_obj_remove_style_all(remove);
+  lv_obj_add_flag(remove, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(remove, 54, 54);
+  lv_obj_align(remove, LV_ALIGN_RIGHT_MID, -10, 0);
+  auto* action = new MusicSourceAction{
+      .state = state,
+      .row = row,
+      .source = source,
+  };
+  lv_obj_add_event_cb(remove, MusicSourceRemoveClickedEventCallback,
+                      LV_EVENT_CLICKED, action);
+  lv_obj_add_event_cb(remove, MusicSourceActionDeleteEventCallback,
+                      LV_EVENT_DELETE, action);
+  lv_obj_t* close_icon = CreateLabel(remove, icon::kClose,
+      lv_color_hex(kSecondaryTextColor), MaterialIconFont44());
+  if (close_icon != nullptr) {
+    lv_obj_center(close_icon);
+  }
+  return true;
+}
+
+bool RenderMusicSourcesContent(MusicViewState* state) {
+  if (state == nullptr || state->sources_body == nullptr) {
+    return false;
+  }
+  lv_obj_clean(state->sources_body);
+
+  lv_obj_t* section = CreateLabel(state->sources_body, "SEARCH FOLDERS",
+      lv_color_hex(kPrimaryColor), Font22());
+  if (section != nullptr) {
+    lv_obj_set_pos(section, 28, 12);
+  }
+
+  int y = 52;
+  for (int source = 0; source < kMusicFolderOptionCount; ++source) {
+    if (!state->source_enabled[source]) {
+      continue;
+    }
+    if (!CreateMusicSourceRow(state, source, y)) {
+      return false;
+    }
+    y += 112;
+  }
+  if (MusicSourceCount(state) == 0) {
+    lv_obj_t* empty = CreateLabel(state->sources_body,
+        "No music source folders", lv_color_hex(kSecondaryTextColor),
+        Font24());
+    if (empty != nullptr) {
+      lv_obj_set_pos(empty, 28, y + 18);
+    }
+    y += 76;
+  }
+
+  lv_obj_t* add = lv_button_create(state->sources_body);
+  if (add == nullptr) {
+    return false;
+  }
+  lv_obj_set_size(add, 190, 62);
+  lv_obj_set_pos(add, 28, y + 16);
+  lv_obj_set_style_bg_color(add, lv_color_hex(kPrimaryColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(add, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(add, 0, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(add, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(add, 31, LV_PART_MAIN);
+  lv_obj_add_event_cb(add, AddMusicSourceClickedEventCallback,
+                      LV_EVENT_CLICKED, state);
+  lv_obj_t* add_label = CreateLabel(
+      add, "Add folder", lv_color_hex(0xFFFFFF), Font24());
+  if (add_label != nullptr) {
+    lv_obj_center(add_label);
+  }
+  return true;
+}
+
+void SourcesCloseCompletedCallback(lv_anim_t* animation) {
+  auto* state = static_cast<MusicViewState*>(
+      lv_anim_get_user_data(animation));
+  if (state == nullptr || state->sources_page == nullptr) {
+    return;
+  }
+  lv_obj_t* page = state->sources_page;
+  state->sources_page = nullptr;
+  state->sources_body = nullptr;
+  state->sources_closing = false;
+  state->sources_edge_swipe = EdgeBackSwipeState();
+  lv_obj_delete(page);
+}
+
+void CloseMusicSourcesPage(MusicViewState* state) {
+  if (state == nullptr || state->sources_page == nullptr ||
+      state->sources_closing) {
+    return;
+  }
+  state->sources_closing = true;
+  if (!StartSlideRightWindowTransition(state->sources_page,
+      state->config.width, kSettingsAnimationMs, state,
+      SourcesCloseCompletedCallback)) {
+    lv_obj_t* page = state->sources_page;
+    state->sources_page = nullptr;
+    state->sources_body = nullptr;
+    state->sources_closing = false;
+    state->sources_edge_swipe = EdgeBackSwipeState();
+    lv_obj_delete(page);
+  }
+}
+
+void SourcesBackClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
+    CloseMusicSourcesPage(
+        static_cast<MusicViewState*>(lv_event_get_user_data(event)));
+  }
+}
+
+void SourcesEdgeBackEventCallback(lv_event_t* event) {
+  auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->sources_page == nullptr ||
+      !HandleEdgeBackSwipeEvent(event, state->config.width,
+          &state->sources_edge_swipe)) {
+    return;
+  }
+  CloseMusicSourcesPage(state);
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+}
+
+[[maybe_unused]] bool ShowMusicSourcesPage(MusicViewState* state) {
+  if (state == nullptr || state->root == nullptr ||
+      state->settings_page == nullptr) {
+    return false;
+  }
+  if (state->sources_page != nullptr) {
+    lv_obj_move_to_index(state->sources_page, -1);
+    return true;
+  }
+
+  lv_obj_t* page = lv_obj_create(state->root);
+  if (page == nullptr) {
+    return false;
+  }
+  state->sources_page = page;
+  state->sources_closing = false;
+  state->sources_edge_swipe = EdgeBackSwipeState();
+  lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(page, state->config.width, state->config.height);
+  lv_obj_set_pos(page, 0, 0);
+  lv_obj_set_style_bg_color(page, lv_color_hex(kMainBackgroundColor),
+                            LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
+  AddEdgeBackSwipeEvents(page, SourcesEdgeBackEventCallback, state);
+
+  if (!CreateSettingsStyleHeader(
+      page, "Music sources", SourcesBackClickedEventCallback, state)) {
+    lv_obj_delete(page);
+    state->sources_page = nullptr;
+    return false;
+  }
+  state->sources_body = lv_obj_create(page);
+  if (state->sources_body == nullptr) {
+    lv_obj_delete(page);
+    state->sources_page = nullptr;
+    return false;
+  }
+  MakeTransparent(state->sources_body);
+  lv_obj_set_size(state->sources_body, state->config.width,
+                  state->config.height - 238);
+  lv_obj_set_pos(state->sources_body, 0, 238);
+  lv_obj_set_scroll_dir(state->sources_body, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(state->sources_body, LV_SCROLLBAR_MODE_OFF);
+  lv_obj_add_flag(state->sources_body, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(state->sources_body, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  AddEdgeBackSwipeEvents(
+      state->sources_body, SourcesEdgeBackEventCallback, state);
+  if (!RenderMusicSourcesContent(state)) {
+    lv_obj_delete(page);
+    state->sources_page = nullptr;
+    state->sources_body = nullptr;
+    return false;
+  }
+
+  EnableEdgeBackSwipeEventBubble(page);
+  if (!StartSlideLeftWindowTransition(page, state->config.width,
+      kSettingsAnimationMs, state, nullptr)) {
+    lv_obj_delete(page);
+    state->sources_page = nullptr;
+    state->sources_body = nullptr;
+    return false;
+  }
+  return true;
+}
+
+/**
+ * @brief 复制音乐源文件夹选择状态
+ * @param destination 目标状态数组
+ * @param source 来源状态数组
+ */
+void CopyMusicSourceFlags(bool* destination, const bool* source) {
+  if (destination == nullptr || source == nullptr) {
+    return;
+  }
+  for (int i = 0; i < kMusicFolderOptionCount; ++i) {
+    destination[i] = source[i];
+  }
+}
+
+/**
+ * @brief 创建音乐页面公共提示框配置
+ * @param state 音乐视图状态
+ * @param title 提示框标题
+ * @return 提示框配置
+ */
+PromptDialogConfig CreateMusicPromptConfig(
+    MusicViewState* state, const char* title) {
+  PromptDialogConfig config;
+  config.screen_width = state->config.width;
+  config.screen_height = state->config.height;
+  config.dialog_width = state->config.width - 68;
+  config.dialog_height = std::min(state->config.height - 64, 650);
+  config.dialog_radius = 48;
+  config.inner_padding = 32;
+  config.header_height = 120;
+  config.title_y = 42;
+  config.action_height = 106;
+  config.action_button_height = 74;
+  config.action_button_gap = 20;
+  config.action_bottom_padding = 32;
+  config.dialog_color = kSurfaceContainerColor;
+  config.primary_text_color = kMainTextColor;
+  config.secondary_text_color = kSecondaryTextColor;
+  config.divider_color = kDividerColor;
+  config.pressed_color = kPressedColor;
+  config.confirm_background_color = kPrimaryColor;
+  config.confirm_pressed_color = kPrimaryColor;
+  config.confirm_text_color = 0xFFFFFF;
+  config.overlay_opacity = 115;
+  config.animation_ms = 180;
+  config.title = title;
+  config.title_font = Font36();
+  config.action_font = Font28();
+  config.callback_context = state;
+  return config;
+}
+
+bool RenderMusicSourcesPromptContent(MusicViewState* state);
+
+/**
+ * @brief 保存音乐源提示框中的文件夹配置
+ * @param context 音乐视图状态
+ */
+void MusicSourcesPromptSavedCallback(void* context) {
+  auto* state = static_cast<MusicViewState*>(context);
+  if (state == nullptr) {
+    return;
+  }
+  CopyMusicSourceFlags(
+      state->source_enabled, state->draft_source_enabled);
+  UpdateMusicSourcesSummary(state);
+}
+
+/**
+ * @brief 处理音乐源提示框文件夹移除事件
+ * @param event LVGL 事件对象
+ */
+void MusicSourcesPromptRemoveClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* action = static_cast<MusicSourceAction*>(
+      lv_event_get_user_data(event));
+  if (action == nullptr || action->state == nullptr || action->source < 0 ||
+      action->source >= kMusicFolderOptionCount) {
+    return;
+  }
+  action->state->draft_source_enabled[action->source] = false;
+  if (action->row != nullptr) {
+    lv_obj_add_flag(action->row, LV_OBJ_FLAG_HIDDEN);
+  }
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+}
+
+/**
+ * @brief 确认文件夹选择并更新音乐源草稿
+ * @param context 音乐视图状态
+ */
+void MusicFolderPickerConfirmedCallback(void* context) {
+  auto* state = static_cast<MusicViewState*>(context);
+  if (state == nullptr) {
+    return;
+  }
+  CopyMusicSourceFlags(
+      state->draft_source_enabled, state->picker_source_enabled);
+  RenderMusicSourcesPromptContent(state);
+}
+
+/**
+ * @brief 处理文件夹选择行点击事件
+ * @param event LVGL 事件对象
+ */
+void MusicFolderPickerRowClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* action = static_cast<MusicSourceAction*>(
+      lv_event_get_user_data(event));
+  if (action == nullptr || action->state == nullptr || action->source < 0 ||
+      action->source >= kMusicFolderOptionCount) {
+    return;
+  }
+  bool& selected = action->state->picker_source_enabled[action->source];
+  selected = !selected;
+  if (action->check != nullptr) {
+    if (selected) {
+      lv_obj_remove_flag(action->check, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(action->check, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+}
+
+/**
+ * @brief 创建文件夹选择列表行
+ * @param state 音乐视图状态
+ * @param body 提示框内容区域
+ * @param source 文件夹索引
+ * @param y 顶部坐标
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateMusicFolderPickerRow(
+    MusicViewState* state, lv_obj_t* body, int source, int y) {
+  lv_obj_t* row = lv_button_create(body);
+  if (row == nullptr) {
+    return false;
+  }
+  lv_obj_remove_style_all(row);
+  lv_obj_add_flag(row, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(row, state->config.width - 68, 86);
+  lv_obj_set_pos(row, 0, y);
+  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(row, lv_color_hex(kPressedColor),
+                            LV_STATE_PRESSED);
+  lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
+
+  lv_obj_t* folder = CreateLabel(row, icon::kFolder,
+      lv_color_hex(kPrimaryColor), MaterialFillIconFont44());
+  if (folder != nullptr) {
+    lv_obj_align(folder, LV_ALIGN_LEFT_MID, 16, 0);
+  }
+  lv_obj_t* path = CreateLabel(row, MusicFolderPath(source),
+      lv_color_hex(kMainTextColor), Font24());
+  if (path != nullptr) {
+    lv_obj_set_width(path, state->config.width - 220);
+    lv_label_set_long_mode(path, LV_LABEL_LONG_DOT);
+    lv_obj_align(path, LV_ALIGN_TOP_LEFT, 76, 13);
+  }
+  lv_obj_t* storage = CreateLabel(
+      row, "SD card", lv_color_hex(kSecondaryTextColor), Font22());
+  if (storage != nullptr) {
+    lv_obj_align(storage, LV_ALIGN_TOP_LEFT, 76, 49);
+  }
+  lv_obj_t* check_box = lv_obj_create(row);
+  if (check_box == nullptr) {
+    return false;
+  }
+  lv_obj_remove_flag(check_box, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(check_box, 48, 48);
+  lv_obj_align(check_box, LV_ALIGN_RIGHT_MID, -12, 0);
+  lv_obj_set_style_bg_color(check_box, lv_color_hex(kSecondaryContainerColor),
+                            LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(check_box, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(check_box, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(check_box, 12, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(check_box, 0, LV_PART_MAIN);
+  lv_obj_t* check = CreateLabel(check_box, icon::kCheck,
+      lv_color_hex(kPrimaryColor), MaterialIconFont32());
+  if (check != nullptr) {
+    lv_obj_center(check);
+    if (!state->picker_source_enabled[source]) {
+      lv_obj_add_flag(check, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+
+  auto* action = new MusicSourceAction{
+      .state = state,
+      .row = row,
+      .check = check,
+      .source = source,
+  };
+  lv_obj_add_event_cb(row, MusicFolderPickerRowClickedEventCallback,
+                      LV_EVENT_CLICKED, action);
+  lv_obj_add_event_cb(row, MusicSourceActionDeleteEventCallback,
+                      LV_EVENT_DELETE, action);
+  return true;
+}
+
+/**
+ * @brief 显示可滚动的音乐文件夹选择提示框
+ * @param state 音乐视图状态
+ * @return 显示成功返回 true，否则返回 false
+ */
+bool ShowMusicFolderPickerPrompt(MusicViewState* state) {
+  if (state == nullptr || state->root == nullptr) {
+    return false;
+  }
+  CopyMusicSourceFlags(
+      state->picker_source_enabled, state->draft_source_enabled);
+  PromptDialogConfig config =
+      CreateMusicPromptConfig(state, "Choose folders");
+  config.dialog_height = std::min(state->config.height - 64, 700);
+  config.confirm_text = "Confirm";
+  config.confirm_callback = MusicFolderPickerConfirmedCallback;
+  lv_obj_t* body = ShowPromptDialog(
+      state->root, &state->folder_dialog, config);
+  if (body == nullptr) {
+    return false;
+  }
+  lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_AUTO);
+  for (int source = 0; source < kMusicFolderOptionCount; ++source) {
+    if (!CreateMusicFolderPickerRow(state, body, source, source * 86)) {
+      ClosePromptDialog(&state->folder_dialog);
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * @brief 处理添加音乐源按钮点击事件
+ * @param event LVGL 事件对象
+ */
+void AddMusicSourcePromptClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  ShowMusicFolderPickerPrompt(
+      static_cast<MusicViewState*>(lv_event_get_user_data(event)));
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+}
+
+/**
+ * @brief 创建音乐源提示框中的文件夹行
+ * @param state 音乐视图状态
+ * @param body 提示框内容区域
+ * @param source 文件夹索引
+ * @param y 顶部坐标
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateMusicSourcesPromptRow(
+    MusicViewState* state, lv_obj_t* body, int source, int y) {
+  lv_obj_t* row = lv_obj_create(body);
+  if (row == nullptr) {
+    return false;
+  }
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(row, state->config.width - 68, 82);
+  lv_obj_set_pos(row, 0, y);
+  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
+
+  lv_obj_t* path = CreateLabel(row, MusicFolderPath(source),
+      lv_color_hex(kMainTextColor), Font24());
+  if (path != nullptr) {
+    lv_obj_set_width(path, state->config.width - 174);
+    lv_label_set_long_mode(path, LV_LABEL_LONG_DOT);
+    lv_obj_align(path, LV_ALIGN_TOP_LEFT, 18, 12);
+  }
+  lv_obj_t* detail = CreateLabel(
+      row, "Music search folder", lv_color_hex(kSecondaryTextColor),
+      Font22());
+  if (detail != nullptr) {
+    lv_obj_align(detail, LV_ALIGN_TOP_LEFT, 18, 47);
+  }
+  lv_obj_t* remove = lv_button_create(row);
+  if (remove == nullptr) {
+    return false;
+  }
+  lv_obj_remove_style_all(remove);
+  lv_obj_set_size(remove, 54, 54);
+  lv_obj_align(remove, LV_ALIGN_RIGHT_MID, -20, 0);
+  auto* action = new MusicSourceAction{
+      .state = state,
+      .row = row,
+      .source = source,
+  };
+  lv_obj_add_event_cb(remove, MusicSourcesPromptRemoveClickedEventCallback,
+                      LV_EVENT_CLICKED, action);
+  lv_obj_add_event_cb(remove, MusicSourceActionDeleteEventCallback,
+                      LV_EVENT_DELETE, action);
+  lv_obj_t* delete_icon = CreateLabel(remove, icon::kDelete,
+      lv_color_hex(kSecondaryTextColor), MaterialActionIconFont44());
+  if (delete_icon != nullptr) {
+    lv_obj_center(delete_icon);
+  }
+  return true;
+}
+
+/**
+ * @brief 重新构建音乐源提示框内容
+ * @param state 音乐视图状态
+ * @return 构建成功返回 true，否则返回 false
+ */
+bool RenderMusicSourcesPromptContent(MusicViewState* state) {
+  if (state == nullptr || state->sources_dialog.body == nullptr) {
+    return false;
+  }
+  lv_obj_t* body = state->sources_dialog.body;
+  lv_obj_clean(body);
+
+  lv_obj_t* section = CreateLabel(body, "Folders to load",
+      lv_color_hex(kSecondaryTextColor), Font24());
+  if (section != nullptr) {
+    lv_obj_set_pos(section, 32, 20);
+  }
+  lv_obj_t* add = lv_button_create(body);
+  if (add == nullptr) {
+    return false;
+  }
+  lv_obj_remove_style_all(add);
+  lv_obj_set_size(add, 62, 62);
+  lv_obj_align(add, LV_ALIGN_TOP_RIGHT, -16, 2);
+  lv_obj_set_style_bg_opa(add, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(add, lv_color_hex(kPressedColor),
+                            LV_STATE_PRESSED);
+  lv_obj_set_style_bg_opa(add, LV_OPA_COVER, LV_STATE_PRESSED);
+  lv_obj_set_style_radius(add, 31, LV_PART_MAIN);
+  lv_obj_add_event_cb(add, AddMusicSourcePromptClickedEventCallback,
+                      LV_EVENT_CLICKED, state);
+  lv_obj_t* add_icon = CreateLabel(add, icon::kAdd,
+      lv_color_hex(kMainTextColor), MaterialActionIconFont44());
+  if (add_icon != nullptr) {
+    lv_obj_center(add_icon);
+  }
+
+  int y = 82;
+  for (int source = 0; source < kMusicFolderOptionCount; ++source) {
+    if (!state->draft_source_enabled[source]) {
+      continue;
+    }
+    if (!CreateMusicSourcesPromptRow(state, body, source, y)) {
+      return false;
+    }
+    y += 82;
+  }
+  return true;
+}
+
+/**
+ * @brief 显示音乐源管理提示框
+ * @param state 音乐视图状态
+ * @return 显示成功返回 true，否则返回 false
+ */
+bool ShowMusicSourcesPrompt(MusicViewState* state) {
+  if (state == nullptr || state->root == nullptr) {
+    return false;
+  }
+  CopyMusicSourceFlags(
+      state->draft_source_enabled, state->source_enabled);
+  PromptDialogConfig config =
+      CreateMusicPromptConfig(state, "Music sources");
+  config.confirm_callback = MusicSourcesPromptSavedCallback;
+  lv_obj_t* body = ShowPromptDialog(
+      state->root, &state->sources_dialog, config);
+  if (body == nullptr) {
+    return false;
+  }
+  return RenderMusicSourcesPromptContent(state);
+}
+
+bool ShowMusicSettingsPage(MusicViewState* state) {
+  if (state == nullptr || state->root == nullptr) {
+    return false;
+  }
+  if (state->settings_page != nullptr) {
+    lv_obj_move_to_index(state->settings_page, -1);
+    return true;
+  }
+
+  lv_obj_t* page = lv_obj_create(state->root);
+  if (page == nullptr) {
+    return false;
+  }
+  state->settings_page = page;
+  state->settings_closing = false;
+  state->settings_edge_swipe = EdgeBackSwipeState();
+  lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(page, state->config.width, state->config.height);
+  lv_obj_set_pos(page, 0, 0);
+  lv_obj_set_style_bg_color(page, lv_color_hex(kMainBackgroundColor),
+                            LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
+  AddEdgeBackSwipeEvents(page, SettingsEdgeBackEventCallback, state);
+
+  if (!CreateSettingsStyleHeader(
+      page, "Music settings", SettingsBackClickedEventCallback, state)) {
+    lv_obj_delete(page);
+    state->settings_page = nullptr;
+    return false;
+  }
+  lv_obj_t* section = CreateLabel(
+      page, "LIBRARY", lv_color_hex(kPrimaryColor), Font22());
+  if (section != nullptr) {
+    lv_obj_align(section, LV_ALIGN_TOP_LEFT, 28, 254);
+  }
+  if (!CreateMusicSourcesSettingRow(page, state)) {
+    lv_obj_delete(page);
+    state->settings_page = nullptr;
+    return false;
+  }
+  EnableEdgeBackSwipeEventBubble(page);
+  if (!StartSlideLeftWindowTransition(page, state->config.width,
+      kSettingsAnimationMs, state, nullptr)) {
+    lv_obj_delete(page);
+    state->settings_page = nullptr;
+    state->sources_summary_label = nullptr;
+    return false;
+  }
+  return true;
+}
+
+void DrawerRefreshClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
+  if (state != nullptr) {
+    CloseNavigationDrawer(&state->drawer);
+  }
+}
+
+void DrawerSettingsClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr) {
+    return;
+  }
+  CloseNavigationDrawer(&state->drawer);
+  ShowMusicSettingsPage(state);
+}
+
+void ShowMusicDrawer(MusicViewState* state) {
+  if (state == nullptr || state->root == nullptr ||
+      IsNavigationDrawerOpen(&state->drawer)) {
+    return;
+  }
+
+  NavigationDrawerConfig config;
+  config.screen_width = state->config.width;
+  config.screen_height = state->config.height;
+  config.background_color = kMainBackgroundColor;
+  config.primary_text_color = kMainTextColor;
+  config.icon_color = kSecondaryTextColor;
+  config.pressed_color = kPressedColor;
+  config.divider_color = kDividerColor;
+  config.title = "Music";
+  config.title_font = Font36();
+  config.item_font = Font28();
+  config.icon_font = MaterialFillIconFont44();
+  if (OpenNavigationDrawer(
+      state->root, &state->drawer, config) == nullptr) {
+    return;
+  }
+
+  int y = kNavigationDrawerContentTop;
+  CreateNavigationDrawerItem(&state->drawer, icon::kRefresh,
+      "Refresh music files", y, DrawerRefreshClickedEventCallback, state);
+  y += kNavigationDrawerItemHeight + 12;
+  CreateNavigationDrawerDivider(&state->drawer, y);
+  y += 18;
+  CreateNavigationDrawerItem(&state->drawer, icon::kSettings, "Settings",
+      y, DrawerSettingsClickedEventCallback, state);
+  PresentNavigationDrawer(&state->drawer);
+}
+
+void MenuButtonClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
+    ShowMusicDrawer(
+        static_cast<MusicViewState*>(lv_event_get_user_data(event)));
+  }
+}
+
+bool CreateMusicHeader(lv_obj_t* parent, MusicViewState* state) {
+  lv_obj_t* menu = CreateFlatButton(parent);
+  if (menu == nullptr) {
+    return false;
+  }
+  lv_obj_remove_style_all(menu);
+  lv_obj_add_flag(menu, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(menu, 72, 72);
+  lv_obj_align(menu, LV_ALIGN_TOP_LEFT, 20, kHeaderTop - 2);
+  lv_obj_add_event_cb(menu, MenuButtonClickedEventCallback,
+                      LV_EVENT_CLICKED, state);
+  lv_obj_t* menu_icon = CreateLabel(menu, icon::kMenu,
+      lv_color_hex(kMainTextColor), MaterialFillIconFont56());
+  if (menu_icon != nullptr) {
+    lv_obj_center(menu_icon);
+  }
+
+  lv_obj_t* title = CreateLabel(
+      parent, "Music", lv_color_hex(kMainTextColor), Font36());
+  if (title == nullptr) {
+    return false;
+  }
+  lv_obj_align_to(title, menu, LV_ALIGN_OUT_RIGHT_MID, 12, 0);
+  return true;
+}
+
 }  // namespace
 
 lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry&,
@@ -1050,14 +2181,6 @@ lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry&,
   lv_obj_add_event_cb(
       container, MusicViewDeleteEventCallback, LV_EVENT_DELETE, state);
 
-  lv_obj_t* title =
-      CreateLabel(container, "Music", lv_color_hex(kMainTextColor), Font48());
-  if (title == nullptr) {
-    lv_obj_delete(container);
-    return nullptr;
-  }
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, kMainPadding, kHeaderTop);
-
   lv_obj_t* tab =
       CreateLabel(container, "Songs", lv_color_hex(kPrimaryColor), Font28());
   if (tab == nullptr) {
@@ -1081,6 +2204,11 @@ lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry&,
       !CreateMiniPlayer(container, state)) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "CreateMusicView content failed\n");
+    lv_obj_delete(container);
+    return nullptr;
+  }
+
+  if (!CreateMusicHeader(container, state)) {
     lv_obj_delete(container);
     return nullptr;
   }
