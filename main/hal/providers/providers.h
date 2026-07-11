@@ -19,4 +19,5 @@
 #include "hal/providers/imu_provider.h"
 #include "hal/providers/rtc_provider.h"
 #include "hal/providers/screen_provider.h"
+#include "hal/providers/storage_provider.h"
 #include "hal/providers/wifi_provider.h"

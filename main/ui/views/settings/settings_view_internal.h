@@ -329,8 +329,8 @@ const lv_font_t* Font64();
 const lv_font_t* MaterialIconFont32();
 
 /**
- * @brief 鑾峰彇 44 鍙?Material Symbols 瀛椾綋
- * @return 瀛椾綋鎸囬拡
+ * @brief 获取 44 号 Material Symbols 字体
+ * @return 字体指针
  */
 const lv_font_t* MaterialIconFont44();
 

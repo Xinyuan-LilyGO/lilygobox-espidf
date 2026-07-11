@@ -31,6 +31,7 @@ class HapticProvider;
 class ImuProvider;
 class RtcProvider;
 class ScreenProvider;
+class StorageProvider;
 class WifiProvider;
 }  // namespace lilygo_box::hal
 
@@ -66,6 +67,8 @@ struct AppViewConfig {
   hal::EthernetProvider* ethernet = nullptr;
   // WiFi 状态和控制提供者。
   hal::WifiProvider* wifi = nullptr;
+  // SD 卡和本机存储状态提供者。
+  hal::StorageProvider* storage = nullptr;
   // 系统状态运行缓存，不负责 NVS 持久化。
   app::SystemStatusCache* system_status = nullptr;
   // 当前 app 可读取的主题提供器。

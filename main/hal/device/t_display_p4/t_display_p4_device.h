@@ -33,7 +33,8 @@ class TDisplayP4Device final : public ScreenProvider,
                                public BmuProvider,
                                public RtcProvider,
                                public EthernetProvider,
-                               public WifiProvider {
+                               public WifiProvider,
+                               public StorageProvider {
  public:
   TDisplayP4Device();
 
@@ -336,6 +337,30 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 读取成功返回 true，否则返回 false
    */
   bool ReadWifiStatus(WifiStatus* status) override;
+
+  /**
+   * @brief 确保 SD 卡已经挂载到文件系统
+   * @return 挂载操作是否成功
+   */
+  bool EnsureSdCardMounted() override;
+
+  /**
+   * @brief 卸载 SD 卡文件系统并释放 SDMMC 总线资源
+   * @return 卸载操作是否成功
+   */
+  bool UnmountSdCard() override;
+
+  /**
+   * @brief 判断 SD 卡文件系统是否已经挂载
+   * @return 当前挂载状态
+   */
+  bool IsSdCardMounted() const override;
+
+  /**
+   * @brief 获取 SD 卡挂载路径
+   * @return SD 卡挂载路径
+   */
+  const char* SdCardBasePath() const override;
 
   /**
    * @brief 启动屏幕背光

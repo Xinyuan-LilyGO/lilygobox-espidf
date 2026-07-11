@@ -33,6 +33,7 @@ class HapticProvider;
 class ImuProvider;
 class RtcProvider;
 class WifiProvider;
+class StorageProvider;
 }  // namespace lilygo_box::hal
 
 namespace lilygo_box::ui {
@@ -68,7 +69,8 @@ class UiManager final {
       hal::RtcProvider* rtc,
       hal::ImuProvider* imu,
       hal::EthernetProvider* ethernet,
-      hal::WifiProvider* wifi);
+      hal::WifiProvider* wifi,
+      hal::StorageProvider* storage);
 
   /**
    * @brief 启动系统启动界面动画
@@ -412,6 +414,7 @@ class UiManager final {
   hal::ImuProvider* imu_provider_ = nullptr;
   hal::EthernetProvider* ethernet_provider_ = nullptr;
   hal::WifiProvider* wifi_provider_ = nullptr;
+  hal::StorageProvider* storage_provider_ = nullptr;
   lv_obj_t* root_screen_ = nullptr;
   StatusBar status_bar_;
   lv_obj_t* startup_screen_ = nullptr;

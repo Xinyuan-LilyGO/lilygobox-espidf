@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
 
@@ -751,6 +752,33 @@ bool TDisplayP4Device::ReadWifiStatus(WifiStatus* status) {
     }
   }
   return true;
+}
+
+bool TDisplayP4Device::EnsureSdCardMounted() {
+  if (IsSdCardMounted()) {
+    return true;
+  }
+
+  const bool result = driver_.InitSdmmc(device::sd::kBasePath, SDMMC_FREQ_52M);
+  if (!result) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "InitSdmmc failed\n");
+    return false;
+  }
+  return IsSdCardMounted();
+}
+
+bool TDisplayP4Device::UnmountSdCard() { return driver_.DeinitSdmmc(); }
+
+bool TDisplayP4Device::IsSdCardMounted() const {
+  if (!driver_.IsSdmmcReady()) {
+    return false;
+  }
+  struct stat info = {};
+  return stat(device::sd::kBasePath, &info) == 0 && S_ISDIR(info.st_mode);
+}
+
+const char* TDisplayP4Device::SdCardBasePath() const {
+  return device::sd::kBasePath;
 }
 
 bool TDisplayP4Device::RegisterScreenFlushReadyCallback(

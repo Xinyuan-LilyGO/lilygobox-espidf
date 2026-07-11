@@ -27,6 +27,7 @@ struct DeviceProviderContext {
   RtcProvider* rtc = nullptr;
   EthernetProvider* ethernet = nullptr;
   WifiProvider* wifi = nullptr;
+  StorageProvider* storage = nullptr;
 };
 
 /**

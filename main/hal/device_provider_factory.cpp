@@ -35,6 +35,7 @@ DeviceProviderContext CreateDeviceProviderContext() {
   context.rtc = device.get();
   context.ethernet = device.get();
   context.wifi = device.get();
+  context.storage = device.get();
   context.screen = std::move(device);
   return context;
 #else

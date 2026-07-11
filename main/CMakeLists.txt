@@ -38,6 +38,7 @@ idf_component_register(
         esp_common
         esp_eth
         esp_event
+        fatfs
         esp_hw_support
         esp_netif
         nvs_flash
