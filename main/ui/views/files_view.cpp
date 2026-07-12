@@ -22,9 +22,11 @@
 #include "base/logger.h"
 #include "esp_vfs_fat.h"
 #include "hal/providers/storage_provider.h"
+#include "ui/animation/transition_animation.h"
 #include "ui/font/font_assets.h"
 #include "ui/font/material_symbols_assets.h"
 #include "ui/input/edge_back_gesture.h"
+#include "ui/input/press_cancel.h"
 #include "ui/theme/theme_provider.h"
 #include "ui/widgets/navigation_drawer.h"
 
@@ -59,6 +61,8 @@ constexpr int kStorageDescriptionHeight = 28;
 constexpr int kStorageRetryPeriodMs = 850;
 constexpr int kStorageMonitorPeriodMs = 1000;
 constexpr int kStorageMissingCheckCount = 2;
+constexpr int kFolderPickerActionHeight = 94;
+constexpr int kFolderPickerButtonHeight = 64;
 constexpr size_t kMaxDirectoryEntryCount = 256;
 
 struct FilesViewState {
@@ -72,8 +76,11 @@ struct FilesViewState {
   lv_timer_t* storage_monitor_timer = nullptr;
   EdgeBackSwipeState directory_swipe;
   std::string current_path;
+  FolderPickerViewConfig picker_config;
   int storage_missing_checks = 0;
   bool storage_was_mounted = false;
+  bool folder_picker_mode = false;
+  bool folder_picker_closing = false;
 };
 
 struct FileEntry {
@@ -87,10 +94,50 @@ struct PathClickContext {
   std::string path;
 };
 
+/**
+ * @brief 关闭文件管理导航侧边栏
+ * @param state 文件管理页面状态
+ */
 void CloseDrawer(FilesViewState* state);
+
+/**
+ * @brief 使用退出动画关闭临时文件夹选择页面
+ * @param state 文件管理页面状态
+ */
+void CloseFolderPicker(FilesViewState* state);
+
+/**
+ * @brief 读取并显示指定目录内容
+ * @param state 文件管理页面状态
+ * @param path 需要显示的目录路径
+ * @return 显示成功返回 true，否则返回 false
+ */
 bool RenderDirectoryContent(FilesViewState* state, const std::string& path);
+
+/**
+ * @brief 启动 SD 卡发现和目录加载流程
+ * @param state 文件管理页面状态
+ */
 void StartStorageDiscovery(FilesViewState* state);
+
+/**
+ * @brief 处理已挂载 SD 卡被拔出的状态切换
+ * @param state 文件管理页面状态
+ */
 void HandleStorageRemoval(FilesViewState* state);
+
+/**
+ * @brief 获取当前文件页面显示的标题
+ * @param state 文件管理页面状态
+ * @return 页面标题文本
+ */
+const char* FilesHeaderTitle(const FilesViewState* state) {
+  if (state != nullptr && state->folder_picker_mode &&
+      state->picker_config.title != nullptr) {
+    return state->picker_config.title;
+  }
+  return "Files";
+}
 
 /**
  * @brief 将对象背景、边框、轮廓、阴影和内边距设为透明样式
@@ -147,6 +194,14 @@ const lv_font_t* Font36() { return &lvgl_font_google_sans_flex_36; }
  * @return 字体指针
  */
 const lv_font_t* MaterialIconFont32() { return &lvgl_font_material_symbols_32; }
+
+/**
+ * @brief 获取 44 号 Material Symbols 字体
+ * @return 字体指针
+ */
+const lv_font_t* MaterialIconFont44() {
+  return &lvgl_font_material_symbols_44;
+}
 
 /**
  * @brief 获取 44 号文件管理抽屉图标字体
@@ -485,7 +540,7 @@ void PathClickedEventCallback(lv_event_t* event) {
         !state->config.storage->IsSdCardMounted()) {
       HandleStorageRemoval(state);
     } else {
-      SetHeader(state, "Files", "Unable to open folder");
+      SetHeader(state, FilesHeaderTitle(state), "Unable to open folder");
     }
   }
 }
@@ -669,6 +724,10 @@ bool CreateFileRow(lv_obj_t* parent, FilesViewState* state,
     lv_obj_set_style_bg_color(row, lv_color_hex(kPressedColor),
                               LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
+    if (!AddPressCancelOnLeave(row)) {
+      lv_obj_delete(row);
+      return false;
+    }
     auto* context = new PathClickContext{
         .state = state,
         .path = JoinPath(state->current_path, entry.name.c_str()),
@@ -707,6 +766,19 @@ bool CreateFileRow(lv_obj_t* parent, FilesViewState* state,
                     kStorageDescriptionHeight);
     lv_label_set_long_mode(description_label, LV_LABEL_LONG_DOT);
     lv_obj_align(description_label, LV_ALIGN_TOP_LEFT, kStorageRowTextX, 50);
+  }
+
+  lv_obj_t* divider = lv_obj_create(row);
+  if (divider != nullptr) {
+    lv_obj_remove_flag(divider, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(divider, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(divider, width - kStorageRowTextX - 28, 1);
+    lv_obj_align(divider, LV_ALIGN_BOTTOM_RIGHT, -28, 0);
+    lv_obj_set_style_bg_color(
+        divider, lv_color_hex(kDividerColor), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(divider, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(divider, 0, LV_PART_MAIN);
   }
   return true;
 }
@@ -785,8 +857,11 @@ bool CreateStorageListContent(lv_obj_t* parent, FilesViewState* state,
   MakeTransparent(list);
   lv_obj_add_flag(list, LV_OBJ_FLAG_EVENT_BUBBLE);
   lv_obj_add_flag(list, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  const int picker_reserved_height =
+      state->folder_picker_mode ? kFolderPickerActionHeight : 0;
   lv_obj_set_size(list, state->config.width,
-                  state->config.height - kStorageListTop);
+                  state->config.height - kStorageListTop -
+                      picker_reserved_height);
   lv_obj_set_pos(list, 0, kStorageListTop);
   lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_ACTIVE);
   lv_obj_set_scroll_dir(list, LV_DIR_VER);
@@ -862,7 +937,7 @@ void RenderScanningContent(FilesViewState* state) {
     return;
   }
   ClearContent(state);
-  SetHeader(state, "Files", "Scanning SD card");
+  SetHeader(state, FilesHeaderTitle(state), "Scanning SD card");
 
   lv_obj_t* group = lv_obj_create(state->content);
   if (group == nullptr) {
@@ -911,7 +986,7 @@ void RenderNoStorageContent(FilesViewState* state) {
   }
   ClearContent(state);
   state->current_path.clear();
-  SetHeader(state, "Files", "No SD card");
+  SetHeader(state, FilesHeaderTitle(state), "No SD card");
 
   lv_obj_t* group = lv_obj_create(state->content);
   if (group == nullptr) {
@@ -985,7 +1060,7 @@ bool RenderDirectoryContent(FilesViewState* state, const std::string& path) {
   char item_count_text[32] = {};
   FormatItemCount(entries.size(), truncated, item_count_text,
                   sizeof(item_count_text));
-  SetHeader(state, "Files", item_count_text);
+  SetHeader(state, FilesHeaderTitle(state), item_count_text);
   if (!CreateStorageListContent(state->content, state, entries)) {
     return false;
   }
@@ -1145,8 +1220,30 @@ void StartStorageDiscovery(FilesViewState* state) {
  */
 void DirectoryEdgeBackEventCallback(lv_event_t* event) {
   auto* state = static_cast<FilesViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->config.storage == nullptr ||
-      state->current_path.empty()) {
+  if (state == nullptr) {
+    return;
+  }
+  if (state->folder_picker_mode) {
+    lv_event_stop_bubbling(event);
+    if (HandleEdgeBackSwipeEvent(event, state->config.width,
+                                 &state->directory_swipe)) {
+      const char* base_path_text =
+          state->config.storage == nullptr
+              ? nullptr
+              : state->config.storage->SdCardBasePath();
+      if (base_path_text != nullptr && base_path_text[0] != '\0' &&
+          !state->current_path.empty() &&
+          state->current_path != base_path_text) {
+        RenderDirectoryContent(state,
+            ParentPath(state->current_path, base_path_text));
+      } else {
+        CloseFolderPicker(state);
+      }
+      lv_event_stop_processing(event);
+    }
+    return;
+  }
+  if (state->config.storage == nullptr || state->current_path.empty()) {
     return;
   }
   const char* base_path_text = state->config.storage->SdCardBasePath();
@@ -1166,6 +1263,10 @@ void DirectoryEdgeBackEventCallback(lv_event_t* event) {
   }
 }
 
+/**
+ * @brief 关闭文件管理导航侧边栏
+ * @param state 文件管理页面状态
+ */
 void CloseDrawer(FilesViewState* state) {
   if (state != nullptr) {
     CloseNavigationDrawer(&state->drawer);
@@ -1382,23 +1483,161 @@ void MenuButtonClickedEventCallback(lv_event_t* event) {
 }
 
 /**
+ * @brief 处理文件夹选择页面退出动画完成事件
+ * @param animation LVGL 动画对象
+ */
+void FolderPickerCloseCompletedCallback(lv_anim_t* animation) {
+  auto* state = static_cast<FilesViewState*>(
+      lv_anim_get_user_data(animation));
+  if (state == nullptr || state->root == nullptr) {
+    return;
+  }
+  const auto closed_callback = state->picker_config.closed_callback;
+  lv_obj_delete(state->root);
+  if (closed_callback) {
+    closed_callback();
+  }
+}
+
+/**
+ * @brief 使用标准右滑动画关闭文件夹选择页面
+ * @param state 文件管理页面状态
+ */
+void CloseFolderPicker(FilesViewState* state) {
+  if (state == nullptr || state->root == nullptr ||
+      state->folder_picker_closing) {
+    return;
+  }
+  state->folder_picker_closing = true;
+  if (!StartSlideRightWindowTransition(state->root, state->config.width,
+      state->picker_config.animation_ms, state,
+      FolderPickerCloseCompletedCallback)) {
+    const auto closed_callback = state->picker_config.closed_callback;
+    lv_obj_delete(state->root);
+    if (closed_callback) {
+      closed_callback();
+    }
+  }
+}
+
+/**
+ * @brief 关闭临时文件夹选择页面
+ * @param event LVGL 事件对象
+ */
+void FolderPickerBackClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* state = static_cast<FilesViewState*>(lv_event_get_user_data(event));
+  if (state != nullptr && state->root != nullptr) {
+    CloseFolderPicker(state);
+  }
+}
+
+/**
+ * @brief 确认使用当前目录
+ * @param event LVGL 事件对象
+ */
+void FolderPickerConfirmClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* state = static_cast<FilesViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->root == nullptr ||
+      state->current_path.empty()) {
+    return;
+  }
+  if (state->picker_config.selected_callback) {
+    state->picker_config.selected_callback(state->current_path.c_str());
+  }
+  CloseFolderPicker(state);
+}
+
+/**
+ * @brief 创建文件夹选择页面底部确认按钮
+ * @param parent 页面根对象
+ * @param state 文件管理页面状态
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateFolderPickerAction(lv_obj_t* parent, FilesViewState* state) {
+  if (parent == nullptr || state == nullptr ||
+      !state->folder_picker_mode) {
+    return true;
+  }
+  lv_obj_t* button = lv_button_create(parent);
+  if (button == nullptr) {
+    return false;
+  }
+  lv_obj_set_size(button, state->config.width - 56,
+                  kFolderPickerButtonHeight);
+  lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, -15);
+  lv_obj_set_style_radius(button, kFolderPickerButtonHeight / 2,
+                          LV_PART_MAIN);
+  lv_obj_set_style_bg_color(button,
+      lv_color_hex(state->picker_config.action_color), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
+  if (!AddPressCancelOnLeave(button)) {
+    lv_obj_delete(button);
+    return false;
+  }
+  lv_obj_add_event_cb(button, FolderPickerConfirmClickedEventCallback,
+                      LV_EVENT_CLICKED, state);
+  const char* text = state->picker_config.action_text == nullptr
+                         ? "Use this folder"
+                         : state->picker_config.action_text;
+  lv_obj_t* label = CreateLabel(button, text,
+      lv_color_hex(state->picker_config.action_text_color), Font28());
+  if (label == nullptr) {
+    lv_obj_delete(button);
+    return false;
+  }
+  lv_obj_center(label);
+  return true;
+}
+
+/**
  * @brief 创建文件管理顶部工具栏
  * @param parent 父对象
  * @param state 文件管理页面状态
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateHeader(lv_obj_t* parent, FilesViewState* state) {
-  lv_obj_t* menu = CreateIconButton(parent, icon::kMenu);
+  lv_obj_t* menu = state->folder_picker_mode
+                       ? lv_button_create(parent)
+                       : CreateIconButton(parent, icon::kMenu);
   if (menu == nullptr) {
     return false;
   }
-  lv_obj_set_style_bg_opa(menu, LV_OPA_TRANSP, LV_STATE_PRESSED);
-  lv_obj_align(menu, LV_ALIGN_TOP_LEFT, kHeaderSidePadding - 8, kHeaderTop - 2);
-  lv_obj_add_event_cb(menu, MenuButtonClickedEventCallback, LV_EVENT_CLICKED,
-                      state);
+  if (state->folder_picker_mode) {
+    lv_obj_remove_style_all(menu);
+    lv_obj_remove_flag(menu, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(menu, LV_OBJ_FLAG_PRESS_LOCK);
+    lv_obj_add_flag(menu, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_set_size(menu, 62, 62);
+    lv_obj_set_pos(menu, 18, 66);
+    lv_obj_set_style_bg_opa(menu, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(menu, LV_OPA_TRANSP, LV_STATE_PRESSED);
+    lv_obj_t* back_icon = CreateMaterialIcon(menu, icon::kArrowBack,
+        lv_color_hex(kPrimaryTextColor), MaterialIconFont44());
+    if (back_icon == nullptr) {
+      return false;
+    }
+    lv_obj_align(back_icon, LV_ALIGN_CENTER, -4, 0);
+  } else {
+    lv_obj_set_style_bg_opa(menu, LV_OPA_TRANSP, LV_STATE_PRESSED);
+    lv_obj_align(menu, LV_ALIGN_TOP_LEFT, kHeaderSidePadding - 8,
+                 kHeaderTop - 2);
+  }
+  lv_obj_add_event_cb(menu,
+      state->folder_picker_mode ? FolderPickerBackClickedEventCallback
+                                : MenuButtonClickedEventCallback,
+      LV_EVENT_CLICKED, state);
 
   lv_obj_t* title =
-      CreateLabel(parent, "Files", lv_color_hex(kPrimaryTextColor), Font36());
+      CreateLabel(parent, FilesHeaderTitle(state),
+                  lv_color_hex(kPrimaryTextColor), Font36());
   if (title == nullptr) {
     return false;
   }
@@ -1421,15 +1660,15 @@ bool CreateHeader(lv_obj_t* parent, FilesViewState* state) {
 }  // namespace
 
 /**
- * @brief 创建文件管理应用界面
+ * @brief 创建普通文件管理或临时文件夹选择页面
  * @param parent 父对象
- * @param app_entry 应用条目
  * @param config 应用视图配置
- * @return 创建成功返回文件管理根对象，否则返回 nullptr
+ * @param picker_config 文件夹选择配置，普通文件管理传入 nullptr
+ * @return 创建成功返回页面根对象，否则返回 nullptr
  */
-lv_obj_t* CreateFilesView(lv_obj_t* parent, const app::AppEntry& app_entry,
-                          const AppViewConfig& config) {
-  static_cast<void>(app_entry);
+lv_obj_t* CreateFilesViewInternal(lv_obj_t* parent,
+    const AppViewConfig& config,
+    const FolderPickerViewConfig* picker_config) {
   if (parent == nullptr || config.width <= 0 || config.height <= 0) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
                "CreateFilesView received invalid input, parent=%p, width=%d, "
@@ -1440,6 +1679,10 @@ lv_obj_t* CreateFilesView(lv_obj_t* parent, const app::AppEntry& app_entry,
 
   auto* state = new FilesViewState{};
   state->config = config;
+  if (picker_config != nullptr) {
+    state->folder_picker_mode = true;
+    state->picker_config = *picker_config;
+  }
   lv_obj_t* root = lv_obj_create(parent);
   if (root == nullptr) {
     delete state;
@@ -1499,10 +1742,44 @@ lv_obj_t* CreateFilesView(lv_obj_t* parent, const app::AppEntry& app_entry,
     lv_obj_delete(root);
     return nullptr;
   }
+  if (!CreateFolderPickerAction(root, state)) {
+    lv_obj_delete(root);
+    return nullptr;
+  }
 
   StartStorageDiscovery(state);
   StartStorageMonitor(state);
   return root;
+}
+
+/**
+ * @brief 创建文件管理应用界面
+ * @param parent 父对象
+ * @param app_entry 应用条目
+ * @param config 应用视图配置
+ * @return 创建成功返回文件管理根对象，否则返回 nullptr
+ */
+lv_obj_t* CreateFilesView(lv_obj_t* parent, const app::AppEntry& app_entry,
+                          const AppViewConfig& config) {
+  static_cast<void>(app_entry);
+  return CreateFilesViewInternal(parent, config, nullptr);
+}
+
+/**
+ * @brief 创建临时文件夹选择页面并播放进入动画
+ * @param parent 父对象
+ * @param config 文件夹选择页面配置
+ * @return 创建成功返回页面根对象，否则返回 nullptr
+ */
+lv_obj_t* CreateFolderPickerView(
+    lv_obj_t* parent, const FolderPickerViewConfig& config) {
+  lv_obj_t* picker = CreateFilesViewInternal(
+      parent, config.view_config, &config);
+  if (picker != nullptr) {
+    StartSlideLeftWindowTransition(picker, config.view_config.width,
+        config.animation_ms, nullptr, nullptr);
+  }
+  return picker;
 }
 
 }  // namespace lilygo_box::ui

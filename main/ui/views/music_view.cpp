@@ -8,15 +8,18 @@
 #include "ui/views/music_view.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <functional>
+#include <string>
 
 #include "base/logger.h"
 #include "ui/animation/transition_animation.h"
 #include "ui/font/font_assets.h"
 #include "ui/font/material_symbols_assets.h"
 #include "ui/input/edge_back_gesture.h"
+#include "ui/views/files_view.h"
 #include "ui/widgets/navigation_drawer.h"
 #include "ui/widgets/prompt/prompt_dialog.h"
 #include "ui/widgets/prompt/prompt_select_sheet.h"
@@ -47,6 +50,9 @@ constexpr int kProgressThumbPressedWidth = 13;
 constexpr int kProgressThumbPressedHeight = 60;
 constexpr int kDefaultTrackDurationSeconds = 90;
 constexpr int kSettingsAnimationMs = 240;
+constexpr int kMusicSourcesHeaderTop = 112;
+constexpr int kMusicSourcesAddTop = 98;
+constexpr int kMusicSourcesListTop = 174;
 
 constexpr int kMusicFolderOptionCount = 8;
 constexpr PromptSelectSheetOption kMusicFolderOptions[] = {
@@ -86,10 +92,11 @@ struct MusicViewState {
   EdgeBackSwipeState settings_edge_swipe;
   EdgeBackSwipeState sources_edge_swipe;
   int selected_folder = 0;
-  bool source_enabled[kMusicFolderOptionCount] = {
-      true, false, false, false, false, false, false, false};
+  bool source_enabled[kMusicFolderOptionCount] = {};
   bool draft_source_enabled[kMusicFolderOptionCount] = {};
   bool picker_source_enabled[kMusicFolderOptionCount] = {};
+  std::array<std::string, kMusicFolderOptionCount> source_paths;
+  std::array<std::string, kMusicFolderOptionCount> draft_source_paths;
   bool playing = false;
   bool settings_closing = false;
   bool sources_closing = false;
@@ -1108,6 +1115,11 @@ bool CreateMiniPlayer(lv_obj_t* parent, MusicViewState* state) {
   return true;
 }
 
+/**
+ * @brief 根据文件夹选项值获取对应路径
+ * @param value 文件夹选项值
+ * @return 对应的文件夹路径
+ */
 const char* MusicFolderPath(int value) {
   for (const auto& option : kMusicFolderOptions) {
     if (option.value == value) {
@@ -1117,8 +1129,18 @@ const char* MusicFolderPath(int value) {
   return kMusicFolderOptions[0].text;
 }
 
+/**
+ * @brief 重新构建旧版音乐源页面内容
+ * @param state 音乐视图状态
+ * @return 构建成功返回 true，否则返回 false
+ */
 bool RenderMusicSourcesContent(MusicViewState* state);
 
+/**
+ * @brief 统计当前启用的音乐源数量
+ * @param state 音乐视图状态
+ * @return 已启用的音乐源数量
+ */
 int MusicSourceCount(const MusicViewState* state) {
   if (state == nullptr) {
     return 0;
@@ -1132,6 +1154,10 @@ int MusicSourceCount(const MusicViewState* state) {
   return count;
 }
 
+/**
+ * @brief 更新音乐设置页中的音乐源数量摘要
+ * @param state 音乐视图状态
+ */
 void UpdateMusicSourcesSummary(MusicViewState* state) {
   if (state == nullptr || state->sources_summary_label == nullptr) {
     return;
@@ -1147,6 +1173,11 @@ void UpdateMusicSourcesSummary(MusicViewState* state) {
   lv_label_set_text(state->sources_summary_label, text);
 }
 
+/**
+ * @brief 处理旧版文件夹选择弹窗的确认结果
+ * @param context 音乐视图状态
+ * @param value 选中的文件夹选项值
+ */
 void MusicFolderSelectedCallback(void* context, int value) {
   auto* state = static_cast<MusicViewState*>(context);
   if (state == nullptr || value < 0 ||
@@ -1159,6 +1190,11 @@ void MusicFolderSelectedCallback(void* context, int value) {
   RenderMusicSourcesContent(state);
 }
 
+/**
+ * @brief 显示旧版音乐文件夹选择底部弹窗
+ * @param state 音乐视图状态
+ * @return 显示成功返回 true，否则返回 false
+ */
 bool ShowMusicFolderSheet(MusicViewState* state) {
   if (state == nullptr || state->root == nullptr) {
     return false;
@@ -1202,8 +1238,24 @@ bool ShowMusicFolderSheet(MusicViewState* state) {
   return ShowPromptSelectSheet(state->root, config);
 }
 
+/**
+ * @brief 显示旧版音乐源管理页面
+ * @param state 音乐视图状态
+ * @return 显示成功返回 true，否则返回 false
+ */
 bool ShowMusicSourcesPage(MusicViewState* state);
+
+/**
+ * @brief 关闭旧版音乐源管理页面
+ * @param state 音乐视图状态
+ */
 void CloseMusicSourcesPage(MusicViewState* state);
+
+/**
+ * @brief 显示音乐源管理弹窗
+ * @param state 音乐视图状态
+ * @return 显示成功返回 true，否则返回 false
+ */
 bool ShowMusicSourcesPrompt(MusicViewState* state);
 
 /**
@@ -1220,6 +1272,10 @@ void MusicSourcesRowClickedEventCallback(lv_event_t* event) {
   lv_event_stop_processing(event);
 }
 
+/**
+ * @brief 处理音乐设置页退出动画完成事件
+ * @param animation LVGL 动画对象
+ */
 void SettingsCloseCompletedCallback(lv_anim_t* animation) {
   auto* state = static_cast<MusicViewState*>(
       lv_anim_get_user_data(animation));
@@ -1234,6 +1290,10 @@ void SettingsCloseCompletedCallback(lv_anim_t* animation) {
   lv_obj_delete(page);
 }
 
+/**
+ * @brief 使用退出动画关闭音乐设置页面
+ * @param state 音乐视图状态
+ */
 void CloseMusicSettingsPage(MusicViewState* state) {
   if (state == nullptr || state->settings_page == nullptr ||
       state->settings_closing) {
@@ -1256,6 +1316,10 @@ void CloseMusicSettingsPage(MusicViewState* state) {
   }
 }
 
+/**
+ * @brief 处理音乐设置页返回按钮点击事件
+ * @param event LVGL 事件对象
+ */
 void SettingsBackClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
@@ -1264,6 +1328,10 @@ void SettingsBackClickedEventCallback(lv_event_t* event) {
       static_cast<MusicViewState*>(lv_event_get_user_data(event)));
 }
 
+/**
+ * @brief 处理音乐设置页边缘返回手势
+ * @param event LVGL 事件对象
+ */
 void SettingsEdgeBackEventCallback(lv_event_t* event) {
   auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->settings_page == nullptr ||
@@ -1357,12 +1425,20 @@ bool CreateSettingsStyleHeader(lv_obj_t* page, const char* title,
   return true;
 }
 
+/**
+ * @brief 释放音乐源操作事件上下文
+ * @param event LVGL 事件对象
+ */
 void MusicSourceActionDeleteEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_DELETE) {
     delete static_cast<MusicSourceAction*>(lv_event_get_user_data(event));
   }
 }
 
+/**
+ * @brief 处理旧版音乐源删除按钮点击事件
+ * @param event LVGL 事件对象
+ */
 void MusicSourceRemoveClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
@@ -1382,6 +1458,10 @@ void MusicSourceRemoveClickedEventCallback(lv_event_t* event) {
   lv_event_stop_processing(event);
 }
 
+/**
+ * @brief 处理旧版添加音乐源按钮点击事件
+ * @param event LVGL 事件对象
+ */
 void AddMusicSourceClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
@@ -1392,6 +1472,13 @@ void AddMusicSourceClickedEventCallback(lv_event_t* event) {
   lv_event_stop_processing(event);
 }
 
+/**
+ * @brief 创建旧版音乐源页面中的文件夹行
+ * @param state 音乐视图状态
+ * @param source 音乐源索引
+ * @param y 行顶部坐标
+ * @return 创建成功返回 true，否则返回 false
+ */
 bool CreateMusicSourceRow(
     MusicViewState* state, int source, int y) {
   lv_obj_t* row = lv_obj_create(state->sources_body);
@@ -1452,6 +1539,11 @@ bool CreateMusicSourceRow(
   return true;
 }
 
+/**
+ * @brief 重新构建旧版音乐源页面内容
+ * @param state 音乐视图状态
+ * @return 构建成功返回 true，否则返回 false
+ */
 bool RenderMusicSourcesContent(MusicViewState* state) {
   if (state == nullptr || state->sources_body == nullptr) {
     return false;
@@ -1505,6 +1597,10 @@ bool RenderMusicSourcesContent(MusicViewState* state) {
   return true;
 }
 
+/**
+ * @brief 处理旧版音乐源页面退出动画完成事件
+ * @param animation LVGL 动画对象
+ */
 void SourcesCloseCompletedCallback(lv_anim_t* animation) {
   auto* state = static_cast<MusicViewState*>(
       lv_anim_get_user_data(animation));
@@ -1519,6 +1615,10 @@ void SourcesCloseCompletedCallback(lv_anim_t* animation) {
   lv_obj_delete(page);
 }
 
+/**
+ * @brief 关闭旧版音乐源管理页面
+ * @param state 音乐视图状态
+ */
 void CloseMusicSourcesPage(MusicViewState* state) {
   if (state == nullptr || state->sources_page == nullptr ||
       state->sources_closing) {
@@ -1537,6 +1637,10 @@ void CloseMusicSourcesPage(MusicViewState* state) {
   }
 }
 
+/**
+ * @brief 处理旧版音乐源页面返回按钮点击事件
+ * @param event LVGL 事件对象
+ */
 void SourcesBackClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
     CloseMusicSourcesPage(
@@ -1544,6 +1648,10 @@ void SourcesBackClickedEventCallback(lv_event_t* event) {
   }
 }
 
+/**
+ * @brief 处理旧版音乐源页面边缘返回手势
+ * @param event LVGL 事件对象
+ */
 void SourcesEdgeBackEventCallback(lv_event_t* event) {
   auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->sources_page == nullptr ||
@@ -1556,6 +1664,11 @@ void SourcesEdgeBackEventCallback(lv_event_t* event) {
   lv_event_stop_processing(event);
 }
 
+/**
+ * @brief 显示旧版音乐源管理页面
+ * @param state 音乐视图状态
+ * @return 显示成功返回 true，否则返回 false
+ */
 [[maybe_unused]] bool ShowMusicSourcesPage(MusicViewState* state) {
   if (state == nullptr || state->root == nullptr ||
       state->settings_page == nullptr) {
@@ -1677,7 +1790,21 @@ PromptDialogConfig CreateMusicPromptConfig(
   return config;
 }
 
+/**
+ * @brief 重新构建音乐源管理弹窗的可滚动列表
+ * @param state 音乐视图状态
+ * @return 构建成功返回 true，否则返回 false
+ */
 bool RenderMusicSourcesPromptContent(MusicViewState* state);
+
+/**
+ * @brief 在当前点击事件结束后重新排列音乐源列表
+ * @param context 音乐视图状态
+ */
+void RebuildMusicSourcesPromptAsync(void* context) {
+  RenderMusicSourcesPromptContent(
+      static_cast<MusicViewState*>(context));
+}
 
 /**
  * @brief 保存音乐源提示框中的文件夹配置
@@ -1690,6 +1817,11 @@ void MusicSourcesPromptSavedCallback(void* context) {
   }
   CopyMusicSourceFlags(
       state->source_enabled, state->draft_source_enabled);
+  state->source_paths = state->draft_source_paths;
+  for (int source = 0; source < kMusicFolderOptionCount; ++source) {
+    state->source_enabled[source] =
+        !state->source_paths[source].empty();
+  }
   UpdateMusicSourcesSummary(state);
 }
 
@@ -1708,9 +1840,8 @@ void MusicSourcesPromptRemoveClickedEventCallback(lv_event_t* event) {
     return;
   }
   action->state->draft_source_enabled[action->source] = false;
-  if (action->row != nullptr) {
-    lv_obj_add_flag(action->row, LV_OBJ_FLAG_HIDDEN);
-  }
+  action->state->draft_source_paths[action->source].clear();
+  lv_async_call(RebuildMusicSourcesPromptAsync, action->state);
   lv_event_stop_bubbling(event);
   lv_event_stop_processing(event);
 }
@@ -1836,7 +1967,7 @@ bool CreateMusicFolderPickerRow(
  * @param state 音乐视图状态
  * @return 显示成功返回 true，否则返回 false
  */
-bool ShowMusicFolderPickerPrompt(MusicViewState* state) {
+[[maybe_unused]] bool ShowMusicFolderPickerPrompt(MusicViewState* state) {
   if (state == nullptr || state->root == nullptr) {
     return false;
   }
@@ -1870,8 +2001,44 @@ void AddMusicSourcePromptClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  ShowMusicFolderPickerPrompt(
-      static_cast<MusicViewState*>(lv_event_get_user_data(event)));
+  auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->root == nullptr) {
+    return;
+  }
+  FolderPickerViewConfig picker_config;
+  picker_config.view_config = state->config;
+  picker_config.title = "Select folder";
+  picker_config.action_text = "Use this folder";
+  picker_config.action_color = kPrimaryColor;
+  picker_config.action_text_color = 0xFFFFFF;
+  picker_config.selected_callback = [state](const char* path) {
+    if (path == nullptr || path[0] == '\0') {
+      return;
+    }
+    for (const std::string& current : state->draft_source_paths) {
+      if (current == path) {
+        return;
+      }
+    }
+    for (int source = 0; source < kMusicFolderOptionCount; ++source) {
+      if (!state->draft_source_paths[source].empty()) {
+        continue;
+      }
+      state->draft_source_paths[source] = path;
+      state->draft_source_enabled[source] = true;
+      break;
+    }
+  };
+  picker_config.closed_callback = [state]() {
+    if (RenderMusicSourcesPromptContent(state) &&
+        state->sources_dialog.body != nullptr) {
+      lv_obj_update_layout(state->sources_dialog.body);
+      lv_obj_scroll_to_y(
+          state->sources_dialog.body, LV_COORD_MAX, LV_ANIM_OFF);
+      lv_obj_invalidate(state->sources_dialog.body);
+    }
+  };
+  CreateFolderPickerView(state->root, picker_config);
   lv_event_stop_bubbling(event);
   lv_event_stop_processing(event);
 }
@@ -1897,18 +2064,19 @@ bool CreateMusicSourcesPromptRow(
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
 
-  lv_obj_t* path = CreateLabel(row, MusicFolderPath(source),
+  lv_obj_t* path = CreateLabel(
+      row, state->draft_source_paths[source].c_str(),
       lv_color_hex(kMainTextColor), Font24());
   if (path != nullptr) {
-    lv_obj_set_width(path, state->config.width - 174);
-    lv_label_set_long_mode(path, LV_LABEL_LONG_DOT);
-    lv_obj_align(path, LV_ALIGN_TOP_LEFT, 18, 12);
+    lv_obj_set_size(path, state->config.width - 188, 32);
+    lv_label_set_long_mode(path, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_align(path, LV_ALIGN_TOP_LEFT, 32, 12);
   }
   lv_obj_t* detail = CreateLabel(
       row, "Music search folder", lv_color_hex(kSecondaryTextColor),
       Font22());
   if (detail != nullptr) {
-    lv_obj_align(detail, LV_ALIGN_TOP_LEFT, 18, 47);
+    lv_obj_align(detail, LV_ALIGN_TOP_LEFT, 32, 47);
   }
   lv_obj_t* remove = lv_button_create(row);
   if (remove == nullptr) {
@@ -1946,18 +2114,50 @@ bool RenderMusicSourcesPromptContent(MusicViewState* state) {
   lv_obj_t* body = state->sources_dialog.body;
   lv_obj_clean(body);
 
-  lv_obj_t* section = CreateLabel(body, "Folders to load",
+  int y = 0;
+  int folder_count = 0;
+  for (int source = 0; source < kMusicFolderOptionCount; ++source) {
+    if (state->draft_source_paths[source].empty()) {
+      continue;
+    }
+    if (!CreateMusicSourcesPromptRow(state, body, source, y)) {
+      return false;
+    }
+    y += 82;
+    ++folder_count;
+  }
+  if (folder_count == 0) {
+    lv_obj_t* empty = CreateLabel(body, "No folders",
+        lv_color_hex(kSecondaryTextColor), Font24());
+    if (empty != nullptr) {
+      lv_obj_set_pos(empty, 32, y + 12);
+    }
+  }
+  return true;
+}
+
+/**
+ * @brief 创建音乐源弹窗中固定的文件夹标题和添加按钮
+ * @param state 音乐视图状态
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateMusicSourcesPromptHeader(MusicViewState* state) {
+  if (state == nullptr || state->sources_dialog.panel == nullptr) {
+    return false;
+  }
+  lv_obj_t* panel = state->sources_dialog.panel;
+  lv_obj_t* section = CreateLabel(panel, "Folders to load",
       lv_color_hex(kSecondaryTextColor), Font24());
   if (section != nullptr) {
-    lv_obj_set_pos(section, 32, 20);
+    lv_obj_set_pos(section, 32, kMusicSourcesHeaderTop);
   }
-  lv_obj_t* add = lv_button_create(body);
+  lv_obj_t* add = lv_button_create(panel);
   if (add == nullptr) {
     return false;
   }
   lv_obj_remove_style_all(add);
   lv_obj_set_size(add, 62, 62);
-  lv_obj_align(add, LV_ALIGN_TOP_RIGHT, -16, 2);
+  lv_obj_align(add, LV_ALIGN_TOP_RIGHT, -16, kMusicSourcesAddTop);
   lv_obj_set_style_bg_opa(add, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_bg_color(add, lv_color_hex(kPressedColor),
                             LV_STATE_PRESSED);
@@ -1969,17 +2169,6 @@ bool RenderMusicSourcesPromptContent(MusicViewState* state) {
       lv_color_hex(kMainTextColor), MaterialActionIconFont44());
   if (add_icon != nullptr) {
     lv_obj_center(add_icon);
-  }
-
-  int y = 82;
-  for (int source = 0; source < kMusicFolderOptionCount; ++source) {
-    if (!state->draft_source_enabled[source]) {
-      continue;
-    }
-    if (!CreateMusicSourcesPromptRow(state, body, source, y)) {
-      return false;
-    }
-    y += 82;
   }
   return true;
 }
@@ -1995,6 +2184,7 @@ bool ShowMusicSourcesPrompt(MusicViewState* state) {
   }
   CopyMusicSourceFlags(
       state->draft_source_enabled, state->source_enabled);
+  state->draft_source_paths = state->source_paths;
   PromptDialogConfig config =
       CreateMusicPromptConfig(state, "Music sources");
   config.confirm_callback = MusicSourcesPromptSavedCallback;
@@ -2003,9 +2193,22 @@ bool ShowMusicSourcesPrompt(MusicViewState* state) {
   if (body == nullptr) {
     return false;
   }
+  const int list_height = config.dialog_height - config.action_height -
+                          kMusicSourcesListTop;
+  lv_obj_set_pos(body, 0, kMusicSourcesListTop);
+  lv_obj_set_size(body, config.dialog_width, list_height);
+  if (!CreateMusicSourcesPromptHeader(state)) {
+    ClosePromptDialog(&state->sources_dialog);
+    return false;
+  }
   return RenderMusicSourcesPromptContent(state);
 }
 
+/**
+ * @brief 显示音乐设置页面并播放进入动画
+ * @param state 音乐视图状态
+ * @return 显示成功返回 true，否则返回 false
+ */
 bool ShowMusicSettingsPage(MusicViewState* state) {
   if (state == nullptr || state->root == nullptr) {
     return false;
@@ -2061,6 +2264,10 @@ bool ShowMusicSettingsPage(MusicViewState* state) {
   return true;
 }
 
+/**
+ * @brief 处理音乐侧边栏刷新按钮点击事件
+ * @param event LVGL 事件对象
+ */
 void DrawerRefreshClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
@@ -2071,6 +2278,10 @@ void DrawerRefreshClickedEventCallback(lv_event_t* event) {
   }
 }
 
+/**
+ * @brief 处理音乐侧边栏设置按钮点击事件
+ * @param event LVGL 事件对象
+ */
 void DrawerSettingsClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
@@ -2083,6 +2294,10 @@ void DrawerSettingsClickedEventCallback(lv_event_t* event) {
   ShowMusicSettingsPage(state);
 }
 
+/**
+ * @brief 显示音乐应用导航侧边栏
+ * @param state 音乐视图状态
+ */
 void ShowMusicDrawer(MusicViewState* state) {
   if (state == nullptr || state->root == nullptr ||
       IsNavigationDrawerOpen(&state->drawer)) {
@@ -2117,6 +2332,10 @@ void ShowMusicDrawer(MusicViewState* state) {
   PresentNavigationDrawer(&state->drawer);
 }
 
+/**
+ * @brief 处理音乐主页面菜单按钮点击事件
+ * @param event LVGL 事件对象
+ */
 void MenuButtonClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
     ShowMusicDrawer(
@@ -2124,6 +2343,12 @@ void MenuButtonClickedEventCallback(lv_event_t* event) {
   }
 }
 
+/**
+ * @brief 创建音乐主页面的菜单按钮和标题
+ * @param parent 父对象
+ * @param state 音乐视图状态
+ * @return 创建成功返回 true，否则返回 false
+ */
 bool CreateMusicHeader(lv_obj_t* parent, MusicViewState* state) {
   lv_obj_t* menu = CreateFlatButton(parent);
   if (menu == nullptr) {
@@ -2152,8 +2377,16 @@ bool CreateMusicHeader(lv_obj_t* parent, MusicViewState* state) {
 
 }  // namespace
 
-lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry&,
+/**
+ * @brief 创建音乐应用主界面
+ * @param parent 父对象
+ * @param app_entry 应用条目
+ * @param config 应用视图配置
+ * @return 创建成功返回音乐页面根对象，否则返回 nullptr
+ */
+lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry& app_entry,
     const AppViewConfig& config) {
+  static_cast<void>(app_entry);
   lv_obj_t* container = lv_obj_create(parent);
   if (container == nullptr) {
     return nullptr;
