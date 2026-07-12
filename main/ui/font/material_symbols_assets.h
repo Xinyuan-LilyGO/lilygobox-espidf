@@ -42,6 +42,7 @@ inline constexpr char kMemory[] = "\xEE\x8C\xA2";
 inline constexpr char kMenu[] = "\xEE\x97\x92";
 inline constexpr char kMic[] = "\xEE\x8C\x9D";
 inline constexpr char kMusic[] = "\xEE\x90\x85";
+inline constexpr char kNearMe[] = "\xEE\x95\xA9";
 inline constexpr char kPause[] = "\xEE\x80\xB4";
 inline constexpr char kPlay[] = "\xEE\x80\xB7";
 inline constexpr char kRadio[] = "\xEE\x80\xBE";

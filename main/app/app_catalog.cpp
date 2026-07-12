@@ -12,7 +12,7 @@ namespace {
 
 constexpr AppEntry kHomeAppEntries[] = {
     {.id = "cit", .title = "CIT", .subtitle = "Hardware self-test entry"},
-    {.id = "rf", .title = "RF", .subtitle = "RF tools placeholder"},
+    {.id = "rf", .title = "RF", .subtitle = "RF module control"},
     {.id = "music", .title = "Music", .subtitle = "Audio UI placeholder"},
     {.id = "files", .title = "Files", .subtitle = "File manager"},
 };

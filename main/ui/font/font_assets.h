@@ -27,6 +27,7 @@ extern const lv_font_t lvgl_font_material_symbols_32;
 extern const lv_font_t lvgl_font_material_symbols_44;
 extern const lv_font_t lvgl_font_material_symbols_56;
 extern const lv_font_t lvgl_font_material_symbols_action_44;
+extern const lv_font_t lvgl_font_material_symbols_near_me_44;
 extern const lv_font_t lvgl_font_material_symbols_fill_44;
 extern const lv_font_t lvgl_font_material_symbols_fill_56;
 
