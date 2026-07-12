@@ -1,8 +1,6 @@
 /*
  * @Description: None
  * @Author: LILYGO_L
- * @Date: 2026-07-09 14:16:19
- * @LastEditTime: 2026-07-09 14:16:19
  * @License: GPL 3.0
  */
 #include "lvgl.h"

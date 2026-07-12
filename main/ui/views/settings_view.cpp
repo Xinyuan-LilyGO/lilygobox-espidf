@@ -17,7 +17,7 @@
 #include "app/storage/haptic_storage.h"
 #include "app/storage/sound_storage.h"
 #include "hal/providers/wifi_provider.h"
-#include "ui/font/material_symbols_assets.h"
+#include "ui/resources/fonts/icon_assets.h"
 #include "ui/input/press_cancel.h"
 #include "ui/haptic_feedback.h"
 #include "ui/views/settings/settings_view_internal.h"

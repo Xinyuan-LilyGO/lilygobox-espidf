@@ -10,7 +10,7 @@
 #include <cstdio>
 
 #include "app/storage/display_storage.h"
-#include "ui/font/material_symbols_assets.h"
+#include "ui/resources/fonts/icon_assets.h"
 #include "ui/input/press_cancel.h"
 #include "ui/widgets/prompt/prompt_select_sheet.h"
 

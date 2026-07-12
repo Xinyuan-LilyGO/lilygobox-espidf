@@ -23,8 +23,8 @@
 #include "esp_vfs_fat.h"
 #include "hal/providers/storage_provider.h"
 #include "ui/animation/transition_animation.h"
-#include "ui/font/font_assets.h"
-#include "ui/font/material_symbols_assets.h"
+#include "ui/resources/fonts/font_assets.h"
+#include "ui/resources/fonts/icon_assets.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"
 #include "ui/theme/theme_provider.h"
@@ -193,21 +193,23 @@ const lv_font_t* Font36() { return &lvgl_font_google_sans_flex_36; }
  * @brief 获取 32 号 Material Symbols 字体
  * @return 字体指针
  */
-const lv_font_t* MaterialIconFont32() { return &lvgl_font_material_symbols_32; }
+const lv_font_t* MaterialFillIconFont32() {
+  return &lvgl_font_material_symbols_fill_32;
+}
 
 /**
  * @brief 获取 44 号 Material Symbols 字体
  * @return 字体指针
  */
-const lv_font_t* MaterialIconFont44() {
-  return &lvgl_font_material_symbols_44;
+const lv_font_t* MaterialOutlineIconFont44() {
+  return &lvgl_font_material_symbols_outline_44;
 }
 
 /**
  * @brief 获取 44 号文件管理抽屉图标字体
  * @return 字体指针
  */
-const lv_font_t* FilesDrawerIconFont44() {
+const lv_font_t* FilesFillIconFont44() {
   return &lvgl_font_material_symbols_fill_44;
 }
 
@@ -215,7 +217,7 @@ const lv_font_t* FilesDrawerIconFont44() {
  * @brief 获取 56 号文件管理大图标字体
  * @return 字体指针
  */
-const lv_font_t* FilesMaterialIconFont56() {
+const lv_font_t* FilesFillIconFont56() {
   return &lvgl_font_material_symbols_fill_56;
 }
 
@@ -250,7 +252,8 @@ lv_obj_t* CreateMaterialIcon(lv_obj_t* parent, const char* symbol,
                              lv_color_t color,
                              const lv_font_t* font = nullptr) {
   lv_obj_t* icon_label = CreateLabel(
-      parent, symbol, color, font == nullptr ? MaterialIconFont32() : font);
+      parent, symbol, color,
+      font == nullptr ? MaterialFillIconFont32() : font);
   if (icon_label != nullptr) {
     lv_obj_set_style_text_align(icon_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   }
@@ -280,7 +283,7 @@ lv_obj_t* CreateIconButton(lv_obj_t* parent, const char* symbol) {
 
   lv_obj_t* icon_label =
       CreateMaterialIcon(button, symbol, lv_color_hex(kPrimaryTextColor),
-                         FilesMaterialIconFont56());
+                         FilesFillIconFont56());
   if (icon_label != nullptr) {
     lv_obj_center(icon_label);
   }
@@ -1435,7 +1438,7 @@ void ShowDrawer(FilesViewState* state) {
   drawer_config.title = "Files";
   drawer_config.title_font = Font36();
   drawer_config.item_font = Font28();
-  drawer_config.icon_font = FilesDrawerIconFont44();
+  drawer_config.icon_font = FilesFillIconFont44();
   lv_obj_t* drawer = OpenNavigationDrawer(
       state->root, &state->drawer, drawer_config);
   if (drawer == nullptr) {
@@ -1620,7 +1623,7 @@ bool CreateHeader(lv_obj_t* parent, FilesViewState* state) {
     lv_obj_set_style_bg_opa(menu, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(menu, LV_OPA_TRANSP, LV_STATE_PRESSED);
     lv_obj_t* back_icon = CreateMaterialIcon(menu, icon::kArrowBack,
-        lv_color_hex(kPrimaryTextColor), MaterialIconFont44());
+        lv_color_hex(kPrimaryTextColor), MaterialOutlineIconFont44());
     if (back_icon == nullptr) {
       return false;
     }

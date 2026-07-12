@@ -9,8 +9,8 @@
 
 #include <algorithm>
 
-#include "ui/font/font_assets.h"
-#include "ui/font/material_symbols_assets.h"
+#include "ui/resources/fonts/font_assets.h"
+#include "ui/resources/fonts/icon_assets.h"
 #include "ui/wallpaper.h"
 
 namespace lilygo_box::ui {
@@ -39,7 +39,9 @@ const lv_font_t* HomeDateFont() { return &lvgl_font_lineseedkr_th_60; }
  * @brief 获取 56 号 Material Symbols 字体
  * @return 字体指针
  */
-const lv_font_t* MaterialIconFont56() { return &lvgl_font_material_symbols_56; }
+const lv_font_t* MaterialOutlineIconFont56() {
+  return &lvgl_font_material_symbols_outline_56;
+}
 
 /**
  * @brief 设置文本对象的颜色和字体
@@ -198,7 +200,7 @@ lv_obj_t* CreateLockScreenView(lv_obj_t* parent,
   }
 
   lv_obj_t* arrow = CreateLabel(lock_screen, icon::kKeyboardArrowUp,
-      lv_color_hex(kLockTextColor), MaterialIconFont56());
+      lv_color_hex(kLockTextColor), MaterialOutlineIconFont56());
   if (arrow == nullptr) {
     lv_obj_delete(lock_screen);
     return nullptr;

@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "description": "Launcher images compiled into the LilyGoBox LVGL UI",
+  "format": "ARGB8888",
+  "images": [
+    {
+      "name": "camera_inner_icon_68x68",
+      "input": "assets/icon/icon_camera.svg",
+      "output": "main/ui/resources/images/camera_inner_icon_68x68.c",
+      "width": 68,
+      "height": 68,
+      "padding": 0
+    },
+    {
+      "name": "cit_inner_icon_56x68",
+      "input": "assets/icon/icon_cit.svg",
+      "output": "main/ui/resources/images/cit_inner_icon_56x68.c",
+      "width": 56,
+      "height": 68,
+      "padding": 0
+    },
+    {
+      "name": "files_inner_icon_68x68",
+      "input": "assets/icon/icon_files.svg",
+      "output": "main/ui/resources/images/files_inner_icon_68x68.c",
+      "width": 68,
+      "height": 68,
+      "padding": 0
+    },
+    {
+      "name": "music_inner_icon_68x68",
+      "input": "assets/icon/icon_music.svg",
+      "output": "main/ui/resources/images/music_inner_icon_68x68.c",
+      "width": 68,
+      "height": 68,
+      "padding": 0
+    },
+    {
+      "name": "rf_inner_icon_68x68",
+      "input": "assets/icon/icon_rf.svg",
+      "output": "main/ui/resources/images/rf_inner_icon_68x68.c",
+      "width": 68,
+      "height": 68,
+      "padding": 0
+    },
+    {
+      "name": "settings_inner_icon_68x68",
+      "input": "assets/icon/icon_settings.svg",
+      "output": "main/ui/resources/images/settings_inner_icon_68x68.c",
+      "width": 68,
+      "height": 68,
+      "padding": 0
+    }
+  ]
+}

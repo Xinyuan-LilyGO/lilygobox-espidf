@@ -16,8 +16,8 @@
 
 #include "base/logger.h"
 #include "ui/animation/transition_animation.h"
-#include "ui/font/font_assets.h"
-#include "ui/font/material_symbols_assets.h"
+#include "ui/resources/fonts/font_assets.h"
+#include "ui/resources/fonts/icon_assets.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/views/files_view.h"
 #include "ui/widgets/navigation_drawer.h"
@@ -167,33 +167,27 @@ const lv_font_t* Font36() { return &lvgl_font_google_sans_flex_36; }
 const lv_font_t* Font48() { return &lvgl_font_google_sans_flex_48; }
 
 /**
- * @brief 获取 56 号 Material Symbols 字体
+ * @brief 获取 56 号轮廓 Material Symbols 字体
  * @return 字体指针
  */
-const lv_font_t* MaterialIconFont56() { return &lvgl_font_material_symbols_56; }
-
-/**
- * @brief 获取 32 号 Material Symbols 字体
- * @return 字体指针
- */
-const lv_font_t* MaterialIconFont32() {
-  return &lvgl_font_material_symbols_32;
+const lv_font_t* MaterialOutlineIconFont56() {
+  return &lvgl_font_material_symbols_outline_56;
 }
 
 /**
- * @brief 获取 44 号 Material Symbols 字体
+ * @brief 获取 32 号填充 Material Symbols 字体
  * @return 字体指针
  */
-const lv_font_t* MaterialIconFont44() {
-  return &lvgl_font_material_symbols_44;
+const lv_font_t* MaterialFillIconFont32() {
+  return &lvgl_font_material_symbols_fill_32;
 }
 
 /**
- * @brief 获取 44 号操作类 Material Symbols 字体
+ * @brief 获取 44 号轮廓 Material Symbols 字体
  * @return 字体指针
  */
-const lv_font_t* MaterialActionIconFont44() {
-  return &lvgl_font_material_symbols_action_44;
+const lv_font_t* MaterialOutlineIconFont44() {
+  return &lvgl_font_material_symbols_outline_44;
 }
 
 /**
@@ -786,7 +780,7 @@ lv_obj_t* CreateArtwork(lv_obj_t* parent, int size, int radius) {
 
   lv_obj_t* icon_label =
       CreateLabel(artwork, icon::kMusic, lv_color_hex(kPrimaryColor),
-          MaterialIconFont56());
+          MaterialOutlineIconFont56());
   if (icon_label != nullptr) {
     lv_obj_center(icon_label);
   }
@@ -835,7 +829,7 @@ bool CreatePlayerPage(MusicViewState* state) {
       close_button, PlayerBackClickedEventCallback, LV_EVENT_CLICKED, state);
   lv_obj_t* close_label =
       CreateLabel(close_button, icon::kKeyboardArrowDown,
-          lv_color_hex(kMainTextColor), MaterialIconFont56());
+          lv_color_hex(kMainTextColor), MaterialOutlineIconFont56());
   if (close_label != nullptr) {
     lv_obj_center(close_label);
   }
@@ -1231,7 +1225,7 @@ bool ShowMusicFolderSheet(MusicViewState* state) {
   config.message_font = Font24();
   config.option_font = Font24();
   config.cancel_font = Font24();
-  config.icon_font = MaterialIconFont32();
+  config.icon_font = MaterialFillIconFont32();
   config.state = &state->folder_select_sheet;
   config.callback = MusicFolderSelectedCallback;
   config.callback_context = state;
@@ -1410,7 +1404,7 @@ bool CreateSettingsStyleHeader(lv_obj_t* page, const char* title,
   lv_obj_add_event_cb(back, callback, LV_EVENT_CLICKED, state);
 
   lv_obj_t* back_icon = CreateLabel(back, icon::kArrowBack,
-      lv_color_hex(kMainTextColor), MaterialIconFont44());
+      lv_color_hex(kMainTextColor), MaterialOutlineIconFont44());
   if (back_icon == nullptr) {
     return false;
   }
@@ -1532,7 +1526,7 @@ bool CreateMusicSourceRow(
   lv_obj_add_event_cb(remove, MusicSourceActionDeleteEventCallback,
                       LV_EVENT_DELETE, action);
   lv_obj_t* close_icon = CreateLabel(remove, icon::kClose,
-      lv_color_hex(kSecondaryTextColor), MaterialIconFont44());
+      lv_color_hex(kSecondaryTextColor), MaterialOutlineIconFont44());
   if (close_icon != nullptr) {
     lv_obj_center(close_icon);
   }
@@ -1941,7 +1935,7 @@ bool CreateMusicFolderPickerRow(
   lv_obj_set_style_radius(check_box, 12, LV_PART_MAIN);
   lv_obj_set_style_pad_all(check_box, 0, LV_PART_MAIN);
   lv_obj_t* check = CreateLabel(check_box, icon::kCheck,
-      lv_color_hex(kPrimaryColor), MaterialIconFont32());
+      lv_color_hex(kPrimaryColor), MaterialFillIconFont32());
   if (check != nullptr) {
     lv_obj_center(check);
     if (!state->picker_source_enabled[source]) {
@@ -2095,7 +2089,7 @@ bool CreateMusicSourcesPromptRow(
   lv_obj_add_event_cb(remove, MusicSourceActionDeleteEventCallback,
                       LV_EVENT_DELETE, action);
   lv_obj_t* delete_icon = CreateLabel(remove, icon::kDelete,
-      lv_color_hex(kSecondaryTextColor), MaterialActionIconFont44());
+      lv_color_hex(kSecondaryTextColor), MaterialOutlineIconFont44());
   if (delete_icon != nullptr) {
     lv_obj_center(delete_icon);
   }
@@ -2166,7 +2160,7 @@ bool CreateMusicSourcesPromptHeader(MusicViewState* state) {
   lv_obj_add_event_cb(add, AddMusicSourcePromptClickedEventCallback,
                       LV_EVENT_CLICKED, state);
   lv_obj_t* add_icon = CreateLabel(add, icon::kAdd,
-      lv_color_hex(kMainTextColor), MaterialActionIconFont44());
+      lv_color_hex(kMainTextColor), MaterialOutlineIconFont44());
   if (add_icon != nullptr) {
     lv_obj_center(add_icon);
   }

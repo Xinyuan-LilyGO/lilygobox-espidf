@@ -8,8 +8,8 @@
 
 #include <algorithm>
 
-#include "ui/font/font_assets.h"
-#include "ui/font/material_symbols_assets.h"
+#include "ui/resources/fonts/font_assets.h"
+#include "ui/resources/fonts/icon_assets.h"
 #include "ui/haptic_feedback.h"
 #include "ui/input/edge_back_gesture.h"
 
@@ -44,7 +44,7 @@ const lv_font_t* Font24() { return &lvgl_font_google_sans_flex_24; }
  * @brief 获取 56 号关机菜单图标字体
  * @return 字体指针
  */
-const lv_font_t* PowerIconFont56() {
+const lv_font_t* PowerFillIconFont56() {
   return &lvgl_font_material_symbols_fill_56;
 }
 
@@ -229,7 +229,7 @@ lv_obj_t* CreateActionItem(lv_obj_t* parent, const char* icon,
       event_user_data);
 
   lv_obj_t* icon_label =
-      CreateLabel(button, icon, kTextColor, PowerIconFont56());
+      CreateLabel(button, icon, kTextColor, PowerFillIconFont56());
   if (icon_label == nullptr) {
     lv_obj_delete(item);
     return nullptr;

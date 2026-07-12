@@ -14,7 +14,7 @@
 #include "app/settings_catalog.h"
 #include "hal/providers/screen_provider.h"
 #include "ui/animation/transition_animation.h"
-#include "ui/font/material_symbols_assets.h"
+#include "ui/resources/fonts/icon_assets.h"
 #include "ui/input/app_view_gesture_flags.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"

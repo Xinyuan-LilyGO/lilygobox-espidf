@@ -10,7 +10,7 @@
 #include <cstring>
 
 #include "base/logger.h"
-#include "ui/font/font_assets.h"
+#include "ui/resources/fonts/font_assets.h"
 #include "ui/views/camera_view.h"
 #include "ui/views/cit_view.h"
 #include "ui/views/files_view.h"

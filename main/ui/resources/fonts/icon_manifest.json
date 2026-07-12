@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "description": "Material Symbols used by the LilyGoBox LVGL UI",
+  "axes": {
+    "weight": 400,
+    "grade": 0,
+    "fill": "Determined by each font entry",
+    "optical_size": "Matches the output size and is clamped to 48",
+    "runtime_adjustable": false
+  },
+  "sources": {
+    "outline": "assets/icon/material_symbols/MaterialSymbolsRounded.ttf",
+    "fill": "assets/icon/material_symbols/MaterialSymbolsRoundedFill.ttf"
+  },
+  "fonts": [
+    {
+      "id": "material_rounded_fill_22",
+      "object_name": "lvgl_font_material_symbols_fill_22",
+      "style": "fill",
+      "size": 22,
+      "optical_size": 22,
+      "output": "main/ui/resources/fonts/icons/lvgl_font_material_rounded_fill_22.c",
+      "icons": ["Bolt"]
+    },
+    {
+      "id": "material_rounded_fill_32",
+      "object_name": "lvgl_font_material_symbols_fill_32",
+      "style": "fill",
+      "size": 32,
+      "optical_size": 32,
+      "output": "main/ui/resources/fonts/icons/lvgl_font_material_rounded_fill_32.c",
+      "icon_set": "all_used",
+      "exclude_icons": ["BatteryAndroid0"]
+    },
+    {
+      "id": "material_rounded_fill_44",
+      "object_name": "lvgl_font_material_symbols_fill_44",
+      "style": "fill",
+      "size": 44,
+      "optical_size": 44,
+      "output": "main/ui/resources/fonts/icons/lvgl_font_material_rounded_fill_44.c",
+      "icons": ["Folder", "Refresh", "Settings"]
+    },
+    {
+      "id": "material_rounded_fill_56",
+      "object_name": "lvgl_font_material_symbols_fill_56",
+      "style": "fill",
+      "size": 56,
+      "optical_size": 48,
+      "output": "main/ui/resources/fonts/icons/lvgl_font_material_rounded_fill_56.c",
+      "icons": ["Menu", "RestartAlt", "PowerSettingsNew"]
+    },
+    {
+      "id": "material_rounded_outline_44",
+      "object_name": "lvgl_font_material_symbols_outline_44",
+      "style": "outline",
+      "size": 44,
+      "optical_size": 44,
+      "output": "main/ui/resources/fonts/icons/lvgl_font_material_rounded_outline_44.c",
+      "icons": [
+        "Add",
+        "NearMe",
+        "ArrowBack",
+        "Check",
+        "Close",
+        "Delete"
+      ]
+    },
+    {
+      "id": "material_rounded_outline_w200_46",
+      "object_name": "lvgl_font_material_symbols_outline_w200_46",
+      "style": "outline",
+      "size": 46,
+      "optical_size": 24,
+      "variation_axes": {
+        "FILL": 0,
+        "GRAD": 0,
+        "opsz": 24,
+        "wght": 200
+      },
+      "output": "main/ui/resources/fonts/icons/lvgl_font_material_rounded_outline_w200_46.c",
+      "icons": ["BatteryAndroid0"]
+    },
+    {
+      "id": "material_rounded_outline_56",
+      "object_name": "lvgl_font_material_symbols_outline_56",
+      "style": "outline",
+      "size": 56,
+      "optical_size": 48,
+      "output": "main/ui/resources/fonts/icons/lvgl_font_material_rounded_outline_56.c",
+      "icon_set": "all_used",
+      "exclude_icons": ["BatteryAndroid0"]
+    }
+  ],
+  "icons": {
+    "Add": {"cpp_name": "kAdd", "codepoint": 57669},
+    "AppList": {"cpp_name": "kAppList", "codepoint": 58819},
+    "ArrowBack": {"cpp_name": "kArrowBack", "codepoint": 58820},
+    "BatteryAndroid0": {
+      "cpp_name": "kBatteryAndroid0",
+      "codepoint": 62221
+    },
+    "BatteryAndroidQuestion": {
+      "cpp_name": "kBatteryAndroidQuestion",
+      "codepoint": 62210
+    },
+    "BatteryAndroidFull": {
+      "cpp_name": "kBatteryAndroidFull",
+      "codepoint": 62212
+    },
+    "Bolt": {"cpp_name": "kBolt", "codepoint": 59915},
+    "Bluetooth": {"cpp_name": "kBluetooth", "codepoint": 57767},
+    "Cancel": {"cpp_name": "kCancel", "codepoint": 59528},
+    "CellTower": {"cpp_name": "kCellTower", "codepoint": 60346},
+    "Check": {"cpp_name": "kCheck", "codepoint": 58826},
+    "CheckCircle": {"cpp_name": "kCheckCircle", "codepoint": 59500},
+    "ChevronRight": {"cpp_name": "kChevronRight", "codepoint": 58828},
+    "Close": {"cpp_name": "kClose", "codepoint": 58829},
+    "Delete": {"cpp_name": "kDelete", "codepoint": 59694},
+    "Draft": {"cpp_name": "kDraft", "codepoint": 58989},
+    "File": {"cpp_name": "kFile", "codepoint": 58989},
+    "Folder": {"cpp_name": "kFolder", "codepoint": 58055},
+    "FolderOpen": {"cpp_name": "kFolderOpen", "codepoint": 58056},
+    "Home": {"cpp_name": "kHome", "codepoint": 59826},
+    "Image": {"cpp_name": "kImage", "codepoint": 58356},
+    "Info": {"cpp_name": "kInfo", "codepoint": 59534},
+    "KeyboardArrowDown": {
+      "cpp_name": "kKeyboardArrowDown",
+      "codepoint": 58131
+    },
+    "KeyboardArrowUp": {
+      "cpp_name": "kKeyboardArrowUp",
+      "codepoint": 58134
+    },
+    "Lock": {"cpp_name": "kLock", "codepoint": 59545},
+    "Menu": {"cpp_name": "kMenu", "codepoint": 58834},
+    "Music": {"cpp_name": "kMusic", "codepoint": 58373},
+    "NearMe": {
+      "cpp_name": "kNearMe",
+      "codepoint": 58729,
+      "adjustments": {"44": {"offset_x": -1, "offset_y": 0}}
+    },
+    "NetworkWifi": {"cpp_name": "kNetworkWifi", "codepoint": 57786},
+    "NetworkWifi1Bar": {
+      "cpp_name": "kNetworkWifi1Bar",
+      "codepoint": 60388
+    },
+    "NetworkWifi2Bar": {
+      "cpp_name": "kNetworkWifi2Bar",
+      "codepoint": 60374
+    },
+    "NetworkWifi3Bar": {
+      "cpp_name": "kNetworkWifi3Bar",
+      "codepoint": 60385
+    },
+    "PowerSettingsNew": {
+      "cpp_name": "kPowerSettingsNew",
+      "codepoint": 63687
+    },
+    "Refresh": {"cpp_name": "kRefresh", "codepoint": 58837},
+    "RestartAlt": {"cpp_name": "kRestartAlt", "codepoint": 61523},
+    "SdStorage": {"cpp_name": "kSdStorage", "codepoint": 58915},
+    "Settings": {"cpp_name": "kSettings", "codepoint": 59576},
+    "SettingsInputAntenna": {
+      "cpp_name": "kSettingsInputAntenna",
+      "codepoint": 59583
+    },
+    "SignalWifi4Bar": {
+      "cpp_name": "kSignalWifi4Bar",
+      "codepoint": 61541
+    },
+    "Sunny": {"cpp_name": "kSunny", "codepoint": 59418},
+    "TouchApp": {"cpp_name": "kTouchApp", "codepoint": 59667},
+    "VolumeUp": {"cpp_name": "kVolumeUp", "codepoint": 57424},
+    "Warning": {"cpp_name": "kWarning", "codepoint": 61571}
+  }
+}

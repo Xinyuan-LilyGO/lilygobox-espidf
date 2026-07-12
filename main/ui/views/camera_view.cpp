@@ -12,7 +12,7 @@
 #include <functional>
 
 #include "hal/providers/camera_provider.h"
-#include "ui/font/font_assets.h"
+#include "ui/resources/fonts/font_assets.h"
 
 namespace lilygo_box::ui {
 namespace {

@@ -14,7 +14,7 @@
 
 #include "app/system_status_cache.h"
 #include "hal/providers/bmu_provider.h"
-#include "ui/font/material_symbols_assets.h"
+#include "ui/resources/fonts/icon_assets.h"
 
 namespace lilygo_box::ui {
 namespace {

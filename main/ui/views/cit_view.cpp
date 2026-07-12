@@ -26,8 +26,8 @@
 #include "hal/providers/providers.h"
 #include "ui/input/app_view_gesture_flags.h"
 #include "ui/input/edge_back_gesture.h"
-#include "ui/font/font_assets.h"
-#include "ui/font/material_symbols_assets.h"
+#include "ui/resources/fonts/font_assets.h"
+#include "ui/resources/fonts/icon_assets.h"
 #include "ui/theme/theme_provider.h"
 #include "ui/input/press_cancel.h"
 #include "ui/animation/transition_animation.h"
@@ -194,7 +194,9 @@ const lv_font_t* Font48() { return &lvgl_font_google_sans_flex_48; }
  * @brief 获取 32 号 Material Symbols 图标字体
  * @return 字体指针
  */
-const lv_font_t* MaterialIconFont32() { return &lvgl_font_material_symbols_32; }
+const lv_font_t* MaterialFillIconFont32() {
+  return &lvgl_font_material_symbols_fill_32;
+}
 
 /**
  * @brief 创建并初始化普通文本标签
@@ -507,7 +509,9 @@ void AlignStatusLabels(lv_obj_t* icon_label, lv_obj_t* name_label) {
  * @brief 获取状态图标使用的字体
  * @return 字体指针
  */
-const lv_font_t* GetStatusIconFont() { return MaterialIconFont32(); }
+const lv_font_t* GetStatusIconFont() {
+  return MaterialFillIconFont32();
+}
 
 /**
  * @brief 刷新列表页触摸测试触发状态

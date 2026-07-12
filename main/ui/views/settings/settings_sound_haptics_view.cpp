@@ -13,7 +13,7 @@
 #include "app/storage/sound_storage.h"
 #include "hal/providers/audio_provider.h"
 #include "hal/providers/haptic_provider.h"
-#include "ui/font/material_symbols_assets.h"
+#include "ui/resources/fonts/icon_assets.h"
 #include "ui/haptic_feedback.h"
 
 namespace lilygo_box::ui {

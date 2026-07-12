@@ -9,8 +9,8 @@
 
 #include <cstring>
 
-#include "ui/font/font_assets.h"
-#include "ui/font/material_symbols_assets.h"
+#include "ui/resources/fonts/font_assets.h"
+#include "ui/resources/fonts/icon_assets.h"
 #include "ui/input/app_view_gesture_flags.h"
 #include "ui/input/press_cancel.h"
 
@@ -70,19 +70,19 @@ const lv_font_t* Font48() { return &lvgl_font_google_sans_flex_48; }
 const lv_font_t* Font64() { return &lvgl_font_google_sans_flex_64; }
 
 /**
- * @brief 获取 32 号 Material Symbols 字体
+ * @brief 获取 32 号填充 Material Symbols 字体
  * @return 字体指针
  */
 const lv_font_t* MaterialIconFont32() {
-  return &lvgl_font_material_symbols_32;
+  return &lvgl_font_material_symbols_fill_32;
 }
 
 /**
- * @brief 获取 44 号 Material Symbols 字体
+ * @brief 获取 44 号轮廓 Material Symbols 字体
  * @return 字体指针
  */
 const lv_font_t* MaterialIconFont44() {
-  return &lvgl_font_material_symbols_44;
+  return &lvgl_font_material_symbols_outline_44;
 }
 
 /**

@@ -24,7 +24,7 @@
 #include "freertos/task.h"
 #include "hal/device_provider_factory.h"
 #include "nvs_flash.h"
-#include "ui/font/material_symbols_assets.h"
+#include "ui/resources/fonts/icon_assets.h"
 #include "ui/haptic_feedback.h"
 #include "ui/views/settings/settings_view_internal.h"
 

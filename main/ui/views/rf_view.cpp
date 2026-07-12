@@ -12,8 +12,8 @@
 #include <cstdio>
 
 #include "ui/animation/transition_animation.h"
-#include "ui/font/font_assets.h"
-#include "ui/font/material_symbols_assets.h"
+#include "ui/resources/fonts/font_assets.h"
+#include "ui/resources/fonts/icon_assets.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"
 #include "ui/widgets/navigation_drawer.h"
@@ -171,27 +171,19 @@ const lv_font_t* Font36() { return &lvgl_font_google_sans_flex_36; }
 const lv_font_t* Font48() { return &lvgl_font_google_sans_flex_48; }
 
 /**
- * @brief 获取 44 号普通图标字体
+ * @brief 获取 44 号轮廓图标字体
  * @return 字体指针
  */
-const lv_font_t* IconFont44() {
-  return &lvgl_font_material_symbols_44;
+const lv_font_t* OutlineIconFont44() {
+  return &lvgl_font_material_symbols_outline_44;
 }
 
 /**
- * @brief 获取 32 号普通图标字体
+ * @brief 获取 32 号填充图标字体
  * @return 字体指针
  */
-const lv_font_t* IconFont32() {
-  return &lvgl_font_material_symbols_32;
-}
-
-/**
- * @brief 获取 44 号 Near Me 图标字体
- * @return 字体指针
- */
-const lv_font_t* NearMeIconFont44() {
-  return &lvgl_font_material_symbols_near_me_44;
+const lv_font_t* FillIconFont32() {
+  return &lvgl_font_material_symbols_fill_32;
 }
 
 /**
@@ -459,7 +451,7 @@ bool CreateSendStatus(
   }
   lv_obj_t* icon_label = CreateLabel(parent,
       success ? icon::kCheck : icon::kClose,
-      success ? kSendSuccessColor : kSendFailureColor, IconFont32());
+      success ? kSendSuccessColor : kSendFailureColor, FillIconFont32());
   if (icon_label == nullptr) {
     return false;
   }
@@ -483,7 +475,7 @@ bool CreateNearMeIcon(lv_obj_t* parent) {
     return false;
   }
   lv_obj_t* icon_label = CreateLabel(
-      parent, icon::kNearMe, kOnPrimaryColor, NearMeIconFont44());
+      parent, icon::kNearMe, kOnPrimaryColor, OutlineIconFont44());
   if (icon_label == nullptr) {
     return false;
   }
@@ -690,7 +682,7 @@ bool ShowModuleDetail(RfViewState* state, size_t index) {
   lv_obj_add_event_cb(
       back, DetailBackClickedEventCallback, LV_EVENT_CLICKED, state);
   lv_obj_t* back_icon = CreateLabel(
-      back, icon::kArrowBack, kMainTextColor, IconFont44());
+      back, icon::kArrowBack, kMainTextColor, OutlineIconFont44());
   if (back_icon != nullptr) {
     lv_obj_align(back_icon, LV_ALIGN_CENTER, -4, 0);
   }
@@ -1781,7 +1773,7 @@ bool CreateAddModuleHeader(lv_obj_t* page, RfViewState* state) {
   lv_obj_add_event_cb(back, AddPageBackClickedEventCallback,
       LV_EVENT_CLICKED, state);
   lv_obj_t* icon_label = CreateLabel(
-      back, icon::kArrowBack, kMainTextColor, IconFont44());
+      back, icon::kArrowBack, kMainTextColor, OutlineIconFont44());
   if (icon_label == nullptr) {
     return false;
   }

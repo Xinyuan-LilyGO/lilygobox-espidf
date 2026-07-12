@@ -22,14 +22,13 @@ extern const lv_font_t lvgl_font_google_sans_flex_32;
 extern const lv_font_t lvgl_font_google_sans_flex_36;
 extern const lv_font_t lvgl_font_google_sans_flex_48;
 extern const lv_font_t lvgl_font_google_sans_flex_64;
-extern const lv_font_t lvgl_font_material_symbols_22;
-extern const lv_font_t lvgl_font_material_symbols_32;
-extern const lv_font_t lvgl_font_material_symbols_44;
-extern const lv_font_t lvgl_font_material_symbols_56;
-extern const lv_font_t lvgl_font_material_symbols_action_44;
-extern const lv_font_t lvgl_font_material_symbols_near_me_44;
+extern const lv_font_t lvgl_font_material_symbols_fill_22;
+extern const lv_font_t lvgl_font_material_symbols_fill_32;
 extern const lv_font_t lvgl_font_material_symbols_fill_44;
 extern const lv_font_t lvgl_font_material_symbols_fill_56;
+extern const lv_font_t lvgl_font_material_symbols_outline_44;
+extern const lv_font_t lvgl_font_material_symbols_outline_56;
+extern const lv_font_t lvgl_font_material_symbols_outline_w200_46;
 
 #ifdef __cplusplus
 }

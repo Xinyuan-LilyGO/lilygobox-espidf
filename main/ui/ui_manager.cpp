@@ -15,10 +15,10 @@
 
 #include "app/app_catalog.h"
 #include "ui/app_view_factory.h"
-#include "ui/font/font_assets.h"
-#include "ui/font/material_symbols_assets.h"
+#include "ui/resources/fonts/font_assets.h"
+#include "ui/resources/fonts/icon_assets.h"
 #include "ui/haptic_feedback.h"
-#include "ui/icon/icon_assets.h"
+#include "ui/resources/images/image_assets.h"
 #include "ui/input/app_view_gesture_flags.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"
@@ -141,7 +141,9 @@ const lv_font_t* Font32() { return &lvgl_font_google_sans_flex_32; }
  * @brief 获取 56 号 Material Symbols 字体
  * @return 字体指针
  */
-const lv_font_t* MaterialIconFont56() { return &lvgl_font_material_symbols_56; }
+const lv_font_t* MaterialOutlineIconFont56() {
+  return &lvgl_font_material_symbols_outline_56;
+}
 
 /**
  * @brief 获取桌面时间字体
@@ -956,7 +958,7 @@ bool UiManager::ShowBatteryStartupWarning(
     return false;
   }
   lv_label_set_text(icon, icon_text);
-  SetTextStyle(icon, lv_color_hex(icon_color), MaterialIconFont56());
+  SetTextStyle(icon, lv_color_hex(icon_color), MaterialOutlineIconFont56());
   lv_obj_align(icon, LV_ALIGN_CENTER, 0, kLowBatteryStartupIconOffsetY);
 
   lv_obj_t* label = lv_label_create(warning);
@@ -1728,7 +1730,8 @@ lv_obj_t* UiManager::CreateAppIcon(
   } else if (style.symbol != nullptr) {
     icon = CreateLabel(button, style.symbol, lv_color_hex(0xFFFFFF));
     if (icon != nullptr) {
-      SetTextStyle(icon, lv_color_hex(0xFFFFFF), MaterialIconFont56());
+      SetTextStyle(
+          icon, lv_color_hex(0xFFFFFF), MaterialOutlineIconFont56());
     }
   }
 
@@ -1878,7 +1881,8 @@ lv_obj_t* UiManager::CreateDockIcon(
   } else if (style.symbol != nullptr) {
     icon = CreateLabel(icon_box, style.symbol, lv_color_hex(0xFFFFFF));
     if (icon != nullptr) {
-      SetTextStyle(icon, lv_color_hex(0xFFFFFF), MaterialIconFont56());
+      SetTextStyle(
+          icon, lv_color_hex(0xFFFFFF), MaterialOutlineIconFont56());
     }
   }
 

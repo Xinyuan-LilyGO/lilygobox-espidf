@@ -10,8 +10,8 @@
 #include <cstdint>
 
 #include "hal/lvgl_port.h"
-#include "ui/font/font_assets.h"
-#include "ui/font/material_symbols_assets.h"
+#include "ui/resources/fonts/font_assets.h"
+#include "ui/resources/fonts/icon_assets.h"
 #include "ui/haptic_feedback.h"
 
 namespace lilygo_box::ui {
@@ -173,7 +173,8 @@ bool EnsureBackIndicator() {
   lv_obj_set_style_text_color(
       g_back_indicator_icon, lv_color_hex(kIndicatorIconColor), LV_PART_MAIN);
   lv_obj_set_style_text_font(
-      g_back_indicator_icon, &lvgl_font_material_symbols_32, LV_PART_MAIN);
+      g_back_indicator_icon, &lvgl_font_material_symbols_fill_32,
+      LV_PART_MAIN);
   lv_obj_set_style_text_align(
       g_back_indicator_icon, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_set_style_text_opa(

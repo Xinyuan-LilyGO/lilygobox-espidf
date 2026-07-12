@@ -11,9 +11,9 @@
 #include <cstdint>
 #include <cstring>
 
-#include "ui/font/font_assets.h"
-#include "ui/font/material_symbols_assets.h"
-#include "ui/icon/icon_assets.h"
+#include "ui/resources/fonts/font_assets.h"
+#include "ui/resources/fonts/icon_assets.h"
+#include "ui/resources/images/image_assets.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -24,7 +24,7 @@ constexpr int kStatusBarIconGap = -10;
 constexpr int kStatusBarBatteryPercentGap = 4;
 constexpr int kStatusBarBatteryBoltOffsetX = -1;
 constexpr int kStatusBarBatteryBoltOffsetY = 0;
-constexpr int kStatusBarBatteryFillMaxWidth = 30;
+constexpr int kStatusBarBatteryFillMaxWidth = 32;
 constexpr int kStatusBarBatteryFillHeight = 16;
 constexpr int kStatusBarBatteryFillOffsetX = 5;
 constexpr int kStatusBarBatteryFillOffsetY = 0;
@@ -55,19 +55,25 @@ const lv_font_t* Font24() { return &lvgl_font_google_sans_flex_24; }
  * @brief 获取 24 号 Material Symbols 字体
  * @return 字体指针
  */
-const lv_font_t* MaterialIconFont22() { return &lvgl_font_material_symbols_22; }
+const lv_font_t* MaterialFillIconFont22() {
+  return &lvgl_font_material_symbols_fill_22;
+}
 
 /**
  * @brief 获取 32 号 Material Symbols 字体
  * @return 字体指针
  */
-const lv_font_t* MaterialIconFont32() { return &lvgl_font_material_symbols_32; }
+const lv_font_t* MaterialFillIconFont32() {
+  return &lvgl_font_material_symbols_fill_32;
+}
 
 /**
- * @brief 获取 40 号 Material Symbols 字体
+ * @brief 获取 46 号 Weight 200 轮廓电池图标字体
  * @return 字体指针
  */
-const lv_font_t* MaterialIconFont44() { return &lvgl_font_material_symbols_44; }
+const lv_font_t* BatteryOutlineIconFont46() {
+  return &lvgl_font_material_symbols_outline_w200_46;
+}
 
 /**
  * @brief 根据 RSSI 计算 WiFi 信号等级
@@ -258,7 +264,7 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
 
   bmu_label_ =
       CreateLabel(object_, icon::kBatteryAndroid0,
-          lv_color_hex(kStatusBarTextColor), MaterialIconFont44());
+          lv_color_hex(kStatusBarTextColor), BatteryOutlineIconFont46());
   if (bmu_label_ == nullptr) {
     lv_obj_delete(object_);
     object_ = nullptr;
@@ -289,7 +295,7 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
   lv_obj_move_to_index(bmu_fill_, lv_obj_get_index(bmu_label_));
 
   bmu_bolt_label_ = CreateLabel(object_, icon::kBolt,
-      lv_color_hex(kStatusBarTextColor), MaterialIconFont22());
+      lv_color_hex(kStatusBarTextColor), MaterialFillIconFont22());
   if (bmu_bolt_label_ == nullptr) {
     lv_obj_delete(object_);
     object_ = nullptr;
@@ -301,7 +307,7 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
   lv_obj_move_to_index(bmu_bolt_label_, -1);
 
   wifi_label_ = CreateLabel(object_, icon::kSignalWifi4Bar,
-      lv_color_hex(kStatusBarTextColor), MaterialIconFont32());
+      lv_color_hex(kStatusBarTextColor), MaterialFillIconFont32());
   if (wifi_label_ == nullptr) {
     lv_obj_delete(object_);
     object_ = nullptr;
