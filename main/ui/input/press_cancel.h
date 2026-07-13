@@ -19,7 +19,7 @@ namespace lilygo_box::ui {
 bool IsPointerInsideObject(lv_obj_t* object);
 
 /**
- * @brief 添加按下后移出区域取消点击的行为
+ * @brief 添加按下后移出区域或发生滑动时取消点击的行为
  * @param object LVGL 对象
  * @return 添加成功返回 true，否则返回 false
  */
