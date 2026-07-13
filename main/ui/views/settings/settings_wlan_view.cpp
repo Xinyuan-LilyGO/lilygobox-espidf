@@ -316,11 +316,6 @@ void WifiCloseCompletedCallback(lv_anim_t* animation) {
   RestoreSettingsListGestures(state);
 }
 
-/**
- * @brief 关闭 WLAN 详情页并释放轮询资源
- * @param state 设置页状态
- * @param animated 是否播放向右滑出的关闭动画
- */
 void CloseWifiPage(SettingsViewState* state, bool animated) {
   if (state == nullptr || state->wifi_page == nullptr ||
       state->wifi_closing) {
@@ -440,10 +435,6 @@ void DeleteWifiSubPageTop(SettingsViewState* state) {
   SyncWifiSubPageTop(state);
 }
 
-/**
- * @brief 删除 WLAN 的全部子页面
- * @param state 设置页状态
- */
 void CloseAllWifiSubPages(SettingsViewState* state) {
   if (state == nullptr) {
     return;
@@ -474,11 +465,6 @@ void WifiSubCloseCompletedCallback(lv_anim_t* animation) {
   DeleteWifiSubPageTop(state);
 }
 
-/**
- * @brief 关闭 WLAN 子页面
- * @param state 设置页状态
- * @param animated 是否播放关闭动画
- */
 void CloseWifiSubPage(SettingsViewState* state, bool animated) {
   if (state == nullptr || state->wifi_sub_page == nullptr ||
       state->wifi_sub_closing) {
@@ -515,10 +501,6 @@ void ResetWifiModalState(SettingsViewState* state) {
   state->wifi_delete_close_sub_page = false;
 }
 
-/**
- * @brief 立即关闭 WLAN 连接底部弹窗
- * @param state 设置页状态
- */
 void CloseWifiModalImmediately(SettingsViewState* state) {
   if (state == nullptr || state->wifi_modal_overlay == nullptr) {
     return;
@@ -529,10 +511,6 @@ void CloseWifiModalImmediately(SettingsViewState* state) {
   lv_obj_delete(overlay);
 }
 
-/**
- * @brief 关闭 WLAN 连接底部弹窗并播放退出动画
- * @param state 设置页状态
- */
 void CloseWifiModal(SettingsViewState* state) {
   if (state == nullptr || state->wifi_modal_overlay == nullptr) {
     return;
@@ -568,10 +546,6 @@ void WifiModalEdgeBackEventCallback(lv_event_t* event) {
   lv_event_stop_processing(event);
 }
 
-/**
- * @brief 清理 WLAN 连接等待和失败重试状态
- * @param state 设置页状态
- */
 void ResetWifiConnectionState(SettingsViewState* state) {
   if (state == nullptr) {
     return;
@@ -708,11 +682,6 @@ bool StartWifiConnection(SettingsViewState* state, const char* password) {
   return state->wifi_connect_waiting;
 }
 
-/**
- * @brief 按当前自动连接 SSID 发起连接或等待驱动初始化后连接
- * @param state 设置页状态
- * @return 已连接、已发起连接或已安排连接返回 true，否则返回 false
- */
 bool TryStartWifiAutoConnect(SettingsViewState* state) {
   if (state == nullptr || state->config.wifi == nullptr ||
       state->wifi_auto_connect_ssid[0] == '\0') {
@@ -1197,10 +1166,6 @@ void PersistSavedWifiNetworksToNvs() {
       g_wifi_saved_networks, g_wifi_saved_network_count);
 }
 
-/**
- * @brief 异步保存 WLAN 开关和自动连接偏好
- * @param state 设置页状态
- */
 void PersistWifiPreferencesToNvsInternal(const SettingsViewState* state) {
   if (state == nullptr) {
     return;
@@ -1251,11 +1216,6 @@ void LoadWifiPreferencesFromNvsInternal(
   }
 }
 
-/**
- * @brief 在运行期已保存 WLAN 表里查找指定 SSID
- * @param ssid 待判断的热点名称
- * @return 找到返回保存项地址，否则返回 nullptr
- */
 app::WifiSavedNetwork* FindSavedWifiNetwork(const char* ssid) {
   if (ssid == nullptr || ssid[0] == '\0') {
     return nullptr;
@@ -1276,11 +1236,6 @@ bool IsSavedWifiSsid(const char* ssid) {
   return FindSavedWifiNetworkConst(ssid) != nullptr;
 }
 
-/**
- * @brief 保存或更新已经连接成功的 WLAN 凭据
- * @param action 当前连接动作
- * @param password 用户确认使用的密码，开放网络可为空
- */
 void SaveWifiNetworkCredential(
     const WifiNetworkAction& action, const char* password) {
   if (action.ssid[0] == '\0') {
@@ -1305,10 +1260,6 @@ void SaveWifiNetworkCredential(
   PersistSavedWifiNetworksToNvs();
 }
 
-/**
- * @brief 从运行期已保存 WLAN 表里删除指定 SSID
- * @param ssid 待删除的热点名称
- */
 void RemoveSavedWifiNetwork(const char* ssid) {
   if (ssid == nullptr || ssid[0] == '\0') {
     return;
@@ -1357,13 +1308,6 @@ void ForgetSavedWifiNetwork(SettingsViewState* state, const char* ssid) {
   state->wifi_refresh_force = true;
 }
 
-/**
- * @brief 从扫描结果里查找指定 SSID 的最新网络信息
- * @param scan_status 扫描状态
- * @param ssid 待查找 SSID
- * @param output 找到时写入网络信息，可为空
- * @return 找到返回 true，否则返回 false
- */
 bool FindScannedWifiNetwork(const hal::WifiScanStatus& scan_status,
     const char* ssid, hal::WifiNetworkInfo* output) {
   if (ssid == nullptr || ssid[0] == '\0') {
@@ -1505,12 +1449,6 @@ uint32_t MakeWifiRefreshKey(
   return key;
 }
 
-/**
- * @brief 读取 WiFi 连接和扫描快照，读取失败时填充默认值
- * @param config app 页面配置
- * @param status WiFi 状态输出地址，可为 nullptr
- * @param scan_status WiFi 扫描状态输出地址，可为 nullptr
- */
 void ReadWifiSnapshots(const AppViewConfig& config, hal::WifiStatus* status,
     hal::WifiScanStatus* scan_status) {
   if (status != nullptr) {
@@ -1530,10 +1468,6 @@ void ReadWifiSnapshots(const AppViewConfig& config, hal::WifiStatus* status,
   }
 }
 
-/**
- * @brief 连接等待超过 5 秒时取消连接并刷新页面状态
- * @param state 设置页状态
- */
 void UpdateWifiConnectTimeout(SettingsViewState* state) {
   if (state == nullptr || !state->wifi_connect_waiting) {
     return;
@@ -1602,10 +1536,6 @@ void StartWifiRefreshIconSpin(SettingsViewState* state) {
   lv_anim_start(&animation);
 }
 
-/**
- * @brief 停止 WLAN 刷新图标旋转动画并复位角度
- * @param state 设置页状态
- */
 void StopWifiRefreshIconSpin(SettingsViewState* state) {
   if (state == nullptr || state->wifi_refresh_icon == nullptr) {
     return;
@@ -1615,10 +1545,6 @@ void StopWifiRefreshIconSpin(SettingsViewState* state) {
   SetWifiRefreshIconRotation(state->wifi_refresh_icon, 0);
 }
 
-/**
- * @brief 根据 WiFi 初始化和扫描状态刷新旋转动画
- * @param state 设置页状态
- */
 void UpdateWifiRefreshAnimation(SettingsViewState* state) {
   if (state == nullptr || state->wifi_refresh_icon == nullptr) {
     return;
@@ -1634,10 +1560,6 @@ void UpdateWifiRefreshAnimation(SettingsViewState* state) {
   }
 }
 
-/**
- * @brief 刷新已连接 WiFi 卡片上的信号图标
- * @param state 设置页状态
- */
 void UpdateWifiConnectedSignalIcon(SettingsViewState* state) {
   if (state == nullptr || state->wifi_connected_signal_icon == nullptr ||
       state->config.wifi == nullptr) {
@@ -1654,11 +1576,6 @@ void UpdateWifiConnectedSignalIcon(SettingsViewState* state) {
       state->wifi_connected_signal_icon, WifiSignalIconForRssi(status.rssi));
 }
 
-/**
- * @brief 请求 HAL 开始扫描并更新 UI 期望状态
- * @param state 设置页状态
- * @param force 是否强制发起扫描，手动刷新时允许已连接状态下扫描
- */
 void RequestWifiScan(SettingsViewState* state, bool force) {
   if (state == nullptr || state->config.wifi == nullptr) {
     return;
@@ -2376,14 +2293,6 @@ bool CreateWifiNearbyHeader(
   return true;
 }
 
-/**
- * @brief 创建 WLAN 状态提示文本
- * @param parent 父对象
- * @param text 提示文本
- * @param y 文本顶部坐标
- * @param width 页面宽度
- * @return 创建成功返回 true，否则返回 false
- */
 bool CreateWifiStatusText(
     lv_obj_t* parent, const char* text, int y, int width) {
   lv_obj_t* label =
@@ -2397,12 +2306,6 @@ bool CreateWifiStatusText(
   return true;
 }
 
-/**
- * @brief 创建已保存 WLAN 为空时的提示文本
- * @param parent 父对象
- * @param width 页面宽度
- * @return 创建成功返回 true，否则返回 false
- */
 bool CreateWifiSavedEmptyText(lv_obj_t* parent, int width) {
   if (parent == nullptr) {
     return false;
@@ -2767,12 +2670,6 @@ bool BuildWifiSavedNetworksContent(
   return true;
 }
 
-/**
- * @brief 打开指定 WLAN 的网络详情页
- * @param state 设置页状态
- * @param action WLAN 行动作参数
- * @return 打开成功返回 true，否则返回 false
- */
 bool ShowWifiNetworkDetailPage(
     SettingsViewState* state, const WifiNetworkAction& action) {
   if (state == nullptr || action.ssid[0] == '\0') {
@@ -2782,21 +2679,11 @@ bool ShowWifiNetworkDetailPage(
   return ShowWifiSubPage(state, action.ssid, BuildWifiNetworkDetailContent);
 }
 
-/**
- * @brief 打开 WLAN 高级设置页
- * @param state 设置页状态
- * @return 打开成功返回 true，否则返回 false
- */
 bool ShowWifiAdvancedPage(SettingsViewState* state) {
   return ShowWifiSubPage(state, "Advanced settings",
       BuildWifiAdvancedContent);
 }
 
-/**
- * @brief 打开管理已保存 WLAN 页面
- * @param state 设置页状态
- * @return 打开成功返回 true，否则返回 false
- */
 bool ShowWifiSavedNetworksPage(SettingsViewState* state) {
   return ShowWifiSubPage(state, "Manage saved networks",
       BuildWifiSavedNetworksContent);
@@ -2941,12 +2828,6 @@ void WifiPasswordTextAreaEventCallback(lv_event_t* event) {
   }
 }
 
-/**
- * @brief 打开 WLAN 连接底部弹窗
- * @param state 设置页状态
- * @param action WLAN 行动作参数
- * @return 打开成功返回 true，否则返回 false
- */
 bool ShowWifiConnectSheet(
     SettingsViewState* state, const WifiNetworkAction& action) {
   if (state == nullptr || state->root == nullptr ||
@@ -3085,14 +2966,6 @@ bool ShowWifiConnectSheet(
   return true;
 }
 
-/**
- * @brief 打开 WLAN 删除网络确认底部弹窗
- * @param state 设置页状态
- * @param ssid 待删除的热点名称
- * @param close_sub_page 确认删除后是否关闭当前 WLAN 子页面
- * @param saved_delete_row 管理已保存网络页中待删除的行对象
- * @return 打开成功返回 true，否则返回 false
- */
 bool ShowWifiDeleteNetworkSheet(SettingsViewState* state, const char* ssid,
     bool close_sub_page, lv_obj_t* saved_delete_row) {
   if (state == nullptr || state->root == nullptr ||
@@ -3399,11 +3272,6 @@ bool CreateWifiPageContent(lv_obj_t* parent, SettingsViewState* state,
       parent, state, "Advanced settings", y, config.width);
 }
 
-/**
- * @brief WiFi 状态或扫描结果变化时重建 WLAN 内容区域
- * @param state 设置页状态
- * @param force 是否忽略已缓存的状态摘要
- */
 void RefreshWifiPage(SettingsViewState* state, bool force) {
   if (state == nullptr || state->wifi_body == nullptr) {
     return;
@@ -3554,20 +3422,10 @@ bool ShowWifiPageInternal(SettingsViewState* state) {
 
 }  // namespace
 
-/**
- * @brief 从设置主页打开 WLAN 详情页
- * @param state 设置页状态
- * @return 页面创建成功或已经显示返回 true
- */
 bool ShowWifiPage(SettingsViewState* state) {
   return ShowWifiPageInternal(state);
 }
 
-/**
- * @brief 从 NVS 加载 WLAN 凭据和用户偏好
- * @param state 设置页状态
- * @param fallback_enabled 没有保存偏好时使用的 WLAN 开关状态
- */
 void LoadWifiSettingsFromNvs(
     SettingsViewState* state, bool fallback_enabled) {
   LoadSavedWifiNetworksFromNvsInternal();

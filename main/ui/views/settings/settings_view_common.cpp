@@ -16,83 +16,33 @@
 
 namespace lilygo_box::ui {
 
-/**
- * @brief 设置文本对象的颜色和字体
- * @param object LVGL 对象
- * @param color 文本颜色
- * @param font 文本字体
- */
 void SetTextStyle(lv_obj_t* object, lv_color_t color, const lv_font_t* font) {
   lv_obj_set_style_text_color(object, color, LV_PART_MAIN);
   lv_obj_set_style_text_font(object, font, LV_PART_MAIN);
 }
 
-/**
- * @brief 获取 22 号 Google Sans 字体
- * @return 字体指针
- */
 const lv_font_t* Font22() { return &lvgl_font_google_sans_flex_22; }
 
-/**
- * @brief 获取 24 号 Google Sans 字体
- * @return 字体指针
- */
 const lv_font_t* Font24() { return &lvgl_font_google_sans_flex_24; }
 
-/**
- * @brief 获取 28 号 Google Sans 字体
- * @return 字体指针
- */
 const lv_font_t* Font28() { return &lvgl_font_google_sans_flex_28; }
 
-/**
- * @brief 获取 32 号 Google Sans 字体
- * @return 字体指针
- */
 const lv_font_t* Font32() { return &lvgl_font_google_sans_flex_32; }
 
-/**
- * @brief 获取 36 号 Google Sans 字体
- * @return 字体指针
- */
 const lv_font_t* Font36() { return &lvgl_font_google_sans_flex_36; }
 
-/**
- * @brief 获取 48 号 Google Sans 字体
- * @return 字体指针
- */
 const lv_font_t* Font48() { return &lvgl_font_google_sans_flex_48; }
 
-/**
- * @brief 获取 64 号 Google Sans 字体
- * @return 字体指针
- */
 const lv_font_t* Font64() { return &lvgl_font_google_sans_flex_64; }
 
-/**
- * @brief 获取 32 号填充 Material Symbols 字体
- * @return 字体指针
- */
 const lv_font_t* MaterialIconFont32() {
   return &lvgl_font_material_symbols_fill_32;
 }
 
-/**
- * @brief 获取 44 号轮廓 Material Symbols 字体
- * @return 字体指针
- */
 const lv_font_t* MaterialIconFont44() {
   return &lvgl_font_material_symbols_outline_44;
 }
 
-/**
- * @brief 创建文本标签
- * @param parent 父对象
- * @param text 文本内容
- * @param color 文本颜色
- * @param font 文本字体
- * @return 创建成功返回对象指针，否则返回 nullptr
- */
 lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color,
     const lv_font_t* font) {
   lv_obj_t* label = lv_label_create(parent);
@@ -106,22 +56,12 @@ lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color,
   return label;
 }
 
-/**
- * @brief 设置对象为透明背景
- * @param object LVGL 对象
- */
 void MakeTransparent(lv_obj_t* object) {
   lv_obj_set_style_bg_opa(object, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_border_width(object, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(object, 0, LV_PART_MAIN);
 }
 
-/**
- * @brief 判断两个 ID 字符串是否相同
- * @param left 左侧 ID
- * @param right 右侧 ID
- * @return 相同返回 true，否则返回 false
- */
 bool IsId(const char* left, const char* right) {
   if (left == nullptr || right == nullptr) {
     return false;
@@ -129,16 +69,6 @@ bool IsId(const char* left, const char* right) {
   return std::strcmp(left, right) == 0;
 }
 
-/**
- * @brief 创建基础容器对象
- * @param parent 父对象
- * @param width 对象宽度
- * @param height 对象高度
- * @param color 背景颜色
- * @param opacity 背景透明度
- * @param radius 圆角半径
- * @return 创建成功返回对象指针，否则返回 nullptr
- */
 lv_obj_t* CreateBox(lv_obj_t* parent, int width, int height, uint32_t color,
     lv_opa_t opacity, int radius) {
   lv_obj_t* object = lv_obj_create(parent);
@@ -157,12 +87,6 @@ lv_obj_t* CreateBox(lv_obj_t* parent, int width, int height, uint32_t color,
   return object;
 }
 
-/**
- * @brief 判断对象是否为指定父对象或其子对象
- * @param object 待判断对象
- * @param parent 目标父对象
- * @return 是目标对象或子对象返回 true，否则返回 false
- */
 bool IsObjectOrChildOf(lv_obj_t* object, lv_obj_t* parent) {
   while (object != nullptr) {
     if (object == parent) {
@@ -173,12 +97,6 @@ bool IsObjectOrChildOf(lv_obj_t* object, lv_obj_t* parent) {
   return false;
 }
 
-/**
- * @brief 创建分组分割线
- * @param parent 父对象
- * @param width 分割线宽度
- * @return 创建成功返回对象指针，否则返回 nullptr
- */
 lv_obj_t* CreateDivider(lv_obj_t* parent, int width) {
   lv_obj_t* divider = lv_obj_create(parent);
   if (divider == nullptr) {
@@ -197,10 +115,6 @@ lv_obj_t* CreateDivider(lv_obj_t* parent, int width) {
   return divider;
 }
 
-/**
- * @brief 恢复设置列表页面的 launcher 手势
- * @param state 设置页面状态
- */
 void RestoreSettingsListGestures(SettingsViewState* state) {
   if (state == nullptr || state->root == nullptr) {
     return;
@@ -210,15 +124,6 @@ void RestoreSettingsListGestures(SettingsViewState* state) {
   lv_obj_add_flag(state->root, LV_OBJ_FLAG_GESTURE_BUBBLE);
 }
 
-/**
- * @brief 创建透明工具按钮
- * @param parent 父对象
- * @param x X 坐标
- * @param y Y 坐标
- * @param callback 点击回调
- * @param state 设置页面状态
- * @return 创建成功返回按钮对象，否则返回 nullptr
- */
 lv_obj_t* CreateToolbarButton(lv_obj_t* parent, int x, int y,
     lv_event_cb_t callback, SettingsViewState* state) {
   lv_obj_t* button = lv_button_create(parent);

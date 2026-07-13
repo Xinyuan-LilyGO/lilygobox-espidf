@@ -224,11 +224,6 @@ bool BuildLockScreenContent(lv_obj_t* body, SettingsViewState* state) {
 
 }  // namespace
 
-/**
- * @brief 从设置主页打开锁屏详情页
- * @param state 设置页状态
- * @return 打开成功返回 true，否则返回 false
- */
 bool ShowLockScreenPage(SettingsViewState* state) {
   return ShowBasicPage(state, "Lock Screen", BuildLockScreenContent);
 }

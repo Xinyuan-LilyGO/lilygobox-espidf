@@ -207,10 +207,6 @@ lv_obj_t* CreatePromptSelectOptionContainer(lv_obj_t* parent,
 
 }  // namespace
 
-/**
- * @brief 关闭选择型底部提示栏
- * @param state 选择提示栏状态
- */
 void ClosePromptSelectSheet(PromptSelectSheetState* state) {
   if (state == nullptr || state->overlay == nullptr) {
     return;
@@ -226,12 +222,6 @@ void ClosePromptSelectSheet(PromptSelectSheetState* state) {
   }
 }
 
-/**
- * @brief 创建选择型底部提示栏
- * @param parent 父对象
- * @param config 选择提示栏配置
- * @return 创建成功返回 true，否则返回 false
- */
 bool ShowPromptSelectSheet(
     lv_obj_t* parent, const PromptSelectSheetConfig& config) {
   if (parent == nullptr || config.state == nullptr ||

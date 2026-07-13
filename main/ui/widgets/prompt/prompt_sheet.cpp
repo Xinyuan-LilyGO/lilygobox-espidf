@@ -92,14 +92,6 @@ lv_obj_t* CreatePromptSheet(
   return sheet;
 }
 
-/**
- * @brief 创建底部提示栏文本标签
- * @param parent 父对象
- * @param text 标签文本
- * @param color 文本颜色
- * @param font 文本字体
- * @return 创建成功返回标签对象，否则返回 nullptr
- */
 lv_obj_t* CreatePromptSheetLabel(lv_obj_t* parent, const char* text,
     uint32_t color, const lv_font_t* font) {
   if (parent == nullptr || text == nullptr) {
@@ -218,13 +210,6 @@ void AnimatePromptSheetIn(
   lv_anim_start(&animation);
 }
 
-/**
- * @brief 播放底部提示栏退出动画并在结束后删除遮罩层
- * @param overlay 遮罩对象
- * @param sheet 面板对象
- * @param duration_ms 动画时长
- * @return 动画启动成功返回 true，否则返回 false
- */
 bool AnimatePromptSheetOut(
     lv_obj_t* overlay, lv_obj_t* sheet, uint32_t duration_ms) {
   if (overlay == nullptr || sheet == nullptr || duration_ms == 0) {

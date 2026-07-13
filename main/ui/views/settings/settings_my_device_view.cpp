@@ -1036,10 +1036,6 @@ bool ShowDeviceNameEditPage(SettingsViewState* state) {
   return true;
 }
 
-/**
- * @brief 从我的设备详情页打开设备名称编辑页
- * @param event LVGL 事件对象
- */
 void DeviceNameRowClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
@@ -1054,11 +1050,6 @@ void DeviceNameRowClickedEventCallback(lv_event_t* event) {
 
 }  // namespace
 
-/**
- * @brief 从设置主页打开我的设备详情页
- * @param state 设置页状态
- * @return 打开成功返回 true，否则返回 false
- */
 bool ShowMyDevicePage(SettingsViewState* state) {
   return ShowMyDevicePageInternal(state);
 }

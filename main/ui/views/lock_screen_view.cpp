@@ -166,12 +166,6 @@ lv_obj_t* LockClockGroup(lv_obj_t* lock_screen) {
 
 }  // namespace
 
-/**
- * @brief 创建锁屏覆盖页面
- * @param parent 父对象
- * @param options 锁屏视图配置
- * @return 创建成功返回对象指针，否则返回 nullptr
- */
 lv_obj_t* CreateLockScreenView(lv_obj_t* parent,
     const LockScreenViewOptions& options) {
   if (parent == nullptr) {
@@ -212,13 +206,6 @@ lv_obj_t* CreateLockScreenView(lv_obj_t* parent,
   return lock_screen;
 }
 
-/**
- * @brief 更新锁屏页面时间日期文本
- * @param lock_screen 锁屏页面对象
- * @param time_text 时间文本
- * @param date_text 日期文本
- * @param week_text 星期文本
- */
 void UpdateLockScreenViewClock(lv_obj_t* lock_screen, const char* time_text,
     const char* date_text, const char* week_text) {
   lv_obj_t* group = LockClockGroup(lock_screen);
@@ -231,11 +218,6 @@ void UpdateLockScreenViewClock(lv_obj_t* lock_screen, const char* time_text,
   lv_label_set_text(lv_obj_get_child(group, 2), week_text);
 }
 
-/**
- * @brief 根据视觉上滑拖拽距离更新锁屏页面位置
- * @param lock_screen 锁屏页面对象
- * @param offset Y 轴偏移，负数表示向上移动
- */
 void SetLockScreenDragOffset(lv_obj_t* lock_screen, int offset) {
   if (lock_screen == nullptr) {
     return;
@@ -246,10 +228,6 @@ void SetLockScreenDragOffset(lv_obj_t* lock_screen, int offset) {
   lv_obj_set_y(lock_screen, clamped_offset);
 }
 
-/**
- * @brief 播放锁屏页面回弹动画
- * @param lock_screen 锁屏页面对象
- */
 void StartLockScreenResetAnimation(lv_obj_t* lock_screen) {
   if (lock_screen == nullptr) {
     return;
@@ -265,10 +243,6 @@ void StartLockScreenResetAnimation(lv_obj_t* lock_screen) {
   lv_anim_start(&position_animation);
 }
 
-/**
- * @brief 播放锁屏页面解锁退出动画
- * @param lock_screen 锁屏页面对象
- */
 void StartLockScreenUnlockAnimation(lv_obj_t* lock_screen) {
   if (lock_screen == nullptr) {
     return;

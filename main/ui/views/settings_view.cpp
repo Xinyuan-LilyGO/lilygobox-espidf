@@ -434,10 +434,6 @@ bool CreateSettingsList(
   return true;
 }
 
-/**
- * @brief 按当前 WLAN 开关请求状态刷新设置主页 WLAN 行右侧文字
- * @param state 设置页状态
- */
 void UpdateSettingsWifiValue(SettingsViewState* state) {
   if (state == nullptr || state->wifi_value_label == nullptr) {
     return;
@@ -445,12 +441,6 @@ void UpdateSettingsWifiValue(SettingsViewState* state) {
   lv_label_set_text(state->wifi_value_label, WifiValueText(state));
 }
 
-/**
- * @brief 创建设置主页视图
- * @param parent 父对象
- * @param config app 页面配置
- * @return 创建成功返回页面对象指针，否则返回 nullptr
- */
 lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
     const AppViewConfig& config) {
   if (parent == nullptr || config.width <= 0 || config.height <= 0) {

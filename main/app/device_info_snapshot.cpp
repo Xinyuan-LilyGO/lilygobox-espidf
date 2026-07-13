@@ -148,12 +148,6 @@ hal::DeviceInfo ReadDeviceInfo(hal::DeviceInfoProvider* provider) {
 
 }  // namespace
 
-/**
- * @brief 读取当前设备信息快照
- * @param provider 设备信息提供者
- * @param info 设备信息快照输出地址
- * @return 读取成功返回 true，否则返回 false
- */
 bool ReadCurrentDeviceInfoSnapshot(
     hal::DeviceInfoProvider* provider, CurrentDeviceInfoSnapshot* info) {
   if (info == nullptr) {

@@ -37,28 +37,16 @@ void EnsureHapticPreferencesLoaded() {
 
 }  // namespace
 
-/**
- * @brief 注册 UI 交互振动反馈提供者
- * @param haptic 振动反馈提供者指针
- */
 void RegisterUiHapticProvider(hal::HapticProvider* haptic) {
   g_haptic_provider = haptic;
 }
 
-/**
- * @brief 设置 UI 交互振动反馈偏好
- * @param enabled true 表示启用振动反馈，false 表示关闭振动反馈
- * @param strength_percent 振动强度百分比，范围 0~100
- */
 void SetUiHapticPreferences(bool enabled, int strength_percent) {
   g_haptic_enabled = enabled;
   g_haptic_strength_percent = std::clamp(strength_percent, 0, 100);
   g_haptic_preferences_loaded = true;
 }
 
-/**
- * @brief 播放一次 UI 交互振动反馈
- */
 void PlayUiHapticFeedback() {
   if (g_haptic_provider == nullptr) {
     return;

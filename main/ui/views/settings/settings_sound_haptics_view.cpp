@@ -172,12 +172,6 @@ void HapticSliderChangedEventCallback(lv_event_t* event) {
   }
 }
 
-/**
- * @brief 构建声音与触感设置内容
- * @param body 内容容器
- * @param state 设置页状态
- * @return 创建成功返回 true，否则返回 false
- */
 bool BuildSoundHapticsContent(lv_obj_t* body, SettingsViewState* state) {
   int y = 0;
   if (!CreateSectionLabel(body, "Volume adjustment", y,
@@ -231,11 +225,6 @@ bool BuildSoundHapticsContent(lv_obj_t* body, SettingsViewState* state) {
 
 }  // namespace
 
-/**
- * @brief 从设置主页打开声音与触感详情页
- * @param state 设置页状态
- * @return 打开成功返回 true，否则返回 false
- */
 bool ShowSoundHapticsPage(SettingsViewState* state) {
   return ShowBasicPage(state, "Sound & Haptics", BuildSoundHapticsContent);
 }

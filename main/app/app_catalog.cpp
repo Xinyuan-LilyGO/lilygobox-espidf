@@ -41,22 +41,10 @@ const AppCatalog kDockAppCatalog = {
 
 }  // namespace
 
-/**
- * @brief 获取 launcher 主屏显示的本地 app 入口目录
- * @return app 入口目录引用
- */
 const AppCatalog& GetHomeAppCatalog() { return kHomeAppCatalog; }
 
-/**
- * @brief 获取 launcher 底部 dock 显示的本地 app 入口目录
- * @return app 入口目录引用
- */
 const AppCatalog& GetDockAppCatalog() { return kDockAppCatalog; }
 
-/**
- * @brief 获取默认 launcher app 入口目录
- * @return app 入口目录引用
- */
 const AppCatalog& GetAppCatalog() { return GetHomeAppCatalog(); }
 
 }  // namespace lilygo_box::app

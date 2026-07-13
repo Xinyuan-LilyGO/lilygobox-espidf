@@ -76,11 +76,6 @@ void NestedCloseCompletedCallback(lv_anim_t* animation) {
   lv_obj_delete(page);
 }
 
-/**
- * @brief 关闭普通设置详情页
- * @param state 设置页状态
- * @param animated 是否播放关闭动画
- */
 void CloseExtraPage(SettingsViewState* state, bool animated) {
   if (state == nullptr || state->settings_extra_page == nullptr ||
       state->settings_extra_closing) {
@@ -107,11 +102,6 @@ void CloseExtraPage(SettingsViewState* state, bool animated) {
   RestoreSettingsListGestures(state);
 }
 
-/**
- * @brief 关闭普通设置二级页
- * @param state 设置页状态
- * @param animated 是否播放关闭动画
- */
 void CloseNestedPage(SettingsViewState* state, bool animated) {
   if (state == nullptr || state->settings_nested_page == nullptr ||
       state->settings_nested_closing) {
@@ -295,22 +285,11 @@ void ApplySettingsTextAreaStyle(
   }
 }
 
-/**
- * @brief 读取当前设备名，未设置时使用默认名称
- * @return 设备名文本
- */
 const char* ReadBasicDeviceName() {
   const char* name = app::ConfiguredDeviceName();
   return (name == nullptr || name[0] == '\0') ? "LilygoBox" : name;
 }
 
-/**
- * @brief 打开普通设置详情页
- * @param state 设置页状态
- * @param title 页面标题
- * @param builder 内容构建函数
- * @return 打开成功返回 true，否则返回 false
- */
 bool ShowBasicPage(SettingsViewState* state, const char* title,
     SettingsContentBuilder builder) {
   if (state == nullptr || state->root == nullptr || title == nullptr ||
@@ -369,13 +348,6 @@ bool ShowBasicPage(SettingsViewState* state, const char* title,
   return true;
 }
 
-/**
- * @brief 创建普通设置二级页面
- * @param state 设置页状态
- * @param title 页面标题
- * @param builder 内容构建函数
- * @return 页面创建成功返回 true，否则返回 false
- */
 bool ShowNestedPage(SettingsViewState* state, const char* title,
     SettingsContentBuilder builder) {
   if (state == nullptr || state->settings_extra_page == nullptr ||
@@ -424,14 +396,6 @@ bool ShowNestedPage(SettingsViewState* state, const char* title,
   return true;
 }
 
-/**
- * @brief 创建分组标题
- * @param parent 父对象
- * @param text 标题文本
- * @param y 顶部坐标
- * @param width 页面宽度
- * @return 创建成功返回 true，否则返回 false
- */
 bool CreateSectionLabel(lv_obj_t* parent, const char* text, int y, int width) {
   lv_obj_t* label =
       CreateLabel(parent, text, lv_color_hex(kBasicMutedColor), Font24());
@@ -443,13 +407,6 @@ bool CreateSectionLabel(lv_obj_t* parent, const char* text, int y, int width) {
   return true;
 }
 
-/**
- * @brief 在普通设置页创建分割线
- * @param parent 父对象
- * @param y 顶部坐标
- * @param width 页面宽度
- * @return 创建成功返回 true，否则返回 false
- */
 bool CreateBasicDivider(lv_obj_t* parent, int y, int width) {
   lv_obj_t* divider = CreateDivider(parent, width - 2 * kBasicSidePadding);
   if (divider == nullptr) {
@@ -459,17 +416,6 @@ bool CreateBasicDivider(lv_obj_t* parent, int y, int width) {
   return true;
 }
 
-/**
- * @brief 创建普通点击行
- * @param parent 父对象
- * @param title 标题文本
- * @param value 右侧文本
- * @param y 顶部坐标
- * @param width 页面宽度
- * @param callback 点击回调
- * @param state 设置页状态
- * @return 创建成功返回 true，否则返回 false
- */
 bool CreateArrowRow(lv_obj_t* parent, const char* title, const char* value,
     int y, int width, lv_event_cb_t callback, SettingsViewState* state) {
   lv_obj_t* row = lv_obj_create(parent);
@@ -531,17 +477,6 @@ bool CreateArrowRow(lv_obj_t* parent, const char* title, const char* value,
   return true;
 }
 
-/**
- * @brief 创建开关行
- * @param parent 父对象
- * @param title 标题文本
- * @param y 顶部坐标
- * @param width 页面宽度
- * @param checked 当前是否打开
- * @param callback 开关变化回调
- * @param state 设置页状态
- * @return 创建成功返回 true，否则返回 false
- */
 bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,
     bool checked, lv_event_cb_t callback, SettingsViewState* state) {
   lv_obj_t* row = lv_obj_create(parent);
@@ -588,18 +523,6 @@ bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,
   return true;
 }
 
-/**
- * @brief 创建带图标的滑动条行
- * @param parent 父对象
- * @param icon_text Material Symbols 图标文本
- * @param title 标题文本
- * @param value 当前百分比
- * @param y 顶部坐标
- * @param width 页面宽度
- * @param callback 滑动条变化回调
- * @param state 设置页状态
- * @return 创建成功返回 true，否则返回 false
- */
 bool CreateSliderRow(lv_obj_t* parent, const char* icon_text,
     const char* title, int value, int y, int width, lv_event_cb_t callback,
     SettingsViewState* state) {
@@ -659,11 +582,6 @@ bool CreateSliderRow(lv_obj_t* parent, const char* icon_text,
   return true;
 }
 
-/**
- * @brief 从滑动条读取百分比
- * @param event LVGL 事件对象
- * @return 当前滑动条百分比
- */
 int SliderPercentFromEvent(lv_event_t* event) {
   lv_obj_t* target = lv_event_get_target_obj(event);
   if (target == nullptr) {

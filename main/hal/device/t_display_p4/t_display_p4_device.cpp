@@ -273,11 +273,6 @@ int TDisplayP4Device::ScreenBitsPerPixel() const {
   return driver_.screen_info().bits_per_pixel;
 }
 
-/**
- * @brief 读取当前 T-Display-P4 设备信息
- * @param info 设备信息输出地址
- * @return 读取成功返回 true，否则返回 false
- */
 bool TDisplayP4Device::ReadDeviceInfo(DeviceInfo* info) {
   if (info == nullptr) {
     return false;
@@ -374,10 +369,6 @@ bool TDisplayP4Device::StartWifi() {
   return true;
 }
 
-/**
- * @brief 停止 hosted WiFi 并重置扫描和连接状态
- * @return 停止成功或 WiFi 已经关闭返回 true，否则返回 false
- */
 bool TDisplayP4Device::StopWifi() {
   wifi_time_test_.requested.store(false);
   wifi_.connect_cancel_requested.store(true);
@@ -438,10 +429,6 @@ bool TDisplayP4Device::StopWifi() {
   return true;
 }
 
-/**
- * @brief 启动异步 STA 扫描，供设置页轮询结果
- * @return 扫描已启动、已在运行或已转入初始化流程返回 true
- */
 bool TDisplayP4Device::StartWifiScan() {
   wifi_.stop_requested.store(false);
   if (!wifi_.driver_initialized.load()) {
@@ -469,11 +456,6 @@ bool TDisplayP4Device::StartWifiScan() {
   return true;
 }
 
-/**
- * @brief 将最近一次 WiFi 扫描状态复制到调用方结构体
- * @param status 扫描状态输出地址
- * @return 输出地址有效返回 true
- */
 bool TDisplayP4Device::ReadWifiScanStatus(WifiScanStatus* status) {
   if (status == nullptr) {
     return false;
@@ -498,12 +480,6 @@ bool TDisplayP4Device::ReadWifiScanStatus(WifiScanStatus* status) {
   return true;
 }
 
-/**
- * @brief 设置 STA 账号密码并请求连接目标热点
- * @param ssid 目标热点 SSID
- * @param password 目标热点密码，开放热点可为空
- * @return 后台连接任务创建成功返回 true
- */
 bool TDisplayP4Device::ConnectWifi(
     const char* ssid, const char* password) {
   if (ssid == nullptr || ssid[0] == '\0' || wifi_.stop_requested.load()) {
@@ -536,10 +512,6 @@ bool TDisplayP4Device::ConnectWifi(
   return true;
 }
 
-/**
- * @brief 取消当前 WiFi 连接请求并清除 STA 配置
- * @return ESP-IDF 接受取消请求返回 true
- */
 bool TDisplayP4Device::CancelWifiConnection() {
   wifi_.connect_cancel_requested.store(true);
   if (!wifi_.driver_initialized.load()) {
@@ -2484,10 +2456,6 @@ int TDisplayP4Device::InitializeWifiStack() {
   return ESP_OK;
 }
 
-/**
- * @brief 确保 hosted WiFi 驱动已经以 STA 模式启动
- * @return 成功返回 ESP_OK，否则返回 ESP-IDF 错误码
- */
 int TDisplayP4Device::PrepareWifiStation() {
   if (!wifi_.driver_initialized.load()) {
     return ESP_ERR_WIFI_NOT_INIT;
@@ -2520,9 +2488,6 @@ int TDisplayP4Device::PrepareWifiStation() {
   return ESP_OK;
 }
 
-/**
- * @brief 读取、去重并缓存最近一次 ESP-IDF 热点扫描记录
- */
 void TDisplayP4Device::CopyWifiScanResultsFromDriver() {
   uint16_t available_count = 0;
   esp_err_t result = esp_wifi_scan_get_ap_num(&available_count);

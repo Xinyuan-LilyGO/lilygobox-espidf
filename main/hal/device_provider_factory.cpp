@@ -15,10 +15,6 @@
 
 namespace lilygo_box::hal {
 
-/**
- * @brief 根据当前 sdkconfig 创建设备提供者上下文
- * @return 设备提供者上下文
- */
 DeviceProviderContext CreateDeviceProviderContext() {
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
   auto device = std::make_unique<TDisplayP4Device>();

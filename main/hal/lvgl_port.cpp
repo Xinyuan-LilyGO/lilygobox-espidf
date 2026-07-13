@@ -136,10 +136,6 @@ bool LvglPort::Start() {
   return result == pdPASS;
 }
 
-/**
- * @brief 判断当前 LVGL 输入是否带有硬件边缘触摸标志。
- * @return 当前输入来自硬件边缘触摸检测返回 true，否则返回 false。
- */
 bool LvglPort::ActiveInputEdgeTouch() {
   lv_indev_t* indev = lv_indev_active();
   if (indev == nullptr) {

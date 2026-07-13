@@ -2035,13 +2035,6 @@ bool CreateAddButton(lv_obj_t* parent, RfViewState* state) {
 
 }  // namespace
 
-/**
- * @brief 创建射频控制应用主界面
- * @param parent 父对象
- * @param app_entry 应用条目
- * @param config 应用视图配置
- * @return 创建成功返回页面根对象，否则返回 nullptr
- */
 lv_obj_t* CreateRfView(lv_obj_t* parent, const app::AppEntry& app_entry,
     const AppViewConfig& config) {
   static_cast<void>(app_entry);

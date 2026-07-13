@@ -96,13 +96,6 @@ void EdgeBackEventCallback(lv_event_t* event) {
 
 }  // namespace
 
-/**
- * @brief 创建位于屏幕外的导航抽屉
- * @param parent 父对象
- * @param state 导航抽屉状态
- * @param config 导航抽屉配置
- * @return 创建成功返回抽屉内容面板，否则返回 nullptr
- */
 lv_obj_t* OpenNavigationDrawer(lv_obj_t* parent,
     NavigationDrawerState* state, const NavigationDrawerConfig& config) {
   if (parent == nullptr || state == nullptr || state->overlay != nullptr ||
@@ -162,11 +155,6 @@ lv_obj_t* OpenNavigationDrawer(lv_obj_t* parent,
   return panel;
 }
 
-/**
- * @brief 完成抽屉布局并播放进入动画
- * @param state 导航抽屉状态
- * @return 动画启动成功返回 true，否则返回 false
- */
 bool PresentNavigationDrawer(NavigationDrawerState* state) {
   if (state == nullptr || state->overlay == nullptr ||
       state->panel == nullptr || state->panel_width <= 0) {
@@ -189,10 +177,6 @@ bool PresentNavigationDrawer(NavigationDrawerState* state) {
   return true;
 }
 
-/**
- * @brief 播放退出动画并关闭导航抽屉
- * @param state 导航抽屉状态
- */
 void CloseNavigationDrawer(NavigationDrawerState* state) {
   if (state == nullptr || state->overlay == nullptr) {
     return;
@@ -220,34 +204,14 @@ void CloseNavigationDrawer(NavigationDrawerState* state) {
   lv_anim_start(&animation);
 }
 
-/**
- * @brief 判断导航抽屉当前是否打开
- * @param state 导航抽屉状态
- * @return 已打开返回 true，否则返回 false
- */
 bool IsNavigationDrawerOpen(const NavigationDrawerState* state) {
   return state != nullptr && state->overlay != nullptr;
 }
 
-/**
- * @brief 获取导航抽屉面板宽度
- * @param state 导航抽屉状态
- * @return 抽屉面板宽度
- */
 int NavigationDrawerWidth(const NavigationDrawerState* state) {
   return state == nullptr ? 0 : state->panel_width;
 }
 
-/**
- * @brief 在已打开的抽屉中创建标准操作行
- * @param state 导航抽屉状态
- * @param symbol 图标字符
- * @param text 标题文本
- * @param y 顶部坐标
- * @param callback 点击回调
- * @param callback_context 点击回调上下文
- * @return 创建成功返回操作行，否则返回 nullptr
- */
 lv_obj_t* CreateNavigationDrawerItem(NavigationDrawerState* state,
     const char* symbol, const char* text, int y, lv_event_cb_t callback,
     void* callback_context) {
@@ -289,12 +253,6 @@ lv_obj_t* CreateNavigationDrawerItem(NavigationDrawerState* state,
   return row;
 }
 
-/**
- * @brief 在已打开的抽屉中创建全宽分隔线
- * @param state 导航抽屉状态
- * @param y 顶部坐标
- * @return 创建成功返回分隔线，否则返回 nullptr
- */
 lv_obj_t* CreateNavigationDrawerDivider(
     NavigationDrawerState* state, int y) {
   if (state == nullptr || state->panel == nullptr) {

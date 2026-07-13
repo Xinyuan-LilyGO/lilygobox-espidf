@@ -81,11 +81,6 @@ bool BuildBluetoothContent(lv_obj_t* body, SettingsViewState* state) {
 
 }  // namespace
 
-/**
- * @brief 从设置主页打开蓝牙详情页
- * @param state 设置页状态
- * @return 打开成功返回 true，否则返回 false
- */
 bool ShowBluetoothPage(SettingsViewState* state) {
   return ShowBasicPage(state, "Bluetooth", BuildBluetoothContent);
 }

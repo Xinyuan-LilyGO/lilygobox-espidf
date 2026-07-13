@@ -211,13 +211,6 @@ bool CreateActionButtons(PromptDialogState* state,
 
 }  // namespace
 
-/**
- * @brief 创建居中提示框并播放淡入动画
- * @param parent 父对象
- * @param state 提示框状态
- * @param config 提示框配置
- * @return 创建成功返回可滚动内容区域，否则返回 nullptr
- */
 lv_obj_t* ShowPromptDialog(lv_obj_t* parent, PromptDialogState* state,
     const PromptDialogConfig& config) {
   if (parent == nullptr || state == nullptr || config.screen_width <= 0 ||
@@ -308,10 +301,6 @@ lv_obj_t* ShowPromptDialog(lv_obj_t* parent, PromptDialogState* state,
   return state->body;
 }
 
-/**
- * @brief 播放淡出动画并关闭提示框
- * @param state 提示框状态
- */
 void ClosePromptDialog(PromptDialogState* state) {
   if (state == nullptr || state->overlay == nullptr || state->closing) {
     return;
@@ -330,11 +319,6 @@ void ClosePromptDialog(PromptDialogState* state) {
       state->animation_ms, state, FadeOutCompletedCallback);
 }
 
-/**
- * @brief 判断提示框当前是否可见
- * @param state 提示框状态
- * @return 可见返回 true，否则返回 false
- */
 bool IsPromptDialogVisible(const PromptDialogState* state) {
   return state != nullptr && state->overlay != nullptr;
 }

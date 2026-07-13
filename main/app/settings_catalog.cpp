@@ -83,16 +83,8 @@ const SettingsDeviceOptionCatalog kSettingsDeviceOptionCatalog = {
 
 }  // namespace
 
-/**
- * @brief 获取设置首页入口目录
- * @return 设置首页入口目录引用
- */
 const SettingsCatalog& GetSettingsCatalog() { return kSettingsCatalog; }
 
-/**
- * @brief 获取我的设备详情页下方选项目录
- * @return 我的设备详情页下方选项目录引用
- */
 const SettingsDeviceOptionCatalog& GetSettingsDeviceOptionCatalog() {
   return kSettingsDeviceOptionCatalog;
 }

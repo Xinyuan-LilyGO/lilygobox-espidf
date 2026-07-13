@@ -1040,12 +1040,6 @@ void RenderNoStorageContent(FilesViewState* state) {
   EnableEdgeBackSwipeEventBubble(state->content);
 }
 
-/**
- * @brief 读取并渲染指定目录
- * @param state 文件管理页面状态
- * @param path 需要打开的目录路径
- * @return 渲染成功返回 true，否则返回 false
- */
 bool RenderDirectoryContent(FilesViewState* state, const std::string& path) {
   if (state == nullptr || path.empty()) {
     return false;
@@ -1097,10 +1091,6 @@ void StopStorageMonitor(FilesViewState* state) {
   lv_timer_delete(timer);
 }
 
-/**
- * @brief 处理已挂载 SD 卡被拔出的状态切换
- * @param state 文件管理页面状态
- */
 void HandleStorageRemoval(FilesViewState* state) {
   if (state == nullptr || state->config.storage == nullptr) {
     return;
@@ -1181,10 +1171,6 @@ void StorageRetryTimerCallback(lv_timer_t* timer) {
   RenderNoStorageContent(state);
 }
 
-/**
- * @brief 启动存储设备自动扫描流程
- * @param state 文件管理页面状态
- */
 void StartStorageDiscovery(FilesViewState* state) {
   if (state == nullptr) {
     return;
@@ -1266,10 +1252,6 @@ void DirectoryEdgeBackEventCallback(lv_event_t* event) {
   }
 }
 
-/**
- * @brief 关闭文件管理导航侧边栏
- * @param state 文件管理页面状态
- */
 void CloseDrawer(FilesViewState* state) {
   if (state != nullptr) {
     CloseNavigationDrawer(&state->drawer);
@@ -1502,10 +1484,6 @@ void FolderPickerCloseCompletedCallback(lv_anim_t* animation) {
   }
 }
 
-/**
- * @brief 使用标准右滑动画关闭文件夹选择页面
- * @param state 文件管理页面状态
- */
 void CloseFolderPicker(FilesViewState* state) {
   if (state == nullptr || state->root == nullptr ||
       state->folder_picker_closing) {
@@ -1755,25 +1733,12 @@ lv_obj_t* CreateFilesViewInternal(lv_obj_t* parent,
   return root;
 }
 
-/**
- * @brief 创建文件管理应用界面
- * @param parent 父对象
- * @param app_entry 应用条目
- * @param config 应用视图配置
- * @return 创建成功返回文件管理根对象，否则返回 nullptr
- */
 lv_obj_t* CreateFilesView(lv_obj_t* parent, const app::AppEntry& app_entry,
                           const AppViewConfig& config) {
   static_cast<void>(app_entry);
   return CreateFilesViewInternal(parent, config, nullptr);
 }
 
-/**
- * @brief 创建临时文件夹选择页面并播放进入动画
- * @param parent 父对象
- * @param config 文件夹选择页面配置
- * @return 创建成功返回页面根对象，否则返回 nullptr
- */
 lv_obj_t* CreateFolderPickerView(
     lv_obj_t* parent, const FolderPickerViewConfig& config) {
   lv_obj_t* picker = CreateFilesViewInternal(

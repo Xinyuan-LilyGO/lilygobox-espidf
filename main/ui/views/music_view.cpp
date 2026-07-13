@@ -1533,11 +1533,6 @@ bool CreateMusicSourceRow(
   return true;
 }
 
-/**
- * @brief 重新构建旧版音乐源页面内容
- * @param state 音乐视图状态
- * @return 构建成功返回 true，否则返回 false
- */
 bool RenderMusicSourcesContent(MusicViewState* state) {
   if (state == nullptr || state->sources_body == nullptr) {
     return false;
@@ -1609,10 +1604,6 @@ void SourcesCloseCompletedCallback(lv_anim_t* animation) {
   lv_obj_delete(page);
 }
 
-/**
- * @brief 关闭旧版音乐源管理页面
- * @param state 音乐视图状态
- */
 void CloseMusicSourcesPage(MusicViewState* state) {
   if (state == nullptr || state->sources_page == nullptr ||
       state->sources_closing) {
@@ -1658,11 +1649,6 @@ void SourcesEdgeBackEventCallback(lv_event_t* event) {
   lv_event_stop_processing(event);
 }
 
-/**
- * @brief 显示旧版音乐源管理页面
- * @param state 音乐视图状态
- * @return 显示成功返回 true，否则返回 false
- */
 [[maybe_unused]] bool ShowMusicSourcesPage(MusicViewState* state) {
   if (state == nullptr || state->root == nullptr ||
       state->settings_page == nullptr) {
@@ -2096,11 +2082,6 @@ bool CreateMusicSourcesPromptRow(
   return true;
 }
 
-/**
- * @brief 重新构建音乐源提示框内容
- * @param state 音乐视图状态
- * @return 构建成功返回 true，否则返回 false
- */
 bool RenderMusicSourcesPromptContent(MusicViewState* state) {
   if (state == nullptr || state->sources_dialog.body == nullptr) {
     return false;
@@ -2167,11 +2148,6 @@ bool CreateMusicSourcesPromptHeader(MusicViewState* state) {
   return true;
 }
 
-/**
- * @brief 显示音乐源管理提示框
- * @param state 音乐视图状态
- * @return 显示成功返回 true，否则返回 false
- */
 bool ShowMusicSourcesPrompt(MusicViewState* state) {
   if (state == nullptr || state->root == nullptr) {
     return false;
@@ -2371,13 +2347,6 @@ bool CreateMusicHeader(lv_obj_t* parent, MusicViewState* state) {
 
 }  // namespace
 
-/**
- * @brief 创建音乐应用主界面
- * @param parent 父对象
- * @param app_entry 应用条目
- * @param config 应用视图配置
- * @return 创建成功返回音乐页面根对象，否则返回 nullptr
- */
 lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry& app_entry,
     const AppViewConfig& config) {
   static_cast<void>(app_entry);

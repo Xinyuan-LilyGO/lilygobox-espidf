@@ -465,11 +465,6 @@ bool BuildPowerBatteryContent(lv_obj_t* body, SettingsViewState* state) {
 
 }  // namespace
 
-/**
- * @brief 从设置主页打开省电与电池详情页
- * @param state 设置页状态
- * @return 打开成功返回 true，否则返回 false
- */
 bool ShowPowerBatteryPage(SettingsViewState* state) {
   return ShowBasicPage(state, "Power Saving & Battery",
       BuildPowerBatteryContent);

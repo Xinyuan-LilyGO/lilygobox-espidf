@@ -272,13 +272,6 @@ void HideBackIndicator(bool animated) {
 
 }  // namespace
 
-/**
- * @brief 处理边缘返回滑动事件并判断是否完成返回手势
- * @param event LVGL 事件对象
- * @param screen_width 屏幕宽度
- * @param state 边缘返回滑动状态
- * @return 完成返回手势返回 true，否则返回 false
- */
 bool HandleEdgeBackSwipeEvent(
     lv_event_t* event, int screen_width, EdgeBackSwipeState* state) {
   if (event == nullptr || state == nullptr || screen_width <= 0) {
@@ -380,12 +373,6 @@ bool HandleEdgeBackSwipeEvent(
   return false;
 }
 
-/**
- * @brief 给对象添加边缘返回滑动事件监听
- * @param object LVGL 对象
- * @param callback 事件回调
- * @param user_data 事件用户数据
- */
 void AddEdgeBackSwipeEvents(
     lv_obj_t* object, lv_event_cb_t callback, void* user_data) {
   if (object == nullptr || callback == nullptr) {
@@ -400,10 +387,6 @@ void AddEdgeBackSwipeEvents(
   lv_obj_add_event_cb(object, callback, LV_EVENT_PRESS_LOST, user_data);
 }
 
-/**
- * @brief 递归开启对象和子对象的事件冒泡
- * @param object LVGL 对象
- */
 void EnableEdgeBackSwipeEventBubble(lv_obj_t* object) {
   if (object == nullptr) {
     return;

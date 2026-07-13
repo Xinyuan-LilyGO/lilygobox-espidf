@@ -536,10 +536,6 @@ void Application::RunScreenLockTask() {
   }
 }
 
-/**
- * @brief 显示锁屏页面并让设备进入休眠
- * @return 进入休眠成功返回 true，否则返回 false
- */
 bool Application::EnterScreenLockSleep() {
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
   if (screen == nullptr) {
@@ -557,9 +553,6 @@ bool Application::EnterScreenLockSleep() {
   return screen->EnterDeviceSleep();
 }
 
-/**
- * @brief 恢复屏幕亮度并显示已准备好的锁屏页面
- */
 void Application::WakeScreenFromLock() {
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
   if (screen == nullptr) {
@@ -582,10 +575,6 @@ void Application::WakeScreenFromLock() {
   }
 }
 
-/**
- * @brief 长按锁屏键时唤醒锁屏并显示关机菜单
- * @return 显示成功返回 true，否则返回 false
- */
 bool Application::ShowPowerMenuFromLockButton() {
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
   if (screen == nullptr) {
@@ -630,10 +619,6 @@ bool Application::ShowPowerMenuFromLockButton() {
   return power_menu_shown;
 }
 
-/**
- * @brief 单击锁屏键前清理已经显示的关机菜单
- * @return 关闭了关机菜单返回 true，否则返回 false
- */
 bool Application::HidePowerMenuFromLockButton() {
   if (!power_menu_visible_.load()) {
     return false;
@@ -649,9 +634,6 @@ bool Application::HidePowerMenuFromLockButton() {
   return true;
 }
 
-/**
- * @brief 让设备进入深度睡眠级关断状态并重启
- */
 void Application::RestartDevice() {
   vTaskDelay(pdMS_TO_TICKS(kPowerActionPreSleepSettleMs));
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
@@ -661,9 +643,6 @@ void Application::RestartDevice() {
   esp_restart();
 }
 
-/**
- * @brief 让设备进入深度睡眠级关断状态
- */
 void Application::PowerOffDevice() {
   vTaskDelay(pdMS_TO_TICKS(kPowerActionPreSleepSettleMs));
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
@@ -673,9 +652,6 @@ void Application::PowerOffDevice() {
   esp_deep_sleep_start();
 }
 
-/**
- * @brief 处理关机菜单被遮罩点击或滑动手势关闭后的状态恢复
- */
 void Application::HandlePowerMenuDismissed() {
   power_menu_visible_.store(false);
   if (screen_locked_.load() && !lock_screen_awake_.load()) {
@@ -683,10 +659,6 @@ void Application::HandlePowerMenuDismissed() {
   }
 }
 
-/**
- * @brief 锁屏页面亮屏态下立即进入休眠
- * @return 进入休眠成功返回 true，否则返回 false
- */
 bool Application::SleepAwakeLockScreenNow() {
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
   if (screen == nullptr) {
@@ -702,10 +674,6 @@ bool Application::SleepAwakeLockScreenNow() {
   return true;
 }
 
-/**
- * @brief 锁屏页面亮屏态下按超时流程重新进入休眠
- * @return 进入休眠成功返回 true，否则返回 false
- */
 bool Application::SleepAwakeLockScreenWithTimeout() {
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
   if (screen == nullptr) {
@@ -763,9 +731,6 @@ bool Application::SleepAwakeLockScreenWithTimeout() {
   return true;
 }
 
-/**
- * @brief 退出锁屏页面并恢复 LVGL 输入
- */
 void Application::UnlockScreen() {
   lvgl_port_.Lock();
   ui_manager_.HideLockScreen();
@@ -775,12 +740,6 @@ void Application::UnlockScreen() {
   screen_locked_.store(false);
 }
 
-/**
- * @brief 判断触摸轨迹是否满足当前旋转画面里的上滑解锁手势
- * @param start 起始触摸点
- * @param current 当前触摸点
- * @return 满足视觉上滑解锁返回 true，否则返回 false
- */
 bool Application::IsUnlockSwipe(const hal::TouchPoint& start,
     const hal::TouchPoint& current) const {
   const hal::ScreenProvider* screen = device_provider_context_.screen.get();
