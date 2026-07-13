@@ -106,6 +106,16 @@ void RequestWifiScan(SettingsViewState* state, bool force = false);
 bool TryStartWifiAutoConnect(SettingsViewState* state);
 
 /**
+ * @brief 从扫描结果里查找指定 SSID 的最新网络信息
+ * @param scan_status 扫描状态
+ * @param ssid 待查找 SSID
+ * @param output 找到时写入网络信息，可为空
+ * @return 找到返回 true，否则返回 false
+ */
+bool FindScannedWifiNetwork(const hal::WifiScanStatus& scan_status,
+                            const char* ssid, hal::WifiNetworkInfo* output);
+
+/**
  * @brief 保存或更新用户确认连接后的 WLAN 凭据
  * @param action 当前连接动作
  * @param password 用户确认使用的密码，开放网络可为空
@@ -750,19 +760,42 @@ bool TryStartWifiAutoConnect(SettingsViewState* state) {
     return false;
   }
   if (status.connected || status.got_ip) {
-    // 当前已经连接任意 WLAN 时不切换到自动连接 SSID，避免进入页面时断开用户手动连接。
+    // 当前已经连接任意 WLAN 时不切换到自动连接
+    // SSID，避免进入页面时断开用户手动连接。
     state->wifi_auto_connect_on_ready = false;
     return true;
+  }
+  if (!status.running) {
+    if (scan_status.scan_failed) {
+      state->wifi_auto_connect_on_ready = false;
+      return false;
+    }
+    // 关闭 WLAN 时残留扫描任务可能晚于开关状态结束，此时必须重新请求扫描，
+    // 不能把旧任务清空后的结果当作本次扫描结果。
+    state->wifi_auto_connect_on_ready = true;
+    RequestWifiScan(state);
+    return true;
+  }
+
+  hal::WifiNetworkInfo scanned_target = {};
+  const bool scan_completed =
+      scan_status.generation != state->wifi_scan_request_generation;
+  if (!scan_completed || scan_status.scan_failed ||
+      !FindScannedWifiNetwork(scan_status, target.ssid, &scanned_target)) {
+    // 自动连接只使用本次扫描实际发现的热点，避免连接当前环境中不存在的已保存
+    // WLAN。
+    state->wifi_auto_connect_on_ready = false;
+    return false;
   }
 
   WifiNetworkAction action;
   action.state = state;
   std::snprintf(action.ssid, sizeof(action.ssid), "%s", target.ssid);
   std::snprintf(action.password, sizeof(action.password), "%s",
-      target.password);
-  action.secure = target.secure;
-  action.is_5g = target.is_5g;
-  action.rssi = target.rssi;
+                target.password);
+  action.secure = scanned_target.secure;
+  action.is_5g = scanned_target.is_5g;
+  action.rssi = scanned_target.rssi;
   action.saved = true;
   state->wifi_pending_action = action;
   state->wifi_auto_connect_on_ready = false;
