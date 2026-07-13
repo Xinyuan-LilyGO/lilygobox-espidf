@@ -2,10 +2,12 @@
  * @Description: Settings basic page shared helpers
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-05-23 00:00:00
+ * @LastEditTime: 2026-07-13 21:51:14
  * @License: GPL 3.0
  */
 #include "ui/views/settings/settings_basic_view_common.h"
+
+#include <algorithm>
 
 #include "app/device_identity.h"
 #include "hal/providers/screen_provider.h"
@@ -17,6 +19,9 @@
 
 namespace lilygo_box::ui {
 namespace {
+
+constexpr int kTextAreaRadius = 22;
+constexpr int kTextAreaHorizontalPadding = 20;
 
 /**
  * @brief 关闭普通设置详情页
@@ -251,6 +256,44 @@ lv_obj_t* CreateBasicBody(
 }
 
 }  // namespace
+
+void ApplySettingsTextAreaStyle(
+    lv_obj_t* text_area, const lv_font_t* font, int height) {
+  if (text_area == nullptr || font == nullptr || height <= 0) {
+    return;
+  }
+
+  lv_obj_set_scrollbar_mode(text_area, LV_SCROLLBAR_MODE_OFF);
+  lv_obj_set_style_text_font(text_area, font, LV_PART_MAIN);
+  lv_obj_set_style_text_color(
+      text_area, lv_color_hex(kPrimaryTextColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      text_area, lv_color_hex(kBasicTextAreaColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      text_area, lv_color_hex(kBasicTextAreaColor), LV_STATE_FOCUSED);
+  lv_obj_set_style_bg_opa(text_area, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(text_area, LV_OPA_COVER, LV_STATE_FOCUSED);
+  lv_obj_set_style_border_width(text_area, 0, LV_PART_MAIN);
+  lv_obj_set_style_border_width(text_area, 0, LV_STATE_FOCUSED);
+  lv_obj_set_style_outline_width(text_area, 0, LV_PART_MAIN);
+  lv_obj_set_style_outline_width(text_area, 0, LV_STATE_FOCUSED);
+  lv_obj_set_style_shadow_width(text_area, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(text_area, kTextAreaRadius, LV_PART_MAIN);
+  lv_obj_set_style_pad_left(
+      text_area, kTextAreaHorizontalPadding, LV_PART_MAIN);
+  lv_obj_set_style_pad_right(
+      text_area, kTextAreaHorizontalPadding, LV_PART_MAIN);
+  const int line_height =
+      static_cast<int>(lv_font_get_line_height(font));
+  const int vertical_padding = std::max(0, (height - line_height) / 2);
+  lv_obj_set_style_pad_top(text_area, vertical_padding, LV_PART_MAIN);
+  lv_obj_set_style_pad_bottom(text_area, vertical_padding, LV_PART_MAIN);
+
+  lv_obj_t* content_label = lv_textarea_get_label(text_area);
+  if (content_label != nullptr) {
+    lv_obj_align(content_label, LV_ALIGN_LEFT_MID, 0, 0);
+  }
+}
 
 /**
  * @brief 读取当前设备名，未设置时使用默认名称

@@ -18,6 +18,7 @@
 #include "ui/input/app_view_gesture_flags.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"
+#include "ui/views/settings/settings_basic_view_common.h"
 #include "ui/widgets/shared_keyboard.h"
 
 namespace lilygo_box::ui {
@@ -948,20 +949,8 @@ bool CreateDeviceNameEditContent(
   lv_textarea_set_accepted_chars(text_area, kDeviceNameAcceptedChars);
   lv_textarea_set_text(text_area, ReadDisplayDeviceName(config));
   lv_textarea_set_cursor_pos(text_area, LV_TEXTAREA_CURSOR_LAST);
-  lv_obj_set_style_text_font(text_area, Font32(), LV_PART_MAIN);
-  lv_obj_set_style_text_color(
-      text_area, lv_color_hex(kPrimaryTextColor), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      text_area, lv_color_hex(kNameEditInputColor), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(text_area, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_color(
-      text_area, lv_color_hex(kNameEditInputBorderColor), LV_PART_MAIN);
-  lv_obj_set_style_border_width(text_area, 3, LV_PART_MAIN);
-  lv_obj_set_style_radius(text_area, kNameEditTextAreaRadius, LV_PART_MAIN);
-  lv_obj_set_style_pad_left(text_area, 26, LV_PART_MAIN);
-  lv_obj_set_style_pad_right(text_area, 26, LV_PART_MAIN);
-  lv_obj_set_style_pad_top(text_area, 18, LV_PART_MAIN);
-  lv_obj_set_style_pad_bottom(text_area, 18, LV_PART_MAIN);
+  ApplySettingsTextAreaStyle(
+      text_area, Font32(), kNameEditTextAreaHeight);
 
   lv_obj_t* help = CreateLabel(parent,
       "This name is shown when identifying this device.",

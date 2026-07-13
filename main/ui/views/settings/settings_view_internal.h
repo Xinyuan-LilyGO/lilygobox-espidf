@@ -86,7 +86,6 @@ constexpr int kNameEditTitleTop = 170;
 constexpr int kNameEditTextAreaTop = 280;
 constexpr int kNameEditTextAreaHeight = 88;
 constexpr int kNameEditTextAreaSide = 26;
-constexpr int kNameEditTextAreaRadius = 28;
 constexpr int kNameEditHelpTop =
     kNameEditTextAreaTop + kNameEditTextAreaHeight + 10;
 constexpr int kNameEditKeyboardHeightPercent = 35;
@@ -119,7 +118,6 @@ constexpr int kWifiConnectSheetInnerPadding = 32;
 constexpr int kWifiConnectButtonGap = 20;
 constexpr int kWifiConnectButtonHeight = 74;
 constexpr int kWifiPasswordInputHeight = 78;
-constexpr int kWifiPasswordInputRadius = 30;
 constexpr int kWifiPasswordKeyboardHeightPercent = 35;
 constexpr size_t kWifiPasswordMinLength = 8;
 constexpr size_t kWifiActionCapacity = hal::kMaxWifiScanNetworkCount * 2 + 6;
@@ -140,10 +138,6 @@ constexpr uint32_t kWifiConnectSecondaryColor =
     theme::LightNeutralTheme().button_secondary;
 constexpr uint32_t kWifiConnectSecondaryPressedColor =
     theme::LightNeutralTheme().button_secondary_pressed;
-constexpr uint32_t kNameEditInputColor =
-    theme::LightNeutralTheme().surface_container;
-constexpr uint32_t kNameEditInputBorderColor =
-    theme::LightNeutralTheme().action;
 constexpr const char* kDeviceNameAcceptedChars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_. ";
 constexpr const char* kWifiPasswordAcceptedChars =

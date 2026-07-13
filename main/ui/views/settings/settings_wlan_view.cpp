@@ -18,6 +18,7 @@
 #include "ui/input/app_view_gesture_flags.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"
+#include "ui/views/settings/settings_basic_view_common.h"
 #include "ui/widgets/prompt/prompt_sheet.h"
 #include "ui/widgets/shared_keyboard.h"
 
@@ -3025,21 +3026,8 @@ bool ShowWifiConnectSheet(
     lv_textarea_set_max_length(text_area, hal::kWifiPasswordMaxLength);
     lv_textarea_set_placeholder_text(text_area, "");
     lv_textarea_set_text(text_area, "");
-    lv_obj_set_style_text_font(text_area, Font28(), LV_PART_MAIN);
-    lv_obj_set_style_text_color(text_area, lv_color_hex(kPrimaryTextColor),
-        LV_PART_MAIN);
-    lv_obj_set_style_bg_color(text_area, lv_color_hex(0xF4F5F7),
-        LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(text_area, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_color(text_area, lv_color_hex(kWifiBlueColor),
-        LV_PART_MAIN);
-    lv_obj_set_style_border_width(text_area, 2, LV_PART_MAIN);
-    lv_obj_set_style_radius(
-        text_area, kWifiPasswordInputRadius, LV_PART_MAIN);
-    lv_obj_set_style_pad_left(text_area, 24, LV_PART_MAIN);
-    lv_obj_set_style_pad_right(text_area, 24, LV_PART_MAIN);
-    lv_obj_set_style_pad_top(text_area, 16, LV_PART_MAIN);
-    lv_obj_set_style_pad_bottom(text_area, 16, LV_PART_MAIN);
+    ApplySettingsTextAreaStyle(
+        text_area, Font28(), kWifiPasswordInputHeight);
     AddEdgeBackSwipeEvents(text_area, WifiModalEdgeBackEventCallback, state);
 
     SharedKeyboardConfig keyboard_config;

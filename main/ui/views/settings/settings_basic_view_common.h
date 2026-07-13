@@ -2,7 +2,7 @@
  * @Description: Settings basic page shared helpers
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-05-23 00:00:00
+ * @LastEditTime: 2026-07-13 22:08:45
  * @License: GPL 3.0
  */
 #pragma once
@@ -22,8 +22,8 @@ constexpr int kBasicSectionHeight = 54;
 constexpr int kBasicSwitchWidth = 78;
 constexpr int kBasicSwitchHeight = 44;
 constexpr uint32_t kBasicBlueColor = theme::LightNeutralTheme().action;
-constexpr uint32_t kBasicCardColor =
-    theme::LightNeutralTheme().surface_container_low;
+constexpr uint32_t kBasicTextAreaColor =
+    theme::LightNeutralTheme().surface_container_high;
 constexpr uint32_t kBasicMutedColor =
     theme::LightNeutralTheme().on_surface_variant;
 
@@ -119,6 +119,15 @@ bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,
 bool CreateSliderRow(lv_obj_t* parent, const char* icon_text,
     const char* title, int value, int y, int width, lv_event_cb_t callback,
     SettingsViewState* state);
+
+/**
+ * @brief 设置页文本输入框样式
+ * @param text_area 文本输入框对象
+ * @param font 输入文本字体
+ * @param height 输入框高度
+ */
+void ApplySettingsTextAreaStyle(
+    lv_obj_t* text_area, const lv_font_t* font, int height);
 
 /**
  * @brief 从滑动条事件读取当前百分比
