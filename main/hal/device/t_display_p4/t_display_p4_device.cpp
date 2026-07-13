@@ -718,7 +718,7 @@ const char* TDisplayP4Device::SdCardBasePath() const {
 
 bool TDisplayP4Device::RegisterScreenFlushReadyCallback(
     ScreenProviderFlushReadyCallback callback, void* callback_context) {
-  if (!IsScreenReady()) {
+  if (!driver_.IsScreenReady()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Screen is not ready for flush callback registration\n");
     return false;
@@ -771,7 +771,7 @@ bool TDisplayP4Device::RegisterScreenFlushReadyCallback(
 
 bool TDisplayP4Device::WriteScreenPixels(
     int x_start, int y_start, int x_end, int y_end, const void* pixels) {
-  if (!IsScreenReady()) {
+  if (!driver_.IsScreenReady()) {
     return false;
   }
 
@@ -793,7 +793,7 @@ bool TDisplayP4Device::ReadScreenTouch(TouchPoint* point) {
     return false;
   }
 
-  if (!IsTouchReady()) {
+  if (!driver_.IsTouchReady()) {
     return false;
   }
 
@@ -849,7 +849,7 @@ bool TDisplayP4Device::ReadScreenTouchPoints(
     return false;
   }
 
-  if (!IsTouchReady()) {
+  if (!driver_.IsTouchReady()) {
     return false;
   }
 
@@ -910,7 +910,7 @@ bool TDisplayP4Device::ReadHapticWaveformCount(uint8_t* waveform_count) {
   if (waveform_count != nullptr) {
     *waveform_count = 0;
   }
-  if (!driver_.status().aw86224.init_flag && !driver_.InitAw86224()) {
+  if (!driver_.IsAw86224Ready() && !driver_.InitAw86224()) {
     LogMessage(
         LogLevel::kWarning, __FILE__, __LINE__, "Aw86224 init retry failed\n");
     return false;
@@ -959,7 +959,7 @@ bool TDisplayP4Device::PlaySpeakerTone(size_t* bytes_written) {
     *bytes_written = 0;
   }
 
-  if (!driver_.status().es8311.init_flag && !driver_.InitEs8311()) {
+  if (!driver_.IsEs8311Ready() && !driver_.InitEs8311()) {
     LogMessage(
         LogLevel::kWarning, __FILE__, __LINE__, "Es8311 init retry failed\n");
     return false;
@@ -1063,12 +1063,12 @@ bool TDisplayP4Device::StopSpeakerToneLoop() {
 }
 
 bool TDisplayP4Device::SetSpeakerVolumePercent(int percent) {
-  if (!driver_.status().es8311.init_flag && !driver_.InitEs8311()) {
+  if (!driver_.IsEs8311Ready() && !driver_.InitEs8311()) {
     LogMessage(
         LogLevel::kWarning, __FILE__, __LINE__, "Es8311 init retry failed\n");
     return false;
   }
-  if (driver_.chip().es8311 == nullptr) {
+  if (!driver_.IsEs8311Ready()) {
     return false;
   }
 
@@ -1123,7 +1123,7 @@ void TDisplayP4Device::HapticPlaybackTaskEntry(void* context) {
 }
 
 void TDisplayP4Device::RunHapticPlaybackTask() {
-  if (!driver_.status().aw86224.init_flag && !driver_.InitAw86224()) {
+  if (!driver_.IsAw86224Ready() && !driver_.InitAw86224()) {
     LogMessage(
         LogLevel::kWarning, __FILE__, __LINE__, "Aw86224 init retry failed\n");
     haptic_.running.store(false);
@@ -1191,7 +1191,7 @@ void TDisplayP4Device::RunHapticPlaybackTask() {
 }
 
 bool TDisplayP4Device::StartMicrophone() {
-  if (!driver_.status().es8311.init_flag && !driver_.InitEs8311()) {
+  if (!driver_.IsEs8311Ready() && !driver_.InitEs8311()) {
     LogMessage(
         LogLevel::kWarning, __FILE__, __LINE__, "Es8311 init retry failed\n");
     return false;
@@ -1227,7 +1227,7 @@ bool TDisplayP4Device::StopMicrophone() {
   microphone_.stop_requested.store(true);
   microphone_.level_percent.store(0);
   microphone_.peak_sample.store(0);
-  if (!driver_.status().es8311.init_flag) {
+  if (!driver_.IsEs8311Ready()) {
     microphone_.adc_to_dac_enabled.store(false);
     return true;
   }
@@ -1235,7 +1235,7 @@ bool TDisplayP4Device::StopMicrophone() {
 }
 
 bool TDisplayP4Device::SetAudioAdcToDac(bool enable) {
-  if (!driver_.status().es8311.init_flag) {
+  if (!driver_.IsEs8311Ready()) {
     return false;
   }
 
@@ -1378,7 +1378,7 @@ void TDisplayP4Device::RunCameraPreviewTask() {
 }
 
 bool TDisplayP4Device::InitializeCameraPreview() {
-  if (!IsScreenReady()) {
+  if (!driver_.IsScreenReady()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Camera preview start failed: screen is not ready\n");
     return false;
@@ -1652,11 +1652,11 @@ bool TDisplayP4Device::RenderCameraFrame(
 }
 
 bool TDisplayP4Device::StartGps() {
-  if (!IsGpsReady() && !driver_.InitL76k()) {
+  if (!driver_.IsL76kReady() && !driver_.InitL76k()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "InitL76k failed\n");
     return false;
   }
-  if (!IsGpsReady()) {
+  if (!driver_.IsL76kReady()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "L76k is not ready for GPS test\n");
     return false;
@@ -1681,7 +1681,7 @@ bool TDisplayP4Device::StartGps() {
 bool TDisplayP4Device::StopGps() {
   gps_running_ = false;
   gps_status_.running = false;
-  if (!IsGpsReady()) {
+  if (!driver_.IsL76kReady()) {
     return true;
   }
 
@@ -1698,14 +1698,14 @@ bool TDisplayP4Device::ReadGpsStatus(GpsStatus* status) {
   }
 
   gps_status_.running = gps_running_;
-  if (IsGpsReady()) {
+  if (driver_.IsL76kReady()) {
     gps_status_.update_interval_ms = driver_.chip().l76k->update_interval_ms();
   }
   *status = gps_status_;
   if (!gps_running_) {
     return true;
   }
-  if (!IsGpsReady()) {
+  if (!driver_.IsL76kReady()) {
     return false;
   }
 
@@ -2363,13 +2363,13 @@ void TDisplayP4Device::RunWifiConnectTask() {
 
 bool TDisplayP4Device::WaitForWifiHardwareReady() {
   uint32_t elapsed_ms = 0;
-  while (!driver_.status().xl9535.init_flag &&
+  while (!driver_.IsXl9535Ready() &&
          elapsed_ms < kWifiHardwareReadyTimeoutMs) {
     vTaskDelay(pdMS_TO_TICKS(kWifiHardwareReadyPollMs));
     elapsed_ms += kWifiHardwareReadyPollMs;
   }
 
-  if (!driver_.status().xl9535.init_flag) {
+  if (!driver_.IsXl9535Ready()) {
     return false;
   }
 
@@ -2851,7 +2851,7 @@ bool TDisplayP4Device::ReadBmuStatus(BmuStatus* status) {
 
   *status = BmuStatus();
 
-  if (driver_.status().bq27220.init_flag && driver_.chip().bq27220 != nullptr) {
+  if (driver_.IsBq27220Ready()) {
     cpp_bus_driver::Bq27220::BatteryStatus bmu_status_flags;
     const bool bmu_status_ok =
         driver_.chip().bq27220->GetBatteryStatus(bmu_status_flags);
@@ -2902,7 +2902,7 @@ bool TDisplayP4Device::ReadRtcStatus(RtcStatus* status) {
 
   *status = RtcStatus();
 
-  if (!driver_.status().pcf8563.init_flag && !driver_.InitPcf8563()) {
+  if (!driver_.IsPcf8563Ready() && !driver_.InitPcf8563()) {
     LogMessage(
         LogLevel::kWarning, __FILE__, __LINE__, "Pcf8563 init retry failed\n");
     return false;
@@ -2932,8 +2932,7 @@ bool TDisplayP4Device::ReadImuStatus(ImuStatus* status) {
 
   *status = ImuStatus();
 
-  if (driver_.status().icm20948.init_flag &&
-      driver_.chip().icm20948 != nullptr) {
+  if (driver_.IsIcm20948Ready()) {
     xyzFloat acceleration;
     xyzFloat angle;
     xyzFloat magnetic;
@@ -2964,13 +2963,13 @@ void TDisplayP4Device::StartScreenBacklight(int initial_percent) {
   const int clamped_percent = ClampScreenBrightnessPercent(initial_percent);
   switch (driver_.screen_type()) {
     case device::ScreenType::kHi8561:
-      if (driver_.status().hi8561_backlight.init_flag) {
+      if (driver_.IsHi8561BacklightReady()) {
         driver_.chip().hi8561_backlight->StartGradientTime(
             static_cast<uint8_t>(clamped_percent), 500);
       }
       break;
     case device::ScreenType::kRm69a10:
-      if (driver_.status().rm69a10.init_flag) {
+      if (driver_.IsRm69a10Ready()) {
         const uint8_t target_brightness =
             ScreenBrightnessPercentToRm69a10Value(clamped_percent);
         for (uint16_t brightness = 0; brightness < target_brightness;
@@ -2994,15 +2993,13 @@ bool TDisplayP4Device::SetScreenBrightnessPercent(int percent) {
   const int clamped_percent = ClampScreenBrightnessPercent(percent);
   switch (driver_.screen_type()) {
     case device::ScreenType::kHi8561:
-      if (driver_.status().hi8561_backlight.init_flag &&
-          driver_.chip().hi8561_backlight != nullptr) {
+      if (driver_.IsHi8561BacklightReady()) {
         return driver_.chip().hi8561_backlight->SetDuty(
             static_cast<uint8_t>(clamped_percent));
       }
       break;
     case device::ScreenType::kRm69a10:
-      if (driver_.status().rm69a10.init_flag &&
-          driver_.chip().rm69a10 != nullptr) {
+      if (driver_.IsRm69a10Ready()) {
         const uint8_t brightness =
             ScreenBrightnessPercentToRm69a10Value(clamped_percent);
         return driver_.chip().rm69a10->SetBrightness(brightness);
@@ -3054,50 +3051,12 @@ bool TDisplayP4Device::IsLockWakeButtonPressed() {
 bool TDisplayP4Device::WaitForScreenReady() {
   for (int elapsed_ms = 0; elapsed_ms < kScreenReadyTimeoutMs;
       elapsed_ms += kScreenReadyPollMs) {
-    if (IsScreenReady()) {
+    if (driver_.IsScreenReady()) {
       return true;
     }
     vTaskDelay(pdMS_TO_TICKS(kScreenReadyPollMs));
   }
-  return IsScreenReady();
-}
-
-bool TDisplayP4Device::IsScreenReady() const {
-  const auto screen_bus = driver_.bus().screen_mipi_bus;
-  if (screen_bus == nullptr || screen_bus->device_handle() == nullptr) {
-    return false;
-  }
-
-  switch (driver_.screen_type()) {
-    case device::ScreenType::kHi8561:
-      return driver_.status().hi8561.init_flag &&
-             driver_.status().hi8561_backlight.init_flag &&
-             driver_.chip().hi8561 != nullptr;
-    case device::ScreenType::kRm69a10:
-      return driver_.status().rm69a10.init_flag &&
-             driver_.chip().rm69a10 != nullptr;
-    default:
-      break;
-  }
-  return false;
-}
-
-bool TDisplayP4Device::IsTouchReady() const {
-  switch (driver_.screen_type()) {
-    case device::ScreenType::kHi8561:
-      return driver_.status().hi8561_touch.init_flag &&
-             driver_.chip().hi8561_touch != nullptr;
-    case device::ScreenType::kRm69a10:
-      return driver_.status().gt9895.init_flag &&
-             driver_.chip().gt9895 != nullptr;
-    default:
-      break;
-  }
-  return false;
-}
-
-bool TDisplayP4Device::IsGpsReady() const {
-  return driver_.status().l76k.init_flag && driver_.chip().l76k != nullptr;
+  return driver_.IsScreenReady();
 }
 
 }  // namespace lilygo_box::hal

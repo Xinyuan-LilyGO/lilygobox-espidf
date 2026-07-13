@@ -406,24 +406,6 @@ class TDisplayP4Device final : public ScreenProvider,
   bool WaitForScreenReady();
 
   /**
-   * @brief 判断屏幕是否已经可写入像素
-   * @return 屏幕可用返回 true，否则返回 false
-   */
-  bool IsScreenReady() const;
-
-  /**
-   * @brief 判断触摸芯片是否已经可读取
-   * @return 触摸可用返回 true，否则返回 false
-   */
-  bool IsTouchReady() const;
-
-  /**
-   * @brief 判断 L76K GPS 模块是否已经初始化完成
-   * @return GPS 模块可用返回 true，否则返回 false
-   */
-  bool IsGpsReady() const;
-
-  /**
    * @brief 扬声器播放任务入口
    * @param context 设备对象指针
    */
