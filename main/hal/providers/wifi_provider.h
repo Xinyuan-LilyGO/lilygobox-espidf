@@ -94,7 +94,7 @@ class WifiProvider {
   virtual ~WifiProvider() = default;
 
   /**
-   * @brief 异步初始化 hosted WiFi 驱动，初始化完成后保持关闭状态
+   * @brief 异步初始化并启动 hosted WiFi STA
    * @return 启动命令发送成功返回 true，否则返回 false
    */
   virtual bool StartWifi() = 0;

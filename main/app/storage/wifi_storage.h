@@ -47,6 +47,15 @@ bool SaveWifiSavedNetworksToNvs(
     const WifiSavedNetwork* networks, size_t count);
 
 /**
+ * @brief 合并并异步保存最新的 WLAN 凭据快照
+ * @param networks 已保存 WLAN 凭据数组
+ * @param count 已保存 WLAN 凭据数量
+ * @return 快照已接收返回 true，否则返回 false
+ */
+bool ScheduleWifiSavedNetworksSave(
+    const WifiSavedNetwork* networks, size_t count);
+
+/**
  * @brief 从 NVS 读取已保存 WLAN 凭据
  * @param networks 已保存 WLAN 凭据输出数组
  * @param capacity 输出数组容量
@@ -68,9 +77,15 @@ void InitWifiCache();
 WifiPreferences GetWifiPreferences();
 
 /**
- * @brief 更新 WLAN 偏好并持久化到 NVS
+ * @brief 判断缓存中是否存在有效 WLAN 偏好
+ * @return 存在有效偏好返回 true，否则返回 false
+ */
+bool HasWifiPreferences();
+
+/**
+ * @brief 更新 WLAN 偏好缓存并异步持久化到 NVS
  * @param preferences 新的 WLAN 偏好
- * @return 更新成功返回 true
+ * @return 缓存已更新且持久化任务已安排返回 true，否则返回 false
  */
 bool UpdateWifiPreferences(const WifiPreferences& preferences);
 

@@ -17,8 +17,10 @@ namespace lilygo_box::app {
 enum class WifiAutoConnectResult {
   kUnavailable,
   kDisabled,
-  kMissingCredential,
+  kNoSavedTarget,
   kWaitingForDriver,
+  kWaitingForScan,
+  kNetworkNotFound,
   kAlreadyConnected,
   kStarted,
   kFailed,
@@ -33,6 +35,8 @@ struct WifiAutoConnectOptions {
   uint32_t wait_timeout_ms = 0;
   // 等待期间轮询 WiFi 状态的间隔，单位为毫秒。
   uint32_t poll_interval_ms = 200;
+  // 等待扫描完成的最长时间，单位为毫秒。
+  uint32_t scan_timeout_ms = 10 * 1000;
 };
 
 /**
@@ -43,7 +47,7 @@ struct WifiAutoConnectOptions {
 bool LoadWifiAutoConnectTarget(WifiSavedNetwork* target);
 
 /**
- * @brief 按 NVS 中保存的 WLAN 偏好尝试启动自动连接
+ * @brief 按保存偏好启动 WLAN，并在存在目标热点时尝试自动连接
  * @param wifi WiFi 状态和控制提供者
  * @param options 自动连接控制选项
  * @return 自动连接处理结果

@@ -33,7 +33,7 @@ namespace {
 
 constexpr uint32_t kStartupWifiAutoConnectWaitMs = 15 * 1000;
 constexpr uint32_t kStartupWifiAutoConnectPollMs = 200;
-constexpr uint32_t kStartupWifiAutoConnectTaskStackBytes = 4 * 1024;
+constexpr uint32_t kStartupWifiAutoConnectTaskStackBytes = 8 * 1024;
 constexpr UBaseType_t kStartupWifiAutoConnectTaskPriority = 3;
 constexpr uint32_t kScreenLockTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kScreenLockTaskPriority = 3;
@@ -205,10 +205,6 @@ bool Application::Init() {
   ui_manager_.SetStartupScreenProgress(33);
   lvgl_port_.Unlock();
 
-  if (device_provider_context_.wifi != nullptr &&
-      !device_provider_context_.wifi->StartWifi()) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "StartWifi failed\n");
-  }
   if (device_provider_context_.wifi != nullptr) {
     const BaseType_t task_result =
         xTaskCreate(StartupWifiAutoConnectTaskEntry, "wifi_auto",
@@ -282,6 +278,7 @@ void Application::RunStartupWifiAutoConnectTask() {
   options.wait_for_driver = true;
   options.wait_timeout_ms = kStartupWifiAutoConnectWaitMs;
   options.poll_interval_ms = kStartupWifiAutoConnectPollMs;
+  options.scan_timeout_ms = kStartupWifiAutoConnectWaitMs;
   const app::WifiAutoConnectResult result =
       app::TryStartWifiAutoConnect(device_provider_context_.wifi, options);
   if (result == app::WifiAutoConnectResult::kFailed) {

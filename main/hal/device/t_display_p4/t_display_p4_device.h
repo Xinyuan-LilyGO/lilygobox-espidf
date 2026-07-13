@@ -281,7 +281,7 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ReadEthernetStatus(EthernetStatus* status) override;
 
   /**
-   * @brief 异步初始化 hosted WiFi 驱动并保持默认关闭
+   * @brief 异步初始化并启动 hosted WiFi STA
    * @return 启动命令发送成功返回 true，否则返回 false
   */
   bool StartWifi() override;
@@ -806,10 +806,10 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<size_t> scan_network_count{0};
     // 供 UI 轮询读取的热点扫描缓存。
     WifiNetworkInfo scan_networks[kMaxWifiScanNetworkCount] = {};
-    // 最近一次扫描开始 tick，用来在事件丢失时软超时。
-    std::atomic<uint32_t> scan_started_tick{0};
-    // ReadWifiScanStatus 超时处理是否已经标记，防止扫描任务返回后重复递增 generation
-    std::atomic<bool> scan_timeout_handled{false};
+    // 保护扫描结果数组，避免事件任务写入时 UI 同时读取。
+    SemaphoreHandle_t scan_results_mutex = nullptr;
+    // 用户是否已经请求关闭 WiFi。
+    std::atomic<bool> stop_requested{false};
     // WiFi 连接任务是否正在后台执行。
     std::atomic<bool> connect_task_running{false};
     // WiFi 连接任务是否已经请求取消。

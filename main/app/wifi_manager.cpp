@@ -9,6 +9,8 @@
 
 #include <cstddef>
 #include <cstring>
+#include <memory>
+#include <new>
 
 #include "app/storage/wifi_storage.h"
 #include "base/logger.h"
@@ -29,6 +31,25 @@ hal::WifiStatus ReadWifiStatusOrDefault(hal::WifiProvider* wifi) {
     wifi->ReadWifiStatus(&status);
   }
   return status;
+}
+
+/**
+ * @brief 判断扫描结果中是否包含指定热点
+ * @param scan_status 最近一次扫描状态
+ * @param ssid 目标热点名称
+ * @return 扫描结果包含目标热点返回 true，否则返回 false
+ */
+bool ContainsWifiNetwork(
+    const hal::WifiScanStatus& scan_status, const char* ssid) {
+  if (ssid == nullptr || ssid[0] == '\0') {
+    return false;
+  }
+  for (size_t i = 0; i < scan_status.network_count; ++i) {
+    if (std::strcmp(scan_status.networks[i].ssid, ssid) == 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -65,16 +86,21 @@ bool LoadWifiAutoConnectTarget(WifiSavedNetwork* target) {
     return false;
   }
 
-  WifiPreferences preferences = GetWifiPreferences();
+  const WifiPreferences preferences = GetWifiPreferences();
   if (!preferences.enabled_requested ||
       preferences.auto_connect_ssid[0] == '\0') {
     return false;
   }
 
-  WifiSavedNetwork saved_networks[kWifiSavedNetworkCapacity] = {};
+  std::unique_ptr<WifiSavedNetwork[]> saved_networks(
+      new (std::nothrow) WifiSavedNetwork[kWifiSavedNetworkCapacity]());
+  if (saved_networks == nullptr) {
+    return false;
+  }
   size_t saved_network_count = 0;
   if (!LoadWifiSavedNetworksFromNvs(
-          saved_networks, kWifiSavedNetworkCapacity, &saved_network_count)) {
+          saved_networks.get(), kWifiSavedNetworkCapacity,
+          &saved_network_count)) {
     return false;
   }
 
@@ -100,10 +126,12 @@ WifiAutoConnectResult TryStartWifiAutoConnect(
     return WifiAutoConnectResult::kUnavailable;
   }
 
-  WifiSavedNetwork target;
-  if (!LoadWifiAutoConnectTarget(&target)) {
+  const WifiPreferences preferences = GetWifiPreferences();
+  if (!preferences.enabled_requested) {
     return WifiAutoConnectResult::kDisabled;
   }
+  WifiSavedNetwork target;
+  const bool has_saved_target = LoadWifiAutoConnectTarget(&target);
 
   hal::WifiStatus status = ReadWifiStatusOrDefault(wifi);
   if (status.connected || status.got_ip) {
@@ -132,6 +160,42 @@ WifiAutoConnectResult TryStartWifiAutoConnect(
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "WiFi driver remains unavailable after auto connect wait\n");
     return WifiAutoConnectResult::kWaitingForDriver;
+  }
+  if (!has_saved_target) {
+    return WifiAutoConnectResult::kNoSavedTarget;
+  }
+
+  hal::WifiScanStatus scan_status;
+  if (!wifi->ReadWifiScanStatus(&scan_status) || !wifi->StartWifiScan()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "StartWifiScan failed before auto connect\n");
+    return WifiAutoConnectResult::kFailed;
+  }
+  const uint32_t initial_scan_generation = scan_status.generation;
+  const TickType_t scan_deadline =
+      xTaskGetTickCount() + pdMS_TO_TICKS(options.scan_timeout_ms);
+  while (static_cast<int32_t>(xTaskGetTickCount() - scan_deadline) < 0) {
+    if (!wifi->ReadWifiScanStatus(&scan_status)) {
+      return WifiAutoConnectResult::kFailed;
+    }
+    const bool scan_completed =
+        scan_status.generation != initial_scan_generation;
+    if (scan_completed && !scan_status.scan_running) {
+      if (scan_status.scan_failed) {
+        return WifiAutoConnectResult::kFailed;
+      }
+      if (!ContainsWifiNetwork(scan_status, target.ssid)) {
+        return WifiAutoConnectResult::kNetworkNotFound;
+      }
+      break;
+    }
+    vTaskDelay(pdMS_TO_TICKS(options.poll_interval_ms));
+  }
+  if (scan_status.generation == initial_scan_generation ||
+      scan_status.scan_running) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "WiFi scan did not finish before auto connect timeout\n");
+    return WifiAutoConnectResult::kWaitingForScan;
   }
 
   if (!wifi->ConnectWifi(target.ssid, target.password)) {

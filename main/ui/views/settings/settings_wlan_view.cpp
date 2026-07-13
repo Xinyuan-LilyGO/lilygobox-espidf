@@ -11,9 +11,7 @@
 #include <cstdio>
 #include <cstring>
 
-#include "app/storage/storage.h"
 #include "app/storage/wifi_storage.h"
-#include "app/wifi_manager.h"
 #include "hal/providers/screen_provider.h"
 #include "ui/animation/transition_animation.h"
 #include "ui/resources/fonts/icon_assets.h"
@@ -116,7 +114,7 @@ bool FindScannedWifiNetwork(const hal::WifiScanStatus& scan_status,
                             const char* ssid, hal::WifiNetworkInfo* output);
 
 /**
- * @brief 保存或更新用户确认连接后的 WLAN 凭据
+ * @brief 保存或更新已经连接成功的 WLAN 凭据
  * @param action 当前连接动作
  * @param password 用户确认使用的密码，开放网络可为空
  */
@@ -169,13 +167,6 @@ void ForgetSavedWifiNetwork(SettingsViewState* state, const char* ssid);
  * @return 有保存密码或开放网络返回 true，否则返回 false
  */
 bool CanRetryPendingWifiConnection(const SettingsViewState* state);
-
-/**
- * @brief 判断 WLAN 连接命令是否还处于暂缓发送窗口
- * @param state 设置页状态
- * @return 暂缓期间返回 true，否则返回 false
- */
-bool IsWifiConnectBlocked(SettingsViewState* state);
 
 /**
  * @brief 读取 WLAN 连接状态和扫描状态快照
@@ -577,7 +568,7 @@ void WifiModalEdgeBackEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 清理 WLAN 连接等待、失败重试和连接节流状态
+ * @brief 清理 WLAN 连接等待和失败重试状态
  * @param state 设置页状态
  */
 void ResetWifiConnectionState(SettingsViewState* state) {
@@ -588,7 +579,6 @@ void ResetWifiConnectionState(SettingsViewState* state) {
   state->wifi_connect_waiting = false;
   state->wifi_connection_retry_ready = false;
   state->wifi_connect_started_ms = 0;
-  state->wifi_connect_block_until_ms = 0;
 }
 
 /**
@@ -684,7 +674,7 @@ bool StartWifiConnection(SettingsViewState* state, const char* password) {
       state->wifi_pending_action.ssid[0] == '\0') {
     return false;
   }
-  if (state->wifi_connect_waiting || IsWifiConnectBlocked(state)) {
+  if (state->wifi_connect_waiting) {
     return false;
   }
 
@@ -700,21 +690,15 @@ bool StartWifiConnection(SettingsViewState* state, const char* password) {
   UpdateSettingsWifiValue(state);
   state->wifi_scan_on_ready = false;
   state->wifi_auto_connect_on_ready = false;
-  if (state->wifi_pending_action.saved) {
-    SaveWifiNetworkCredential(state->wifi_pending_action, connect_password);
-  }
   if (state->config.wifi->ConnectWifi(
           state->wifi_pending_action.ssid, connect_password)) {
     state->wifi_connect_waiting = true;
     state->wifi_connection_retry_ready = true;
     state->wifi_connect_started_ms = lv_tick_get();
-    state->wifi_connect_block_until_ms = 0;
   } else {
     state->wifi_connect_waiting = false;
     state->wifi_connection_retry_ready = CanRetryPendingWifiConnection(state);
     state->wifi_connect_started_ms = 0;
-    state->wifi_connect_block_until_ms =
-        lv_tick_get() + kWifiConnectSettleMs;
   }
   state->wifi_refresh_force = true;
   if (state->wifi_refresh_timer != nullptr) {
@@ -734,8 +718,10 @@ bool TryStartWifiAutoConnect(SettingsViewState* state) {
     return false;
   }
 
-  app::WifiSavedNetwork target;
-  if (!app::LoadWifiAutoConnectTarget(&target)) {
+  const app::WifiSavedNetwork* target =
+      FindSavedWifiNetworkConst(state->wifi_auto_connect_ssid);
+  if (target == nullptr ||
+      (target->secure && target->password[0] == '\0')) {
     state->wifi_auto_connect_on_ready = false;
     return false;
   }
@@ -744,7 +730,7 @@ bool TryStartWifiAutoConnect(SettingsViewState* state) {
   hal::WifiScanStatus scan_status;
   ReadWifiSnapshots(state->config, &status, &scan_status);
   if (state->wifi_scan_on_ready || scan_status.scan_running ||
-      state->wifi_connect_waiting || IsWifiConnectBlocked(state)) {
+      state->wifi_connect_waiting) {
     state->wifi_auto_connect_on_ready = true;
     return true;
   }
@@ -760,18 +746,16 @@ bool TryStartWifiAutoConnect(SettingsViewState* state) {
     return false;
   }
   if (status.connected || status.got_ip) {
+    if (state->wifi_pending_action.saved) {
+      SaveWifiNetworkCredential(state->wifi_pending_action,
+                                state->wifi_pending_action.password);
+    }
     // 当前已经连接任意 WLAN 时不切换到自动连接
     // SSID，避免进入页面时断开用户手动连接。
     state->wifi_auto_connect_on_ready = false;
     return true;
   }
   if (!status.running) {
-    if (scan_status.scan_failed) {
-      state->wifi_auto_connect_on_ready = false;
-      return false;
-    }
-    // 关闭 WLAN 时残留扫描任务可能晚于开关状态结束，此时必须重新请求扫描，
-    // 不能把旧任务清空后的结果当作本次扫描结果。
     state->wifi_auto_connect_on_ready = true;
     RequestWifiScan(state);
     return true;
@@ -781,7 +765,7 @@ bool TryStartWifiAutoConnect(SettingsViewState* state) {
   const bool scan_completed =
       scan_status.generation != state->wifi_scan_request_generation;
   if (!scan_completed || scan_status.scan_failed ||
-      !FindScannedWifiNetwork(scan_status, target.ssid, &scanned_target)) {
+      !FindScannedWifiNetwork(scan_status, target->ssid, &scanned_target)) {
     // 自动连接只使用本次扫描实际发现的热点，避免连接当前环境中不存在的已保存
     // WLAN。
     state->wifi_auto_connect_on_ready = false;
@@ -790,9 +774,9 @@ bool TryStartWifiAutoConnect(SettingsViewState* state) {
 
   WifiNetworkAction action;
   action.state = state;
-  std::snprintf(action.ssid, sizeof(action.ssid), "%s", target.ssid);
+  std::snprintf(action.ssid, sizeof(action.ssid), "%s", target->ssid);
   std::snprintf(action.password, sizeof(action.password), "%s",
-                target.password);
+                target->password);
   action.secure = scanned_target.secure;
   action.is_5g = scanned_target.is_5g;
   action.rssi = scanned_target.rssi;
@@ -1006,7 +990,6 @@ void WifiModalConnectClickedEventCallback(lv_event_t* event) {
     }
   }
   state->wifi_pending_action.saved = true;
-  SaveWifiNetworkCredential(state->wifi_pending_action, password);
   StartWifiConnection(state, password);
   lv_event_stop_bubbling(event);
   lv_event_stop_processing(event);
@@ -1043,8 +1026,6 @@ void WifiAutoConnectChangedEventCallback(lv_event_t* event) {
     state->wifi_auto_connect_on_ready = false;
   }
   PersistWifiPreferencesToNvsInternal(state);
-  state->wifi_refresh_force = true;
-  RefreshWifiPage(state, true);
   lv_event_stop_bubbling(event);
   lv_event_stop_processing(event);
 }
@@ -1211,14 +1192,8 @@ void ReadWifiPageSsid(const hal::WifiStatus& status, char* buffer,
  * @brief 异步保存运行期已保存 WLAN 凭据
  */
 void PersistSavedWifiNetworksToNvs() {
-  std::array<app::WifiSavedNetwork, app::kWifiSavedNetworkCapacity> networks;
-  const size_t network_count = g_wifi_saved_network_count;
-  for (size_t i = 0; i < network_count; ++i) {
-    networks[i] = g_wifi_saved_networks[i];
-  }
-  app::StartStorageTask("wifi_saved_save", [networks, network_count]() {
-    app::SaveWifiSavedNetworksToNvs(networks.data(), network_count);
-  });
+  app::ScheduleWifiSavedNetworksSave(
+      g_wifi_saved_networks, g_wifi_saved_network_count);
 }
 
 /**
@@ -1245,9 +1220,10 @@ void LoadSavedWifiNetworksFromNvsInternal() {
   if (g_wifi_saved_networks_loaded) {
     return;
   }
-  g_wifi_saved_networks_loaded = true;
-  app::LoadWifiSavedNetworksFromNvs(g_wifi_saved_networks,
-      app::kWifiSavedNetworkCapacity, &g_wifi_saved_network_count);
+  if (app::LoadWifiSavedNetworksFromNvs(g_wifi_saved_networks,
+          app::kWifiSavedNetworkCapacity, &g_wifi_saved_network_count)) {
+    g_wifi_saved_networks_loaded = true;
+  }
 }
 
 /**
@@ -1261,20 +1237,23 @@ void LoadWifiPreferencesFromNvsInternal(
     return;
   }
 
-  app::WifiPreferences preferences = app::GetWifiPreferences();
-  state->wifi_enabled_requested = preferences.enabled_requested;
+  const app::WifiPreferences preferences = app::GetWifiPreferences();
+  state->wifi_enabled_requested = app::HasWifiPreferences()
+                                      ? preferences.enabled_requested
+                                      : fallback_enabled;
   std::snprintf(state->wifi_auto_connect_ssid,
       sizeof(state->wifi_auto_connect_ssid), "%s",
       preferences.auto_connect_ssid);
-  if (FindSavedWifiNetworkConst(state->wifi_auto_connect_ssid) == nullptr) {
+  if (g_wifi_saved_networks_loaded &&
+      FindSavedWifiNetworkConst(state->wifi_auto_connect_ssid) == nullptr) {
     state->wifi_auto_connect_ssid[0] = '\0';
   }
 }
 
 /**
- * @brief 判断 SSID 是否为固化的已保存测试热点
+ * @brief 在运行期已保存 WLAN 表里查找指定 SSID
  * @param ssid 待判断的热点名称
- * @return 是已保存测试热点返回 true，否则返回 false
+ * @return 找到返回保存项地址，否则返回 nullptr
  */
 app::WifiSavedNetwork* FindSavedWifiNetwork(const char* ssid) {
   if (ssid == nullptr || ssid[0] == '\0') {
@@ -1297,7 +1276,7 @@ bool IsSavedWifiSsid(const char* ssid) {
 }
 
 /**
- * @brief 保存或更新用户确认连接后的 WLAN 凭据
+ * @brief 保存或更新已经连接成功的 WLAN 凭据
  * @param action 当前连接动作
  * @param password 用户确认使用的密码，开放网络可为空
  */
@@ -1464,22 +1443,10 @@ bool CanRetryPendingWifiConnection(const SettingsViewState* state) {
   return saved != nullptr && saved->password[0] != '\0';
 }
 
-bool IsWifiConnectBlocked(SettingsViewState* state) {
-  if (state == nullptr || state->wifi_connect_block_until_ms == 0) {
-    return false;
-  }
-  if (static_cast<int32_t>(
-          lv_tick_get() - state->wifi_connect_block_until_ms) < 0) {
-    return true;
-  }
-  state->wifi_connect_block_until_ms = 0;
-  return false;
-}
-
 /**
  * @brief 根据 RSSI 计算 WiFi 信号等级
  * @param rssi 信号强度，单位为 dBm
- * @return 1 到 4 的信号等级
+ * @return 1 到 5 的信号等级
  */
 int WifiSignalLevelForRssi(int rssi) {
   if (rssi >= -50) {
@@ -1563,7 +1530,7 @@ void ReadWifiSnapshots(const AppViewConfig& config, hal::WifiStatus* status,
 }
 
 /**
- * @brief 连接等待超过 10 秒时取消连接并刷新页面状态
+ * @brief 连接等待超过 5 秒时取消连接并刷新页面状态
  * @param state 设置页状态
  */
 void UpdateWifiConnectTimeout(SettingsViewState* state) {
@@ -1582,7 +1549,6 @@ void UpdateWifiConnectTimeout(SettingsViewState* state) {
     state->wifi_connect_waiting = false;
     state->wifi_connection_retry_ready = false;
     state->wifi_connect_started_ms = 0;
-    state->wifi_connect_block_until_ms = 0;
     state->wifi_refresh_force = true;
     return;
   }
@@ -1597,7 +1563,6 @@ void UpdateWifiConnectTimeout(SettingsViewState* state) {
   state->wifi_connect_waiting = false;
   state->wifi_connection_retry_ready = CanRetryPendingWifiConnection(state);
   state->wifi_connect_started_ms = 0;
-  state->wifi_connect_block_until_ms = lv_tick_get() + kWifiConnectSettleMs;
   state->wifi_refresh_force = true;
 }
 
@@ -1707,7 +1672,6 @@ void RequestWifiScan(SettingsViewState* state, bool force) {
     state->wifi_connect_waiting = false;
     state->wifi_connection_retry_ready = false;
     state->wifi_connect_started_ms = 0;
-    state->wifi_connect_block_until_ms = 0;
   }
   if (state->wifi_connect_waiting ||
       (!force && (status.connected || status.got_ip))) {
@@ -1787,10 +1751,9 @@ WifiNetworkAction* ReserveWifiSavedDeleteAction(
  * @brief 创建 WLAN 页面返回按钮和标题
  * @param parent 父对象
  * @param state 设置页状态
- * @param width 页面宽度
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateWifiHeader(lv_obj_t* parent, SettingsViewState* state, int) {
+bool CreateWifiHeader(lv_obj_t* parent, SettingsViewState* state) {
   lv_obj_t* back_button = CreateToolbarButton(parent, kDetailBackButtonLeft,
       kDetailBackButtonTop, WifiBackClickedEventCallback, state);
   if (back_button == nullptr) {
@@ -3476,7 +3439,21 @@ void RefreshWifiPage(SettingsViewState* state, bool force) {
   StopWifiRefreshIconSpin(state);
   state->wifi_refresh_icon = nullptr;
   lv_obj_clean(state->wifi_body);
-  CreateWifiPageContent(state->wifi_body, state, state->config);
+  if (!CreateWifiPageContent(state->wifi_body, state, state->config)) {
+    state->wifi_action_count = 0;
+    state->wifi_saved_delete_action_count = 0;
+    state->wifi_connected_signal_icon = nullptr;
+    state->wifi_refresh_icon = nullptr;
+    state->wifi_refresh_force = true;
+    lv_obj_clean(state->wifi_body);
+    lv_obj_t* error_label = CreateLabel(state->wifi_body,
+        "Unable to load WLAN settings", lv_color_hex(kSecondaryTextColor),
+        Font24());
+    if (error_label != nullptr) {
+      lv_obj_center(error_label);
+    }
+    return;
+  }
   lv_obj_update_layout(state->wifi_body);
   lv_obj_scroll_to_y(state->wifi_body, scroll_y, LV_ANIM_OFF);
 }
@@ -3490,6 +3467,7 @@ bool ShowWifiPageInternal(SettingsViewState* state) {
   if (state == nullptr || state->root == nullptr) {
     return false;
   }
+  LoadSavedWifiNetworksFromNvsInternal();
   if (state->wifi_closing) {
     return true;
   }
@@ -3545,7 +3523,7 @@ bool ShowWifiPageInternal(SettingsViewState* state) {
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
 
-  if (!CreateWifiHeader(page, state, config.width)) {
+  if (!CreateWifiHeader(page, state)) {
     CloseWifiPage(state, false);
     return false;
   }
@@ -3597,6 +3575,11 @@ bool ShowWifiPage(SettingsViewState* state) {
   return ShowWifiPageInternal(state);
 }
 
+/**
+ * @brief 从 NVS 加载 WLAN 凭据和用户偏好
+ * @param state 设置页状态
+ * @param fallback_enabled 没有保存偏好时使用的 WLAN 开关状态
+ */
 void LoadWifiSettingsFromNvs(
     SettingsViewState* state, bool fallback_enabled) {
   LoadSavedWifiNetworksFromNvsInternal();

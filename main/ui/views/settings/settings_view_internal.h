@@ -112,7 +112,6 @@ constexpr lv_style_selector_t kWifiSwitchCheckedIndicatorSelector =
     static_cast<lv_style_selector_t>(LV_STATE_CHECKED);
 constexpr uint32_t kWifiRefreshPeriodMs = 1000;
 constexpr uint32_t kWifiConnectTimeoutMs = 5 * 1000;
-constexpr uint32_t kWifiConnectSettleMs = 1500;
 constexpr int kWifiConnectSheetRadius = 48;
 constexpr int kWifiConnectSheetSideMargin = 34;
 constexpr int kWifiConnectSheetBottomMargin = 32;
@@ -258,8 +257,6 @@ struct SettingsViewState {
   bool wifi_delete_close_sub_page = false;
   // 本次 WLAN 连接请求开始的 LVGL tick，单位为毫秒。
   uint32_t wifi_connect_started_ms = 0;
-  // 上次连接命令失败后的短暂等待窗口，避免连续点击重复发命令。
-  uint32_t wifi_connect_block_until_ms = 0;
   bool bluetooth_enabled = false;
   bool hotspot_enabled = false;
   bool haptics_enabled = true;
