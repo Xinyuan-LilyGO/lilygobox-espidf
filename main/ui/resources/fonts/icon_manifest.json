@@ -30,7 +30,12 @@
       "optical_size": 32,
       "output": "main/ui/resources/fonts/icons/lvgl_font_material_rounded_fill_32.c",
       "icon_set": "all_used",
-      "exclude_icons": ["BatteryAndroid0"]
+      "exclude_icons": [
+        "BatteryAndroid0",
+        "Repeat",
+        "RepeatOne",
+        "Shuffle"
+      ]
     },
     {
       "id": "material_rounded_fill_44",
@@ -158,6 +163,8 @@
       "codepoint": 63687
     },
     "Refresh": {"cpp_name": "kRefresh", "codepoint": 58837},
+    "Repeat": {"cpp_name": "kRepeat", "codepoint": 57408},
+    "RepeatOne": {"cpp_name": "kRepeatOne", "codepoint": 57409},
     "RestartAlt": {"cpp_name": "kRestartAlt", "codepoint": 61523},
     "SdStorage": {"cpp_name": "kSdStorage", "codepoint": 58915},
     "Settings": {"cpp_name": "kSettings", "codepoint": 59576},
@@ -169,6 +176,7 @@
       "cpp_name": "kSignalWifi4Bar",
       "codepoint": 61541
     },
+    "Shuffle": {"cpp_name": "kShuffle", "codepoint": 57411},
     "Sunny": {"cpp_name": "kSunny", "codepoint": 59418},
     "TouchApp": {"cpp_name": "kTouchApp", "codepoint": 59667},
     "VolumeUp": {"cpp_name": "kVolumeUp", "codepoint": 57424},

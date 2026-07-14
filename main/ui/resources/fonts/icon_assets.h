@@ -2,7 +2,7 @@
  * @Description: Material Symbols 图标 UTF-8 编码常量
  * @Author: LILYGO_L
  * @Date: 2026-05-10 15:02:12
- * @LastEditTime: 2026-05-11 00:05:30
+ * @LastEditTime: 2026-07-14 21:24:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -45,6 +45,9 @@ inline constexpr char kPowerSettingsNew[] = "\xEF\xA3\x87";
 inline constexpr char kSunny[] = "\xEE\xA0\x9A";
 inline constexpr char kTouchApp[] = "\xEE\xA4\x93";
 inline constexpr char kRefresh[] = "\xEE\x97\x95";
+inline constexpr char kRepeat[] = "\xEE\x81\x80";
+inline constexpr char kRepeatOne[] = "\xEE\x81\x81";
+inline constexpr char kShuffle[] = "\xEE\x81\x83";
 inline constexpr char kVolumeUp[] = "\xEE\x81\x90";
 inline constexpr char kWarning[] = "\xEF\x82\x83";
 inline constexpr char kSignalWifi4Bar[] = "\xEF\x81\xA5";

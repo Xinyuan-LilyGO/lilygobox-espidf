@@ -2,7 +2,7 @@
  * @Description: 音乐应用视图
  * @Author: LILYGO_L
  * @Date: 2026-07-08 00:00:00
- * @LastEditTime: 2026-07-12 01:33:27
+ * @LastEditTime: 2026-07-14 22:36:01
  * @License: GPL 3.0
  */
 #include "ui/views/music_view.h"
@@ -19,6 +19,7 @@
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/input/edge_back_gesture.h"
+#include "ui/theme/theme_provider.h"
 #include "ui/views/files_view.h"
 #include "ui/widgets/navigation_drawer.h"
 #include "ui/widgets/prompt/prompt_dialog.h"
@@ -73,11 +74,18 @@ enum class MusicControlIcon {
   kSkipNext,
 };
 
+enum class MusicPlaybackMode {
+  kRepeatAll,
+  kRepeatOne,
+  kShuffle,
+};
+
 struct MusicViewState {
   AppViewConfig config;
   lv_obj_t* root = nullptr;
   lv_obj_t* player_page = nullptr;
   lv_obj_t* play_button = nullptr;
+  lv_obj_t* playback_mode_label = nullptr;
   lv_obj_t* current_time_label = nullptr;
   lv_obj_t* total_time_label = nullptr;
   lv_obj_t* settings_page = nullptr;
@@ -98,6 +106,7 @@ struct MusicViewState {
   std::array<std::string, kMusicFolderOptionCount> source_paths;
   std::array<std::string, kMusicFolderOptionCount> draft_source_paths;
   bool playing = false;
+  MusicPlaybackMode playback_mode = MusicPlaybackMode::kRepeatAll;
   bool settings_closing = false;
   bool sources_closing = false;
 };
@@ -571,6 +580,7 @@ void PlayerCloseCompletedCallback(lv_anim_t* animation) {
   lv_obj_t* page = state->player_page;
   state->player_page = nullptr;
   state->play_button = nullptr;
+  state->playback_mode_label = nullptr;
   state->current_time_label = nullptr;
   state->total_time_label = nullptr;
   lv_obj_delete(page);
@@ -672,6 +682,63 @@ void PlayButtonClickedEventCallback(lv_event_t* event) {
   }
   state->playing = !state->playing;
   UpdatePlayButton(state, true);
+  lv_event_stop_bubbling(event);
+}
+
+/**
+ * @brief 获取播放模式对应的 Material Symbols 图标
+ * @param mode 播放模式
+ * @return 播放模式对应的 UTF-8 图标文本
+ */
+const char* PlaybackModeIcon(MusicPlaybackMode mode) {
+  switch (mode) {
+    case MusicPlaybackMode::kRepeatAll:
+      return icon::kRepeat;
+    case MusicPlaybackMode::kRepeatOne:
+      return icon::kRepeatOne;
+    case MusicPlaybackMode::kShuffle:
+      return icon::kShuffle;
+  }
+  return icon::kRepeat;
+}
+
+/**
+ * @brief 刷新播放模式按钮图标
+ * @param state 音乐视图状态
+ */
+void UpdatePlaybackModeButton(MusicViewState* state) {
+  if (state == nullptr || state->playback_mode_label == nullptr) {
+    return;
+  }
+  lv_label_set_text(
+      state->playback_mode_label, PlaybackModeIcon(state->playback_mode));
+  lv_obj_center(state->playback_mode_label);
+}
+
+/**
+ * @brief 切换列表循环、单曲循环和随机播放模式
+ * @param event LVGL 事件对象
+ */
+void PlaybackModeClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr) {
+    return;
+  }
+  switch (state->playback_mode) {
+    case MusicPlaybackMode::kRepeatAll:
+      state->playback_mode = MusicPlaybackMode::kRepeatOne;
+      break;
+    case MusicPlaybackMode::kRepeatOne:
+      state->playback_mode = MusicPlaybackMode::kShuffle;
+      break;
+    case MusicPlaybackMode::kShuffle:
+      state->playback_mode = MusicPlaybackMode::kRepeatAll;
+      break;
+  }
+  UpdatePlaybackModeButton(state);
   lv_event_stop_bubbling(event);
 }
 
@@ -927,6 +994,41 @@ bool CreatePlayerPage(MusicViewState* state) {
   if (previous != nullptr) {
     lv_obj_align(previous, LV_ALIGN_BOTTOM_MID, -side_control_offset,
         side_control_bottom);
+  }
+
+  lv_obj_t* playback_mode_button =
+      previous != nullptr ? lv_button_create(page) : nullptr;
+  if (playback_mode_button != nullptr) {
+    const lv_style_selector_t pressed_selector =
+        static_cast<lv_style_selector_t>(LV_PART_MAIN) |
+        static_cast<lv_style_selector_t>(LV_STATE_PRESSED);
+    MakeTransparent(playback_mode_button);
+    lv_obj_remove_flag(playback_mode_button, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(playback_mode_button, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+    lv_obj_set_size(playback_mode_button, 72, 72);
+    lv_obj_align_to(playback_mode_button, previous, LV_ALIGN_OUT_LEFT_MID,
+        -20, 0);
+    lv_obj_set_style_radius(playback_mode_button, 36, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(playback_mode_button,
+        lv_color_hex(kSecondaryContainerColor), LV_PART_MAIN);
+    lv_obj_set_style_outline_width(playback_mode_button, 0, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(playback_mode_button, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(playback_mode_button,
+        lv_color_hex(kSecondaryContainerColor), pressed_selector);
+    lv_obj_set_style_bg_opa(playback_mode_button, LV_OPA_COVER,
+        pressed_selector);
+    lv_obj_set_style_radius(playback_mode_button, 36, pressed_selector);
+    state->playback_mode_label =
+        CreateLabel(playback_mode_button,
+            PlaybackModeIcon(state->playback_mode),
+            lv_color_hex(kPrimaryColor), MaterialOutlineIconFont56());
+    if (state->playback_mode_label != nullptr) {
+      lv_obj_center(state->playback_mode_label);
+    }
+    lv_obj_add_event_cb(playback_mode_button,
+        PlaybackModeClickedEventCallback, LV_EVENT_CLICKED, state);
+    lv_obj_add_event_cb(playback_mode_button,
+        StopClickBubblingEventCallback, LV_EVENT_ALL, nullptr);
   }
   state->play_button =
       CreatePlayerControlButton(
@@ -1989,8 +2091,8 @@ void AddMusicSourcePromptClickedEventCallback(lv_event_t* event) {
   picker_config.view_config = state->config;
   picker_config.title = "Select folder";
   picker_config.action_text = "Use this folder";
-  picker_config.action_color = kPrimaryColor;
-  picker_config.action_text_color = 0xFFFFFF;
+  picker_config.action_color = theme::LightNeutralTheme().action;
+  picker_config.action_text_color = theme::LightNeutralTheme().on_action;
   picker_config.selected_callback = [state](const char* path) {
     if (path == nullptr || path[0] == '\0') {
       return;
