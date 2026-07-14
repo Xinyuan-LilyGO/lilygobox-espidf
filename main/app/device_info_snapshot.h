@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 当前设备信息快照数据模型与采集接口
  * @Author: LILYGO_L
  * @Date: 2026-05-19 23:20:00
  * @LastEditTime: 2026-05-20 00:10:00

@@ -1,5 +1,5 @@
 ﻿/*
- * @Description: None
+ * @Description: 系统状态栏创建、刷新与外观控制接口
  * @Author: LILYGO_L
  * @Date: 2026-05-12 01:08:42
  * @LastEditTime: 2026-07-08 12:08:51

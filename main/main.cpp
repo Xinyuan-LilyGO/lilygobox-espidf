@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: LilyGoBox 应用程序入口与系统启动流程
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
  * @LastEditTime: 2026-05-16 17:25:00

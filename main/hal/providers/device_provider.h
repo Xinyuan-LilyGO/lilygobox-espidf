@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 整机底层驱动初始化抽象接口
  * @Author: LILYGO_L
  * @Date: 2026-05-15 18:00:00
  * @LastEditTime: 2026-05-15 18:00:00

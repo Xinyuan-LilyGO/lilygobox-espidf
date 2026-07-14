@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: T-Display-P4 设备及硬件 Provider 适配接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
  * @LastEditTime: 2026-05-15 09:49:03

@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 系统应用生命周期与启动协调接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
  * @LastEditTime: 2026-05-12 23:05:00

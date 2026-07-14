@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 应用日志等级过滤与格式化输出实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
  * @LastEditTime: 2026-05-10 13:27:05

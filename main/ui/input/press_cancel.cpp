@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 指针拖动阈值检测与按压取消事件实现
  * @Author: LILYGO_L
  * @Date: 2026-05-15 10:18:00
  * @LastEditTime: 2026-05-15 10:18:00

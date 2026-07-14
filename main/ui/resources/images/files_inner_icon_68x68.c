@@ -1,6 +1,8 @@
 /*
- * @Description: None
+ * @Description: 文件管理应用 68×68 像素 LVGL 图标资源
  * @Author: LILYGO_L
+ * @Date: 2026-07-09 14:43:15
+ * @LastEditTime: 2026-07-14 21:08:13
  * @License: GPL 3.0
  */
 #include "lvgl.h"

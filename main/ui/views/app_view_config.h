@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 应用页面尺寸、硬件服务与回调依赖配置
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
  * @LastEditTime: 2026-05-10 13:27:05

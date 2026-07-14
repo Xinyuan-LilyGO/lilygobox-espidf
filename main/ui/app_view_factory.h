@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 应用页面创建工厂接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
  * @LastEditTime: 2026-05-12 22:55:00

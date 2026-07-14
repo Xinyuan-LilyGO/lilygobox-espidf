@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 屏幕边缘返回手势识别与指示动画实现
  * @Author: LILYGO_L
  * @Date: 2026-05-12 22:15:00
  * @LastEditTime: 2026-05-18 12:00:00

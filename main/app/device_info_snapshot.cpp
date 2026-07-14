@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 当前设备芯片、内存、软件与外设信息采集实现
  * @Author: LILYGO_L
  * @Date: 2026-05-19 23:20:00
  * @LastEditTime: 2026-05-20 00:10:00

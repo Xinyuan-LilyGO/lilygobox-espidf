@@ -1,7 +1,8 @@
 /*
- * @Description: Power menu overlay
+ * @Description: 关机菜单覆盖层创建与交互接口
  * @Author: LILYGO_L
- * @Date: 2026-07-07
+ * @Date: 2026-07-07 11:18:34
+ * @LastEditTime: 2026-07-14 21:08:13
  * @License: GPL 3.0
  */
 #pragma once

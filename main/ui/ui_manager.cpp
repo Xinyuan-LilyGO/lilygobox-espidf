@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 启动器布局、应用切换与系统覆盖层管理实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
  * @LastEditTime: 2026-05-16 17:14:31

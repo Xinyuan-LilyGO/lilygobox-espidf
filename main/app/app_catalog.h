@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 主屏幕与底部停靠栏应用目录数据接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
  * @LastEditTime: 2026-05-12 22:55:00

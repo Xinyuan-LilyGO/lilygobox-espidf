@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 系统设置应用页面创建接口
  * @Author: LILYGO_L
  * @Date: 2026-05-18 09:20:00
  * @LastEditTime: 2026-05-18 09:20:00

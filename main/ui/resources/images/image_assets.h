@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 内置应用图标 LVGL 图像资源声明
  * @Author: LILYGO_L
  * @Date: 2026-05-10 17:53:12
  * @LastEditTime: 2026-05-10 22:24:18

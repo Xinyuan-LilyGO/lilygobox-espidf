@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 整机测试列表、测试流程与结果交互页面实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
  * @LastEditTime: 2026-05-15 10:16:17

@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: IMU 传感器状态与姿态数据接口
  * @Author: LILYGO_L
  * @Date: 2026-05-14 00:20:00
  * @LastEditTime: 2026-05-14 00:20:00

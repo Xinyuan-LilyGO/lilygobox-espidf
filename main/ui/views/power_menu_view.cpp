@@ -1,7 +1,8 @@
 /*
- * @Description: Power menu overlay
+ * @Description: 关机菜单覆盖层布局与交互实现
  * @Author: LILYGO_L
- * @Date: 2026-07-07
+ * @Date: 2026-07-07 11:18:34
+ * @LastEditTime: 2026-07-14 21:08:13
  * @License: GPL 3.0
  */
 #include "ui/views/power_menu_view.h"

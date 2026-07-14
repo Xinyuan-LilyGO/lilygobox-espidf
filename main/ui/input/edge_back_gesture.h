@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 屏幕边缘返回手势状态与事件接口
  * @Author: LILYGO_L
  * @Date: 2026-05-12 21:20:00
  * @LastEditTime: 2026-05-18 12:00:00

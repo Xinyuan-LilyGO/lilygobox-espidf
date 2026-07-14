@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: GPS 时间、定位状态与模块控制接口
  * @Author: LILYGO_L
  * @Date: 2026-05-14 00:20:00
  * @LastEditTime: 2026-05-14 00:20:00

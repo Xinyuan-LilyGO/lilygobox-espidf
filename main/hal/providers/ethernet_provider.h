@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 以太网连接状态与控制接口
  * @Author: LILYGO_L
  * @Date: 2026-05-14 00:20:00
  * @LastEditTime: 2026-05-14 00:20:00

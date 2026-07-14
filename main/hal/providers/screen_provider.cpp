@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 屏幕多点触摸读取默认适配实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
  * @LastEditTime: 2026-05-14 00:45:00

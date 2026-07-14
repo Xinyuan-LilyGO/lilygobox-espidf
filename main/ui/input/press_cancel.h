@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 指针拖出控件时取消按压状态的事件接口
  * @Author: LILYGO_L
  * @Date: 2026-05-15 10:18:00
  * @LastEditTime: 2026-05-15 10:18:00

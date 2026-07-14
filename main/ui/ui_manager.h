@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 启动器、状态栏、应用窗口与系统覆盖层管理接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
  * @LastEditTime: 2026-06-25 10:18:00

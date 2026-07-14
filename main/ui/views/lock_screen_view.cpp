@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 锁屏时钟布局、拖动回弹与解锁动画实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
  * @LastEditTime: 2026-07-07 09:19:14

@@ -682,8 +682,9 @@ function writeC(output, name, pixels, width, height) {
     bytes.push(pixel.b, pixel.g, pixel.r, pixel.a);
   }
   const stamp = localTimestamp();
+  const description = `${name} 的 ${width}×${height} 像素 LVGL 图像资源`;
   const source = `/*
- * @Description: None
+ * @Description: ${description}
  * @Author: LILYGO_L
  * @Date: ${stamp}
  * @LastEditTime: ${stamp}

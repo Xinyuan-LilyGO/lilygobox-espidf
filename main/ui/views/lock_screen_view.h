@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 锁屏页面创建、时钟更新与滑动动画接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
  * @LastEditTime: 2026-06-25 10:18:00

@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 实时时钟状态、时间读取与设置接口
  * @Author: LILYGO_L
  * @Date: 2026-05-15 10:40:00
  * @LastEditTime: 2026-05-15 10:40:00

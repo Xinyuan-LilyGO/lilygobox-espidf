@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 可复用 LVGL 屏幕键盘布局与输入绑定实现
  * @Author: LILYGO_L
  * @Date: 2026-05-18 12:08:00
  * @LastEditTime: 2026-05-18 12:08:00

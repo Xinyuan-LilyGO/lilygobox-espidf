@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: WiFi 扫描、连接配置与状态管理接口
  * @Author: LILYGO_L
  * @Date: 2026-05-15 13:20:00
  * @LastEditTime: 2026-05-15 13:20:00

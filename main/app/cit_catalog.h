@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 整机测试项目目录与测试状态接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
  * @LastEditTime: 2026-05-19 13:50:00

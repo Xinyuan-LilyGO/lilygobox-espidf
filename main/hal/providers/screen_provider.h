@@ -1,5 +1,5 @@
 /*
- * @Description: None
+ * @Description: 屏幕显示、背光与触摸输入抽象接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
  * @LastEditTime: 2026-05-15 18:00:00
