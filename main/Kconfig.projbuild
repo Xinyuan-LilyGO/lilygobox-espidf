@@ -1,37 +1,4 @@
 menu "LilygoBox Configuration"
-
-    choice SCREEN_PIXEL_FORMAT
-        prompt "Screen color format"
-        depends on LILYGO_DEVICE_DRIVER_T_DISPLAY_P4
-        default SCREEN_PIXEL_FORMAT_RGB565
-        config SCREEN_PIXEL_FORMAT_RGB565
-            bool "RGB565"
-        config SCREEN_PIXEL_FORMAT_RGB888
-            bool "RGB888"
-    endchoice
-
-    choice CAMERA_TYPE
-        prompt "Camera type"
-        depends on LILYGO_DEVICE_DRIVER_T_DISPLAY_P4
-        default CAMERA_TYPE_OV2710
-        config CAMERA_TYPE_SC2336
-            bool "SC2336"
-        config CAMERA_TYPE_OV2710
-            bool "OV2710"
-        config CAMERA_TYPE_OV5645
-            bool "OV5645"
-    endchoice
-
-    choice CAMERA_PIXEL_FORMAT
-        prompt "Camera color format"
-        depends on LILYGO_DEVICE_DRIVER_T_DISPLAY_P4
-        default CAMERA_PIXEL_FORMAT_RGB565
-        config CAMERA_PIXEL_FORMAT_RGB565
-            bool "RGB565"
-        config CAMERA_PIXEL_FORMAT_RGB888
-            bool "RGB888"
-    endchoice
-
     choice LILYGO_BOX_LOG_LEVEL
         prompt "Select LilygoBox log level"
         default LILYGO_BOX_LOG_LEVEL_INFO

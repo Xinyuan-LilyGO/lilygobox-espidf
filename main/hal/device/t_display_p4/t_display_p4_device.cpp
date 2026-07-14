@@ -1418,9 +1418,9 @@ bool TDisplayP4Device::InitializeCameraPreview() {
   }
   camera_preview_.frame_width = format.fmt.pix.width;
   camera_preview_.frame_height = format.fmt.pix.height;
-#if defined(CONFIG_CAMERA_TYPE_OV5645)
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_CAMERA_TYPE_OV5645)
   format.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB565;
-#elif defined(CONFIG_SCREEN_PIXEL_FORMAT_RGB888)
+#elif defined(CONFIG_LILYGO_DEVICE_DRIVER_SCREEN_PIXEL_FORMAT_RGB888)
   format.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB24;
 #else
   format.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB565;
@@ -1593,14 +1593,14 @@ bool TDisplayP4Device::RenderCameraFrame(
   const uint32_t output_offset_y =
       output_height > scaled_height ? (output_height - scaled_height) / 2 : 0;
   const size_t aligned_output_size = camera_preview_.output_buffer_size;
-#if defined(CONFIG_CAMERA_TYPE_OV5645)
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_CAMERA_TYPE_OV5645)
   const ppa_srm_color_mode_t input_color_mode = PPA_SRM_COLOR_MODE_RGB565;
-#elif defined(CONFIG_SCREEN_PIXEL_FORMAT_RGB888)
+#elif defined(CONFIG_LILYGO_DEVICE_DRIVER_SCREEN_PIXEL_FORMAT_RGB888)
   const ppa_srm_color_mode_t input_color_mode = PPA_SRM_COLOR_MODE_RGB888;
 #else
   const ppa_srm_color_mode_t input_color_mode = PPA_SRM_COLOR_MODE_RGB565;
 #endif
-#if defined(CONFIG_SCREEN_PIXEL_FORMAT_RGB888)
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_SCREEN_PIXEL_FORMAT_RGB888)
   const ppa_srm_color_mode_t output_color_mode = PPA_SRM_COLOR_MODE_RGB888;
 #else
   const ppa_srm_color_mode_t output_color_mode = PPA_SRM_COLOR_MODE_RGB565;
