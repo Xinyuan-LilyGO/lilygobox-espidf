@@ -595,11 +595,17 @@ void FactoryResetConfirmClickedEventCallback(lv_event_t* event) {
   UpdateFactoryResetConfirmButton(state);
   hal::ScreenProvider* screen = state->config.screen;
   const int previous_brightness = state->display_brightness_percent;
-  if (screen != nullptr) {
-    screen->SetScreenBrightnessPercent(0);
+  // 复用锁屏的轻度休眠流程，确保背光和屏幕完全关闭后再擦除 NVS。
+  const bool screen_sleeping =
+      screen == nullptr || screen->EnterDeviceSleep();
+  if (!screen_sleeping) {
+    state->factory_reset_started = false;
+    UpdateFactoryResetConfirmButton(state);
+    return;
   }
   if (!app::StartFactoryReset()) {
     if (screen != nullptr) {
+      screen->ExitDeviceSleep();
       screen->SetScreenBrightnessPercent(previous_brightness);
     }
     state->factory_reset_started = false;

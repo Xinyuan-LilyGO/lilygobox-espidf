@@ -13,6 +13,7 @@
 #include <cstdlib>
 
 #include "app/storage/display_storage.h"
+#include "app/storage/first_boot_storage.h"
 #include "app/storage/sound_storage.h"
 #include "app/storage/storage.h"
 #include "app/wifi_manager.h"
@@ -200,6 +201,17 @@ bool Application::Init() {
         "StartStartupScreenAnimation failed\n");
   }
 
+  if (!app::IsFirstBootCompleted()) {
+    lvgl_port_.Lock();
+    const bool welcome_result = ui_manager_.ShowFirstBootWelcome(
+        []() { return app::MarkFirstBootCompleted(); });
+    lvgl_port_.Unlock();
+    if (!welcome_result) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "ShowFirstBootWelcome failed\n");
+    }
+  }
+
   lvgl_port_.Lock();
   ui_manager_.RefreshSystemStatusNow();
   ui_manager_.SetStartupScreenProgress(33);
@@ -332,6 +344,17 @@ void Application::RunScreenLockTask() {
     const bool wake_button_clicked =
         wake_button_released && !wake_button_long_press_handled;
     was_wake_button_pressed = wake_button_pressed;
+    if (ui_manager_.IsFirstBootWelcomeActive()) {
+      if (wake_button_clicked) {
+        HidePowerMenuFromLockButton();
+      }
+      last_touch_ms = now_ms;
+      lock_screen_last_interaction_ms = now_ms;
+      unlock_touch_active = false;
+      unlock_drag_ready = false;
+      vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
+      continue;
+    }
     if (screen_locked_.load()) {
       if (wake_button_clicked) {
         const bool power_menu_hidden = HidePowerMenuFromLockButton();

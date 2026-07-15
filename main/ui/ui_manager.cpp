@@ -22,6 +22,7 @@
 #include "ui/input/app_view_gesture_flags.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"
+#include "ui/views/first_boot_welcome_view.h"
 #include "ui/views/lock_screen_view.h"
 #include "ui/views/power_menu_view.h"
 #include "ui/wallpaper.h"
@@ -68,6 +69,7 @@ constexpr int kPageIndicatorBottom = kDockHeight + 8;
 constexpr uint32_t kStartupProgressFullMs = 1000;
 constexpr uint32_t kStartupProgressMinStepMs = 200;
 constexpr uint32_t kStartupFadeOutMs = 220;
+constexpr uint32_t kFirstBootWelcomeFadeOutMs = 180;
 constexpr uint32_t kSystemStatusRefreshPeriodMs = 1000;
 constexpr uint32_t kStartupBackgroundColor = 0xFFFFFF;
 constexpr uint32_t kStartupTextColor = 0x111111;
@@ -1111,6 +1113,34 @@ bool UiManager::IsStartupScreenActive() const {
   return startup_screen_ != nullptr;
 }
 
+bool UiManager::ShowFirstBootWelcome(
+    std::function<bool()> completion_callback) {
+  if (root_screen_ == nullptr || !completion_callback) {
+    return false;
+  }
+
+  first_boot_welcome_completion_callback_ = std::move(completion_callback);
+  first_boot_welcome_pending_ = true;
+  if (first_boot_welcome_screen_ != nullptr) {
+    return true;
+  }
+  if (CreateFirstBootWelcomeScreen()) {
+    // 欢迎页预先放在启动页下方，避免启动页消失时短暂露出主界面。
+    if (startup_screen_ != nullptr) {
+      lv_obj_move_to_index(startup_screen_, -1);
+    }
+    return true;
+  }
+  first_boot_welcome_pending_ = false;
+  first_boot_welcome_completion_callback_ = nullptr;
+  return false;
+}
+
+bool UiManager::IsFirstBootWelcomeActive() const {
+  return first_boot_welcome_pending_ ||
+         first_boot_welcome_screen_ != nullptr;
+}
+
 void UiManager::AppButtonEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
@@ -1298,9 +1328,13 @@ void UiManager::RelayoutForScreenSize() {
   const app::AppEntry* reopen_app = active_app_entry_;
   active_app_entry_ = nullptr;
   const bool startup_active = startup_screen_ != nullptr;
+  const bool first_boot_welcome_visible =
+      first_boot_welcome_screen_ != nullptr;
+  const bool first_boot_welcome_closing = first_boot_welcome_closing_;
   const int startup_percent = std::max(startup_progress_percent_,
       std::max(startup_progress_target_percent_, startup_progress_pending_percent_));
   lv_anim_delete(this, SetStartupProgressWidth);
+  lv_anim_delete(this, SetFirstBootWelcomeOpacity);
   startup_progress_animating_ = false;
   startup_progress_pending_percent_ = 0;
 
@@ -1356,6 +1390,11 @@ void UiManager::RelayoutForScreenSize() {
     }
     UpdatePageIndicator(page_index_);
   }
+  if (first_boot_welcome_screen_ != nullptr) {
+    lv_obj_delete(first_boot_welcome_screen_);
+    first_boot_welcome_screen_ = nullptr;
+  }
+  first_boot_welcome_closing_ = false;
   status_bar_.MoveToTop();
 
   if (reopen_app != nullptr) {
@@ -1374,6 +1413,21 @@ void UiManager::RelayoutForScreenSize() {
         }
       }
     }
+  }
+
+  if (first_boot_welcome_visible && first_boot_welcome_pending_) {
+    if (!CreateFirstBootWelcomeScreen()) {
+      first_boot_welcome_pending_ = false;
+      first_boot_welcome_completion_callback_ = nullptr;
+      SetStatusBarVisible(true);
+    } else if (startup_screen_ != nullptr) {
+      // 旋转重建后仍保持启动页在欢迎页上方。
+      lv_obj_move_to_index(startup_screen_, -1);
+    }
+  } else if (first_boot_welcome_closing) {
+    SetStatusBarTextColor(kStatusBarLightTextColor);
+    SetStatusBarVisible(true);
+    status_bar_.MoveToTop();
   }
 
   lv_obj_invalidate(root_screen_);
@@ -2030,6 +2084,17 @@ void UiManager::SetStartupScreenOpacity(void* user_data, int32_t opacity) {
   lv_obj_set_style_opa(self->startup_screen_, opacity, LV_PART_MAIN);
 }
 
+void UiManager::SetFirstBootWelcomeOpacity(
+    void* user_data, int32_t opacity) {
+  auto* self = static_cast<UiManager*>(user_data);
+  if (self == nullptr || self->first_boot_welcome_screen_ == nullptr) {
+    return;
+  }
+
+  lv_obj_set_style_opa(
+      self->first_boot_welcome_screen_, opacity, LV_PART_MAIN);
+}
+
 void UiManager::StartupProgressCompletedCallback(lv_anim_t* animation) {
   auto* self = static_cast<UiManager*>(lv_anim_get_user_data(animation));
   if (self == nullptr || self->startup_screen_ == nullptr) {
@@ -2061,6 +2126,16 @@ void UiManager::StartupFadeCompletedCallback(lv_anim_t* animation) {
   }
 
   self->DestroyStartupScreen();
+}
+
+void UiManager::FirstBootWelcomeFadeCompletedCallback(
+    lv_anim_t* animation) {
+  auto* self = static_cast<UiManager*>(lv_anim_get_user_data(animation));
+  if (self == nullptr) {
+    return;
+  }
+
+  self->DestroyFirstBootWelcomeScreen();
 }
 
 bool UiManager::StartStartupProgressAnimation(int target_percent) {
@@ -2128,6 +2203,14 @@ bool UiManager::StartStartupFadeOut() {
 
 void UiManager::DestroyStartupScreen() {
   lv_anim_delete(this, SetStartupProgressWidth);
+  // 兜底时也先创建欢迎页，再删除启动页，避免中间帧显示主界面。
+  if (first_boot_welcome_pending_ &&
+      first_boot_welcome_screen_ == nullptr &&
+      !CreateFirstBootWelcomeScreen()) {
+    first_boot_welcome_pending_ = false;
+    first_boot_welcome_completion_callback_ = nullptr;
+    SetStatusBarVisible(true);
+  }
   if (startup_screen_ != nullptr) {
     lv_obj_delete(startup_screen_);
     startup_screen_ = nullptr;
@@ -2137,6 +2220,94 @@ void UiManager::DestroyStartupScreen() {
   startup_progress_target_percent_ = 0;
   startup_progress_pending_percent_ = 0;
   startup_progress_animating_ = false;
+}
+
+bool UiManager::CreateFirstBootWelcomeScreen() {
+  if (first_boot_welcome_screen_ != nullptr) {
+    return true;
+  }
+  if (root_screen_ == nullptr || !first_boot_welcome_pending_ ||
+      !first_boot_welcome_completion_callback_) {
+    return false;
+  }
+
+  FirstBootWelcomeViewOptions options;
+  options.screen_width = LayoutWidth();
+  options.screen_height = LayoutHeight();
+  options.colors = &theme_provider_.colors();
+  options.completion_callback = [this]() {
+    return CompleteFirstBootWelcome();
+  };
+  first_boot_welcome_screen_ =
+      CreateFirstBootWelcomeView(root_screen_, options);
+  if (first_boot_welcome_screen_ == nullptr) {
+    return false;
+  }
+
+  SetStatusBarVisible(false);
+  lv_obj_move_to_index(first_boot_welcome_screen_, -1);
+  return true;
+}
+
+bool UiManager::StartFirstBootWelcomeFadeOut() {
+  if (first_boot_welcome_screen_ == nullptr) {
+    return false;
+  }
+
+  lv_anim_delete(this, SetFirstBootWelcomeOpacity);
+  const int current_opacity = lv_obj_get_style_opa(
+      first_boot_welcome_screen_, LV_PART_MAIN);
+  lv_anim_t animation;
+  lv_anim_init(&animation);
+  lv_anim_set_var(&animation, this);
+  lv_anim_set_user_data(&animation, this);
+  lv_anim_set_values(
+      &animation, current_opacity, LV_OPA_TRANSP);
+  lv_anim_set_duration(&animation, kFirstBootWelcomeFadeOutMs);
+  lv_anim_set_path_cb(&animation, lv_anim_path_linear);
+  lv_anim_set_exec_cb(&animation, SetFirstBootWelcomeOpacity);
+  lv_anim_set_completed_cb(
+      &animation, FirstBootWelcomeFadeCompletedCallback);
+  return lv_anim_start(&animation) != nullptr;
+}
+
+void UiManager::DestroyFirstBootWelcomeScreen() {
+  if (first_boot_welcome_screen_ != nullptr) {
+    lv_obj_t* screen = first_boot_welcome_screen_;
+    first_boot_welcome_screen_ = nullptr;
+    lv_obj_delete(screen);
+  }
+  first_boot_welcome_closing_ = false;
+  SetStatusBarTextColor(kStatusBarLightTextColor);
+  SetStatusBarVisible(true);
+  status_bar_.MoveToTop();
+}
+
+bool UiManager::CompleteFirstBootWelcome() {
+  if (first_boot_welcome_closing_) {
+    return true;
+  }
+  if (!first_boot_welcome_pending_ ||
+      first_boot_welcome_screen_ == nullptr) {
+    return false;
+  }
+  if (first_boot_welcome_completion_callback_ &&
+      !first_boot_welcome_completion_callback_()) {
+    return false;
+  }
+
+  first_boot_welcome_pending_ = false;
+  first_boot_welcome_completion_callback_ = nullptr;
+  first_boot_welcome_closing_ = true;
+  lv_obj_remove_flag(first_boot_welcome_screen_, LV_OBJ_FLAG_CLICKABLE);
+  // 先恢复下层主界面，再把欢迎页保持在最上方执行淡出。
+  SetStatusBarTextColor(kStatusBarLightTextColor);
+  SetStatusBarVisible(true);
+  lv_obj_move_to_index(first_boot_welcome_screen_, -1);
+  if (!StartFirstBootWelcomeFadeOut()) {
+    DestroyFirstBootWelcomeScreen();
+  }
+  return true;
 }
 
 bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {

@@ -102,6 +102,20 @@ class UiManager final {
   bool IsStartupScreenActive() const;
 
   /**
+   * @brief 在启动界面结束后显示首次开机欢迎页
+   * @param completion_callback 关闭页面前持久化完成标志的回调
+   * @return 页面已经显示或进入待显示状态返回 true，否则返回 false
+   */
+  bool ShowFirstBootWelcome(
+      std::function<bool()> completion_callback);
+
+  /**
+   * @brief 判断首次开机欢迎页是否正在等待显示或已经显示
+   * @return 首次开机欢迎流程仍在进行返回 true，否则返回 false
+   */
+  bool IsFirstBootWelcomeActive() const;
+
+  /**
    * @brief 设置全局状态栏文字和图标颜色
    * @param color 文字和图标颜色，格式为 0xRRGGBB
    */
@@ -233,6 +247,13 @@ class UiManager final {
   static void SetStartupScreenOpacity(void* user_data, int32_t opacity);
 
   /**
+   * @brief 设置首次开机欢迎页整体透明度
+   * @param user_data UiManager 指针
+   * @param opacity 透明度
+   */
+  static void SetFirstBootWelcomeOpacity(void* user_data, int32_t opacity);
+
+  /**
    * @brief 处理系统启动界面进度条动画完成事件
    * @param animation LVGL 动画对象
    */
@@ -243,6 +264,12 @@ class UiManager final {
    * @param animation LVGL 动画对象
    */
   static void StartupFadeCompletedCallback(lv_anim_t* animation);
+
+  /**
+   * @brief 处理首次开机欢迎页淡出完成事件
+   * @param animation LVGL 动画对象
+   */
+  static void FirstBootWelcomeFadeCompletedCallback(lv_anim_t* animation);
 
   /**
    * @brief 获取当前 LVGL 逻辑布局宽度，旋转后会随 display 更新
@@ -285,6 +312,29 @@ class UiManager final {
    * @brief 删除系统启动界面
    */
   void DestroyStartupScreen();
+
+  /**
+   * @brief 创建已经进入待显示状态的首次开机欢迎页
+   * @return 调用后页面存在返回 true，否则返回 false
+   */
+  bool CreateFirstBootWelcomeScreen();
+
+  /**
+   * @brief 启动首次开机欢迎页淡出动画
+   * @return 启动成功返回 true，否则返回 false
+   */
+  bool StartFirstBootWelcomeFadeOut();
+
+  /**
+   * @brief 删除首次开机欢迎页并恢复主界面状态栏
+   */
+  void DestroyFirstBootWelcomeScreen();
+
+  /**
+   * @brief 持久化首次开机完成标志并关闭欢迎页
+   * @return 标志保存且页面关闭成功返回 true，否则返回 false
+   */
+  bool CompleteFirstBootWelcome();
 
   /**
    * @brief 创建当前 app 页面
@@ -419,6 +469,7 @@ class UiManager final {
   StatusBar status_bar_;
   lv_obj_t* startup_screen_ = nullptr;
   lv_obj_t* startup_progress_fill_ = nullptr;
+  lv_obj_t* first_boot_welcome_screen_ = nullptr;
   lv_obj_t* lock_screen_ = nullptr;
   lv_obj_t* power_menu_ = nullptr;
   int startup_progress_percent_ = 0;
@@ -427,7 +478,10 @@ class UiManager final {
   int layout_width_ = 0;
   int layout_height_ = 0;
   bool startup_progress_animating_ = false;
+  bool first_boot_welcome_pending_ = false;
+  bool first_boot_welcome_closing_ = false;
   bool relayouting_ = false;
+  std::function<bool()> first_boot_welcome_completion_callback_;
   const app::AppEntry* active_app_entry_ = nullptr;
   lv_obj_t* launcher_container_ = nullptr;
   lv_obj_t* page_scroller_ = nullptr;

@@ -13,6 +13,7 @@
 #include <utility>
 
 #include "app/storage/display_storage.h"
+#include "app/storage/first_boot_storage.h"
 #include "app/storage/haptic_storage.h"
 #include "app/storage/sound_storage.h"
 #include "app/storage/wifi_storage.h"
@@ -47,6 +48,7 @@ void StorageTaskEntry(void* context) {
 
 void InitStorage() {
   InitDisplayCache();
+  InitFirstBootCache();
   InitHapticCache();
   InitSoundCache();
   InitWifiCache();
