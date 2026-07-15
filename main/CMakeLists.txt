@@ -2,6 +2,7 @@ set(src_dirs
     "."
     "app"
     "app/storage"
+    "audio"
     "base"
     "hal"
     "hal/ppa"
@@ -37,6 +38,7 @@ idf_component_register(
         bootloader_support
         esp_app_format
         esp_common
+        esp_audio_codec
         esp_eth
         esp_event
         fatfs

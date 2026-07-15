@@ -2,7 +2,7 @@
  * @Description: T-Display-P4 设备及硬件 Provider 适配接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-15 09:49:03
+ * @LastEditTime: 2026-07-15 11:16:11
  * @License: GPL 3.0
  */
 #pragma once
@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <memory>
 
+#include "audio/mp3_decoder.h"
 #include "esp_wifi_types.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -34,7 +35,8 @@ class TDisplayP4Device final : public ScreenProvider,
                                public RtcProvider,
                                public EthernetProvider,
                                public WifiProvider,
-                               public StorageProvider {
+                               public StorageProvider,
+                               private audio::PcmOutput {
  public:
   TDisplayP4Device();
 
@@ -125,6 +127,46 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 读取成功返回 true，否则返回 false
    */
   bool ReadSpeakerToneStatus(SpeakerStatus* status) override;
+
+  /**
+   * @brief 创建后台任务解码并播放 MP3 文件
+   * @param path MP3 文件绝对路径
+   * @param duration_ms 音频总时长，单位毫秒
+   * @return 任务创建成功返回 true，否则返回 false
+   */
+  bool StartAudioFile(const char* path, uint32_t duration_ms) override;
+
+  /**
+   * @brief 暂停当前 MP3 文件播放
+   * @return 暂停成功返回 true，否则返回 false
+   */
+  bool PauseAudioFile() override;
+
+  /**
+   * @brief 恢复当前 MP3 文件播放
+   * @return 恢复成功返回 true，否则返回 false
+   */
+  bool ResumeAudioFile() override;
+
+  /**
+   * @brief 请求将当前 MP3 文件定位到指定播放时间
+   * @param position_ms 目标播放时间，单位毫秒
+   * @return 定位请求发送成功返回 true，否则返回 false
+   */
+  bool SeekAudioFile(uint32_t position_ms) override;
+
+  /**
+   * @brief 请求停止当前 MP3 文件播放
+   * @return 停止请求发送成功返回 true，否则返回 false
+   */
+  bool StopAudioFile() override;
+
+  /**
+   * @brief 读取当前 MP3 文件播放状态
+   * @param status 播放状态输出地址
+   * @return 读取成功返回 true，否则返回 false
+   */
+  bool ReadAudioFileStatus(AudioFilePlaybackStatus* status) override;
 
   /**
    * @brief 创建后台任务读取 ES8311 麦克风采样数据
@@ -417,6 +459,43 @@ class TDisplayP4Device final : public ScreenProvider,
   void RunSpeakerPlaybackTask();
 
   /**
+   * @brief 根据 MP3 流参数配置 ES8311 PCM 输出
+   * @param sample_rate_hz 采样率
+   * @param channel_count 声道数
+   * @param bits_per_sample 采样位宽
+   * @return 配置成功返回 true，否则返回 false
+   */
+  bool Configure(uint32_t sample_rate_hz, uint8_t channel_count,
+      uint8_t bits_per_sample) override;
+
+  /**
+   * @brief 等待 MP3 播放从暂停状态恢复
+   * @return 可以继续播放返回 true，请求停止返回 false
+   */
+  bool WaitUntilReady() override;
+
+  /**
+   * @brief 读取并清除一个待处理的 MP3 定位请求
+   * @param position_ms 目标播放时间输出地址，单位毫秒
+   * @return 存在待处理请求返回 true，否则返回 false
+   */
+  bool TakeSeekRequest(uint32_t* position_ms) override;
+
+  /**
+   * @brief 向 ES8311 写入解码后的 PCM 数据
+   * @param data PCM 数据地址
+   * @param size PCM 数据字节数
+   * @return 完整写入返回 true，否则返回 false
+   */
+  bool Write(const uint8_t* data, size_t size) override;
+
+  /**
+   * @brief 更新当前 MP3 文件已播放时间
+   * @param elapsed_ms 已播放时间，单位毫秒
+   */
+  void UpdateProgress(uint32_t elapsed_ms) override;
+
+  /**
    * @brief 振动播放任务入口
    * @param context 设备对象指针
    */
@@ -607,6 +686,13 @@ class TDisplayP4Device final : public ScreenProvider,
       void* arg, const char* event_base, int32_t event_id, void* event_data);
 
   struct SpeakerState {
+    enum class PlaybackKind {
+      kNone,
+      kTone,
+      kToneLoop,
+      kAudioFile,
+    };
+
     // 播放任务是否正在运行
     std::atomic<bool> running{false};
     // 最近一次播放任务是否已经完成
@@ -621,6 +707,25 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<bool> loop_enabled{false};
     // 是否请求停止循环播放音频预览
     std::atomic<bool> stop_requested{false};
+    // 当前播放内容类型，用于让提示音和 MP3 共用同一播放任务
+    std::atomic<PlaybackKind> playback_kind{PlaybackKind::kNone};
+    // MP3 文件播放是否暂停
+    std::atomic<bool> paused{false};
+    // MP3 文件播放状态
+    std::atomic<AudioFilePlaybackState> file_state{
+        AudioFilePlaybackState::kStopped};
+    // MP3 文件已播放时间，单位毫秒
+    std::atomic<uint32_t> elapsed_ms{0};
+    // MP3 文件总时长，单位毫秒
+    std::atomic<uint32_t> duration_ms{0};
+    // 是否存在尚未由解码任务处理的定位请求
+    std::atomic<bool> seek_requested{false};
+    // MP3 文件待定位的播放时间，单位毫秒
+    std::atomic<uint32_t> seek_position_ms{0};
+    // 当前 ES8311 输出采样率
+    std::atomic<uint32_t> sample_rate_hz{44100};
+    // 当前 MP3 文件绝对路径
+    char audio_file_path[512] = {};
   };
 
   struct HapticState {

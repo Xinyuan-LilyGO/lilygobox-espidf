@@ -2,23 +2,38 @@
  * @Description: 音乐应用视图
  * @Author: LILYGO_L
  * @Date: 2026-07-08 00:00:00
- * @LastEditTime: 2026-07-14 22:36:01
+ * @LastEditTime: 2026-07-15 14:12:20
  * @License: GPL 3.0
  */
 #include "ui/views/music_view.h"
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <functional>
+#include <memory>
+#include <new>
 #include <string>
+#include <utility>
+#include <vector>
 
+#include "app/music_library.h"
+#include "app/storage/music_storage.h"
 #include "base/logger.h"
+#include "esp_random.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "hal/providers/audio_provider.h"
+#include "hal/providers/storage_provider.h"
 #include "ui/animation/transition_animation.h"
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/input/edge_back_gesture.h"
+#include "ui/input/press_cancel.h"
 #include "ui/theme/theme_provider.h"
 #include "ui/views/files_view.h"
 #include "ui/widgets/navigation_drawer.h"
@@ -54,6 +69,15 @@ constexpr int kSettingsAnimationMs = 240;
 constexpr int kMusicSourcesHeaderTop = 112;
 constexpr int kMusicSourcesAddTop = 98;
 constexpr int kMusicSourcesListTop = 174;
+constexpr int kMusicLibraryTop = 226;
+constexpr int kMusicTrackRowHeight = 104;
+constexpr uint32_t kPlaybackStatusIntervalMs = 250;
+constexpr uint32_t kMusicScanStartDelayMs = 850;
+constexpr uint32_t kMusicScanTaskStackBytes = 8 * 1024;
+constexpr UBaseType_t kMusicScanTaskPriority = 2;
+constexpr int kMusicEmptyGroupOffsetY = -80;
+constexpr int kMusicScanningGroupOffsetY = -48;
+constexpr int kMusicStatusIconSize = 96;
 
 constexpr int kMusicFolderOptionCount = 8;
 constexpr PromptSelectSheetOption kMusicFolderOptions[] = {
@@ -80,14 +104,32 @@ enum class MusicPlaybackMode {
   kShuffle,
 };
 
+struct MusicTrackAction;
+
+struct MusicScanJob {
+  std::vector<std::string> source_paths;
+  std::vector<app::MusicTrack> tracks;
+  std::atomic<bool> completed{false};
+  bool success = false;
+};
+
 struct MusicViewState {
   AppViewConfig config;
   lv_obj_t* root = nullptr;
   lv_obj_t* player_page = nullptr;
   lv_obj_t* play_button = nullptr;
+  lv_obj_t* mini_player = nullptr;
+  lv_obj_t* mini_play_button = nullptr;
+  lv_obj_t* mini_title_label = nullptr;
+  lv_obj_t* mini_artist_label = nullptr;
+  lv_obj_t* player_title_label = nullptr;
+  lv_obj_t* player_artist_label = nullptr;
   lv_obj_t* playback_mode_label = nullptr;
+  lv_obj_t* progress_slider = nullptr;
   lv_obj_t* current_time_label = nullptr;
   lv_obj_t* total_time_label = nullptr;
+  lv_obj_t* library_content = nullptr;
+  lv_timer_t* playback_status_timer = nullptr;
   lv_obj_t* settings_page = nullptr;
   lv_obj_t* sources_page = nullptr;
   lv_obj_t* sources_body = nullptr;
@@ -105,10 +147,23 @@ struct MusicViewState {
   bool picker_source_enabled[kMusicFolderOptionCount] = {};
   std::array<std::string, kMusicFolderOptionCount> source_paths;
   std::array<std::string, kMusicFolderOptionCount> draft_source_paths;
+  std::vector<app::MusicTrack> tracks;
+  std::vector<std::unique_ptr<MusicTrackAction>> track_actions;
+  std::shared_ptr<MusicScanJob> scan_job;
+  lv_timer_t* scan_start_timer = nullptr;
+  int current_track = -1;
   bool playing = false;
+  bool seeking = false;
+  bool completion_handled = false;
+  bool storage_was_mounted = false;
   MusicPlaybackMode playback_mode = MusicPlaybackMode::kRepeatAll;
   bool settings_closing = false;
   bool sources_closing = false;
+};
+
+struct MusicTrackAction {
+  MusicViewState* state = nullptr;
+  size_t track_index = 0;
 };
 
 struct MusicSourceAction {
@@ -117,6 +172,91 @@ struct MusicSourceAction {
   lv_obj_t* check = nullptr;
   int source = 0;
 };
+
+/**
+ * @brief 重新构建音乐主页面的曲目列表
+ * @param state 音乐视图状态
+ * @return 构建成功返回 true，否则返回 false
+ */
+bool RenderMusicLibrary(MusicViewState* state);
+
+/**
+ * @brief 渲染音乐文件扫描中的加载状态
+ * @param state 音乐视图状态
+ * @return 构建成功返回 true，否则返回 false
+ */
+bool RenderMusicScanningContent(MusicViewState* state);
+
+/**
+ * @brief 从已配置音乐源重新扫描 MP3 曲库
+ * @param state 音乐视图状态
+ * @return 扫描和界面刷新完成返回 true，否则返回 false
+ */
+bool RefreshMusicLibrary(MusicViewState* state);
+
+/**
+ * @brief 在扫描提示显示后执行存储挂载和曲库扫描
+ * @param state 音乐视图状态
+ * @return 扫描任务启动成功返回 true，否则返回 false
+ */
+bool StartMusicLibraryScan(MusicViewState* state);
+
+/**
+ * @brief 停止等待执行的音乐存储扫描计时器
+ * @param state 音乐视图状态
+ */
+void StopMusicScanStartTimer(MusicViewState* state);
+
+/**
+ * @brief 接收后台曲库扫描结果并刷新音乐列表
+ * @param state 音乐视图状态
+ */
+void FinishMusicLibraryScan(MusicViewState* state);
+
+/**
+ * @brief 更新播放按钮图标和形状
+ * @param state 音乐视图状态
+ * @param animated 是否播放圆角切换动画
+ */
+void UpdatePlayButton(MusicViewState* state, bool animated);
+
+/**
+ * @brief 处理刷新曲库按钮点击事件
+ * @param event LVGL 事件对象
+ */
+void RefreshMusicClickedEventCallback(lv_event_t* event);
+
+/**
+ * @brief 开始播放曲库中的指定曲目
+ * @param state 音乐视图状态
+ * @param track_index 曲目索引
+ * @return 播放任务启动成功返回 true，否则返回 false
+ */
+bool StartMusicTrack(MusicViewState* state, size_t track_index);
+
+/**
+ * @brief 按当前播放模式选择上一首或下一首曲目
+ * @param state 音乐视图状态
+ * @param direction 切换方向，负数为上一首，正数为下一首
+ * @return 播放任务启动成功返回 true，否则返回 false
+ */
+bool PlayAdjacentMusicTrack(MusicViewState* state, int direction);
+
+/**
+ * @brief 获取当前选中的曲目
+ * @param state 音乐视图状态
+ * @return 当前曲目地址，没有选中曲目时返回 nullptr
+ */
+const app::MusicTrack* CurrentMusicTrack(const MusicViewState* state);
+
+/**
+ * @brief 更新播放状态以及两个播放按钮的图标
+ * @param state 音乐视图状态
+ * @param playing 是否正在播放
+ * @param animated 是否播放详情页按钮形状动画
+ */
+void SetMusicPlaying(
+    MusicViewState* state, bool playing, bool animated);
 
 /**
  * @brief 设置对象背景、边框和内边距为透明
@@ -259,21 +399,13 @@ void UpdateMusicCurrentTime(MusicViewState* state, int32_t value) {
     return;
   }
   value = std::clamp<int32_t>(value, 0, 100);
-  const int current_seconds = kDefaultTrackDurationSeconds * value / 100;
+  const app::MusicTrack* track = CurrentMusicTrack(state);
+  const int duration_seconds = track == nullptr
+                                   ? kDefaultTrackDurationSeconds
+                                   : static_cast<int>(
+                                         track->duration_ms / 1000U);
+  const int current_seconds = duration_seconds * value / 100;
   SetMusicTimeLabel(state->current_time_label, current_seconds);
-}
-
-/**
- * @brief 将音乐进度条和当前播放时间重置为起始状态
- * @param slider 进度条对象
- * @param state 音乐视图状态
- */
-void ResetMusicProgress(lv_obj_t* slider, MusicViewState* state) {
-  if (slider != nullptr) {
-    lv_slider_set_value(slider, 0, LV_ANIM_OFF);
-    lv_obj_invalidate(slider);
-  }
-  UpdateMusicCurrentTime(state, 0);
 }
 
 /**
@@ -538,7 +670,17 @@ void MusicProgressInputEventCallback(lv_event_t* event) {
   auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
   lv_obj_t* slider = lv_event_get_target_obj(event);
   if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
-    ResetMusicProgress(slider, state);
+    if (state != nullptr) {
+      const app::MusicTrack* track = CurrentMusicTrack(state);
+      if (state->config.audio != nullptr && track != nullptr &&
+          track->duration_ms > 0) {
+        const uint32_t position_ms = static_cast<uint32_t>(
+            static_cast<uint64_t>(track->duration_ms) *
+            lv_slider_get_value(slider) / 100U);
+        state->config.audio->SeekAudioFile(position_ms);
+      }
+      state->seeking = false;
+    }
     return;
   }
   if (code == LV_EVENT_VALUE_CHANGED) {
@@ -547,6 +689,9 @@ void MusicProgressInputEventCallback(lv_event_t* event) {
   }
   if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING) {
     return;
+  }
+  if (state != nullptr) {
+    state->seeking = true;
   }
 
   lv_indev_t* indev = lv_indev_active();
@@ -581,6 +726,9 @@ void PlayerCloseCompletedCallback(lv_anim_t* animation) {
   state->player_page = nullptr;
   state->play_button = nullptr;
   state->playback_mode_label = nullptr;
+  state->player_title_label = nullptr;
+  state->player_artist_label = nullptr;
+  state->progress_slider = nullptr;
   state->current_time_label = nullptr;
   state->total_time_label = nullptr;
   lv_obj_delete(page);
@@ -621,11 +769,6 @@ void StartVerticalSlide(lv_obj_t* object, int32_t start_y, int32_t end_y,
   lv_anim_start(&animation);
 }
 
-/**
- * @brief 更新播放按钮图标和形状
- * @param state 音乐视图状态
- * @param animated 是否播放圆角切换动画
- */
 void UpdatePlayButton(MusicViewState* state, bool animated) {
   if (state == nullptr || state->play_button == nullptr) {
     return;
@@ -663,9 +806,10 @@ void PlayButtonDrawEventCallback(lv_event_t* event) {
   if (state == nullptr) {
     return;
   }
-  DrawMusicControlIcon(lv_event_get_target_obj(event), lv_event_get_layer(event),
+  lv_obj_t* target = lv_event_get_target_obj(event);
+  DrawMusicControlIcon(target, lv_event_get_layer(event),
       state->playing ? MusicControlIcon::kPause : MusicControlIcon::kPlay,
-      lv_color_hex(0xFFFFFF));
+      lv_obj_get_style_text_color(target, LV_PART_MAIN));
 }
 
 /**
@@ -677,12 +821,156 @@ void PlayButtonClickedEventCallback(lv_event_t* event) {
     return;
   }
   auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->config.audio == nullptr) {
+    return;
+  }
+  if (state->playing) {
+    if (state->config.audio->PauseAudioFile()) {
+      SetMusicPlaying(state, false, true);
+    }
+  } else if (state->current_track < 0) {
+    StartMusicTrack(state, 0);
+  } else if (state->config.audio->ResumeAudioFile()) {
+    SetMusicPlaying(state, true, true);
+  } else {
+    StartMusicTrack(state, static_cast<size_t>(state->current_track));
+  }
+  lv_event_stop_bubbling(event);
+}
+
+/**
+ * @brief 处理上一首按钮点击事件
+ * @param event LVGL 事件对象
+ */
+void PreviousTrackClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
+  PlayAdjacentMusicTrack(state, -1);
+  lv_event_stop_bubbling(event);
+}
+
+/**
+ * @brief 处理下一首按钮点击事件
+ * @param event LVGL 事件对象
+ */
+void NextTrackClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
+  PlayAdjacentMusicTrack(state, 1);
+  lv_event_stop_bubbling(event);
+}
+
+const app::MusicTrack* CurrentMusicTrack(const MusicViewState* state) {
+  if (state == nullptr || state->current_track < 0 ||
+      state->current_track >= static_cast<int>(state->tracks.size())) {
+    return nullptr;
+  }
+  return &state->tracks[state->current_track];
+}
+
+/**
+ * @brief 更新迷你播放器和播放详情页中的曲目信息
+ * @param state 音乐视图状态
+ */
+void UpdateCurrentTrackLabels(MusicViewState* state) {
+  const app::MusicTrack* track = CurrentMusicTrack(state);
+  if (state == nullptr || track == nullptr) {
+    return;
+  }
+  if (state->mini_title_label != nullptr) {
+    lv_label_set_text(state->mini_title_label, track->title.c_str());
+  }
+  if (state->mini_artist_label != nullptr) {
+    lv_label_set_text(state->mini_artist_label, track->artist.c_str());
+  }
+  if (state->player_title_label != nullptr) {
+    lv_label_set_text(state->player_title_label, track->title.c_str());
+  }
+  if (state->player_artist_label != nullptr) {
+    lv_label_set_text(state->player_artist_label, track->artist.c_str());
+  }
+  SetMusicTimeLabel(state->total_time_label,
+      static_cast<int>(track->duration_ms / 1000U));
+}
+
+/**
+ * @brief 设置迷你播放器可见性并同步曲目列表高度
+ * @param state 音乐视图状态
+ * @param visible 是否显示迷你播放器
+ */
+void SetMiniPlayerVisible(MusicViewState* state, bool visible) {
   if (state == nullptr) {
     return;
   }
-  state->playing = !state->playing;
-  UpdatePlayButton(state, true);
-  lv_event_stop_bubbling(event);
+  if (state->mini_player != nullptr) {
+    if (visible) {
+      lv_obj_remove_flag(state->mini_player, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(state->mini_player, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+  if (state->library_content != nullptr) {
+    lv_obj_set_height(state->library_content,
+        state->config.height - kMusicLibraryTop -
+            (visible ? kMiniPlayerHeight : 0));
+  }
+}
+
+void SetMusicPlaying(
+    MusicViewState* state, bool playing, bool animated) {
+  if (state == nullptr) {
+    return;
+  }
+  state->playing = playing;
+  UpdatePlayButton(state, animated);
+  if (state->mini_play_button != nullptr) {
+    lv_obj_invalidate(state->mini_play_button);
+  }
+}
+
+bool StartMusicTrack(MusicViewState* state, size_t track_index) {
+  if (state == nullptr || state->config.audio == nullptr ||
+      track_index >= state->tracks.size()) {
+    return false;
+  }
+  const app::MusicTrack& track = state->tracks[track_index];
+  if (!state->config.audio->StartAudioFile(
+          track.path.c_str(), track.duration_ms)) {
+    SetMusicPlaying(state, false, true);
+    return false;
+  }
+  state->current_track = static_cast<int>(track_index);
+  state->completion_handled = false;
+  SetMiniPlayerVisible(state, true);
+  UpdateCurrentTrackLabels(state);
+  SetMusicTimeLabel(state->current_time_label, 0);
+  if (state->progress_slider != nullptr) {
+    lv_slider_set_value(state->progress_slider, 0, LV_ANIM_OFF);
+  }
+  SetMusicPlaying(state, true, true);
+  return true;
+}
+
+bool PlayAdjacentMusicTrack(MusicViewState* state, int direction) {
+  if (state == nullptr || state->tracks.empty()) {
+    return false;
+  }
+  size_t track_index = 0;
+  if (state->playback_mode == MusicPlaybackMode::kShuffle &&
+      state->tracks.size() > 1) {
+    do {
+      track_index = esp_random() % state->tracks.size();
+    } while (track_index == static_cast<size_t>(state->current_track));
+  } else if (state->current_track >= 0) {
+    const int track_count = static_cast<int>(state->tracks.size());
+    track_index = static_cast<size_t>(
+        (state->current_track + direction + track_count) % track_count);
+  }
+  return StartMusicTrack(state, track_index);
 }
 
 /**
@@ -855,6 +1143,38 @@ lv_obj_t* CreateArtwork(lv_obj_t* parent, int size, int radius) {
 }
 
 /**
+ * @brief 创建音乐空状态使用的圆形状态图标
+ * @param parent 父对象
+ * @param icon_text Material Symbols 图标文本
+ * @return 创建成功返回图标容器，否则返回 nullptr
+ */
+lv_obj_t* CreateMusicStatusIcon(lv_obj_t* parent, const char* icon_text) {
+  if (parent == nullptr || icon_text == nullptr) {
+    return nullptr;
+  }
+  lv_obj_t* background = lv_obj_create(parent);
+  if (background == nullptr) {
+    return nullptr;
+  }
+  lv_obj_remove_flag(background, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(background, kMusicStatusIconSize, kMusicStatusIconSize);
+  lv_obj_set_style_radius(
+      background, kMusicStatusIconSize / 2, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      background, lv_color_hex(kSecondaryContainerColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(background, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(background, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(background, 0, LV_PART_MAIN);
+
+  lv_obj_t* icon_label = CreateLabel(background, icon_text,
+      lv_color_hex(kPrimaryColor), MaterialFillIconFont32());
+  if (icon_label != nullptr) {
+    lv_obj_center(icon_label);
+  }
+  return background;
+}
+
+/**
  * @brief 创建播放详情页
  * @param state 音乐视图状态
  * @return 创建成功返回 true，否则返回 false
@@ -891,7 +1211,7 @@ bool CreatePlayerPage(MusicViewState* state) {
     return false;
   }
   lv_obj_set_size(close_button, 76, 76);
-  lv_obj_align(close_button, LV_ALIGN_TOP_LEFT, 14, 48);
+  lv_obj_align(close_button, LV_ALIGN_TOP_LEFT, 14, 56);
   lv_obj_add_event_cb(
       close_button, PlayerBackClickedEventCallback, LV_EVENT_CLICKED, state);
   lv_obj_t* close_label =
@@ -917,36 +1237,52 @@ bool CreatePlayerPage(MusicViewState* state) {
   const int artwork_size = compact_layout
       ? std::min(state->config.width / 3, state->config.height / 3)
       : std::min(state->config.width - 64, state->config.height / 2);
-  const int artwork_y = compact_layout ? 132 : 176;
-  const int title_y = artwork_y + artwork_size + (compact_layout ? 18 : 46);
-  const int track_y = title_y + (compact_layout ? 82 : 154);
-  const int control_bottom = compact_layout ? -46 : -78;
-  const int side_control_bottom = compact_layout ? -60 : -92;
+  const int artwork_y = compact_layout ? 124 : 164;
+  const int title_y = artwork_y + artwork_size + (compact_layout ? 12 : 34);
+  const int track_y = title_y + (compact_layout ? 74 : 142);
+  const lv_font_t* title_font = compact_layout ? Font28() : Font36();
+  const lv_font_t* artist_font = compact_layout ? Font24() : Font28();
+  const int title_height =
+      static_cast<int>(lv_font_get_line_height(title_font));
+  const int artist_height =
+      static_cast<int>(lv_font_get_line_height(artist_font));
+  const int artist_y = title_y + title_height + (compact_layout ? 8 : 12);
+  const int control_bottom = compact_layout ? -62 : -94;
+  const int side_control_bottom = compact_layout ? -76 : -108;
   const int side_control_offset = compact_layout ? 96 : 120;
   lv_obj_t* artwork = CreateArtwork(page, artwork_size, 26);
   if (artwork != nullptr) {
     lv_obj_align(artwork, LV_ALIGN_TOP_MID, 0, artwork_y);
   }
 
-  lv_obj_t* title =
-      CreateLabel(page, "Unknown Track", lv_color_hex(kMainTextColor), Font48());
-  if (title != nullptr) {
-    lv_obj_set_width(title, state->config.width - 64);
-    lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 32, title_y);
+  state->player_title_label =
+      CreateLabel(
+          page, "Unknown Track", lv_color_hex(kMainTextColor), title_font);
+  if (state->player_title_label != nullptr) {
+    lv_obj_set_size(state->player_title_label,
+        state->config.width - 64, title_height);
+    lv_label_set_long_mode(
+        state->player_title_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_align(state->player_title_label, LV_ALIGN_TOP_LEFT, 32, title_y);
   }
-  lv_obj_t* artist =
+  state->player_artist_label =
       CreateLabel(page, "Unknown Artist", lv_color_hex(kSecondaryTextColor),
-          Font28());
-  if (artist != nullptr && title != nullptr) {
-    lv_obj_set_width(artist, state->config.width - 64);
-    lv_label_set_long_mode(artist, LV_LABEL_LONG_DOT);
-    lv_obj_align_to(artist, title, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 8);
+          artist_font);
+  if (state->player_artist_label != nullptr &&
+      state->player_title_label != nullptr) {
+    lv_obj_set_size(state->player_artist_label,
+        state->config.width - 64, artist_height);
+    lv_label_set_long_mode(
+        state->player_artist_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_align(
+        state->player_artist_label, LV_ALIGN_TOP_LEFT, 32, artist_y);
   }
 
-  lv_obj_t* slider = lv_slider_create(page);
-  if (slider != nullptr) {
-    lv_obj_set_size(slider, state->config.width - 64, kProgressSliderHeight);
+  state->progress_slider = lv_slider_create(page);
+  if (state->progress_slider != nullptr) {
+    lv_obj_t* slider = state->progress_slider;
+    lv_obj_set_size(slider, state->config.width - 64,
+        kProgressSliderHeight);
     lv_obj_align(slider, LV_ALIGN_TOP_LEFT, 32, track_y);
     lv_slider_set_range(slider, 0, 100);
     lv_slider_set_value(slider, 0, LV_ANIM_OFF);
@@ -985,7 +1321,11 @@ bool CreatePlayerPage(MusicViewState* state) {
   if (state->total_time_label != nullptr) {
     lv_obj_align(state->total_time_label, LV_ALIGN_TOP_RIGHT, -32,
         track_y + 60);
-    SetMusicTimeLabel(state->total_time_label, kDefaultTrackDurationSeconds);
+    const app::MusicTrack* track = CurrentMusicTrack(state);
+    SetMusicTimeLabel(state->total_time_label,
+        track == nullptr
+            ? kDefaultTrackDurationSeconds
+            : static_cast<int>(track->duration_ms / 1000U));
   }
 
   lv_obj_t* previous =
@@ -994,6 +1334,8 @@ bool CreatePlayerPage(MusicViewState* state) {
   if (previous != nullptr) {
     lv_obj_align(previous, LV_ALIGN_BOTTOM_MID, -side_control_offset,
         side_control_bottom);
+    lv_obj_add_event_cb(previous, PreviousTrackClickedEventCallback,
+        LV_EVENT_CLICKED, state);
   }
 
   lv_obj_t* playback_mode_button =
@@ -1051,7 +1393,11 @@ bool CreatePlayerPage(MusicViewState* state) {
   if (next != nullptr) {
     lv_obj_align(next, LV_ALIGN_BOTTOM_MID, side_control_offset,
         side_control_bottom);
+    lv_obj_add_event_cb(next, NextTrackClickedEventCallback,
+        LV_EVENT_CLICKED, state);
   }
+
+  UpdateCurrentTrackLabels(state);
 
   EnableEdgeBackSwipeEventBubble(page);
   StartVerticalSlide(page, state->config.height, 0, state, nullptr);
@@ -1082,29 +1428,58 @@ void MusicViewDeleteEventCallback(lv_event_t* event) {
     return;
   }
   auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
+  StopMusicScanStartTimer(state);
+  if (state != nullptr && state->playback_status_timer != nullptr) {
+    lv_timer_delete(state->playback_status_timer);
+    state->playback_status_timer = nullptr;
+  }
+  if (state != nullptr && state->config.audio != nullptr) {
+    state->config.audio->StopAudioFile();
+  }
   delete state;
 }
 
 /**
  * @brief 创建主界面的空音乐提示
  * @param parent 父对象
- * @param config 应用视图配置
+ * @param state 音乐视图状态
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateEmptyMusicContent(lv_obj_t* parent, const AppViewConfig& config) {
+bool CreateEmptyMusicContent(lv_obj_t* parent, MusicViewState* state) {
+  if (state == nullptr) {
+    return false;
+  }
   lv_obj_t* group = lv_obj_create(parent);
   if (group == nullptr) {
     return false;
   }
   MakeTransparent(group);
   lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(group, config.width, 150);
-  lv_obj_align(group, LV_ALIGN_CENTER, 0, 60);
+  lv_obj_set_size(group, state->config.width, 280);
+  lv_obj_align(group, LV_ALIGN_CENTER, 0, kMusicEmptyGroupOffsetY);
 
-  lv_obj_t* message =
-      CreateLabel(group, "No music found", lv_color_hex(kMainTextColor), Font28());
+  const bool storage_available = state->storage_was_mounted;
+  lv_obj_t* status_icon = CreateMusicStatusIcon(
+      group, storage_available ? icon::kMusic : icon::kSdStorage);
+  if (status_icon != nullptr) {
+    lv_obj_align(status_icon, LV_ALIGN_TOP_MID, 0, 0);
+  }
+
+  lv_obj_t* message = CreateLabel(group,
+      storage_available ? "No music found" : "Storage device not found",
+      lv_color_hex(kMainTextColor), Font28());
   if (message != nullptr) {
-    lv_obj_align(message, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_align(message, LV_ALIGN_TOP_MID, 0, 116);
+  }
+  lv_obj_t* hint = CreateLabel(group,
+      storage_available ? "Add a music source or scan again."
+                        : "Insert a storage device and scan again.",
+      lv_color_hex(kSecondaryTextColor), Font22());
+  if (hint != nullptr) {
+    lv_obj_set_width(hint, state->config.width - 80);
+    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
+    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 154);
   }
   lv_obj_t* scan_button = lv_button_create(group);
   if (scan_button == nullptr) {
@@ -1117,13 +1492,16 @@ bool CreateEmptyMusicContent(lv_obj_t* parent, const AppViewConfig& config) {
   lv_obj_set_style_bg_opa(scan_button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(scan_button, 0, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(scan_button, 0, LV_PART_MAIN);
-  lv_obj_align_to(scan_button, message, LV_ALIGN_OUT_BOTTOM_MID, 0, 26);
-  lv_obj_t* scan_label =
-      CreateLabel(scan_button, "Refresh Music", lv_color_hex(0xFFFFFF),
-          Font24());
+  lv_obj_align(scan_button, LV_ALIGN_TOP_MID, 0, 194);
+  lv_obj_add_event_cb(scan_button, RefreshMusicClickedEventCallback,
+      LV_EVENT_CLICKED, state);
+  lv_obj_t* scan_label = CreateLabel(scan_button,
+      storage_available ? "Scan Music" : "Scan again",
+      lv_color_hex(0xFFFFFF), Font24());
   if (scan_label != nullptr) {
     lv_obj_center(scan_label);
   }
+  EnableEdgeBackSwipeEventBubble(parent);
   return true;
 }
 
@@ -1138,6 +1516,7 @@ bool CreateMiniPlayer(lv_obj_t* parent, MusicViewState* state) {
   if (card == nullptr) {
     return false;
   }
+  state->mini_player = card;
   lv_obj_set_size(card, state->config.width, kMiniPlayerHeight);
   lv_obj_align(card, LV_ALIGN_BOTTOM_MID, 0, 0);
   lv_obj_set_style_radius(card, kMiniPlayerRadius, LV_PART_MAIN);
@@ -1154,23 +1533,30 @@ bool CreateMiniPlayer(lv_obj_t* parent, MusicViewState* state) {
   if (artwork != nullptr) {
     lv_obj_align(artwork, LV_ALIGN_LEFT_MID, 0, 0);
   }
-  lv_obj_t* title =
+  state->mini_title_label =
       CreateLabel(card, "Unknown Track", lv_color_hex(kMainTextColor), Font24());
-  if (title != nullptr) {
-    lv_obj_set_width(title, state->config.width - 270);
-    lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 90, -15);
+  if (state->mini_title_label != nullptr) {
+    lv_obj_set_size(state->mini_title_label,
+        state->config.width - 288,
+        static_cast<int>(lv_font_get_line_height(Font24())));
+    lv_label_set_long_mode(
+        state->mini_title_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_align(state->mini_title_label, LV_ALIGN_LEFT_MID, 90, -15);
   }
-  lv_obj_t* artist =
+  state->mini_artist_label =
       CreateLabel(card, "Unknown Artist", lv_color_hex(kSecondaryTextColor), Font22());
-  if (artist != nullptr) {
-    lv_obj_set_width(artist, state->config.width - 270);
-    lv_label_set_long_mode(artist, LV_LABEL_LONG_DOT);
-    lv_obj_align(artist, LV_ALIGN_LEFT_MID, 90, 19);
+  if (state->mini_artist_label != nullptr) {
+    lv_obj_set_size(state->mini_artist_label,
+        state->config.width - 288,
+        static_cast<int>(lv_font_get_line_height(Font22())));
+    lv_label_set_long_mode(
+        state->mini_artist_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_align(state->mini_artist_label, LV_ALIGN_LEFT_MID, 90, 19);
   }
 
-  lv_obj_t* play = lv_button_create(card);
-  if (play != nullptr) {
+  state->mini_play_button = lv_button_create(card);
+  if (state->mini_play_button != nullptr) {
+    lv_obj_t* play = state->mini_play_button;
     lv_obj_set_size(play, 62, 62);
     lv_obj_align(play, LV_ALIGN_RIGHT_MID, -88, 0);
     lv_obj_set_style_radius(play, 31, LV_PART_MAIN);
@@ -1181,10 +1567,10 @@ bool CreateMiniPlayer(lv_obj_t* parent, MusicViewState* state) {
     lv_obj_set_style_border_width(play, 0, LV_PART_MAIN);
     lv_obj_set_style_text_color(play, lv_color_hex(kPrimaryColor),
         LV_PART_MAIN);
-    lv_obj_add_event_cb(play, StaticControlIconDrawEventCallback,
-        LV_EVENT_DRAW_MAIN,
-        reinterpret_cast<void*>(
-            static_cast<intptr_t>(MusicControlIcon::kPlay)));
+    lv_obj_add_event_cb(play, PlayButtonDrawEventCallback,
+        LV_EVENT_DRAW_MAIN, state);
+    lv_obj_add_event_cb(play, PlayButtonClickedEventCallback,
+        LV_EVENT_CLICKED, state);
     lv_obj_add_event_cb(
         play, StopClickBubblingEventCallback, LV_EVENT_ALL, nullptr);
   }
@@ -1205,9 +1591,61 @@ bool CreateMiniPlayer(lv_obj_t* parent, MusicViewState* state) {
         LV_EVENT_DRAW_MAIN,
         reinterpret_cast<void*>(
             static_cast<intptr_t>(MusicControlIcon::kSkipNext)));
+    lv_obj_add_event_cb(next, NextTrackClickedEventCallback,
+        LV_EVENT_CLICKED, state);
     lv_obj_add_event_cb(
         next, StopClickBubblingEventCallback, LV_EVENT_ALL, nullptr);
   }
+  if (CurrentMusicTrack(state) == nullptr) {
+    lv_obj_add_flag(card, LV_OBJ_FLAG_HIDDEN);
+  }
+  return true;
+}
+
+bool RenderMusicScanningContent(MusicViewState* state) {
+  if (state == nullptr || state->library_content == nullptr) {
+    return false;
+  }
+  lv_obj_clean(state->library_content);
+  state->track_actions.clear();
+
+  lv_obj_t* group = lv_obj_create(state->library_content);
+  if (group == nullptr) {
+    return false;
+  }
+  MakeTransparent(group);
+  lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(group, state->config.width, 250);
+  lv_obj_align(group, LV_ALIGN_CENTER, 0, kMusicScanningGroupOffsetY);
+
+  lv_obj_t* spinner = lv_spinner_create(group);
+  if (spinner != nullptr) {
+    lv_obj_set_size(spinner, 68, 68);
+    lv_spinner_set_anim_params(spinner, 850, 250);
+    lv_obj_set_style_arc_color(spinner,
+        lv_color_hex(kSecondaryContainerColor), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(
+        spinner, lv_color_hex(kPrimaryColor), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(spinner, 7, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(spinner, 7, LV_PART_INDICATOR);
+    lv_obj_align(spinner, LV_ALIGN_TOP_MID, 0, 0);
+  }
+
+  lv_obj_t* message = CreateLabel(group, "Scanning music files...",
+      lv_color_hex(kMainTextColor), Font28());
+  if (message != nullptr) {
+    lv_obj_align(message, LV_ALIGN_TOP_MID, 0, 96);
+  }
+  lv_obj_t* hint = CreateLabel(group,
+      "Reading MP3 files from selected folders",
+      lv_color_hex(kSecondaryTextColor), Font22());
+  if (hint != nullptr) {
+    lv_obj_set_width(hint, state->config.width - 80);
+    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
+    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 138);
+  }
+  EnableEdgeBackSwipeEventBubble(state->library_content);
   return true;
 }
 
@@ -1889,6 +2327,46 @@ void RebuildMusicSourcesPromptAsync(void* context) {
 }
 
 /**
+ * @brief 从 NVS 加载音乐源文件夹到视图状态
+ * @param state 音乐视图状态
+ */
+void LoadStoredMusicSources(MusicViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+  app::MusicSourcePreferences preferences;
+  if (!app::LoadMusicSourcePreferences(&preferences)) {
+    return;
+  }
+  const size_t count = std::min<size_t>(
+      kMusicFolderOptionCount, app::kMusicSourceCapacity);
+  for (size_t index = 0; index < count; ++index) {
+    state->source_paths[index] = preferences.paths[index];
+    state->source_enabled[index] = !state->source_paths[index].empty();
+  }
+}
+
+/**
+ * @brief 将视图状态中的音乐源文件夹保存到 NVS
+ * @param state 音乐视图状态
+ * @return 保存成功返回 true，否则返回 false
+ */
+bool SaveStoredMusicSources(const MusicViewState* state) {
+  if (state == nullptr) {
+    return false;
+  }
+  app::MusicSourcePreferences preferences;
+  const size_t count = std::min<size_t>(
+      kMusicFolderOptionCount, app::kMusicSourceCapacity);
+  for (size_t index = 0; index < count; ++index) {
+    std::snprintf(preferences.paths[index],
+        app::kMusicSourcePathCapacity, "%s",
+        state->source_paths[index].c_str());
+  }
+  return app::SaveMusicSourcePreferences(preferences);
+}
+
+/**
  * @brief 保存音乐源提示框中的文件夹配置
  * @param context 音乐视图状态
  */
@@ -1905,6 +2383,8 @@ void MusicSourcesPromptSavedCallback(void* context) {
         !state->source_paths[source].empty();
   }
   UpdateMusicSourcesSummary(state);
+  SaveStoredMusicSources(state);
+  RefreshMusicLibrary(state);
 }
 
 /**
@@ -2214,6 +2694,374 @@ bool RenderMusicSourcesPromptContent(MusicViewState* state) {
 }
 
 /**
+ * @brief 处理曲目列表行点击事件
+ * @param event LVGL 事件对象
+ */
+void MusicTrackClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* action =
+      static_cast<MusicTrackAction*>(lv_event_get_user_data(event));
+  if (action == nullptr || action->state == nullptr) {
+    return;
+  }
+  StartMusicTrack(action->state, action->track_index);
+  lv_event_stop_bubbling(event);
+}
+
+/**
+ * @brief 创建曲目列表中的一行
+ * @param state 音乐视图状态
+ * @param track_index 曲目索引
+ * @param y 行顶部坐标
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateMusicTrackRow(
+    MusicViewState* state, size_t track_index, int y) {
+  if (state == nullptr || state->library_content == nullptr ||
+      track_index >= state->tracks.size()) {
+    return false;
+  }
+  const app::MusicTrack& track = state->tracks[track_index];
+  lv_obj_t* row = lv_button_create(state->library_content);
+  if (row == nullptr) {
+    return false;
+  }
+  lv_obj_remove_style_all(row);
+  lv_obj_add_flag(row, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(row, state->config.width, kMusicTrackRowHeight);
+  lv_obj_set_pos(row, 0, y);
+  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(row, lv_color_hex(kPressedColor),
+      static_cast<lv_style_selector_t>(LV_PART_MAIN) |
+          static_cast<lv_style_selector_t>(LV_STATE_PRESSED));
+  lv_obj_set_style_bg_opa(row, LV_OPA_COVER,
+      static_cast<lv_style_selector_t>(LV_PART_MAIN) |
+          static_cast<lv_style_selector_t>(LV_STATE_PRESSED));
+  if (!AddPressCancelOnLeave(row)) {
+    lv_obj_delete(row);
+    return false;
+  }
+
+  lv_obj_t* artwork = CreateArtwork(row, 72, 14);
+  if (artwork != nullptr) {
+    lv_obj_align(artwork, LV_ALIGN_LEFT_MID, 24, 0);
+  }
+  lv_obj_t* title = CreateLabel(
+      row, track.title.c_str(), lv_color_hex(kMainTextColor), Font28());
+  if (title != nullptr) {
+    lv_obj_set_size(title, state->config.width - 140, 34);
+    lv_label_set_long_mode(title, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 116, 18);
+  }
+  lv_obj_t* artist = CreateLabel(
+      row, track.artist.c_str(), lv_color_hex(kSecondaryTextColor), Font22());
+  if (artist != nullptr) {
+    lv_obj_set_size(artist, state->config.width - 140, 30);
+    lv_label_set_long_mode(artist, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_align(artist, LV_ALIGN_TOP_LEFT, 116, 57);
+  }
+  lv_obj_t* divider = lv_obj_create(row);
+  if (divider != nullptr) {
+    lv_obj_remove_flag(divider, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(divider, state->config.width - 116, 1);
+    lv_obj_align(divider, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_set_style_bg_color(
+        divider, lv_color_hex(kDividerColor), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(divider, 0, LV_PART_MAIN);
+  }
+
+  auto action = std::make_unique<MusicTrackAction>();
+  action->state = state;
+  action->track_index = track_index;
+  MusicTrackAction* action_pointer = action.get();
+  state->track_actions.push_back(std::move(action));
+  lv_obj_add_event_cb(row, MusicTrackClickedEventCallback,
+      LV_EVENT_CLICKED, action_pointer);
+  return true;
+}
+
+bool RenderMusicLibrary(MusicViewState* state) {
+  if (state == nullptr || state->library_content == nullptr) {
+    return false;
+  }
+  lv_obj_clean(state->library_content);
+  state->track_actions.clear();
+  if (state->tracks.empty()) {
+    return CreateEmptyMusicContent(state->library_content, state);
+  }
+
+  int y = 0;
+  for (size_t index = 0; index < state->tracks.size(); ++index) {
+    if (!CreateMusicTrackRow(state, index, y)) {
+      return false;
+    }
+    y += kMusicTrackRowHeight;
+  }
+  lv_obj_set_scrollbar_mode(
+      state->library_content, LV_SCROLLBAR_MODE_AUTO);
+  EnableEdgeBackSwipeEventBubble(state->library_content);
+  return true;
+}
+
+/**
+ * @brief 后台扫描音乐源中的 MP3 文件
+ * @param context 音乐扫描任务共享状态
+ */
+void MusicLibraryScanTaskEntry(void* context) {
+  auto* shared_job =
+      static_cast<std::shared_ptr<MusicScanJob>*>(context);
+  if (shared_job == nullptr) {
+    vTaskDelete(nullptr);
+    return;
+  }
+  std::shared_ptr<MusicScanJob> job = *shared_job;
+  delete shared_job;
+  job->success =
+      app::ScanMusicLibrary(job->source_paths, &job->tracks);
+  job->completed.store(true, std::memory_order_release);
+  vTaskDelete(nullptr);
+}
+
+void FinishMusicLibraryScan(MusicViewState* state) {
+  if (state == nullptr || state->scan_job == nullptr ||
+      !state->scan_job->completed.load(std::memory_order_acquire)) {
+    return;
+  }
+  std::shared_ptr<MusicScanJob> job = state->scan_job;
+  state->scan_job.reset();
+
+  std::string current_path;
+  const app::MusicTrack* current_track = CurrentMusicTrack(state);
+  if (current_track != nullptr) {
+    current_path = current_track->path;
+  }
+  state->tracks = std::move(job->tracks);
+  state->current_track = -1;
+  if (!current_path.empty()) {
+    for (size_t index = 0; index < state->tracks.size(); ++index) {
+      if (state->tracks[index].path == current_path) {
+        state->current_track = static_cast<int>(index);
+        break;
+      }
+    }
+  }
+  if (!current_path.empty() && state->current_track < 0) {
+    if (state->config.audio != nullptr) {
+      state->config.audio->StopAudioFile();
+    }
+    SetMusicPlaying(state, false, false);
+  }
+  if (state->current_track < 0) {
+    SetMiniPlayerVisible(state, false);
+  } else {
+    SetMiniPlayerVisible(state, true);
+    UpdateCurrentTrackLabels(state);
+  }
+  if (!job->success) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Some music source folders could not be scanned\n");
+  }
+  RenderMusicLibrary(state);
+}
+
+/**
+ * @brief 挂载音乐存储并启动曲库扫描任务
+ * @param state 音乐视图状态
+ * @return 成功启动或完成扫描返回 true，否则返回 false
+ */
+bool StartMusicLibraryScan(MusicViewState* state) {
+  if (state == nullptr) {
+    return false;
+  }
+  if (state->config.storage == nullptr ||
+      !state->config.storage->EnsureSdCardMounted()) {
+    if (state->config.audio != nullptr) {
+      state->config.audio->StopAudioFile();
+    }
+    state->tracks.clear();
+    state->current_track = -1;
+    state->scan_job.reset();
+    state->storage_was_mounted = false;
+    SetMusicPlaying(state, false, false);
+    SetMiniPlayerVisible(state, false);
+    return RenderMusicLibrary(state);
+  }
+  state->storage_was_mounted = true;
+
+  std::vector<std::string> source_paths;
+  for (const std::string& path : state->source_paths) {
+    if (!path.empty()) {
+      source_paths.push_back(path);
+    }
+  }
+  if (state->scan_job != nullptr &&
+      !state->scan_job->completed.load(std::memory_order_acquire) &&
+      state->scan_job->source_paths == source_paths) {
+    return true;
+  }
+  auto job = std::make_shared<MusicScanJob>();
+  job->source_paths = std::move(source_paths);
+  state->scan_job = job;
+
+  auto* task_context =
+      new (std::nothrow) std::shared_ptr<MusicScanJob>(job);
+  if (task_context != nullptr &&
+      xTaskCreate(MusicLibraryScanTaskEntry, "music_scan",
+          kMusicScanTaskStackBytes, task_context,
+          kMusicScanTaskPriority, nullptr) == pdPASS) {
+    return true;
+  }
+  delete task_context;
+  job->success = app::ScanMusicLibrary(job->source_paths, &job->tracks);
+  job->completed.store(true, std::memory_order_release);
+  FinishMusicLibraryScan(state);
+  return true;
+}
+
+/**
+ * @brief 停止等待执行的音乐存储扫描计时器
+ * @param state 音乐视图状态
+ */
+void StopMusicScanStartTimer(MusicViewState* state) {
+  if (state == nullptr || state->scan_start_timer == nullptr) {
+    return;
+  }
+  lv_timer_t* timer = state->scan_start_timer;
+  state->scan_start_timer = nullptr;
+  lv_timer_delete(timer);
+}
+
+/**
+ * @brief 扫描提示显示后开始挂载存储并扫描音乐
+ * @param timer 音乐存储扫描计时器
+ */
+void MusicScanStartTimerCallback(lv_timer_t* timer) {
+  auto* state = static_cast<MusicViewState*>(lv_timer_get_user_data(timer));
+  if (state == nullptr || state->scan_start_timer != timer) {
+    return;
+  }
+  state->scan_start_timer = nullptr;
+  lv_timer_delete(timer);
+  StartMusicLibraryScan(state);
+}
+
+bool RefreshMusicLibrary(MusicViewState* state) {
+  if (state == nullptr) {
+    return false;
+  }
+  if (state->scan_start_timer != nullptr || state->scan_job != nullptr) {
+    return true;
+  }
+  if (!RenderMusicScanningContent(state)) {
+    return false;
+  }
+  state->scan_start_timer = lv_timer_create(
+      MusicScanStartTimerCallback, kMusicScanStartDelayMs, state);
+  if (state->scan_start_timer != nullptr) {
+    return true;
+  }
+  return StartMusicLibraryScan(state);
+}
+
+void RefreshMusicClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
+  RefreshMusicLibrary(state);
+  lv_event_stop_bubbling(event);
+}
+
+/**
+ * @brief 定时同步硬件播放状态、播放进度和自动切歌
+ * @param timer LVGL 定时器
+ */
+void MusicPlaybackStatusTimerCallback(lv_timer_t* timer) {
+  auto* state = static_cast<MusicViewState*>(lv_timer_get_user_data(timer));
+  if (state == nullptr) {
+    return;
+  }
+  const bool storage_mounted = state->config.storage != nullptr &&
+      state->config.storage->IsSdCardMounted();
+  if (state->storage_was_mounted && !storage_mounted) {
+    state->storage_was_mounted = false;
+    StopMusicScanStartTimer(state);
+    state->scan_job.reset();
+    if (state->config.audio != nullptr) {
+      state->config.audio->StopAudioFile();
+    }
+    state->tracks.clear();
+    state->current_track = -1;
+    SetMusicPlaying(state, false, false);
+    SetMiniPlayerVisible(state, false);
+    RenderMusicLibrary(state);
+    return;
+  }
+  state->storage_was_mounted = storage_mounted;
+  FinishMusicLibraryScan(state);
+  if (state->config.audio == nullptr || CurrentMusicTrack(state) == nullptr) {
+    return;
+  }
+
+  hal::AudioFilePlaybackStatus status;
+  if (!state->config.audio->ReadAudioFileStatus(&status)) {
+    return;
+  }
+  const uint32_t duration_ms = status.duration_ms == 0
+                                   ? CurrentMusicTrack(state)->duration_ms
+                                   : status.duration_ms;
+  if (!state->seeking) {
+    const int progress = duration_ms == 0
+                             ? 0
+                             : static_cast<int>(std::min<uint64_t>(
+                                   100, static_cast<uint64_t>(
+                                            status.elapsed_ms) * 100 /
+                                            duration_ms));
+    if (state->progress_slider != nullptr) {
+      lv_slider_set_value(state->progress_slider, progress, LV_ANIM_OFF);
+      lv_obj_invalidate(state->progress_slider);
+    }
+    SetMusicTimeLabel(state->current_time_label,
+        static_cast<int>(status.elapsed_ms / 1000U));
+  }
+  SetMusicTimeLabel(
+      state->total_time_label, static_cast<int>(duration_ms / 1000U));
+
+  if (status.state == hal::AudioFilePlaybackState::kPlaying) {
+    if (!state->playing) {
+      SetMusicPlaying(state, true, true);
+    }
+    state->completion_handled = false;
+    return;
+  }
+  if (status.state == hal::AudioFilePlaybackState::kPaused) {
+    if (state->playing) {
+      SetMusicPlaying(state, false, true);
+    }
+    return;
+  }
+  if (status.state == hal::AudioFilePlaybackState::kCompleted &&
+      !state->completion_handled) {
+    state->completion_handled = true;
+    if (state->playback_mode == MusicPlaybackMode::kRepeatOne) {
+      StartMusicTrack(state, static_cast<size_t>(state->current_track));
+    } else {
+      PlayAdjacentMusicTrack(state, 1);
+    }
+    return;
+  }
+  if (status.state == hal::AudioFilePlaybackState::kStopped ||
+      status.state == hal::AudioFilePlaybackState::kError) {
+    if (state->playing) {
+      SetMusicPlaying(state, false, true);
+    }
+  }
+}
+
+/**
  * @brief 创建音乐源弹窗中固定的文件夹标题和添加按钮
  * @param state 音乐视图状态
  * @return 创建成功返回 true，否则返回 false
@@ -2347,6 +3195,7 @@ void DrawerRefreshClickedEventCallback(lv_event_t* event) {
   auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
   if (state != nullptr) {
     CloseNavigationDrawer(&state->drawer);
+    RefreshMusicLibrary(state);
   }
 }
 
@@ -2476,6 +3325,7 @@ lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry& app_entry,
   auto* state = new MusicViewState();
   state->config = config;
   state->root = container;
+  LoadStoredMusicSources(state);
   lv_obj_add_event_cb(
       container, MusicViewDeleteEventCallback, LV_EVENT_DELETE, state);
 
@@ -2498,8 +3348,21 @@ lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry& app_entry,
     lv_obj_align_to(underline, tab, LV_ALIGN_OUT_BOTTOM_MID, 0, 18);
   }
 
-  if (!CreateEmptyMusicContent(container, config) ||
-      !CreateMiniPlayer(container, state)) {
+  state->library_content = lv_obj_create(container);
+  if (state->library_content == nullptr) {
+    lv_obj_delete(container);
+    return nullptr;
+  }
+  MakeTransparent(state->library_content);
+  lv_obj_set_pos(state->library_content, 0, kMusicLibraryTop);
+  lv_obj_set_size(state->library_content, config.width,
+      config.height - kMusicLibraryTop);
+  lv_obj_set_style_pad_all(state->library_content, 0, LV_PART_MAIN);
+  lv_obj_set_scroll_dir(state->library_content, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(
+      state->library_content, LV_SCROLLBAR_MODE_AUTO);
+
+  if (!CreateMiniPlayer(container, state) || !RefreshMusicLibrary(state)) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "CreateMusicView content failed\n");
     lv_obj_delete(container);
@@ -2507,6 +3370,13 @@ lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry& app_entry,
   }
 
   if (!CreateMusicHeader(container, state)) {
+    lv_obj_delete(container);
+    return nullptr;
+  }
+
+  state->playback_status_timer = lv_timer_create(
+      MusicPlaybackStatusTimerCallback, kPlaybackStatusIntervalMs, state);
+  if (state->playback_status_timer == nullptr) {
     lv_obj_delete(container);
     return nullptr;
   }

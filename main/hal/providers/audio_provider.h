@@ -2,12 +2,13 @@
  * @Description: 扬声器与麦克风状态及控制接口
  * @Author: LILYGO_L
  * @Date: 2026-05-14 00:20:00
- * @LastEditTime: 2026-05-14 00:20:00
+ * @LastEditTime: 2026-07-15 11:16:11
  * @License: GPL 3.0
  */
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 namespace lilygo_box::hal {
 
@@ -25,6 +26,20 @@ struct MicrophoneStatus {
   int level_percent = 0;
   int peak_sample = 0;
   size_t bytes_read = 0;
+};
+
+enum class AudioFilePlaybackState {
+  kStopped,
+  kPlaying,
+  kPaused,
+  kCompleted,
+  kError,
+};
+
+struct AudioFilePlaybackStatus {
+  AudioFilePlaybackState state = AudioFilePlaybackState::kStopped;
+  uint32_t elapsed_ms = 0;
+  uint32_t duration_ms = 0;
 };
 
 class AudioProvider {
@@ -70,6 +85,48 @@ class AudioProvider {
    */
   virtual bool ReadSpeakerToneStatus(
       SpeakerStatus* status) = 0;
+
+  /**
+   * @brief 创建后台任务解码并播放音频文件
+   * @param path 音频文件绝对路径
+   * @param duration_ms 音频总时长，单位毫秒
+   * @return 任务创建成功返回 true，否则返回 false
+   */
+  virtual bool StartAudioFile(
+      const char* path, uint32_t duration_ms) = 0;
+
+  /**
+   * @brief 暂停当前音频文件播放
+   * @return 暂停成功返回 true，否则返回 false
+   */
+  virtual bool PauseAudioFile() = 0;
+
+  /**
+   * @brief 恢复当前音频文件播放
+   * @return 恢复成功返回 true，否则返回 false
+   */
+  virtual bool ResumeAudioFile() = 0;
+
+  /**
+   * @brief 请求将当前音频文件定位到指定播放时间
+   * @param position_ms 目标播放时间，单位毫秒
+   * @return 定位请求发送成功返回 true，否则返回 false
+   */
+  virtual bool SeekAudioFile(uint32_t position_ms) = 0;
+
+  /**
+   * @brief 请求停止当前音频文件播放
+   * @return 停止请求发送成功返回 true，否则返回 false
+   */
+  virtual bool StopAudioFile() = 0;
+
+  /**
+   * @brief 读取当前音频文件播放状态
+   * @param status 播放状态输出地址
+   * @return 读取成功返回 true，否则返回 false
+   */
+  virtual bool ReadAudioFileStatus(
+      AudioFilePlaybackStatus* status) = 0;
 
   /**
    * @brief 创建后台任务读取麦克风采样数据

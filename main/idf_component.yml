@@ -4,6 +4,9 @@ dependencies:
   lvgl/lvgl:
     version: "9.5.0"
 
+  espressif/esp_audio_codec:
+    version: "^2.4.1"
+
   espressif/esp_hosted:
     version: "2.12.3"
 

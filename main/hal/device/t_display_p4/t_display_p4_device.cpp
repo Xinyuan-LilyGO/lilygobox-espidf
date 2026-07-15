@@ -2,7 +2,7 @@
  * @Description: T-Display-P4 设备初始化与硬件 Provider 适配实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-13 11:13:32
+ * @LastEditTime: 2026-07-15 11:16:11
  * @License: GPL 3.0
  */
 #include "hal/device/t_display_p4/t_display_p4_device.h"
@@ -67,6 +67,7 @@ constexpr uint32_t kVibrationPreviewMinIntervalMs = 45;
 constexpr uint32_t kVibrationTestStopMs = 180;
 constexpr size_t kSpeakerPlaybackChunkBytes = 4096;
 constexpr uint32_t kSpeakerPlaybackTaskStackBytes = 4 * 1024;
+constexpr uint32_t kAudioFilePlaybackTaskStackBytes = 8 * 1024;
 constexpr UBaseType_t kSpeakerPlaybackTaskPriority = 3;
 constexpr uint32_t kSpeakerPlaybackSampleRateHz = 44100;
 constexpr uint8_t kSpeakerPlaybackChannelCount = 2;
@@ -959,7 +960,8 @@ bool TDisplayP4Device::PlaySpeakerTone(size_t* bytes_written) {
     *bytes_written = 0;
   }
 
-  if (!driver_.IsEs8311Ready() && !driver_.InitEs8311()) {
+  if (!Configure(kSpeakerPlaybackSampleRateHz,
+          kSpeakerPlaybackChannelCount, kSpeakerPlaybackBitsPerSample)) {
     LogMessage(
         LogLevel::kWarning, __FILE__, __LINE__, "Es8311 init retry failed\n");
     return false;
@@ -1016,6 +1018,8 @@ bool TDisplayP4Device::StartSpeakerTone() {
   speaker_.total_bytes.store(sizeof(c2_b16_s44100));
   speaker_.loop_enabled.store(false);
   speaker_.stop_requested.store(false);
+  speaker_.paused.store(false);
+  speaker_.playback_kind.store(SpeakerState::PlaybackKind::kTone);
 
   const BaseType_t result = xTaskCreate(SpeakerPlaybackTaskEntry,
       "speaker_play", kSpeakerPlaybackTaskStackBytes, this,
@@ -1023,6 +1027,7 @@ bool TDisplayP4Device::StartSpeakerTone() {
   if (result != pdPASS) {
     speaker_.running.store(false);
     speaker_.completed.store(true);
+    speaker_.playback_kind.store(SpeakerState::PlaybackKind::kNone);
     return false;
   }
 
@@ -1030,18 +1035,25 @@ bool TDisplayP4Device::StartSpeakerTone() {
 }
 
 bool TDisplayP4Device::StartSpeakerToneLoop() {
+  if (speaker_.running.load()) {
+    return speaker_.playback_kind.load() ==
+           SpeakerState::PlaybackKind::kToneLoop;
+  }
   speaker_.loop_enabled.store(true);
   speaker_.stop_requested.store(false);
 
   bool expected = false;
   if (!speaker_.running.compare_exchange_strong(expected, true)) {
-    return true;
+    return speaker_.playback_kind.load() ==
+           SpeakerState::PlaybackKind::kToneLoop;
   }
 
   speaker_.completed.store(false);
   speaker_.success.store(false);
   speaker_.bytes_written.store(0);
   speaker_.total_bytes.store(sizeof(c2_b16_s44100));
+  speaker_.paused.store(false);
+  speaker_.playback_kind.store(SpeakerState::PlaybackKind::kToneLoop);
 
   const BaseType_t result = xTaskCreate(SpeakerPlaybackTaskEntry,
       "speaker_loop", kSpeakerPlaybackTaskStackBytes, this,
@@ -1050,6 +1062,7 @@ bool TDisplayP4Device::StartSpeakerToneLoop() {
     speaker_.running.store(false);
     speaker_.completed.store(true);
     speaker_.loop_enabled.store(false);
+    speaker_.playback_kind.store(SpeakerState::PlaybackKind::kNone);
     return false;
   }
 
@@ -1057,6 +1070,10 @@ bool TDisplayP4Device::StartSpeakerToneLoop() {
 }
 
 bool TDisplayP4Device::StopSpeakerToneLoop() {
+  if (speaker_.playback_kind.load() !=
+      SpeakerState::PlaybackKind::kToneLoop) {
+    return false;
+  }
   speaker_.stop_requested.store(true);
   speaker_.loop_enabled.store(false);
   return true;
@@ -1081,11 +1098,121 @@ bool TDisplayP4Device::ReadSpeakerToneStatus(SpeakerStatus* status) {
     return false;
   }
 
-  status->running = speaker_.running.load();
+  const SpeakerState::PlaybackKind playback_kind =
+      speaker_.playback_kind.load();
+  status->running = speaker_.running.load() &&
+                    playback_kind != SpeakerState::PlaybackKind::kAudioFile;
   status->completed = speaker_.completed.load();
   status->success = speaker_.success.load();
   status->bytes_written = speaker_.bytes_written.load();
   status->total_bytes = speaker_.total_bytes.load();
+  return true;
+}
+
+bool TDisplayP4Device::StartAudioFile(
+    const char* path, uint32_t duration_ms) {
+  if (path == nullptr || path[0] == '\0') {
+    return false;
+  }
+  if (speaker_.running.load()) {
+    speaker_.stop_requested.store(true);
+    speaker_.paused.store(false);
+    for (int retry = 0; retry < 100 && speaker_.running.load(); ++retry) {
+      vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    if (speaker_.running.load()) {
+      return false;
+    }
+  }
+
+  bool expected = false;
+  if (!speaker_.running.compare_exchange_strong(expected, true)) {
+    return false;
+  }
+  std::snprintf(speaker_.audio_file_path,
+      sizeof(speaker_.audio_file_path), "%s", path);
+  speaker_.loop_enabled.store(false);
+  speaker_.stop_requested.store(false);
+  speaker_.paused.store(false);
+  speaker_.elapsed_ms.store(0);
+  speaker_.duration_ms.store(duration_ms);
+  speaker_.seek_requested.store(false);
+  speaker_.seek_position_ms.store(0);
+  speaker_.file_state.store(AudioFilePlaybackState::kPlaying);
+  speaker_.playback_kind.store(SpeakerState::PlaybackKind::kAudioFile);
+
+  const BaseType_t result = xTaskCreate(SpeakerPlaybackTaskEntry,
+      "audio_file", kAudioFilePlaybackTaskStackBytes, this,
+      kSpeakerPlaybackTaskPriority, nullptr);
+  if (result != pdPASS) {
+    speaker_.running.store(false);
+    speaker_.file_state.store(AudioFilePlaybackState::kError);
+    speaker_.playback_kind.store(SpeakerState::PlaybackKind::kNone);
+    return false;
+  }
+  return true;
+}
+
+bool TDisplayP4Device::PauseAudioFile() {
+  if (!speaker_.running.load() ||
+      speaker_.playback_kind.load() !=
+          SpeakerState::PlaybackKind::kAudioFile ||
+      speaker_.file_state.load() != AudioFilePlaybackState::kPlaying) {
+    return false;
+  }
+  speaker_.paused.store(true);
+  speaker_.file_state.store(AudioFilePlaybackState::kPaused);
+  return true;
+}
+
+bool TDisplayP4Device::ResumeAudioFile() {
+  if (!speaker_.running.load() ||
+      speaker_.playback_kind.load() !=
+          SpeakerState::PlaybackKind::kAudioFile ||
+      speaker_.file_state.load() != AudioFilePlaybackState::kPaused) {
+    return false;
+  }
+  speaker_.paused.store(false);
+  speaker_.file_state.store(AudioFilePlaybackState::kPlaying);
+  return true;
+}
+
+bool TDisplayP4Device::SeekAudioFile(uint32_t position_ms) {
+  if (!speaker_.running.load() ||
+      speaker_.playback_kind.load() !=
+          SpeakerState::PlaybackKind::kAudioFile) {
+    return false;
+  }
+  const uint32_t duration_ms = speaker_.duration_ms.load();
+  if (duration_ms == 0) {
+    return false;
+  }
+  const uint32_t clamped_position_ms = std::min(position_ms, duration_ms);
+  speaker_.seek_position_ms.store(clamped_position_ms);
+  speaker_.seek_requested.store(true);
+  speaker_.elapsed_ms.store(clamped_position_ms);
+  return true;
+}
+
+bool TDisplayP4Device::StopAudioFile() {
+  if (speaker_.playback_kind.load() !=
+      SpeakerState::PlaybackKind::kAudioFile) {
+    return false;
+  }
+  speaker_.stop_requested.store(true);
+  speaker_.paused.store(false);
+  speaker_.file_state.store(AudioFilePlaybackState::kStopped);
+  return true;
+}
+
+bool TDisplayP4Device::ReadAudioFileStatus(
+    AudioFilePlaybackStatus* status) {
+  if (status == nullptr) {
+    return false;
+  }
+  status->state = speaker_.file_state.load();
+  status->elapsed_ms = speaker_.elapsed_ms.load();
+  status->duration_ms = speaker_.duration_ms.load();
   return true;
 }
 
@@ -1098,6 +1225,25 @@ void TDisplayP4Device::SpeakerPlaybackTaskEntry(void* context) {
 }
 
 void TDisplayP4Device::RunSpeakerPlaybackTask() {
+  if (speaker_.playback_kind.load() ==
+      SpeakerState::PlaybackKind::kAudioFile) {
+    const audio::Mp3PlaybackResult result =
+        audio::PlayMp3File(speaker_.audio_file_path, this);
+    const bool completed = result == audio::Mp3PlaybackResult::kCompleted;
+    const bool stopped = result == audio::Mp3PlaybackResult::kStopped;
+    speaker_.paused.store(false);
+    speaker_.stop_requested.store(false);
+    speaker_.seek_requested.store(false);
+    speaker_.file_state.store(completed
+                                  ? AudioFilePlaybackState::kCompleted
+                                  : (stopped
+                                            ? AudioFilePlaybackState::kStopped
+                                            : AudioFilePlaybackState::kError));
+    speaker_.playback_kind.store(SpeakerState::PlaybackKind::kNone);
+    speaker_.running.store(false);
+    return;
+  }
+
   size_t bytes_written = 0;
   bool played = false;
   do {
@@ -1111,7 +1257,83 @@ void TDisplayP4Device::RunSpeakerPlaybackTask() {
   speaker_.completed.store(true);
   speaker_.loop_enabled.store(false);
   speaker_.stop_requested.store(false);
+  speaker_.playback_kind.store(SpeakerState::PlaybackKind::kNone);
   speaker_.running.store(false);
+}
+
+bool TDisplayP4Device::Configure(uint32_t sample_rate_hz,
+    uint8_t channel_count, uint8_t bits_per_sample) {
+  if ((channel_count != 1 && channel_count != 2) ||
+      bits_per_sample != kSpeakerPlaybackBitsPerSample) {
+    return false;
+  }
+  const bool codec_was_ready = driver_.IsEs8311Ready();
+  if (!codec_was_ready) {
+    if (!driver_.InitEs8311() || !driver_.ConfigEs8311()) {
+      return false;
+    }
+  }
+  if (codec_was_ready && speaker_.sample_rate_hz.load() == sample_rate_hz) {
+    return true;
+  }
+
+  // ESP-IDF 只允许在 I2S 通道禁用时重配标准模式时钟。
+  if (!driver_.chip().es8311->SetI2sChannelEnable(false)) {
+    return false;
+  }
+  const bool clock_reconfigured =
+      driver_.chip().es8311->SetClockReconfig(
+          device::es8311::kMclkMultiple, sample_rate_hz);
+  const bool channels_restored =
+      driver_.chip().es8311->SetI2sChannelEnable(true);
+  if (!clock_reconfigured || !channels_restored) {
+    return false;
+  }
+  speaker_.sample_rate_hz.store(sample_rate_hz);
+  return true;
+}
+
+bool TDisplayP4Device::WaitUntilReady() {
+  while (speaker_.paused.load() && !speaker_.stop_requested.load()) {
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
+  return !speaker_.stop_requested.load();
+}
+
+bool TDisplayP4Device::TakeSeekRequest(uint32_t* position_ms) {
+  if (position_ms == nullptr || !speaker_.seek_requested.exchange(false)) {
+    return false;
+  }
+  *position_ms = speaker_.seek_position_ms.load();
+  return true;
+}
+
+bool TDisplayP4Device::Write(const uint8_t* data, size_t size) {
+  if (data == nullptr || size == 0 || !driver_.IsEs8311Ready()) {
+    return false;
+  }
+  size_t total_written = 0;
+  while (total_written < size) {
+    if (!WaitUntilReady()) {
+      return false;
+    }
+    const size_t write_size =
+        std::min(kSpeakerPlaybackChunkBytes, size - total_written);
+    const size_t written = driver_.chip().es8311->WriteI2s(
+        data + total_written, write_size);
+    if (written == 0) {
+      return false;
+    }
+    total_written += written;
+  }
+  return true;
+}
+
+void TDisplayP4Device::UpdateProgress(uint32_t elapsed_ms) {
+  const uint32_t duration_ms = speaker_.duration_ms.load();
+  speaker_.elapsed_ms.store(duration_ms == 0
+                                ? elapsed_ms
+                                : std::min(elapsed_ms, duration_ms));
 }
 
 void TDisplayP4Device::HapticPlaybackTaskEntry(void* context) {
