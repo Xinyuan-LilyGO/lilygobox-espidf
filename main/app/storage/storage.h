@@ -1,8 +1,8 @@
-/**
+/*
  * @Description: 偏好存储统一管理，提供初始化和异步写入
  * @Author: LILYGO_L
  * @Date: 2026-07-03 00:00:00
- * @LastEditTime: 2026-07-03 00:00:00
+ * @LastEditTime: 2026-07-15 15:53:19
  * @License: GPL 3.0
  */
 #pragma once
@@ -25,5 +25,11 @@ void InitStorage();
  * @return 启动成功返回 true
  */
 bool StartStorageTask(const char* name, std::function<void()> handler);
+
+/**
+ * @brief 异步清除默认 NVS 并重启设备
+ * @return 任务启动成功返回 true，否则返回 false
+ */
+bool StartFactoryReset();
 
 }  // namespace lilygo_box::app

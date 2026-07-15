@@ -23,12 +23,12 @@ constexpr uint32_t kMagic = 0x4453504C;
 
 struct Blob {
   uint32_t magic = kMagic;
-  uint8_t brightness_percent = 70;
+  uint8_t brightness_percent = 90;
   uint32_t lock_timeout_seconds = 300;
   int32_t screen_rotation_angle = 0;
 };
 
-std::atomic<int> g_brightness{70};
+std::atomic<int> g_brightness{90};
 std::atomic<int> g_lock_timeout{300};
 std::atomic<int> g_screen_rotation{0};
 

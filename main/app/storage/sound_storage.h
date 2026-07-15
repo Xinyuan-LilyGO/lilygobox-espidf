@@ -11,7 +11,7 @@ namespace lilygo_box::app {
 
 // 声音设置用户偏好。
 struct SoundPreferences {
-  int volume_percent = 60;
+  int volume_percent = 90;
 };
 
 /**

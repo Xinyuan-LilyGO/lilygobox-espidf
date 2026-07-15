@@ -19,7 +19,7 @@ namespace {
 hal::HapticProvider* g_haptic_provider = nullptr;
 bool g_haptic_preferences_loaded = false;
 bool g_haptic_enabled = true;
-int g_haptic_strength_percent = 45;
+int g_haptic_strength_percent = 90;
 
 /**
  * @brief 确保已从 NVS 加载 UI 交互振动反馈偏好

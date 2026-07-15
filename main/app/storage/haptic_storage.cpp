@@ -23,11 +23,11 @@ constexpr uint32_t kMagic = 0x48505443;
 struct Blob {
   uint32_t magic = kMagic;
   uint8_t enabled = 1;
-  uint8_t strength_percent = 45;
+  uint8_t strength_percent = 90;
 };
 
 std::atomic<bool> g_enabled{true};
-std::atomic<int> g_strength{45};
+std::atomic<int> g_strength{90};
 
 }  // namespace
 

@@ -2,7 +2,7 @@
  * @Description: Settings My Device detail page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-05-23 00:00:00
+ * @LastEditTime: 2026-07-15 16:35:56
  * @License: GPL 3.0
  */
 #include "ui/views/settings/settings_view_internal.h"
@@ -12,17 +12,30 @@
 #include "app/device_identity.h"
 #include "app/device_info_snapshot.h"
 #include "app/settings_catalog.h"
+#include "app/storage/storage.h"
 #include "hal/providers/screen_provider.h"
 #include "ui/animation/transition_animation.h"
-#include "ui/resources/fonts/icon_assets.h"
 #include "ui/input/app_view_gesture_flags.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"
+#include "ui/resources/fonts/icon_assets.h"
 #include "ui/views/settings/settings_basic_view_common.h"
+#include "ui/widgets/prompt/prompt_sheet.h"
 #include "ui/widgets/shared_keyboard.h"
 
 namespace lilygo_box::ui {
 namespace {
+
+constexpr int kFactoryResetCountdownSeconds = 10;
+constexpr uint32_t kFactoryResetCountdownPeriodMs = 1000;
+constexpr uint32_t kFactoryResetColor = 0xBA1A1A;
+constexpr uint32_t kFactoryResetPressedColor = 0x93000A;
+constexpr uint32_t kFactoryResetContainerColor = 0xFFDAD6;
+constexpr uint32_t kFactoryResetContainerTextColor = 0x410002;
+constexpr int kFactoryResetButtonSide = 26;
+constexpr int kFactoryResetButtonHeight = 76;
+
+void CloseFactoryResetPage(SettingsViewState* state, bool animated);
 
 /**
  * @brief 处理设备名称行点击事件并打开编辑页
@@ -237,10 +250,14 @@ void MyDeviceCloseCompletedCallback(lv_anim_t* animation) {
  */
 void CloseMyDevicePage(SettingsViewState* state, bool animated) {
   if (state == nullptr || state->detail_page == nullptr ||
-      state->detail_closing) {
+      state->detail_closing || state->factory_reset_started) {
     return;
   }
 
+  if (state->factory_reset_page != nullptr || state->factory_reset_closing) {
+    CloseFactoryResetPage(state, animated);
+    return;
+  }
   CloseDeviceNameEditPage(state, false);
 
   if (animated &&
@@ -280,7 +297,8 @@ void MyDeviceEdgeBackEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->detail_page == nullptr ||
       state->detail_closing || state->name_edit_page != nullptr ||
-      state->name_edit_closing || state->config.screen == nullptr ||
+      state->name_edit_closing || state->factory_reset_page != nullptr ||
+      state->factory_reset_closing || state->config.screen == nullptr ||
       !HandleEdgeBackSwipeEvent(event, state->config.width,
           &state->detail_swipe)) {
     return;
@@ -384,6 +402,435 @@ void DeviceNameEditConfirmClickedEventCallback(lv_event_t* event) {
 
   RefreshDeviceNameLabels(state);
   CloseDeviceNameEditPage(state, true);
+}
+
+/**
+ * @brief 停止恢复出厂设置倒计时
+ * @param state 设置页面状态
+ */
+void StopFactoryResetCountdown(SettingsViewState* state) {
+  if (state == nullptr || state->factory_reset_countdown_timer == nullptr) {
+    return;
+  }
+
+  lv_timer_delete(state->factory_reset_countdown_timer);
+  state->factory_reset_countdown_timer = nullptr;
+}
+
+/**
+ * @brief 清理恢复出厂设置页面引用
+ * @param state 设置页面状态
+ */
+void ClearFactoryResetPageReferences(SettingsViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+
+  state->factory_reset_page = nullptr;
+  state->factory_reset_confirm_button = nullptr;
+  state->factory_reset_confirm_label = nullptr;
+  state->factory_reset_seconds_remaining = 0;
+  state->factory_reset_closing = false;
+  state->factory_reset_started = false;
+  state->factory_reset_swipe = EdgeBackSwipeState();
+}
+
+/**
+ * @brief 处理恢复出厂设置警告页关闭动画完成
+ * @param animation LVGL 动画对象
+ */
+void FactoryResetCloseCompletedCallback(lv_anim_t* animation) {
+  auto* state =
+      static_cast<SettingsViewState*>(lv_anim_get_user_data(animation));
+  if (state == nullptr || state->factory_reset_page == nullptr) {
+    return;
+  }
+
+  lv_obj_t* page = state->factory_reset_page;
+  StopFactoryResetCountdown(state);
+  ClearFactoryResetPageReferences(state);
+  lv_obj_delete(page);
+}
+
+/**
+ * @brief 关闭恢复出厂设置警告页
+ * @param state 设置页面状态
+ * @param animated 是否播放关闭动画
+ */
+void CloseFactoryResetPage(SettingsViewState* state, bool animated) {
+  if (state == nullptr || state->factory_reset_page == nullptr ||
+      state->factory_reset_closing || state->factory_reset_started) {
+    return;
+  }
+
+  StopFactoryResetCountdown(state);
+  if (animated &&
+      StartSlideRightWindowTransition(state->factory_reset_page,
+          state->config.width, kDetailSlideAnimationMs, state,
+          FactoryResetCloseCompletedCallback)) {
+    state->factory_reset_closing = true;
+    return;
+  }
+
+  lv_obj_t* page = state->factory_reset_page;
+  ClearFactoryResetPageReferences(state);
+  lv_obj_delete(page);
+}
+
+/**
+ * @brief 刷新恢复出厂设置确认按钮状态
+ * @param state 设置页面状态
+ */
+void UpdateFactoryResetConfirmButton(SettingsViewState* state) {
+  if (state == nullptr || state->factory_reset_confirm_button == nullptr ||
+      state->factory_reset_confirm_label == nullptr) {
+    return;
+  }
+
+  char text[40] = {};
+  if (state->factory_reset_seconds_remaining > 0) {
+    std::snprintf(text, sizeof(text), "Erase all data (%d)",
+        state->factory_reset_seconds_remaining);
+  } else {
+    std::snprintf(text, sizeof(text), "Erase all data");
+  }
+  lv_label_set_text(state->factory_reset_confirm_label, text);
+
+  const bool enabled = state->factory_reset_seconds_remaining == 0 &&
+                       !state->factory_reset_started;
+  if (enabled) {
+    lv_obj_remove_state(
+        state->factory_reset_confirm_button, LV_STATE_DISABLED);
+  } else {
+    lv_obj_add_state(state->factory_reset_confirm_button, LV_STATE_DISABLED);
+  }
+  lv_obj_set_style_bg_color(state->factory_reset_confirm_button,
+      lv_color_hex(enabled ? kFactoryResetColor
+                           : theme::LightNeutralTheme().disabled_container),
+      LV_PART_MAIN);
+  lv_obj_set_style_text_color(state->factory_reset_confirm_label,
+      lv_color_hex(enabled ? 0xFFFFFF
+                           : theme::LightNeutralTheme().outline),
+      LV_PART_MAIN);
+}
+
+/**
+ * @brief 处理恢复出厂设置倒计时
+ * @param timer LVGL 定时器
+ */
+void FactoryResetCountdownTimerCallback(lv_timer_t* timer) {
+  if (timer == nullptr) {
+    return;
+  }
+
+  auto* state = static_cast<SettingsViewState*>(lv_timer_get_user_data(timer));
+  if (state == nullptr || state->factory_reset_countdown_timer != timer) {
+    return;
+  }
+  if (state->factory_reset_page == nullptr) {
+    state->factory_reset_countdown_timer = nullptr;
+    lv_timer_delete(timer);
+    return;
+  }
+
+  if (state->factory_reset_seconds_remaining > 0) {
+    --state->factory_reset_seconds_remaining;
+  }
+  UpdateFactoryResetConfirmButton(state);
+  if (state->factory_reset_seconds_remaining == 0) {
+    state->factory_reset_countdown_timer = nullptr;
+    lv_timer_delete(timer);
+  }
+}
+
+/**
+ * @brief 处理恢复出厂设置警告页返回点击
+ * @param event LVGL 事件对象
+ */
+void FactoryResetBackClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+
+  CloseFactoryResetPage(
+      static_cast<SettingsViewState*>(lv_event_get_user_data(event)), true);
+}
+
+/**
+ * @brief 处理恢复出厂设置警告页边缘返回
+ * @param event LVGL 事件对象
+ */
+void FactoryResetEdgeBackEventCallback(lv_event_t* event) {
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->factory_reset_page == nullptr ||
+      state->factory_reset_closing || state->factory_reset_started ||
+      state->config.screen == nullptr ||
+      !HandleEdgeBackSwipeEvent(event, state->config.width,
+          &state->factory_reset_swipe)) {
+    return;
+  }
+
+  CloseFactoryResetPage(state, true);
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+}
+
+/**
+ * @brief 处理恢复出厂设置确认按钮
+ * @param event LVGL 事件对象
+ */
+void FactoryResetConfirmClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->factory_reset_page == nullptr ||
+      state->factory_reset_seconds_remaining != 0 ||
+      state->factory_reset_started) {
+    return;
+  }
+
+  state->factory_reset_started = true;
+  UpdateFactoryResetConfirmButton(state);
+  hal::ScreenProvider* screen = state->config.screen;
+  const int previous_brightness = state->display_brightness_percent;
+  if (screen != nullptr) {
+    screen->SetScreenBrightnessPercent(0);
+  }
+  if (!app::StartFactoryReset()) {
+    if (screen != nullptr) {
+      screen->SetScreenBrightnessPercent(previous_brightness);
+    }
+    state->factory_reset_started = false;
+    UpdateFactoryResetConfirmButton(state);
+  }
+}
+
+/**
+ * @brief 创建恢复出厂设置警告页顶部导航栏
+ * @param parent 父对象
+ * @param state 设置页面状态
+ * @param width 页面宽度
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateFactoryResetHeader(
+    lv_obj_t* parent, SettingsViewState* state, int width) {
+  lv_obj_t* back_button = CreateToolbarButton(parent, kDetailBackButtonLeft,
+      kDetailBackButtonTop, FactoryResetBackClickedEventCallback, state);
+  if (back_button == nullptr) {
+    return false;
+  }
+
+  lv_obj_t* back_icon = CreateLabel(back_button, icon::kArrowBack,
+      lv_color_hex(kDetailBackColor), MaterialIconFont44());
+  if (back_icon == nullptr) {
+    return false;
+  }
+  lv_obj_align(back_icon, LV_ALIGN_CENTER, kDetailBackIconOffsetX, 0);
+
+  lv_obj_t* title = CreateLabel(
+      parent, "Factory reset", lv_color_hex(kTitleColor), Font32());
+  if (title == nullptr) {
+    return false;
+  }
+  lv_obj_set_width(title, width);
+  lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, kDetailTitleTop);
+  return true;
+}
+
+/**
+ * @brief 创建恢复出厂设置警告内容和操作按钮
+ * @param parent 父对象
+ * @param state 设置页面状态
+ * @param width 页面宽度
+ * @param height 页面高度
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateFactoryResetContent(lv_obj_t* parent, SettingsViewState* state,
+    int width, int height) {
+  const bool compact = height < 800;
+  const int icon_size = compact ? 82 : 112;
+  const int icon_top = compact ? 132 : 220;
+  const int heading_top = compact ? 226 : 376;
+  const int message_top = compact ? 274 : 438;
+  const int notice_top = compact ? 350 : 620;
+  const int notice_height = compact ? 74 : 118;
+  const int button_height = compact ? 66 : kFactoryResetButtonHeight;
+
+  lv_obj_t* icon_box = CreateBox(parent, icon_size, icon_size,
+      kFactoryResetContainerColor, LV_OPA_COVER, icon_size / 2);
+  if (icon_box == nullptr) {
+    return false;
+  }
+  lv_obj_align(icon_box, LV_ALIGN_TOP_MID, 0, icon_top);
+
+  lv_obj_t* warning_icon = CreateLabel(icon_box, icon::kWarning,
+      lv_color_hex(kFactoryResetColor), MaterialIconFont44());
+  if (warning_icon == nullptr) {
+    return false;
+  }
+  lv_obj_align(warning_icon, LV_ALIGN_CENTER, 0, -3);
+
+  lv_obj_t* heading = CreateLabel(
+      parent, "Erase all saved data?", lv_color_hex(kTitleColor), Font36());
+  if (heading == nullptr) {
+    return false;
+  }
+  lv_obj_set_width(heading, width - 2 * kFactoryResetButtonSide);
+  lv_obj_set_style_text_align(heading, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_align(heading, LV_ALIGN_TOP_MID, 0, heading_top);
+
+  lv_obj_t* message = CreateLabel(parent,
+      "All saved settings, Wi-Fi networks, and device preferences will be "
+      "permanently erased. Files on the SD card will not be deleted.",
+      lv_color_hex(kSecondaryTextColor), Font28());
+  if (message == nullptr) {
+    return false;
+  }
+  lv_obj_set_width(message, width - 2 * (kFactoryResetButtonSide + 16));
+  lv_label_set_long_mode(message, LV_LABEL_LONG_WRAP);
+  lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_set_style_text_line_space(message, 7, LV_PART_MAIN);
+  lv_obj_align(message, LV_ALIGN_TOP_MID, 0, message_top);
+
+  const int notice_width = width - 2 * kFactoryResetButtonSide;
+  lv_obj_t* notice = CreateBox(parent, notice_width, notice_height,
+      kFactoryResetContainerColor, LV_OPA_COVER, 24);
+  if (notice == nullptr) {
+    return false;
+  }
+  lv_obj_align(notice, LV_ALIGN_TOP_MID, 0, notice_top);
+
+  lv_obj_t* notice_icon = CreateLabel(notice, icon::kWarning,
+      lv_color_hex(kFactoryResetContainerTextColor), MaterialIconFont32());
+  if (notice_icon == nullptr) {
+    return false;
+  }
+  lv_obj_align(notice_icon, LV_ALIGN_LEFT_MID, 22, 0);
+
+  lv_obj_t* notice_text = CreateLabel(notice,
+      "This action can't be undone. The device will restart with factory "
+      "defaults.",
+      lv_color_hex(kFactoryResetContainerTextColor), Font24());
+  if (notice_text == nullptr) {
+    return false;
+  }
+  lv_obj_set_width(notice_text, notice_width - 86);
+  lv_label_set_long_mode(notice_text, LV_LABEL_LONG_WRAP);
+  lv_obj_set_style_text_line_space(notice_text, 4, LV_PART_MAIN);
+  lv_obj_align(notice_text, LV_ALIGN_LEFT_MID, 68, 0);
+
+  PromptSheetButtonConfig confirm_config;
+  confirm_config.text = "Erase all data (10)";
+  confirm_config.x = kFactoryResetButtonSide;
+  confirm_config.y =
+      height - kFactoryResetButtonSide - button_height;
+  confirm_config.width = width - 2 * kFactoryResetButtonSide;
+  confirm_config.height = button_height;
+  confirm_config.radius = button_height / 3;
+  confirm_config.background_color = kFactoryResetColor;
+  confirm_config.disabled_background_color =
+      theme::LightNeutralTheme().disabled_container;
+  confirm_config.pressed_background_color = kFactoryResetPressedColor;
+  confirm_config.text_color = 0xFFFFFF;
+  confirm_config.font = Font28();
+  confirm_config.callback = FactoryResetConfirmClickedEventCallback;
+  confirm_config.user_data = state;
+  confirm_config.enabled = false;
+  state->factory_reset_confirm_button =
+      CreatePromptSheetButton(parent, confirm_config);
+  if (state->factory_reset_confirm_button == nullptr) {
+    return false;
+  }
+  state->factory_reset_confirm_label =
+      lv_obj_get_child(state->factory_reset_confirm_button, 0);
+  if (state->factory_reset_confirm_label == nullptr) {
+    return false;
+  }
+  UpdateFactoryResetConfirmButton(state);
+  return true;
+}
+
+/**
+ * @brief 打开恢复出厂设置警告页
+ * @param state 设置页面状态
+ * @return 打开成功返回 true，否则返回 false
+ */
+bool ShowFactoryResetPage(SettingsViewState* state) {
+  if (state == nullptr || state->root == nullptr ||
+      state->detail_page == nullptr) {
+    return false;
+  }
+  if (state->factory_reset_closing) {
+    return true;
+  }
+  if (state->factory_reset_page != nullptr) {
+    lv_obj_move_to_index(state->factory_reset_page, -1);
+    return true;
+  }
+
+  const AppViewConfig& config = state->config;
+  lv_obj_t* page = lv_obj_create(state->root);
+  if (page == nullptr) {
+    return false;
+  }
+  state->factory_reset_page = page;
+  state->factory_reset_confirm_button = nullptr;
+  state->factory_reset_confirm_label = nullptr;
+  state->factory_reset_seconds_remaining = kFactoryResetCountdownSeconds;
+  state->factory_reset_closing = false;
+  state->factory_reset_started = false;
+  state->factory_reset_swipe = EdgeBackSwipeState();
+
+  lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  AddEdgeBackSwipeEvents(page, FactoryResetEdgeBackEventCallback, state);
+  lv_obj_set_size(page, config.width, config.height);
+  lv_obj_set_pos(page, 0, 0);
+  lv_obj_set_style_bg_color(
+      page, lv_color_hex(kBackgroundColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
+
+  if (!CreateFactoryResetHeader(page, state, config.width) ||
+      !CreateFactoryResetContent(
+          page, state, config.width, config.height)) {
+    CloseFactoryResetPage(state, false);
+    return false;
+  }
+
+  state->factory_reset_countdown_timer = lv_timer_create(
+      FactoryResetCountdownTimerCallback, kFactoryResetCountdownPeriodMs,
+      state);
+  if (state->factory_reset_countdown_timer == nullptr) {
+    CloseFactoryResetPage(state, false);
+    return false;
+  }
+
+  EnableEdgeBackSwipeEventBubble(page);
+  if (!StartSlideLeftWindowTransition(
+          page, config.width, kDetailSlideAnimationMs, state, nullptr)) {
+    CloseFactoryResetPage(state, false);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * @brief 处理恢复出厂设置选项点击事件
+ * @param event LVGL 事件对象
+ */
+void FactoryResetRowClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+
+  ShowFactoryResetPage(
+      static_cast<SettingsViewState*>(lv_event_get_user_data(event)));
 }
 
 /**
@@ -741,10 +1188,12 @@ bool CreateDeviceSpecCard(
  * @param text 选项文本
  * @param y Y 坐标
  * @param width 页面宽度
+ * @param callback 点击回调
+ * @param user_data 点击回调用户数据
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateDeviceOptionRow(
-    lv_obj_t* parent, const char* text, int y, int width) {
+bool CreateDeviceOptionRow(lv_obj_t* parent, const char* text, int y,
+    int width, lv_event_cb_t callback, void* user_data) {
   lv_obj_t* row = lv_obj_create(parent);
   if (row == nullptr) {
     return false;
@@ -765,6 +1214,9 @@ bool CreateDeviceOptionRow(
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
   if (!AddPressCancelOnLeave(row)) {
     return false;
+  }
+  if (callback != nullptr) {
+    lv_obj_add_event_cb(row, callback, LV_EVENT_CLICKED, user_data);
   }
 
   lv_obj_t* label =
@@ -787,14 +1239,20 @@ bool CreateDeviceOptionRow(
  * @brief 创建我的设备下方选项列表
  * @param parent 父对象
  * @param width 页面宽度
+ * @param state 设置页面状态
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateDeviceOptions(lv_obj_t* parent, int width) {
+bool CreateDeviceOptions(
+    lv_obj_t* parent, int width, SettingsViewState* state) {
   const app::SettingsDeviceOptionCatalog& catalog =
       app::GetSettingsDeviceOptionCatalog();
   int y = kDetailSecondCardTop + kDetailSecondCardHeight + kDetailOptionTopGap;
   for (size_t i = 0; i < catalog.option_count; ++i) {
-    if (!CreateDeviceOptionRow(parent, catalog.options[i].title, y, width)) {
+    const lv_event_cb_t callback = IsId(catalog.options[i].id, "factory_reset")
+                                       ? FactoryResetRowClickedEventCallback
+                                       : nullptr;
+    if (!CreateDeviceOptionRow(parent, catalog.options[i].title, y, width,
+            callback, state)) {
       return false;
     }
     y += kDetailOptionRowHeight;
@@ -876,7 +1334,7 @@ bool ShowMyDevicePageInternal(SettingsViewState* state) {
                            body, config, config.width, state, device_info) &&
                        CreateDeviceSpecCard(
                            body, config, config.width, state, device_info) &&
-                       CreateDeviceOptions(body, config.width);
+                       CreateDeviceOptions(body, config.width, state);
   if (!created) {
     CloseMyDevicePage(state, false);
     return false;

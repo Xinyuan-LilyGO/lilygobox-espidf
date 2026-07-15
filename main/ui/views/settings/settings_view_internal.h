@@ -2,7 +2,7 @@
  * @Description: Settings view internal helpers
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-06-25 11:51:20
+ * @LastEditTime: 2026-07-15 15:53:19
  * @License: GPL 3.0
  */
 #pragma once
@@ -173,6 +173,9 @@ struct SettingsViewState {
   lv_obj_t* name_edit_page = nullptr;
   lv_obj_t* name_edit_text_area = nullptr;
   lv_obj_t* name_edit_keyboard = nullptr;
+  lv_obj_t* factory_reset_page = nullptr;
+  lv_obj_t* factory_reset_confirm_button = nullptr;
+  lv_obj_t* factory_reset_confirm_label = nullptr;
   lv_obj_t* wifi_page = nullptr;
   lv_obj_t* wifi_sub_page = nullptr;
   // WLAN 二级页面栈，保持高级设置、已保存网络和网络详情的返回层级。
@@ -199,6 +202,7 @@ struct SettingsViewState {
   // WLAN 页面定时刷新器，用来轮询 HAL 扫描和连接状态。
   lv_timer_t* wifi_refresh_timer = nullptr;
   lv_timer_t* battery_refresh_timer = nullptr;
+  lv_timer_t* factory_reset_countdown_timer = nullptr;
   lv_obj_t* battery_overview_fill = nullptr;
   lv_obj_t* battery_overview_time_label = nullptr;
   lv_obj_t* battery_overview_status_icon_label = nullptr;
@@ -217,6 +221,7 @@ struct SettingsViewState {
   WifiNetworkAction wifi_pending_action = {};
   EdgeBackSwipeState detail_swipe = {};
   EdgeBackSwipeState name_edit_swipe = {};
+  EdgeBackSwipeState factory_reset_swipe = {};
   EdgeBackSwipeState wifi_swipe = {};
   EdgeBackSwipeState wifi_sub_swipe = {};
   EdgeBackSwipeState settings_extra_swipe = {};
@@ -229,6 +234,8 @@ struct SettingsViewState {
   uint32_t wifi_refresh_key = 0;
   bool detail_closing = false;
   bool name_edit_closing = false;
+  bool factory_reset_closing = false;
+  bool factory_reset_started = false;
   bool wifi_closing = false;
   bool wifi_sub_closing = false;
   bool settings_extra_closing = false;
@@ -255,11 +262,12 @@ struct SettingsViewState {
   bool hotspot_enabled = false;
   bool haptics_enabled = true;
   bool battery_protection_enabled = true;
-  int display_brightness_percent = 70;
-  int audio_volume_percent = 60;
-  int haptic_strength_percent = 45;
+  int display_brightness_percent = 90;
+  int audio_volume_percent = 90;
+  int haptic_strength_percent = 90;
   int auto_lock_seconds = 5 * 60;
   int screen_rotation_angle = 0;
+  int factory_reset_seconds_remaining = 0;
   char wifi_auto_connect_ssid[hal::kWifiSsidMaxLength + 1] = {};
 };
 

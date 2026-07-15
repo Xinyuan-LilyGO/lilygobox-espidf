@@ -12,7 +12,7 @@ namespace lilygo_box::app {
 // 振动设置用户偏好。
 struct HapticPreferences {
   bool enabled = true;
-  int strength_percent = 45;
+  int strength_percent = 90;
 };
 
 /**

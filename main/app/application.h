@@ -134,7 +134,7 @@ class Application final {
   hal::DeviceProviderContext device_provider_context_;
   hal::LvglPort lvgl_port_;
   ui::UiManager ui_manager_;
-  std::atomic<int> current_screen_brightness_percent_{100};
+  std::atomic<int> current_screen_brightness_percent_{90};
   std::atomic<bool> screen_locked_{false};
   std::atomic<bool> lock_screen_awake_{false};
   std::atomic<bool> power_menu_visible_{false};

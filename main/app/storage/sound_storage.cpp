@@ -22,10 +22,10 @@ constexpr uint32_t kMagic = 0x41554450;
 
 struct Blob {
   uint32_t magic = kMagic;
-  uint8_t volume_percent = 60;
+  uint8_t volume_percent = 90;
 };
 
-std::atomic<int> g_volume{60};
+std::atomic<int> g_volume{90};
 
 }  // namespace
 

@@ -11,7 +11,7 @@ namespace lilygo_box::app {
 
 // 显示设置用户偏好。
 struct DisplayPreferences {
-  int brightness_percent = 70;
+  int brightness_percent = 90;
   int lock_timeout_seconds = 5 * 60;
   int screen_rotation_angle = 0;
 };

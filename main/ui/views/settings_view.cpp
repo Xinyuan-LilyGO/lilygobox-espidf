@@ -2,7 +2,7 @@
  * @Description: Settings main list view
  * @Author: LILYGO_L
  * @Date: 2026-05-18 09:20:00
- * @LastEditTime: 2026-05-23 00:00:00
+ * @LastEditTime: 2026-07-15 15:53:19
  * @License: GPL 3.0
  */
 #include "ui/views/settings_view.h"
@@ -145,6 +145,10 @@ void SettingsViewDeleteEventCallback(lv_event_t* event) {
   if (state != nullptr && state->wifi_refresh_timer != nullptr) {
     lv_timer_delete(state->wifi_refresh_timer);
     state->wifi_refresh_timer = nullptr;
+  }
+  if (state != nullptr && state->factory_reset_countdown_timer != nullptr) {
+    lv_timer_delete(state->factory_reset_countdown_timer);
+    state->factory_reset_countdown_timer = nullptr;
   }
   delete state;
 }
