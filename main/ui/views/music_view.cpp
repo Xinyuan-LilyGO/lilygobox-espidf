@@ -2,7 +2,7 @@
  * @Description: 音乐应用视图
  * @Author: LILYGO_L
  * @Date: 2026-07-08 00:00:00
- * @LastEditTime: 2026-07-15 14:12:20
+ * @LastEditTime: 2026-07-15 15:27:31
  * @License: GPL 3.0
  */
 #include "ui/views/music_view.h"
@@ -105,6 +105,7 @@ enum class MusicPlaybackMode {
 };
 
 struct MusicTrackAction;
+struct MusicViewState;
 
 struct MusicScanJob {
   std::vector<std::string> source_paths;
@@ -113,8 +114,27 @@ struct MusicScanJob {
   bool success = false;
 };
 
+/**
+ * @brief 独立于音乐界面生命周期的播放会话
+ */
+struct MusicPlaybackSession {
+  hal::AudioProvider* audio = nullptr;
+  hal::StorageProvider* storage = nullptr;
+  MusicViewState* view = nullptr;
+  std::vector<app::MusicTrack> tracks;
+  std::shared_ptr<MusicScanJob> scan_job;
+  lv_timer_t* status_timer = nullptr;
+  int current_track = -1;
+  bool playing = false;
+  bool completion_handled = false;
+  bool storage_was_mounted = false;
+  bool library_initialized = false;
+  MusicPlaybackMode playback_mode = MusicPlaybackMode::kRepeatAll;
+};
+
 struct MusicViewState {
   AppViewConfig config;
+  MusicPlaybackSession* session = nullptr;
   lv_obj_t* root = nullptr;
   lv_obj_t* player_page = nullptr;
   lv_obj_t* play_button = nullptr;
@@ -129,7 +149,6 @@ struct MusicViewState {
   lv_obj_t* current_time_label = nullptr;
   lv_obj_t* total_time_label = nullptr;
   lv_obj_t* library_content = nullptr;
-  lv_timer_t* playback_status_timer = nullptr;
   lv_obj_t* settings_page = nullptr;
   lv_obj_t* sources_page = nullptr;
   lv_obj_t* sources_body = nullptr;
@@ -147,19 +166,21 @@ struct MusicViewState {
   bool picker_source_enabled[kMusicFolderOptionCount] = {};
   std::array<std::string, kMusicFolderOptionCount> source_paths;
   std::array<std::string, kMusicFolderOptionCount> draft_source_paths;
-  std::vector<app::MusicTrack> tracks;
   std::vector<std::unique_ptr<MusicTrackAction>> track_actions;
-  std::shared_ptr<MusicScanJob> scan_job;
   lv_timer_t* scan_start_timer = nullptr;
-  int current_track = -1;
-  bool playing = false;
   bool seeking = false;
-  bool completion_handled = false;
-  bool storage_was_mounted = false;
-  MusicPlaybackMode playback_mode = MusicPlaybackMode::kRepeatAll;
   bool settings_closing = false;
   bool sources_closing = false;
 };
+
+/**
+ * @brief 获取应用生命周期内唯一的音乐播放会话
+ * @return 音乐播放会话地址
+ */
+MusicPlaybackSession* GetMusicPlaybackSession() {
+  static auto* session = new MusicPlaybackSession();
+  return session;
+}
 
 struct MusicTrackAction {
   MusicViewState* state = nullptr;
@@ -209,9 +230,9 @@ void StopMusicScanStartTimer(MusicViewState* state);
 
 /**
  * @brief 接收后台曲库扫描结果并刷新音乐列表
- * @param state 音乐视图状态
+ * @param session 音乐播放会话
  */
-void FinishMusicLibraryScan(MusicViewState* state);
+void FinishMusicLibraryScan(MusicPlaybackSession* session);
 
 /**
  * @brief 更新播放按钮图标和形状
@@ -228,35 +249,36 @@ void RefreshMusicClickedEventCallback(lv_event_t* event);
 
 /**
  * @brief 开始播放曲库中的指定曲目
- * @param state 音乐视图状态
+ * @param session 音乐播放会话
  * @param track_index 曲目索引
  * @return 播放任务启动成功返回 true，否则返回 false
  */
-bool StartMusicTrack(MusicViewState* state, size_t track_index);
+bool StartMusicTrack(MusicPlaybackSession* session, size_t track_index);
 
 /**
  * @brief 按当前播放模式选择上一首或下一首曲目
- * @param state 音乐视图状态
+ * @param session 音乐播放会话
  * @param direction 切换方向，负数为上一首，正数为下一首
  * @return 播放任务启动成功返回 true，否则返回 false
  */
-bool PlayAdjacentMusicTrack(MusicViewState* state, int direction);
+bool PlayAdjacentMusicTrack(MusicPlaybackSession* session, int direction);
 
 /**
  * @brief 获取当前选中的曲目
- * @param state 音乐视图状态
+ * @param session 音乐播放会话
  * @return 当前曲目地址，没有选中曲目时返回 nullptr
  */
-const app::MusicTrack* CurrentMusicTrack(const MusicViewState* state);
+const app::MusicTrack* CurrentMusicTrack(
+    const MusicPlaybackSession* session);
 
 /**
  * @brief 更新播放状态以及两个播放按钮的图标
- * @param state 音乐视图状态
+ * @param session 音乐播放会话
  * @param playing 是否正在播放
  * @param animated 是否播放详情页按钮形状动画
  */
 void SetMusicPlaying(
-    MusicViewState* state, bool playing, bool animated);
+    MusicPlaybackSession* session, bool playing, bool animated);
 
 /**
  * @brief 设置对象背景、边框和内边距为透明
@@ -399,7 +421,7 @@ void UpdateMusicCurrentTime(MusicViewState* state, int32_t value) {
     return;
   }
   value = std::clamp<int32_t>(value, 0, 100);
-  const app::MusicTrack* track = CurrentMusicTrack(state);
+  const app::MusicTrack* track = CurrentMusicTrack(state->session);
   const int duration_seconds = track == nullptr
                                    ? kDefaultTrackDurationSeconds
                                    : static_cast<int>(
@@ -671,13 +693,14 @@ void MusicProgressInputEventCallback(lv_event_t* event) {
   lv_obj_t* slider = lv_event_get_target_obj(event);
   if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
     if (state != nullptr) {
-      const app::MusicTrack* track = CurrentMusicTrack(state);
-      if (state->config.audio != nullptr && track != nullptr &&
+      const app::MusicTrack* track = CurrentMusicTrack(state->session);
+      if (state->session != nullptr && state->session->audio != nullptr &&
+          track != nullptr &&
           track->duration_ms > 0) {
         const uint32_t position_ms = static_cast<uint32_t>(
             static_cast<uint64_t>(track->duration_ms) *
             lv_slider_get_value(slider) / 100U);
-        state->config.audio->SeekAudioFile(position_ms);
+        state->session->audio->SeekAudioFile(position_ms);
       }
       state->seeking = false;
     }
@@ -770,12 +793,13 @@ void StartVerticalSlide(lv_obj_t* object, int32_t start_y, int32_t end_y,
 }
 
 void UpdatePlayButton(MusicViewState* state, bool animated) {
-  if (state == nullptr || state->play_button == nullptr) {
+  if (state == nullptr || state->session == nullptr ||
+      state->play_button == nullptr) {
     return;
   }
 
   lv_obj_invalidate(state->play_button);
-  const int32_t target_radius = state->playing ? 34 : 58;
+  const int32_t target_radius = state->session->playing ? 34 : 58;
   if (!animated) {
     SetObjectRadius(state->play_button, target_radius);
     return;
@@ -803,12 +827,13 @@ void PlayButtonDrawEventCallback(lv_event_t* event) {
     return;
   }
   auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr) {
+  if (state == nullptr || state->session == nullptr) {
     return;
   }
   lv_obj_t* target = lv_event_get_target_obj(event);
   DrawMusicControlIcon(target, lv_event_get_layer(event),
-      state->playing ? MusicControlIcon::kPause : MusicControlIcon::kPlay,
+      state->session->playing ? MusicControlIcon::kPause
+                              : MusicControlIcon::kPlay,
       lv_obj_get_style_text_color(target, LV_PART_MAIN));
 }
 
@@ -821,19 +846,21 @@ void PlayButtonClickedEventCallback(lv_event_t* event) {
     return;
   }
   auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->config.audio == nullptr) {
+  if (state == nullptr || state->session == nullptr ||
+      state->session->audio == nullptr) {
     return;
   }
-  if (state->playing) {
-    if (state->config.audio->PauseAudioFile()) {
-      SetMusicPlaying(state, false, true);
+  MusicPlaybackSession* session = state->session;
+  if (session->playing) {
+    if (session->audio->PauseAudioFile()) {
+      SetMusicPlaying(session, false, true);
     }
-  } else if (state->current_track < 0) {
-    StartMusicTrack(state, 0);
-  } else if (state->config.audio->ResumeAudioFile()) {
-    SetMusicPlaying(state, true, true);
+  } else if (session->current_track < 0) {
+    StartMusicTrack(session, 0);
+  } else if (session->audio->ResumeAudioFile()) {
+    SetMusicPlaying(session, true, true);
   } else {
-    StartMusicTrack(state, static_cast<size_t>(state->current_track));
+    StartMusicTrack(session, static_cast<size_t>(session->current_track));
   }
   lv_event_stop_bubbling(event);
 }
@@ -847,7 +874,7 @@ void PreviousTrackClickedEventCallback(lv_event_t* event) {
     return;
   }
   auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
-  PlayAdjacentMusicTrack(state, -1);
+  PlayAdjacentMusicTrack(state == nullptr ? nullptr : state->session, -1);
   lv_event_stop_bubbling(event);
 }
 
@@ -860,16 +887,17 @@ void NextTrackClickedEventCallback(lv_event_t* event) {
     return;
   }
   auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
-  PlayAdjacentMusicTrack(state, 1);
+  PlayAdjacentMusicTrack(state == nullptr ? nullptr : state->session, 1);
   lv_event_stop_bubbling(event);
 }
 
-const app::MusicTrack* CurrentMusicTrack(const MusicViewState* state) {
-  if (state == nullptr || state->current_track < 0 ||
-      state->current_track >= static_cast<int>(state->tracks.size())) {
+const app::MusicTrack* CurrentMusicTrack(
+    const MusicPlaybackSession* session) {
+  if (session == nullptr || session->current_track < 0 ||
+      session->current_track >= static_cast<int>(session->tracks.size())) {
     return nullptr;
   }
-  return &state->tracks[state->current_track];
+  return &session->tracks[session->current_track];
 }
 
 /**
@@ -877,7 +905,8 @@ const app::MusicTrack* CurrentMusicTrack(const MusicViewState* state) {
  * @param state 音乐视图状态
  */
 void UpdateCurrentTrackLabels(MusicViewState* state) {
-  const app::MusicTrack* track = CurrentMusicTrack(state);
+  const app::MusicTrack* track =
+      CurrentMusicTrack(state == nullptr ? nullptr : state->session);
   if (state == nullptr || track == nullptr) {
     return;
   }
@@ -921,56 +950,61 @@ void SetMiniPlayerVisible(MusicViewState* state, bool visible) {
 }
 
 void SetMusicPlaying(
-    MusicViewState* state, bool playing, bool animated) {
-  if (state == nullptr) {
+    MusicPlaybackSession* session, bool playing, bool animated) {
+  if (session == nullptr) {
     return;
   }
-  state->playing = playing;
-  UpdatePlayButton(state, animated);
-  if (state->mini_play_button != nullptr) {
-    lv_obj_invalidate(state->mini_play_button);
+  session->playing = playing;
+  MusicViewState* state = session->view;
+  if (state != nullptr) {
+    UpdatePlayButton(state, animated);
+    if (state->mini_play_button != nullptr) {
+      lv_obj_invalidate(state->mini_play_button);
+    }
   }
 }
 
-bool StartMusicTrack(MusicViewState* state, size_t track_index) {
-  if (state == nullptr || state->config.audio == nullptr ||
-      track_index >= state->tracks.size()) {
+bool StartMusicTrack(MusicPlaybackSession* session, size_t track_index) {
+  if (session == nullptr || session->audio == nullptr ||
+      track_index >= session->tracks.size()) {
     return false;
   }
-  const app::MusicTrack& track = state->tracks[track_index];
-  if (!state->config.audio->StartAudioFile(
-          track.path.c_str(), track.duration_ms)) {
-    SetMusicPlaying(state, false, true);
+  const app::MusicTrack& track = session->tracks[track_index];
+  if (!session->audio->StartAudioFile(track.path.c_str(), track.duration_ms)) {
+    SetMusicPlaying(session, false, true);
     return false;
   }
-  state->current_track = static_cast<int>(track_index);
-  state->completion_handled = false;
-  SetMiniPlayerVisible(state, true);
-  UpdateCurrentTrackLabels(state);
-  SetMusicTimeLabel(state->current_time_label, 0);
-  if (state->progress_slider != nullptr) {
-    lv_slider_set_value(state->progress_slider, 0, LV_ANIM_OFF);
+  session->current_track = static_cast<int>(track_index);
+  session->completion_handled = false;
+  MusicViewState* state = session->view;
+  if (state != nullptr) {
+    SetMiniPlayerVisible(state, true);
+    UpdateCurrentTrackLabels(state);
+    SetMusicTimeLabel(state->current_time_label, 0);
+    if (state->progress_slider != nullptr) {
+      lv_slider_set_value(state->progress_slider, 0, LV_ANIM_OFF);
+    }
   }
-  SetMusicPlaying(state, true, true);
+  SetMusicPlaying(session, true, true);
   return true;
 }
 
-bool PlayAdjacentMusicTrack(MusicViewState* state, int direction) {
-  if (state == nullptr || state->tracks.empty()) {
+bool PlayAdjacentMusicTrack(MusicPlaybackSession* session, int direction) {
+  if (session == nullptr || session->tracks.empty()) {
     return false;
   }
   size_t track_index = 0;
-  if (state->playback_mode == MusicPlaybackMode::kShuffle &&
-      state->tracks.size() > 1) {
+  if (session->playback_mode == MusicPlaybackMode::kShuffle &&
+      session->tracks.size() > 1) {
     do {
-      track_index = esp_random() % state->tracks.size();
-    } while (track_index == static_cast<size_t>(state->current_track));
-  } else if (state->current_track >= 0) {
-    const int track_count = static_cast<int>(state->tracks.size());
+      track_index = esp_random() % session->tracks.size();
+    } while (track_index == static_cast<size_t>(session->current_track));
+  } else if (session->current_track >= 0) {
+    const int track_count = static_cast<int>(session->tracks.size());
     track_index = static_cast<size_t>(
-        (state->current_track + direction + track_count) % track_count);
+        (session->current_track + direction + track_count) % track_count);
   }
-  return StartMusicTrack(state, track_index);
+  return StartMusicTrack(session, track_index);
 }
 
 /**
@@ -995,11 +1029,12 @@ const char* PlaybackModeIcon(MusicPlaybackMode mode) {
  * @param state 音乐视图状态
  */
 void UpdatePlaybackModeButton(MusicViewState* state) {
-  if (state == nullptr || state->playback_mode_label == nullptr) {
+  if (state == nullptr || state->session == nullptr ||
+      state->playback_mode_label == nullptr) {
     return;
   }
-  lv_label_set_text(
-      state->playback_mode_label, PlaybackModeIcon(state->playback_mode));
+  lv_label_set_text(state->playback_mode_label,
+      PlaybackModeIcon(state->session->playback_mode));
   lv_obj_center(state->playback_mode_label);
 }
 
@@ -1012,18 +1047,18 @@ void PlaybackModeClickedEventCallback(lv_event_t* event) {
     return;
   }
   auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr) {
+  if (state == nullptr || state->session == nullptr) {
     return;
   }
-  switch (state->playback_mode) {
+  switch (state->session->playback_mode) {
     case MusicPlaybackMode::kRepeatAll:
-      state->playback_mode = MusicPlaybackMode::kRepeatOne;
+      state->session->playback_mode = MusicPlaybackMode::kRepeatOne;
       break;
     case MusicPlaybackMode::kRepeatOne:
-      state->playback_mode = MusicPlaybackMode::kShuffle;
+      state->session->playback_mode = MusicPlaybackMode::kShuffle;
       break;
     case MusicPlaybackMode::kShuffle:
-      state->playback_mode = MusicPlaybackMode::kRepeatAll;
+      state->session->playback_mode = MusicPlaybackMode::kRepeatAll;
       break;
   }
   UpdatePlaybackModeButton(state);
@@ -1321,7 +1356,7 @@ bool CreatePlayerPage(MusicViewState* state) {
   if (state->total_time_label != nullptr) {
     lv_obj_align(state->total_time_label, LV_ALIGN_TOP_RIGHT, -32,
         track_y + 60);
-    const app::MusicTrack* track = CurrentMusicTrack(state);
+    const app::MusicTrack* track = CurrentMusicTrack(state->session);
     SetMusicTimeLabel(state->total_time_label,
         track == nullptr
             ? kDefaultTrackDurationSeconds
@@ -1362,7 +1397,7 @@ bool CreatePlayerPage(MusicViewState* state) {
     lv_obj_set_style_radius(playback_mode_button, 36, pressed_selector);
     state->playback_mode_label =
         CreateLabel(playback_mode_button,
-            PlaybackModeIcon(state->playback_mode),
+            PlaybackModeIcon(state->session->playback_mode),
             lv_color_hex(kPrimaryColor), MaterialOutlineIconFont56());
     if (state->playback_mode_label != nullptr) {
       lv_obj_center(state->playback_mode_label);
@@ -1429,12 +1464,9 @@ void MusicViewDeleteEventCallback(lv_event_t* event) {
   }
   auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
   StopMusicScanStartTimer(state);
-  if (state != nullptr && state->playback_status_timer != nullptr) {
-    lv_timer_delete(state->playback_status_timer);
-    state->playback_status_timer = nullptr;
-  }
-  if (state != nullptr && state->config.audio != nullptr) {
-    state->config.audio->StopAudioFile();
+  if (state != nullptr && state->session != nullptr &&
+      state->session->view == state) {
+    state->session->view = nullptr;
   }
   delete state;
 }
@@ -1458,7 +1490,8 @@ bool CreateEmptyMusicContent(lv_obj_t* parent, MusicViewState* state) {
   lv_obj_set_size(group, state->config.width, 280);
   lv_obj_align(group, LV_ALIGN_CENTER, 0, kMusicEmptyGroupOffsetY);
 
-  const bool storage_available = state->storage_was_mounted;
+  const bool storage_available =
+      state->session != nullptr && state->session->storage_was_mounted;
   lv_obj_t* status_icon = CreateMusicStatusIcon(
       group, storage_available ? icon::kMusic : icon::kSdStorage);
   if (status_icon != nullptr) {
@@ -1596,7 +1629,7 @@ bool CreateMiniPlayer(lv_obj_t* parent, MusicViewState* state) {
     lv_obj_add_event_cb(
         next, StopClickBubblingEventCallback, LV_EVENT_ALL, nullptr);
   }
-  if (CurrentMusicTrack(state) == nullptr) {
+  if (CurrentMusicTrack(state->session) == nullptr) {
     lv_obj_add_flag(card, LV_OBJ_FLAG_HIDDEN);
   }
   return true;
@@ -2706,7 +2739,7 @@ void MusicTrackClickedEventCallback(lv_event_t* event) {
   if (action == nullptr || action->state == nullptr) {
     return;
   }
-  StartMusicTrack(action->state, action->track_index);
+  StartMusicTrack(action->state->session, action->track_index);
   lv_event_stop_bubbling(event);
 }
 
@@ -2719,11 +2752,12 @@ void MusicTrackClickedEventCallback(lv_event_t* event) {
  */
 bool CreateMusicTrackRow(
     MusicViewState* state, size_t track_index, int y) {
-  if (state == nullptr || state->library_content == nullptr ||
-      track_index >= state->tracks.size()) {
+  if (state == nullptr || state->session == nullptr ||
+      state->library_content == nullptr ||
+      track_index >= state->session->tracks.size()) {
     return false;
   }
-  const app::MusicTrack& track = state->tracks[track_index];
+  const app::MusicTrack& track = state->session->tracks[track_index];
   lv_obj_t* row = lv_button_create(state->library_content);
   if (row == nullptr) {
     return false;
@@ -2784,17 +2818,18 @@ bool CreateMusicTrackRow(
 }
 
 bool RenderMusicLibrary(MusicViewState* state) {
-  if (state == nullptr || state->library_content == nullptr) {
+  if (state == nullptr || state->session == nullptr ||
+      state->library_content == nullptr) {
     return false;
   }
   lv_obj_clean(state->library_content);
   state->track_actions.clear();
-  if (state->tracks.empty()) {
+  if (state->session->tracks.empty()) {
     return CreateEmptyMusicContent(state->library_content, state);
   }
 
   int y = 0;
-  for (size_t index = 0; index < state->tracks.size(); ++index) {
+  for (size_t index = 0; index < state->session->tracks.size(); ++index) {
     if (!CreateMusicTrackRow(state, index, y)) {
       return false;
     }
@@ -2825,46 +2860,52 @@ void MusicLibraryScanTaskEntry(void* context) {
   vTaskDelete(nullptr);
 }
 
-void FinishMusicLibraryScan(MusicViewState* state) {
-  if (state == nullptr || state->scan_job == nullptr ||
-      !state->scan_job->completed.load(std::memory_order_acquire)) {
+void FinishMusicLibraryScan(MusicPlaybackSession* session) {
+  if (session == nullptr || session->scan_job == nullptr ||
+      !session->scan_job->completed.load(std::memory_order_acquire)) {
     return;
   }
-  std::shared_ptr<MusicScanJob> job = state->scan_job;
-  state->scan_job.reset();
+  std::shared_ptr<MusicScanJob> job = session->scan_job;
+  session->scan_job.reset();
 
   std::string current_path;
-  const app::MusicTrack* current_track = CurrentMusicTrack(state);
+  const app::MusicTrack* current_track = CurrentMusicTrack(session);
   if (current_track != nullptr) {
     current_path = current_track->path;
   }
-  state->tracks = std::move(job->tracks);
-  state->current_track = -1;
+  session->tracks = std::move(job->tracks);
+  session->current_track = -1;
   if (!current_path.empty()) {
-    for (size_t index = 0; index < state->tracks.size(); ++index) {
-      if (state->tracks[index].path == current_path) {
-        state->current_track = static_cast<int>(index);
+    for (size_t index = 0; index < session->tracks.size(); ++index) {
+      if (session->tracks[index].path == current_path) {
+        session->current_track = static_cast<int>(index);
         break;
       }
     }
   }
-  if (!current_path.empty() && state->current_track < 0) {
-    if (state->config.audio != nullptr) {
-      state->config.audio->StopAudioFile();
+  if (!current_path.empty() && session->current_track < 0) {
+    if (session->audio != nullptr) {
+      session->audio->StopAudioFile();
     }
-    SetMusicPlaying(state, false, false);
+    SetMusicPlaying(session, false, false);
   }
-  if (state->current_track < 0) {
-    SetMiniPlayerVisible(state, false);
-  } else {
-    SetMiniPlayerVisible(state, true);
-    UpdateCurrentTrackLabels(state);
+  session->library_initialized = true;
+  MusicViewState* state = session->view;
+  if (state != nullptr) {
+    if (session->current_track < 0) {
+      SetMiniPlayerVisible(state, false);
+    } else {
+      SetMiniPlayerVisible(state, true);
+      UpdateCurrentTrackLabels(state);
+    }
   }
   if (!job->success) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Some music source folders could not be scanned\n");
   }
-  RenderMusicLibrary(state);
+  if (state != nullptr) {
+    RenderMusicLibrary(state);
+  }
 }
 
 /**
@@ -2873,23 +2914,25 @@ void FinishMusicLibraryScan(MusicViewState* state) {
  * @return 成功启动或完成扫描返回 true，否则返回 false
  */
 bool StartMusicLibraryScan(MusicViewState* state) {
-  if (state == nullptr) {
+  if (state == nullptr || state->session == nullptr) {
     return false;
   }
-  if (state->config.storage == nullptr ||
-      !state->config.storage->EnsureSdCardMounted()) {
-    if (state->config.audio != nullptr) {
-      state->config.audio->StopAudioFile();
+  MusicPlaybackSession* session = state->session;
+  if (session->storage == nullptr ||
+      !session->storage->EnsureSdCardMounted()) {
+    if (session->audio != nullptr) {
+      session->audio->StopAudioFile();
     }
-    state->tracks.clear();
-    state->current_track = -1;
-    state->scan_job.reset();
-    state->storage_was_mounted = false;
-    SetMusicPlaying(state, false, false);
+    session->tracks.clear();
+    session->current_track = -1;
+    session->scan_job.reset();
+    session->storage_was_mounted = false;
+    session->library_initialized = true;
+    SetMusicPlaying(session, false, false);
     SetMiniPlayerVisible(state, false);
     return RenderMusicLibrary(state);
   }
-  state->storage_was_mounted = true;
+  session->storage_was_mounted = true;
 
   std::vector<std::string> source_paths;
   for (const std::string& path : state->source_paths) {
@@ -2897,14 +2940,14 @@ bool StartMusicLibraryScan(MusicViewState* state) {
       source_paths.push_back(path);
     }
   }
-  if (state->scan_job != nullptr &&
-      !state->scan_job->completed.load(std::memory_order_acquire) &&
-      state->scan_job->source_paths == source_paths) {
+  if (session->scan_job != nullptr &&
+      !session->scan_job->completed.load(std::memory_order_acquire) &&
+      session->scan_job->source_paths == source_paths) {
     return true;
   }
   auto job = std::make_shared<MusicScanJob>();
   job->source_paths = std::move(source_paths);
-  state->scan_job = job;
+  session->scan_job = job;
 
   auto* task_context =
       new (std::nothrow) std::shared_ptr<MusicScanJob>(job);
@@ -2917,7 +2960,7 @@ bool StartMusicLibraryScan(MusicViewState* state) {
   delete task_context;
   job->success = app::ScanMusicLibrary(job->source_paths, &job->tracks);
   job->completed.store(true, std::memory_order_release);
-  FinishMusicLibraryScan(state);
+  FinishMusicLibraryScan(session);
   return true;
 }
 
@@ -2952,7 +2995,8 @@ bool RefreshMusicLibrary(MusicViewState* state) {
   if (state == nullptr) {
     return false;
   }
-  if (state->scan_start_timer != nullptr || state->scan_job != nullptr) {
+  if (state->scan_start_timer != nullptr ||
+      (state->session != nullptr && state->session->scan_job != nullptr)) {
     return true;
   }
   if (!RenderMusicScanningContent(state)) {
@@ -2980,40 +3024,48 @@ void RefreshMusicClickedEventCallback(lv_event_t* event) {
  * @param timer LVGL 定时器
  */
 void MusicPlaybackStatusTimerCallback(lv_timer_t* timer) {
-  auto* state = static_cast<MusicViewState*>(lv_timer_get_user_data(timer));
-  if (state == nullptr) {
+  auto* session =
+      static_cast<MusicPlaybackSession*>(lv_timer_get_user_data(timer));
+  if (session == nullptr) {
     return;
   }
-  const bool storage_mounted = state->config.storage != nullptr &&
-      state->config.storage->IsSdCardMounted();
-  if (state->storage_was_mounted && !storage_mounted) {
-    state->storage_was_mounted = false;
-    StopMusicScanStartTimer(state);
-    state->scan_job.reset();
-    if (state->config.audio != nullptr) {
-      state->config.audio->StopAudioFile();
+  MusicViewState* state = session->view;
+  const bool storage_mounted = session->storage != nullptr &&
+      session->storage->IsSdCardMounted();
+  if (session->storage_was_mounted && !storage_mounted) {
+    session->storage_was_mounted = false;
+    if (state != nullptr) {
+      StopMusicScanStartTimer(state);
     }
-    state->tracks.clear();
-    state->current_track = -1;
-    SetMusicPlaying(state, false, false);
-    SetMiniPlayerVisible(state, false);
-    RenderMusicLibrary(state);
+    session->scan_job.reset();
+    if (session->audio != nullptr) {
+      session->audio->StopAudioFile();
+    }
+    session->tracks.clear();
+    session->current_track = -1;
+    session->library_initialized = true;
+    SetMusicPlaying(session, false, false);
+    if (state != nullptr) {
+      SetMiniPlayerVisible(state, false);
+      RenderMusicLibrary(state);
+    }
     return;
   }
-  state->storage_was_mounted = storage_mounted;
-  FinishMusicLibraryScan(state);
-  if (state->config.audio == nullptr || CurrentMusicTrack(state) == nullptr) {
+  session->storage_was_mounted = storage_mounted;
+  FinishMusicLibraryScan(session);
+  const app::MusicTrack* track = CurrentMusicTrack(session);
+  if (session->audio == nullptr || track == nullptr) {
     return;
   }
 
   hal::AudioFilePlaybackStatus status;
-  if (!state->config.audio->ReadAudioFileStatus(&status)) {
+  if (!session->audio->ReadAudioFileStatus(&status)) {
     return;
   }
   const uint32_t duration_ms = status.duration_ms == 0
-                                   ? CurrentMusicTrack(state)->duration_ms
+                                   ? track->duration_ms
                                    : status.duration_ms;
-  if (!state->seeking) {
+  if (state != nullptr && !state->seeking) {
     const int progress = duration_ms == 0
                              ? 0
                              : static_cast<int>(std::min<uint64_t>(
@@ -3027,36 +3079,38 @@ void MusicPlaybackStatusTimerCallback(lv_timer_t* timer) {
     SetMusicTimeLabel(state->current_time_label,
         static_cast<int>(status.elapsed_ms / 1000U));
   }
-  SetMusicTimeLabel(
-      state->total_time_label, static_cast<int>(duration_ms / 1000U));
+  if (state != nullptr) {
+    SetMusicTimeLabel(
+        state->total_time_label, static_cast<int>(duration_ms / 1000U));
+  }
 
   if (status.state == hal::AudioFilePlaybackState::kPlaying) {
-    if (!state->playing) {
-      SetMusicPlaying(state, true, true);
+    if (!session->playing) {
+      SetMusicPlaying(session, true, true);
     }
-    state->completion_handled = false;
+    session->completion_handled = false;
     return;
   }
   if (status.state == hal::AudioFilePlaybackState::kPaused) {
-    if (state->playing) {
-      SetMusicPlaying(state, false, true);
+    if (session->playing) {
+      SetMusicPlaying(session, false, true);
     }
     return;
   }
   if (status.state == hal::AudioFilePlaybackState::kCompleted &&
-      !state->completion_handled) {
-    state->completion_handled = true;
-    if (state->playback_mode == MusicPlaybackMode::kRepeatOne) {
-      StartMusicTrack(state, static_cast<size_t>(state->current_track));
+      !session->completion_handled) {
+    session->completion_handled = true;
+    if (session->playback_mode == MusicPlaybackMode::kRepeatOne) {
+      StartMusicTrack(session, static_cast<size_t>(session->current_track));
     } else {
-      PlayAdjacentMusicTrack(state, 1);
+      PlayAdjacentMusicTrack(session, 1);
     }
     return;
   }
   if (status.state == hal::AudioFilePlaybackState::kStopped ||
       status.state == hal::AudioFilePlaybackState::kError) {
-    if (state->playing) {
-      SetMusicPlaying(state, false, true);
+    if (session->playing) {
+      SetMusicPlaying(session, false, true);
     }
   }
 }
@@ -3324,7 +3378,11 @@ lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry& app_entry,
 
   auto* state = new MusicViewState();
   state->config = config;
+  state->session = GetMusicPlaybackSession();
   state->root = container;
+  state->session->audio = config.audio;
+  state->session->storage = config.storage;
+  state->session->view = state;
   LoadStoredMusicSources(state);
   lv_obj_add_event_cb(
       container, MusicViewDeleteEventCallback, LV_EVENT_DELETE, state);
@@ -3362,7 +3420,15 @@ lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry& app_entry,
   lv_obj_set_scrollbar_mode(
       state->library_content, LV_SCROLLBAR_MODE_AUTO);
 
-  if (!CreateMiniPlayer(container, state) || !RefreshMusicLibrary(state)) {
+  bool content_created = false;
+  if (state->session->scan_job != nullptr) {
+    content_created = RenderMusicScanningContent(state);
+  } else if (state->session->library_initialized) {
+    content_created = RenderMusicLibrary(state);
+  } else {
+    content_created = RefreshMusicLibrary(state);
+  }
+  if (!CreateMiniPlayer(container, state) || !content_created) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "CreateMusicView content failed\n");
     lv_obj_delete(container);
@@ -3373,12 +3439,19 @@ lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry& app_entry,
     lv_obj_delete(container);
     return nullptr;
   }
+  if (CurrentMusicTrack(state->session) != nullptr) {
+    UpdateCurrentTrackLabels(state);
+    SetMiniPlayerVisible(state, true);
+  }
 
-  state->playback_status_timer = lv_timer_create(
-      MusicPlaybackStatusTimerCallback, kPlaybackStatusIntervalMs, state);
-  if (state->playback_status_timer == nullptr) {
-    lv_obj_delete(container);
-    return nullptr;
+  if (state->session->status_timer == nullptr) {
+    state->session->status_timer = lv_timer_create(
+        MusicPlaybackStatusTimerCallback, kPlaybackStatusIntervalMs,
+        state->session);
+    if (state->session->status_timer == nullptr) {
+      lv_obj_delete(container);
+      return nullptr;
+    }
   }
 
   return container;
