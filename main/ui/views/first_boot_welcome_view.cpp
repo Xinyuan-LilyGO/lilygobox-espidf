@@ -13,7 +13,7 @@
 #include "ui/haptic_feedback.h"
 #include "ui/input/press_cancel.h"
 #include "ui/resources/fonts/font_assets.h"
-#include "ui/resources/fonts/icon_assets.h"
+#include "ui/widgets/brand_icon.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -36,10 +36,6 @@ const lv_font_t* Font24() { return &lvgl_font_google_sans_flex_24; }
 const lv_font_t* Font28() { return &lvgl_font_google_sans_flex_28; }
 const lv_font_t* Font36() { return &lvgl_font_google_sans_flex_36; }
 const lv_font_t* Font48() { return &lvgl_font_google_sans_flex_48; }
-
-const lv_font_t* MaterialOutlineIconFont56() {
-  return &lvgl_font_material_symbols_outline_56;
-}
 
 void MakeTransparent(lv_obj_t* object) {
   lv_obj_set_style_bg_opa(object, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -87,29 +83,8 @@ void GetStartedButtonClickedEventCallback(lv_event_t* event) {
   }
 }
 
-lv_obj_t* CreateHero(lv_obj_t* parent, int size,
-    const theme::ThemeColors& colors) {
-  lv_obj_t* hero = lv_obj_create(parent);
-  if (hero == nullptr) {
-    return nullptr;
-  }
-  lv_obj_remove_flag(hero, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(hero, size, size);
-  lv_obj_set_style_bg_color(
-      hero, lv_color_hex(colors.action_container), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(hero, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(hero, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(hero, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(hero, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-
-  lv_obj_t* icon_label = CreateLabel(
-      hero, icon::kTouchApp, colors.action, MaterialOutlineIconFont56());
-  if (icon_label == nullptr) {
-    lv_obj_delete(hero);
-    return nullptr;
-  }
-  lv_obj_align(icon_label, LV_ALIGN_CENTER, 0, -3);
-  return hero;
+lv_obj_t* CreateHero(lv_obj_t* parent, int size) {
+  return CreateLilygoBoxBrandIcon(parent, size);
 }
 
 lv_obj_t* CreateGetStartedButton(lv_obj_t* parent, int width, int height,
@@ -157,7 +132,7 @@ bool BuildPortraitLayout(lv_obj_t* page, int width, int height,
       std::min(kButtonMaxWidth, width - 2 * kPageSidePadding);
   const int button_height = compact ? kCompactButtonHeight : kButtonHeight;
 
-  lv_obj_t* hero = CreateHero(page, hero_size, colors);
+  lv_obj_t* hero = CreateHero(page, hero_size);
   if (hero == nullptr) {
     return false;
   }
@@ -200,7 +175,7 @@ bool BuildLandscapeLayout(lv_obj_t* page, int width, int height,
   const int content_width = std::max(260, width / 2 - 2 * side_padding);
   const int button_width = std::min(kButtonMaxWidth, content_width);
 
-  lv_obj_t* hero = CreateHero(page, hero_size, colors);
+  lv_obj_t* hero = CreateHero(page, hero_size);
   if (hero == nullptr) {
     return false;
   }

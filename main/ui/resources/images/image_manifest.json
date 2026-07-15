@@ -28,6 +28,14 @@
       "padding": 0
     },
     {
+      "name": "lilygobox_inner_icon_112x112",
+      "input": "assets/icon/icon_lilygobox.svg",
+      "output": "main/ui/resources/images/lilygobox_inner_icon_112x112.c",
+      "width": 112,
+      "height": 112,
+      "padding": 6
+    },
+    {
       "name": "music_inner_icon_68x68",
       "input": "assets/icon/icon_music.svg",
       "output": "main/ui/resources/images/music_inner_icon_68x68.c",

@@ -121,16 +121,38 @@ def validate_manifest(
     return images
 
 
-def normalize_generated_file(output_path: Path) -> None:
-    """移除动态日期并统一生成文件编码和末尾空行。"""
+def read_preserved_header(output_path: Path) -> dict[str, str]:
+    """读取需要在重新生成时保留的文件头字段。"""
+    if not output_path.is_file():
+        return {}
     content = output_path.read_text(encoding="utf-8")
-    content = re.sub(r"^ \* @Date:.*\r?\n", "", content, flags=re.MULTILINE)
-    content = re.sub(
-        r"^ \* @LastEditTime:.*\r?\n",
-        "",
-        content,
-        flags=re.MULTILINE,
-    )
+    preserved = {}
+    for field in ("Description", "Date"):
+        match = re.search(
+            rf"^ \* @{field}: (.*)\r?$",
+            content,
+            flags=re.MULTILINE,
+        )
+        if match:
+            preserved[field] = match.group(1)
+    return preserved
+
+
+def normalize_generated_file(
+    output_path: Path,
+    preserved_header: dict[str, str],
+) -> None:
+    """保留创建信息并统一生成文件编码和末尾空行。"""
+    content = output_path.read_text(encoding="utf-8")
+    for field, value in preserved_header.items():
+        pattern = re.compile(
+            rf"^( \* @{field}:).*$",
+            flags=re.MULTILINE,
+        )
+        content = pattern.sub(
+            lambda match: f"{match.group(1)} {value}",
+            content,
+        )
     output_path.write_text(content.rstrip("\r\n") + "\n", encoding="utf-8")
 
 
@@ -184,8 +206,9 @@ def generate_image(
         "--padding",
         str(int(image.get("padding", 0))),
     ]
+    preserved_header = read_preserved_header(output_path)
     subprocess.run(command, cwd=app_root, check=True)
-    normalize_generated_file(output_path)
+    normalize_generated_file(output_path, preserved_header)
     validate_generated_file(output_path, image)
     print(f"已生成 {image['output']}")
 

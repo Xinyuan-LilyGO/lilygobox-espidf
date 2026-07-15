@@ -236,7 +236,8 @@ function isCommand(token) {
 
 function parsePath(data, matrix) {
   const tokens = tokenizePath(data);
-  const points = [];
+  const contours = [];
+  let points = [];
   let i = 0;
   let command = "";
   let current = {x: 0, y: 0};
@@ -253,6 +254,13 @@ function parsePath(data, matrix) {
     current = point;
   }
 
+  function finishContour() {
+    if (points.length > 0) {
+      contours.push(points);
+      points = [];
+    }
+  }
+
   while (i < tokens.length) {
     if (isCommand(tokens[i])) {
       command = tokens[i++];
@@ -261,6 +269,7 @@ function parsePath(data, matrix) {
     const cmd = command.toUpperCase();
 
     if (cmd === "M") {
+      finishContour();
       const x = number();
       const y = number();
       current = {
@@ -379,26 +388,47 @@ function parsePath(data, matrix) {
       points.push(applyMatrix(start, matrix));
       current = start;
       lastControl = null;
+      finishContour();
     } else {
       throw new Error(`Unsupported path command: ${command}`);
     }
   }
 
-  return points;
+  finishContour();
+  return contours;
 }
 
-function pointInPolygon(point, polygon) {
-  let inside = false;
+function windingNumber(point, polygon) {
+  let winding = 0;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
     const pi = polygon[i];
     const pj = polygon[j];
-    const intersects = ((pi.y > point.y) !== (pj.y > point.y)) &&
-        point.x < ((pj.x - pi.x) * (point.y - pi.y)) / (pj.y - pi.y) + pi.x;
-    if (intersects) {
-      inside = !inside;
+    const side = (pi.x - pj.x) * (point.y - pj.y) -
+        (point.x - pj.x) * (pi.y - pj.y);
+    if (pj.y <= point.y && pi.y > point.y && side > 0) {
+      winding += 1;
+    } else if (pj.y > point.y && pi.y <= point.y && side < 0) {
+      winding -= 1;
     }
   }
-  return inside;
+  return winding;
+}
+
+function pointInContours(point, contours, fillRule) {
+  if (fillRule === "evenodd") {
+    let inside = false;
+    for (const contour of contours) {
+      if (windingNumber(point, contour) !== 0) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
+  let winding = 0;
+  for (const contour of contours) {
+    winding += windingNumber(point, contour);
+  }
+  return winding !== 0;
 }
 
 function composite(pixel, color, alpha) {
@@ -450,7 +480,8 @@ function shapeStyle(attrs, styles) {
   const strokeWidth =
       parseLength(attrs["stroke-width"] || style["stroke-width"]);
   const opacity = Number(attrs.opacity || style.opacity || 1);
-  return {fill, stroke, strokeWidth, opacity};
+  const fillRule = attrs["fill-rule"] || style["fill-rule"] || "nonzero";
+  return {fill, stroke, strokeWidth, opacity, fillRule};
 }
 
 function ellipsePoints(cx, cy, rx, ry, matrix) {
@@ -498,20 +529,22 @@ function roundedRectPoints(x, y, width, height, rx, ry, matrix) {
   return points;
 }
 
-function addStyledShape(shapes, points, style) {
+function addStyledShape(shapes, geometry, style) {
+  const contours = Array.isArray(geometry[0]) ? geometry : [geometry];
   if (style.fill != null && style.opacity > 0) {
     shapes.push({
       type: "fill",
-      points,
+      contours,
       color: style.fill,
       opacity: style.opacity,
+      fillRule: style.fillRule,
     });
   }
   if (style.stroke != null && style.strokeWidth > 0 &&
       style.opacity > 0) {
     shapes.push({
       type: "stroke",
-      points,
+      contours,
       color: style.stroke,
       opacity: style.opacity,
       strokeWidth: style.strokeWidth,
@@ -608,6 +641,11 @@ function strokeContains(point, points, strokeWidth) {
   return false;
 }
 
+function strokeContainsContours(point, contours, strokeWidth) {
+  return contours.some(
+      (contour) => strokeContains(point, contour, strokeWidth));
+}
+
 function render(svg, width, height, padding) {
   const {viewBox, shapes} = collectShapes(svg);
   const pixels = Array.from({length: width * height}, () => ({
@@ -616,8 +654,10 @@ function render(svg, width, height, padding) {
   const sampleCount = 4;
 
   for (const shape of shapes) {
-    const polygon = shape.points.map(
-        (point) => mapPoint(point, viewBox, width, height, padding));
+    const contours = shape.contours.map(
+        (contour) => contour.map(
+            (point) => mapPoint(
+                point, viewBox, width, height, padding)));
     const scale = Math.min((width - padding * 2) / viewBox.w,
                            (height - padding * 2) / viewBox.h);
     const strokeWidth = shape.strokeWidth * scale;
@@ -631,8 +671,8 @@ function render(svg, width, height, padding) {
               y: y + (sy + 0.5) / sampleCount,
             };
             const contains = shape.type === "stroke"
-                ? strokeContains(point, polygon, strokeWidth)
-                : pointInPolygon(point, polygon);
+                ? strokeContainsContours(point, contours, strokeWidth)
+                : pointInContours(point, contours, shape.fillRule);
             if (contains) {
               coverage += 1;
             }

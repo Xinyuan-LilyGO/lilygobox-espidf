@@ -26,6 +26,7 @@
 #include "ui/views/lock_screen_view.h"
 #include "ui/views/power_menu_view.h"
 #include "ui/wallpaper.h"
+#include "ui/widgets/brand_icon.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -84,6 +85,8 @@ constexpr int kStartupProgressMinHeight = 6;
 constexpr int kStartupProgressHeightDivisor = 150;
 constexpr int kStartupProgressOffsetY = -30;
 constexpr int kStartupTitleGap = 20;
+constexpr int kStartupBrandIconSize = 56;
+constexpr int kStartupBrandIconGap = 14;
 constexpr int kLowBatteryStartupIconOffsetY = -36;
 constexpr int kLowBatteryStartupPercentGap = 18;
 
@@ -2015,13 +2018,37 @@ lv_obj_t* UiManager::CreateStartupScreen(lv_obj_t* parent) {
   lv_obj_set_style_radius(startup, 0, LV_PART_MAIN);
   lv_obj_set_style_opa(startup, LV_OPA_COVER, LV_PART_MAIN);
 
-  lv_obj_t* title = lv_label_create(startup);
+  lv_obj_t* brand = lv_obj_create(startup);
+  if (brand == nullptr) {
+    lv_obj_delete(startup);
+    return nullptr;
+  }
+  lv_obj_remove_flag(brand, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(brand, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(brand, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  MakeTransparent(brand);
+
+  lv_obj_t* brand_icon =
+      CreateLilygoBoxBrandIcon(brand, kStartupBrandIconSize);
+  if (brand_icon == nullptr) {
+    lv_obj_delete(startup);
+    return nullptr;
+  }
+
+  lv_obj_t* title = lv_label_create(brand);
   if (title == nullptr) {
     lv_obj_delete(startup);
     return nullptr;
   }
   lv_label_set_text(title, "LilygoBox");
   SetTextStyle(title, lv_color_hex(kStartupTextColor), Font32());
+  lv_obj_update_layout(title);
+  const int brand_width = kStartupBrandIconSize + kStartupBrandIconGap +
+                          lv_obj_get_width(title);
+  lv_obj_set_size(brand, brand_width, kStartupBrandIconSize);
+  lv_obj_align(brand_icon, LV_ALIGN_LEFT_MID, 0, 0);
+  lv_obj_align_to(title, brand_icon, LV_ALIGN_OUT_RIGHT_MID,
+      kStartupBrandIconGap, 0);
 
   const int progress_width = std::min(kStartupProgressMaxWidth,
       LayoutWidth() * kStartupProgressWidthPercent / 100);
@@ -2043,7 +2070,7 @@ lv_obj_t* UiManager::CreateStartupScreen(lv_obj_t* parent) {
   lv_obj_set_style_border_width(track, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(track, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(track, progress_height / 2, LV_PART_MAIN);
-  lv_obj_align_to(title, track, LV_ALIGN_OUT_TOP_MID, 0, -kStartupTitleGap);
+  lv_obj_align_to(brand, track, LV_ALIGN_OUT_TOP_MID, 0, -kStartupTitleGap);
 
   startup_progress_fill_ = lv_obj_create(track);
   if (startup_progress_fill_ == nullptr) {
