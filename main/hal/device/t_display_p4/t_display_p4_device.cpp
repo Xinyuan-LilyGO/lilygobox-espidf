@@ -2,7 +2,7 @@
  * @Description: T-Display-P4 设备初始化与硬件 Provider 适配实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-15 11:16:11
+ * @LastEditTime: 2026-07-15 15:06:52
  * @License: GPL 3.0
  */
 #include "hal/device/t_display_p4/t_display_p4_device.h"
@@ -59,7 +59,7 @@ constexpr int kScreenBrightnessMaxPercent = 100;
 constexpr uint8_t kRm69a10BrightnessMax = UINT8_MAX;
 constexpr uint8_t kVibrationTestGain = 255;
 constexpr uint8_t kVibrationTestLoopCount = 1;
-constexpr uint8_t kAudioVolumeMax = 200;
+constexpr uint8_t kAudioVolumeMax = 192;
 constexpr uint8_t kHapticStrengthMax = UINT8_MAX;
 constexpr uint32_t kVibrationTestPlayMs = 220;
 constexpr uint32_t kVibrationPreviewPlayMs = 10;
