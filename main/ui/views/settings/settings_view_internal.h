@@ -2,7 +2,7 @@
  * @Description: Settings view internal helpers
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-07-15 15:53:19
+ * @LastEditTime: 2026-07-16 21:15:56
  * @License: GPL 3.0
  */
 #pragma once
@@ -117,6 +117,7 @@ constexpr int kWifiConnectSheetBottomMargin = 32;
 constexpr int kWifiConnectSheetInnerPadding = 32;
 constexpr int kWifiConnectButtonGap = 20;
 constexpr int kWifiConnectButtonHeight = 74;
+constexpr int kWifiPasswordInputTop = 126;
 constexpr int kWifiPasswordInputHeight = 78;
 constexpr int kWifiPasswordKeyboardHeightPercent = 35;
 constexpr size_t kWifiPasswordMinLength = 8;

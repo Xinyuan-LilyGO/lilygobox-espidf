@@ -2,7 +2,7 @@
  * @Description: Settings WLAN detail page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-06-24 09:05:19
+ * @LastEditTime: 2026-07-16 21:18:15
  * @License: GPL 3.0
  */
 #include "ui/views/settings/settings_view_internal.h"
@@ -1480,7 +1480,15 @@ void UpdateWifiConnectTimeout(SettingsViewState* state) {
 
   hal::WifiStatus status;
   ReadWifiSnapshots(state->config, &status, nullptr);
-  if (status.connected || status.got_ip) {
+  const bool pending_network_connected =
+      (status.connected || status.got_ip) &&
+      std::strcmp(status.ssid, state->wifi_pending_action.ssid) == 0;
+  if (pending_network_connected) {
+    if (state->wifi_pending_action.saved &&
+        state->wifi_pending_action.ssid[0] != '\0') {
+      SaveWifiNetworkCredential(state->wifi_pending_action,
+                                state->wifi_pending_action.password);
+    }
     state->wifi_connect_waiting = false;
     state->wifi_connection_retry_ready = false;
     state->wifi_connect_started_ms = 0;
@@ -2900,7 +2908,8 @@ bool ShowWifiConnectSheet(
     lv_obj_set_size(text_area,
         sheet_width - 2 * kWifiConnectSheetInnerPadding,
         kWifiPasswordInputHeight);
-    lv_obj_align(text_area, LV_ALIGN_TOP_MID, 0, 138);
+    lv_obj_align(
+        text_area, LV_ALIGN_TOP_MID, 0, kWifiPasswordInputTop);
     lv_textarea_set_one_line(text_area, true);
     lv_textarea_set_password_mode(text_area, true);
     lv_textarea_set_password_bullet(text_area, "*");
