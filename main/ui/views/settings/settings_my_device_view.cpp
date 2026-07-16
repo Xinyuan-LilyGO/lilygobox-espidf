@@ -2,7 +2,7 @@
  * @Description: Settings My Device detail page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-07-15 16:35:56
+ * @LastEditTime: 2026-07-16 21:30:05
  * @License: GPL 3.0
  */
 #include "ui/views/settings/settings_view_internal.h"
@@ -20,6 +20,7 @@
 #include "ui/input/press_cancel.h"
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/views/settings/settings_basic_view_common.h"
+#include "ui/widgets/brand_icon.h"
 #include "ui/widgets/prompt/prompt_sheet.h"
 #include "ui/widgets/shared_keyboard.h"
 
@@ -34,6 +35,8 @@ constexpr uint32_t kFactoryResetContainerColor = 0xFFDAD6;
 constexpr uint32_t kFactoryResetContainerTextColor = 0x410002;
 constexpr int kFactoryResetButtonSide = 26;
 constexpr int kFactoryResetButtonHeight = 76;
+constexpr int kMyDeviceBrandIconSize = 64;
+constexpr int kMyDeviceBrandIconGap = 16;
 
 void CloseFactoryResetPage(SettingsViewState* state, bool animated);
 
@@ -937,14 +940,37 @@ bool CreateMyDeviceHeader(
  */
 bool CreateMyDeviceSnapshotArea(lv_obj_t* parent, int width,
     const app::CurrentDeviceInfoSnapshot& info) {
-  lv_obj_t* brand =
-      CreateLabel(parent, "LilygoBox", lv_color_hex(0x050505), Font48());
-  if (brand == nullptr) {
+  lv_obj_t* brand_group = lv_obj_create(parent);
+  if (brand_group == nullptr) {
     return false;
   }
-  lv_obj_set_width(brand, width);
-  lv_obj_set_style_text_align(brand, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-  lv_obj_align(brand, LV_ALIGN_TOP_MID, 0, kDetailBrandTop);
+  lv_obj_remove_flag(brand_group, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(brand_group, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(brand_group, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  MakeTransparent(brand_group);
+
+  lv_obj_t* brand_icon =
+      CreateLilygoBoxBrandIcon(brand_group, kMyDeviceBrandIconSize);
+  if (brand_icon == nullptr) {
+    return false;
+  }
+
+  lv_obj_t* brand_text = CreateLabel(
+      brand_group, "LilygoBox", lv_color_hex(0x050505), Font48());
+  if (brand_text == nullptr) {
+    return false;
+  }
+  lv_obj_update_layout(brand_text);
+  const int brand_width = kMyDeviceBrandIconSize +
+                          kMyDeviceBrandIconGap +
+                          lv_obj_get_width(brand_text);
+  lv_obj_set_size(
+      brand_group, brand_width, kMyDeviceBrandIconSize);
+  lv_obj_align(
+      brand_group, LV_ALIGN_TOP_MID, 0, kDetailBrandTop);
+  lv_obj_align(brand_icon, LV_ALIGN_LEFT_MID, 0, 0);
+  lv_obj_align_to(brand_text, brand_icon, LV_ALIGN_OUT_RIGHT_MID,
+      kMyDeviceBrandIconGap, 0);
 
   lv_obj_t* version =
       CreateLabel(parent, info.software.software_version,
