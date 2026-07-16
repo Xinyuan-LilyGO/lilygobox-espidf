@@ -1,8 +1,8 @@
 /*
- * @Description: 公共居中提示框控件
+ * @Description: 公共提示框控件
  * @Author: LILYGO_L
  * @Date: 2026-07-11 00:00:00
- * @LastEditTime: 2026-07-11 00:00:00
+ * @LastEditTime: 2026-07-16 17:35:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -17,7 +17,7 @@ namespace lilygo_box::ui {
 
 using PromptDialogActionCallback = void (*)(void* context);
 
-// 居中提示框运行期间的对象、动画和回调状态。
+// 提示框运行期间的对象、动画和回调状态。
 struct PromptDialogState {
   lv_obj_t* overlay = nullptr;
   lv_obj_t* panel = nullptr;
@@ -27,10 +27,11 @@ struct PromptDialogState {
   PromptDialogActionCallback confirm_callback = nullptr;
   void* callback_context = nullptr;
   uint32_t animation_ms = 180;
+  bool slide_from_bottom = false;
   bool closing = false;
 };
 
-// 居中提示框尺寸、颜色、文本和字体配置。
+// 提示框尺寸、颜色、文本和字体配置。
 struct PromptDialogConfig {
   int screen_width = 0;
   int screen_height = 0;
@@ -44,6 +45,7 @@ struct PromptDialogConfig {
   int action_button_height = 74;
   int action_button_gap = 20;
   int action_bottom_padding = 32;
+  int bottom_margin = 0;
   uint32_t dialog_color =
       theme::LightNeutralTheme().surface_container_lowest;
   uint32_t primary_text_color = theme::LightNeutralTheme().on_surface;
@@ -71,10 +73,11 @@ struct PromptDialogConfig {
   PromptDialogActionCallback cancel_callback = nullptr;
   PromptDialogActionCallback confirm_callback = nullptr;
   void* callback_context = nullptr;
+  bool slide_from_bottom = false;
 };
 
 /**
- * @brief 创建居中提示框并播放淡入动画
+ * @brief 创建提示框并播放进入动画
  * @param parent 父对象
  * @param state 提示框状态
  * @param config 提示框配置
@@ -84,7 +87,7 @@ lv_obj_t* ShowPromptDialog(lv_obj_t* parent, PromptDialogState* state,
     const PromptDialogConfig& config);
 
 /**
- * @brief 播放淡出动画并关闭提示框
+ * @brief 播放退出动画并关闭提示框
  * @param state 提示框状态
  */
 void ClosePromptDialog(PromptDialogState* state);

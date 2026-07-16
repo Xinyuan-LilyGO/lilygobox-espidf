@@ -2,7 +2,7 @@
  * @Description: T-Display-P4 设备初始化与硬件 Provider 适配实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-15 15:06:52
+ * @LastEditTime: 2026-07-16 10:08:14
  * @License: GPL 3.0
  */
 #include "hal/device/t_display_p4/t_display_p4_device.h"
@@ -238,12 +238,86 @@ bool ConfigureBootButtonInput(cpp_bus_driver::Tool* tool) {
   return result;
 }
 
+bool SelectLoraBandwidth(uint32_t bandwidth_hz,
+    sx126x_lora_bw_t* bandwidth) {
+  if (bandwidth == nullptr) {
+    return false;
+  }
+  switch (bandwidth_hz) {
+    case 62500:
+      *bandwidth = SX126X_LORA_BW_062;
+      return true;
+    case 125000:
+      *bandwidth = SX126X_LORA_BW_125;
+      return true;
+    case 250000:
+      *bandwidth = SX126X_LORA_BW_250;
+      return true;
+    case 500000:
+      *bandwidth = SX126X_LORA_BW_500;
+      return true;
+    default:
+      return false;
+  }
+}
+
+void SelectImageCalibration(uint32_t frequency_hz,
+    uint16_t* minimum_mhz, uint16_t* maximum_mhz) {
+  const uint32_t frequency_mhz = frequency_hz / 1000000;
+  if (frequency_mhz >= 902) {
+    *minimum_mhz = 902;
+    *maximum_mhz = 928;
+  } else if (frequency_mhz >= 863) {
+    *minimum_mhz = 863;
+    *maximum_mhz = 870;
+  } else if (frequency_mhz >= 779) {
+    *minimum_mhz = 779;
+    *maximum_mhz = 787;
+  } else if (frequency_mhz >= 470) {
+    *minimum_mhz = 470;
+    *maximum_mhz = 510;
+  } else {
+    *minimum_mhz = 430;
+    *maximum_mhz = 440;
+  }
+}
+
+bool BuildSx1262Config(const LoraRadioConfig& source,
+    usp_cpp_bus_driver::Sx126x::LoraConfig* target) {
+  if (target == nullptr || source.frequency_hz < 150000000 ||
+      source.frequency_hz > 960000000 ||
+      source.spreading_factor < 5 || source.spreading_factor > 12 ||
+      source.coding_rate_denominator < 5 ||
+      source.coding_rate_denominator > 8 ||
+      source.preamble_length == 0 || source.output_power_dbm < -9 ||
+      source.output_power_dbm > 22 ||
+      !SelectLoraBandwidth(source.bandwidth_hz, &target->bandwidth)) {
+    return false;
+  }
+  target->frequency_hz = source.frequency_hz;
+  target->spreading_factor = static_cast<sx126x_lora_sf_t>(
+      source.spreading_factor);
+  target->coding_rate = static_cast<sx126x_lora_cr_t>(
+      source.coding_rate_denominator - 4);
+  target->preamble_length = source.preamble_length;
+  target->sync_word = source.sync_word;
+  target->output_power_dbm = source.output_power_dbm;
+  target->crc_enabled = source.crc_enabled;
+  target->invert_iq = source.invert_iq;
+  target->rx_boosted = source.rx_boosted;
+  SelectImageCalibration(source.frequency_hz,
+      &target->image_calibration_min_mhz,
+      &target->image_calibration_max_mhz);
+  return true;
+}
+
 }  // namespace
 
 TDisplayP4Device::TDisplayP4Device()
     : driver_(lilygo_device_driver::TDisplayP4Driver::GetInstance()),
       tool_(std::make_unique<cpp_bus_driver::Tool>()) {
   wifi_.scan_results_mutex = xSemaphoreCreateMutex();
+  radio_.mutex = xSemaphoreCreateMutex();
 }
 
 bool TDisplayP4Device::InitDevice() {
@@ -3144,6 +3218,180 @@ bool TDisplayP4Device::ReadRtcStatus(RtcStatus* status) {
   status->hour = time.hour;
   status->minute = time.minute;
   status->second = time.second;
+  return true;
+}
+
+bool TDisplayP4Device::ReadRfCapabilities(
+    RfCapabilities* capabilities) {
+  if (capabilities == nullptr) {
+    return false;
+  }
+  *capabilities = RfCapabilities();
+  capabilities->entries[0] = {
+      .chip = rf::ChipType::kSx1262,
+      .protocol = rf::ProtocolType::kLora,
+      .maximum_payload_size = kRfPayloadCapacity,
+  };
+  capabilities->count = 1;
+  return true;
+}
+
+bool TDisplayP4Device::ActivateRf(const RfRadioConfig& config) {
+  if (radio_.mutex == nullptr ||
+      xSemaphoreTake(radio_.mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
+    return false;
+  }
+  usp_cpp_bus_driver::Sx126x::LoraConfig driver_config;
+  bool result = config.chip == rf::ChipType::kSx1262 &&
+      config.protocol == rf::ProtocolType::kLora &&
+      BuildSx1262Config(config.lora, &driver_config);
+  if (result && driver_.IsSx1262Ready()) {
+    auto* radio = driver_.chip().sx1262.get();
+    result = radio != nullptr && radio->Configure(driver_config) &&
+        radio->StartReceive();
+  } else {
+    result = false;
+  }
+  radio_.active = result;
+  radio_.transmitting = false;
+  radio_.chip_error = !result;
+  radio_.active_client_token = config.client_token;
+  xSemaphoreGive(radio_.mutex);
+  return result;
+}
+
+bool TDisplayP4Device::DeactivateRf() {
+  if (radio_.mutex == nullptr ||
+      xSemaphoreTake(radio_.mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
+    return false;
+  }
+  bool result = true;
+  if (driver_.IsSx1262Ready()) {
+    auto* radio = driver_.chip().sx1262.get();
+    result = radio != nullptr &&
+        radio->Invoke(sx126x_set_standby, SX126X_STANDBY_CFG_RC) ==
+            SX126X_STATUS_OK &&
+        radio->ClearIrqStatus(SX126X_IRQ_ALL);
+  }
+  radio_.active = false;
+  radio_.transmitting = false;
+  radio_.chip_error = !result;
+  radio_.active_client_token = 0;
+  xSemaphoreGive(radio_.mutex);
+  return result;
+}
+
+bool TDisplayP4Device::SendRf(const uint8_t* data, size_t size) {
+  if (data == nullptr || size == 0 || size > kRfPayloadCapacity ||
+      radio_.mutex == nullptr ||
+      xSemaphoreTake(radio_.mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
+    return false;
+  }
+  bool result = false;
+  bool transmit_attempted = false;
+  if (radio_.active && !radio_.transmitting &&
+      driver_.IsSx1262Ready()) {
+    transmit_attempted = true;
+    auto* radio = driver_.chip().sx1262.get();
+    result = radio != nullptr && radio->StartTransmit(data, size, 1000);
+  }
+  if (transmit_attempted) {
+    radio_.transmitting = result;
+    radio_.chip_error = !result;
+  }
+  xSemaphoreGive(radio_.mutex);
+  return result;
+}
+
+bool TDisplayP4Device::PollRfEvent(RfEvent* event) {
+  if (event == nullptr || radio_.mutex == nullptr ||
+      xSemaphoreTake(radio_.mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
+    return false;
+  }
+  *event = RfEvent();
+  event->client_token = radio_.active_client_token;
+  if (!radio_.active) {
+    xSemaphoreGive(radio_.mutex);
+    return true;
+  }
+  if (!driver_.IsSx1262Ready()) {
+    radio_.active = false;
+    radio_.transmitting = false;
+    radio_.chip_error = true;
+    event->type = RfEventType::kChipError;
+    xSemaphoreGive(radio_.mutex);
+    return false;
+  }
+
+  auto* radio = driver_.chip().sx1262.get();
+  sx126x_irq_mask_t irq_mask = 0;
+  if (radio == nullptr || !radio->GetIrqStatus(irq_mask)) {
+    radio_.active = false;
+    radio_.transmitting = false;
+    radio_.chip_error = true;
+    event->type = RfEventType::kChipError;
+    xSemaphoreGive(radio_.mutex);
+    return false;
+  }
+  if (irq_mask == 0) {
+    xSemaphoreGive(radio_.mutex);
+    return true;
+  }
+
+  const bool timed_out = (irq_mask & SX126X_IRQ_TIMEOUT) != 0;
+  const bool tx_done = (irq_mask & SX126X_IRQ_TX_DONE) != 0;
+  const bool rx_done = (irq_mask & SX126X_IRQ_RX_DONE) != 0;
+  const bool receive_error =
+      (irq_mask & (SX126X_IRQ_HEADER_ERROR | SX126X_IRQ_CRC_ERROR)) != 0;
+  bool result = radio->ClearIrqStatus(irq_mask);
+  if (radio_.transmitting && (tx_done || timed_out)) {
+    radio_.transmitting = false;
+    result = result && radio->StartReceive();
+    event->type = tx_done && result
+        ? RfEventType::kTransmitComplete
+        : RfEventType::kTransmitFailed;
+  } else if (rx_done && !receive_error) {
+    uint8_t received_size = 0;
+    usp_cpp_bus_driver::Sx126x::PacketMetrics metrics;
+    result = result && radio->ReadPacket(event->payload,
+        kRfPayloadCapacity, received_size, &metrics);
+    result = result && radio->StartReceive();
+    if (result) {
+      event->type = RfEventType::kPacketReceived;
+      event->payload_size = received_size;
+      event->rssi_dbm = metrics.rssi_dbm;
+      event->snr_db = metrics.snr_db;
+    }
+  } else {
+    result = result && radio->StartReceive();
+  }
+
+  if (!result) {
+    radio_.active = false;
+    radio_.transmitting = false;
+    radio_.chip_error = true;
+    event->type = RfEventType::kChipError;
+  }
+  xSemaphoreGive(radio_.mutex);
+  return result;
+}
+
+bool TDisplayP4Device::ReadRfStatus(RfStatus* status) {
+  if (status == nullptr || radio_.mutex == nullptr ||
+      xSemaphoreTake(radio_.mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
+    return false;
+  }
+  status->hardware_ready = driver_.IsSx1262Ready();
+  status->transmitting = radio_.transmitting;
+  status->active_client_token = radio_.active_client_token;
+  if (radio_.chip_error || (radio_.active && !status->hardware_ready)) {
+    status->state = RfLinkState::kChipError;
+  } else if (radio_.active) {
+    status->state = RfLinkState::kActive;
+  } else {
+    status->state = RfLinkState::kInactive;
+  }
+  xSemaphoreGive(radio_.mutex);
   return true;
 }
 

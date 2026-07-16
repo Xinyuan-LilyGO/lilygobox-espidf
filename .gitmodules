@@ -21,3 +21,6 @@
 [submodule "libraries/esp-video-components"]
 	path = libraries/esp-video-components
 	url = https://github.com/espressif/esp-video-components.git
+[submodule "libraries/usp_cpp_bus_driver"]
+	path = libraries/usp_cpp_bus_driver
+	url = https://github.com/Llgok/usp_cpp_bus_driver.git

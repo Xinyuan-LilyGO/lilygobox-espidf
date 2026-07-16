@@ -2,21 +2,29 @@
  * @Description: RF control app view
  * @Author: LILYGO_L
  * @Date: 2026-07-12 00:00:00
- * @LastEditTime: 2026-07-12 00:00:00
+ * @LastEditTime: 2026-07-16 19:30:00
  * @License: GPL 3.0
  */
 #include "ui/views/rf_view.h"
 
+#include <algorithm>
 #include <cstddef>
+#include <cctype>
+#include <cstdint>
+#include <cstring>
 #include <cstdlib>
 #include <cstdio>
 
+#include "app/storage/rf_storage.h"
+#include "hal/providers/rf_provider.h"
+#include "hal/providers/rtc_provider.h"
 #include "ui/animation/transition_animation.h"
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"
 #include "ui/widgets/navigation_drawer.h"
+#include "ui/widgets/prompt/prompt_dialog.h"
 #include "ui/widgets/shared_keyboard.h"
 
 namespace lilygo_box::ui {
@@ -32,26 +40,86 @@ constexpr uint32_t kPrimaryPressedColor = 0x4F378B;
 constexpr uint32_t kOnPrimaryColor = 0xFFFFFF;
 constexpr uint32_t kMainTextColor = 0x1D1B20;
 constexpr uint32_t kSecondaryTextColor = 0x49454F;
+constexpr uint32_t kSettingsSecondaryTextColor = 0x79747E;
 constexpr uint32_t kOutlineVariantColor = 0xCAC4D0;
 constexpr uint32_t kPressedColor = kSurfaceContainerLowColor;
 constexpr uint32_t kDisabledContainerColor = 0xE4E1E6;
 constexpr uint32_t kDisabledTextColor = 0xA7A2AA;
-constexpr uint32_t kUnreadColor = 0xBA1A1A;
 constexpr uint32_t kSendSuccessColor = 0x2E7D32;
 constexpr uint32_t kSendFailureColor = 0xBA1A1A;
+constexpr uint32_t kActiveIndicatorColor = 0x23A55A;
+constexpr uint32_t kInactiveIndicatorColor = 0xC7C5CC;
 constexpr uint32_t kInputErrorColor = 0xBA1A1A;
+constexpr uint32_t kWarningColor = 0x8A4F00;
 constexpr int kHeaderTop = 68;
 constexpr int kListTop = 154;
-constexpr int kRowHeight = 108;
+constexpr int kRowHeight = 104;
+constexpr int kProfileStatusIndicatorSize = 22;
 constexpr int kAnimationMs = 240;
+constexpr int kDeletePromptHeight = 312;
+constexpr int kDeletePromptSideMargin = 34;
+constexpr int kDeletePromptBottomMargin = 32;
+constexpr int kDeletePromptRadius = 48;
+constexpr int kDeletePromptInnerPadding = 32;
+constexpr int kDeletePromptButtonGap = 20;
+constexpr int kDeletePromptButtonHeight = 74;
+constexpr int kProfileNameActionX = 158;
+constexpr int kProfileNameActionRightMargin = 18;
+constexpr int kProfileNameActionHeight = 58;
+constexpr int kProfileNameActionHorizontalPadding = 12;
+constexpr int kDefaultSpreadingFactorIndex = 7;
 constexpr int kAddPageHeaderHeight = 232;
 constexpr int kAddPageActionHeight = 124;
 constexpr int kAddKeyboardHeightPercent = 35;
 constexpr int kAddKeyboardTopGap = 12;
 constexpr int kAddInputHeight = 70;
-constexpr int kAddNameInputY = 42;
-constexpr int kAddFrequencyInputY = 486;
-constexpr char kFrequencyAcceptedChars[] = "0123456789";
+constexpr int kAddSwitchRowHeight = 108;
+constexpr int kAddSwitchRowGap = 12;
+constexpr int kProfileNameEditButtonSize = 62;
+constexpr int kProfileNameEditButtonTop = 66;
+constexpr int kProfileNameEditButtonSide = 18;
+constexpr int kProfileNameEditTitleTop = 170;
+constexpr int kProfileNameEditTextAreaTop = 280;
+constexpr int kProfileNameEditTextAreaHeight = 88;
+constexpr int kProfileNameEditTextAreaSide = 26;
+constexpr int kProfileNameEditHelpTop = 378;
+constexpr int kProfileNameEditKeyboardHeightPercent = 35;
+constexpr int kProfileSwitchWidth = 78;
+constexpr int kProfileSwitchHeight = 44;
+constexpr uint32_t kProfileSwitchAnimationMs = 180;
+constexpr lv_style_selector_t kProfileSwitchCheckedIndicatorSelector =
+    static_cast<lv_style_selector_t>(LV_PART_INDICATOR) |
+    static_cast<lv_style_selector_t>(LV_STATE_CHECKED);
+constexpr uint32_t kActivationRetryPeriodMs = 2000;
+constexpr uint8_t kActivationRetryLimit = 10;
+constexpr char kFrequencyAcceptedChars[] = "0123456789.";
+constexpr char kIntegerAcceptedChars[] = "0123456789";
+constexpr char kHexAcceptedChars[] = "0123456789abcdefABCDEF";
+constexpr char kProfileNameAcceptedChars[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_. ";
+constexpr char kProfileCreatedMessage[] = "RF profile created";
+constexpr char kSettingsChangedMessage[] = "Settings changed";
+
+/**
+ * @brief 将字符串安全复制到固定长度缓冲区
+ * @param destination 目标缓冲区
+ * @param destination_size 目标缓冲区大小
+ * @param source 源字符串
+ */
+void CopyBoundedString(
+    char* destination, size_t destination_size, const char* source) {
+  if (destination == nullptr || destination_size == 0) {
+    return;
+  }
+  if (source == nullptr) {
+    destination[0] = '\0';
+    return;
+  }
+  const size_t copy_size =
+      std::min(std::strlen(source), destination_size - 1);
+  std::memmove(destination, source, copy_size);
+  destination[copy_size] = '\0';
+}
 
 struct RfModuleItem {
   const char* short_name;
@@ -59,40 +127,47 @@ struct RfModuleItem {
   const char* latest_message;
   const char* time;
   uint32_t color;
+  uint16_t unread_count = 0;
 };
 
-constexpr RfModuleItem kModuleItems[] = {
-    {"SX1", "Gateway Node #1", "Sensor Data: T=25.3 C H=68%",
-     "2 min", 0x006B5F},
-    {"LR2", "Sensor Node Alpha", "Battery: 78%  Temp: 22.1 C",
-     "45 min", 0x6750A4},
-    {"nRF", "RC Controller", "Joystick: X=127 Y=89 BTN=0x03",
-     "Now", 0x7D5700},
-    {"CC1", "CC1101 Dev Kit", "ACK  Packet #1247",
-     "15 min", 0xB5005A},
+constexpr size_t kRfModuleCapacity = app::kRfProfileCapacity;
+constexpr size_t kChatMessageCapacity = 48;
+constexpr size_t kChatTextCapacity = hal::kRfPayloadCapacity * 2 + 1;
+
+enum class ChatDeliveryState {
+  kReceived,
+  kSending,
+  kSent,
+  kFailed,
 };
 
-constexpr RfModuleItem kNewModuleItems[] = {
-    {"SX1", "New SX1262 Module", nullptr, "Now",
-     0x006B5F},
-    {"LR2", "New LR2021 Module", nullptr, "Now",
-     0x6750A4},
-    {"CC1", "New CC1101 Module", nullptr, "Now",
-     0xB5005A},
-    {"nRF", "New nRF24 Module", nullptr, "Now",
-     0x7D5700},
-    {"RF", "New Custom RF Module", nullptr, "Now",
-     0x006684},
+enum class ChatMessageType {
+  kUser,
+  kSystem,
 };
 
-constexpr size_t kRfModuleCapacity = 10;
-constexpr size_t kInitialModuleCount =
-    sizeof(kModuleItems) / sizeof(kModuleItems[0]);
+struct RfChatMessage {
+  uint32_t profile_id = 0;
+  char text[kChatTextCapacity] = {};
+  char time[16] = {};
+  ChatMessageType type = ChatMessageType::kUser;
+  ChatDeliveryState delivery = ChatDeliveryState::kReceived;
+  int8_t rssi_dbm = 0;
+  int8_t snr_db = 0;
+};
 
 struct RfViewState {
   AppViewConfig config;
+  hal::RfCapabilities capabilities;
   lv_obj_t* root = nullptr;
   lv_obj_t* detail_page = nullptr;
+  lv_obj_t* profile_settings_page = nullptr;
+  lv_obj_t* profile_settings_active_switch = nullptr;
+  lv_obj_t* profile_settings_name_label = nullptr;
+  lv_obj_t* profile_settings_header_status_label = nullptr;
+  lv_obj_t* profile_name_edit_page = nullptr;
+  lv_obj_t* profile_name_edit_text_area = nullptr;
+  lv_obj_t* profile_name_edit_keyboard = nullptr;
   lv_obj_t* detail_input = nullptr;
   lv_obj_t* detail_keyboard = nullptr;
   lv_obj_t* detail_composer_background = nullptr;
@@ -100,38 +175,75 @@ struct RfViewState {
   lv_obj_t* detail_send_button = nullptr;
   lv_obj_t* add_page = nullptr;
   lv_obj_t* add_body = nullptr;
-  lv_obj_t* add_name_input = nullptr;
   lv_obj_t* add_frequency_input = nullptr;
+  lv_obj_t* add_power_input = nullptr;
+  lv_obj_t* add_preamble_input = nullptr;
+  lv_obj_t* add_sync_word_input = nullptr;
+  lv_obj_t* add_crc_switch = nullptr;
+  lv_obj_t* add_iq_switch = nullptr;
+  lv_obj_t* add_rx_boost_switch = nullptr;
+  lv_obj_t* add_active_switch = nullptr;
   lv_obj_t* add_keyboard = nullptr;
   lv_obj_t* add_submit_button = nullptr;
   lv_obj_t* add_submit_label = nullptr;
+  lv_obj_t* add_button = nullptr;
+  PromptDialogState delete_dialog;
   lv_obj_t* module_list = nullptr;
-  lv_obj_t* summary_label = nullptr;
-  lv_obj_t* add_chip_buttons[5] = {};
-  lv_obj_t* add_protocol_buttons[2] = {};
-  lv_obj_t* add_sf_buttons[7] = {};
+  lv_obj_t* header_area = nullptr;
+  lv_obj_t* detail_chat_body = nullptr;
+  lv_obj_t* detail_status_label = nullptr;
+  lv_obj_t* detail_title_label = nullptr;
+  lv_obj_t* detail_notice_label = nullptr;
+  lv_timer_t* radio_timer = nullptr;
+  lv_obj_t* add_chip_buttons[hal::kRfCapabilityCapacity] = {};
+  lv_obj_t* add_protocol_buttons[hal::kRfCapabilityCapacity] = {};
+  lv_obj_t* add_sf_buttons[8] = {};
+  lv_obj_t* add_bandwidth_buttons[4] = {};
+  lv_obj_t* add_coding_rate_buttons[4] = {};
   NavigationDrawerState drawer;
+  EdgeBackSwipeState selection_edge_swipe = {};
   EdgeBackSwipeState detail_edge_swipe = {};
+  EdgeBackSwipeState profile_settings_edge_swipe = {};
+  EdgeBackSwipeState profile_name_edit_edge_swipe = {};
   EdgeBackSwipeState add_edge_swipe = {};
   RfModuleItem modules[kRfModuleCapacity] = {};
-  char module_names[kRfModuleCapacity][48] = {};
+  char latest_messages[kRfModuleCapacity][96] = {};
+  char message_times[kRfModuleCapacity][16] = {};
+  uint16_t unread_counts[kRfModuleCapacity] = {};
+  bool selected_modules[kRfModuleCapacity] = {};
+  app::RfPreferences preferences;
+  RfChatMessage chat_messages[kChatMessageCapacity] = {};
+  size_t chat_message_count = 0;
   size_t module_count = 0;
   int selected_add_chip = 0;
   int selected_add_protocol = 0;
-  int selected_add_sf = 1;
+  int selected_add_sf = kDefaultSpreadingFactorIndex;
+  int selected_add_bandwidth = 1;
+  int selected_add_coding_rate = 0;
+  size_t detail_index = kRfModuleCapacity;
+  size_t profile_settings_index = kRfModuleCapacity;
+  size_t editing_index = kRfModuleCapacity;
+  uint32_t last_activation_retry_tick = 0;
+  uint8_t activation_retry_count = 0;
+  bool selection_mode = false;
   bool detail_closing = false;
+  bool profile_settings_closing = false;
+  bool profile_name_edit_closing = false;
   bool add_closing = false;
 };
 
 struct RfModuleAction {
   RfViewState* state = nullptr;
   size_t index = 0;
+  bool long_press_handled = false;
 };
 
 enum class RfAddOptionGroup {
   kChip,
   kProtocol,
   kSpreadingFactor,
+  kBandwidth,
+  kCodingRate,
 };
 
 struct RfAddOptionAction {
@@ -139,6 +251,16 @@ struct RfAddOptionAction {
   RfAddOptionGroup group = RfAddOptionGroup::kChip;
   int index = 0;
 };
+
+bool RenderModuleList(RfViewState* state);
+bool RenderHeader(RfViewState* state);
+void CloseSelectionMode(RfViewState* state);
+bool ShowAddModulePage(RfViewState* state);
+bool ShowModuleSettings(RfViewState* state, size_t index,
+    bool from_detail);
+bool ShowProfileSettingsPage(RfViewState* state, size_t index);
+bool ShowProfileNameEditPage(RfViewState* state);
+void RefreshProfileSettingsPage(RfViewState* state);
 
 /**
  * @brief 获取 22 号 Google Sans 字体
@@ -157,6 +279,8 @@ const lv_font_t* Font24() { return &lvgl_font_google_sans_flex_24; }
  * @return 字体指针
  */
 const lv_font_t* Font28() { return &lvgl_font_google_sans_flex_28; }
+
+const lv_font_t* Font32() { return &lvgl_font_google_sans_flex_32; }
 
 /**
  * @brief 获取 36 号 Google Sans 字体
@@ -195,14 +319,6 @@ const lv_font_t* FillIconFont44() {
 }
 
 /**
- * @brief 获取 56 号填充图标字体
- * @return 字体指针
- */
-const lv_font_t* FillIconFont56() {
-  return &lvgl_font_material_symbols_fill_56;
-}
-
-/**
  * @brief 创建射频页面文本标签
  * @param parent 父对象
  * @param text 标签文字
@@ -222,6 +338,192 @@ lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, uint32_t color,
   return label;
 }
 
+hal::RfRadioConfig ToRadioConfig(const app::RfProfile& profile) {
+  return {
+      .client_token = profile.id,
+      .chip = profile.chip,
+      .protocol = profile.protocol,
+      .lora = {
+          .frequency_hz = profile.frequency_hz,
+          .bandwidth_hz = profile.bandwidth_hz,
+          .preamble_length = profile.preamble_length,
+          .spreading_factor = profile.spreading_factor,
+          .coding_rate_denominator = profile.coding_rate_denominator,
+          .sync_word = profile.sync_word,
+          .output_power_dbm = profile.output_power_dbm,
+          .crc_enabled = profile.crc_enabled,
+          .invert_iq = profile.invert_iq,
+          .rx_boosted = profile.rx_boosted,
+      },
+  };
+}
+
+const char* ChipDisplayName(rf::ChipType chip) {
+  switch (chip) {
+    case rf::ChipType::kSx1262:
+      return "SX1262";
+    default:
+      return "Unknown chip";
+  }
+}
+
+const char* ChipShortName(rf::ChipType chip) {
+  return chip == rf::ChipType::kSx1262 ? "SX" : "RF";
+}
+
+const char* ProtocolDisplayName(rf::ProtocolType protocol) {
+  switch (protocol) {
+    case rf::ProtocolType::kLora:
+      return "LoRa";
+    default:
+      return "Unknown protocol";
+  }
+}
+
+/**
+ * @brief 判断两个射频配置的可编辑内容是否一致
+ * @param lhs 第一个射频配置
+ * @param rhs 第二个射频配置
+ * @return 可编辑内容完全一致时返回 true
+ */
+bool AreProfileSettingsEqual(
+    const app::RfProfile& lhs, const app::RfProfile& rhs) {
+  return std::strcmp(lhs.name, rhs.name) == 0 &&
+         lhs.chip == rhs.chip && lhs.protocol == rhs.protocol &&
+         lhs.frequency_hz == rhs.frequency_hz &&
+         lhs.bandwidth_hz == rhs.bandwidth_hz &&
+         lhs.preamble_length == rhs.preamble_length &&
+         lhs.spreading_factor == rhs.spreading_factor &&
+         lhs.coding_rate_denominator == rhs.coding_rate_denominator &&
+         lhs.sync_word == rhs.sync_word &&
+         lhs.output_power_dbm == rhs.output_power_dbm &&
+         lhs.crc_enabled == rhs.crc_enabled &&
+         lhs.invert_iq == rhs.invert_iq &&
+         lhs.rx_boosted == rhs.rx_boosted;
+}
+
+bool IsProfileSupported(
+    const RfViewState* state, const app::RfProfile& profile) {
+  if (state == nullptr) {
+    return false;
+  }
+  for (size_t index = 0; index < state->capabilities.count; ++index) {
+    const hal::RfCapability& capability =
+        state->capabilities.entries[index];
+    if (capability.chip == profile.chip &&
+        capability.protocol == profile.protocol) {
+      return true;
+    }
+  }
+  return false;
+}
+
+size_t FindProfileIndex(const RfViewState* state, uint32_t profile_id) {
+  if (state == nullptr) {
+    return kRfModuleCapacity;
+  }
+  for (size_t index = 0; index < state->module_count; ++index) {
+    if (state->preferences.profiles[index].id == profile_id) {
+      return index;
+    }
+  }
+  return kRfModuleCapacity;
+}
+
+void FormatCurrentTime(const RfViewState* state, char* output,
+    size_t output_size) {
+  if (output == nullptr || output_size == 0) {
+    return;
+  }
+  hal::RtcStatus status;
+  if (state != nullptr && state->config.rtc != nullptr &&
+      state->config.rtc->ReadRtcStatus(&status) && status.ready) {
+    std::snprintf(output, output_size, "%02u:%02u",
+        static_cast<unsigned>(status.hour),
+        static_cast<unsigned>(status.minute));
+    return;
+  }
+  std::snprintf(output, output_size, "Now");
+}
+
+const char* ProfileStatusText(const RfViewState* state, size_t index) {
+  if (state == nullptr || index >= state->module_count) {
+    return "Inactive";
+  }
+  if (!IsProfileSupported(
+          state, state->preferences.profiles[index])) {
+    return "Unsupported";
+  }
+  if (state->preferences.profiles[index].id !=
+          state->preferences.active_profile_id) {
+    return "Inactive";
+  }
+  hal::RfStatus status;
+  if (state->config.rf == nullptr ||
+      !state->config.rf->ReadRfStatus(&status) ||
+      status.state == hal::RfLinkState::kChipError) {
+    return "Chip error";
+  }
+  return status.state == hal::RfLinkState::kActive &&
+      status.active_client_token ==
+          state->preferences.profiles[index].id
+      ? "Active"
+      : "Inactive";
+}
+
+uint32_t ProfileStatusColor(const char* status) {
+  if (status != nullptr && std::strcmp(status, "Active") == 0) {
+    return kSendSuccessColor;
+  }
+  if (status != nullptr && std::strcmp(status, "Chip error") == 0) {
+    return kSendFailureColor;
+  }
+  if (status != nullptr && std::strcmp(status, "Unsupported") == 0) {
+    return kWarningColor;
+  }
+  return kSecondaryTextColor;
+}
+
+/**
+ * @brief 获取射频主列表状态标记颜色
+ * @param state 射频页面状态
+ * @param index 射频配置索引
+ * @return 当前配置对应的状态标记颜色
+ */
+uint32_t ProfileIndicatorColor(
+    const RfViewState* state, size_t index) {
+  const char* status = ProfileStatusText(state, index);
+  if (std::strcmp(status, "Active") == 0) {
+    return kActiveIndicatorColor;
+  }
+  if (std::strcmp(status, "Chip error") == 0) {
+    return kSendFailureColor;
+  }
+  return kInactiveIndicatorColor;
+}
+
+void SyncModuleItems(RfViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+  state->module_count = state->preferences.profile_count;
+  for (size_t index = 0; index < state->module_count; ++index) {
+    state->modules[index] = {
+        .short_name = ChipShortName(
+            state->preferences.profiles[index].chip),
+        .name = state->preferences.profiles[index].name,
+        .latest_message = state->latest_messages[index][0] == '\0'
+            ? nullptr
+            : state->latest_messages[index],
+        .time = state->message_times[index][0] == '\0'
+            ? ""
+            : state->message_times[index],
+        .color = 0x006B5F,
+        .unread_count = state->unread_counts[index],
+    };
+  }
+}
+
 /**
  * @brief 释放射频页面状态
  * @param event LVGL 事件对象
@@ -230,7 +532,12 @@ void RfViewDeleteEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_DELETE) {
     return;
   }
-  delete static_cast<RfViewState*>(lv_event_get_user_data(event));
+  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  if (state != nullptr && state->radio_timer != nullptr) {
+    lv_timer_delete(state->radio_timer);
+    state->radio_timer = nullptr;
+  }
+  delete state;
 }
 
 /**
@@ -258,6 +565,11 @@ void DetailCloseCompletedCallback(lv_anim_t* animation) {
     state->detail_composer_background = nullptr;
     state->detail_divider = nullptr;
     state->detail_send_button = nullptr;
+    state->detail_chat_body = nullptr;
+    state->detail_status_label = nullptr;
+    state->detail_title_label = nullptr;
+    state->detail_notice_label = nullptr;
+    state->detail_index = kRfModuleCapacity;
     state->detail_edge_swipe = EdgeBackSwipeState();
     state->detail_closing = false;
     lv_obj_delete(page);
@@ -285,6 +597,11 @@ void CloseModuleDetail(RfViewState* state) {
     state->detail_composer_background = nullptr;
     state->detail_divider = nullptr;
     state->detail_send_button = nullptr;
+    state->detail_chat_body = nullptr;
+    state->detail_status_label = nullptr;
+    state->detail_title_label = nullptr;
+    state->detail_notice_label = nullptr;
+    state->detail_index = kRfModuleCapacity;
     state->detail_edge_swipe = EdgeBackSwipeState();
     state->detail_closing = false;
     lv_obj_delete(page);
@@ -316,6 +633,16 @@ void DetailEdgeBackEventCallback(lv_event_t* event) {
   CloseModuleDetail(state);
   lv_event_stop_bubbling(event);
   lv_event_stop_processing(event);
+}
+
+void DetailHeaderClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  if (state != nullptr && state->detail_index < state->module_count) {
+    ShowProfileSettingsPage(state, state->detail_index);
+  }
 }
 
 /**
@@ -444,25 +771,348 @@ bool CreateReceiveTelemetry(lv_obj_t* parent, const char* rssi,
  * @param y 顶部坐标
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateSendStatus(
-    lv_obj_t* parent, const char* time, bool success, int y) {
+bool CreateSendStatus(lv_obj_t* parent, const char* time,
+    ChatDeliveryState delivery, int y) {
   if (parent == nullptr || time == nullptr) {
     return false;
   }
-  lv_obj_t* icon_label = CreateLabel(parent,
-      success ? icon::kCheck : icon::kClose,
-      success ? kSendSuccessColor : kSendFailureColor, FillIconFont32());
-  if (icon_label == nullptr) {
-    return false;
+  const bool sending = delivery == ChatDeliveryState::kSending;
+  const bool success = delivery == ChatDeliveryState::kSent;
+  if (!sending) {
+    lv_obj_t* icon_label = CreateLabel(parent,
+        success ? icon::kCheck : icon::kClose,
+        success ? kSendSuccessColor : kSendFailureColor,
+        FillIconFont32());
+    if (icon_label == nullptr) {
+      return false;
+    }
+    lv_obj_align(icon_label, LV_ALIGN_TOP_RIGHT, -28, y - 5);
   }
-  lv_obj_align(icon_label, LV_ALIGN_TOP_RIGHT, -28, y - 5);
+  const char* prefix = sending ? "Sending  " : "";
+  char status_text[32] = {};
+  std::snprintf(status_text, sizeof(status_text), "%s%s", prefix, time);
   lv_obj_t* time_label = CreateLabel(
-      parent, time, kSecondaryTextColor, Font22());
+      parent, status_text, kSecondaryTextColor, Font22());
   if (time_label == nullptr) {
     return false;
   }
-  lv_obj_align(time_label, LV_ALIGN_TOP_RIGHT, -66, y);
+  lv_obj_align(time_label, LV_ALIGN_TOP_RIGHT,
+      sending ? -28 : -66, y);
   return true;
+}
+
+/**
+ * @brief 将聊天消息区域滚动到最后一条消息
+ * @param body 聊天消息区域
+ */
+void ScrollChatToBottom(lv_obj_t* body) {
+  if (body == nullptr) {
+    return;
+  }
+  lv_obj_update_layout(body);
+  const int32_t bottom =
+      lv_obj_get_scroll_top(body) + lv_obj_get_scroll_bottom(body);
+  lv_obj_scroll_to_y(body, bottom, LV_ANIM_OFF);
+  lv_obj_invalidate(body);
+}
+
+/**
+ * @brief 创建聊天时间线中的系统提示
+ * @param parent 聊天消息区域
+ * @param text 提示文本
+ * @param y 顶部坐标
+ * @param page_width 页面宽度
+ * @param message_height 实际提示高度输出
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateSystemMessage(lv_obj_t* parent, const char* text, int y,
+    int page_width, int* message_height) {
+  if (parent == nullptr || text == nullptr || message_height == nullptr) {
+    return false;
+  }
+  lv_obj_t* notice_box = lv_obj_create(parent);
+  if (notice_box == nullptr) {
+    return false;
+  }
+  lv_obj_remove_flag(notice_box, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_color(notice_box,
+      lv_color_hex(kNoticeContainerColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(notice_box, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(notice_box, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(notice_box, 0, LV_PART_MAIN);
+  lv_obj_t* notice_label = CreateLabel(
+      notice_box, text, kSecondaryTextColor, Font22());
+  if (notice_label == nullptr) {
+    return false;
+  }
+  lv_obj_set_width(notice_label, LV_SIZE_CONTENT);
+  lv_label_set_long_mode(notice_label, LV_LABEL_LONG_WRAP);
+  lv_obj_update_layout(notice_label);
+  const int32_t max_label_width = std::max<int32_t>(
+      1, static_cast<int32_t>(page_width) - 92);
+  const int32_t label_width = std::min<int32_t>(
+      lv_obj_get_width(notice_label), max_label_width);
+  lv_obj_set_width(notice_label, label_width);
+  lv_obj_update_layout(notice_label);
+  const int32_t box_width = label_width + 28;
+  const int32_t box_height = lv_obj_get_height(notice_label) + 16;
+  lv_obj_set_size(notice_box, box_width, box_height);
+  lv_obj_align(notice_box, LV_ALIGN_TOP_MID, 0, y);
+  lv_obj_set_style_radius(notice_box, 21, LV_PART_MAIN);
+  lv_obj_set_style_text_align(
+      notice_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_center(notice_label);
+  *message_height = static_cast<int>(box_height);
+  return true;
+}
+
+bool RenderChatMessages(RfViewState* state) {
+  if (state == nullptr || state->detail_chat_body == nullptr ||
+      state->detail_index >= state->module_count) {
+    return false;
+  }
+  lv_obj_t* body = state->detail_chat_body;
+  lv_obj_clean(body);
+  const app::RfProfile& profile =
+      state->preferences.profiles[state->detail_index];
+  int chat_y = 18;
+  for (size_t index = 0; index < state->chat_message_count; ++index) {
+    const RfChatMessage& message = state->chat_messages[index];
+    if (message.profile_id != profile.id) {
+      continue;
+    }
+    if (message.type == ChatMessageType::kSystem) {
+      int message_height = 0;
+      if (!CreateSystemMessage(
+              body, message.text, chat_y, state->config.width,
+              &message_height)) {
+        return false;
+      }
+      chat_y += message_height + 18;
+      continue;
+    }
+    const bool outgoing = message.delivery != ChatDeliveryState::kReceived;
+    int bubble_height = 0;
+    if (CreateChatBubble(body, message.text, chat_y,
+            state->config.width - 100, outgoing,
+            &bubble_height) == nullptr) {
+      return false;
+    }
+    chat_y += bubble_height + 8;
+    if (outgoing) {
+      if (!CreateSendStatus(
+              body, message.time, message.delivery, chat_y)) {
+        return false;
+      }
+      chat_y += 48;
+    } else {
+      char rssi[32] = {};
+      char snr[32] = {};
+      std::snprintf(rssi, sizeof(rssi), "RSSI  %d dBm",
+          static_cast<int>(message.rssi_dbm));
+      std::snprintf(snr, sizeof(snr), "SNR  %+d",
+          static_cast<int>(message.snr_db));
+      if (!CreateReceiveTelemetry(
+              body, rssi, snr, message.time, chat_y)) {
+        return false;
+      }
+      chat_y += 76;
+    }
+  }
+  ScrollChatToBottom(body);
+  return true;
+}
+
+RfChatMessage* AppendChatMessage(RfViewState* state, uint32_t profile_id) {
+  if (state == nullptr) {
+    return nullptr;
+  }
+  if (state->chat_message_count == kChatMessageCapacity) {
+    for (size_t index = 1; index < kChatMessageCapacity; ++index) {
+      state->chat_messages[index - 1] = state->chat_messages[index];
+    }
+    --state->chat_message_count;
+  }
+  RfChatMessage* message =
+      &state->chat_messages[state->chat_message_count++];
+  *message = RfChatMessage();
+  message->profile_id = profile_id;
+  FormatCurrentTime(state, message->time, sizeof(message->time));
+  return message;
+}
+
+/**
+ * @brief 追加系统提示并更新射频主页面的最新消息
+ * @param state 射频页面状态
+ * @param profile_index 射频配置索引
+ * @param text 系统提示文本
+ * @return 追加成功返回 true，否则返回 false
+ */
+bool AppendSystemMessage(RfViewState* state, size_t profile_index,
+    const char* text) {
+  if (state == nullptr || text == nullptr ||
+      profile_index >= state->preferences.profile_count) {
+    return false;
+  }
+  RfChatMessage* message = AppendChatMessage(
+      state, state->preferences.profiles[profile_index].id);
+  if (message == nullptr) {
+    return false;
+  }
+  message->type = ChatMessageType::kSystem;
+  CopyBoundedString(message->text, sizeof(message->text), text);
+  CopyBoundedString(state->latest_messages[profile_index],
+      sizeof(state->latest_messages[profile_index]), message->text);
+  CopyBoundedString(state->message_times[profile_index],
+      sizeof(state->message_times[profile_index]), message->time);
+  return true;
+}
+
+void FailPendingMessages(RfViewState* state, uint32_t profile_id) {
+  if (state == nullptr || profile_id == 0) {
+    return;
+  }
+  for (size_t index = 0; index < state->chat_message_count; ++index) {
+    RfChatMessage& message = state->chat_messages[index];
+    if (message.profile_id == profile_id &&
+        message.delivery == ChatDeliveryState::kSending) {
+      message.delivery = ChatDeliveryState::kFailed;
+    }
+  }
+}
+
+void UpdateDetailStatus(RfViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+  if (state->detail_status_label != nullptr &&
+      state->detail_index < state->module_count) {
+    const char* status = ProfileStatusText(state, state->detail_index);
+    lv_label_set_text(state->detail_status_label, status);
+    lv_obj_set_style_text_color(state->detail_status_label,
+        lv_color_hex(ProfileStatusColor(status)), LV_PART_MAIN);
+  }
+  if (state->profile_settings_header_status_label != nullptr &&
+      state->profile_settings_index < state->module_count) {
+    const char* status =
+        ProfileStatusText(state, state->profile_settings_index);
+    const lv_color_t status_color =
+        lv_color_hex(ProfileStatusColor(status));
+    lv_label_set_text(
+        state->profile_settings_header_status_label, status);
+    lv_obj_set_style_text_color(
+        state->profile_settings_header_status_label,
+        status_color, LV_PART_MAIN);
+  }
+}
+
+void FormatPacketText(const hal::RfEvent& event, char* output,
+    size_t output_size) {
+  if (output == nullptr || output_size == 0) {
+    return;
+  }
+  bool printable = event.payload_size > 0;
+  for (size_t index = 0; index < event.payload_size; ++index) {
+    if (!std::isprint(event.payload[index]) &&
+        !std::isspace(event.payload[index])) {
+      printable = false;
+      break;
+    }
+  }
+  if (printable) {
+    const size_t length = std::min(event.payload_size, output_size - 1);
+    std::memcpy(output, event.payload, length);
+    output[length] = '\0';
+    return;
+  }
+  size_t written = 0;
+  for (size_t index = 0; index < event.payload_size; ++index) {
+    const int result = std::snprintf(output + written,
+        output_size - written, index == 0 ? "%02X" : " %02X",
+        static_cast<unsigned>(event.payload[index]));
+    if (result <= 0 || static_cast<size_t>(result) >=
+        output_size - written) {
+      break;
+    }
+    written += static_cast<size_t>(result);
+  }
+}
+
+void RadioTimerCallback(lv_timer_t* timer) {
+  auto* state = static_cast<RfViewState*>(lv_timer_get_user_data(timer));
+  if (state == nullptr || state->config.rf == nullptr ||
+      state->preferences.active_profile_id == 0) {
+    return;
+  }
+  hal::RfStatus status;
+  if (state->config.rf->ReadRfStatus(&status) &&
+      status.state == hal::RfLinkState::kChipError &&
+      state->activation_retry_count < kActivationRetryLimit &&
+      lv_tick_get() - state->last_activation_retry_tick >=
+          kActivationRetryPeriodMs) {
+    const size_t retry_index = FindProfileIndex(
+        state, state->preferences.active_profile_id);
+    state->last_activation_retry_tick = lv_tick_get();
+    ++state->activation_retry_count;
+    if (retry_index < state->module_count &&
+        IsProfileSupported(
+            state, state->preferences.profiles[retry_index])) {
+      state->config.rf->ActivateRf(ToRadioConfig(
+          state->preferences.profiles[retry_index]));
+      UpdateDetailStatus(state);
+      RenderModuleList(state);
+    }
+  }
+  hal::RfEvent event;
+  state->config.rf->PollRfEvent(&event);
+  if (event.type == hal::RfEventType::kNone) {
+    return;
+  }
+  const uint32_t profile_id = event.client_token;
+  const size_t profile_index = FindProfileIndex(state, profile_id);
+  if (profile_index >= state->module_count) {
+    return;
+  }
+  if (event.type == hal::RfEventType::kTransmitComplete ||
+      event.type == hal::RfEventType::kTransmitFailed) {
+    for (size_t offset = 0; offset < state->chat_message_count; ++offset) {
+      RfChatMessage& message = state->chat_messages[
+          state->chat_message_count - offset - 1];
+      if (message.profile_id == profile_id &&
+          message.delivery == ChatDeliveryState::kSending) {
+        message.delivery = event.type == hal::RfEventType::kTransmitComplete
+            ? ChatDeliveryState::kSent
+            : ChatDeliveryState::kFailed;
+        break;
+      }
+    }
+  } else if (event.type == hal::RfEventType::kPacketReceived) {
+    RfChatMessage* message = AppendChatMessage(state, profile_id);
+    if (message != nullptr) {
+      message->delivery = ChatDeliveryState::kReceived;
+      message->rssi_dbm = event.rssi_dbm;
+      message->snr_db = event.snr_db;
+      FormatPacketText(event, message->text, sizeof(message->text));
+      CopyBoundedString(state->latest_messages[profile_index],
+          sizeof(state->latest_messages[profile_index]), message->text);
+      CopyBoundedString(state->message_times[profile_index],
+          sizeof(state->message_times[profile_index]), message->time);
+      if (state->detail_page == nullptr ||
+          state->detail_index != profile_index) {
+        if (state->unread_counts[profile_index] < UINT16_MAX) {
+          ++state->unread_counts[profile_index];
+        }
+      }
+    }
+  }
+  SyncModuleItems(state);
+  RefreshProfileSettingsPage(state);
+  UpdateDetailStatus(state);
+  if (state->detail_page != nullptr &&
+      state->detail_index == profile_index) {
+    RenderChatMessages(state);
+  }
+  RenderModuleList(state);
 }
 
 /**
@@ -483,6 +1133,47 @@ bool CreateNearMeIcon(lv_obj_t* parent) {
   return true;
 }
 
+void DetailSendClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->detail_input == nullptr ||
+      state->detail_index >= state->module_count) {
+    return;
+  }
+  const char* text = lv_textarea_get_text(state->detail_input);
+  const size_t length = text == nullptr ? 0 : std::strlen(text);
+  const app::RfProfile& profile =
+      state->preferences.profiles[state->detail_index];
+  if (length == 0 || length > hal::kRfPayloadCapacity ||
+      profile.id != state->preferences.active_profile_id) {
+    return;
+  }
+  RfChatMessage* message = AppendChatMessage(state, profile.id);
+  if (message == nullptr) {
+    return;
+  }
+  CopyBoundedString(message->text, sizeof(message->text), text);
+  message->delivery = ChatDeliveryState::kSending;
+  const bool started = state->config.rf != nullptr &&
+      state->config.rf->SendRf(
+          reinterpret_cast<const uint8_t*>(text), length);
+  if (!started) {
+    message->delivery = ChatDeliveryState::kFailed;
+  }
+  CopyBoundedString(state->latest_messages[state->detail_index],
+      sizeof(state->latest_messages[state->detail_index]), text);
+  FormatCurrentTime(state, state->message_times[state->detail_index],
+      sizeof(state->message_times[state->detail_index]));
+  lv_textarea_set_text(state->detail_input, "");
+  SyncModuleItems(state);
+  RenderChatMessages(state);
+  RenderModuleList(state);
+}
+
 /**
  * @brief 调整消息输入区位置并控制共享键盘显示状态
  * @param state 射频页面状态
@@ -492,20 +1183,27 @@ void SetDetailKeyboardVisible(RfViewState* state, bool visible) {
   if (state == nullptr || state->detail_input == nullptr ||
       state->detail_composer_background == nullptr ||
       state->detail_divider == nullptr ||
-      state->detail_send_button == nullptr) {
+      state->detail_send_button == nullptr ||
+      state->detail_chat_body == nullptr) {
     return;
   }
   const int keyboard_height = state->config.height *
       kAddKeyboardHeightPercent / 100;
   const int offset = visible ? keyboard_height : 0;
+  const int composer_top = state->config.height - 108 - offset;
   lv_obj_set_y(state->detail_composer_background,
-      state->config.height - 108 - offset);
+      composer_top);
   lv_obj_set_y(state->detail_divider,
-      state->config.height - 108 - offset);
+      composer_top);
   lv_obj_set_y(state->detail_input,
       state->config.height - 89 - offset);
   lv_obj_set_y(state->detail_send_button,
       state->config.height - 87 - offset);
+  const int32_t chat_height = std::max<int32_t>(
+      0, static_cast<int32_t>(composer_top) -
+             lv_obj_get_y(state->detail_chat_body));
+  lv_obj_set_height(state->detail_chat_body, chat_height);
+  ScrollChatToBottom(state->detail_chat_body);
   if (!visible) {
     HideSharedKeyboard(state->detail_keyboard);
   }
@@ -520,10 +1218,25 @@ void DetailInputEventCallback(lv_event_t* event) {
   const lv_event_code_t code = lv_event_get_code(event);
   if (code == LV_EVENT_FOCUSED || code == LV_EVENT_CLICKED) {
     SetDetailKeyboardVisible(state, true);
-  } else if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL ||
-             code == LV_EVENT_DEFOCUSED) {
+  } else if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
     SetDetailKeyboardVisible(state, false);
   }
+}
+
+/**
+ * @brief 处理聊天背景点击并隐藏输入键盘
+ * @param event LVGL 事件对象
+ */
+void DetailKeyboardDismissClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->detail_input == nullptr) {
+    return;
+  }
+  lv_obj_remove_state(state->detail_input, LV_STATE_FOCUSED);
+  SetDetailKeyboardVisible(state, false);
 }
 
 /**
@@ -542,6 +1255,7 @@ bool CreateChatComposer(lv_obj_t* page, RfViewState* state) {
     return false;
   }
   lv_obj_remove_flag(background, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(background, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(background, state->config.width, 108);
   lv_obj_set_pos(background, 0, divider_y);
   lv_obj_set_style_bg_color(background,
@@ -551,6 +1265,8 @@ bool CreateChatComposer(lv_obj_t* page, RfViewState* state) {
   lv_obj_set_style_radius(background, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(background, 0, LV_PART_MAIN);
   state->detail_composer_background = background;
+  lv_obj_add_event_cb(background,
+      DetailKeyboardDismissClickedEventCallback, LV_EVENT_CLICKED, state);
 
   lv_obj_t* divider = lv_obj_create(page);
   if (divider == nullptr) {
@@ -574,7 +1290,7 @@ bool CreateChatComposer(lv_obj_t* page, RfViewState* state) {
   lv_textarea_set_one_line(input, true);
   lv_obj_set_size(input, state->config.width - 142, kAddInputHeight);
   lv_obj_set_pos(input, 20, state->config.height - 89);
-  lv_textarea_set_placeholder_text(input, "Enter data or HEX command...");
+  lv_textarea_set_placeholder_text(input, "Enter a message to send...");
   lv_obj_set_style_text_font(input, Font22(), LV_PART_MAIN);
   lv_obj_set_style_text_color(
       input, lv_color_hex(kMainTextColor), LV_PART_MAIN);
@@ -620,6 +1336,8 @@ bool CreateChatComposer(lv_obj_t* page, RfViewState* state) {
     return false;
   }
   state->detail_send_button = send;
+  lv_obj_add_event_cb(send, DetailSendClickedEventCallback,
+      LV_EVENT_CLICKED, state);
 
   SharedKeyboardConfig keyboard_config;
   keyboard_config.width = state->config.width;
@@ -654,11 +1372,16 @@ bool ShowModuleDetail(RfViewState* state, size_t index) {
     return false;
   }
   state->detail_page = page;
+  state->detail_index = index;
+  state->unread_counts[index] = 0;
+  SyncModuleItems(state);
+  RenderModuleList(state);
   state->detail_input = nullptr;
   state->detail_keyboard = nullptr;
   state->detail_composer_background = nullptr;
   state->detail_divider = nullptr;
   state->detail_send_button = nullptr;
+  state->detail_title_label = nullptr;
   state->detail_edge_swipe = EdgeBackSwipeState();
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
@@ -702,55 +1425,35 @@ bool ShowModuleDetail(RfViewState* state, size_t index) {
       lv_obj_center(chip);
     }
   }
+  lv_obj_t* header_action = lv_button_create(page);
+  if (header_action != nullptr) {
+    lv_obj_remove_style_all(header_action);
+    lv_obj_set_size(header_action, state->config.width - 90, 76);
+    lv_obj_set_pos(header_action, 88, 60);
+    lv_obj_set_style_bg_opa(
+        header_action, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_add_event_cb(header_action, DetailHeaderClickedEventCallback,
+        LV_EVENT_CLICKED, state);
+    lv_obj_move_to_index(header_action, -1);
+  }
   lv_obj_t* title = CreateLabel(
       page, item.name, kMainTextColor, Font28());
   if (title != nullptr) {
+    state->detail_title_label = title;
     lv_obj_set_width(title, state->config.width - 190);
     lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
     lv_obj_set_pos(title, 170, 72);
   }
-  lv_obj_t* status = CreateLabel(
-      page, "Connected", item.color, Font22());
+  const char* status_text = ProfileStatusText(state, index);
+  lv_obj_t* status = CreateLabel(page, status_text,
+      ProfileStatusColor(status_text), Font22());
   if (status != nullptr) {
+    state->detail_status_label = status;
     lv_obj_set_pos(status, 170, 108);
-  }
-
-  const char* connection_text = "Connected | LoRa | 915 | SF7";
-  lv_obj_t* connection_notice = lv_obj_create(page);
-  if (connection_notice != nullptr) {
-    lv_obj_remove_flag(connection_notice, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_radius(
-        connection_notice, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(connection_notice,
-        lv_color_hex(kNoticeContainerColor), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(connection_notice, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_width(connection_notice, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(connection_notice, 0, LV_PART_MAIN);
-    lv_obj_t* notice_text = CreateLabel(connection_notice, connection_text,
-        kSecondaryTextColor, Font22());
-    if (notice_text != nullptr) {
-      lv_obj_update_layout(notice_text);
-      int notice_width = lv_obj_get_width(notice_text) + 36;
-      const int maximum_width = state->config.width - 64;
-      if (notice_width < 280) {
-        notice_width = 280;
-      }
-      if (notice_width > maximum_width) {
-        notice_width = maximum_width;
-      }
-      lv_obj_set_size(connection_notice, notice_width, 42);
-      lv_obj_align(connection_notice, LV_ALIGN_TOP_MID, 0, 164);
-      lv_obj_set_size(notice_text, notice_width - 28, 28);
-      lv_label_set_long_mode(notice_text, LV_LABEL_LONG_DOT);
-      lv_obj_set_style_text_align(
-          notice_text, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-      lv_obj_center(notice_text);
-    }
   }
 
   const int composer_top = state->config.height - 108;
   const int chat_top = 146;
-  const int bubble_metadata_gap = 8;
   lv_obj_t* chat_body = lv_obj_create(page);
   if (chat_body == nullptr) {
     lv_obj_delete(page);
@@ -767,96 +1470,11 @@ bool ShowModuleDetail(RfViewState* state, size_t index) {
   lv_obj_set_scrollbar_mode(chat_body, LV_SCROLLBAR_MODE_AUTO);
   lv_obj_add_flag(chat_body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(chat_body, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_add_event_cb(chat_body,
+      DetailKeyboardDismissClickedEventCallback, LV_EVENT_CLICKED, state);
+  state->detail_chat_body = chat_body;
 
-  if (connection_notice != nullptr) {
-    lv_obj_set_parent(connection_notice, chat_body);
-    lv_obj_align(connection_notice, LV_ALIGN_TOP_MID, 0, 0);
-  }
-
-  int chat_y = 58;
-  int bubble_height = 0;
-  lv_obj_t* bubble = CreateChatBubble(
-      chat_body, "PING", chat_y, 190, true, &bubble_height);
-  if (bubble == nullptr) {
-    lv_obj_delete(page);
-    state->detail_page = nullptr;
-    return false;
-  }
-  chat_y += bubble_height + bubble_metadata_gap;
-  if (!CreateSendStatus(chat_body, "09:19:34", true, chat_y)) {
-    lv_obj_delete(page);
-    state->detail_page = nullptr;
-    return false;
-  }
-  chat_y += 50;
-
-  bubble = CreateChatBubble(
-      chat_body, "PONG", chat_y, 190, false, &bubble_height);
-  if (bubble == nullptr) {
-    lv_obj_delete(page);
-    state->detail_page = nullptr;
-    return false;
-  }
-  chat_y += bubble_height + bubble_metadata_gap;
-  if (!CreateReceiveTelemetry(chat_body, "RSSI  -72 dBm", "SNR  +9.5",
-          "09:20:34", chat_y)) {
-    lv_obj_delete(page);
-    state->detail_page = nullptr;
-    return false;
-  }
-  chat_y += 78;
-
-  bubble = CreateChatBubble(
-      chat_body, "SET FREQ 915", chat_y, 230, true,
-      &bubble_height);
-  if (bubble == nullptr) {
-    lv_obj_delete(page);
-    state->detail_page = nullptr;
-    return false;
-  }
-  chat_y += bubble_height + bubble_metadata_gap;
-  if (!CreateSendStatus(chat_body, "09:21:08", false, chat_y)) {
-    lv_obj_delete(page);
-    state->detail_page = nullptr;
-    return false;
-  }
-  chat_y += 50;
-
-  if (item.latest_message != nullptr && item.latest_message[0] != '\0') {
-    bubble = CreateChatBubble(chat_body, item.latest_message, chat_y,
-        state->config.width - 100, false, &bubble_height);
-    if (bubble == nullptr) {
-      lv_obj_delete(page);
-      state->detail_page = nullptr;
-      return false;
-    }
-    chat_y += bubble_height + bubble_metadata_gap;
-    if (!CreateReceiveTelemetry(
-            chat_body, "RSSI  -74 dBm", "SNR  +8.2",
-            "09:23:34", chat_y)) {
-      lv_obj_delete(page);
-      state->detail_page = nullptr;
-      return false;
-    }
-    chat_y += 78;
-  }
-
-  bubble = CreateChatBubble(
-      chat_body, "GET STATUS", chat_y, 220, true,
-      &bubble_height);
-  if (bubble == nullptr) {
-    lv_obj_delete(page);
-    state->detail_page = nullptr;
-    return false;
-  }
-  chat_y += bubble_height + bubble_metadata_gap;
-  if (!CreateSendStatus(chat_body, "09:24:02", true, chat_y)) {
-    lv_obj_delete(page);
-    state->detail_page = nullptr;
-    return false;
-  }
-
-  if (!CreateChatComposer(page, state)) {
+  if (!RenderChatMessages(state) || !CreateChatComposer(page, state)) {
     lv_obj_delete(page);
     state->detail_page = nullptr;
     state->detail_input = nullptr;
@@ -882,9 +1500,48 @@ void ModuleRowClickedEventCallback(lv_event_t* event) {
   }
   auto* action = static_cast<RfModuleAction*>(
       lv_event_get_user_data(event));
-  if (action != nullptr) {
-    ShowModuleDetail(action->state, action->index);
+  if (action == nullptr || action->state == nullptr) {
+    return;
   }
+  if (action->long_press_handled) {
+    action->long_press_handled = false;
+    return;
+  }
+  RfViewState* state = action->state;
+  if (state->selection_mode) {
+    state->selected_modules[action->index] =
+        !state->selected_modules[action->index];
+    bool any_selected = false;
+    for (size_t index = 0; index < state->module_count; ++index) {
+      any_selected = any_selected || state->selected_modules[index];
+    }
+    if (any_selected) {
+      RenderHeader(state);
+      RenderModuleList(state);
+    } else {
+      CloseSelectionMode(state);
+    }
+  } else {
+    ShowModuleDetail(state, action->index);
+  }
+}
+
+void ModuleRowLongPressedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_LONG_PRESSED) {
+    return;
+  }
+  auto* action = static_cast<RfModuleAction*>(
+      lv_event_get_user_data(event));
+  if (action == nullptr || action->state == nullptr ||
+      action->index >= action->state->module_count) {
+    return;
+  }
+  action->long_press_handled = true;
+  action->state->selection_edge_swipe = EdgeBackSwipeState();
+  action->state->selection_mode = true;
+  action->state->selected_modules[action->index] = true;
+  RenderHeader(action->state);
+  RenderModuleList(action->state);
 }
 
 /**
@@ -957,12 +1614,33 @@ void MenuClickedEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 创建射频模块头像和未读消息提示点
+ * @brief 创建射频模块头像、状态标记和选中标记
  * @param row 模块列表行
  * @param item 模块数据
+ * @param state 射频页面状态
+ * @param index 射频配置索引
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateModuleAvatar(lv_obj_t* row, const RfModuleItem& item) {
+bool CreateModuleAvatar(lv_obj_t* row, const RfModuleItem& item,
+    const RfViewState* state, size_t index) {
+  lv_obj_t* status_indicator = lv_obj_create(row);
+  if (status_indicator == nullptr) {
+    return false;
+  }
+  lv_obj_remove_flag(status_indicator, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(status_indicator, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(status_indicator, kProfileStatusIndicatorSize,
+      kProfileStatusIndicatorSize);
+  lv_obj_align(status_indicator, LV_ALIGN_LEFT_MID,
+      -kProfileStatusIndicatorSize / 2, 0);
+  lv_obj_set_style_radius(status_indicator,
+      kProfileStatusIndicatorSize / 2, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(status_indicator,
+      lv_color_hex(ProfileIndicatorColor(state, index)), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(status_indicator, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(status_indicator, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(status_indicator, 0, LV_PART_MAIN);
+
   lv_obj_t* avatar = lv_obj_create(row);
   if (avatar == nullptr) {
     return false;
@@ -981,24 +1659,28 @@ bool CreateModuleAvatar(lv_obj_t* row, const RfModuleItem& item) {
   if (chip != nullptr) {
     lv_obj_center(chip);
   }
-  const bool has_unread_message = item.latest_message != nullptr &&
-                                  item.latest_message[0] != '\0';
-  if (has_unread_message) {
-    lv_obj_t* dot = lv_obj_create(row);
-    if (dot == nullptr) {
+  if (state != nullptr && state->selection_mode &&
+      state->selected_modules[index]) {
+    lv_obj_t* selection = lv_obj_create(row);
+    if (selection == nullptr) {
       return false;
     }
-    lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(dot, 16, 16);
-    lv_obj_align(dot, LV_ALIGN_LEFT_MID, 85, 27);
-    lv_obj_set_style_radius(dot, 8, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(
-        dot, lv_color_hex(kUnreadColor), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_color(dot,
-                                  lv_color_hex(kMainBackgroundColor),
-                                  LV_PART_MAIN);
-    lv_obj_set_style_border_width(dot, 3, LV_PART_MAIN);
+    lv_obj_remove_flag(selection, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(selection, 30, 30);
+    lv_obj_align(selection, LV_ALIGN_LEFT_MID, 80, 25);
+    lv_obj_set_style_radius(selection, 15, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(selection,
+        lv_color_hex(kSendSuccessColor), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(selection, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_color(selection,
+        lv_color_hex(kMainBackgroundColor), LV_PART_MAIN);
+    lv_obj_set_style_border_width(selection, 3, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(selection, 0, LV_PART_MAIN);
+    lv_obj_t* check = CreateLabel(
+        selection, icon::kCheck, 0xFFFFFF, FillIconFont32());
+    if (check != nullptr) {
+      lv_obj_center(check);
+    }
   }
   return true;
 }
@@ -1024,37 +1706,69 @@ bool CreateModuleRow(lv_obj_t* parent, const RfModuleItem& item,
   lv_obj_set_size(row, width, kRowHeight);
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(row, lv_color_hex(kSurfaceContainerLowColor),
+  lv_obj_set_style_bg_color(row, lv_color_hex(kPressedColor),
                             LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
-  if (!AddPressCancelOnLeave(row) || !CreateModuleAvatar(row, item)) {
+  if (!AddPressCancelOnLeave(row) ||
+      !CreateModuleAvatar(row, item, state, index)) {
     lv_obj_delete(row);
     return false;
   }
   auto* action = new RfModuleAction{.state = state, .index = index};
   lv_obj_add_event_cb(row, ModuleRowClickedEventCallback,
                       LV_EVENT_CLICKED, action);
+  lv_obj_add_event_cb(row, ModuleRowLongPressedEventCallback,
+                      LV_EVENT_LONG_PRESSED, action);
   lv_obj_add_event_cb(row, ModuleActionDeleteEventCallback,
                       LV_EVENT_DELETE, action);
   lv_obj_t* title = CreateLabel(
       row, item.name, kMainTextColor, Font28());
   if (title != nullptr) {
-    lv_obj_set_size(title, width - 250, 36);
+    lv_obj_set_size(title, width - 250, 34);
     lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 120, 17);
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 120, 18);
   }
   lv_obj_t* time = CreateLabel(
       row, item.time, kSecondaryTextColor, Font22());
   if (time != nullptr) {
     lv_obj_align(time, LV_ALIGN_TOP_RIGHT, -28, 20);
   }
+  if (item.unread_count > 0) {
+    char unread_text[12] = {};
+    std::snprintf(unread_text, sizeof(unread_text), "%u",
+        static_cast<unsigned>(item.unread_count));
+    lv_obj_t* unread = lv_obj_create(row);
+    if (unread != nullptr) {
+      int unread_width = 54;
+      if (item.unread_count >= 10000) {
+        unread_width = 88;
+      } else if (item.unread_count >= 100) {
+        unread_width = 72;
+      }
+      lv_obj_remove_flag(unread, LV_OBJ_FLAG_SCROLLABLE);
+      lv_obj_set_size(unread, unread_width, 32);
+      lv_obj_align(unread, LV_ALIGN_TOP_RIGHT, -28, 54);
+      lv_obj_set_style_radius(unread, 16, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(unread,
+          lv_color_hex(kSendSuccessColor), LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(unread, LV_OPA_COVER, LV_PART_MAIN);
+      lv_obj_set_style_border_width(unread, 0, LV_PART_MAIN);
+      lv_obj_set_style_pad_all(unread, 0, LV_PART_MAIN);
+      lv_obj_t* unread_label = CreateLabel(
+          unread, unread_text, 0xFFFFFF, Font22());
+      if (unread_label != nullptr) {
+        lv_obj_center(unread_label);
+      }
+    }
+  }
   if (item.latest_message != nullptr && item.latest_message[0] != '\0') {
     lv_obj_t* message = CreateLabel(
         row, item.latest_message, kSecondaryTextColor, Font22());
     if (message != nullptr) {
-      lv_obj_set_size(message, width - 174, 30);
+      lv_obj_set_size(message,
+          width - (item.unread_count > 0 ? 230 : 174), 30);
       lv_label_set_long_mode(message, LV_LABEL_LONG_DOT);
-      lv_obj_align(message, LV_ALIGN_TOP_LEFT, 120, 60);
+      lv_obj_align(message, LV_ALIGN_TOP_LEFT, 120, 57);
     }
   }
   lv_obj_t* divider = lv_obj_create(row);
@@ -1088,51 +1802,1159 @@ bool RenderModuleList(RfViewState* state) {
       return false;
     }
   }
-  if (state->summary_label != nullptr) {
-    char summary[32] = {};
-    std::snprintf(summary, sizeof(summary), "%u modules",
-        static_cast<unsigned>(state->module_count));
-    lv_label_set_text(state->summary_label, summary);
+  return true;
+}
+
+size_t SelectedModuleCount(const RfViewState* state) {
+  size_t count = 0;
+  for (size_t index = 0; state != nullptr &&
+       index < state->module_count; ++index) {
+    if (state->selected_modules[index]) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+void CloseSelectionMode(RfViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+  state->selection_mode = false;
+  state->selection_edge_swipe = EdgeBackSwipeState();
+  for (bool& selected : state->selected_modules) {
+    selected = false;
+  }
+  RenderHeader(state);
+  RenderModuleList(state);
+}
+
+/**
+ * @brief 处理 RF 主界面多选状态下的左右边缘滑动
+ * @param event LVGL 事件对象
+ */
+void SelectionEdgeBackEventCallback(lv_event_t* event) {
+  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || !state->selection_mode ||
+      !HandleEdgeBackSwipeEvent(event, state->config.width,
+          &state->selection_edge_swipe)) {
+    return;
+  }
+
+  CloseSelectionMode(state);
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+}
+
+void SelectionCloseClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
+    CloseSelectionMode(
+        static_cast<RfViewState*>(lv_event_get_user_data(event)));
+  }
+}
+
+/**
+ * @brief 修改指定射频配置的启用状态
+ * @param state 射频页面状态
+ * @param index 配置索引
+ * @param active 是否启用该配置
+ * @return 状态有效且更新完成时返回 true
+ */
+bool SetProfileActiveState(
+    RfViewState* state, size_t index, bool active) {
+  if (state == nullptr || index >= state->module_count) {
+    return false;
+  }
+  app::RfProfile& profile = state->preferences.profiles[index];
+  const bool currently_active =
+      state->preferences.active_profile_id == profile.id;
+  if (active == currently_active) {
+    return true;
+  }
+  FailPendingMessages(state, state->preferences.active_profile_id);
+  state->activation_retry_count = 0;
+  state->last_activation_retry_tick = lv_tick_get();
+  if (active) {
+    state->preferences.active_profile_id = profile.id;
+    if (state->config.rf != nullptr) {
+      state->config.rf->ActivateRf(ToRadioConfig(profile));
+    }
+  } else {
+    if (state->config.rf != nullptr) {
+      state->config.rf->DeactivateRf();
+    }
+    state->preferences.active_profile_id = 0;
+  }
+  app::UpdateRfPreferences(state->preferences);
+  UpdateDetailStatus(state);
+  RenderModuleList(state);
+  RefreshProfileSettingsPage(state);
+  return true;
+}
+
+/**
+ * @brief 清空射频配置名称编辑页保存的控件引用
+ * @param state 射频页面状态
+ */
+void ResetProfileNameEditReferences(RfViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+  state->profile_name_edit_page = nullptr;
+  state->profile_name_edit_text_area = nullptr;
+  state->profile_name_edit_keyboard = nullptr;
+  state->profile_name_edit_edge_swipe = EdgeBackSwipeState();
+  state->profile_name_edit_closing = false;
+}
+
+/**
+ * @brief 处理射频配置名称编辑页退出动画完成事件
+ * @param animation LVGL 动画对象
+ */
+void ProfileNameEditCloseCompletedCallback(lv_anim_t* animation) {
+  auto* state = static_cast<RfViewState*>(
+      lv_anim_get_user_data(animation));
+  if (state == nullptr || state->profile_name_edit_page == nullptr) {
+    return;
+  }
+  lv_obj_t* page = state->profile_name_edit_page;
+  ResetProfileNameEditReferences(state);
+  lv_obj_delete(page);
+}
+
+/**
+ * @brief 关闭射频配置名称编辑页
+ * @param state 射频页面状态
+ * @param animated 是否播放退出动画
+ */
+void CloseProfileNameEditPage(RfViewState* state, bool animated) {
+  if (state == nullptr || state->profile_name_edit_page == nullptr ||
+      state->profile_name_edit_closing) {
+    return;
+  }
+  HideSharedKeyboard(state->profile_name_edit_keyboard);
+  if (animated && StartSlideRightWindowTransition(
+      state->profile_name_edit_page, state->config.width, kAnimationMs,
+      state, ProfileNameEditCloseCompletedCallback)) {
+    state->profile_name_edit_closing = true;
+    return;
+  }
+  lv_obj_t* page = state->profile_name_edit_page;
+  ResetProfileNameEditReferences(state);
+  lv_obj_delete(page);
+}
+
+/**
+ * @brief 处理射频配置名称编辑页边缘返回手势
+ * @param event LVGL 事件对象
+ */
+void ProfileNameEditEdgeBackEventCallback(lv_event_t* event) {
+  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->profile_name_edit_page == nullptr ||
+      state->profile_name_edit_closing ||
+      !HandleEdgeBackSwipeEvent(event, state->config.width,
+          &state->profile_name_edit_edge_swipe)) {
+    return;
+  }
+  CloseProfileNameEditPage(state, true);
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+}
+
+/**
+ * @brief 处理射频配置名称编辑页空白区域点击事件
+ * @param event LVGL 事件对象
+ */
+void ProfileNameEditBackgroundClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED ||
+      lv_event_get_target_obj(event) !=
+          lv_event_get_current_target_obj(event)) {
+    return;
+  }
+  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  if (state != nullptr) {
+    HideSharedKeyboard(state->profile_name_edit_keyboard);
+  }
+}
+
+/**
+ * @brief 处理射频配置名称编辑取消按钮点击事件
+ * @param event LVGL 事件对象
+ */
+void ProfileNameEditCancelClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
+    CloseProfileNameEditPage(
+        static_cast<RfViewState*>(lv_event_get_user_data(event)), true);
+  }
+}
+
+/**
+ * @brief 处理射频配置名称编辑确认按钮点击事件
+ * @param event LVGL 事件对象
+ */
+void ProfileNameEditConfirmClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->profile_name_edit_text_area == nullptr ||
+      state->profile_settings_index >= state->module_count) {
+    return;
+  }
+  const char* text = lv_textarea_get_text(
+      state->profile_name_edit_text_area);
+  if (text == nullptr || text[0] == '\0') {
+    return;
+  }
+  const size_t index = state->profile_settings_index;
+  app::RfProfile& profile = state->preferences.profiles[index];
+  if (std::strcmp(profile.name, text) == 0) {
+    CloseProfileNameEditPage(state, true);
+    return;
+  }
+  CopyBoundedString(profile.name, sizeof(profile.name), text);
+  app::UpdateRfPreferences(state->preferences);
+  AppendSystemMessage(state, index, kSettingsChangedMessage);
+  SyncModuleItems(state);
+  if (state->detail_title_label != nullptr &&
+      state->detail_index == index) {
+    lv_label_set_text(state->detail_title_label, profile.name);
+  }
+  RefreshProfileSettingsPage(state);
+  RenderModuleList(state);
+  CloseProfileNameEditPage(state, true);
+}
+
+/**
+ * @brief 处理射频配置资料页名称区域点击事件
+ * @param event LVGL 事件对象
+ */
+void ProfileNameAreaClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
+    ShowProfileNameEditPage(
+        static_cast<RfViewState*>(lv_event_get_user_data(event)));
+  }
+}
+
+/**
+ * @brief 创建射频配置名称编辑页的透明工具按钮
+ * @param parent 父对象
+ * @param state 射频页面状态
+ * @param icon_text 图标文本
+ * @param x 左侧坐标
+ * @param callback 点击事件回调
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateProfileNameEditToolbarButton(lv_obj_t* parent,
+    RfViewState* state, const char* icon_text, int x,
+    lv_event_cb_t callback) {
+  if (parent == nullptr || state == nullptr || icon_text == nullptr ||
+      callback == nullptr) {
+    return false;
+  }
+  lv_obj_t* button = lv_button_create(parent);
+  if (button == nullptr) {
+    return false;
+  }
+  lv_obj_remove_style_all(button);
+  lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(button, LV_OBJ_FLAG_PRESS_LOCK);
+  lv_obj_add_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(
+      button, kProfileNameEditButtonSize, kProfileNameEditButtonSize);
+  lv_obj_set_pos(button, x, kProfileNameEditButtonTop);
+  lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, LV_STATE_PRESSED);
+  lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
+  lv_obj_set_style_outline_width(button, 0, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
+  if (!AddPressCancelOnLeave(button)) {
+    lv_obj_delete(button);
+    return false;
+  }
+  lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, state);
+  lv_obj_t* icon_label = CreateLabel(
+      button, icon_text, kMainTextColor, OutlineIconFont44());
+  if (icon_label == nullptr) {
+    lv_obj_delete(button);
+    return false;
+  }
+  lv_obj_center(icon_label);
+  return true;
+}
+
+/**
+ * @brief 设置射频配置名称编辑输入框样式
+ * @param text_area 文本输入框对象
+ */
+void ApplyProfileNameEditTextAreaStyle(lv_obj_t* text_area) {
+  if (text_area == nullptr) {
+    return;
+  }
+  lv_obj_set_scrollbar_mode(text_area, LV_SCROLLBAR_MODE_OFF);
+  lv_obj_set_style_text_font(text_area, Font32(), LV_PART_MAIN);
+  lv_obj_set_style_text_color(
+      text_area, lv_color_hex(kMainTextColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(text_area,
+      lv_color_hex(kSurfaceContainerLowColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(text_area,
+      lv_color_hex(kSurfaceContainerLowColor), LV_STATE_FOCUSED);
+  lv_obj_set_style_bg_opa(text_area, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(text_area, LV_OPA_COVER, LV_STATE_FOCUSED);
+  lv_obj_set_style_border_width(text_area, 0, LV_PART_MAIN);
+  lv_obj_set_style_border_width(text_area, 0, LV_STATE_FOCUSED);
+  lv_obj_set_style_outline_width(text_area, 0, LV_PART_MAIN);
+  lv_obj_set_style_outline_width(text_area, 0, LV_STATE_FOCUSED);
+  lv_obj_set_style_shadow_width(text_area, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(text_area, 22, LV_PART_MAIN);
+  lv_obj_set_style_pad_left(text_area, 20, LV_PART_MAIN);
+  lv_obj_set_style_pad_right(text_area, 20, LV_PART_MAIN);
+  const int vertical_padding = std::max(0,
+      (kProfileNameEditTextAreaHeight -
+          static_cast<int>(lv_font_get_line_height(Font32()))) /
+          2);
+  lv_obj_set_style_pad_top(text_area, vertical_padding, LV_PART_MAIN);
+  lv_obj_set_style_pad_bottom(text_area, vertical_padding, LV_PART_MAIN);
+  lv_obj_t* content_label = lv_textarea_get_label(text_area);
+  if (content_label != nullptr) {
+    lv_obj_align(content_label, LV_ALIGN_LEFT_MID, 0, 0);
+  }
+}
+
+/**
+ * @brief 显示射频配置名称编辑页
+ * @param state 射频页面状态
+ * @return 显示成功返回 true，否则返回 false
+ */
+bool ShowProfileNameEditPage(RfViewState* state) {
+  if (state == nullptr || state->root == nullptr ||
+      state->profile_settings_page == nullptr ||
+      state->profile_settings_index >= state->module_count) {
+    return false;
+  }
+  if (state->profile_name_edit_closing) {
+    return true;
+  }
+  if (state->profile_name_edit_page != nullptr) {
+    lv_obj_move_to_index(state->profile_name_edit_page, -1);
+    return true;
+  }
+  lv_obj_t* page = lv_obj_create(state->root);
+  if (page == nullptr) {
+    return false;
+  }
+  state->profile_name_edit_page = page;
+  state->profile_name_edit_text_area = nullptr;
+  state->profile_name_edit_keyboard = nullptr;
+  state->profile_name_edit_closing = false;
+  state->profile_name_edit_edge_swipe = EdgeBackSwipeState();
+  lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(page, state->config.width, state->config.height);
+  lv_obj_set_pos(page, 0, 0);
+  lv_obj_set_style_bg_color(
+      page, lv_color_hex(kMainBackgroundColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
+  AddEdgeBackSwipeEvents(page, ProfileNameEditEdgeBackEventCallback, state);
+  lv_obj_add_event_cb(page, ProfileNameEditBackgroundClickedEventCallback,
+      LV_EVENT_CLICKED, state);
+
+  const int confirm_x = state->config.width -
+      kProfileNameEditButtonSide - kProfileNameEditButtonSize;
+  if (!CreateProfileNameEditToolbarButton(page, state, icon::kClose,
+          kProfileNameEditButtonSide,
+          ProfileNameEditCancelClickedEventCallback) ||
+      !CreateProfileNameEditToolbarButton(page, state, icon::kCheck,
+          confirm_x, ProfileNameEditConfirmClickedEventCallback)) {
+    CloseProfileNameEditPage(state, false);
+    return false;
+  }
+  lv_obj_t* title = CreateLabel(
+      page, "Edit profile name", kMainTextColor, Font48());
+  if (title == nullptr) {
+    CloseProfileNameEditPage(state, false);
+    return false;
+  }
+  lv_obj_align(title, LV_ALIGN_TOP_LEFT, kProfileNameEditTextAreaSide,
+      kProfileNameEditTitleTop);
+
+  lv_obj_t* text_area = lv_textarea_create(page);
+  if (text_area == nullptr) {
+    CloseProfileNameEditPage(state, false);
+    return false;
+  }
+  state->profile_name_edit_text_area = text_area;
+  lv_obj_add_flag(text_area, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  AddEdgeBackSwipeEvents(
+      text_area, ProfileNameEditEdgeBackEventCallback, state);
+  lv_obj_set_size(text_area,
+      state->config.width - 2 * kProfileNameEditTextAreaSide,
+      kProfileNameEditTextAreaHeight);
+  lv_obj_align(text_area, LV_ALIGN_TOP_LEFT, kProfileNameEditTextAreaSide,
+      kProfileNameEditTextAreaTop);
+  lv_textarea_set_one_line(text_area, true);
+  lv_textarea_set_max_length(
+      text_area, app::kRfProfileNameCapacity - 1);
+  lv_textarea_set_accepted_chars(text_area, kProfileNameAcceptedChars);
+  lv_textarea_set_text(text_area,
+      state->preferences.profiles[state->profile_settings_index].name);
+  lv_textarea_set_cursor_pos(text_area, LV_TEXTAREA_CURSOR_LAST);
+  ApplyProfileNameEditTextAreaStyle(text_area);
+
+  lv_obj_t* help = CreateLabel(page,
+      "This name is used to identify this RF profile.",
+      kSecondaryTextColor, Font24());
+  if (help == nullptr) {
+    CloseProfileNameEditPage(state, false);
+    return false;
+  }
+  lv_obj_set_width(
+      help, state->config.width - 2 * (kProfileNameEditTextAreaSide + 10));
+  lv_label_set_long_mode(help, LV_LABEL_LONG_WRAP);
+  lv_obj_align(help, LV_ALIGN_TOP_LEFT,
+      kProfileNameEditTextAreaSide + 10, kProfileNameEditHelpTop);
+
+  SharedKeyboardConfig keyboard_config;
+  keyboard_config.width = state->config.width;
+  keyboard_config.height = state->config.height *
+      kProfileNameEditKeyboardHeightPercent / 100;
+  state->profile_name_edit_keyboard =
+      CreateSharedKeyboard(page, keyboard_config);
+  if (state->profile_name_edit_keyboard == nullptr ||
+      !AttachSharedKeyboardToTextArea(state->profile_name_edit_keyboard,
+          text_area, kProfileNameAcceptedChars)) {
+    CloseProfileNameEditPage(state, false);
+    return false;
+  }
+  lv_obj_add_flag(
+      state->profile_name_edit_keyboard, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  AddEdgeBackSwipeEvents(state->profile_name_edit_keyboard,
+      ProfileNameEditEdgeBackEventCallback, state);
+  EnableEdgeBackSwipeEventBubble(page);
+  if (!StartSlideLeftWindowTransition(page, state->config.width,
+      kAnimationMs, state, nullptr)) {
+    CloseProfileNameEditPage(state, false);
+    return false;
   }
   return true;
 }
 
 /**
- * @brief 创建射频主页面顶部菜单和标题
- * @param parent 页面根对象
+ * @brief 清空射频配置资料页保存的控件引用
  * @param state 射频页面状态
+ */
+void ResetProfileSettingsReferences(RfViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+  state->profile_settings_page = nullptr;
+  state->profile_settings_active_switch = nullptr;
+  state->profile_settings_name_label = nullptr;
+  state->profile_settings_header_status_label = nullptr;
+  state->profile_settings_index = kRfModuleCapacity;
+  state->profile_settings_edge_swipe = EdgeBackSwipeState();
+  state->profile_settings_closing = false;
+}
+
+/**
+ * @brief 根据射频配置名称调整名称按钮宽度和滚动方式
+ * @param state 射频页面状态
+ */
+void UpdateProfileSettingsNameLayout(RfViewState* state) {
+  if (state == nullptr || state->profile_settings_name_label == nullptr) {
+    return;
+  }
+  lv_obj_t* name_action =
+      lv_obj_get_parent(state->profile_settings_name_label);
+  const char* name = lv_label_get_text(state->profile_settings_name_label);
+  if (name_action == nullptr || name == nullptr) {
+    return;
+  }
+
+  lv_point_t text_size = {};
+  lv_text_get_size(&text_size, name, Font36(),
+      lv_obj_get_style_text_letter_space(
+          state->profile_settings_name_label, LV_PART_MAIN),
+      0, LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
+  const int max_action_width = state->config.width -
+      kProfileNameActionX - kProfileNameActionRightMargin;
+  if (max_action_width <= 2 * kProfileNameActionHorizontalPadding) {
+    return;
+  }
+  const int text_width = std::max(1, static_cast<int>(text_size.x));
+  const int action_width = std::min(max_action_width,
+      text_width + 2 * kProfileNameActionHorizontalPadding);
+  const int label_width =
+      action_width - 2 * kProfileNameActionHorizontalPadding;
+  const bool scroll_name = text_width > label_width;
+  lv_obj_set_width(name_action, action_width);
+  lv_label_set_long_mode(state->profile_settings_name_label,
+      scroll_name ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_CLIP);
+  lv_obj_set_width(state->profile_settings_name_label, label_width);
+  lv_obj_align(state->profile_settings_name_label,
+      LV_ALIGN_LEFT_MID, kProfileNameActionHorizontalPadding, 0);
+}
+
+/**
+ * @brief 刷新射频配置资料页中的动态信息
+ * @param state 射频页面状态
+ */
+void RefreshProfileSettingsPage(RfViewState* state) {
+  if (state == nullptr || state->profile_settings_page == nullptr ||
+      state->profile_settings_index >= state->module_count) {
+    return;
+  }
+  const size_t index = state->profile_settings_index;
+  const app::RfProfile& profile = state->preferences.profiles[index];
+  if (state->profile_settings_name_label != nullptr) {
+    lv_label_set_text(state->profile_settings_name_label, profile.name);
+    UpdateProfileSettingsNameLayout(state);
+  }
+  if (state->profile_settings_header_status_label != nullptr) {
+    const char* status = ProfileStatusText(state, index);
+    const lv_color_t status_color =
+        lv_color_hex(ProfileStatusColor(status));
+    lv_label_set_text(
+        state->profile_settings_header_status_label, status);
+    lv_obj_set_style_text_color(
+        state->profile_settings_header_status_label,
+        status_color, LV_PART_MAIN);
+  }
+  if (state->profile_settings_active_switch != nullptr) {
+    const bool active =
+        state->preferences.active_profile_id == profile.id;
+    if (active) {
+      lv_obj_add_state(
+          state->profile_settings_active_switch, LV_STATE_CHECKED);
+    } else {
+      lv_obj_clear_state(
+          state->profile_settings_active_switch, LV_STATE_CHECKED);
+    }
+    if (!active && !IsProfileSupported(state, profile)) {
+      lv_obj_add_state(
+          state->profile_settings_active_switch, LV_STATE_DISABLED);
+    } else {
+      lv_obj_clear_state(
+          state->profile_settings_active_switch, LV_STATE_DISABLED);
+    }
+  }
+}
+
+/**
+ * @brief 处理射频配置资料页退出动画完成事件
+ * @param animation LVGL 动画对象
+ */
+void ProfileSettingsCloseCompletedCallback(lv_anim_t* animation) {
+  auto* state = static_cast<RfViewState*>(
+      lv_anim_get_user_data(animation));
+  if (state == nullptr || state->profile_settings_page == nullptr) {
+    return;
+  }
+  lv_obj_t* page = state->profile_settings_page;
+  ResetProfileSettingsReferences(state);
+  lv_obj_delete(page);
+}
+
+/**
+ * @brief 使用退出动画关闭射频配置资料页
+ * @param state 射频页面状态
+ */
+void CloseProfileSettingsPage(RfViewState* state) {
+  if (state == nullptr || state->profile_settings_page == nullptr ||
+      state->profile_settings_closing) {
+    return;
+  }
+  CloseProfileNameEditPage(state, false);
+  state->profile_settings_closing = true;
+  if (!StartSlideRightWindowTransition(state->profile_settings_page,
+      state->config.width, kAnimationMs, state,
+      ProfileSettingsCloseCompletedCallback)) {
+    lv_obj_t* page = state->profile_settings_page;
+    ResetProfileSettingsReferences(state);
+    lv_obj_delete(page);
+  }
+}
+
+/**
+ * @brief 处理射频配置资料页返回按钮点击事件
+ * @param event LVGL 事件对象
+ */
+void ProfileSettingsBackClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
+    CloseProfileSettingsPage(
+        static_cast<RfViewState*>(lv_event_get_user_data(event)));
+  }
+}
+
+/**
+ * @brief 处理射频配置资料页边缘返回手势
+ * @param event LVGL 事件对象
+ */
+void ProfileSettingsEdgeBackEventCallback(lv_event_t* event) {
+  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->profile_settings_page == nullptr ||
+      !HandleEdgeBackSwipeEvent(event, state->config.width,
+          &state->profile_settings_edge_swipe)) {
+    return;
+  }
+  CloseProfileSettingsPage(state);
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+}
+
+/**
+ * @brief 处理射频配置启用开关变化事件
+ * @param event LVGL 事件对象
+ */
+void ProfileSettingsActiveChangedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED) {
+    return;
+  }
+  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr ||
+      state->profile_settings_index >= state->module_count) {
+    return;
+  }
+  const bool active = lv_obj_has_state(
+      lv_event_get_target_obj(event), LV_STATE_CHECKED);
+  SetProfileActiveState(state, state->profile_settings_index, active);
+}
+
+/**
+ * @brief 处理射频参数设置入口点击事件
+ * @param event LVGL 事件对象
+ */
+void ProfileRfSettingsClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  if (state != nullptr &&
+      state->profile_settings_index < state->module_count) {
+    ShowModuleSettings(state, state->profile_settings_index, true);
+  }
+}
+
+/**
+ * @brief 创建射频配置资料页中的分组标题
+ * @param parent 父对象
+ * @param text 标题文本
+ * @param y 顶部坐标
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateHeader(lv_obj_t* parent, RfViewState* state) {
-  lv_obj_t* menu = lv_button_create(parent);
-  if (menu == nullptr) {
+bool CreateProfileSettingsSection(
+    lv_obj_t* parent, const char* text, int y) {
+  lv_obj_t* label = CreateLabel(parent, text, kPrimaryColor, Font22());
+  if (label == nullptr) {
     return false;
   }
-  lv_obj_remove_style_all(menu);
-  lv_obj_set_size(menu, 72, 72);
-  lv_obj_align(menu, LV_ALIGN_TOP_LEFT, 20, kHeaderTop - 2);
-  lv_obj_set_style_bg_opa(menu, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(menu, LV_OPA_TRANSP, LV_STATE_PRESSED);
-  lv_obj_add_event_cb(
-      menu, MenuClickedEventCallback, LV_EVENT_CLICKED, state);
-  lv_obj_t* menu_icon = CreateLabel(
-      menu, icon::kMenu, kMainTextColor, FillIconFont56());
-  if (menu_icon != nullptr) {
-    lv_obj_center(menu_icon);
+  lv_obj_set_pos(label, 28, y);
+  return true;
+}
+
+/**
+ * @brief 创建射频配置资料页中的列表行
+ * @param parent 父对象
+ * @param state 射频页面状态
+ * @param title 行标题
+ * @param subtitle 行副标题
+ * @param y 顶部坐标
+ * @param callback 可选的点击事件回调
+ * @param show_chevron 是否显示右侧箭头
+ * @param text_y_offset 文字组垂直偏移
+ * @param height 列表行高度
+ * @return 创建成功返回列表行，否则返回 nullptr
+ */
+lv_obj_t* CreateProfileSettingsRow(lv_obj_t* parent, RfViewState* state,
+    const char* title, const char* subtitle, int y, lv_event_cb_t callback,
+    bool show_chevron, int text_y_offset = 0, int height = 120) {
+  if (parent == nullptr || state == nullptr || title == nullptr ||
+      subtitle == nullptr) {
+    return nullptr;
   }
-  lv_obj_t* title = CreateLabel(
-      parent, "RF", kMainTextColor, Font36());
-  if (title == nullptr) {
+  lv_obj_t* row = lv_button_create(parent);
+  if (row == nullptr) {
+    return nullptr;
+  }
+  lv_obj_remove_style_all(row);
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(row, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(row, state->config.width, height);
+  lv_obj_set_pos(row, 0, y);
+  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      row, lv_color_hex(kPressedColor), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
+  lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
+  lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(row, 0, LV_PART_MAIN);
+  if (!AddPressCancelOnLeave(row)) {
+    lv_obj_delete(row);
+    return nullptr;
+  }
+  if (callback != nullptr) {
+    lv_obj_add_event_cb(row, callback, LV_EVENT_CLICKED, state);
+  } else {
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
+  }
+
+  lv_obj_t* title_label = CreateLabel(
+      row, title, kMainTextColor, Font28());
+  lv_obj_t* subtitle_label = CreateLabel(
+      row, subtitle, kSettingsSecondaryTextColor, Font24());
+  if (title_label == nullptr || subtitle_label == nullptr) {
+    lv_obj_delete(row);
+    return nullptr;
+  }
+  lv_obj_set_width(title_label, state->config.width - 166);
+  lv_label_set_long_mode(title_label, LV_LABEL_LONG_DOT);
+  lv_obj_align(
+      title_label, LV_ALIGN_TOP_LEFT, 34, 23 + text_y_offset);
+  lv_obj_set_width(subtitle_label, state->config.width - 166);
+  lv_label_set_long_mode(subtitle_label, LV_LABEL_LONG_DOT);
+  lv_obj_align(
+      subtitle_label, LV_ALIGN_TOP_LEFT, 34, 65 + text_y_offset);
+  if (show_chevron) {
+    lv_obj_t* chevron = CreateLabel(row, icon::kChevronRight,
+        kSecondaryTextColor, OutlineIconFont44());
+    if (chevron == nullptr) {
+      lv_obj_delete(row);
+      return nullptr;
+    }
+    lv_obj_align(chevron, LV_ALIGN_RIGHT_MID, -34, 0);
+  }
+  return row;
+}
+
+/**
+ * @brief 显示射频配置资料与设置列表页
+ * @param state 射频页面状态
+ * @param index 配置索引
+ * @return 显示成功返回 true，否则返回 false
+ */
+bool ShowProfileSettingsPage(RfViewState* state, size_t index) {
+  if (state == nullptr || state->root == nullptr ||
+      index >= state->module_count) {
     return false;
   }
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 104, kHeaderTop);
-  lv_obj_t* summary = CreateLabel(
-      parent, "0 modules", kSecondaryTextColor, Font24());
-  if (summary != nullptr) {
-    state->summary_label = summary;
-    lv_obj_align(summary, LV_ALIGN_TOP_LEFT, 104, kHeaderTop + 42);
+  if (state->profile_settings_page != nullptr) {
+    lv_obj_move_to_index(state->profile_settings_page, -1);
+    return true;
+  }
+  const RfModuleItem& item = state->modules[index];
+  const app::RfProfile& profile = state->preferences.profiles[index];
+  lv_obj_t* page = lv_obj_create(state->root);
+  if (page == nullptr) {
+    return false;
+  }
+  state->profile_settings_page = page;
+  state->profile_settings_index = index;
+  state->profile_settings_closing = false;
+  state->profile_settings_edge_swipe = EdgeBackSwipeState();
+  lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(page, state->config.width, state->config.height);
+  lv_obj_set_pos(page, 0, 0);
+  lv_obj_set_style_bg_color(
+      page, lv_color_hex(kMainBackgroundColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
+  AddEdgeBackSwipeEvents(page, ProfileSettingsEdgeBackEventCallback, state);
+
+  lv_obj_t* back = lv_button_create(page);
+  if (back == nullptr) {
+    ResetProfileSettingsReferences(state);
+    lv_obj_delete(page);
+    return false;
+  }
+  lv_obj_remove_style_all(back);
+  lv_obj_remove_flag(back, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(back, LV_OBJ_FLAG_PRESS_LOCK);
+  lv_obj_add_flag(back, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(back, 62, 62);
+  lv_obj_set_pos(back, 18, 66);
+  lv_obj_set_style_bg_opa(back, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(back, LV_OPA_TRANSP, LV_STATE_PRESSED);
+  lv_obj_add_event_cb(back, ProfileSettingsBackClickedEventCallback,
+      LV_EVENT_CLICKED, state);
+  lv_obj_t* back_icon = CreateLabel(
+      back, icon::kArrowBack, kMainTextColor, OutlineIconFont44());
+  lv_obj_t* page_title = CreateLabel(
+      page, "Profile settings", kMainTextColor, Font48());
+  if (back_icon == nullptr || page_title == nullptr) {
+    ResetProfileSettingsReferences(state);
+    lv_obj_delete(page);
+    return false;
+  }
+  lv_obj_align(back_icon, LV_ALIGN_CENTER, -4, 0);
+  lv_obj_set_pos(page_title, 34, 154);
+
+  lv_obj_t* body = lv_obj_create(page);
+  if (body == nullptr) {
+    ResetProfileSettingsReferences(state);
+    lv_obj_delete(page);
+    return false;
+  }
+  lv_obj_set_pos(body, 0, 224);
+  lv_obj_set_size(body, state->config.width, state->config.height - 224);
+  lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_border_width(body, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(body, 0, LV_PART_MAIN);
+  lv_obj_set_scroll_dir(body, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_AUTO);
+  lv_obj_add_flag(body, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(body, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+  lv_obj_t* avatar = lv_obj_create(body);
+  if (avatar == nullptr) {
+    ResetProfileSettingsReferences(state);
+    lv_obj_delete(page);
+    return false;
+  }
+  lv_obj_remove_flag(avatar, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(avatar, 112, 112);
+  lv_obj_set_pos(avatar, 34, 18);
+  lv_obj_set_style_radius(avatar, 56, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      avatar, lv_color_hex(item.color), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(avatar, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(avatar, 0, LV_PART_MAIN);
+  lv_obj_t* avatar_text = CreateLabel(
+      avatar, item.short_name, kOnPrimaryColor, Font36());
+
+  lv_obj_t* name_action = lv_button_create(body);
+  if (name_action == nullptr) {
+    ResetProfileSettingsReferences(state);
+    lv_obj_delete(page);
+    return false;
+  }
+  lv_obj_remove_style_all(name_action);
+  lv_obj_remove_flag(name_action, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(name_action, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(name_action,
+      state->config.width - kProfileNameActionX -
+          kProfileNameActionRightMargin,
+      kProfileNameActionHeight);
+  lv_obj_set_pos(name_action, kProfileNameActionX, 30);
+  lv_obj_set_style_bg_opa(name_action, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      name_action, lv_color_hex(kPressedColor), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_opa(name_action, LV_OPA_COVER, LV_STATE_PRESSED);
+  lv_obj_set_style_radius(name_action, 22, LV_PART_MAIN);
+  lv_obj_set_style_border_width(name_action, 0, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(name_action, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(name_action, 0, LV_PART_MAIN);
+  if (!AddPressCancelOnLeave(name_action)) {
+    ResetProfileSettingsReferences(state);
+    lv_obj_delete(page);
+    return false;
+  }
+  lv_obj_add_event_cb(name_action, ProfileNameAreaClickedEventCallback,
+      LV_EVENT_CLICKED, state);
+  state->profile_settings_name_label = CreateLabel(
+      name_action, profile.name, kMainTextColor, Font36());
+  const char* status = ProfileStatusText(state, index);
+  state->profile_settings_header_status_label = CreateLabel(
+      body, status, ProfileStatusColor(status), Font24());
+  if (avatar_text == nullptr ||
+      state->profile_settings_name_label == nullptr ||
+      state->profile_settings_header_status_label == nullptr) {
+    ResetProfileSettingsReferences(state);
+    lv_obj_delete(page);
+    return false;
+  }
+  lv_obj_center(avatar_text);
+  UpdateProfileSettingsNameLayout(state);
+  lv_obj_set_pos(
+      state->profile_settings_header_status_label, 170, 94);
+
+  if (!CreateProfileSettingsSection(body, "RF PROFILE", 164)) {
+    ResetProfileSettingsReferences(state);
+    lv_obj_delete(page);
+    return false;
+  }
+  lv_obj_t* active_row = CreateProfileSettingsRow(body, state,
+      "Active profile",
+      "Use this profile for sending and receiving", 196, nullptr, false);
+  lv_obj_t* rf_row = CreateProfileSettingsRow(body, state,
+      "RF settings", "Manage radio parameters and behavior", 332,
+      ProfileRfSettingsClickedEventCallback, true, -2, 136);
+  if (active_row == nullptr || rf_row == nullptr) {
+    ResetProfileSettingsReferences(state);
+    lv_obj_delete(page);
+    return false;
+  }
+  state->profile_settings_active_switch = lv_switch_create(active_row);
+  if (state->profile_settings_active_switch == nullptr) {
+    ResetProfileSettingsReferences(state);
+    lv_obj_delete(page);
+    return false;
+  }
+  lv_obj_add_flag(
+      state->profile_settings_active_switch, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(state->profile_settings_active_switch,
+      kProfileSwitchWidth, kProfileSwitchHeight);
+  lv_obj_align(state->profile_settings_active_switch,
+      LV_ALIGN_RIGHT_MID, -34, 0);
+  lv_obj_set_style_anim_duration(state->profile_settings_active_switch,
+      kProfileSwitchAnimationMs, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(state->profile_settings_active_switch,
+      lv_color_hex(kPrimaryColor), kProfileSwitchCheckedIndicatorSelector);
+  lv_obj_set_style_bg_opa(state->profile_settings_active_switch,
+      LV_OPA_COVER, kProfileSwitchCheckedIndicatorSelector);
+  lv_obj_add_event_cb(state->profile_settings_active_switch,
+      ProfileSettingsActiveChangedEventCallback,
+      LV_EVENT_VALUE_CHANGED, state);
+  if (!IsProfileSupported(state, profile) &&
+      state->preferences.active_profile_id != profile.id) {
+    lv_obj_add_state(
+        state->profile_settings_active_switch, LV_STATE_DISABLED);
+  }
+
+  RefreshProfileSettingsPage(state);
+  EnableEdgeBackSwipeEventBubble(page);
+  if (!StartSlideLeftWindowTransition(
+      page, state->config.width, kAnimationMs, state, nullptr)) {
+    ResetProfileSettingsReferences(state);
+    lv_obj_delete(page);
+    return false;
   }
   return true;
+}
+
+void DeleteSelectedProfiles(RfViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+  app::RfPreferences next = state->preferences;
+  size_t message_write_index = 0;
+  for (size_t index = 0; index < state->chat_message_count; ++index) {
+    const size_t profile_index = FindProfileIndex(
+        state, state->chat_messages[index].profile_id);
+    if (profile_index < state->module_count &&
+        state->selected_modules[profile_index]) {
+      continue;
+    }
+    state->chat_messages[message_write_index++] =
+        state->chat_messages[index];
+  }
+  state->chat_message_count = message_write_index;
+  size_t write_index = 0;
+  for (size_t read_index = 0;
+       read_index < state->module_count; ++read_index) {
+    if (state->selected_modules[read_index]) {
+      if (next.profiles[read_index].id == next.active_profile_id) {
+        FailPendingMessages(state, next.active_profile_id);
+        next.active_profile_id = 0;
+        if (state->config.rf != nullptr) {
+          state->config.rf->DeactivateRf();
+        }
+      }
+      continue;
+    }
+    next.profiles[write_index] = next.profiles[read_index];
+    if (write_index != read_index) {
+      CopyBoundedString(state->latest_messages[write_index],
+          sizeof(state->latest_messages[write_index]),
+          state->latest_messages[read_index]);
+      CopyBoundedString(state->message_times[write_index],
+          sizeof(state->message_times[write_index]),
+          state->message_times[read_index]);
+      state->unread_counts[write_index] =
+          state->unread_counts[read_index];
+    }
+    ++write_index;
+  }
+  next.profile_count = write_index;
+  for (size_t index = write_index; index < kRfModuleCapacity; ++index) {
+    next.profiles[index] = app::RfProfile{};
+    state->latest_messages[index][0] = '\0';
+    state->message_times[index][0] = '\0';
+    state->unread_counts[index] = 0;
+  }
+  state->preferences = next;
+  app::UpdateRfPreferences(state->preferences);
+  SyncModuleItems(state);
+  CloseSelectionMode(state);
+}
+
+/**
+ * @brief 确认删除选中的 RF 配置
+ * @param context RF 页面状态
+ */
+void DeleteProfilesConfirmed(void* context) {
+  DeleteSelectedProfiles(static_cast<RfViewState*>(context));
+}
+
+bool ShowDeleteConfirmation(RfViewState* state) {
+  if (state == nullptr || state->root == nullptr ||
+      IsPromptDialogVisible(&state->delete_dialog)) {
+    return false;
+  }
+
+  PromptDialogConfig config;
+  config.screen_width = state->config.width;
+  config.screen_height = state->config.height;
+  config.dialog_width =
+      state->config.width - 2 * kDeletePromptSideMargin;
+  config.dialog_height = kDeletePromptHeight;
+  config.dialog_radius = kDeletePromptRadius;
+  config.inner_padding = kDeletePromptInnerPadding;
+  config.header_height = 0;
+  config.title_y = 0;
+  config.action_height =
+      kDeletePromptInnerPadding + kDeletePromptButtonHeight;
+  config.action_button_height = kDeletePromptButtonHeight;
+  config.action_button_gap = kDeletePromptButtonGap;
+  config.action_bottom_padding = kDeletePromptInnerPadding;
+  config.bottom_margin = kDeletePromptBottomMargin;
+  config.animation_ms = kAnimationMs;
+  config.title = "";
+  config.cancel_text = "Cancel";
+  config.confirm_text = "OK";
+  config.title_font = Font32();
+  config.action_font = Font28();
+  config.confirm_callback = DeleteProfilesConfirmed;
+  config.callback_context = state;
+  config.slide_from_bottom = true;
+  lv_obj_t* body = ShowPromptDialog(
+      state->root, &state->delete_dialog, config);
+  if (body == nullptr || state->delete_dialog.panel == nullptr) {
+    return false;
+  }
+  lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t* title = CreateLabel(
+      body, "Delete profiles", kMainTextColor, Font32());
+  lv_obj_t* message = CreateLabel(body,
+      "Messages and settings for the selected profiles will be removed.",
+      kSecondaryTextColor, Font24());
+  if (title == nullptr || message == nullptr) {
+    ClosePromptDialog(&state->delete_dialog);
+    return false;
+  }
+  const int content_width =
+      config.dialog_width - 2 * kDeletePromptInnerPadding;
+  lv_obj_set_size(title, content_width, 42);
+  lv_obj_set_pos(title, kDeletePromptInnerPadding, 34);
+  lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_set_width(message, content_width);
+  lv_obj_set_pos(message, kDeletePromptInnerPadding, 78);
+  lv_label_set_long_mode(message, LV_LABEL_LONG_WRAP);
+  lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  return true;
+}
+
+void SelectionDeleteClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
+    ShowDeleteConfirmation(
+        static_cast<RfViewState*>(lv_event_get_user_data(event)));
+  }
+}
+
+lv_obj_t* CreateHeaderIconButton(lv_obj_t* parent, const char* icon_text,
+    int x, int size, const lv_font_t* icon_font,
+    lv_event_cb_t callback, RfViewState* state) {
+  if (parent == nullptr || icon_text == nullptr || icon_font == nullptr ||
+      size <= 0 || callback == nullptr) {
+    return nullptr;
+  }
+  lv_obj_t* button = lv_button_create(parent);
+  if (button == nullptr) {
+    return nullptr;
+  }
+  lv_obj_remove_style_all(button);
+  lv_obj_set_size(button, size, size);
+  lv_obj_set_pos(button, x, 0);
+  lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, state);
+  lv_obj_t* label = CreateLabel(
+      button, icon_text, kMainTextColor, icon_font);
+  if (label != nullptr) {
+    lv_obj_center(label);
+  }
+  return button;
+}
+
+bool RenderHeader(RfViewState* state) {
+  if (state == nullptr || state->header_area == nullptr) {
+    return false;
+  }
+  lv_obj_clean(state->header_area);
+  if (state->add_button != nullptr) {
+    if (state->selection_mode ||
+        state->module_count >= kRfModuleCapacity) {
+      lv_obj_add_flag(state->add_button, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_remove_flag(state->add_button, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+  if (!state->selection_mode) {
+    lv_obj_t* menu = CreateHeaderIconButton(state->header_area,
+        icon::kMenu, 20, 72, &lvgl_font_material_symbols_fill_56,
+        MenuClickedEventCallback, state);
+    lv_obj_t* title = CreateLabel(
+        state->header_area, "RF", kMainTextColor, Font36());
+    if (menu == nullptr || title == nullptr) {
+      return false;
+    }
+    lv_obj_set_pos(title, 104, 2);
+    char summary_text[48] = {};
+    if (state->module_count >= kRfModuleCapacity) {
+      std::snprintf(summary_text, sizeof(summary_text),
+          "%u profiles | limit reached",
+          static_cast<unsigned>(state->module_count));
+    } else {
+      std::snprintf(summary_text, sizeof(summary_text), "%u profiles",
+          static_cast<unsigned>(state->module_count));
+    }
+    lv_obj_t* summary_label = CreateLabel(state->header_area,
+        summary_text, kSecondaryTextColor, Font24());
+    if (summary_label != nullptr) {
+      lv_obj_set_pos(summary_label, 104, 44);
+    }
+    return true;
+  }
+
+  const size_t selected_count = SelectedModuleCount(state);
+  if (CreateHeaderIconButton(state->header_area, icon::kClose, 14, 64,
+          OutlineIconFont44(), SelectionCloseClickedEventCallback,
+          state) == nullptr) {
+    return false;
+  }
+  char count_text[12] = {};
+  std::snprintf(count_text, sizeof(count_text), "%u",
+      static_cast<unsigned>(selected_count));
+  lv_obj_t* count = CreateLabel(
+      state->header_area, count_text, kMainTextColor, Font36());
+  if (count != nullptr) {
+    lv_obj_set_pos(count, 102, 10);
+  }
+  const int right = state->config.width;
+  CreateHeaderIconButton(state->header_area, icon::kDelete,
+      right - 74, 64, FillIconFont44(),
+      SelectionDeleteClickedEventCallback, state);
+  return true;
+}
+
+bool CreateHeader(lv_obj_t* parent, RfViewState* state) {
+  lv_obj_t* area = lv_obj_create(parent);
+  if (area == nullptr) {
+    return false;
+  }
+  state->header_area = area;
+  lv_obj_remove_flag(area, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(area, state->config.width, 82);
+  lv_obj_set_pos(area, 0, kHeaderTop - 2);
+  lv_obj_set_style_bg_opa(area, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_border_width(area, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(area, 0, LV_PART_MAIN);
+  return RenderHeader(state);
 }
 
 /**
@@ -1189,11 +3011,15 @@ void UpdateAddOptionSelection(RfViewState* state) {
     return;
   }
   UpdateOptionButtonGroup(
-      state->add_chip_buttons, 5, state->selected_add_chip);
+      state->add_chip_buttons, 1, state->selected_add_chip);
   UpdateOptionButtonGroup(
-      state->add_protocol_buttons, 2, state->selected_add_protocol);
+      state->add_protocol_buttons, 1, state->selected_add_protocol);
   UpdateOptionButtonGroup(
-      state->add_sf_buttons, 7, state->selected_add_sf);
+      state->add_sf_buttons, 8, state->selected_add_sf);
+  UpdateOptionButtonGroup(state->add_bandwidth_buttons, 4,
+      state->selected_add_bandwidth);
+  UpdateOptionButtonGroup(state->add_coding_rate_buttons, 4,
+      state->selected_add_coding_rate);
 }
 
 /**
@@ -1202,24 +3028,8 @@ void UpdateAddOptionSelection(RfViewState* state) {
  * @param frequency_mhz 以 MHz 为单位的工作频率
  * @return 频率有效返回 true，否则返回 false
  */
-bool IsFrequencyValidForChip(int chip_index, long frequency_mhz) {
-  switch (chip_index) {
-    case 0:
-      return frequency_mhz >= 150 && frequency_mhz <= 960;
-    case 1:
-      return (frequency_mhz >= 150 && frequency_mhz <= 960) ||
-             (frequency_mhz >= 2400 && frequency_mhz <= 2500);
-    case 2:
-      return (frequency_mhz >= 300 && frequency_mhz <= 348) ||
-             (frequency_mhz >= 387 && frequency_mhz <= 464) ||
-             (frequency_mhz >= 779 && frequency_mhz <= 928);
-    case 3:
-      return frequency_mhz >= 2400 && frequency_mhz <= 2525;
-    case 4:
-      return frequency_mhz >= 1 && frequency_mhz <= 9999;
-    default:
-      return false;
-  }
+bool IsFrequencyValidForChip(int chip_index, double frequency_mhz) {
+  return chip_index == 0 && frequency_mhz >= 150 && frequency_mhz <= 960;
 }
 
 /**
@@ -1236,44 +3046,78 @@ bool IsAddFrequencyValid(const RfViewState* state) {
     return false;
   }
   char* end = nullptr;
-  const long frequency_mhz = std::strtol(text, &end, 10);
+  const double frequency_mhz = std::strtod(text, &end);
   return end != nullptr && end[0] == '\0' &&
          IsFrequencyValidForChip(
              state->selected_add_chip, frequency_mhz);
 }
 
+bool ParseTextAreaLong(lv_obj_t* input, int base, long minimum,
+    long maximum, long* value) {
+  if (input == nullptr || value == nullptr) {
+    return false;
+  }
+  const char* text = lv_textarea_get_text(input);
+  if (text == nullptr || text[0] == '\0') {
+    return false;
+  }
+  char* end = nullptr;
+  const long parsed = std::strtol(text, &end, base);
+  if (end == nullptr || end[0] != '\0' || parsed < minimum ||
+      parsed > maximum) {
+    return false;
+  }
+  *value = parsed;
+  return true;
+}
+
 /**
- * @brief 根据频率校验结果更新输入框错误边框
- * @param state 射频页面状态
+ * @brief 根据校验结果更新射频参数输入框错误边框
+ * @param input 文本输入框
+ * @param valid 当前内容是否有效
  */
-void UpdateAddFrequencyErrorStyle(RfViewState* state) {
-  if (state == nullptr || state->add_frequency_input == nullptr) {
+void UpdateAddTextAreaErrorStyle(lv_obj_t* input, bool valid) {
+  if (input == nullptr) {
     return;
   }
-  const char* text = lv_textarea_get_text(state->add_frequency_input);
+  const char* text = lv_textarea_get_text(input);
   const bool show_error = text != nullptr && text[0] != '\0' &&
-                          !IsAddFrequencyValid(state);
+                          !valid;
   const int outline_width = show_error ? 2 : 0;
-  lv_obj_set_style_border_width(
-      state->add_frequency_input, 0, LV_PART_MAIN);
-  lv_obj_set_style_border_width(
-      state->add_frequency_input, 0, LV_STATE_FOCUSED);
-  lv_obj_set_style_outline_width(
-      state->add_frequency_input, outline_width, LV_PART_MAIN);
-  lv_obj_set_style_outline_width(
-      state->add_frequency_input, outline_width, LV_STATE_FOCUSED);
-  lv_obj_set_style_outline_color(state->add_frequency_input,
+  lv_obj_set_style_border_width(input, 0, LV_PART_MAIN);
+  lv_obj_set_style_border_width(input, 0, LV_STATE_FOCUSED);
+  lv_obj_set_style_outline_width(input, outline_width, LV_PART_MAIN);
+  lv_obj_set_style_outline_width(input, outline_width, LV_STATE_FOCUSED);
+  lv_obj_set_style_outline_color(input,
       lv_color_hex(kInputErrorColor), LV_PART_MAIN);
-  lv_obj_set_style_outline_color(state->add_frequency_input,
+  lv_obj_set_style_outline_color(input,
       lv_color_hex(kInputErrorColor), LV_STATE_FOCUSED);
-  lv_obj_set_style_outline_opa(
-      state->add_frequency_input, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_outline_opa(
-      state->add_frequency_input, LV_OPA_COVER, LV_STATE_FOCUSED);
-  lv_obj_set_style_outline_pad(
-      state->add_frequency_input, -2, LV_PART_MAIN);
-  lv_obj_set_style_outline_pad(
-      state->add_frequency_input, -2, LV_STATE_FOCUSED);
+  lv_obj_set_style_outline_opa(input, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_outline_opa(input, LV_OPA_COVER, LV_STATE_FOCUSED);
+  lv_obj_set_style_outline_pad(input, -2, LV_PART_MAIN);
+  lv_obj_set_style_outline_pad(input, -2, LV_STATE_FOCUSED);
+}
+
+/**
+ * @brief 更新射频参数页所有输入框的错误边框
+ * @param state 射频页面状态
+ */
+void UpdateAddInputErrorStyles(RfViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+  long parsed_value = 0;
+  const bool power_valid = ParseTextAreaLong(
+      state->add_power_input, 10, -9, 22, &parsed_value);
+  const bool preamble_valid = ParseTextAreaLong(
+      state->add_preamble_input, 10, 1, 65535, &parsed_value);
+  const bool sync_word_valid = ParseTextAreaLong(
+      state->add_sync_word_input, 16, 0, 255, &parsed_value);
+  UpdateAddTextAreaErrorStyle(
+      state->add_frequency_input, IsAddFrequencyValid(state));
+  UpdateAddTextAreaErrorStyle(state->add_power_input, power_valid);
+  UpdateAddTextAreaErrorStyle(state->add_preamble_input, preamble_valid);
+  UpdateAddTextAreaErrorStyle(state->add_sync_word_input, sync_word_valid);
 }
 
 /**
@@ -1282,21 +3126,35 @@ void UpdateAddFrequencyErrorStyle(RfViewState* state) {
  * @return 信息完整返回 true，否则返回 false
  */
 bool IsAddModuleFormComplete(const RfViewState* state) {
-  if (state == nullptr || state->add_name_input == nullptr ||
-      state->add_frequency_input == nullptr ||
-      state->module_count >= kRfModuleCapacity) {
+  if (state == nullptr || state->add_frequency_input == nullptr ||
+      state->add_power_input == nullptr ||
+      state->add_preamble_input == nullptr ||
+      state->add_sync_word_input == nullptr ||
+      (state->editing_index >= state->module_count &&
+       state->module_count >= kRfModuleCapacity)) {
     return false;
   }
-  const char* name = lv_textarea_get_text(state->add_name_input);
   const char* frequency =
       lv_textarea_get_text(state->add_frequency_input);
-  return name != nullptr && name[0] != '\0' && frequency != nullptr &&
-         frequency[0] != '\0' && IsAddFrequencyValid(state) &&
+  long power = 0;
+  long preamble = 0;
+  long sync_word = 0;
+  return frequency != nullptr && frequency[0] != '\0' &&
+         IsAddFrequencyValid(state) &&
+         ParseTextAreaLong(state->add_power_input, 10, -9, 22, &power) &&
+         ParseTextAreaLong(state->add_preamble_input, 10, 1, 65535,
+             &preamble) &&
+         ParseTextAreaLong(state->add_sync_word_input, 16, 0, 255,
+             &sync_word) &&
          state->selected_add_chip >= 0 &&
-         state->selected_add_chip < 5 &&
+         state->selected_add_chip == 0 &&
          state->selected_add_protocol >= 0 &&
-         state->selected_add_protocol < 2 && state->selected_add_sf >= 0 &&
-         state->selected_add_sf < 7;
+         state->selected_add_protocol == 0 && state->selected_add_sf >= 0 &&
+         state->selected_add_sf < 8 &&
+         state->selected_add_bandwidth >= 0 &&
+         state->selected_add_bandwidth < 4 &&
+         state->selected_add_coding_rate >= 0 &&
+         state->selected_add_coding_rate < 4;
 }
 
 /**
@@ -1307,7 +3165,7 @@ void UpdateAddSubmitButton(RfViewState* state) {
   if (state == nullptr || state->add_submit_button == nullptr) {
     return;
   }
-  UpdateAddFrequencyErrorStyle(state);
+  UpdateAddInputErrorStyles(state);
   const bool enabled = IsAddModuleFormComplete(state);
   if (enabled) {
     lv_obj_remove_state(state->add_submit_button, LV_STATE_DISABLED);
@@ -1341,8 +3199,12 @@ void AddOptionClickedEventCallback(lv_event_t* event) {
     action->state->selected_add_chip = action->index;
   } else if (action->group == RfAddOptionGroup::kProtocol) {
     action->state->selected_add_protocol = action->index;
-  } else {
+  } else if (action->group == RfAddOptionGroup::kSpreadingFactor) {
     action->state->selected_add_sf = action->index;
+  } else if (action->group == RfAddOptionGroup::kBandwidth) {
+    action->state->selected_add_bandwidth = action->index;
+  } else {
+    action->state->selected_add_coding_rate = action->index;
   }
   UpdateAddOptionSelection(action->state);
   UpdateAddSubmitButton(action->state);
@@ -1377,9 +3239,7 @@ void SetAddKeyboardVisible(
   }
   lv_obj_set_height(state->add_body, visible_height);
   lv_obj_update_layout(state->add_body);
-  const int input_y = input == state->add_frequency_input
-                          ? kAddFrequencyInputY
-                          : kAddNameInputY;
+  const int input_y = lv_obj_get_y(input);
   int scroll_y = input_y - 18;
   if (scroll_y < 0) {
     scroll_y = 0;
@@ -1398,11 +3258,15 @@ void AddInputEventCallback(lv_event_t* event) {
     UpdateAddSubmitButton(state);
     return;
   }
-  if (code == LV_EVENT_FOCUSED || code == LV_EVENT_CLICKED) {
+  if (code == LV_EVENT_FOCUSED) {
     SetAddKeyboardVisible(
         state, lv_event_get_target_obj(event), true);
-  } else if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL ||
-             code == LV_EVENT_DEFOCUSED) {
+  } else if (code == LV_EVENT_CLICKED && state != nullptr &&
+             state->add_keyboard != nullptr &&
+             lv_obj_has_flag(state->add_keyboard, LV_OBJ_FLAG_HIDDEN)) {
+    SetAddKeyboardVisible(
+        state, lv_event_get_target_obj(event), true);
+  } else if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
     SetAddKeyboardVisible(state, nullptr, false);
   }
 }
@@ -1420,12 +3284,19 @@ void AddPageCloseCompletedCallback(lv_anim_t* animation) {
   lv_obj_t* page = state->add_page;
   state->add_page = nullptr;
   state->add_body = nullptr;
-  state->add_name_input = nullptr;
   state->add_frequency_input = nullptr;
+  state->add_power_input = nullptr;
+  state->add_preamble_input = nullptr;
+  state->add_sync_word_input = nullptr;
+  state->add_crc_switch = nullptr;
+  state->add_iq_switch = nullptr;
+  state->add_rx_boost_switch = nullptr;
+  state->add_active_switch = nullptr;
   state->add_keyboard = nullptr;
   state->add_submit_button = nullptr;
   state->add_submit_label = nullptr;
   state->add_edge_swipe = EdgeBackSwipeState();
+  state->editing_index = kRfModuleCapacity;
   state->add_closing = false;
   lv_obj_delete(page);
 }
@@ -1447,12 +3318,19 @@ void CloseAddModulePage(RfViewState* state) {
     lv_obj_t* page = state->add_page;
     state->add_page = nullptr;
     state->add_body = nullptr;
-    state->add_name_input = nullptr;
     state->add_frequency_input = nullptr;
+    state->add_power_input = nullptr;
+    state->add_preamble_input = nullptr;
+    state->add_sync_word_input = nullptr;
+    state->add_crc_switch = nullptr;
+    state->add_iq_switch = nullptr;
+    state->add_rx_boost_switch = nullptr;
+    state->add_active_switch = nullptr;
     state->add_keyboard = nullptr;
     state->add_submit_button = nullptr;
     state->add_submit_label = nullptr;
     state->add_edge_swipe = EdgeBackSwipeState();
+    state->editing_index = kRfModuleCapacity;
     state->add_closing = false;
     lv_obj_delete(page);
   }
@@ -1513,14 +3391,93 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
   if (!IsAddModuleFormComplete(state)) {
     return;
   }
-  const size_t index = state->module_count;
-  const char* name = lv_textarea_get_text(state->add_name_input);
-  std::snprintf(state->module_names[index],
-      sizeof(state->module_names[index]), "%s", name);
-  state->modules[index] = kNewModuleItems[state->selected_add_chip];
-  state->modules[index].name = state->module_names[index];
-  ++state->module_count;
-  RenderModuleList(state);
+  const bool editing = state->editing_index < state->module_count;
+  const size_t index = editing
+      ? state->editing_index
+      : state->module_count;
+  app::RfProfile profile = editing
+      ? state->preferences.profiles[index]
+      : app::RfProfile{};
+  const app::RfProfile previous_profile = profile;
+  if (!editing) {
+    profile.id = state->preferences.next_profile_id++;
+    if (profile.id == 0) {
+      profile.id = state->preferences.next_profile_id++;
+    }
+    std::snprintf(profile.name, sizeof(profile.name), "RF profile %u",
+        static_cast<unsigned>(profile.id));
+  }
+  const char* frequency_text = lv_textarea_get_text(
+      state->add_frequency_input);
+  const double frequency_mhz = std::strtod(
+      frequency_text, nullptr);
+  long output_power = 0;
+  long preamble = 0;
+  long sync_word = 0;
+  ParseTextAreaLong(state->add_power_input, 10, -9, 22,
+      &output_power);
+  ParseTextAreaLong(state->add_preamble_input, 10, 1, 65535,
+      &preamble);
+  ParseTextAreaLong(state->add_sync_word_input, 16, 0, 255,
+      &sync_word);
+  constexpr uint32_t kBandwidths[] = {
+      62500, 125000, 250000, 500000};
+  profile.frequency_hz = static_cast<uint32_t>(
+      frequency_mhz * 1000000.0 + 0.5);
+  profile.bandwidth_hz =
+      kBandwidths[state->selected_add_bandwidth];
+  profile.preamble_length = static_cast<uint16_t>(preamble);
+  profile.spreading_factor = static_cast<uint8_t>(
+      state->selected_add_sf + 5);
+  profile.coding_rate_denominator = static_cast<uint8_t>(
+      state->selected_add_coding_rate + 5);
+  profile.sync_word = static_cast<uint8_t>(sync_word);
+  profile.output_power_dbm = static_cast<int8_t>(output_power);
+  profile.crc_enabled = lv_obj_has_state(
+      state->add_crc_switch, LV_STATE_CHECKED);
+  profile.invert_iq = lv_obj_has_state(
+      state->add_iq_switch, LV_STATE_CHECKED);
+  profile.rx_boosted = lv_obj_has_state(
+      state->add_rx_boost_switch, LV_STATE_CHECKED);
+  const bool settings_changed = editing &&
+      !AreProfileSettingsEqual(previous_profile, profile);
+  state->preferences.profiles[index] = profile;
+  if (!editing) {
+    ++state->preferences.profile_count;
+  }
+  const bool activate = lv_obj_has_state(
+      state->add_active_switch, LV_STATE_CHECKED);
+  if (activate) {
+    FailPendingMessages(
+        state, state->preferences.active_profile_id);
+    state->preferences.active_profile_id = profile.id;
+    state->activation_retry_count = 0;
+    state->last_activation_retry_tick = lv_tick_get();
+    if (state->config.rf != nullptr) {
+      state->config.rf->ActivateRf(ToRadioConfig(profile));
+    }
+  } else if (state->preferences.active_profile_id == profile.id) {
+    state->preferences.active_profile_id = 0;
+    FailPendingMessages(state, profile.id);
+    if (state->config.rf != nullptr) {
+      state->config.rf->DeactivateRf();
+    }
+  }
+  app::UpdateRfPreferences(state->preferences);
+  if (!editing) {
+    AppendSystemMessage(state, index, kProfileCreatedMessage);
+  } else if (settings_changed) {
+    AppendSystemMessage(state, index, kSettingsChangedMessage);
+  }
+  SyncModuleItems(state);
+  RefreshProfileSettingsPage(state);
+  CloseSelectionMode(state);
+  if (state->detail_title_label != nullptr &&
+      state->detail_index == index) {
+    lv_label_set_text(state->detail_title_label, profile.name);
+    RenderChatMessages(state);
+  }
+  UpdateDetailStatus(state);
   CloseAddModulePage(state);
 }
 
@@ -1612,6 +3569,8 @@ lv_obj_t* CreateAddTextArea(lv_obj_t* parent, RfViewState* state,
     return nullptr;
   }
   lv_obj_add_flag(input, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  // 页面统一控制滚动，避免与 LVGL 聚焦滚动重复触发。
+  lv_obj_remove_flag(input, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
   lv_textarea_set_one_line(input, true);
   lv_obj_set_scrollbar_mode(input, LV_SCROLLBAR_MODE_OFF);
   lv_obj_set_size(
@@ -1650,6 +3609,66 @@ lv_obj_t* CreateAddTextArea(lv_obj_t* parent, RfViewState* state,
   return input;
 }
 
+lv_obj_t* CreateAddSwitchRow(lv_obj_t* parent, RfViewState* state,
+    const char* title, const char* subtitle, int y, bool checked) {
+  lv_obj_t* row = lv_obj_create(parent);
+  if (row == nullptr) {
+    return nullptr;
+  }
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(row, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(
+      row, state->config.width - 56, kAddSwitchRowHeight);
+  lv_obj_set_pos(row, 28, y);
+  lv_obj_set_style_bg_color(
+      row, lv_color_hex(kSurfaceContainerLowColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(row, 22, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
+  lv_obj_t* title_label = CreateLabel(
+      row, title, kMainTextColor, Font24());
+  lv_obj_t* subtitle_label = CreateLabel(
+      row, subtitle, kSecondaryTextColor, Font22());
+  lv_obj_t* toggle = lv_switch_create(row);
+  if (title_label == nullptr || subtitle_label == nullptr ||
+      toggle == nullptr) {
+    lv_obj_delete(row);
+    return nullptr;
+  }
+  constexpr int kTitleHeight = 32;
+  constexpr int kSubtitleHeight = 30;
+  constexpr int kTextGap = 6;
+  const int text_top = (kAddSwitchRowHeight - kTitleHeight -
+      kTextGap - kSubtitleHeight) / 2;
+  lv_obj_set_size(
+      title_label, state->config.width - 190, kTitleHeight);
+  lv_label_set_long_mode(title_label, LV_LABEL_LONG_DOT);
+  lv_obj_set_pos(title_label, 20, text_top);
+  lv_obj_set_size(
+      subtitle_label, state->config.width - 190, kSubtitleHeight);
+  lv_label_set_long_mode(
+      subtitle_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  lv_obj_set_pos(
+      subtitle_label, 20, text_top + kTitleHeight + kTextGap);
+  lv_obj_add_flag(toggle, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(toggle, kProfileSwitchWidth, kProfileSwitchHeight);
+  lv_obj_align(toggle, LV_ALIGN_RIGHT_MID, -18, 0);
+  lv_obj_set_style_anim_duration(
+      toggle, kProfileSwitchAnimationMs, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(toggle, lv_color_hex(kPrimaryColor),
+      kProfileSwitchCheckedIndicatorSelector);
+  lv_obj_set_style_bg_opa(
+      toggle, LV_OPA_COVER, kProfileSwitchCheckedIndicatorSelector);
+  if (checked) {
+    lv_obj_add_state(toggle, LV_STATE_CHECKED);
+  }
+  lv_obj_add_event_cb(
+      toggle, AddInputEventCallback, LV_EVENT_VALUE_CHANGED, state);
+  AddEdgeBackSwipeEvents(toggle, AddPageEdgeBackEventCallback, state);
+  return toggle;
+}
+
 /**
  * @brief 创建添加模块页面的参数内容
  * @param state 射频页面状态
@@ -1657,58 +3676,51 @@ lv_obj_t* CreateAddTextArea(lv_obj_t* parent, RfViewState* state,
  */
 bool CreateAddModuleContent(RfViewState* state) {
   lv_obj_t* body = state->add_body;
-  if (body == nullptr || !CreateAddParameterTitle(
-      body, "DEVICE NAME", 8)) {
-    return false;
-  }
-  state->add_name_input = CreateAddTextArea(
-      body, state, "For example: Gateway Node #1", "",
-      kAddNameInputY, 40);
-  if (state->add_name_input == nullptr || !CreateAddParameterTitle(
-      body, "RF CHIP", 138)) {
+  const bool editing = state->editing_index < state->module_count;
+  const app::RfProfile profile = editing
+      ? state->preferences.profiles[state->editing_index]
+      : app::RfProfile{};
+  char frequency[16] = {};
+  char power[8] = {};
+  char preamble[12] = {};
+  char sync_word[3] = {};
+  std::snprintf(frequency, sizeof(frequency), "%.3f",
+      static_cast<double>(profile.frequency_hz) / 1000000.0);
+  std::snprintf(power, sizeof(power), "%d",
+      static_cast<int>(profile.output_power_dbm));
+  std::snprintf(preamble, sizeof(preamble), "%u",
+      static_cast<unsigned>(profile.preamble_length));
+  std::snprintf(sync_word, sizeof(sync_word), "%02hhX",
+      static_cast<unsigned>(profile.sync_word));
+  if (body == nullptr ||
+      !CreateAddParameterTitle(body, "RF CHIP", 8)) {
     return false;
   }
 
-  const char* chip_names[] = {
-      "SX1262", "LR2021", "CC1101", "nRF24", "Custom"};
   const int option_gap = 10;
   const int option_area_width = state->config.width - 56;
-  const int chip_columns = 4;
-  const int chip_width =
-      (option_area_width - 3 * option_gap) / chip_columns;
-  for (int index = 0; index < 5; ++index) {
-    const int column = index % chip_columns;
-    const int row = index / chip_columns;
-    state->add_chip_buttons[index] = CreateAddOptionButton(body, state,
-        RfAddOptionGroup::kChip, index, chip_names[index],
-        28 + column * (chip_width + option_gap),
-        174 + row * 74, chip_width, 64);
-    if (state->add_chip_buttons[index] == nullptr) {
-      return false;
-    }
-  }
-
-  if (!CreateAddParameterTitle(body, "PROTOCOL", 330)) {
+  state->add_chip_buttons[0] = CreateAddOptionButton(body, state,
+      RfAddOptionGroup::kChip, 0,
+      ChipDisplayName(profile.chip), 28, 44, 150, 62);
+  if (state->add_chip_buttons[0] == nullptr) {
     return false;
   }
-  const char* protocol_names[] = {"LoRa", "FSK"};
-  const int protocol_x[] = {28, 148};
-  const int protocol_width[] = {108, 82};
-  for (int index = 0; index < 2; ++index) {
-    state->add_protocol_buttons[index] = CreateAddOptionButton(
-        body, state, RfAddOptionGroup::kProtocol, index,
-        protocol_names[index], protocol_x[index], 366,
-        protocol_width[index], 62);
-    if (state->add_protocol_buttons[index] == nullptr) {
-      return false;
-    }
+
+  if (!CreateAddParameterTitle(body, "PROTOCOL", 134)) {
+    return false;
+  }
+  state->add_protocol_buttons[0] = CreateAddOptionButton(body, state,
+      RfAddOptionGroup::kProtocol, 0,
+      ProtocolDisplayName(profile.protocol), 28, 170, 116, 62);
+  if (state->add_protocol_buttons[0] == nullptr) {
+    return false;
   }
 
-  if (!CreateAddParameterTitle(body, "WORKING FREQUENCY", 450)) {
+  if (!CreateAddParameterTitle(body, "WORKING FREQUENCY", 262)) {
     return false;
   }
   state->add_frequency_input = CreateAddTextArea(
-      body, state, "Frequency", "915", kAddFrequencyInputY, 4);
+      body, state, "Frequency", frequency, 298, 7);
   if (state->add_frequency_input == nullptr) {
     return false;
   }
@@ -1724,7 +3736,7 @@ bool CreateAddModuleContent(RfViewState* state) {
   lv_obj_remove_flag(unit, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(unit, 84, 62);
   lv_obj_set_pos(unit, state->config.width - 112,
-      kAddFrequencyInputY + 4);
+      302);
   lv_obj_set_style_bg_color(
       unit, lv_color_hex(kSurfaceContainerHighColor), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(unit, LV_OPA_COVER, LV_PART_MAIN);
@@ -1738,18 +3750,138 @@ bool CreateAddModuleContent(RfViewState* state) {
   }
   lv_obj_center(unit_label);
 
-  if (!CreateAddParameterTitle(body, "SPREADING FACTOR", 582)) {
+  if (!CreateAddParameterTitle(body, "SPREADING FACTOR", 400)) {
     return false;
   }
-  const int sf_width = (option_area_width - 6 * option_gap) / 7;
-  const char* sf_names[] = {"6", "7", "8", "9", "10", "11", "12"};
-  for (int index = 0; index < 7; ++index) {
+  const int option_width = (option_area_width - 3 * option_gap) / 4;
+  const char* sf_names[] = {
+      "5", "6", "7", "8", "9", "10", "11", "12"};
+  for (int index = 0; index < 8; ++index) {
+    const int column = index % 4;
+    const int row = index / 4;
     state->add_sf_buttons[index] = CreateAddOptionButton(body, state,
         RfAddOptionGroup::kSpreadingFactor, index, sf_names[index],
-        28 + index * (sf_width + option_gap), 618, sf_width, 60);
+        28 + column * (option_width + option_gap),
+        436 + row * 68, option_width, 58);
     if (state->add_sf_buttons[index] == nullptr) {
       return false;
     }
+  }
+
+  if (!CreateAddParameterTitle(body, "BANDWIDTH (kHz)", 582)) {
+    return false;
+  }
+  const char* bandwidth_names[] = {"62.5", "125", "250", "500"};
+  for (int index = 0; index < 4; ++index) {
+    state->add_bandwidth_buttons[index] = CreateAddOptionButton(
+        body, state, RfAddOptionGroup::kBandwidth, index,
+        bandwidth_names[index],
+        28 + index * (option_width + option_gap), 618,
+        option_width, 60);
+    if (state->add_bandwidth_buttons[index] == nullptr) {
+      return false;
+    }
+  }
+
+  if (!CreateAddParameterTitle(body, "CODING RATE", 710)) {
+    return false;
+  }
+  const char* coding_names[] = {"4/5", "4/6", "4/7", "4/8"};
+  for (int index = 0; index < 4; ++index) {
+    state->add_coding_rate_buttons[index] = CreateAddOptionButton(
+        body, state, RfAddOptionGroup::kCodingRate, index,
+        coding_names[index],
+        28 + index * (option_width + option_gap), 746,
+        option_width, 60);
+    if (state->add_coding_rate_buttons[index] == nullptr) {
+      return false;
+    }
+  }
+
+  if (!CreateAddParameterTitle(body, "TX POWER", 838)) {
+    return false;
+  }
+  state->add_power_input = CreateAddTextArea(
+      body, state, "Output power", power, 874, 3);
+  if (state->add_power_input == nullptr) {
+    return false;
+  }
+  lv_textarea_set_accepted_chars(
+      state->add_power_input, "-0123456789");
+
+  if (!CreateAddParameterTitle(body, "PREAMBLE LENGTH", 976)) {
+    return false;
+  }
+  state->add_preamble_input = CreateAddTextArea(
+      body, state, "Preamble symbols", preamble, 1012, 5);
+  if (state->add_preamble_input == nullptr) {
+    return false;
+  }
+  lv_textarea_set_accepted_chars(
+      state->add_preamble_input, kIntegerAcceptedChars);
+
+  if (!CreateAddParameterTitle(body, "SYNC WORD (HEX)", 1114)) {
+    return false;
+  }
+  state->add_sync_word_input = CreateAddTextArea(
+      body, state, "12", sync_word, 1150, 2);
+  if (state->add_sync_word_input == nullptr) {
+    return false;
+  }
+  lv_textarea_set_accepted_chars(state->add_sync_word_input,
+      kHexAcceptedChars);
+  constexpr int kSyncWordSideMargin = 28;
+  constexpr int kSyncWordPrefixWidth = 72;
+  constexpr int kSyncWordInputGap = 12;
+  const int sync_word_input_x = kSyncWordSideMargin +
+      kSyncWordPrefixWidth + kSyncWordInputGap;
+  lv_obj_set_width(state->add_sync_word_input,
+      state->config.width - sync_word_input_x - kSyncWordSideMargin);
+  lv_obj_set_x(state->add_sync_word_input, sync_word_input_x);
+
+  lv_obj_t* prefix = lv_obj_create(body);
+  if (prefix == nullptr) {
+    return false;
+  }
+  lv_obj_remove_flag(prefix, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(prefix, kSyncWordPrefixWidth, 62);
+  lv_obj_set_pos(prefix, kSyncWordSideMargin, 1154);
+  lv_obj_set_style_bg_color(prefix,
+      lv_color_hex(kSurfaceContainerHighColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(prefix, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(prefix, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(prefix, 22, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(prefix, 0, LV_PART_MAIN);
+  lv_obj_t* prefix_label = CreateLabel(
+      prefix, "0x", kSecondaryTextColor, Font22());
+  if (prefix_label == nullptr) {
+    return false;
+  }
+  lv_obj_center(prefix_label);
+
+  constexpr int kSwitchRowsTop = 1258;
+  constexpr int kSwitchRowPitch =
+      kAddSwitchRowHeight + kAddSwitchRowGap;
+  state->add_crc_switch = CreateAddSwitchRow(body, state,
+      "CRC", "Reject damaged LoRa packets", kSwitchRowsTop,
+      profile.crc_enabled);
+  state->add_iq_switch = CreateAddSwitchRow(body, state,
+      "Invert IQ", "Enable only when the peer also inverts IQ",
+      kSwitchRowsTop + kSwitchRowPitch,
+      profile.invert_iq);
+  state->add_rx_boost_switch = CreateAddSwitchRow(body, state,
+      "RX boost", "Higher receive sensitivity",
+      kSwitchRowsTop + 2 * kSwitchRowPitch,
+      profile.rx_boosted);
+  state->add_active_switch = CreateAddSwitchRow(body, state,
+      "Active profile", "Only one profile can use the SX1262",
+      kSwitchRowsTop + 3 * kSwitchRowPitch,
+      !editing || state->preferences.active_profile_id == profile.id);
+  if (state->add_crc_switch == nullptr ||
+      state->add_iq_switch == nullptr ||
+      state->add_rx_boost_switch == nullptr ||
+      state->add_active_switch == nullptr) {
+    return false;
   }
   UpdateAddOptionSelection(state);
   return true;
@@ -1779,7 +3911,10 @@ bool CreateAddModuleHeader(lv_obj_t* page, RfViewState* state) {
   }
   lv_obj_align(icon_label, LV_ALIGN_CENTER, -4, 0);
   lv_obj_t* title = CreateLabel(
-      page, "Add RF module", kMainTextColor, Font48());
+      page, state->editing_index < state->module_count
+          ? "RF profile"
+          : "Add RF profile",
+      kMainTextColor, Font48());
   if (title == nullptr) {
     return false;
   }
@@ -1826,7 +3961,10 @@ bool CreateAddModuleActionArea(lv_obj_t* page, RfViewState* state) {
   lv_obj_add_event_cb(button, AddModuleSubmitClickedEventCallback,
       LV_EVENT_CLICKED, state);
   state->add_submit_label = CreateLabel(
-      button, "Add module", kDisabledTextColor, Font28());
+      button, state->editing_index < state->module_count
+          ? "Save profile"
+          : "Add profile",
+      kDisabledTextColor, Font28());
   if (state->add_submit_label == nullptr) {
     return false;
   }
@@ -1844,13 +3982,33 @@ bool ShowAddModulePage(RfViewState* state) {
   if (state == nullptr || state->root == nullptr) {
     return false;
   }
+  if (state->editing_index >= state->module_count &&
+      state->module_count >= kRfModuleCapacity) {
+    return false;
+  }
   if (state->add_page != nullptr) {
     lv_obj_move_to_index(state->add_page, -1);
     return true;
   }
   state->selected_add_chip = 0;
   state->selected_add_protocol = 0;
-  state->selected_add_sf = 1;
+  const bool editing = state->editing_index < state->module_count;
+  const app::RfProfile profile = editing
+      ? state->preferences.profiles[state->editing_index]
+      : app::RfProfile{};
+  state->selected_add_sf = editing
+      ? std::clamp(static_cast<int>(profile.spreading_factor) - 5, 0, 7)
+      : kDefaultSpreadingFactorIndex;
+  constexpr uint32_t kBandwidths[] = {
+      62500, 125000, 250000, 500000};
+  state->selected_add_bandwidth = 1;
+  for (int index = 0; index < 4; ++index) {
+    if (profile.bandwidth_hz == kBandwidths[index]) {
+      state->selected_add_bandwidth = index;
+    }
+  }
+  state->selected_add_coding_rate = std::clamp(
+      static_cast<int>(profile.coding_rate_denominator) - 5, 0, 3);
   state->add_closing = false;
   state->add_edge_swipe = EdgeBackSwipeState();
   for (lv_obj_t*& button : state->add_chip_buttons) {
@@ -1860,6 +4018,12 @@ bool ShowAddModulePage(RfViewState* state) {
     button = nullptr;
   }
   for (lv_obj_t*& button : state->add_sf_buttons) {
+    button = nullptr;
+  }
+  for (lv_obj_t*& button : state->add_bandwidth_buttons) {
+    button = nullptr;
+  }
+  for (lv_obj_t*& button : state->add_coding_rate_buttons) {
     button = nullptr;
   }
 
@@ -1923,10 +4087,15 @@ bool ShowAddModulePage(RfViewState* state) {
       state->config.height * kAddKeyboardHeightPercent / 100;
   state->add_keyboard = CreateSharedKeyboard(page, keyboard_config);
   if (state->add_keyboard == nullptr ||
-      !AttachSharedKeyboardToTextArea(
-          state->add_keyboard, state->add_name_input, nullptr) ||
       !AttachSharedKeyboardToTextArea(state->add_keyboard,
-          state->add_frequency_input, kFrequencyAcceptedChars)) {
+          state->add_frequency_input, kFrequencyAcceptedChars) ||
+      !AttachSharedKeyboardToTextArea(state->add_keyboard,
+          state->add_power_input, "-0123456789") ||
+      !AttachSharedKeyboardToTextArea(state->add_keyboard,
+          state->add_preamble_input, kIntegerAcceptedChars) ||
+      !AttachSharedKeyboardToTextArea(state->add_keyboard,
+          state->add_sync_word_input,
+          kHexAcceptedChars)) {
     lv_obj_delete(page);
     state->add_page = nullptr;
     state->add_body = nullptr;
@@ -1948,14 +4117,30 @@ bool ShowAddModulePage(RfViewState* state) {
   return true;
 }
 
+bool ShowModuleSettings(RfViewState* state, size_t index,
+    bool from_detail) {
+  if (state == nullptr || index >= state->module_count) {
+    return false;
+  }
+  state->editing_index = index;
+  if (from_detail) {
+    SetDetailKeyboardVisible(state, false);
+  }
+  return ShowAddModulePage(state);
+}
+
 /**
  * @brief 处理圆形添加按钮点击事件
  * @param event LVGL 事件对象
  */
 void AddButtonClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
-    ShowAddModulePage(
-        static_cast<RfViewState*>(lv_event_get_user_data(event)));
+    auto* state = static_cast<RfViewState*>(
+        lv_event_get_user_data(event));
+    if (state != nullptr) {
+      state->editing_index = kRfModuleCapacity;
+      ShowAddModulePage(state);
+    }
   }
 }
 
@@ -2011,6 +4196,10 @@ bool CreateAddButton(lv_obj_t* parent, RfViewState* state) {
   if (button == nullptr) {
     return false;
   }
+  state->add_button = button;
+  if (state->module_count >= kRfModuleCapacity) {
+    lv_obj_add_flag(button, LV_OBJ_FLAG_HIDDEN);
+  }
   lv_obj_set_size(button, 96, 96);
   lv_obj_align(button, LV_ALIGN_BOTTOM_RIGHT, -40, -42);
   lv_obj_set_style_radius(button, 48, LV_PART_MAIN);
@@ -2037,15 +4226,28 @@ bool CreateAddButton(lv_obj_t* parent, RfViewState* state) {
 
 lv_obj_t* CreateRfView(lv_obj_t* parent, const app::AppEntry& app_entry,
     const AppViewConfig& config) {
-  static_cast<void>(app_entry);
-  if (parent == nullptr || config.width <= 0 || config.height <= 0) {
+  if (parent == nullptr || app_entry.id == nullptr ||
+      config.width <= 0 || config.height <= 0) {
     return nullptr;
   }
   auto* state = new RfViewState{};
   state->config = config;
-  state->module_count = kInitialModuleCount;
-  for (size_t index = 0; index < kInitialModuleCount; ++index) {
-    state->modules[index] = kModuleItems[index];
+  if (config.rf != nullptr) {
+    if (config.rf->ReadRfCapabilities(&state->capabilities)) {
+      state->capabilities.count = std::min(
+          state->capabilities.count, hal::kRfCapabilityCapacity);
+    }
+  }
+  state->preferences = app::GetRfPreferences();
+  SyncModuleItems(state);
+  const size_t active_index = FindProfileIndex(
+      state, state->preferences.active_profile_id);
+  if (config.rf != nullptr && active_index < state->module_count &&
+      IsProfileSupported(
+          state, state->preferences.profiles[active_index])) {
+    state->last_activation_retry_tick = lv_tick_get();
+    config.rf->ActivateRf(ToRadioConfig(
+        state->preferences.profiles[active_index]));
   }
   lv_obj_t* root = lv_obj_create(parent);
   if (root == nullptr) {
@@ -2063,6 +4265,7 @@ lv_obj_t* CreateRfView(lv_obj_t* parent, const app::AppEntry& app_entry,
   lv_obj_set_style_pad_all(root, 0, LV_PART_MAIN);
   lv_obj_add_event_cb(
       root, RfViewDeleteEventCallback, LV_EVENT_DELETE, state);
+  AddEdgeBackSwipeEvents(root, SelectionEdgeBackEventCallback, state);
   if (config.set_status_bar_visible) {
     config.set_status_bar_visible(true);
   }
@@ -2092,6 +4295,8 @@ lv_obj_t* CreateRfView(lv_obj_t* parent, const app::AppEntry& app_entry,
     lv_obj_delete(root);
     return nullptr;
   }
+  state->radio_timer = lv_timer_create(
+      RadioTimerCallback, 120, state);
   return root;
 }
 

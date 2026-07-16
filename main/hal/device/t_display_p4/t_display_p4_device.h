@@ -33,6 +33,7 @@ class TDisplayP4Device final : public ScreenProvider,
                                public CameraProvider,
                                public BmuProvider,
                                public RtcProvider,
+                               public RfProvider,
                                public EthernetProvider,
                                public WifiProvider,
                                public StorageProvider,
@@ -301,6 +302,13 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 读取到有效 RTC 数据返回 true，否则返回 false
    */
   bool ReadRtcStatus(RtcStatus* status) override;
+
+  bool ReadRfCapabilities(RfCapabilities* capabilities) override;
+  bool ActivateRf(const RfRadioConfig& config) override;
+  bool DeactivateRf() override;
+  bool SendRf(const uint8_t* data, size_t size) override;
+  bool PollRfEvent(RfEvent* event) override;
+  bool ReadRfStatus(RfStatus* status) override;
 
   /**
    * @brief 读取 ICM20948 IMU 运动状态
@@ -934,6 +942,14 @@ class TDisplayP4Device final : public ScreenProvider,
     wifi_config_t previous_sta_config = {};
   };
 
+  struct RadioState {
+    SemaphoreHandle_t mutex = nullptr;
+    uint32_t active_client_token = 0;
+    bool active = false;
+    bool transmitting = false;
+    bool chip_error = false;
+  };
+
   lilygo_device_driver::TDisplayP4Driver& driver_;
   std::unique_ptr<cpp_bus_driver::Tool> tool_;
   ScreenProviderFlushReadyHandler flush_ready_handler_;
@@ -951,6 +967,8 @@ class TDisplayP4Device final : public ScreenProvider,
   WifiState wifi_;
   // WiFi 获取时间测试状态，保存测试流程和进入前配置
   WifiTimeTestState wifi_time_test_;
+  // SX1262 LoRa 会话状态，单芯片只允许一个活动配置。
+  RadioState radio_;
   bool gps_running_ = false;
   GpsStatus gps_status_;
 };

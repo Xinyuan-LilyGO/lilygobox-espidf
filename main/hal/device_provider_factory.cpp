@@ -29,6 +29,7 @@ DeviceProviderContext CreateDeviceProviderContext() {
   context.bmu = device.get();
   context.camera = device.get();
   context.rtc = device.get();
+  context.rf = device.get();
   context.ethernet = device.get();
   context.wifi = device.get();
   context.storage = device.get();

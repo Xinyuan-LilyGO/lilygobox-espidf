@@ -15,6 +15,7 @@
 #include "app/storage/display_storage.h"
 #include "app/storage/first_boot_storage.h"
 #include "app/storage/haptic_storage.h"
+#include "app/storage/rf_storage.h"
 #include "app/storage/sound_storage.h"
 #include "app/storage/wifi_storage.h"
 #include "base/logger.h"
@@ -50,6 +51,7 @@ void InitStorage() {
   InitDisplayCache();
   InitFirstBootCache();
   InitHapticCache();
+  InitRfCache();
   InitSoundCache();
   InitWifiCache();
 }

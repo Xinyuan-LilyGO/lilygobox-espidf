@@ -846,6 +846,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
     hal::BmuProvider* bmu,
     hal::CameraProvider* camera,
     hal::RtcProvider* rtc,
+    hal::RfProvider* rf,
     hal::ImuProvider* imu,
     hal::EthernetProvider* ethernet,
     hal::WifiProvider* wifi,
@@ -863,6 +864,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   bmu_provider_ = bmu;
   camera_provider_ = camera;
   rtc_provider_ = rtc;
+  rf_provider_ = rf;
   imu_provider_ = imu;
   ethernet_provider_ = ethernet;
   wifi_provider_ = wifi;
@@ -2350,6 +2352,7 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   config.bmu = bmu_provider_;
   config.camera = camera_provider_;
   config.rtc = rtc_provider_;
+  config.rf = rf_provider_;
   config.imu = imu_provider_;
   config.ethernet = ethernet_provider_;
   config.wifi = wifi_provider_;

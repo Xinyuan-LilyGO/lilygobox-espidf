@@ -1,8 +1,8 @@
 /*
- * @Description: 公共居中提示框控件
+ * @Description: 公共提示框控件
  * @Author: LILYGO_L
  * @Date: 2026-07-11 00:00:00
- * @LastEditTime: 2026-07-11 00:00:00
+ * @LastEditTime: 2026-07-16 18:10:00
  * @License: GPL 3.0
  */
 #include "ui/widgets/prompt/prompt_dialog.h"
@@ -40,15 +40,16 @@ void CloseImmediately(PromptDialogState* state) {
   state->panel = nullptr;
   state->body = nullptr;
   state->edge_swipe = EdgeBackSwipeState();
+  state->slide_from_bottom = false;
   state->closing = false;
   lv_obj_delete(overlay);
 }
 
 /**
- * @brief 处理提示框淡出动画完成事件
+ * @brief 处理提示框关闭动画完成事件
  * @param animation LVGL 动画对象
  */
-void FadeOutCompletedCallback(lv_anim_t* animation) {
+void CloseAnimationCompletedCallback(lv_anim_t* animation) {
   CloseImmediately(static_cast<PromptDialogState*>(
       lv_anim_get_user_data(animation)));
 }
@@ -230,6 +231,9 @@ lv_obj_t* ShowPromptDialog(lv_obj_t* parent, PromptDialogState* state,
   sheet_config.sheet_radius = config.dialog_radius;
   sheet_config.sheet_color = config.dialog_color;
   sheet_config.overlay_opacity = config.overlay_opacity;
+  sheet_config.bottom_margin = config.bottom_margin;
+  sheet_config.side_margin =
+      (config.screen_width - sheet_config.sheet_width) / 2;
   lv_obj_t* overlay = CreatePromptSheetOverlay(parent, sheet_config);
   if (overlay == nullptr) {
     return nullptr;
@@ -240,6 +244,7 @@ lv_obj_t* ShowPromptDialog(lv_obj_t* parent, PromptDialogState* state,
   state->cancel_callback = config.cancel_callback;
   state->confirm_callback = config.confirm_callback;
   state->callback_context = config.callback_context;
+  state->slide_from_bottom = config.slide_from_bottom;
   state->closing = false;
   lv_obj_add_event_cb(overlay, OverlayClickedEventCallback,
                       LV_EVENT_CLICKED, state);
@@ -255,7 +260,10 @@ lv_obj_t* ShowPromptDialog(lv_obj_t* parent, PromptDialogState* state,
       (config.screen_width - sheet_config.sheet_width) / 2;
   const int panel_y =
       (config.screen_height - sheet_config.sheet_height) / 2;
-  lv_obj_set_pos(panel, panel_x, panel_y);
+  lv_obj_set_x(panel, panel_x);
+  if (!config.slide_from_bottom) {
+    lv_obj_set_y(panel, panel_y);
+  }
   lv_obj_add_event_cb(panel, PanelClickedEventCallback,
                       LV_EVENT_CLICKED, state);
   AddEdgeBackSwipeEvents(panel, EdgeBackEventCallback, state);
@@ -290,12 +298,16 @@ lv_obj_t* ShowPromptDialog(lv_obj_t* parent, PromptDialogState* state,
     CloseImmediately(state);
     return nullptr;
   }
-  lv_obj_set_style_opa(overlay, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_opa(panel, LV_OPA_TRANSP, LV_PART_MAIN);
-  StartFadeAnimation(overlay, LV_OPA_TRANSP, LV_OPA_COVER,
-      config.animation_ms, nullptr, nullptr);
-  StartFadeAnimation(panel, LV_OPA_TRANSP, LV_OPA_COVER,
-      config.animation_ms, nullptr, nullptr);
+  if (config.slide_from_bottom) {
+    AnimatePromptSheetIn(panel, sheet_config, config.animation_ms);
+  } else {
+    lv_obj_set_style_opa(overlay, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_opa(panel, LV_OPA_TRANSP, LV_PART_MAIN);
+    StartFadeAnimation(overlay, LV_OPA_TRANSP, LV_OPA_COVER,
+        config.animation_ms, nullptr, nullptr);
+    StartFadeAnimation(panel, LV_OPA_TRANSP, LV_OPA_COVER,
+        config.animation_ms, nullptr, nullptr);
+  }
   lv_obj_move_to_index(overlay, -1);
   EnableEdgeBackSwipeEventBubble(overlay);
   return state->body;
@@ -307,6 +319,21 @@ void ClosePromptDialog(PromptDialogState* state) {
   }
   state->closing = true;
   lv_obj_remove_flag(state->overlay, LV_OBJ_FLAG_CLICKABLE);
+  if (state->slide_from_bottom && state->panel != nullptr) {
+    lv_obj_t* overlay = state->overlay;
+    lv_obj_t* panel = state->panel;
+    const uint32_t animation_ms = state->animation_ms;
+    state->overlay = nullptr;
+    state->panel = nullptr;
+    state->body = nullptr;
+    state->edge_swipe = EdgeBackSwipeState();
+    state->slide_from_bottom = false;
+    state->closing = false;
+    if (!AnimatePromptSheetOut(overlay, panel, animation_ms)) {
+      lv_obj_delete(overlay);
+    }
+    return;
+  }
   if (state->panel != nullptr) {
     const int panel_opacity =
         lv_obj_get_style_opa(state->panel, LV_PART_MAIN);
@@ -316,7 +343,7 @@ void ClosePromptDialog(PromptDialogState* state) {
   const int current =
       lv_obj_get_style_opa(state->overlay, LV_PART_MAIN);
   StartFadeAnimation(state->overlay, current, LV_OPA_TRANSP,
-      state->animation_ms, state, FadeOutCompletedCallback);
+      state->animation_ms, state, CloseAnimationCompletedCallback);
 }
 
 bool IsPromptDialogVisible(const PromptDialogState* state) {
