@@ -43,7 +43,7 @@ constexpr uint32_t kScreenLockSleepConfirmMs = 3 * 1000;
 constexpr uint32_t kAwakeLockScreenSleepTimeoutMs = 10 * 1000;
 constexpr uint32_t kLowBatteryStartupWarningMs = 10 * 1000;
 constexpr uint32_t kScreenLockFadeMs = 300;
-constexpr uint32_t kScreenLockPreSleepFlushMs = 80;
+constexpr uint32_t kLockedStorageFlushRetryMs = 5 * 1000;
 constexpr int kScreenLockFadeStepCount = 12;
 constexpr int kScreenUnlockSwipeMinDistance = 120;
 constexpr uint32_t kScreenUnlockAnimationWaitMs = 240;
@@ -124,7 +124,8 @@ bool Application::Init() {
     return false;
   }
 
-  result = ui_manager_.Init(screen, device_provider_context_.diagnostics,
+  result = ui_manager_.Init(screen, &lvgl_port_,
+      device_provider_context_.diagnostics,
       device_provider_context_.device_info, device_provider_context_.gps,
       device_provider_context_.audio, device_provider_context_.haptic,
       device_provider_context_.bmu, device_provider_context_.camera,
@@ -318,10 +319,43 @@ void Application::RunScreenLockTask() {
   uint32_t lock_screen_last_interaction_ms = last_touch_ms;
   bool unlock_touch_active = false;
   bool unlock_drag_ready = false;
+  uint32_t last_storage_flush_attempt_ms = last_touch_ms;
   hal::TouchPoint unlock_touch_start = {};
   while (true) {
     const uint32_t now_ms = static_cast<uint32_t>(xTaskGetTickCount() *
         portTICK_PERIOD_MS);
+    if (power_action_in_progress_.load()) {
+      vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
+      continue;
+    }
+    const bool recovery_required = lvgl_port_.IsDisplayFlushPaused() &&
+        (!screen_locked_.load() || lock_screen_awake_.load() ||
+            !screen_off_confirmed_.load());
+    if (recovery_required) {
+      bool screen_restored = false;
+      bool recovery_performed = false;
+      if (lvgl_port_.BeginScreenTransition()) {
+        const bool still_requires_recovery =
+            lvgl_port_.IsDisplayFlushPaused() &&
+            (!screen_locked_.load() || lock_screen_awake_.load() ||
+                !screen_off_confirmed_.load());
+        screen_restored = !still_requires_recovery;
+        if (still_requires_recovery) {
+          screen_restored = RestoreScreenAfterSleep();
+          recovery_performed = screen_restored;
+        }
+        lvgl_port_.EndScreenTransition();
+      }
+      if (!screen_restored) {
+        vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
+        continue;
+      }
+      if (recovery_performed && screen_locked_.load()) {
+        lock_screen_awake_.store(true);
+      }
+      last_touch_ms = now_ms;
+      lock_screen_last_interaction_ms = now_ms;
+    }
     hal::TouchPoint point;
     const bool wake_button_pressed = screen->IsLockWakeButtonPressed();
     const bool wake_button_pressed_edge =
@@ -382,7 +416,7 @@ void Application::RunScreenLockTask() {
           unlock_touch_active = false;
           unlock_drag_ready = false;
           const bool lock_wake_input_active =
-              screen->ReadScreenTouch(&point) || wake_button_pressed;
+              ReadScreenTouchWhileAwake(&point) || wake_button_pressed;
           if (lock_wake_input_active) {
             lock_screen_last_interaction_ms = now_ms;
           } else {
@@ -399,7 +433,7 @@ void Application::RunScreenLockTask() {
               }
             }
           }
-        } else if (screen->ReadScreenTouch(&point)) {
+        } else if (ReadScreenTouchWhileAwake(&point)) {
           lock_screen_last_interaction_ms = now_ms;
           if (!unlock_touch_active) {
             unlock_touch_start = point;
@@ -461,6 +495,20 @@ void Application::RunScreenLockTask() {
           }
         }
       }
+      if (!lock_screen_awake_.load() &&
+          screen_off_confirmed_.load() &&
+          app::HasPendingStorageWrites() &&
+          now_ms - last_storage_flush_attempt_ms >=
+              kLockedStorageFlushRetryMs) {
+        last_storage_flush_attempt_ms = now_ms;
+        if (lvgl_port_.BeginScreenTransition()) {
+          if (screen_locked_.load() && !lock_screen_awake_.load() &&
+              screen_off_confirmed_.load()) {
+            app::FlushPendingStorageAfterScreenOff();
+          }
+          lvgl_port_.EndScreenTransition();
+        }
+      }
       vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
       continue;
     }
@@ -483,7 +531,7 @@ void Application::RunScreenLockTask() {
       continue;
     }
 
-    if (screen->ReadScreenTouch(&point)) {
+    if (ReadScreenTouchWhileAwake(&point)) {
       last_touch_ms = now_ms;
       vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
       continue;
@@ -503,17 +551,29 @@ void Application::RunScreenLockTask() {
     }
 
     const int start_brightness = preferences.brightness_percent;
+    const int target_brightness =
+        app::kUserDisplayBrightnessMinPercent;
     bool fade_canceled = false;
+    bool screen_access_interrupted = false;
     lvgl_port_.SetInputBlocked(true);
     for (int step = 1; step <= kScreenLockFadeStepCount; ++step) {
-      const int brightness =
-          start_brightness * (kScreenLockFadeStepCount - step) /
-          kScreenLockFadeStepCount;
-      screen->SetScreenBrightnessPercent(brightness);
-      current_screen_brightness_percent_.store(brightness);
+      const int brightness = start_brightness +
+          (target_brightness - start_brightness) * step /
+              kScreenLockFadeStepCount;
+      if (!SetScreenBrightnessWhileAwake(brightness)) {
+        screen_access_interrupted = true;
+        break;
+      }
       vTaskDelay(pdMS_TO_TICKS(
           std::max<uint32_t>(1, kScreenLockFadeMs / kScreenLockFadeStepCount)));
-      if (screen->ReadScreenTouch(&point)) {
+      bool touch_access_available = false;
+      const bool touched = ReadScreenTouchWhileAwake(
+          &point, &touch_access_available);
+      if (!touch_access_available) {
+        screen_access_interrupted = true;
+        break;
+      }
+      if (touched) {
         FadeScreenBrightnessTo(start_brightness);
         lvgl_port_.SetInputBlocked(false);
         last_touch_ms = static_cast<uint32_t>(xTaskGetTickCount() *
@@ -521,6 +581,11 @@ void Application::RunScreenLockTask() {
         fade_canceled = true;
         break;
       }
+    }
+    if (screen_access_interrupted) {
+      lvgl_port_.SetInputBlocked(false);
+      last_touch_ms = now_ms;
+      continue;
     }
     if (fade_canceled) {
       continue;
@@ -531,7 +596,14 @@ void Application::RunScreenLockTask() {
     while (static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) -
                confirm_start_ms <
            sleep_confirm_ms) {
-      if (screen->ReadScreenTouch(&point)) {
+      bool touch_access_available = false;
+      const bool touched = ReadScreenTouchWhileAwake(
+          &point, &touch_access_available);
+      if (!touch_access_available) {
+        screen_access_interrupted = true;
+        break;
+      }
+      if (touched) {
         FadeScreenBrightnessTo(start_brightness);
         lvgl_port_.SetInputBlocked(false);
         last_touch_ms = static_cast<uint32_t>(xTaskGetTickCount() *
@@ -540,6 +612,11 @@ void Application::RunScreenLockTask() {
         break;
       }
       vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
+    }
+    if (screen_access_interrupted) {
+      lvgl_port_.SetInputBlocked(false);
+      last_touch_ms = now_ms;
+      continue;
     }
     if (fade_canceled) {
       continue;
@@ -565,16 +642,7 @@ bool Application::EnterScreenLockSleep() {
   if (screen == nullptr) {
     return false;
   }
-
-  lvgl_port_.Lock();
-  const bool shown = ui_manager_.ShowLockScreen();
-  lvgl_port_.Unlock();
-  if (!shown) {
-    return false;
-  }
-
-  vTaskDelay(pdMS_TO_TICKS(kScreenLockPreSleepFlushMs));
-  return screen->EnterDeviceSleep();
+  return EnterScreenSleepAndFlushStorage();
 }
 
 void Application::WakeScreenFromLock() {
@@ -583,20 +651,22 @@ void Application::WakeScreenFromLock() {
     return;
   }
 
-  const app::DisplayPreferences preferences = LoadDisplayPreferencesOrDefault();
-  if (!screen->ExitDeviceSleep()) {
+  if (!lvgl_port_.BeginScreenTransition()) {
     return;
   }
-  screen->SetScreenBrightnessPercent(preferences.brightness_percent);
-  current_screen_brightness_percent_.store(preferences.brightness_percent);
   lvgl_port_.Lock();
   const bool shown = ui_manager_.ShowLockScreen();
   lvgl_port_.Unlock();
-  if (shown) {
-    lock_screen_awake_.store(true);
-  } else {
-    UnlockScreen();
+  if (!shown) {
+    lvgl_port_.EndScreenTransition();
+    return;
   }
+  const bool screen_restored = RestoreScreenAfterSleep();
+  lvgl_port_.EndScreenTransition();
+  if (!screen_restored) {
+    return;
+  }
+  lock_screen_awake_.store(true);
 }
 
 bool Application::ShowPowerMenuFromLockButton() {
@@ -606,15 +676,24 @@ bool Application::ShowPowerMenuFromLockButton() {
   }
 
   const bool locked = screen_locked_.load();
-  bool lock_screen_was_sleeping = locked && !lock_screen_awake_.load();
+  const bool lock_screen_was_sleeping =
+      locked && !lock_screen_awake_.load();
   if (lock_screen_was_sleeping) {
-    const app::DisplayPreferences preferences =
-        LoadDisplayPreferencesOrDefault();
-    if (!screen->ExitDeviceSleep()) {
+    if (!lvgl_port_.BeginScreenTransition()) {
       return false;
     }
-    screen->SetScreenBrightnessPercent(preferences.brightness_percent);
-    current_screen_brightness_percent_.store(preferences.brightness_percent);
+    lvgl_port_.Lock();
+    const bool lock_screen_prepared = ui_manager_.ShowLockScreen();
+    lvgl_port_.Unlock();
+    if (!lock_screen_prepared) {
+      lvgl_port_.EndScreenTransition();
+      return false;
+    }
+    const bool screen_restored = RestoreScreenAfterSleep();
+    lvgl_port_.EndScreenTransition();
+    if (!screen_restored) {
+      return false;
+    }
   }
 
   lvgl_port_.SetInputBlocked(false);
@@ -659,19 +738,37 @@ bool Application::HidePowerMenuFromLockButton() {
 }
 
 void Application::RestartDevice() {
+  bool expected = false;
+  if (!power_action_in_progress_.compare_exchange_strong(expected, true)) {
+    return;
+  }
   vTaskDelay(pdMS_TO_TICKS(kPowerActionPreSleepSettleMs));
+  if (!PreparePowerActionStorage()) {
+    power_action_in_progress_.store(false);
+    return;
+  }
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
-  if (screen != nullptr) {
-    screen->EnterDeviceSleep(true);
+  if (screen != nullptr && !screen->EnterDeviceSleep(true)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Prepare device for restart failed after preferences were saved\n");
   }
   esp_restart();
 }
 
 void Application::PowerOffDevice() {
+  bool expected = false;
+  if (!power_action_in_progress_.compare_exchange_strong(expected, true)) {
+    return;
+  }
   vTaskDelay(pdMS_TO_TICKS(kPowerActionPreSleepSettleMs));
+  if (!PreparePowerActionStorage()) {
+    power_action_in_progress_.store(false);
+    return;
+  }
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
-  if (screen != nullptr) {
-    screen->EnterDeviceSleep(true);
+  if (screen != nullptr && !screen->EnterDeviceSleep(true)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Prepare device for power off failed after preferences were saved\n");
   }
   esp_deep_sleep_start();
 }
@@ -689,10 +786,9 @@ bool Application::SleepAwakeLockScreenNow() {
     return false;
   }
 
-  if (!screen->EnterDeviceSleep()) {
+  if (!EnterScreenSleepAndFlushStorage()) {
     return false;
   }
-
   lvgl_port_.SetInputBlocked(true);
   lock_screen_awake_.store(false);
   return true;
@@ -707,18 +803,28 @@ bool Application::SleepAwakeLockScreenWithTimeout() {
   const app::DisplayPreferences preferences = LoadDisplayPreferencesOrDefault();
   const int start_brightness = current_screen_brightness_percent_.load();
   const int target_brightness =
-      std::max(1, preferences.brightness_percent / kScreenLockFadeStepCount);
+      app::kUserDisplayBrightnessMinPercent;
   bool fade_canceled = false;
   for (int step = 1; step <= kScreenLockFadeStepCount; ++step) {
     const int brightness = start_brightness +
-        (target_brightness - start_brightness) * step / kScreenLockFadeStepCount;
-    screen->SetScreenBrightnessPercent(brightness);
-    current_screen_brightness_percent_.store(brightness);
+        (target_brightness - start_brightness) * step /
+            kScreenLockFadeStepCount;
+    if (!SetScreenBrightnessWhileAwake(brightness)) {
+      lock_screen_awake_.store(true);
+      return false;
+    }
     vTaskDelay(pdMS_TO_TICKS(
         std::max<uint32_t>(1, kScreenLockFadeMs / kScreenLockFadeStepCount)));
 
     hal::TouchPoint point;
-    if (screen->ReadScreenTouch(&point) || screen->IsLockWakeButtonPressed()) {
+    bool touch_access_available = false;
+    const bool touched = ReadScreenTouchWhileAwake(
+        &point, &touch_access_available);
+    if (!touch_access_available) {
+      lock_screen_awake_.store(true);
+      return false;
+    }
+    if (touched || screen->IsLockWakeButtonPressed()) {
       FadeScreenBrightnessTo(preferences.brightness_percent);
       fade_canceled = true;
       break;
@@ -735,7 +841,14 @@ bool Application::SleepAwakeLockScreenWithTimeout() {
              confirm_start_ms <
          kScreenLockSleepConfirmMs) {
     hal::TouchPoint point;
-    if (screen->ReadScreenTouch(&point) || screen->IsLockWakeButtonPressed()) {
+    bool touch_access_available = false;
+    const bool touched = ReadScreenTouchWhileAwake(
+        &point, &touch_access_available);
+    if (!touch_access_available) {
+      lock_screen_awake_.store(true);
+      return false;
+    }
+    if (touched || screen->IsLockWakeButtonPressed()) {
       FadeScreenBrightnessTo(preferences.brightness_percent);
       lock_screen_awake_.store(true);
       return false;
@@ -743,15 +856,160 @@ bool Application::SleepAwakeLockScreenWithTimeout() {
     vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
   }
 
-  if (!screen->EnterDeviceSleep()) {
-    FadeScreenBrightnessTo(preferences.brightness_percent);
+  if (!EnterScreenSleepAndFlushStorage()) {
     lock_screen_awake_.store(true);
     return false;
   }
 
   lvgl_port_.SetInputBlocked(true);
-  current_screen_brightness_percent_.store(target_brightness);
   lock_screen_awake_.store(false);
+  return true;
+}
+
+bool Application::EnterScreenSleepAndFlushStorage() {
+  hal::ScreenProvider* screen = device_provider_context_.screen.get();
+  if (screen == nullptr) {
+    return false;
+  }
+  if (!lvgl_port_.BeginScreenTransition()) {
+    return false;
+  }
+  if (lvgl_port_.IsDisplayFlushPaused()) {
+    lvgl_port_.EndScreenTransition();
+    return false;
+  }
+
+  lvgl_port_.AcquireSleepInputBlock();
+  if (!lvgl_port_.PauseDisplayFlush()) {
+    lvgl_port_.ReleaseSleepInputBlock();
+    lvgl_port_.EndScreenTransition();
+    return false;
+  }
+
+  screen_off_confirmed_.store(false);
+  const bool screen_off = screen->EnterDeviceSleep(false);
+  if (!screen_off) {
+    const bool screen_restored = RestoreScreenAfterSleep();
+    lvgl_port_.EndScreenTransition();
+    if (!screen_restored) {
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "Screen sleep failed and safe display recovery also failed\n");
+    }
+    return false;
+  }
+  screen_off_confirmed_.store(true);
+
+  current_screen_brightness_percent_.store(0);
+  app::FlushPendingStorageAfterScreenOff();
+  lvgl_port_.EndScreenTransition();
+  return true;
+}
+
+bool Application::PreparePowerActionStorage() {
+  hal::ScreenProvider* screen = device_provider_context_.screen.get();
+  if (screen == nullptr) {
+    return false;
+  }
+
+  lvgl_port_.SetInputBlocked(true);
+  if (!lvgl_port_.BeginScreenTransition()) {
+    lvgl_port_.SetInputBlocked(false);
+    return false;
+  }
+  if (lvgl_port_.IsDisplayFlushPaused()) {
+    lvgl_port_.EndScreenTransition();
+    lvgl_port_.SetInputBlocked(false);
+    return false;
+  }
+
+  lvgl_port_.AcquireSleepInputBlock();
+  if (!lvgl_port_.PauseDisplayFlush()) {
+    lvgl_port_.ReleaseSleepInputBlock();
+    lvgl_port_.EndScreenTransition();
+    lvgl_port_.SetInputBlocked(false);
+    return false;
+  }
+
+  screen_off_confirmed_.store(false);
+  const bool screen_off = screen->EnterDeviceSleep(false);
+  if (!screen_off) {
+    const bool screen_restored = RestoreScreenAfterSleep();
+    lvgl_port_.EndScreenTransition();
+    lvgl_port_.SetInputBlocked(false);
+    if (!screen_restored) {
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "Power action canceled after screen recovery failed\n");
+    }
+    return false;
+  }
+  screen_off_confirmed_.store(true);
+  current_screen_brightness_percent_.store(0);
+
+  if (!app::FreezeStorageUpdatesForShutdown()) {
+    const bool screen_restored = RestoreScreenAfterSleep();
+    lvgl_port_.EndScreenTransition();
+    lvgl_port_.SetInputBlocked(false);
+    if (!screen_restored) {
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "Storage freeze failed and screen recovery also failed\n");
+    }
+    return false;
+  }
+
+  // 冻结更新后执行最终落盘，并再次确认没有任何待保存 NVS 域。
+  const bool flush_complete = app::FlushPendingStorageAfterScreenOff();
+  const bool storage_clean = !app::HasPendingStorageWrites();
+  if (flush_complete && storage_clean) {
+    // 成功后保持转换锁、输入屏蔽与刷屏暂停，直到处理器终止。
+    return true;
+  }
+  LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+      "Cancel power action because deferred NVS data is still dirty\n");
+  app::ResumeStorageUpdatesAfterShutdownFailure();
+  const bool screen_restored = RestoreScreenAfterSleep();
+  lvgl_port_.EndScreenTransition();
+  lvgl_port_.SetInputBlocked(false);
+  if (!screen_restored) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "NVS flush failed and screen recovery also failed\n");
+  }
+  return false;
+}
+
+bool Application::RestoreScreenAfterSleep() {
+  hal::ScreenProvider* screen = device_provider_context_.screen.get();
+  if (screen == nullptr) {
+    return false;
+  }
+  screen_off_confirmed_.store(false);
+  if (!lvgl_port_.IsDisplayFlushPaused()) {
+    return true;
+  }
+
+  if (!screen->ExitDeviceSleep(false)) {
+    return false;
+  }
+
+  // 面板保持亮度 0，直到专用 LVGL 任务确认锁屏完整帧传输结束。
+  if (!lvgl_port_.ResumeDisplayFlushAndWaitForRefresh()) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Screen woke, but lock screen refresh did not complete\n");
+    lvgl_port_.PauseDisplayFlush();
+    return false;
+  }
+
+  const app::DisplayPreferences preferences =
+      LoadDisplayPreferencesOrDefault();
+  if (!screen->SetScreenBrightnessPercent(
+          preferences.brightness_percent)) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Screen woke, but restoring brightness failed\n");
+    lvgl_port_.PauseDisplayFlush();
+    return false;
+  }
+  current_screen_brightness_percent_.store(
+      preferences.brightness_percent);
+  lvgl_port_.ReleaseSleepInputBlock();
   return true;
 }
 
@@ -784,21 +1042,59 @@ bool Application::IsUnlockSwipe(const hal::TouchPoint& start,
          horizontal_drift <= kScreenUnlockSwipeMaxHorizontalDrift;
 }
 
-void Application::FadeScreenBrightnessTo(int target_percent) {
+bool Application::ReadScreenTouchWhileAwake(
+    hal::TouchPoint* point, bool* access_available) {
+  if (access_available != nullptr) {
+    *access_available = false;
+  }
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
-  if (screen == nullptr) {
-    return;
+  if (point == nullptr || screen == nullptr ||
+      !lvgl_port_.TryBeginScreenTransition()) {
+    return false;
   }
 
+  const bool can_access = !power_action_in_progress_.load() &&
+      !lvgl_port_.IsDisplayFlushPaused() &&
+      !screen_off_confirmed_.load();
+  const bool touched = can_access && screen->ReadScreenTouch(point);
+  lvgl_port_.EndScreenTransition();
+  if (access_available != nullptr) {
+    *access_available = can_access;
+  }
+  return touched;
+}
+
+bool Application::SetScreenBrightnessWhileAwake(int percent) {
+  hal::ScreenProvider* screen = device_provider_context_.screen.get();
+  if (screen == nullptr || !lvgl_port_.TryBeginScreenTransition()) {
+    return false;
+  }
+
+  const int clamped_percent = std::clamp(percent, 0, 100);
+  const bool can_access = !power_action_in_progress_.load() &&
+      !lvgl_port_.IsDisplayFlushPaused() &&
+      !screen_off_confirmed_.load();
+  const bool updated = can_access &&
+      screen->SetScreenBrightnessPercent(clamped_percent);
+  if (updated) {
+    current_screen_brightness_percent_.store(clamped_percent);
+  }
+  lvgl_port_.EndScreenTransition();
+  return updated;
+}
+
+bool Application::FadeScreenBrightnessTo(int target_percent) {
   const int start_percent = current_screen_brightness_percent_.load();
   for (int step = 1; step <= kScreenLockFadeStepCount; ++step) {
     const int brightness = start_percent +
         (target_percent - start_percent) * step / kScreenLockFadeStepCount;
-    screen->SetScreenBrightnessPercent(brightness);
+    if (!SetScreenBrightnessWhileAwake(brightness)) {
+      return false;
+    }
     vTaskDelay(pdMS_TO_TICKS(
         std::max<uint32_t>(1, kScreenLockFadeMs / kScreenLockFadeStepCount)));
   }
-  current_screen_brightness_percent_.store(target_percent);
+  return true;
 }
 
 app::DisplayPreferences Application::LoadDisplayPreferencesOrDefault() const {

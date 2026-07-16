@@ -2,7 +2,7 @@
  * @Description: 振动偏好存储，内部维护内存缓存
  * @Author: LILYGO_L
  * @Date: 2026-06-25 00:00:00
- * @LastEditTime: 2026-07-03 00:00:00
+ * @LastEditTime: 2026-07-16 22:35:14
  * @License: GPL 3.0
  */
 #pragma once
@@ -11,7 +11,9 @@ namespace lilygo_box::app {
 
 // 振动设置用户偏好。
 struct HapticPreferences {
+  // 是否启用系统触感反馈。
   bool enabled = true;
+  // 触感强度百分比，范围为 0～100。
   int strength_percent = 90;
 };
 
@@ -27,9 +29,9 @@ void InitHapticCache();
 HapticPreferences GetHapticPreferences();
 
 /**
- * @brief 更新振动偏好并持久化到 NVS
+ * @brief 仅更新 RAM 缓存，屏幕完全关闭后统一写入 NVS
  * @param preferences 新的振动偏好
- * @return 更新成功返回 true
+ * @return RAM 缓存接收成功返回 true
  */
 bool UpdateHapticPreferences(const HapticPreferences& preferences);
 

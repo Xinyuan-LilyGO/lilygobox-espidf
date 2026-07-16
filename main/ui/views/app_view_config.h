@@ -29,6 +29,7 @@ class EthernetProvider;
 class GpsProvider;
 class HapticProvider;
 class ImuProvider;
+class LvglPort;
 class RtcProvider;
 class RfProvider;
 class ScreenProvider;
@@ -46,6 +47,8 @@ struct AppViewConfig {
   int height = 0;
   // 屏幕读写和尺寸信息提供者。
   hal::ScreenProvider* screen = nullptr;
+  // LVGL 刷新、屏幕电源转换与短硬件访问协调器。
+  hal::LvglPort* lvgl_port = nullptr;
   // 设备诊断信息提供者。
   hal::DeviceDiagnosticsProvider* diagnostics = nullptr;
   // 设备基础信息提供者。

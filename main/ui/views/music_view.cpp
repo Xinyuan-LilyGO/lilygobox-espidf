@@ -2360,43 +2360,49 @@ void RebuildMusicSourcesPromptAsync(void* context) {
 }
 
 /**
- * @brief 从 NVS 加载音乐源文件夹到视图状态
+ * @brief 从长期 RAM 缓存加载音乐源文件夹到视图状态
  * @param state 音乐视图状态
  */
 void LoadStoredMusicSources(MusicViewState* state) {
   if (state == nullptr) {
     return;
   }
-  app::MusicSourcePreferences preferences;
-  if (!app::LoadMusicSourcePreferences(&preferences)) {
+  auto preferences = std::unique_ptr<app::MusicSourcePreferences>(
+      new (std::nothrow) app::MusicSourcePreferences());
+  if (preferences == nullptr ||
+      !app::GetMusicSourcePreferences(preferences.get())) {
     return;
   }
   const size_t count = std::min<size_t>(
       kMusicFolderOptionCount, app::kMusicSourceCapacity);
   for (size_t index = 0; index < count; ++index) {
-    state->source_paths[index] = preferences.paths[index];
+    state->source_paths[index] = preferences->paths[index];
     state->source_enabled[index] = !state->source_paths[index].empty();
   }
 }
 
 /**
- * @brief 将视图状态中的音乐源文件夹保存到 NVS
+ * @brief 将视图状态中的音乐源文件夹更新到长期 RAM 缓存
  * @param state 音乐视图状态
- * @return 保存成功返回 true，否则返回 false
+ * @return RAM 缓存更新成功返回 true，否则返回 false
  */
-bool SaveStoredMusicSources(const MusicViewState* state) {
+bool UpdateStoredMusicSources(const MusicViewState* state) {
   if (state == nullptr) {
     return false;
   }
-  app::MusicSourcePreferences preferences;
+  auto preferences = std::unique_ptr<app::MusicSourcePreferences>(
+      new (std::nothrow) app::MusicSourcePreferences());
+  if (preferences == nullptr) {
+    return false;
+  }
   const size_t count = std::min<size_t>(
       kMusicFolderOptionCount, app::kMusicSourceCapacity);
   for (size_t index = 0; index < count; ++index) {
-    std::snprintf(preferences.paths[index],
+    std::snprintf(preferences->paths[index],
         app::kMusicSourcePathCapacity, "%s",
         state->source_paths[index].c_str());
   }
-  return app::SaveMusicSourcePreferences(preferences);
+  return app::UpdateMusicSourcePreferences(*preferences);
 }
 
 /**
@@ -2416,7 +2422,7 @@ void MusicSourcesPromptSavedCallback(void* context) {
         !state->source_paths[source].empty();
   }
   UpdateMusicSourcesSummary(state);
-  SaveStoredMusicSources(state);
+  UpdateStoredMusicSources(state);
   RefreshMusicLibrary(state);
 }
 

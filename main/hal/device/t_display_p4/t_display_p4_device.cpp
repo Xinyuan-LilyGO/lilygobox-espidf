@@ -54,7 +54,7 @@ namespace device = lilygo_device_driver::t_display_p4::device;
 namespace gpio = lilygo_device_driver::t_display_p4::gpio;
 namespace {
 
-constexpr int kScreenBrightnessMinPercent = 10;
+constexpr int kScreenBrightnessMinPercent = 0;
 constexpr int kScreenBrightnessMaxPercent = 100;
 constexpr uint8_t kRm69a10BrightnessMax = UINT8_MAX;
 constexpr uint8_t kVibrationTestGain = 255;
@@ -3482,15 +3482,14 @@ bool TDisplayP4Device::SetScreenBrightnessPercent(int percent) {
 }
 
 bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
-  if (!WaitForScreenReady()) {
+  if (!deep_sleep && !WaitForScreenReady()) {
     return false;
   }
   const lilygo_device_driver::TDisplayP4Driver::SleepLevel sleep_level =
       deep_sleep
           ? lilygo_device_driver::TDisplayP4Driver::SleepLevel::kDeep
           : lilygo_device_driver::TDisplayP4Driver::SleepLevel::kLight;
-  return driver_.SetSleep(
-      sleep_level, true);
+  return driver_.SetSleep(sleep_level, true);
 }
 
 bool TDisplayP4Device::ExitDeviceSleep(bool deep_sleep) {

@@ -7,6 +7,7 @@
  */
 #include "ui/views/settings/settings_basic_view_common.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 
@@ -23,6 +24,30 @@ namespace {
 
 hal::LvglPort* g_lvgl_port = nullptr;
 int g_pending_rotation_angle = -1;
+
+constexpr int kBrightnessSliderMin = 0;
+constexpr int kBrightnessSliderMax = 100;
+
+int BrightnessPercentFromSlider(int slider_value) {
+  const int clamped_value = std::clamp(
+      slider_value, kBrightnessSliderMin, kBrightnessSliderMax);
+  const int user_range = app::kUserDisplayBrightnessMaxPercent -
+      app::kUserDisplayBrightnessMinPercent;
+  return app::kUserDisplayBrightnessMinPercent +
+      (clamped_value * user_range + kBrightnessSliderMax / 2) /
+          kBrightnessSliderMax;
+}
+
+int SliderValueFromBrightnessPercent(int brightness_percent) {
+  const int clamped_percent = std::clamp(brightness_percent,
+      app::kUserDisplayBrightnessMinPercent,
+      app::kUserDisplayBrightnessMaxPercent);
+  const int user_range = app::kUserDisplayBrightnessMaxPercent -
+      app::kUserDisplayBrightnessMinPercent;
+  return ((clamped_percent - app::kUserDisplayBrightnessMinPercent) *
+              kBrightnessSliderMax + user_range / 2) /
+      user_range;
+}
 
 // sheet 收缩动画时长 (ms)，旋转需等待其播完后再执行
 constexpr uint32_t kSheetDismissAnimationMs = 200;
@@ -64,10 +89,10 @@ void PlaySettingsHapticPreview(SettingsViewState* state) {
 }
 
 /**
- * @brief 异步保存显示亮度设置偏好
+ * @brief 将显示亮度设置更新到长期 RAM 缓存
  * @param state 设置页状态
  */
-void SaveBrightnessPreferencesAsync(SettingsViewState* state) {
+void CacheBrightnessPreferences(SettingsViewState* state) {
   if (state == nullptr) {
     return;
   }
@@ -84,11 +109,17 @@ void SaveBrightnessPreferencesAsync(SettingsViewState* state) {
 void BrightnessSliderChangedEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (state != nullptr) {
-    const int brightness_percent = SliderPercentFromEvent(event);
+    const int brightness_percent =
+        BrightnessPercentFromSlider(SliderPercentFromEvent(event));
     state->display_brightness_percent = brightness_percent;
     PlaySettingsHapticPreview(state);
-    if (state->config.screen != nullptr) {
-      state->config.screen->SetScreenBrightnessPercent(brightness_percent);
+    hal::LvglPort* lvgl_port = state->config.lvgl_port;
+    if (state->config.screen != nullptr && lvgl_port != nullptr &&
+        lvgl_port->TryBeginScreenTransition()) {
+      if (!lvgl_port->IsDisplayFlushPaused()) {
+        state->config.screen->SetScreenBrightnessPercent(brightness_percent);
+      }
+      lvgl_port->EndScreenTransition();
     }
   }
 }
@@ -98,7 +129,7 @@ void BrightnessSliderChangedEventCallback(lv_event_t* event) {
  * @param event LVGL 事件对象
  */
 void BrightnessSliderReleasedEventCallback(lv_event_t* event) {
-  SaveBrightnessPreferencesAsync(
+  CacheBrightnessPreferences(
       static_cast<SettingsViewState*>(lv_event_get_user_data(event)));
 }
 
@@ -291,8 +322,10 @@ bool BuildDisplayBrightnessContent(lv_obj_t* body, SettingsViewState* state) {
     return false;
   }
   y += kBasicSectionHeight;
+  const int brightness_slider_value =
+      SliderValueFromBrightnessPercent(state->display_brightness_percent);
   if (!CreateSliderRow(body, icon::kSunny, "Screen brightness",
-          state->display_brightness_percent, y,
+          brightness_slider_value, y,
           width, BrightnessSliderChangedEventCallback, state)) {
     return false;
   }

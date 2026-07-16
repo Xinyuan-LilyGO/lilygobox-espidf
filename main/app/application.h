@@ -40,7 +40,7 @@ class Application final {
   static void StartupWifiAutoConnectTaskEntry(void* context);
 
   /**
-   * @brief 根据 NVS 中保存的 WLAN 偏好执行启动自动连接
+   * @brief 根据启动时载入 RAM 的 WLAN 偏好执行自动连接
    */
   void RunStartupWifiAutoConnectTask();
 
@@ -106,6 +106,24 @@ class Application final {
   bool SleepAwakeLockScreenWithTimeout();
 
   /**
+   * @brief 完成轻度熄屏后提交 RAM 偏好缓存
+   * @return 屏幕进入休眠返回 true，否则恢复屏幕并返回 false
+   */
+  bool EnterScreenSleepAndFlushStorage();
+
+  /**
+   * @brief 为重启或关机冻结更新并完成最终偏好落盘
+   * @return 屏幕已关闭且缓存已全部持久化返回 true
+   */
+  bool PreparePowerActionStorage();
+
+  /**
+   * @brief 在屏幕转换事务内唤醒设备并恢复用户亮度
+   * @return 屏幕与亮度均恢复且 LVGL 可以安全恢复时返回 true
+   */
+  bool RestoreScreenAfterSleep();
+
+  /**
    * @brief 退出锁屏页面并恢复 LVGL 输入
    */
   void UnlockScreen();
@@ -120,10 +138,27 @@ class Application final {
       const hal::TouchPoint& current) const;
 
   /**
+   * @brief 在短屏幕事务内读取亮屏触摸状态
+   * @param point 触摸点输出
+   * @param access_available 可选返回当前是否允许访问屏幕硬件
+   * @return 检测到有效触摸返回 true
+   */
+  bool ReadScreenTouchWhileAwake(
+      hal::TouchPoint* point, bool* access_available = nullptr);
+
+  /**
+   * @brief 在短屏幕事务内修改亮屏亮度
+   * @param percent 目标亮度百分比
+   * @return 硬件仍可访问且亮度设置成功时返回 true
+   */
+  bool SetScreenBrightnessWhileAwake(int percent);
+
+  /**
    * @brief 将屏幕亮度渐变到目标值
    * @param target_percent 目标亮度百分比
+   * @return 全部渐变步骤成功返回 true
    */
-  void FadeScreenBrightnessTo(int target_percent);
+  bool FadeScreenBrightnessTo(int target_percent);
 
   /**
    * @brief 读取当前显示偏好，读取失败时使用默认值
@@ -137,7 +172,11 @@ class Application final {
   std::atomic<int> current_screen_brightness_percent_{90};
   std::atomic<bool> screen_locked_{false};
   std::atomic<bool> lock_screen_awake_{false};
+  // 仅在驱动确认物理面板已完整熄屏后保持为 true。
+  std::atomic<bool> screen_off_confirmed_{false};
   std::atomic<bool> power_menu_visible_{false};
+  // 防止重启与关机流程并发进入最终熄屏和存储事务。
+  std::atomic<bool> power_action_in_progress_{false};
 };
 
 }  // namespace lilygo_box

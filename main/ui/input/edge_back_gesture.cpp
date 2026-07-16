@@ -2,7 +2,7 @@
  * @Description: 屏幕边缘返回手势识别与指示动画实现
  * @Author: LILYGO_L
  * @Date: 2026-05-12 22:15:00
- * @LastEditTime: 2026-05-18 12:00:00
+ * @LastEditTime: 2026-07-17 01:58:45
  * @License: GPL 3.0
  */
 #include "ui/input/edge_back_gesture.h"
@@ -324,11 +324,19 @@ bool HandleEdgeBackSwipeEvent(
 
   const int delta_y = point.y - state->gesture_start_point.y;
   const int back_distance = GestureBackDistance(*state, point);
-  if (code == LV_EVENT_PRESS_LOST &&
-      lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED) {
-    if (state->active) {
-      UpdateBackIndicator(*state, screen_width, point);
+  // 控件在滚动或事件归属切换时可能先收到 PRESS_LOST，此时手指未必松开。
+  // PRESS_LOST 只保持或取消手势，返回操作只能由 RELEASED 提交。
+  if (code == LV_EVENT_PRESS_LOST) {
+    if (lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED) {
+      if (state->active) {
+        UpdateBackIndicator(*state, screen_width, point);
+      }
+      return false;
     }
+    state->tracking = false;
+    state->active = false;
+    state->haptic_feedback_played = false;
+    HideBackIndicator(true);
     return false;
   }
 
@@ -352,6 +360,11 @@ bool HandleEdgeBackSwipeEvent(
       PlayUiHapticFeedback();
       state->haptic_feedback_played = true;
     }
+    return false;
+  }
+
+  if (code != LV_EVENT_RELEASED ||
+      lv_indev_get_state(indev) != LV_INDEV_STATE_RELEASED) {
     return false;
   }
 

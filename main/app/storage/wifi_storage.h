@@ -1,8 +1,8 @@
 /**
- * @Description: WLAN 偏好存储，内部维护内存缓存
+ * @Description: WLAN 偏好存储，运行期只读写长期 RAM 缓存
  * @Author: LILYGO_L
  * @Date: 2026-06-23 00:00:00
- * @LastEditTime: 2026-07-03 00:00:00
+ * @LastEditTime: 2026-07-16 22:36:38
  * @License: GPL 3.0
  */
 #pragma once
@@ -15,7 +15,7 @@ namespace lilygo_box::app {
 
 constexpr size_t kWifiSavedNetworkCapacity = 10;
 
-// WLAN 已保存网络凭据，保存用户确认连接后的 SSID 与连接元数据
+// WLAN 已保存网络凭据，保存用户确认连接后的 SSID 与连接元数据。
 struct WifiSavedNetwork {
   // 已保存热点 SSID，用来在 Saved WLAN 与附近 WLAN 间去重。
   char ssid[hal::kWifiSsidMaxLength + 1] = {};
@@ -29,7 +29,7 @@ struct WifiSavedNetwork {
   int rssi = 0;
 };
 
-// WLAN 用户偏好，保存开关状态和自动连接目标
+// WLAN 用户偏好，保存开关状态和自动连接目标。
 struct WifiPreferences {
   // 用户期望的 WLAN 开关状态。
   bool enabled_requested = false;
@@ -38,54 +38,47 @@ struct WifiPreferences {
 };
 
 /**
- * @brief 将已保存 WLAN 凭据写入 NVS
- * @param networks 已保存 WLAN 凭据数组
- * @param count 已保存 WLAN 凭据数量
- * @return 保存成功返回 true
- */
-bool SaveWifiSavedNetworksToNvs(
-    const WifiSavedNetwork* networks, size_t count);
-
-/**
- * @brief 合并并异步保存最新的 WLAN 凭据快照
+ * @brief 更新已保存 WLAN 凭据的长期 RAM 缓存
  * @param networks 已保存 WLAN 凭据数组
  * @param count 已保存 WLAN 凭据数量
  * @return 快照已接收返回 true，否则返回 false
  */
-bool ScheduleWifiSavedNetworksSave(
+bool UpdateWifiSavedNetworks(
     const WifiSavedNetwork* networks, size_t count);
 
 /**
- * @brief 从 NVS 读取已保存 WLAN 凭据
+ * @brief 从启动时初始化的长期 RAM 缓存读取 WLAN 凭据
  * @param networks 已保存 WLAN 凭据输出数组
  * @param capacity 输出数组容量
- * @param count 实际读取到的数量
+ * @param count 实际读取数量
  * @return 读取成功返回 true
  */
-bool LoadWifiSavedNetworksFromNvs(
+bool GetWifiSavedNetworks(
     WifiSavedNetwork* networks, size_t capacity, size_t* count);
 
 /**
- * @brief 初始化 WLAN 偏好缓存，从 NVS 加载到内存
+ * @brief 一次打开 NVS 并初始化 WLAN 偏好与凭据长期 RAM 缓存
  */
 void InitWifiCache();
 
 /**
- * @brief 读取 WLAN 偏好（纯内存，零 NVS 访问）
+ * @brief 从长期 RAM 缓存读取 WLAN 偏好
  * @return WLAN 偏好
  */
 WifiPreferences GetWifiPreferences();
 
 /**
- * @brief 判断缓存中是否存在有效 WLAN 偏好
+ * @brief 判断缓存中是否存在有效的 WLAN 偏好
  * @return 存在有效偏好返回 true，否则返回 false
  */
 bool HasWifiPreferences();
 
 /**
- * @brief 更新 WLAN 偏好缓存并异步持久化到 NVS
+ * @brief 更新 WLAN 偏好长期 RAM 缓存
+ *
+ * 本函数不会立即访问 NVS，数据将在屏幕完全关闭后统一持久化。
  * @param preferences 新的 WLAN 偏好
- * @return 缓存已更新且持久化任务已安排返回 true，否则返回 false
+ * @return 缓存更新成功返回 true，否则返回 false
  */
 bool UpdateWifiPreferences(const WifiPreferences& preferences);
 

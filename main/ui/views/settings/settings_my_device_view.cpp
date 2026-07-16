@@ -13,6 +13,8 @@
 #include "app/device_info_snapshot.h"
 #include "app/settings_catalog.h"
 #include "app/storage/storage.h"
+#include "base/logger.h"
+#include "hal/lvgl_port.h"
 #include "hal/providers/screen_provider.h"
 #include "ui/animation/transition_animation.h"
 #include "ui/input/app_view_gesture_flags.h"
@@ -578,6 +580,18 @@ void FactoryResetEdgeBackEventCallback(lv_event_t* event) {
   lv_event_stop_processing(event);
 }
 
+bool RestoreFactoryResetScreen(hal::ScreenProvider* screen,
+    hal::LvglPort* lvgl_port, int brightness_percent) {
+  if (!screen->ExitDeviceSleep(false) ||
+      !screen->SetScreenBrightnessPercent(brightness_percent)) {
+    return false;
+  }
+
+  lvgl_port->ResumeDisplayFlush();
+  lvgl_port->ReleaseSleepInputBlock();
+  return true;
+}
+
 /**
  * @brief 处理恢复出厂设置确认按钮
  * @param event LVGL 事件对象
@@ -597,19 +611,51 @@ void FactoryResetConfirmClickedEventCallback(lv_event_t* event) {
   state->factory_reset_started = true;
   UpdateFactoryResetConfirmButton(state);
   hal::ScreenProvider* screen = state->config.screen;
+  hal::LvglPort* lvgl_port = state->config.lvgl_port;
   const int previous_brightness = state->display_brightness_percent;
-  // 复用锁屏的轻度休眠流程，确保背光和屏幕完全关闭后再擦除 NVS。
-  const bool screen_sleeping =
-      screen == nullptr || screen->EnterDeviceSleep();
-  if (!screen_sleeping) {
+  if (screen == nullptr || lvgl_port == nullptr ||
+      !lvgl_port->BeginScreenTransition()) {
     state->factory_reset_started = false;
     UpdateFactoryResetConfirmButton(state);
     return;
   }
-  if (!app::StartFactoryReset()) {
-    if (screen != nullptr) {
-      screen->ExitDeviceSleep();
-      screen->SetScreenBrightnessPercent(previous_brightness);
+  if (lvgl_port->IsDisplayFlushPaused()) {
+    lvgl_port->EndScreenTransition();
+    state->factory_reset_started = false;
+    UpdateFactoryResetConfirmButton(state);
+    return;
+  }
+
+  // 与锁屏、关机共用屏幕事务，确保面板完全关闭后再擦除 NVS。
+  lvgl_port->AcquireSleepInputBlock();
+  if (!lvgl_port->PauseDisplayFlush()) {
+    lvgl_port->ReleaseSleepInputBlock();
+    lvgl_port->EndScreenTransition();
+    state->factory_reset_started = false;
+    UpdateFactoryResetConfirmButton(state);
+    return;
+  }
+
+  const bool screen_off = screen->EnterDeviceSleep(false);
+  if (!screen_off) {
+    const bool screen_restored = RestoreFactoryResetScreen(
+        screen, lvgl_port, previous_brightness);
+    lvgl_port->EndScreenTransition();
+    if (!screen_restored) {
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "Factory reset canceled after screen recovery failed\n");
+    }
+    state->factory_reset_started = false;
+    UpdateFactoryResetConfirmButton(state);
+    return;
+  }
+  if (!app::FactoryResetAfterScreenOff()) {
+    const bool screen_restored = RestoreFactoryResetScreen(
+        screen, lvgl_port, previous_brightness);
+    lvgl_port->EndScreenTransition();
+    if (!screen_restored) {
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "Factory reset failed and screen recovery also failed\n");
     }
     state->factory_reset_started = false;
     UpdateFactoryResetConfirmButton(state);

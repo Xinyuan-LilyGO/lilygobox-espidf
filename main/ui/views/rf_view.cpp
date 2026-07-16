@@ -4238,7 +4238,7 @@ lv_obj_t* CreateRfView(lv_obj_t* parent, const app::AppEntry& app_entry,
           state->capabilities.count, hal::kRfCapabilityCapacity);
     }
   }
-  state->preferences = app::GetRfPreferences();
+  app::GetRfPreferences(&state->preferences);
   SyncModuleItems(state);
   const size_t active_index = FindProfileIndex(
       state, state->preferences.active_profile_id);

@@ -838,6 +838,7 @@ lv_obj_t* CreateCircle(lv_obj_t* parent, int size, int x, int y,
 }  // namespace
 
 bool UiManager::Init(hal::ScreenProvider* screen,
+    hal::LvglPort* lvgl_port,
     hal::DeviceDiagnosticsProvider* diagnostics,
     hal::DeviceInfoProvider* device_info,
     hal::GpsProvider* gps,
@@ -851,10 +852,11 @@ bool UiManager::Init(hal::ScreenProvider* screen,
     hal::EthernetProvider* ethernet,
     hal::WifiProvider* wifi,
     hal::StorageProvider* storage) {
-  if (screen == nullptr) {
+  if (screen == nullptr || lvgl_port == nullptr) {
     return false;
   }
   screen_ = screen;
+  lvgl_port_ = lvgl_port;
   diagnostics_provider_ = diagnostics;
   device_info_provider_ = device_info;
   gps_provider_ = gps;
@@ -2344,6 +2346,7 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   config.width = LayoutWidth();
   config.height = LayoutHeight();
   config.screen = screen_;
+  config.lvgl_port = lvgl_port_;
   config.diagnostics = diagnostics_provider_;
   config.device_info = device_info_provider_;
   config.gps = gps_provider_;

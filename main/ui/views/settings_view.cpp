@@ -466,7 +466,7 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
   }
   state->config = config;
   state->root = root;
-  LoadWifiSettingsFromNvs(state, IsWifiCurrentlyEnabled(config));
+  LoadWifiSettingsFromCache(state, IsWifiCurrentlyEnabled(config));
   app::DisplayPreferences display_preferences = app::GetDisplayPreferences();
   state->display_brightness_percent = display_preferences.brightness_percent;
   state->auto_lock_seconds = display_preferences.lock_timeout_seconds;

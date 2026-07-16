@@ -81,7 +81,7 @@ bool WaitForWifiDriverReady(
 
 }  // namespace
 
-bool LoadWifiAutoConnectTarget(WifiSavedNetwork* target) {
+bool FindWifiAutoConnectTarget(WifiSavedNetwork* target) {
   if (target == nullptr) {
     return false;
   }
@@ -98,7 +98,7 @@ bool LoadWifiAutoConnectTarget(WifiSavedNetwork* target) {
     return false;
   }
   size_t saved_network_count = 0;
-  if (!LoadWifiSavedNetworksFromNvs(
+  if (!GetWifiSavedNetworks(
           saved_networks.get(), kWifiSavedNetworkCapacity,
           &saved_network_count)) {
     return false;
@@ -131,7 +131,7 @@ WifiAutoConnectResult TryStartWifiAutoConnect(
     return WifiAutoConnectResult::kDisabled;
   }
   WifiSavedNetwork target;
-  const bool has_saved_target = LoadWifiAutoConnectTarget(&target);
+  const bool has_saved_target = FindWifiAutoConnectTarget(&target);
 
   hal::WifiStatus status = ReadWifiStatusOrDefault(wifi);
   if (status.connected || status.got_ip) {

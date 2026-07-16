@@ -31,6 +31,7 @@ class EthernetProvider;
 class GpsProvider;
 class HapticProvider;
 class ImuProvider;
+class LvglPort;
 class RtcProvider;
 class RfProvider;
 class WifiProvider;
@@ -46,6 +47,7 @@ class UiManager final {
   /**
    * @brief 初始化 launcher 和根屏幕 UI
    * @param screen 屏幕设备对象
+   * @param lvgl_port LVGL 显示刷新生命周期对象
    * @param diagnostics 设备诊断提供者指针
    * @param device_info 设备信息提供者指针
    * @param gps GPS 提供者指针
@@ -60,6 +62,7 @@ class UiManager final {
    * @return 初始化成功返回 true，否则返回 false
    */
   bool Init(hal::ScreenProvider* screen,
+      hal::LvglPort* lvgl_port,
       hal::DeviceDiagnosticsProvider* diagnostics,
       hal::DeviceInfoProvider* device_info,
       hal::GpsProvider* gps,
@@ -105,7 +108,7 @@ class UiManager final {
 
   /**
    * @brief 在启动界面结束后显示首次开机欢迎页
-   * @param completion_callback 关闭页面前持久化完成标志的回调
+   * @param completion_callback 关闭页面前更新 RAM 完成标志的回调
    * @return 页面已经显示或进入待显示状态返回 true，否则返回 false
    */
   bool ShowFirstBootWelcome(
@@ -333,8 +336,8 @@ class UiManager final {
   void DestroyFirstBootWelcomeScreen();
 
   /**
-   * @brief 持久化首次开机完成标志并关闭欢迎页
-   * @return 标志保存且页面关闭成功返回 true，否则返回 false
+   * @brief 更新首次开机 RAM 完成标志并关闭欢迎页
+   * @return 标志缓存且页面关闭成功返回 true，否则返回 false
    */
   bool CompleteFirstBootWelcome();
 
@@ -455,6 +458,8 @@ class UiManager final {
   void NotifyLockScreenVisibilityChanged(bool visible);
 
   hal::ScreenProvider* screen_ = nullptr;
+  // 向需要安全熄屏的系统页面传递统一 LVGL 刷新生命周期。
+  hal::LvglPort* lvgl_port_ = nullptr;
   hal::DeviceDiagnosticsProvider* diagnostics_provider_ = nullptr;
   hal::DeviceInfoProvider* device_info_provider_ = nullptr;
   hal::GpsProvider* gps_provider_ = nullptr;

@@ -2,7 +2,7 @@
  * @Description: 首次开机欢迎页完成标志存储接口
  * @Author: LILYGO_L
  * @Date: 2026-07-15 00:00:00
- * @LastEditTime: 2026-07-15 00:00:00
+ * @LastEditTime: 2026-07-16 22:35:14
  * @License: GPL 3.0
  */
 #pragma once
@@ -21,8 +21,8 @@ void InitFirstBootCache();
 bool IsFirstBootCompleted();
 
 /**
- * @brief 将首次开机欢迎流程完成标志持久化到 NVS
- * @return 写入并提交成功返回 true，否则返回 false
+ * @brief 仅更新 RAM 完成标记，屏幕完全关闭后统一写入 NVS
+ * @return RAM 缓存接收成功返回 true
  */
 bool MarkFirstBootCompleted();
 

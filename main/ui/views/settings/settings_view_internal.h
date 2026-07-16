@@ -396,11 +396,11 @@ lv_obj_t* CreateDivider(lv_obj_t* parent, int width);
 void RestoreSettingsListGestures(SettingsViewState* state);
 
 /**
- * @brief 从 ESP32-P4 NVS 读取已保存 WLAN 凭据和用户偏好
+ * @brief 从长期 RAM 缓存读取已保存 WLAN 凭据和用户偏好
  * @param state 设置页状态
  * @param fallback_enabled 未保存开关状态时使用的默认 WLAN 开关状态
  */
-void LoadWifiSettingsFromNvs(
+void LoadWifiSettingsFromCache(
     SettingsViewState* state, bool fallback_enabled);
 
 /**

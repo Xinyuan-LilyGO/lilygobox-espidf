@@ -40,11 +40,11 @@ struct WifiAutoConnectOptions {
 };
 
 /**
- * @brief 从 NVS 保存的 WLAN 配置中读取自动连接目标
+ * @brief 从长期 RAM 缓存中查找 WLAN 自动连接目标
  * @param target 自动连接目标输出地址
  * @return 找到可连接目标返回 true，否则返回 false
  */
-bool LoadWifiAutoConnectTarget(WifiSavedNetwork* target);
+bool FindWifiAutoConnectTarget(WifiSavedNetwork* target);
 
 /**
  * @brief 按保存偏好启动 WLAN，并在存在目标热点时尝试自动连接

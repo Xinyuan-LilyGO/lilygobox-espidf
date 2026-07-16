@@ -61,6 +61,12 @@ bool LvglPort::Init(ScreenProvider* screen) {
     return false;
   }
 
+  screen_transition_mutex_ =
+      xSemaphoreCreateMutexStatic(&screen_transition_mutex_buffer_);
+  if (screen_transition_mutex_ == nullptr) {
+    return false;
+  }
+
   screen_ = screen;
   lv_init();
 
@@ -132,7 +138,8 @@ bool LvglPort::Init(ScreenProvider* screen) {
 
 bool LvglPort::Start() {
   const BaseType_t result = xTaskCreate(
-      TaskEntry, "lvgl", kLvglTaskStackBytes, this, kLvglTaskPriority, nullptr);
+      TaskEntry, "lvgl", kLvglTaskStackBytes, this, kLvglTaskPriority,
+      &task_handle_);
   return result == pdPASS;
 }
 
@@ -151,6 +158,119 @@ void LvglPort::SetInputBlocked(bool blocked) {
   active_edge_touch_flag_ = false;
   pending_edge_touch_flag_ = false;
   has_last_touch_point_ = false;
+}
+
+void LvglPort::AcquireSleepInputBlock() {
+  sleep_input_block_count_.fetch_add(1, std::memory_order_acq_rel);
+  active_edge_touch_flag_ = false;
+  pending_edge_touch_flag_ = false;
+  has_last_touch_point_ = false;
+}
+
+void LvglPort::ReleaseSleepInputBlock() {
+  uint32_t count = sleep_input_block_count_.load(std::memory_order_acquire);
+  while (count > 0 &&
+      !sleep_input_block_count_.compare_exchange_weak(count, count - 1,
+          std::memory_order_acq_rel, std::memory_order_acquire)) {
+  }
+}
+
+bool LvglPort::BeginScreenTransition() {
+  return screen_transition_mutex_ != nullptr &&
+      xSemaphoreTake(screen_transition_mutex_, portMAX_DELAY) == pdTRUE;
+}
+
+bool LvglPort::TryBeginScreenTransition() {
+  return screen_transition_mutex_ != nullptr &&
+      xSemaphoreTake(screen_transition_mutex_, 0) == pdTRUE;
+}
+
+void LvglPort::EndScreenTransition() {
+  if (screen_transition_mutex_ != nullptr) {
+    xSemaphoreGive(screen_transition_mutex_);
+  }
+}
+
+bool LvglPort::PauseDisplayFlush() {
+  display_flush_pause_count_.fetch_add(1, std::memory_order_seq_cst);
+  const TickType_t poll_ticks =
+      std::max<TickType_t>(1, pdMS_TO_TICKS(1));
+  const TickType_t timeout_ticks =
+      std::max<TickType_t>(1, pdMS_TO_TICKS(kFlushPauseTimeoutMs));
+  const TickType_t start_ticks = xTaskGetTickCount();
+  while (xTaskGetTickCount() - start_ticks < timeout_ticks) {
+    if (!display_flush_in_progress_.load(std::memory_order_seq_cst)) {
+      return true;
+    }
+    vTaskDelay(poll_ticks);
+  }
+  if (!display_flush_in_progress_.load(std::memory_order_seq_cst)) {
+    return true;
+  }
+  ResumeDisplayFlush();
+  LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+      "Pause LVGL display flush timed out\n");
+  return false;
+}
+
+void LvglPort::ResumeDisplayFlush() {
+  ResumeDisplayFlushInternal();
+}
+
+bool LvglPort::ResumeDisplayFlushAndWaitForRefresh() {
+  const uint32_t generation = ResumeDisplayFlushInternal();
+  if (generation == 0) {
+    return false;
+  }
+
+  const TickType_t poll_ticks =
+      std::max<TickType_t>(1, pdMS_TO_TICKS(1));
+  const TickType_t timeout_ticks =
+      std::max<TickType_t>(1, pdMS_TO_TICKS(kDisplayRefreshTimeoutMs));
+  const TickType_t start_ticks = xTaskGetTickCount();
+  while (xTaskGetTickCount() - start_ticks < timeout_ticks) {
+    if (display_refresh_completed_generation_.load(
+            std::memory_order_acquire) == generation) {
+      return true;
+    }
+    vTaskDelay(poll_ticks);
+  }
+  if (display_refresh_completed_generation_.load(
+          std::memory_order_acquire) == generation) {
+    return true;
+  }
+  LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+      "Wait for LVGL display refresh timed out\n");
+  return false;
+}
+
+uint32_t LvglPort::ResumeDisplayFlushInternal() {
+  uint32_t count =
+      display_flush_pause_count_.load(std::memory_order_seq_cst);
+  while (count > 0) {
+    if (display_flush_pause_count_.compare_exchange_weak(count, count - 1,
+            std::memory_order_seq_cst, std::memory_order_seq_cst)) {
+      if (count == 1) {
+        const uint32_t generation =
+            display_refresh_request_generation_.fetch_add(
+                1, std::memory_order_acq_rel) + 1;
+        display_refresh_rendering_generation_.store(
+            0, std::memory_order_release);
+        display_refresh_failed_.store(false, std::memory_order_release);
+        display_refresh_requested_.store(true, std::memory_order_release);
+        if (task_handle_ != nullptr) {
+          xTaskNotifyGive(task_handle_);
+        }
+        return generation;
+      }
+      return 0;
+    }
+  }
+  return 0;
+}
+
+bool LvglPort::IsDisplayFlushPaused() const {
+  return display_flush_pause_count_.load(std::memory_order_seq_cst) > 0;
 }
 
 void LvglPort::Lock() { _lock_acquire(&lock_); }
@@ -182,11 +302,38 @@ void LvglPort::FlushCallback(
     lv_display_flush_ready(lvgl_display);
     return;
   }
+  if (self->display_flush_pause_count_.load(
+          std::memory_order_seq_cst) > 0) {
+    self->display_refresh_failed_.store(true, std::memory_order_release);
+    lv_display_flush_ready(lvgl_display);
+    return;
+  }
+
+  self->display_flush_in_progress_.store(true, std::memory_order_seq_cst);
+  if (self->display_flush_pause_count_.load(
+          std::memory_order_seq_cst) > 0) {
+    self->display_refresh_failed_.store(true, std::memory_order_release);
+    self->display_flush_in_progress_.store(
+        false, std::memory_order_seq_cst);
+    lv_display_flush_ready(lvgl_display);
+    return;
+  }
 
   lv_area_t flush_area = *area;
   uint8_t* flush_pixels = pixel_map;
   if (!self->RotateFlushBuffer(
           lvgl_display, area, pixel_map, &flush_area, &flush_pixels)) {
+    self->display_refresh_failed_.store(true, std::memory_order_release);
+    self->display_flush_in_progress_.store(
+        false, std::memory_order_seq_cst);
+    lv_display_flush_ready(lvgl_display);
+    return;
+  }
+  if (self->display_flush_pause_count_.load(
+          std::memory_order_seq_cst) > 0) {
+    self->display_refresh_failed_.store(true, std::memory_order_release);
+    self->display_flush_in_progress_.store(
+        false, std::memory_order_seq_cst);
     lv_display_flush_ready(lvgl_display);
     return;
   }
@@ -194,6 +341,9 @@ void LvglPort::FlushCallback(
   const bool result = self->screen_->WriteScreenPixels(flush_area.x1,
       flush_area.y1, flush_area.x2 + 1, flush_area.y2 + 1, flush_pixels);
   if (!result) {
+    self->display_refresh_failed_.store(true, std::memory_order_release);
+    self->display_flush_in_progress_.store(
+        false, std::memory_order_seq_cst);
     LogMessage(
         LogLevel::kError, __FILE__, __LINE__, "WriteScreenPixels failed\n");
     lv_display_flush_ready(lvgl_display);
@@ -203,7 +353,21 @@ void LvglPort::FlushCallback(
 void LvglPort::FlushReadyCallback(void* context) {
   auto* self = static_cast<LvglPort*>(context);
   if (self != nullptr && self->lvgl_display_ != nullptr) {
+    const bool is_last_flush =
+        lv_display_flush_is_last(self->lvgl_display_);
+    self->display_flush_in_progress_.store(
+        false, std::memory_order_seq_cst);
     lv_display_flush_ready(self->lvgl_display_);
+    if (is_last_flush && !self->display_refresh_failed_.load(
+            std::memory_order_acquire)) {
+      const uint32_t generation =
+          self->display_refresh_rendering_generation_.load(
+              std::memory_order_acquire);
+      if (generation != 0) {
+        self->display_refresh_completed_generation_.store(
+            generation, std::memory_order_release);
+      }
+    }
   }
 }
 
@@ -214,7 +378,27 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
     return;
   }
 
-  if (self->input_blocked_.load()) {
+  if (self->input_blocked_.load() ||
+      self->sleep_input_block_count_.load(std::memory_order_acquire) > 0) {
+    self->active_edge_touch_flag_ = false;
+    self->pending_edge_touch_flag_ = false;
+    self->has_last_touch_point_ = false;
+    data->state = LV_INDEV_STATE_REL;
+    return;
+  }
+
+  if (!self->TryBeginScreenTransition()) {
+    self->active_edge_touch_flag_ = false;
+    self->pending_edge_touch_flag_ = false;
+    self->has_last_touch_point_ = false;
+    data->state = LV_INDEV_STATE_REL;
+    return;
+  }
+  const bool access_blocked = self->input_blocked_.load() ||
+      self->sleep_input_block_count_.load(std::memory_order_acquire) > 0 ||
+      self->IsDisplayFlushPaused();
+  if (access_blocked) {
+    self->EndScreenTransition();
     self->active_edge_touch_flag_ = false;
     self->pending_edge_touch_flag_ = false;
     self->has_last_touch_point_ = false;
@@ -224,6 +408,7 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
 
   TouchPoint point;
   const bool result = self->screen_->ReadScreenTouch(&point);
+  self->EndScreenTransition();
   if (result) {
     const bool valid_point =
         IsValidTouchPoint(point, self->screen_->ScreenWidth(),
@@ -396,12 +581,31 @@ bool LvglPort::RotateFlushBuffer(lv_display_t* lvgl_display,
 
 void LvglPort::TaskLoop() {
   while (true) {
+    uint32_t refresh_generation = 0;
     Lock();
+    if (display_refresh_requested_.exchange(
+            false, std::memory_order_acq_rel)) {
+      refresh_generation = display_refresh_request_generation_.load(
+          std::memory_order_acquire);
+      display_refresh_rendering_generation_.store(
+          refresh_generation, std::memory_order_release);
+      lv_obj_t* active_screen = lv_screen_active();
+      if (active_screen != nullptr) {
+        lv_obj_invalidate(active_screen);
+      }
+    }
     uint32_t delay_ms = lv_timer_handler();
     Unlock();
 
+    if (refresh_generation != 0 &&
+        !display_flush_in_progress_.load(std::memory_order_acquire) &&
+        !display_refresh_failed_.load(std::memory_order_acquire)) {
+      display_refresh_completed_generation_.store(
+          refresh_generation, std::memory_order_release);
+    }
+
     delay_ms = std::max(delay_ms, kMinimumHandlerDelayMs);
-    vTaskDelay(pdMS_TO_TICKS(delay_ms));
+    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(delay_ms));
   }
 }
 

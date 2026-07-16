@@ -2,7 +2,7 @@
  * @Description: 声音偏好存储，内部维护内存缓存
  * @Author: LILYGO_L
  * @Date: 2026-06-25 00:00:00
- * @LastEditTime: 2026-07-03 00:00:00
+ * @LastEditTime: 2026-07-16 22:35:14
  * @License: GPL 3.0
  */
 #pragma once
@@ -11,6 +11,7 @@ namespace lilygo_box::app {
 
 // 声音设置用户偏好。
 struct SoundPreferences {
+  // 系统输出音量百分比，范围为 0～100。
   int volume_percent = 90;
 };
 
@@ -26,9 +27,9 @@ void InitSoundCache();
 SoundPreferences GetSoundPreferences();
 
 /**
- * @brief 更新声音偏好并持久化到 NVS
+ * @brief 仅更新 RAM 缓存，屏幕完全关闭后统一写入 NVS
  * @param preferences 新的声音偏好
- * @return 更新成功返回 true
+ * @return RAM 缓存接收成功返回 true
  */
 bool UpdateSoundPreferences(const SoundPreferences& preferences);
 

@@ -123,10 +123,10 @@ void SaveWifiNetworkCredential(
     const WifiNetworkAction& action, const char* password);
 
 /**
- * @brief 异步保存 WLAN 开关和自动连接偏好
+ * @brief 将 WLAN 开关和自动连接偏好更新到长期 RAM 缓存
  * @param state 设置页状态
  */
-void PersistWifiPreferencesToNvsInternal(const SettingsViewState* state);
+void CacheWifiPreferences(const SettingsViewState* state);
 
 /**
  * @brief 判断 SSID 是否已经在运行期保存过
@@ -617,7 +617,7 @@ void WifiSwitchValueChangedEventCallback(lv_event_t* event) {
     state->wifi_scan_request_generation = 0;
     state->config.wifi->StopWifi();
   }
-  PersistWifiPreferencesToNvsInternal(state);
+  CacheWifiPreferences(state);
   UpdateSettingsWifiValue(state);
   state->wifi_refresh_force = true;
 }
@@ -661,7 +661,7 @@ bool StartWifiConnection(SettingsViewState* state, const char* password) {
   }
 
   state->wifi_enabled_requested = true;
-  PersistWifiPreferencesToNvsInternal(state);
+  CacheWifiPreferences(state);
   UpdateSettingsWifiValue(state);
   state->wifi_scan_on_ready = false;
   state->wifi_auto_connect_on_ready = false;
@@ -707,7 +707,7 @@ bool TryStartWifiAutoConnect(SettingsViewState* state) {
   if (!status.driver_initialized || status.init_task_running) {
     state->wifi_auto_connect_on_ready = true;
     state->wifi_enabled_requested = true;
-    PersistWifiPreferencesToNvsInternal(state);
+    CacheWifiPreferences(state);
     UpdateSettingsWifiValue(state);
     if (state->config.wifi->StartWifi()) {
       return true;
@@ -995,7 +995,7 @@ void WifiAutoConnectChangedEventCallback(lv_event_t* event) {
     state->wifi_auto_connect_ssid[0] = '\0';
     state->wifi_auto_connect_on_ready = false;
   }
-  PersistWifiPreferencesToNvsInternal(state);
+  CacheWifiPreferences(state);
   lv_event_stop_bubbling(event);
   lv_event_stop_processing(event);
 }
@@ -1159,14 +1159,14 @@ void ReadWifiPageSsid(const hal::WifiStatus& status, char* buffer,
 }
 
 /**
- * @brief 异步保存运行期已保存 WLAN 凭据
+ * @brief 将运行期 WLAN 凭据更新到长期 RAM 缓存
  */
-void PersistSavedWifiNetworksToNvs() {
-  app::ScheduleWifiSavedNetworksSave(
+void CacheSavedWifiNetworks() {
+  app::UpdateWifiSavedNetworks(
       g_wifi_saved_networks, g_wifi_saved_network_count);
 }
 
-void PersistWifiPreferencesToNvsInternal(const SettingsViewState* state) {
+void CacheWifiPreferences(const SettingsViewState* state) {
   if (state == nullptr) {
     return;
   }
@@ -1180,24 +1180,24 @@ void PersistWifiPreferencesToNvsInternal(const SettingsViewState* state) {
 }
 
 /**
- * @brief 从 ESP32-P4 NVS 加载运行期已保存 WLAN 凭据
+ * @brief 从长期 RAM 缓存加载运行期 WLAN 凭据
  */
-void LoadSavedWifiNetworksFromNvsInternal() {
+void LoadSavedWifiNetworksFromCache() {
   if (g_wifi_saved_networks_loaded) {
     return;
   }
-  if (app::LoadWifiSavedNetworksFromNvs(g_wifi_saved_networks,
+  if (app::GetWifiSavedNetworks(g_wifi_saved_networks,
           app::kWifiSavedNetworkCapacity, &g_wifi_saved_network_count)) {
     g_wifi_saved_networks_loaded = true;
   }
 }
 
 /**
- * @brief 从 ESP32-P4 NVS 加载 WLAN 开关和自动连接偏好
+ * @brief 从长期 RAM 缓存加载 WLAN 开关和自动连接偏好
  * @param state 设置页状态
  * @param fallback_enabled 未保存开关状态时使用的默认 WLAN 开关状态
  */
-void LoadWifiPreferencesFromNvsInternal(
+void LoadWifiPreferencesFromCache(
     SettingsViewState* state, bool fallback_enabled) {
   if (state == nullptr) {
     return;
@@ -1257,7 +1257,7 @@ void SaveWifiNetworkCredential(
   saved->secure = action.secure;
   saved->is_5g = action.is_5g;
   saved->rssi = action.rssi;
-  PersistSavedWifiNetworksToNvs();
+  CacheSavedWifiNetworks();
 }
 
 void RemoveSavedWifiNetwork(const char* ssid) {
@@ -1274,7 +1274,7 @@ void RemoveSavedWifiNetwork(const char* ssid) {
     --g_wifi_saved_network_count;
     g_wifi_saved_networks[g_wifi_saved_network_count] =
         app::WifiSavedNetwork();
-    PersistSavedWifiNetworksToNvs();
+    CacheSavedWifiNetworks();
     return;
   }
 }
@@ -1286,7 +1286,7 @@ void ForgetSavedWifiNetwork(SettingsViewState* state, const char* ssid) {
 
   if (std::strcmp(state->wifi_auto_connect_ssid, ssid) == 0) {
     state->wifi_auto_connect_ssid[0] = '\0';
-    PersistWifiPreferencesToNvsInternal(state);
+    CacheWifiPreferences(state);
   }
 
   hal::WifiStatus status;
@@ -3332,7 +3332,7 @@ bool ShowWifiPageInternal(SettingsViewState* state) {
   if (state == nullptr || state->root == nullptr) {
     return false;
   }
-  LoadSavedWifiNetworksFromNvsInternal();
+  LoadSavedWifiNetworksFromCache();
   if (state->wifi_closing) {
     return true;
   }
@@ -3435,10 +3435,10 @@ bool ShowWifiPage(SettingsViewState* state) {
   return ShowWifiPageInternal(state);
 }
 
-void LoadWifiSettingsFromNvs(
+void LoadWifiSettingsFromCache(
     SettingsViewState* state, bool fallback_enabled) {
-  LoadSavedWifiNetworksFromNvsInternal();
-  LoadWifiPreferencesFromNvsInternal(state, fallback_enabled);
+  LoadSavedWifiNetworksFromCache();
+  LoadWifiPreferencesFromCache(state, fallback_enabled);
 }
 
 }  // namespace lilygo_box::ui

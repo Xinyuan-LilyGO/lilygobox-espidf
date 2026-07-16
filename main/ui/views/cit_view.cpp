@@ -23,6 +23,7 @@
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "hal/lvgl_port.h"
 #include "hal/providers/providers.h"
 #include "ui/input/app_view_gesture_flags.h"
 #include "ui/input/edge_back_gesture.h"
@@ -117,6 +118,8 @@ struct CitViewState {
   int width = 0;
   int height = 0;
   hal::ScreenProvider* screen = nullptr;
+  // 串行化 CIT 触摸测试与面板休眠转换。
+  hal::LvglPort* lvgl_port = nullptr;
   hal::DeviceDiagnosticsProvider* diagnostics_provider = nullptr;
   hal::DeviceInfoProvider* device_info_provider = nullptr;
   hal::GpsProvider* gps = nullptr;
@@ -160,6 +163,19 @@ void SetCitRowsClickable(CitViewState* state, bool enabled);
 void TestPageEdgeBackEventCallback(lv_event_t* event);
 void ScreenColorOverlayEventCallback(lv_event_t* event);
 void ScreenColorOverlayEdgeBackEventCallback(lv_event_t* event);
+
+bool TryBeginCitScreenAccess(CitViewState* state) {
+  if (state == nullptr || state->screen == nullptr ||
+      state->lvgl_port == nullptr ||
+      !state->lvgl_port->TryBeginScreenTransition()) {
+    return false;
+  }
+  if (state->lvgl_port->IsDisplayFlushPaused()) {
+    state->lvgl_port->EndScreenTransition();
+    return false;
+  }
+  return true;
+}
 
 /**
  * @brief 设置对象的文本颜色和字体
@@ -523,7 +539,11 @@ void RefreshTouchState(CitViewState* state) {
   }
 
   hal::TouchPoint point;
+  if (!TryBeginCitScreenAccess(state)) {
+    return;
+  }
   const bool result = state->screen->ReadScreenTouch(&point);
+  state->lvgl_port->EndScreenTransition();
   if (result) {
     state->touch_was_seen = true;
   }
@@ -609,8 +629,13 @@ void RefreshTouchTestData(CitViewState* state) {
 
   std::array<hal::TouchPoint, kTouchDisplayPointCount> points = {};
   size_t point_count = 0;
-  if (state->screen != nullptr && state->screen->ReadScreenTouchPoints(points.data(),
-                                      points.size(), &point_count)) {
+  bool touch_read = false;
+  if (TryBeginCitScreenAccess(state)) {
+    touch_read = state->screen->ReadScreenTouchPoints(
+        points.data(), points.size(), &point_count);
+    state->lvgl_port->EndScreenTransition();
+  }
+  if (touch_read) {
     state->touch_was_seen = point_count > 0;
   }
 
@@ -3001,6 +3026,7 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
     return nullptr;
   }
   state->screen = config.screen;
+  state->lvgl_port = config.lvgl_port;
   state->diagnostics_provider = config.diagnostics;
   state->device_info_provider = config.device_info;
   state->gps = config.gps;
