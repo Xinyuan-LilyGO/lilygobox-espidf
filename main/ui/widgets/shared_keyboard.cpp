@@ -2,7 +2,7 @@
  * @Description: 可复用 LVGL 屏幕键盘布局与输入绑定实现
  * @Author: LILYGO_L
  * @Date: 2026-05-18 12:08:00
- * @LastEditTime: 2026-05-18 12:08:00
+ * @LastEditTime: 2026-07-16 20:53:26
  * @License: GPL 3.0
  */
 #include "ui/widgets/shared_keyboard.h"
@@ -25,6 +25,7 @@ constexpr uint32_t kKeyboardKeyColor = 0xFFFFFF;
 constexpr uint32_t kKeyboardPressedKeyColor = 0xD4D4D4;
 constexpr uint32_t kKeyboardTextColor = 0x202020;
 constexpr uint32_t kKeyboardSpecialKeyColor = 0xC9CDD4;
+constexpr int kTextAreaActivationDragThreshold = 12;
 
 const char* const kKeyboardLowerMap[] = {
     "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "\n",
@@ -173,7 +174,105 @@ const lv_buttonmatrix_ctrl_t kKeyboardSymbolCtrl[] = {
 struct TextAreaKeyboardBinding {
   lv_obj_t* keyboard = nullptr;
   const char* accepted_chars = nullptr;
+  lv_point_t start_point = {};
+  uint32_t cursor_on_press = 0;
+  bool has_start_point = false;
+  bool cancelled = false;
+  bool was_focused_on_press = false;
+  bool allow_focus_event = false;
 };
+
+/**
+ * @brief 计算整数绝对值
+ * @param value 原始值
+ * @return 绝对值
+ */
+int AbsInt(int value) { return value < 0 ? -value : value; }
+
+/**
+ * @brief 判断当前指针是否仍位于文本输入框内
+ * @param text_area 文本输入框
+ * @return 指针位于输入框内返回 true
+ */
+bool IsPointerInsideTextArea(lv_obj_t* text_area) {
+  lv_indev_t* indev = lv_indev_active();
+  if (text_area == nullptr || indev == nullptr) {
+    return false;
+  }
+
+  lv_point_t point = {};
+  lv_area_t area = {};
+  lv_indev_get_point(indev, &point);
+  lv_obj_get_coords(text_area, &area);
+  return point.x >= area.x1 && point.x <= area.x2 &&
+         point.y >= area.y1 && point.y <= area.y2;
+}
+
+/**
+ * @brief 判断当前指针是否已超过输入激活允许的移动距离
+ * @param binding 文本框键盘绑定状态
+ * @return 已超过阈值返回 true
+ */
+bool HasTextAreaPointerMoved(const TextAreaKeyboardBinding& binding) {
+  if (!binding.has_start_point) {
+    return false;
+  }
+
+  lv_indev_t* indev = lv_indev_active();
+  if (indev == nullptr) {
+    return false;
+  }
+
+  lv_point_t point = {};
+  lv_indev_get_point(indev, &point);
+  return AbsInt(point.x - binding.start_point.x) >=
+             kTextAreaActivationDragThreshold ||
+         AbsInt(point.y - binding.start_point.y) >=
+             kTextAreaActivationDragThreshold;
+}
+
+/**
+ * @brief 恢复被取消触摸开始前的文本光标位置
+ * @param text_area 文本输入框
+ * @param binding 文本框键盘绑定状态
+ */
+void RestoreTextAreaCursor(lv_obj_t* text_area,
+    const TextAreaKeyboardBinding& binding) {
+  if (text_area == nullptr || !binding.cancelled) {
+    return;
+  }
+  lv_textarea_set_cursor_pos(
+      text_area, static_cast<int32_t>(binding.cursor_on_press));
+}
+
+/**
+ * @brief 在确认释放后聚焦文本框并显示共享键盘
+ * @param text_area 文本输入框
+ * @param binding 文本框键盘绑定状态
+ */
+void ActivateTextAreaAfterRelease(
+    lv_obj_t* text_area, TextAreaKeyboardBinding* binding) {
+  if (text_area == nullptr || binding == nullptr ||
+      binding->keyboard == nullptr) {
+    return;
+  }
+
+  lv_obj_t* previous = lv_keyboard_get_textarea(binding->keyboard);
+  lv_indev_t* indev = lv_indev_active();
+  if (previous != nullptr && previous != text_area) {
+    lv_obj_send_event(previous, LV_EVENT_DEFOCUSED, indev);
+  }
+  lv_keyboard_set_textarea(binding->keyboard, text_area);
+  if (binding->accepted_chars != nullptr) {
+    lv_textarea_set_accepted_chars(text_area, binding->accepted_chars);
+  }
+  lv_keyboard_set_mode(binding->keyboard, LV_KEYBOARD_MODE_USER_1);
+  lv_obj_remove_flag(binding->keyboard, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_move_to_index(binding->keyboard, -1);
+  binding->allow_focus_event = true;
+  lv_obj_send_event(text_area, LV_EVENT_FOCUSED, indev);
+  binding->allow_focus_event = false;
+}
 
 /**
  * @brief 获取共享键盘字体
@@ -290,10 +389,92 @@ void SharedKeyboardModeEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 处理文本框聚焦和释放事件
+ * @brief 在控件默认处理前仲裁文本框的释放激活事件
  * @param event LVGL 事件
  */
-void TextAreaKeyboardEventCallback(lv_event_t* event) {
+void TextAreaKeyboardPreprocessEventCallback(lv_event_t* event) {
+  auto* binding =
+      static_cast<TextAreaKeyboardBinding*>(lv_event_get_user_data(event));
+  if (binding == nullptr) {
+    return;
+  }
+
+  const lv_event_code_t code = lv_event_get_code(event);
+  if (code == LV_EVENT_DELETE) {
+    return;
+  }
+
+  lv_obj_t* text_area = lv_event_get_target_obj(event);
+  if (text_area == nullptr || binding->keyboard == nullptr) {
+    return;
+  }
+
+  if (code == LV_EVENT_FOCUSED && !binding->allow_focus_event) {
+    lv_event_stop_processing(event);
+    return;
+  }
+
+  if (code == LV_EVENT_PRESSED) {
+    binding->has_start_point = false;
+    binding->cancelled = false;
+    binding->was_focused_on_press =
+        lv_obj_has_state(text_area, LV_STATE_FOCUSED);
+    binding->cursor_on_press = lv_textarea_get_cursor_pos(text_area);
+    lv_indev_t* indev = lv_indev_active();
+    if (indev != nullptr) {
+      lv_indev_get_point(indev, &binding->start_point);
+      binding->has_start_point = true;
+    }
+    return;
+  }
+
+  if (code == LV_EVENT_PRESSING || code == LV_EVENT_RELEASED) {
+    if (HasTextAreaPointerMoved(*binding) ||
+        !IsPointerInsideTextArea(text_area)) {
+      binding->cancelled = true;
+      lv_obj_remove_state(text_area, LV_STATE_PRESSED);
+    }
+    return;
+  }
+
+  if (code == LV_EVENT_PRESS_LOST || code == LV_EVENT_INDEV_RESET) {
+    binding->cancelled = true;
+    lv_obj_remove_state(text_area, LV_STATE_PRESSED);
+    return;
+  }
+
+  if (code == LV_EVENT_CLICKED) {
+    const bool cancelled = binding->cancelled ||
+        HasTextAreaPointerMoved(*binding) ||
+        !IsPointerInsideTextArea(text_area);
+    binding->has_start_point = false;
+    binding->cancelled = cancelled;
+    if (cancelled) {
+      RestoreTextAreaCursor(text_area, *binding);
+      if (!binding->was_focused_on_press) {
+        lv_obj_remove_state(text_area, LV_STATE_FOCUSED);
+      }
+      binding->cancelled = false;
+      lv_event_stop_bubbling(event);
+      lv_event_stop_processing(event);
+      return;
+    }
+
+    binding->cancelled = false;
+    ActivateTextAreaAfterRelease(text_area, binding);
+    return;
+  }
+
+  if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
+    HideSharedKeyboard(binding->keyboard);
+  }
+}
+
+/**
+ * @brief 在控件默认处理后恢复被滑动取消的文本光标
+ * @param event LVGL 事件
+ */
+void TextAreaKeyboardPostprocessEventCallback(lv_event_t* event) {
   auto* binding =
       static_cast<TextAreaKeyboardBinding*>(lv_event_get_user_data(event));
   if (binding == nullptr) {
@@ -305,25 +486,16 @@ void TextAreaKeyboardEventCallback(lv_event_t* event) {
     delete binding;
     return;
   }
-
-  lv_obj_t* text_area = static_cast<lv_obj_t*>(lv_event_get_target_obj(event));
-  if (text_area == nullptr || binding->keyboard == nullptr) {
+  if (code != LV_EVENT_PRESSING && code != LV_EVENT_RELEASED &&
+      code != LV_EVENT_PRESS_LOST && code != LV_EVENT_INDEV_RESET) {
     return;
   }
 
-  if (code == LV_EVENT_FOCUSED || code == LV_EVENT_CLICKED) {
-    lv_keyboard_set_textarea(binding->keyboard, text_area);
-    if (binding->accepted_chars != nullptr) {
-      lv_textarea_set_accepted_chars(text_area, binding->accepted_chars);
-    }
-    lv_keyboard_set_mode(binding->keyboard, LV_KEYBOARD_MODE_USER_1);
-    lv_obj_remove_flag(binding->keyboard, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_to_index(binding->keyboard, -1);
-    return;
-  }
-
-  if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
-    HideSharedKeyboard(binding->keyboard);
+  lv_obj_t* text_area = lv_event_get_target_obj(event);
+  RestoreTextAreaCursor(text_area, *binding);
+  if (binding->cancelled && !binding->was_focused_on_press &&
+      text_area != nullptr) {
+    lv_obj_remove_state(text_area, LV_STATE_FOCUSED);
   }
 }
 
@@ -367,8 +539,13 @@ bool AttachSharedKeyboardToTextArea(
 
   binding->keyboard = keyboard;
   binding->accepted_chars = accepted_chars;
+  const lv_event_code_t preprocess_event =
+      static_cast<lv_event_code_t>(LV_EVENT_ALL | LV_EVENT_PREPROCESS);
   lv_obj_add_event_cb(
-      text_area, TextAreaKeyboardEventCallback, LV_EVENT_ALL, binding);
+      text_area, TextAreaKeyboardPreprocessEventCallback,
+      preprocess_event, binding);
+  lv_obj_add_event_cb(text_area, TextAreaKeyboardPostprocessEventCallback,
+      LV_EVENT_ALL, binding);
   return true;
 }
 

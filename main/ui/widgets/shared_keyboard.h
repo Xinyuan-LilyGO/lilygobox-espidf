@@ -2,7 +2,7 @@
  * @Description: 可复用 LVGL 屏幕键盘创建与绑定接口
  * @Author: LILYGO_L
  * @Date: 2026-05-18 12:08:00
- * @LastEditTime: 2026-05-18 12:08:00
+ * @LastEditTime: 2026-07-16 20:53:26
  * @License: GPL 3.0
  */
 #pragma once
@@ -27,7 +27,7 @@ lv_obj_t* CreateSharedKeyboard(
     lv_obj_t* parent, const SharedKeyboardConfig& config);
 
 /**
- * @brief 绑定共享键盘和文本输入框
+ * @brief 绑定共享键盘并让文本框仅在有效点击释放后激活
  * @param keyboard 共享键盘对象
  * @param text_area 文本输入框对象
  * @param accepted_chars 允许输入的字符集合
