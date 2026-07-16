@@ -2,7 +2,7 @@
  * @Description: 系统应用初始化、任务调度与电源状态管理实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-06-15 13:57:35
+ * @LastEditTime: 2026-07-17 02:10:57
  * @License: GPL 3.0
  */
 #include "app/application.h"
@@ -1048,18 +1048,31 @@ bool Application::ReadScreenTouchWhileAwake(
     *access_available = false;
   }
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
-  if (point == nullptr || screen == nullptr ||
-      !lvgl_port_.TryBeginScreenTransition()) {
+  if (point == nullptr || screen == nullptr) {
     return false;
   }
 
   const bool can_access = !power_action_in_progress_.load() &&
       !lvgl_port_.IsDisplayFlushPaused() &&
       !screen_off_confirmed_.load();
-  const bool touched = can_access && screen->ReadScreenTouch(point);
+  if (!lvgl_port_.IsInputBlocked()) {
+    if (access_available != nullptr) {
+      *access_available = can_access;
+    }
+    return can_access && lvgl_port_.ReadCachedTouch(point);
+  }
+
+  if (!lvgl_port_.TryBeginScreenTransition()) {
+    return false;
+  }
+  const bool can_access_after_lock = !power_action_in_progress_.load() &&
+      !lvgl_port_.IsDisplayFlushPaused() &&
+      !screen_off_confirmed_.load();
+  const bool touched =
+      can_access_after_lock && screen->ReadScreenTouch(point);
   lvgl_port_.EndScreenTransition();
   if (access_available != nullptr) {
-    *access_available = can_access;
+    *access_available = can_access_after_lock;
   }
   return touched;
 }

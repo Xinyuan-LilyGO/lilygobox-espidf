@@ -2,7 +2,7 @@
  * @Description: LVGL 显示刷新、触摸读取与任务循环实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-10 23:41:00
+ * @LastEditTime: 2026-07-17 02:10:57
  * @License: GPL 3.0
  */
 #include "hal/lvgl_port.h"
@@ -31,6 +31,11 @@ bool IsValidTouchPoint(const TouchPoint& point, int screen_width,
     int screen_height) {
   return point.x >= 0 && point.x < screen_width && point.y >= 0 &&
          point.y < screen_height;
+}
+
+uint32_t PackTouchCoordinates(const TouchPoint& point) {
+  return static_cast<uint16_t>(point.x) |
+      (static_cast<uint32_t>(static_cast<uint16_t>(point.y)) << 16);
 }
 
 ppa_srm_rotation_angle_t ToPpaRotation(lv_display_rotation_t rotation) {
@@ -158,6 +163,28 @@ void LvglPort::SetInputBlocked(bool blocked) {
   active_edge_touch_flag_ = false;
   pending_edge_touch_flag_ = false;
   has_last_touch_point_ = false;
+}
+
+bool LvglPort::IsInputBlocked() const {
+  return input_blocked_.load(std::memory_order_acquire) ||
+      sleep_input_block_count_.load(std::memory_order_acquire) > 0;
+}
+
+bool LvglPort::ReadCachedTouch(TouchPoint* point) const {
+  if (point == nullptr ||
+      !has_last_touch_point_.load(std::memory_order_acquire)) {
+    return false;
+  }
+
+  const uint32_t coordinates =
+      cached_touch_coordinates_.load(std::memory_order_acquire);
+  point->id = 1;
+  point->x = static_cast<int16_t>(coordinates & UINT16_MAX);
+  point->y = static_cast<int16_t>(coordinates >> 16);
+  point->pressure = 0;
+  point->edge_touch_flag =
+      active_edge_touch_flag_.load(std::memory_order_acquire);
+  return true;
 }
 
 void LvglPort::AcquireSleepInputBlock() {
@@ -388,10 +415,12 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
   }
 
   if (!self->TryBeginScreenTransition()) {
-    self->active_edge_touch_flag_ = false;
-    self->pending_edge_touch_flag_ = false;
-    self->has_last_touch_point_ = false;
-    data->state = LV_INDEV_STATE_REL;
+    if (self->has_last_touch_point_.load(std::memory_order_acquire)) {
+      data->state = LV_INDEV_STATE_PR;
+      data->point = self->last_touch_point_;
+    } else {
+      data->state = LV_INDEV_STATE_REL;
+    }
     return;
   }
   const bool access_blocked = self->input_blocked_.load() ||
@@ -433,9 +462,11 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
     self->active_edge_touch_flag_ =
         point.edge_touch_flag || self->pending_edge_touch_flag_;
     self->pending_edge_touch_flag_ = false;
-    self->has_last_touch_point_ = true;
     self->last_touch_point_.x = point.x;
     self->last_touch_point_.y = point.y;
+    self->cached_touch_coordinates_.store(
+        PackTouchCoordinates(point), std::memory_order_release);
+    self->has_last_touch_point_.store(true, std::memory_order_release);
 
     data->state = LV_INDEV_STATE_PR;
     data->point.x = point.x;

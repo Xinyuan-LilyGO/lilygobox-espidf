@@ -2,7 +2,7 @@
  * @Description: LVGL 显示、触摸与任务端口管理接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-12 22:59:35
+ * @LastEditTime: 2026-07-17 02:10:57
  * @License: GPL 3.0
  */
 #pragma once
@@ -56,6 +56,19 @@ class LvglPort final {
    * @param blocked true 表示屏蔽触摸输入，false 表示恢复输入
    */
   void SetInputBlocked(bool blocked);
+
+  /**
+   * @brief 判断 LVGL 指针输入是否已被屏蔽
+   * @return 输入已被屏蔽返回 true
+   */
+  bool IsInputBlocked() const;
+
+  /**
+   * @brief 读取 LVGL 最近一次缓存的有效触摸点
+   * @param point 触摸点输出地址
+   * @return 当前缓存状态为按下返回 true
+   */
+  bool ReadCachedTouch(TouchPoint* point) const;
 
   /**
    * @brief 为一个熄屏所有者增加输入屏蔽引用
@@ -238,6 +251,8 @@ class LvglPort final {
   std::atomic<bool> active_edge_touch_flag_{false};
   std::atomic<bool> pending_edge_touch_flag_{false};
   std::atomic<bool> has_last_touch_point_{false};
+  // 跨任务读取的触摸坐标快照，低 16 位为 X，高 16 位为 Y。
+  std::atomic<uint32_t> cached_touch_coordinates_{0};
   bool ppa_rotation_available_ = false;
   PpaSrmHelper ppa_rotation_;
   void* rotation_buffer_ = nullptr;
