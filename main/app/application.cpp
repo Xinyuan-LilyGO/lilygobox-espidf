@@ -2,7 +2,7 @@
  * @Description: 系统应用初始化、任务调度与电源状态管理实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-17 10:30:19
+ * @LastEditTime: 2026-07-17 17:57:58
  * @License: GPL 3.0
  */
 #include "app/application.h"
@@ -14,6 +14,7 @@
 
 #include "app/storage/display_storage.h"
 #include "app/storage/first_boot_storage.h"
+#include "app/storage/littlefs_storage.h"
 #include "app/storage/sound_storage.h"
 #include "app/storage/storage.h"
 #include "app/wifi_manager.h"
@@ -24,6 +25,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal/device_provider_factory.h"
+#include "nvs.h"
 #include "nvs_flash.h"
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/haptic_feedback.h"
@@ -54,6 +56,36 @@ constexpr uint32_t kPowerActionPreSleepSettleMs = 30;
 constexpr int kLowBatteryStartupThresholdPercent = 10;
 constexpr uint32_t kLowBatteryStartupIconColor = 0xFF3B30;
 constexpr uint32_t kBatteryFaultStartupIconColor = 0xFF9500;
+constexpr char kNvsPartitionName[] = "nvs";
+
+/**
+ * @brief 输出默认 NVS 分区的容量与命名空间统计信息
+ */
+void LogNvsStorageInfo() {
+  nvs_stats_t statistics = {};
+  const esp_err_t result =
+      nvs_get_stats(kNvsPartitionName, &statistics);
+  if (result != ESP_OK) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Read NVS storage statistics failed: %s\n",
+        esp_err_to_name(result));
+    return;
+  }
+  const size_t usage_percent =
+      statistics.total_entries == 0
+          ? 0
+          : statistics.used_entries * 100U / statistics.total_entries;
+  LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+      "NVS storage initialized: partition=%s, used=%u entries, "
+      "free=%u entries, available=%u entries, total=%u entries, "
+      "namespaces=%u, usage=%u%%\n",
+      kNvsPartitionName, static_cast<unsigned>(statistics.used_entries),
+      static_cast<unsigned>(statistics.free_entries),
+      static_cast<unsigned>(statistics.available_entries),
+      static_cast<unsigned>(statistics.total_entries),
+      static_cast<unsigned>(statistics.namespace_count),
+      static_cast<unsigned>(usage_percent));
+}
 
 hal::TouchPoint RotateTouchPointToDisplay(const hal::TouchPoint& point,
     int rotation_angle, int screen_width, int screen_height) {
@@ -89,14 +121,29 @@ Application::Application()
 
 bool Application::Init() {
   esp_err_t nvs_result = nvs_flash_init();
+  const char* nvs_recovery_reason = nullptr;
   if (nvs_result == ESP_ERR_NVS_NO_FREE_PAGES ||
       nvs_result == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    nvs_recovery_reason = nvs_result == ESP_ERR_NVS_NO_FREE_PAGES
+                              ? "no free pages"
+                              : "new version found";
     nvs_flash_erase();
     nvs_result = nvs_flash_init();
   }
   if (nvs_result != ESP_OK) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "NVS init failed (error code: %#X)\n", nvs_result);
+        "NVS init failed: %s (%#X)\n", esp_err_to_name(nvs_result),
+        static_cast<unsigned>(nvs_result));
+  } else {
+    if (nvs_recovery_reason != nullptr) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "NVS storage recovered: reason=%s\n", nvs_recovery_reason);
+    }
+    LogNvsStorageInfo();
+  }
+  if (!app::InitLittleFsStorage()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "LittleFS internal storage is unavailable\n");
   }
 
   hal::DeviceProvider* device = device_provider_context_.device;
@@ -957,7 +1004,7 @@ bool Application::PreparePowerActionStorage() {
     return false;
   }
 
-  // 冻结更新后执行最终落盘，并再次确认没有任何待保存 NVS 域。
+  // 冻结更新后执行最终落盘，并再次确认没有任何待保存数据。
   const bool flush_complete = app::FlushPendingStorageAfterScreenOff();
   const bool storage_clean = !app::HasPendingStorageWrites();
   if (flush_complete && storage_clean) {
@@ -965,14 +1012,14 @@ bool Application::PreparePowerActionStorage() {
     return true;
   }
   LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-      "Cancel power action because deferred NVS data is still dirty\n");
+      "Cancel power action because deferred storage data is still dirty\n");
   app::ResumeStorageUpdatesAfterShutdownFailure();
   const bool screen_restored = RestoreScreenAfterSleep();
   lvgl_port_.EndScreenTransition();
   lvgl_port_.SetInputBlocked(false);
   if (!screen_restored) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "NVS flush failed and screen recovery also failed\n");
+        "Storage flush failed and screen recovery also failed\n");
   }
   return false;
 }

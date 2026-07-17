@@ -2,7 +2,7 @@
  * @Description: 偏好存储统一管理实现
  * @Author: LILYGO_L
  * @Date: 2026-07-03 00:00:00
- * @LastEditTime: 2026-07-16 00:00:00
+ * @LastEditTime: 2026-07-17 17:22:18
  * @License: GPL 3.0
  */
 #include "app/storage/storage.h"
@@ -10,10 +10,14 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <new>
 
+#include "app/rf_chat_repository.h"
 #include "app/storage/display_storage.h"
 #include "app/storage/first_boot_storage.h"
 #include "app/storage/haptic_storage.h"
+#include "app/storage/littlefs_storage.h"
 #include "app/storage/music_storage.h"
 #include "app/storage/rf_storage.h"
 #include "app/storage/sound_storage.h"
@@ -153,6 +157,41 @@ bool FlushStoragePass() {
   return transaction_committed && !has_failed;
 }
 
+/**
+ * @brief 在启动阶段将现有 RF 配置的 LittleFS 聊天记录预载到 RAM
+ */
+void InitRfChatCache() {
+  RfChatRepository& repository = GetRfChatRepository();
+  if (!repository.Initialize()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Initialize RF chat cache failed\n");
+    return;
+  }
+
+  auto preferences = std::unique_ptr<RfPreferences>(
+      new (std::nothrow) RfPreferences{});
+  if (preferences == nullptr || !GetRfPreferences(preferences.get())) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Read RF preferences for chat cache failed\n");
+    return;
+  }
+
+  std::array<uint32_t, kRfProfileCapacity> profile_ids = {};
+  for (size_t index = 0; index < preferences->profile_count; ++index) {
+    profile_ids[index] = preferences->profiles[index].id;
+  }
+  if (!repository.LoadProfiles(
+          profile_ids.data(), preferences->profile_count)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Preload RF chat history failed\n");
+    return;
+  }
+  LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+      "RF chat cache loaded: profiles=%u, records=%u\n",
+      static_cast<unsigned>(preferences->profile_count),
+      static_cast<unsigned>(repository.GetCachedMessageCount()));
+}
+
 }  // namespace
 
 StorageCacheLock::StorageCacheLock() {
@@ -195,11 +234,19 @@ void InitStorage() {
   InitRfCache();
   InitSoundCache();
   InitWifiCache();
+  LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+      "NVS caches loaded: domains=%u, status=ready\n",
+      static_cast<unsigned>(kStorageDomainCount));
+  InitRfChatCache();
 }
 
 bool HasPendingStorageWrites() {
-  StorageCacheLock lock;
-  return lock.IsLocked() && g_dirty_domains != 0;
+  bool nvs_dirty = false;
+  {
+    StorageCacheLock lock;
+    nvs_dirty = lock.IsLocked() && g_dirty_domains != 0;
+  }
+  return nvs_dirty || GetRfChatRepository().HasPendingWrites();
 }
 
 bool FlushPendingStorageAfterScreenOff() {
@@ -210,14 +257,22 @@ bool FlushPendingStorageAfterScreenOff() {
 
   for (size_t pass = 0;
        pass < kMaximumFlushPasses && HasPendingStorageWrites(); ++pass) {
-    FlushStoragePass();
+    bool nvs_dirty = false;
+    {
+      StorageCacheLock lock;
+      nvs_dirty = lock.IsLocked() && g_dirty_domains != 0;
+    }
+    if (nvs_dirty) {
+      FlushStoragePass();
+    }
+    GetRfChatRepository().FlushPending(kRfChatGlobalCapacity);
   }
   const bool complete = !HasPendingStorageWrites();
   xSemaphoreGive(g_storage_io_mutex);
 
   if (!complete) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Deferred NVS data remains dirty after %u attempts\n",
+        "Deferred storage data remains dirty after %u attempts\n",
         static_cast<unsigned>(kMaximumFlushPasses));
   }
   return complete;
@@ -249,6 +304,12 @@ bool FactoryResetAfterScreenOff() {
   if (result != ESP_OK) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Factory reset failed: %s\n", esp_err_to_name(result));
+    xSemaphoreGive(g_storage_io_mutex);
+    return false;
+  }
+  if (!FormatLittleFsStorage()) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Factory reset could not clear LittleFS storage\n");
     xSemaphoreGive(g_storage_io_mutex);
     return false;
   }

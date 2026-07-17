@@ -2,7 +2,7 @@
  * @Description: LVGL 显示刷新、触摸读取与任务循环实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-17 10:30:19
+ * @LastEditTime: 2026-07-17 17:57:58
  * @License: GPL 3.0
  */
 #include "hal/lvgl_port.h"
@@ -10,6 +10,7 @@
 #include <algorithm>
 
 #include "base/logger.h"
+#include "esp_err.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -120,17 +121,19 @@ bool LvglPort::Init(ScreenProvider* screen) {
       .skip_unhandled_events = false,
   };
   esp_timer_handle_t tick_timer = nullptr;
-  int result = esp_timer_create(&tick_timer_args, &tick_timer);
-  if (result != 0) {
+  esp_err_t result = esp_timer_create(&tick_timer_args, &tick_timer);
+  if (result != ESP_OK) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "esp_timer_create failed (error code: %#X)\n", result);
+        "esp_timer_create failed: %s (%#X)\n", esp_err_to_name(result),
+        static_cast<unsigned>(result));
     return false;
   }
 
   result = esp_timer_start_periodic(tick_timer, kLvglTickPeriodMs * 1000);
-  if (result != 0) {
+  if (result != ESP_OK) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "esp_timer_start_periodic failed (error code: %#X)\n", result);
+        "esp_timer_start_periodic failed: %s (%#X)\n",
+        esp_err_to_name(result), static_cast<unsigned>(result));
     return false;
   }
   return true;

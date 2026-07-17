@@ -34,3 +34,5 @@ dependencies:
   espressif/esp_wifi_remote:
     version: ">=1.6.1,<2.0"
 
+  joltwallet/littlefs:
+    version: "1.22.2"

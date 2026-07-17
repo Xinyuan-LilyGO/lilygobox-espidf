@@ -1,4 +1,8 @@
-# Name,   Type, SubType, Offset,  Size, Flags
-nvs,      data, nvs,     ,         0x6000,
-phy_init, data, phy,     ,         0x1000,
-factory,  app,  factory, ,         15M,
+# Name,   Type, SubType, Offset, Size,  Flags
+nvs,      data, nvs,     ,       0x6000,
+otadata,  data, ota,     ,       0x2000,
+phy_init, data, phy,     ,       0x1000,
+ota_0,    app,  ota_0,   ,       6M,
+ota_1,    app,  ota_1,   ,       6M,
+coprocessor_fw, data, 0x40,    ,       2M,
+storage,  data, littlefs,,       1920K,

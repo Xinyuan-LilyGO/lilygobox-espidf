@@ -2,27 +2,29 @@
  * @Description: RF control app view
  * @Author: LILYGO_L
  * @Date: 2026-07-12 00:00:00
- * @LastEditTime: 2026-07-16 19:30:00
+ * @LastEditTime: 2026-07-17 18:22:57
  * @License: GPL 3.0
  */
 #include "ui/views/rf_view.h"
 
 #include <algorithm>
-#include <cstddef>
 #include <cctype>
+#include <cstddef>
 #include <cstdint>
-#include <cstring>
-#include <cstdlib>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
+#include "app/rf_chat_repository.h"
 #include "app/storage/rf_storage.h"
+#include "base/logger.h"
 #include "hal/providers/rf_provider.h"
 #include "hal/providers/rtc_provider.h"
 #include "ui/animation/transition_animation.h"
-#include "ui/resources/fonts/font_assets.h"
-#include "ui/resources/fonts/icon_assets.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"
+#include "ui/resources/fonts/font_assets.h"
+#include "ui/resources/fonts/icon_assets.h"
 #include "ui/widgets/navigation_drawer.h"
 #include "ui/widgets/prompt/prompt_dialog.h"
 #include "ui/widgets/shared_keyboard.h"
@@ -73,6 +75,9 @@ constexpr int kAddPageActionHeight = 124;
 constexpr int kAddKeyboardHeightPercent = 35;
 constexpr int kAddKeyboardTopGap = 12;
 constexpr int kAddInputHeight = 70;
+constexpr int kAddProfileNameSectionHeight = 126;
+// 聊天时间线首尾与相邻区域保持一致的视觉间距。
+constexpr int kChatTimelineInset = 18;
 constexpr int kAddSwitchRowHeight = 108;
 constexpr int kAddSwitchRowGap = 12;
 constexpr int kProfileNameEditButtonSize = 62;
@@ -90,8 +95,10 @@ constexpr uint32_t kProfileSwitchAnimationMs = 180;
 constexpr lv_style_selector_t kProfileSwitchCheckedIndicatorSelector =
     static_cast<lv_style_selector_t>(LV_PART_INDICATOR) |
     static_cast<lv_style_selector_t>(LV_STATE_CHECKED);
+// RF 芯片异常时先快速恢复，持续失败后降低重试频率但不永久停止。
 constexpr uint32_t kActivationRetryPeriodMs = 2000;
-constexpr uint8_t kActivationRetryLimit = 10;
+constexpr uint32_t kActivationRetrySlowPeriodMs = 10000;
+constexpr uint8_t kActivationFastRetryCount = 5;
 constexpr char kFrequencyAcceptedChars[] = "0123456789.";
 constexpr char kIntegerAcceptedChars[] = "0123456789";
 constexpr char kHexAcceptedChars[] = "0123456789abcdefABCDEF";
@@ -131,36 +138,16 @@ struct RfModuleItem {
 };
 
 constexpr size_t kRfModuleCapacity = app::kRfProfileCapacity;
-constexpr size_t kChatMessageCapacity = 48;
-constexpr size_t kChatTextCapacity = hal::kRfPayloadCapacity * 2 + 1;
-
-enum class ChatDeliveryState {
-  kReceived,
-  kSending,
-  kSent,
-  kFailed,
-};
-
-enum class ChatMessageType {
-  kUser,
-  kSystem,
-};
-
-struct RfChatMessage {
-  uint32_t profile_id = 0;
-  char text[kChatTextCapacity] = {};
-  char time[16] = {};
-  ChatMessageType type = ChatMessageType::kUser;
-  ChatDeliveryState delivery = ChatDeliveryState::kReceived;
-  int8_t rssi_dbm = 0;
-  int8_t snr_db = 0;
-};
+using app::RfChatDeliveryState;
+using app::RfChatMessage;
+using app::RfChatMessageType;
 
 struct RfViewState {
   AppViewConfig config;
   hal::RfCapabilities capabilities;
   lv_obj_t* root = nullptr;
   lv_obj_t* detail_page = nullptr;
+  lv_obj_t* app_settings_page = nullptr;
   lv_obj_t* profile_settings_page = nullptr;
   lv_obj_t* profile_settings_active_switch = nullptr;
   lv_obj_t* profile_settings_name_label = nullptr;
@@ -175,6 +162,8 @@ struct RfViewState {
   lv_obj_t* detail_send_button = nullptr;
   lv_obj_t* add_page = nullptr;
   lv_obj_t* add_body = nullptr;
+  // 首次创建 RF 配置时使用的名称输入框。
+  lv_obj_t* add_name_input = nullptr;
   lv_obj_t* add_frequency_input = nullptr;
   lv_obj_t* add_power_input = nullptr;
   lv_obj_t* add_preamble_input = nullptr;
@@ -203,6 +192,7 @@ struct RfViewState {
   NavigationDrawerState drawer;
   EdgeBackSwipeState selection_edge_swipe = {};
   EdgeBackSwipeState detail_edge_swipe = {};
+  EdgeBackSwipeState app_settings_edge_swipe = {};
   EdgeBackSwipeState profile_settings_edge_swipe = {};
   EdgeBackSwipeState profile_name_edit_edge_swipe = {};
   EdgeBackSwipeState add_edge_swipe = {};
@@ -212,8 +202,6 @@ struct RfViewState {
   uint16_t unread_counts[kRfModuleCapacity] = {};
   bool selected_modules[kRfModuleCapacity] = {};
   app::RfPreferences preferences;
-  RfChatMessage chat_messages[kChatMessageCapacity] = {};
-  size_t chat_message_count = 0;
   size_t module_count = 0;
   int selected_add_chip = 0;
   int selected_add_protocol = 0;
@@ -227,6 +215,7 @@ struct RfViewState {
   uint8_t activation_retry_count = 0;
   bool selection_mode = false;
   bool detail_closing = false;
+  bool app_settings_closing = false;
   bool profile_settings_closing = false;
   bool profile_name_edit_closing = false;
   bool add_closing = false;
@@ -258,6 +247,7 @@ void CloseSelectionMode(RfViewState* state);
 bool ShowAddModulePage(RfViewState* state);
 bool ShowModuleSettings(RfViewState* state, size_t index,
     bool from_detail);
+bool ShowRfSettingsPage(RfViewState* state);
 bool ShowProfileSettingsPage(RfViewState* state, size_t index);
 bool ShowProfileNameEditPage(RfViewState* state);
 void RefreshProfileSettingsPage(RfViewState* state);
@@ -507,17 +497,30 @@ void SyncModuleItems(RfViewState* state) {
     return;
   }
   state->module_count = state->preferences.profile_count;
+  app::RfChatRepository& repository = app::GetRfChatRepository();
   for (size_t index = 0; index < state->module_count; ++index) {
+    app::RfChatProfileSummary summary;
+    if (repository.GetProfileSummary(
+            state->preferences.profiles[index].id, &summary)) {
+      CopyBoundedString(state->latest_messages[index],
+          sizeof(state->latest_messages[index]), summary.latest_message);
+      CopyBoundedString(state->message_times[index],
+          sizeof(state->message_times[index]), summary.latest_time);
+      state->unread_counts[index] = summary.unread_count;
+    } else {
+      state->latest_messages[index][0] = '\0';
+      state->message_times[index][0] = '\0';
+      state->unread_counts[index] = 0;
+    }
     state->modules[index] = {
-        .short_name = ChipShortName(
-            state->preferences.profiles[index].chip),
+        .short_name = ChipShortName(state->preferences.profiles[index].chip),
         .name = state->preferences.profiles[index].name,
         .latest_message = state->latest_messages[index][0] == '\0'
-            ? nullptr
-            : state->latest_messages[index],
+                              ? nullptr
+                              : state->latest_messages[index],
         .time = state->message_times[index][0] == '\0'
-            ? ""
-            : state->message_times[index],
+                    ? ""
+                    : state->message_times[index],
         .color = 0x006B5F,
         .unread_count = state->unread_counts[index],
     };
@@ -771,13 +774,13 @@ bool CreateReceiveTelemetry(lv_obj_t* parent, const char* rssi,
  * @param y 顶部坐标
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateSendStatus(lv_obj_t* parent, const char* time,
-    ChatDeliveryState delivery, int y) {
+bool CreateSendStatus(
+    lv_obj_t* parent, const char* time, RfChatDeliveryState delivery, int y) {
   if (parent == nullptr || time == nullptr) {
     return false;
   }
-  const bool sending = delivery == ChatDeliveryState::kSending;
-  const bool success = delivery == ChatDeliveryState::kSent;
+  const bool sending = delivery == RfChatDeliveryState::kSending;
+  const bool success = delivery == RfChatDeliveryState::kSent;
   if (!sending) {
     lv_obj_t* icon_label = CreateLabel(parent,
         success ? icon::kCheck : icon::kClose,
@@ -875,13 +878,13 @@ bool RenderChatMessages(RfViewState* state) {
   lv_obj_clean(body);
   const app::RfProfile& profile =
       state->preferences.profiles[state->detail_index];
-  int chat_y = 18;
-  for (size_t index = 0; index < state->chat_message_count; ++index) {
-    const RfChatMessage& message = state->chat_messages[index];
-    if (message.profile_id != profile.id) {
-      continue;
-    }
-    if (message.type == ChatMessageType::kSystem) {
+  const RfChatMessage* messages[app::kRfChatPageCapacity] = {};
+  const size_t message_count = app::GetRfChatRepository().GetRecent(
+      profile.id, messages, app::kRfChatPageCapacity);
+  int chat_y = kChatTimelineInset;
+  for (size_t index = 0; index < message_count; ++index) {
+    const RfChatMessage& message = *messages[index];
+    if (message.type == RfChatMessageType::kSystem) {
       int message_height = 0;
       if (!CreateSystemMessage(
               body, message.text, chat_y, state->config.width,
@@ -891,7 +894,7 @@ bool RenderChatMessages(RfViewState* state) {
       chat_y += message_height + 18;
       continue;
     }
-    const bool outgoing = message.delivery != ChatDeliveryState::kReceived;
+    const bool outgoing = message.delivery != RfChatDeliveryState::kReceived;
     int bubble_height = 0;
     if (CreateChatBubble(body, message.text, chat_y,
             state->config.width - 100, outgoing,
@@ -923,24 +926,6 @@ bool RenderChatMessages(RfViewState* state) {
   return true;
 }
 
-RfChatMessage* AppendChatMessage(RfViewState* state, uint32_t profile_id) {
-  if (state == nullptr) {
-    return nullptr;
-  }
-  if (state->chat_message_count == kChatMessageCapacity) {
-    for (size_t index = 1; index < kChatMessageCapacity; ++index) {
-      state->chat_messages[index - 1] = state->chat_messages[index];
-    }
-    --state->chat_message_count;
-  }
-  RfChatMessage* message =
-      &state->chat_messages[state->chat_message_count++];
-  *message = RfChatMessage();
-  message->profile_id = profile_id;
-  FormatCurrentTime(state, message->time, sizeof(message->time));
-  return message;
-}
-
 /**
  * @brief 追加系统提示并更新射频主页面的最新消息
  * @param state 射频页面状态
@@ -954,31 +939,23 @@ bool AppendSystemMessage(RfViewState* state, size_t profile_index,
       profile_index >= state->preferences.profile_count) {
     return false;
   }
-  RfChatMessage* message = AppendChatMessage(
-      state, state->preferences.profiles[profile_index].id);
-  if (message == nullptr) {
-    return false;
+  RfChatMessage message;
+  message.profile_id = state->preferences.profiles[profile_index].id;
+  message.type = RfChatMessageType::kSystem;
+  FormatCurrentTime(state, message.time, sizeof(message.time));
+  CopyBoundedString(message.text, sizeof(message.text), text);
+  const bool appended = app::GetRfChatRepository().Append(message) != 0;
+  if (appended) {
+    SyncModuleItems(state);
   }
-  message->type = ChatMessageType::kSystem;
-  CopyBoundedString(message->text, sizeof(message->text), text);
-  CopyBoundedString(state->latest_messages[profile_index],
-      sizeof(state->latest_messages[profile_index]), message->text);
-  CopyBoundedString(state->message_times[profile_index],
-      sizeof(state->message_times[profile_index]), message->time);
-  return true;
+  return appended;
 }
 
 void FailPendingMessages(RfViewState* state, uint32_t profile_id) {
   if (state == nullptr || profile_id == 0) {
     return;
   }
-  for (size_t index = 0; index < state->chat_message_count; ++index) {
-    RfChatMessage& message = state->chat_messages[index];
-    if (message.profile_id == profile_id &&
-        message.delivery == ChatDeliveryState::kSending) {
-      message.delivery = ChatDeliveryState::kFailed;
-    }
-  }
+  app::GetRfChatRepository().FailPending(profile_id);
 }
 
 void UpdateDetailStatus(RfViewState* state) {
@@ -1006,11 +983,18 @@ void UpdateDetailStatus(RfViewState* state) {
   }
 }
 
+/**
+ * @brief 将接收数据格式化为可显示文本或连续十六进制文本
+ * @param event 射频接收事件
+ * @param output 文本输出缓冲区
+ * @param output_size 输出缓冲区容量
+ */
 void FormatPacketText(const hal::RfEvent& event, char* output,
     size_t output_size) {
   if (output == nullptr || output_size == 0) {
     return;
   }
+  output[0] = '\0';
   bool printable = event.payload_size > 0;
   for (size_t index = 0; index < event.payload_size; ++index) {
     if (!std::isprint(event.payload[index]) &&
@@ -1027,92 +1011,243 @@ void FormatPacketText(const hal::RfEvent& event, char* output,
   }
   size_t written = 0;
   for (size_t index = 0; index < event.payload_size; ++index) {
-    const int result = std::snprintf(output + written,
-        output_size - written, index == 0 ? "%02X" : " %02X",
-        static_cast<unsigned>(event.payload[index]));
-    if (result <= 0 || static_cast<size_t>(result) >=
-        output_size - written) {
+    const int result = std::snprintf(output + written, output_size - written,
+        "%02X", static_cast<unsigned>(event.payload[index]));
+    if (result <= 0 || static_cast<size_t>(result) >= output_size - written) {
       break;
     }
     written += static_cast<size_t>(result);
   }
 }
 
+/**
+ * @brief 从内部存储补载全部 RF 配置的最近聊天记录
+ * @param state RF 页面状态
+ * @return 内部存储可用且补载完成时返回 true
+ */
+bool LoadCurrentChatProfiles(RfViewState* state) {
+  if (state == nullptr) {
+    return false;
+  }
+  uint32_t profile_ids[kRfModuleCapacity] = {};
+  for (size_t index = 0; index < state->preferences.profile_count; ++index) {
+    profile_ids[index] = state->preferences.profiles[index].id;
+  }
+  if (!app::GetRfChatRepository().LoadProfiles(
+          profile_ids, state->preferences.profile_count)) {
+    return false;
+  }
+  SyncModuleItems(state);
+  if (state->detail_page != nullptr) {
+    RenderChatMessages(state);
+  }
+  return true;
+}
+
+/**
+ * @brief 获取射频失败原因的日志文本
+ * @param reason 射频失败原因
+ * @return 生命周期覆盖当前进程的静态文本
+ */
+const char* RfFailureReasonText(hal::RfFailureReason reason) {
+  switch (reason) {
+    case hal::RfFailureReason::kNone:
+      return "none";
+    case hal::RfFailureReason::kHardwareUnavailable:
+      return "hardware unavailable";
+    case hal::RfFailureReason::kIrqReadFailed:
+      return "IRQ access failed";
+    case hal::RfFailureReason::kIrqClearFailed:
+      return "IRQ clear failed";
+    case hal::RfFailureReason::kHardwareTimeout:
+      return "hardware timeout";
+    case hal::RfFailureReason::kSoftwareTimeout:
+      return "software timeout";
+    case hal::RfFailureReason::kReceiveRestartFailed:
+      return "receive restart failed";
+  }
+  return "unknown";
+}
+
+/**
+ * @brief 在射频空闲时启动当前配置最早的等待消息
+ * @param state RF 页面状态
+ * @return 成功启动发送时返回 true
+ */
+bool TryStartNextPendingMessage(RfViewState* state) {
+  if (state == nullptr || state->config.rf == nullptr ||
+      state->preferences.active_profile_id == 0) {
+    return false;
+  }
+  hal::RfStatus status;
+  if (!state->config.rf->ReadRfStatus(&status) ||
+      status.state != hal::RfLinkState::kActive || status.transmitting) {
+    return false;
+  }
+  RfChatMessage message;
+  if (!app::GetRfChatRepository().GetOldestPending(
+          state->preferences.active_profile_id, &message)) {
+    return false;
+  }
+  const size_t length = std::strlen(message.text);
+  if (length == 0 || length > hal::kRfPayloadCapacity) {
+    app::GetRfChatRepository().UpdateDelivery(
+        message.sequence, RfChatDeliveryState::kFailed);
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "RF queued message rejected: profile=%lu, message=%lu, "
+        "size=%u bytes\n",
+        static_cast<unsigned long>(message.profile_id),
+        static_cast<unsigned long>(static_cast<uint32_t>(message.sequence)),
+        static_cast<unsigned>(length));
+    SyncModuleItems(state);
+    if (state->detail_page != nullptr) {
+      RenderChatMessages(state);
+    }
+    RenderModuleList(state);
+    return false;
+  }
+  const bool started = state->config.rf->SendRf(
+      reinterpret_cast<const uint8_t*>(message.text), length,
+      message.sequence);
+  if (!started) {
+    app::GetRfChatRepository().UpdateDelivery(
+        message.sequence, RfChatDeliveryState::kFailed);
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "RF queued message start failed: profile=%lu, message=%lu, "
+        "size=%u bytes\n",
+        static_cast<unsigned long>(message.profile_id),
+        static_cast<unsigned long>(static_cast<uint32_t>(message.sequence)),
+        static_cast<unsigned>(length));
+    SyncModuleItems(state);
+    if (state->detail_page != nullptr) {
+      RenderChatMessages(state);
+    }
+    RenderModuleList(state);
+  }
+  return started;
+}
+
+/**
+ * @brief 轮询射频事件并仅在发送空闲时处理聊天存储
+ * @param timer RF 页面定时器
+ */
 void RadioTimerCallback(lv_timer_t* timer) {
   auto* state = static_cast<RfViewState*>(lv_timer_get_user_data(timer));
-  if (state == nullptr || state->config.rf == nullptr ||
+  if (state == nullptr) {
+    return;
+  }
+  if (state->config.rf == nullptr ||
       state->preferences.active_profile_id == 0) {
     return;
   }
   hal::RfStatus status;
-  if (state->config.rf->ReadRfStatus(&status) &&
-      status.state == hal::RfLinkState::kChipError &&
-      state->activation_retry_count < kActivationRetryLimit &&
+  const bool status_available = state->config.rf->ReadRfStatus(&status);
+  const bool use_fast_retry =
+      state->activation_retry_count < kActivationFastRetryCount;
+  const uint32_t retry_period_ms = use_fast_retry
+      ? kActivationRetryPeriodMs
+      : kActivationRetrySlowPeriodMs;
+  if (status_available && status.state == hal::RfLinkState::kChipError &&
       lv_tick_get() - state->last_activation_retry_tick >=
-          kActivationRetryPeriodMs) {
-    const size_t retry_index = FindProfileIndex(
-        state, state->preferences.active_profile_id);
+          retry_period_ms) {
+    const size_t retry_index =
+        FindProfileIndex(state, state->preferences.active_profile_id);
     state->last_activation_retry_tick = lv_tick_get();
-    ++state->activation_retry_count;
+    if (state->activation_retry_count < UINT8_MAX) {
+      ++state->activation_retry_count;
+    }
     if (retry_index < state->module_count &&
-        IsProfileSupported(
-            state, state->preferences.profiles[retry_index])) {
-      state->config.rf->ActivateRf(ToRadioConfig(
-          state->preferences.profiles[retry_index]));
+        IsProfileSupported(state, state->preferences.profiles[retry_index])) {
+      const bool activated = state->config.rf->ActivateRf(
+          ToRadioConfig(state->preferences.profiles[retry_index]));
+      if (activated) {
+        state->activation_retry_count = 0;
+      }
       UpdateDetailStatus(state);
       RenderModuleList(state);
     }
+  } else if (status_available && status.state == hal::RfLinkState::kActive) {
+    state->activation_retry_count = 0;
   }
   hal::RfEvent event;
-  state->config.rf->PollRfEvent(&event);
+  const bool poll_succeeded = state->config.rf->PollRfEvent(&event);
   if (event.type == hal::RfEventType::kNone) {
+    if (!poll_succeeded || !status_available || status.transmitting) {
+      return;
+    }
+    TryStartNextPendingMessage(state);
     return;
   }
   const uint32_t profile_id = event.client_token;
+  if (event.type == hal::RfEventType::kTransmitComplete ||
+      event.type == hal::RfEventType::kTransmitFailed ||
+      event.type == hal::RfEventType::kChipError) {
+    const RfChatDeliveryState delivery =
+        event.type == hal::RfEventType::kTransmitComplete
+            ? RfChatDeliveryState::kSent
+            : RfChatDeliveryState::kFailed;
+    bool updated = false;
+    if (event.request_token != 0) {
+      updated = app::GetRfChatRepository().UpdateDelivery(
+          event.request_token, delivery);
+    }
+    if (event.type == hal::RfEventType::kChipError) {
+      app::GetRfChatRepository().FailPending(profile_id);
+    }
+    if (event.type == hal::RfEventType::kTransmitComplete) {
+      if (!updated) {
+        LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+            "RF message was sent, but it is missing from chat history: "
+            "profile=%lu, message=%lu\n",
+            static_cast<unsigned long>(profile_id),
+            static_cast<unsigned long>(
+                static_cast<uint32_t>(event.request_token)));
+      }
+    } else if (event.request_token != 0) {
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "RF message %lu failed on profile %lu: %s\n",
+          static_cast<unsigned long>(
+              static_cast<uint32_t>(event.request_token)),
+          static_cast<unsigned long>(profile_id),
+          RfFailureReasonText(event.failure_reason));
+    } else {
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "RF radio error on profile %lu: %s\n",
+          static_cast<unsigned long>(profile_id),
+          RfFailureReasonText(event.failure_reason));
+    }
+  }
   const size_t profile_index = FindProfileIndex(state, profile_id);
   if (profile_index >= state->module_count) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "RF event ignored: unknown profile=%lu, type=%u\n",
+        static_cast<unsigned long>(profile_id),
+        static_cast<unsigned>(event.type));
     return;
   }
-  if (event.type == hal::RfEventType::kTransmitComplete ||
-      event.type == hal::RfEventType::kTransmitFailed) {
-    for (size_t offset = 0; offset < state->chat_message_count; ++offset) {
-      RfChatMessage& message = state->chat_messages[
-          state->chat_message_count - offset - 1];
-      if (message.profile_id == profile_id &&
-          message.delivery == ChatDeliveryState::kSending) {
-        message.delivery = event.type == hal::RfEventType::kTransmitComplete
-            ? ChatDeliveryState::kSent
-            : ChatDeliveryState::kFailed;
-        break;
-      }
-    }
-  } else if (event.type == hal::RfEventType::kPacketReceived) {
-    RfChatMessage* message = AppendChatMessage(state, profile_id);
-    if (message != nullptr) {
-      message->delivery = ChatDeliveryState::kReceived;
-      message->rssi_dbm = event.rssi_dbm;
-      message->snr_db = event.snr_db;
-      FormatPacketText(event, message->text, sizeof(message->text));
-      CopyBoundedString(state->latest_messages[profile_index],
-          sizeof(state->latest_messages[profile_index]), message->text);
-      CopyBoundedString(state->message_times[profile_index],
-          sizeof(state->message_times[profile_index]), message->time);
+  if (event.type == hal::RfEventType::kPacketReceived) {
+    RfChatMessage message;
+    message.profile_id = profile_id;
+    message.delivery = RfChatDeliveryState::kReceived;
+    message.rssi_dbm = event.rssi_dbm;
+    message.snr_db = event.snr_db;
+    FormatCurrentTime(state, message.time, sizeof(message.time));
+    FormatPacketText(event, message.text, sizeof(message.text));
+    if (app::GetRfChatRepository().Append(message) != 0) {
       if (state->detail_page == nullptr ||
           state->detail_index != profile_index) {
-        if (state->unread_counts[profile_index] < UINT16_MAX) {
-          ++state->unread_counts[profile_index];
-        }
+        app::GetRfChatRepository().IncrementUnread(profile_id);
       }
     }
   }
   SyncModuleItems(state);
   RefreshProfileSettingsPage(state);
   UpdateDetailStatus(state);
-  if (state->detail_page != nullptr &&
-      state->detail_index == profile_index) {
+  if (state->detail_page != nullptr && state->detail_index == profile_index) {
     RenderChatMessages(state);
   }
   RenderModuleList(state);
+  TryStartNextPendingMessage(state);
 }
 
 /**
@@ -1124,8 +1259,8 @@ bool CreateNearMeIcon(lv_obj_t* parent) {
   if (parent == nullptr) {
     return false;
   }
-  lv_obj_t* icon_label = CreateLabel(
-      parent, icon::kNearMe, kOnPrimaryColor, OutlineIconFont44());
+  lv_obj_t* icon_label =
+      CreateLabel(parent, icon::kNearMe, kOnPrimaryColor, OutlineIconFont44());
   if (icon_label == nullptr) {
     return false;
   }
@@ -1133,6 +1268,10 @@ bool CreateNearMeIcon(lv_obj_t* parent) {
   return true;
 }
 
+/**
+ * @brief 校验聊天输入并启动可追踪的异步射频发送
+ * @param event LVGL 点击事件
+ */
 void DetailSendClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
@@ -1148,26 +1287,42 @@ void DetailSendClickedEventCallback(lv_event_t* event) {
   const size_t length = text == nullptr ? 0 : std::strlen(text);
   const app::RfProfile& profile =
       state->preferences.profiles[state->detail_index];
-  if (length == 0 || length > hal::kRfPayloadCapacity ||
-      profile.id != state->preferences.active_profile_id) {
+  if (length == 0) {
     return;
   }
-  RfChatMessage* message = AppendChatMessage(state, profile.id);
-  if (message == nullptr) {
+  if (length > hal::kRfPayloadCapacity) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "RF message rejected: payload too large, bytes=%u, maximum=%u\n",
+        static_cast<unsigned>(length),
+        static_cast<unsigned>(hal::kRfPayloadCapacity));
     return;
   }
-  CopyBoundedString(message->text, sizeof(message->text), text);
-  message->delivery = ChatDeliveryState::kSending;
-  const bool started = state->config.rf != nullptr &&
-      state->config.rf->SendRf(
-          reinterpret_cast<const uint8_t*>(text), length);
-  if (!started) {
-    message->delivery = ChatDeliveryState::kFailed;
+  if (profile.id != state->preferences.active_profile_id) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "RF message rejected: profile is inactive, profile=%lu, active=%lu\n",
+        static_cast<unsigned long>(profile.id),
+        static_cast<unsigned long>(state->preferences.active_profile_id));
+    return;
   }
-  CopyBoundedString(state->latest_messages[state->detail_index],
-      sizeof(state->latest_messages[state->detail_index]), text);
-  FormatCurrentTime(state, state->message_times[state->detail_index],
-      sizeof(state->message_times[state->detail_index]));
+  if (state->config.rf == nullptr) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "RF message rejected: RF provider is unavailable, profile=%lu\n",
+        static_cast<unsigned long>(profile.id));
+    return;
+  }
+  RfChatMessage message;
+  message.profile_id = profile.id;
+  message.delivery = RfChatDeliveryState::kSending;
+  FormatCurrentTime(state, message.time, sizeof(message.time));
+  CopyBoundedString(message.text, sizeof(message.text), text);
+  const uint64_t sequence = app::GetRfChatRepository().Append(message);
+  if (sequence == 0) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "RF message rejected: chat cache is unavailable, profile=%lu\n",
+        static_cast<unsigned long>(profile.id));
+    return;
+  }
+  TryStartNextPendingMessage(state);
   lv_textarea_set_text(state->detail_input, "");
   SyncModuleItems(state);
   RenderChatMessages(state);
@@ -1366,6 +1521,12 @@ bool ShowModuleDetail(RfViewState* state, size_t index) {
       index >= state->module_count) {
     return false;
   }
+  const uint32_t profile_id = state->preferences.profiles[index].id;
+  app::RfChatRepository& repository = app::GetRfChatRepository();
+  repository.TouchProfile(profile_id);
+  if (repository.LoadProfiles(&profile_id, 1)) {
+    SyncModuleItems(state);
+  }
   const RfModuleItem& item = state->modules[index];
   lv_obj_t* page = lv_obj_create(state->root);
   if (page == nullptr) {
@@ -1373,7 +1534,7 @@ bool ShowModuleDetail(RfViewState* state, size_t index) {
   }
   state->detail_page = page;
   state->detail_index = index;
-  state->unread_counts[index] = 0;
+  repository.MarkRead(profile_id);
   SyncModuleItems(state);
   RenderModuleList(state);
   state->detail_input = nullptr;
@@ -1466,6 +1627,8 @@ bool ShowModuleDetail(RfViewState* state, size_t index) {
   lv_obj_set_style_bg_opa(chat_body, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_border_width(chat_body, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(chat_body, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_bottom(
+      chat_body, kChatTimelineInset, LV_PART_MAIN);
   lv_obj_set_scroll_dir(chat_body, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(chat_body, LV_SCROLLBAR_MODE_AUTO);
   lv_obj_add_flag(chat_body, LV_OBJ_FLAG_SCROLLABLE);
@@ -1544,6 +1707,187 @@ void ModuleRowLongPressedEventCallback(lv_event_t* event) {
   RenderModuleList(action->state);
 }
 
+void RfSettingsCloseCompletedCallback(lv_anim_t* animation) {
+  auto* state = static_cast<RfViewState*>(lv_anim_get_user_data(animation));
+  if (state == nullptr || state->app_settings_page == nullptr) {
+    return;
+  }
+  lv_obj_t* page = state->app_settings_page;
+  state->app_settings_page = nullptr;
+  state->app_settings_closing = false;
+  state->app_settings_edge_swipe = EdgeBackSwipeState();
+  lv_obj_delete(page);
+}
+
+/**
+ * @brief 使用退出动画关闭 RF 应用设置页面
+ * @param state RF 页面状态
+ */
+void CloseRfSettingsPage(RfViewState* state) {
+  if (state == nullptr || state->app_settings_page == nullptr ||
+      state->app_settings_closing) {
+    return;
+  }
+  state->app_settings_closing = true;
+  if (StartSlideRightWindowTransition(state->app_settings_page,
+          state->config.width, kAnimationMs, state,
+          RfSettingsCloseCompletedCallback)) {
+    return;
+  }
+  lv_obj_t* page = state->app_settings_page;
+  state->app_settings_page = nullptr;
+  state->app_settings_closing = false;
+  state->app_settings_edge_swipe = EdgeBackSwipeState();
+  lv_obj_delete(page);
+}
+
+void RfSettingsBackClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
+    CloseRfSettingsPage(
+        static_cast<RfViewState*>(lv_event_get_user_data(event)));
+  }
+}
+
+void RfSettingsEdgeBackEventCallback(lv_event_t* event) {
+  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->app_settings_page == nullptr ||
+      !HandleEdgeBackSwipeEvent(
+          event, state->config.width, &state->app_settings_edge_swipe)) {
+    return;
+  }
+  CloseRfSettingsPage(state);
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+}
+
+/**
+ * @brief 创建与音乐设置页面一致的 RF 设置页标题栏
+ * @param page 设置页面对象
+ * @param state RF 页面状态
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateRfSettingsHeader(lv_obj_t* page, RfViewState* state) {
+  lv_obj_t* back = lv_button_create(page);
+  if (back == nullptr) {
+    return false;
+  }
+  lv_obj_remove_style_all(back);
+  lv_obj_remove_flag(back, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(back, LV_OBJ_FLAG_PRESS_LOCK);
+  lv_obj_add_flag(back, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(back, 62, 62);
+  lv_obj_set_pos(back, 18, 66);
+  lv_obj_set_style_bg_opa(back, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(back, LV_OPA_TRANSP, LV_STATE_PRESSED);
+  lv_obj_add_event_cb(
+      back, RfSettingsBackClickedEventCallback, LV_EVENT_CLICKED, state);
+  lv_obj_t* back_icon =
+      CreateLabel(back, icon::kArrowBack, kMainTextColor, OutlineIconFont44());
+  if (back_icon == nullptr) {
+    return false;
+  }
+  lv_obj_align(back_icon, LV_ALIGN_CENTER, -4, 0);
+  lv_obj_t* title = CreateLabel(page, "RF settings", kMainTextColor, Font48());
+  if (title == nullptr) {
+    return false;
+  }
+  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 34, 154);
+  return true;
+}
+
+/**
+ * @brief 创建 RF 聊天数据目录的只读设置行
+ * @param page 设置页面对象
+ * @param state RF 页面状态
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateRfStorageSettingRow(lv_obj_t* page, RfViewState* state) {
+  lv_obj_t* row = lv_obj_create(page);
+  if (row == nullptr) {
+    return false;
+  }
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(row, state->config.width, 120);
+  lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 300);
+  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
+  lv_obj_t* title =
+      CreateLabel(row, "Storage folder", kMainTextColor, Font28());
+  if (title != nullptr) {
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 34, 23);
+  }
+  char path[192] = {};
+  if (!app::GetRfChatRepository().GetStorageDirectory(path, sizeof(path))) {
+    CopyBoundedString(path, sizeof(path), "Storage unavailable");
+  }
+  lv_obj_t* subtitle =
+      CreateLabel(row, path, kSettingsSecondaryTextColor, Font24());
+  if (subtitle == nullptr) {
+    return false;
+  }
+  lv_obj_set_width(subtitle, state->config.width - 68);
+  lv_label_set_long_mode(subtitle, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  lv_obj_align(subtitle, LV_ALIGN_TOP_LEFT, 34, 65);
+  return title != nullptr;
+}
+
+/**
+ * @brief 显示 RF 应用设置页面和聊天数据目录
+ * @param state RF 页面状态
+ * @return 显示成功返回 true，否则返回 false
+ */
+bool ShowRfSettingsPage(RfViewState* state) {
+  if (state == nullptr || state->root == nullptr) {
+    return false;
+  }
+  if (state->app_settings_page != nullptr) {
+    lv_obj_move_to_index(state->app_settings_page, -1);
+    return true;
+  }
+  lv_obj_t* page = lv_obj_create(state->root);
+  if (page == nullptr) {
+    return false;
+  }
+  state->app_settings_page = page;
+  state->app_settings_closing = false;
+  state->app_settings_edge_swipe = EdgeBackSwipeState();
+  lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(page, state->config.width, state->config.height);
+  lv_obj_set_pos(page, 0, 0);
+  lv_obj_set_style_bg_color(
+      page, lv_color_hex(kMainBackgroundColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
+  AddEdgeBackSwipeEvents(page, RfSettingsEdgeBackEventCallback, state);
+  if (!CreateRfSettingsHeader(page, state)) {
+    lv_obj_delete(page);
+    state->app_settings_page = nullptr;
+    return false;
+  }
+  lv_obj_t* section = CreateLabel(page, "STORAGE", kPrimaryColor, Font22());
+  if (section != nullptr) {
+    lv_obj_align(section, LV_ALIGN_TOP_LEFT, 28, 254);
+  }
+  if (section == nullptr || !CreateRfStorageSettingRow(page, state)) {
+    lv_obj_delete(page);
+    state->app_settings_page = nullptr;
+    return false;
+  }
+  EnableEdgeBackSwipeEventBubble(page);
+  if (!StartSlideLeftWindowTransition(
+          page, state->config.width, kAnimationMs, state, nullptr)) {
+    lv_obj_delete(page);
+    state->app_settings_page = nullptr;
+    return false;
+  }
+  return true;
+}
+
 /**
  * @brief 关闭射频导航侧边栏
  * @param state 射频页面状态
@@ -1564,6 +1908,18 @@ void DrawerRefreshClickedEventCallback(lv_event_t* event) {
   }
   CloseRfDrawer(
       static_cast<RfViewState*>(lv_event_get_user_data(event)));
+}
+
+void DrawerSettingsClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr) {
+    return;
+  }
+  CloseRfDrawer(state);
+  ShowRfSettingsPage(state);
 }
 
 /**
@@ -1597,8 +1953,8 @@ void ShowRfDrawer(RfViewState* state) {
   y += kNavigationDrawerItemHeight + 12;
   CreateNavigationDrawerDivider(&state->drawer, y);
   y += 18;
-  CreateNavigationDrawerItem(&state->drawer, icon::kSettings,
-      "Settings", y, nullptr, state);
+  CreateNavigationDrawerItem(&state->drawer, icon::kSettings, "Settings", y,
+      DrawerSettingsClickedEventCallback, state);
   PresentNavigationDrawer(&state->drawer);
 }
 
@@ -2733,22 +3089,11 @@ void DeleteSelectedProfiles(RfViewState* state) {
     return;
   }
   app::RfPreferences next = state->preferences;
-  size_t message_write_index = 0;
-  for (size_t index = 0; index < state->chat_message_count; ++index) {
-    const size_t profile_index = FindProfileIndex(
-        state, state->chat_messages[index].profile_id);
-    if (profile_index < state->module_count &&
-        state->selected_modules[profile_index]) {
-      continue;
-    }
-    state->chat_messages[message_write_index++] =
-        state->chat_messages[index];
-  }
-  state->chat_message_count = message_write_index;
   size_t write_index = 0;
   for (size_t read_index = 0;
        read_index < state->module_count; ++read_index) {
     if (state->selected_modules[read_index]) {
+      app::GetRfChatRepository().RemoveProfile(next.profiles[read_index].id);
       if (next.profiles[read_index].id == next.active_profile_id) {
         FailPendingMessages(state, next.active_profile_id);
         next.active_profile_id = 0;
@@ -2759,24 +3104,11 @@ void DeleteSelectedProfiles(RfViewState* state) {
       continue;
     }
     next.profiles[write_index] = next.profiles[read_index];
-    if (write_index != read_index) {
-      CopyBoundedString(state->latest_messages[write_index],
-          sizeof(state->latest_messages[write_index]),
-          state->latest_messages[read_index]);
-      CopyBoundedString(state->message_times[write_index],
-          sizeof(state->message_times[write_index]),
-          state->message_times[read_index]);
-      state->unread_counts[write_index] =
-          state->unread_counts[read_index];
-    }
     ++write_index;
   }
   next.profile_count = write_index;
   for (size_t index = write_index; index < kRfModuleCapacity; ++index) {
     next.profiles[index] = app::RfProfile{};
-    state->latest_messages[index][0] = '\0';
-    state->message_times[index][0] = '\0';
-    state->unread_counts[index] = 0;
   }
   state->preferences = next;
   app::UpdateRfPreferences(state->preferences);
@@ -3126,7 +3458,12 @@ void UpdateAddInputErrorStyles(RfViewState* state) {
  * @return 信息完整返回 true，否则返回 false
  */
 bool IsAddModuleFormComplete(const RfViewState* state) {
-  if (state == nullptr || state->add_frequency_input == nullptr ||
+  if (state == nullptr) {
+    return false;
+  }
+  const bool editing = state->editing_index < state->module_count;
+  if ((!editing && state->add_name_input == nullptr) ||
+      state->add_frequency_input == nullptr ||
       state->add_power_input == nullptr ||
       state->add_preamble_input == nullptr ||
       state->add_sync_word_input == nullptr ||
@@ -3134,12 +3471,17 @@ bool IsAddModuleFormComplete(const RfViewState* state) {
        state->module_count >= kRfModuleCapacity)) {
     return false;
   }
+  const char* profile_name = editing
+      ? nullptr
+      : lv_textarea_get_text(state->add_name_input);
   const char* frequency =
       lv_textarea_get_text(state->add_frequency_input);
   long power = 0;
   long preamble = 0;
   long sync_word = 0;
-  return frequency != nullptr && frequency[0] != '\0' &&
+  return (editing ||
+             (profile_name != nullptr && profile_name[0] != '\0')) &&
+         frequency != nullptr && frequency[0] != '\0' &&
          IsAddFrequencyValid(state) &&
          ParseTextAreaLong(state->add_power_input, 10, -9, 22, &power) &&
          ParseTextAreaLong(state->add_preamble_input, 10, 1, 65535,
@@ -3284,6 +3626,7 @@ void AddPageCloseCompletedCallback(lv_anim_t* animation) {
   lv_obj_t* page = state->add_page;
   state->add_page = nullptr;
   state->add_body = nullptr;
+  state->add_name_input = nullptr;
   state->add_frequency_input = nullptr;
   state->add_power_input = nullptr;
   state->add_preamble_input = nullptr;
@@ -3318,6 +3661,7 @@ void CloseAddModulePage(RfViewState* state) {
     lv_obj_t* page = state->add_page;
     state->add_page = nullptr;
     state->add_body = nullptr;
+    state->add_name_input = nullptr;
     state->add_frequency_input = nullptr;
     state->add_power_input = nullptr;
     state->add_preamble_input = nullptr;
@@ -3404,8 +3748,8 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
     if (profile.id == 0) {
       profile.id = state->preferences.next_profile_id++;
     }
-    std::snprintf(profile.name, sizeof(profile.name), "RF profile %u",
-        static_cast<unsigned>(profile.id));
+    CopyBoundedString(profile.name, sizeof(profile.name),
+        lv_textarea_get_text(state->add_name_input));
   }
   const char* frequency_text = lv_textarea_get_text(
       state->add_frequency_input);
@@ -3677,6 +4021,7 @@ lv_obj_t* CreateAddSwitchRow(lv_obj_t* parent, RfViewState* state,
 bool CreateAddModuleContent(RfViewState* state) {
   lv_obj_t* body = state->add_body;
   const bool editing = state->editing_index < state->module_count;
+  const int content_offset = editing ? 0 : kAddProfileNameSectionHeight;
   const app::RfProfile profile = editing
       ? state->preferences.profiles[state->editing_index]
       : app::RfProfile{};
@@ -3692,8 +4037,23 @@ bool CreateAddModuleContent(RfViewState* state) {
       static_cast<unsigned>(profile.preamble_length));
   std::snprintf(sync_word, sizeof(sync_word), "%02hhX",
       static_cast<unsigned>(profile.sync_word));
-  if (body == nullptr ||
-      !CreateAddParameterTitle(body, "RF CHIP", 8)) {
+  if (body == nullptr) {
+    return false;
+  }
+  state->add_name_input = nullptr;
+  if (!editing) {
+    if (!CreateAddParameterTitle(body, "PROFILE NAME", 8)) {
+      return false;
+    }
+    state->add_name_input = CreateAddTextArea(body, state,
+        "Profile name", "", 44, app::kRfProfileNameCapacity - 1);
+    if (state->add_name_input == nullptr) {
+      return false;
+    }
+    lv_textarea_set_accepted_chars(
+        state->add_name_input, kProfileNameAcceptedChars);
+  }
+  if (!CreateAddParameterTitle(body, "RF CHIP", 8 + content_offset)) {
     return false;
   }
 
@@ -3701,26 +4061,28 @@ bool CreateAddModuleContent(RfViewState* state) {
   const int option_area_width = state->config.width - 56;
   state->add_chip_buttons[0] = CreateAddOptionButton(body, state,
       RfAddOptionGroup::kChip, 0,
-      ChipDisplayName(profile.chip), 28, 44, 150, 62);
+      ChipDisplayName(profile.chip), 28, 44 + content_offset, 150, 62);
   if (state->add_chip_buttons[0] == nullptr) {
     return false;
   }
 
-  if (!CreateAddParameterTitle(body, "PROTOCOL", 134)) {
+  if (!CreateAddParameterTitle(body, "PROTOCOL", 134 + content_offset)) {
     return false;
   }
   state->add_protocol_buttons[0] = CreateAddOptionButton(body, state,
       RfAddOptionGroup::kProtocol, 0,
-      ProtocolDisplayName(profile.protocol), 28, 170, 116, 62);
+      ProtocolDisplayName(profile.protocol), 28, 170 + content_offset,
+      116, 62);
   if (state->add_protocol_buttons[0] == nullptr) {
     return false;
   }
 
-  if (!CreateAddParameterTitle(body, "WORKING FREQUENCY", 262)) {
+  if (!CreateAddParameterTitle(
+      body, "WORKING FREQUENCY", 262 + content_offset)) {
     return false;
   }
   state->add_frequency_input = CreateAddTextArea(
-      body, state, "Frequency", frequency, 298, 7);
+      body, state, "Frequency", frequency, 298 + content_offset, 7);
   if (state->add_frequency_input == nullptr) {
     return false;
   }
@@ -3736,7 +4098,7 @@ bool CreateAddModuleContent(RfViewState* state) {
   lv_obj_remove_flag(unit, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(unit, 84, 62);
   lv_obj_set_pos(unit, state->config.width - 112,
-      302);
+      302 + content_offset);
   lv_obj_set_style_bg_color(
       unit, lv_color_hex(kSurfaceContainerHighColor), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(unit, LV_OPA_COVER, LV_PART_MAIN);
@@ -3750,7 +4112,8 @@ bool CreateAddModuleContent(RfViewState* state) {
   }
   lv_obj_center(unit_label);
 
-  if (!CreateAddParameterTitle(body, "SPREADING FACTOR", 400)) {
+  if (!CreateAddParameterTitle(
+      body, "SPREADING FACTOR", 400 + content_offset)) {
     return false;
   }
   const int option_width = (option_area_width - 3 * option_gap) / 4;
@@ -3762,13 +4125,14 @@ bool CreateAddModuleContent(RfViewState* state) {
     state->add_sf_buttons[index] = CreateAddOptionButton(body, state,
         RfAddOptionGroup::kSpreadingFactor, index, sf_names[index],
         28 + column * (option_width + option_gap),
-        436 + row * 68, option_width, 58);
+        436 + content_offset + row * 68, option_width, 58);
     if (state->add_sf_buttons[index] == nullptr) {
       return false;
     }
   }
 
-  if (!CreateAddParameterTitle(body, "BANDWIDTH (kHz)", 582)) {
+  if (!CreateAddParameterTitle(
+      body, "BANDWIDTH (kHz)", 582 + content_offset)) {
     return false;
   }
   const char* bandwidth_names[] = {"62.5", "125", "250", "500"};
@@ -3776,14 +4140,14 @@ bool CreateAddModuleContent(RfViewState* state) {
     state->add_bandwidth_buttons[index] = CreateAddOptionButton(
         body, state, RfAddOptionGroup::kBandwidth, index,
         bandwidth_names[index],
-        28 + index * (option_width + option_gap), 618,
+        28 + index * (option_width + option_gap), 618 + content_offset,
         option_width, 60);
     if (state->add_bandwidth_buttons[index] == nullptr) {
       return false;
     }
   }
 
-  if (!CreateAddParameterTitle(body, "CODING RATE", 710)) {
+  if (!CreateAddParameterTitle(body, "CODING RATE", 710 + content_offset)) {
     return false;
   }
   const char* coding_names[] = {"4/5", "4/6", "4/7", "4/8"};
@@ -3791,40 +4155,42 @@ bool CreateAddModuleContent(RfViewState* state) {
     state->add_coding_rate_buttons[index] = CreateAddOptionButton(
         body, state, RfAddOptionGroup::kCodingRate, index,
         coding_names[index],
-        28 + index * (option_width + option_gap), 746,
+        28 + index * (option_width + option_gap), 746 + content_offset,
         option_width, 60);
     if (state->add_coding_rate_buttons[index] == nullptr) {
       return false;
     }
   }
 
-  if (!CreateAddParameterTitle(body, "TX POWER", 838)) {
+  if (!CreateAddParameterTitle(body, "TX POWER", 838 + content_offset)) {
     return false;
   }
   state->add_power_input = CreateAddTextArea(
-      body, state, "Output power", power, 874, 3);
+      body, state, "Output power", power, 874 + content_offset, 3);
   if (state->add_power_input == nullptr) {
     return false;
   }
   lv_textarea_set_accepted_chars(
       state->add_power_input, "-0123456789");
 
-  if (!CreateAddParameterTitle(body, "PREAMBLE LENGTH", 976)) {
+  if (!CreateAddParameterTitle(
+      body, "PREAMBLE LENGTH", 976 + content_offset)) {
     return false;
   }
   state->add_preamble_input = CreateAddTextArea(
-      body, state, "Preamble symbols", preamble, 1012, 5);
+      body, state, "Preamble symbols", preamble, 1012 + content_offset, 5);
   if (state->add_preamble_input == nullptr) {
     return false;
   }
   lv_textarea_set_accepted_chars(
       state->add_preamble_input, kIntegerAcceptedChars);
 
-  if (!CreateAddParameterTitle(body, "SYNC WORD (HEX)", 1114)) {
+  if (!CreateAddParameterTitle(
+      body, "SYNC WORD (HEX)", 1114 + content_offset)) {
     return false;
   }
   state->add_sync_word_input = CreateAddTextArea(
-      body, state, "12", sync_word, 1150, 2);
+      body, state, "12", sync_word, 1150 + content_offset, 2);
   if (state->add_sync_word_input == nullptr) {
     return false;
   }
@@ -3845,7 +4211,8 @@ bool CreateAddModuleContent(RfViewState* state) {
   }
   lv_obj_remove_flag(prefix, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(prefix, kSyncWordPrefixWidth, 62);
-  lv_obj_set_pos(prefix, kSyncWordSideMargin, 1154);
+  lv_obj_set_pos(
+      prefix, kSyncWordSideMargin, 1154 + content_offset);
   lv_obj_set_style_bg_color(prefix,
       lv_color_hex(kSurfaceContainerHighColor), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(prefix, LV_OPA_COVER, LV_PART_MAIN);
@@ -3859,23 +4226,23 @@ bool CreateAddModuleContent(RfViewState* state) {
   }
   lv_obj_center(prefix_label);
 
-  constexpr int kSwitchRowsTop = 1258;
+  const int switch_rows_top = 1258 + content_offset;
   constexpr int kSwitchRowPitch =
       kAddSwitchRowHeight + kAddSwitchRowGap;
   state->add_crc_switch = CreateAddSwitchRow(body, state,
-      "CRC", "Reject damaged LoRa packets", kSwitchRowsTop,
+      "CRC", "Reject damaged LoRa packets", switch_rows_top,
       profile.crc_enabled);
   state->add_iq_switch = CreateAddSwitchRow(body, state,
       "Invert IQ", "Enable only when the peer also inverts IQ",
-      kSwitchRowsTop + kSwitchRowPitch,
+      switch_rows_top + kSwitchRowPitch,
       profile.invert_iq);
   state->add_rx_boost_switch = CreateAddSwitchRow(body, state,
       "RX boost", "Higher receive sensitivity",
-      kSwitchRowsTop + 2 * kSwitchRowPitch,
+      switch_rows_top + 2 * kSwitchRowPitch,
       profile.rx_boosted);
   state->add_active_switch = CreateAddSwitchRow(body, state,
       "Active profile", "Only one profile can use the SX1262",
-      kSwitchRowsTop + 3 * kSwitchRowPitch,
+      switch_rows_top + 3 * kSwitchRowPitch,
       !editing || state->preferences.active_profile_id == profile.id);
   if (state->add_crc_switch == nullptr ||
       state->add_iq_switch == nullptr ||
@@ -4010,6 +4377,7 @@ bool ShowAddModulePage(RfViewState* state) {
   state->selected_add_coding_rate = std::clamp(
       static_cast<int>(profile.coding_rate_denominator) - 5, 0, 3);
   state->add_closing = false;
+  state->add_name_input = nullptr;
   state->add_edge_swipe = EdgeBackSwipeState();
   for (lv_obj_t*& button : state->add_chip_buttons) {
     button = nullptr;
@@ -4078,6 +4446,7 @@ bool ShowAddModulePage(RfViewState* state) {
     lv_obj_delete(page);
     state->add_page = nullptr;
     state->add_body = nullptr;
+    state->add_name_input = nullptr;
     return false;
   }
 
@@ -4087,6 +4456,8 @@ bool ShowAddModulePage(RfViewState* state) {
       state->config.height * kAddKeyboardHeightPercent / 100;
   state->add_keyboard = CreateSharedKeyboard(page, keyboard_config);
   if (state->add_keyboard == nullptr ||
+      (!editing && !AttachSharedKeyboardToTextArea(state->add_keyboard,
+          state->add_name_input, kProfileNameAcceptedChars)) ||
       !AttachSharedKeyboardToTextArea(state->add_keyboard,
           state->add_frequency_input, kFrequencyAcceptedChars) ||
       !AttachSharedKeyboardToTextArea(state->add_keyboard,
@@ -4099,6 +4470,7 @@ bool ShowAddModulePage(RfViewState* state) {
     lv_obj_delete(page);
     state->add_page = nullptr;
     state->add_body = nullptr;
+    state->add_name_input = nullptr;
     state->add_keyboard = nullptr;
     return false;
   }
@@ -4111,6 +4483,7 @@ bool ShowAddModulePage(RfViewState* state) {
     lv_obj_delete(page);
     state->add_page = nullptr;
     state->add_body = nullptr;
+    state->add_name_input = nullptr;
     state->add_keyboard = nullptr;
     return false;
   }
@@ -4239,7 +4612,12 @@ lv_obj_t* CreateRfView(lv_obj_t* parent, const app::AppEntry& app_entry,
     }
   }
   app::GetRfPreferences(&state->preferences);
-  SyncModuleItems(state);
+  app::RfChatRepository& chat_repository = app::GetRfChatRepository();
+  chat_repository.Initialize();
+  chat_repository.TouchProfile(state->preferences.active_profile_id);
+  if (!LoadCurrentChatProfiles(state)) {
+    SyncModuleItems(state);
+  }
   const size_t active_index = FindProfileIndex(
       state, state->preferences.active_profile_id);
   if (config.rf != nullptr && active_index < state->module_count &&

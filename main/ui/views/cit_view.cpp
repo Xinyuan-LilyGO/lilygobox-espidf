@@ -2,7 +2,7 @@
  * @Description: 整机测试列表、测试流程与结果交互页面实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-17 10:30:19
+ * @LastEditTime: 2026-07-17 17:57:58
  * @License: GPL 3.0
  */
 #include "ui/views/cit_view.h"
@@ -1091,7 +1091,8 @@ void RefreshEthernetTestData(CitViewState* state) {
       status_text, status.port_count, status.link_up ? "inserted" : "removed",
       dhcp_text, mac_address, ip_address, netmask, gateway);
   if (status.start_failed && status.last_error != ESP_OK) {
-    AppendFormatted(text, sizeof(text), &used, "\nerror: %#X",
+    AppendFormatted(text, sizeof(text), &used, "\nerror: %s (%#X)",
+        esp_err_to_name(static_cast<esp_err_t>(status.last_error)),
         static_cast<unsigned int>(status.last_error));
   }
 
@@ -1217,7 +1218,8 @@ void RefreshWifiTestData(CitViewState* state) {
 
   if (status.start_failed) {
     AppendFormatted(text, sizeof(text), &used,
-        "\nerror: %#X\nreason: %d",
+        "\nerror: %s (%#X)\nreason: %d",
+        esp_err_to_name(static_cast<esp_err_t>(status.last_error)),
         static_cast<unsigned int>(status.last_error),
         status.disconnect_reason);
   }

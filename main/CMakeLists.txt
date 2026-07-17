@@ -49,5 +49,6 @@ idf_component_register(
         esp_wifi
         freertos
         heap
+        littlefs
         lwip
         spi_flash)

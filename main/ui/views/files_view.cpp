@@ -1,8 +1,8 @@
 /*
- * @Description: Lightweight SD card file browser
+ * @Description: LittleFS 与 SD 卡只读文件浏览页面
  * @Author: LILYGO_L
  * @Date: 2026-07-09 00:00:00
- * @LastEditTime: 2026-07-12 01:35:14
+ * @LastEditTime: 2026-07-17 18:09:39
  * @License: GPL 3.0
  */
 #include "ui/views/files_view.h"
@@ -19,6 +19,7 @@
 #include <utility>
 #include <vector>
 
+#include "app/storage/littlefs_storage.h"
 #include "base/logger.h"
 #include "esp_vfs_fat.h"
 #include "hal/providers/storage_provider.h"
@@ -65,6 +66,11 @@ constexpr int kFolderPickerActionHeight = 94;
 constexpr int kFolderPickerButtonHeight = 64;
 constexpr size_t kMaxDirectoryEntryCount = 256;
 
+enum class FilesStorageKind : uint8_t {
+  kInternal,
+  kSdCard,
+};
+
 struct FilesViewState {
   AppViewConfig config;
   lv_obj_t* root = nullptr;
@@ -77,6 +83,8 @@ struct FilesViewState {
   EdgeBackSwipeState directory_swipe;
   std::string current_path;
   FolderPickerViewConfig picker_config;
+  // 当前文件列表正在浏览的存储设备。
+  FilesStorageKind selected_storage = FilesStorageKind::kInternal;
   int storage_missing_checks = 0;
   bool storage_was_mounted = false;
   bool folder_picker_mode = false;
@@ -137,6 +145,65 @@ const char* FilesHeaderTitle(const FilesViewState* state) {
     return state->picker_config.title;
   }
   return "Files";
+}
+
+/**
+ * @brief 判断当前文件列表是否正在浏览 SD 卡
+ * @param state 文件管理页面状态
+ * @return 当前存储设备为 SD 卡时返回 true
+ */
+bool IsSdCardSelected(const FilesViewState* state) {
+  return state != nullptr &&
+      state->selected_storage == FilesStorageKind::kSdCard;
+}
+
+/**
+ * @brief 获取当前文件列表对应的存储根路径
+ * @param state 文件管理页面状态
+ * @return 当前存储设备可用时返回根路径，否则返回 nullptr
+ */
+const char* CurrentStorageBasePath(const FilesViewState* state) {
+  if (state == nullptr) {
+    return nullptr;
+  }
+  if (state->selected_storage == FilesStorageKind::kInternal) {
+    return app::IsLittleFsStorageMounted()
+               ? app::LittleFsStorageBasePath()
+               : nullptr;
+  }
+  if (state->config.storage == nullptr ||
+      !state->config.storage->IsSdCardMounted()) {
+    return nullptr;
+  }
+  return state->config.storage->SdCardBasePath();
+}
+
+/**
+ * @brief 获取当前存储设备在面包屑中的显示名称
+ * @param state 文件管理页面状态
+ * @return 当前存储设备名称
+ */
+const char* CurrentStorageName(const FilesViewState* state) {
+  return IsSdCardSelected(state) ? "SD Card" : "Internal storage";
+}
+
+/**
+ * @brief 判断路径是否位于当前存储设备根目录内
+ * @param state 文件管理页面状态
+ * @param path 待检查路径
+ * @return 路径未越过当前存储根目录时返回 true
+ */
+bool IsPathWithinCurrentStorage(
+    const FilesViewState* state, const std::string& path) {
+  const char* base_path_text = CurrentStorageBasePath(state);
+  if (base_path_text == nullptr || base_path_text[0] == '\0') {
+    return false;
+  }
+  const std::string base_path(base_path_text);
+  return path == base_path ||
+      (path.size() > base_path.size() &&
+          path.compare(0, base_path.size(), base_path) == 0 &&
+          path[base_path.size()] == '/');
 }
 
 /**
@@ -465,6 +532,30 @@ bool ReadStorageSummary(const char* base_path, char* output,
 }
 
 /**
+ * @brief 读取 LittleFS 内部存储容量摘要
+ * @param output 输出缓冲区
+ * @param output_size 输出缓冲区大小
+ * @return 读取成功返回 true，否则返回 false
+ */
+bool ReadInternalStorageSummary(char* output, size_t output_size) {
+  if (output == nullptr || output_size == 0) {
+    return false;
+  }
+  size_t total_bytes = 0;
+  size_t used_bytes = 0;
+  if (!app::GetLittleFsStorageInfo(&total_bytes, &used_bytes) ||
+      used_bytes > total_bytes) {
+    return false;
+  }
+  char free_text[24] = {};
+  char total_text[24] = {};
+  FormatSize(total_bytes - used_bytes, free_text, sizeof(free_text));
+  FormatSize(total_bytes, total_text, sizeof(total_text));
+  std::snprintf(output, output_size, "%s free of %s", free_text, total_text);
+  return true;
+}
+
+/**
  * @brief 格式化当前目录的项目数量
  * @param count 已读取项目数
  * @param truncated 是否因数量上限而截断
@@ -539,7 +630,8 @@ void PathClickedEventCallback(lv_event_t* event) {
   }
   if (!RenderDirectoryContent(context->state, context->path)) {
     FilesViewState* state = context->state;
-    if (state->config.storage != nullptr && state->storage_was_mounted &&
+    if (IsSdCardSelected(state) && state->config.storage != nullptr &&
+        state->storage_was_mounted &&
         !state->config.storage->IsSdCardMounted()) {
       HandleStorageRemoval(state);
     } else {
@@ -632,7 +724,8 @@ bool CreateBreadcrumbBar(lv_obj_t* parent, FilesViewState* state,
 
   const std::string& current_path = state->current_path;
   const bool at_root = current_path == base_path;
-  int x = CreateBreadcrumbItem(bar, state, "SD Card", base_path, 0, at_root);
+  int x = CreateBreadcrumbItem(
+      bar, state, CurrentStorageName(state), base_path, 0, at_root);
   if (at_root) {
     return true;
   }
@@ -841,10 +934,10 @@ bool CreateEmptyDirectoryContent(lv_obj_t* parent, FilesViewState* state) {
  */
 bool CreateStorageListContent(lv_obj_t* parent, FilesViewState* state,
                               const std::vector<FileEntry>& entries) {
-  if (state == nullptr || state->config.storage == nullptr) {
+  if (state == nullptr) {
     return false;
   }
-  const char* base_path = state->config.storage->SdCardBasePath();
+  const char* base_path = CurrentStorageBasePath(state);
   if (base_path == nullptr || base_path[0] == '\0' ||
       !CreateBreadcrumbBar(parent, state, base_path)) {
     return false;
@@ -1041,7 +1134,8 @@ void RenderNoStorageContent(FilesViewState* state) {
 }
 
 bool RenderDirectoryContent(FilesViewState* state, const std::string& path) {
-  if (state == nullptr || path.empty()) {
+  if (state == nullptr || path.empty() ||
+      !IsPathWithinCurrentStorage(state, path)) {
     return false;
   }
   std::vector<FileEntry> entries;
@@ -1095,12 +1189,20 @@ void HandleStorageRemoval(FilesViewState* state) {
   if (state == nullptr || state->config.storage == nullptr) {
     return;
   }
+  const bool sd_card_selected = IsSdCardSelected(state);
   StopStorageDiscovery(state);
   state->storage_was_mounted = false;
   state->storage_missing_checks = 0;
-  state->current_path.clear();
   state->config.storage->UnmountSdCard();
   CloseDrawer(state);
+  if (!sd_card_selected) {
+    return;
+  }
+  state->current_path.clear();
+  if (!state->folder_picker_mode && app::IsLittleFsStorageMounted()) {
+    state->selected_storage = FilesStorageKind::kInternal;
+    RenderDirectoryContent(state, app::LittleFsStorageBasePath());
+  }
   StartStorageDiscovery(state);
 }
 
@@ -1157,18 +1259,21 @@ void StorageRetryTimerCallback(lv_timer_t* timer) {
     state->storage_was_mounted = true;
     state->storage_missing_checks = 0;
     const char* base_path = state->config.storage->SdCardBasePath();
-    if (base_path != nullptr && base_path[0] != '\0' &&
+    if (IsSdCardSelected(state) && base_path != nullptr &&
+        base_path[0] != '\0' &&
         RenderDirectoryContent(state, base_path)) {
       StopStorageDiscovery(state);
       CloseDrawer(state);
       return;
     }
-    state->storage_was_mounted = false;
-    state->config.storage->UnmountSdCard();
+    StopStorageDiscovery(state);
+    return;
   }
 
   StopStorageDiscovery(state);
-  RenderNoStorageContent(state);
+  if (IsSdCardSelected(state)) {
+    RenderNoStorageContent(state);
+  }
 }
 
 void StartStorageDiscovery(FilesViewState* state) {
@@ -1177,15 +1282,28 @@ void StartStorageDiscovery(FilesViewState* state) {
   }
   StopStorageDiscovery(state);
 
+  if (!state->folder_picker_mode && !IsSdCardSelected(state) &&
+      !app::IsLittleFsStorageMounted()) {
+    state->selected_storage = FilesStorageKind::kSdCard;
+  }
+  if (!state->folder_picker_mode && !IsSdCardSelected(state) &&
+      app::IsLittleFsStorageMounted()) {
+    RenderDirectoryContent(state, app::LittleFsStorageBasePath());
+  }
   if (state->config.storage == nullptr) {
     state->storage_was_mounted = false;
-    RenderNoStorageContent(state);
+    if (IsSdCardSelected(state)) {
+      RenderNoStorageContent(state);
+    }
     return;
   }
   if (state->config.storage->IsSdCardMounted()) {
     state->storage_was_mounted = true;
     state->storage_missing_checks = 0;
     const char* base_path = state->config.storage->SdCardBasePath();
+    if (!IsSdCardSelected(state)) {
+      return;
+    }
     if (base_path != nullptr && base_path[0] != '\0' &&
         RenderDirectoryContent(state, base_path)) {
       return;
@@ -1195,10 +1313,12 @@ void StartStorageDiscovery(FilesViewState* state) {
 
   state->storage_was_mounted = false;
   state->storage_missing_checks = 0;
-  RenderScanningContent(state);
+  if (IsSdCardSelected(state)) {
+    RenderScanningContent(state);
+  }
   state->storage_retry_timer =
       lv_timer_create(StorageRetryTimerCallback, kStorageRetryPeriodMs, state);
-  if (state->storage_retry_timer == nullptr) {
+  if (state->storage_retry_timer == nullptr && IsSdCardSelected(state)) {
     RenderNoStorageContent(state);
   }
 }
@@ -1216,10 +1336,7 @@ void DirectoryEdgeBackEventCallback(lv_event_t* event) {
     lv_event_stop_bubbling(event);
     if (HandleEdgeBackSwipeEvent(event, state->config.width,
                                  &state->directory_swipe)) {
-      const char* base_path_text =
-          state->config.storage == nullptr
-              ? nullptr
-              : state->config.storage->SdCardBasePath();
+      const char* base_path_text = CurrentStorageBasePath(state);
       if (base_path_text != nullptr && base_path_text[0] != '\0' &&
           !state->current_path.empty() &&
           state->current_path != base_path_text) {
@@ -1232,10 +1349,10 @@ void DirectoryEdgeBackEventCallback(lv_event_t* event) {
     }
     return;
   }
-  if (state->config.storage == nullptr || state->current_path.empty()) {
+  if (state->current_path.empty()) {
     return;
   }
-  const char* base_path_text = state->config.storage->SdCardBasePath();
+  const char* base_path_text = CurrentStorageBasePath(state);
   if (base_path_text == nullptr || base_path_text[0] == '\0') {
     return;
   }
@@ -1272,10 +1389,10 @@ void DrawerRefreshClickedEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 处理抽屉存储设备入口点击事件
+ * @brief 处理抽屉 SD 卡入口点击事件
  * @param event LVGL 事件对象
  */
-void DrawerStorageClickedEventCallback(lv_event_t* event) {
+void DrawerSdCardClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
@@ -1283,6 +1400,7 @@ void DrawerStorageClickedEventCallback(lv_event_t* event) {
   if (state == nullptr || state->config.storage == nullptr) {
     return;
   }
+  state->selected_storage = FilesStorageKind::kSdCard;
   const char* base_path = state->config.storage->SdCardBasePath();
   if (base_path != nullptr && base_path[0] != '\0') {
     RenderDirectoryContent(state, base_path);
@@ -1291,19 +1409,40 @@ void DrawerStorageClickedEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 创建导航抽屉中已选中的存储设备行
+ * @brief 处理抽屉内部存储入口点击事件
+ * @param event LVGL 事件对象
+ */
+void DrawerInternalStorageClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* state = static_cast<FilesViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || !app::IsLittleFsStorageMounted()) {
+    return;
+  }
+  state->selected_storage = FilesStorageKind::kInternal;
+  RenderDirectoryContent(state, app::LittleFsStorageBasePath());
+  CloseDrawer(state);
+}
+
+/**
+ * @brief 创建导航抽屉中的可用存储设备行
  * @param parent 父对象
  * @param drawer_width 抽屉宽度
  * @param title 存储设备名称
  * @param subtitle 存储容量摘要
+ * @param symbol 存储设备图标
  * @param y 行顶部 Y 坐标
+ * @param selected 当前存储设备是否已选中
+ * @param callback 点击事件回调
  * @param state 文件管理页面状态
  * @return 创建成功返回存储设备行对象，否则返回 nullptr
  */
-lv_obj_t* CreateSelectedStorageDrawerItem(lv_obj_t* parent, int drawer_width,
-                                          const char* title,
-                                          const char* subtitle, int y,
-                                          FilesViewState* state) {
+lv_obj_t* CreateStorageDrawerItem(lv_obj_t* parent, int drawer_width,
+                                  const char* title, const char* subtitle,
+                                  const char* symbol, int y, bool selected,
+                                  lv_event_cb_t callback,
+                                  FilesViewState* state) {
   lv_obj_t* row = lv_button_create(parent);
   if (row == nullptr) {
     return nullptr;
@@ -1311,45 +1450,64 @@ lv_obj_t* CreateSelectedStorageDrawerItem(lv_obj_t* parent, int drawer_width,
   lv_obj_remove_style_all(row);
   lv_obj_add_flag(row, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_add_flag(row, LV_OBJ_FLAG_EVENT_BUBBLE);
+  lv_obj_add_flag(row, LV_OBJ_FLAG_STATE_TRICKLE);
   lv_obj_set_size(row, drawer_width - 24, 104);
   lv_obj_set_pos(row, 0, y);
-  lv_obj_set_style_bg_color(row, lv_color_hex(kSelectedStorageColor),
-                            LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(row, lv_color_hex(kSelectedStorageColor),
-                            LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(row,
+      lv_color_hex(selected ? kSelectedStorageColor : kBackgroundColor),
+      LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(
+      row, selected ? LV_OPA_COVER : LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(row,
+      lv_color_hex(selected ? kSelectedStorageColor : kPressedColor),
+      LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
-  lv_obj_set_style_radius(row, 52, LV_PART_MAIN);
+  lv_obj_set_style_radius(row, selected ? 52 : 0, LV_PART_MAIN);
   lv_obj_set_style_radius(row, 52, LV_STATE_PRESSED);
-  lv_obj_add_event_cb(row, DrawerStorageClickedEventCallback, LV_EVENT_CLICKED,
-                      state);
+  if (!AddPressCancelOnLeave(row)) {
+    lv_obj_delete(row);
+    return nullptr;
+  }
+  lv_obj_add_event_cb(row, callback, LV_EVENT_CLICKED, state);
 
   lv_obj_t* left_cap = lv_obj_create(row);
   if (left_cap != nullptr) {
     lv_obj_remove_style_all(left_cap);
     lv_obj_remove_flag(left_cap, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(left_cap, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(left_cap, 52, 104);
     lv_obj_set_pos(left_cap, 0, 0);
-    lv_obj_set_style_bg_color(left_cap, lv_color_hex(kSelectedStorageColor),
-                              LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(left_cap, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(left_cap,
+        lv_color_hex(selected ? kSelectedStorageColor : kBackgroundColor),
+        LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(
+        left_cap, selected ? LV_OPA_COVER : LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(left_cap,
+        lv_color_hex(selected ? kSelectedStorageColor : kPressedColor),
+        LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(left_cap, LV_OPA_COVER, LV_STATE_PRESSED);
     lv_obj_set_style_radius(left_cap, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(left_cap, 0, LV_STATE_PRESSED);
   }
 
-  lv_obj_t* icon_label =
-      CreateMaterialIcon(row, icon::kSdStorage, lv_color_hex(kActionColor));
+  const uint32_t content_color = selected ? kActionColor : kIconColor;
+  lv_obj_t* icon_label = CreateMaterialIcon(
+      row, symbol, lv_color_hex(content_color));
   if (icon_label != nullptr) {
     lv_obj_align(icon_label, LV_ALIGN_LEFT_MID, 28, 0);
   }
   lv_obj_t* title_label =
-      CreateLabel(row, title, lv_color_hex(kActionColor), Font28());
+      CreateLabel(row, title,
+          lv_color_hex(selected ? kActionColor : kPrimaryTextColor), Font28());
   if (title_label != nullptr) {
     lv_obj_set_width(title_label, drawer_width - 142);
     lv_label_set_long_mode(title_label, LV_LABEL_LONG_DOT);
     lv_obj_align(title_label, LV_ALIGN_TOP_LEFT, 88, 18);
   }
   lv_obj_t* subtitle_label =
-      CreateLabel(row, subtitle, lv_color_hex(kActionColor), Font22());
+      CreateLabel(row, subtitle,
+          lv_color_hex(selected ? kActionColor : kSecondaryTextColor),
+          Font22());
   if (subtitle_label != nullptr) {
     lv_obj_set_width(subtitle_label, drawer_width - 142);
     lv_label_set_long_mode(subtitle_label, LV_LABEL_LONG_DOT);
@@ -1362,12 +1520,16 @@ lv_obj_t* CreateSelectedStorageDrawerItem(lv_obj_t* parent, int drawer_width,
  * @brief 创建导航抽屉中的未连接或扫描中存储设备行
  * @param parent 父对象
  * @param drawer_width 抽屉宽度
+ * @param title 存储设备名称
  * @param subtitle 存储设备状态文本
+ * @param symbol 存储设备图标
  * @param y 行顶部 Y 坐标
  * @return 创建成功返回存储设备行对象，否则返回 nullptr
  */
 lv_obj_t* CreateStorageStateDrawerItem(lv_obj_t* parent, int drawer_width,
-                                       const char* subtitle, int y) {
+                                       const char* title,
+                                       const char* subtitle,
+                                       const char* symbol, int y) {
   lv_obj_t* row = lv_obj_create(parent);
   if (row == nullptr) {
     return nullptr;
@@ -1377,13 +1539,13 @@ lv_obj_t* CreateStorageStateDrawerItem(lv_obj_t* parent, int drawer_width,
   lv_obj_set_size(row, drawer_width, 104);
   lv_obj_set_pos(row, 0, y);
 
-  lv_obj_t* icon_label = CreateMaterialIcon(row, icon::kSdStorage,
+  lv_obj_t* icon_label = CreateMaterialIcon(row, symbol,
                                             lv_color_hex(kSecondaryTextColor));
   if (icon_label != nullptr) {
     lv_obj_align(icon_label, LV_ALIGN_LEFT_MID, 28, 0);
   }
   lv_obj_t* title_label =
-      CreateLabel(row, "SD Card", lv_color_hex(kPrimaryTextColor), Font28());
+      CreateLabel(row, title, lv_color_hex(kPrimaryTextColor), Font28());
   if (title_label != nullptr) {
     lv_obj_set_width(title_label, drawer_width - 142);
     lv_label_set_long_mode(title_label, LV_LABEL_LONG_DOT);
@@ -1429,6 +1591,23 @@ void ShowDrawer(FilesViewState* state) {
   const int drawer_width = NavigationDrawerWidth(&state->drawer);
 
   int drawer_y = kNavigationDrawerContentTop;
+  if (app::IsLittleFsStorageMounted()) {
+    char internal_summary[64] = {};
+    if (!ReadInternalStorageSummary(
+            internal_summary, sizeof(internal_summary))) {
+      std::snprintf(internal_summary, sizeof(internal_summary),
+          "Internal storage");
+    }
+    CreateStorageDrawerItem(drawer, drawer_width, "Internal storage",
+        internal_summary, icon::kStorage, drawer_y,
+        !IsSdCardSelected(state),
+        DrawerInternalStorageClickedEventCallback, state);
+  } else {
+    CreateStorageStateDrawerItem(drawer, drawer_width, "Internal storage",
+        "Unavailable", icon::kStorage, drawer_y);
+  }
+  drawer_y += 116;
+
   const bool mounted = state->config.storage != nullptr &&
                        state->config.storage->IsSdCardMounted();
   if (mounted) {
@@ -1438,12 +1617,14 @@ void ShowDrawer(FilesViewState* state) {
                                                     sizeof(storage_summary))) {
       std::snprintf(storage_summary, sizeof(storage_summary), "SD card");
     }
-    CreateSelectedStorageDrawerItem(drawer, drawer_width, "SD Card",
-                                    storage_summary, drawer_y, state);
+    CreateStorageDrawerItem(drawer, drawer_width, "SD Card", storage_summary,
+        icon::kSdStorage, drawer_y, IsSdCardSelected(state),
+        DrawerSdCardClickedEventCallback, state);
   } else {
     const char* storage_state =
         state->storage_retry_timer != nullptr ? "Scanning..." : "Not connected";
-    CreateStorageStateDrawerItem(drawer, drawer_width, storage_state, drawer_y);
+    CreateStorageStateDrawerItem(drawer, drawer_width, "SD Card",
+        storage_state, icon::kSdStorage, drawer_y);
   }
   drawer_y += 116;
 
@@ -1662,6 +1843,7 @@ lv_obj_t* CreateFilesViewInternal(lv_obj_t* parent,
   state->config = config;
   if (picker_config != nullptr) {
     state->folder_picker_mode = true;
+    state->selected_storage = FilesStorageKind::kSdCard;
     state->picker_config = *picker_config;
   }
   lv_obj_t* root = lv_obj_create(parent);

@@ -2,7 +2,7 @@
  * @Description: Material Symbols 图标 UTF-8 编码常量
  * @Author: LILYGO_L
  * @Date: 2026-05-10 15:02:12
- * @LastEditTime: 2026-07-16 13:18:00
+ * @LastEditTime: 2026-07-17 18:09:39
  * @License: GPL 3.0
  */
 #pragma once
@@ -39,6 +39,7 @@ inline constexpr char kMusic[] = "\xEE\x90\x85";
 inline constexpr char kNearMe[] = "\xEE\x95\xA9";
 inline constexpr char kRestartAlt[] = "\xEF\x81\x93";
 inline constexpr char kSdStorage[] = "\xEE\x98\xA3";
+inline constexpr char kStorage[] = "\xEE\x87\x9B";
 inline constexpr char kSettings[] = "\xEE\xA2\xB8";
 inline constexpr char kSettingsInputAntenna[] = "\xEE\xA2\xBF";
 inline constexpr char kPowerSettingsNew[] = "\xEF\xA3\x87";

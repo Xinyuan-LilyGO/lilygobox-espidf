@@ -2,7 +2,7 @@
  * @Description: T-Display-P4 设备及硬件 Provider 适配接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-15 11:16:11
+ * @LastEditTime: 2026-07-17 14:22:41
  * @License: GPL 3.0
  */
 #pragma once
@@ -306,7 +306,8 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ReadRfCapabilities(RfCapabilities* capabilities) override;
   bool ActivateRf(const RfRadioConfig& config) override;
   bool DeactivateRf() override;
-  bool SendRf(const uint8_t* data, size_t size) override;
+  bool SendRf(
+      const uint8_t* data, size_t size, uint64_t request_token) override;
   bool PollRfEvent(RfEvent* event) override;
   bool ReadRfStatus(RfStatus* status) override;
 
@@ -943,10 +944,21 @@ class TDisplayP4Device final : public ScreenProvider,
   };
 
   struct RadioState {
+    // 保护射频配置、发送事务和芯片状态。
     SemaphoreHandle_t mutex = nullptr;
+    // 当前激活 RF 配置的稳定 ID。
     uint32_t active_client_token = 0;
+    // 当前发送消息的唯一序号，空闲时为 0。
+    uint64_t transmit_request_token = 0;
+    // 当前发送的软件看门狗截止时间，单位为微秒。
+    int64_t transmit_deadline_us = 0;
+    // 当前激活配置的 LoRa 调制和数据包参数。
+    LoraRadioConfig lora_config;
+    // SX1262 是否处于连续接收或发送会话。
     bool active = false;
+    // SX1262 是否正在执行发送命令。
     bool transmitting = false;
+    // 最近一次芯片操作是否需要重新激活配置。
     bool chip_error = false;
   };
 
