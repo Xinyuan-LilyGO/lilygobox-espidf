@@ -2,11 +2,12 @@
  * @Description: LVGL 显示、触摸与任务端口管理接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-17 09:34:33
+ * @LastEditTime: 2026-07-17 10:30:19
  * @License: GPL 3.0
  */
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -23,6 +24,11 @@ namespace lilygo_box::hal {
 
 class LvglPort final {
  public:
+  enum class TouchReadMode : uint8_t {
+    kSinglePoint,
+    kMultiPoint,
+  };
+
   LvglPort() = default;
   ~LvglPort();
 
@@ -64,6 +70,12 @@ class LvglPort final {
   bool IsInputBlocked() const;
 
   /**
+   * @brief 设置 LVGL 触摸硬件读取模式
+   * @param mode 单点或多点读取模式
+   */
+  void SetTouchReadMode(TouchReadMode mode);
+
+  /**
    * @brief 读取当前统一触摸状态
    * @param point 触摸点输出地址
    * @param access_available 当前触摸源是否可访问的可选输出地址
@@ -72,15 +84,14 @@ class LvglPort final {
   bool ReadTouch(TouchPoint* point, bool* access_available = nullptr);
 
   /**
-   * @brief 读取当前多个触摸点
+   * @brief 读取 LVGL 最近一次缓存的触摸点
    * @param points 触摸点输出数组
    * @param max_points 输出数组可容纳的最大触点数量
    * @param point_count 实际读取到的触点数量输出地址
-   * @param access_available 触摸硬件当前是否可访问的可选输出地址
    * @return 读取到至少一个触摸点返回 true，否则返回 false
    */
-  bool ReadTouchPoints(TouchPoint* points, size_t max_points,
-      size_t* point_count, bool* access_available = nullptr);
+  bool ReadTouchPoints(
+      TouchPoint* points, size_t max_points, size_t* point_count);
 
   /**
    * @brief 为一个熄屏所有者增加输入屏蔽引用
@@ -99,10 +110,11 @@ class LvglPort final {
   bool BeginScreenTransition();
 
   /**
-   * @brief 非阻塞尝试独占一次屏幕硬件转换
-   * @return 立即取得转换互斥锁返回 true
+   * @brief 在限定时间内尝试独占一次屏幕硬件转换
+   * @param timeout_ticks 最长等待的 FreeRTOS tick 数，0 表示不等待
+   * @return 在限定时间内取得转换互斥锁返回 true
    */
-  bool TryBeginScreenTransition();
+  bool TryBeginScreenTransition(TickType_t timeout_ticks = 0);
 
   /**
    * @brief 结束当前屏幕硬件转换
@@ -155,6 +167,7 @@ class LvglPort final {
   static constexpr uint32_t kMinimumHandlerDelayMs = 10;
   static constexpr uint32_t kFlushPauseTimeoutMs = 1000;
   static constexpr uint32_t kDisplayRefreshTimeoutMs = 1000;
+  static constexpr size_t kMaxTouchPointCount = 10;
 
   /**
    * @brief 处理 LVGL flush 回调
@@ -239,13 +252,17 @@ class LvglPort final {
       uint8_t* pixel_map, lv_area_t* rotated_area, uint8_t** rotated_pixel_map);
 
   /**
-   * @brief 在屏幕访问锁内读取一个硬件触摸点
-   * @param point 触摸点输出地址
+   * @brief 在屏幕访问锁内按指定模式读取硬件触摸点
+   * @param mode 单点或多点读取模式
+   * @param points 触摸点输出数组
+   * @param max_points 输出数组可容纳的最大触点数量
+   * @param point_count 实际读取到的触点数量输出地址
    * @param input_must_be_enabled 是否要求 LVGL 输入处于启用状态
    * @param access_available 触摸硬件当前是否可访问的可选输出地址
-   * @return 读取到触摸点返回 true，否则返回 false
+   * @return 读取到至少一个触摸点返回 true，否则返回 false
    */
-  bool ReadHardwareTouch(TouchPoint* point, bool input_must_be_enabled,
+  bool ReadHardwareTouch(TouchReadMode mode, TouchPoint* points,
+      size_t max_points, size_t* point_count, bool input_must_be_enabled,
       bool* access_available);
 
   ScreenProvider* screen_ = nullptr;
@@ -273,8 +290,11 @@ class LvglPort final {
   std::atomic<bool> active_edge_touch_flag_{false};
   std::atomic<bool> pending_edge_touch_flag_{false};
   std::atomic<bool> has_last_touch_point_{false};
-  // 跨任务读取的触摸坐标快照，低 16 位为 X，高 16 位为 Y。
-  std::atomic<uint32_t> cached_touch_coordinates_{0};
+  std::atomic<TouchReadMode> touch_read_mode_{TouchReadMode::kSinglePoint};
+  // 触摸缓存由 LVGL 回调更新，其他任务只读取快照。
+  std::array<TouchPoint, kMaxTouchPointCount> cached_touch_points_ = {};
+  size_t cached_touch_point_count_ = 0;
+  portMUX_TYPE touch_cache_lock_ = portMUX_INITIALIZER_UNLOCKED;
   bool ppa_rotation_available_ = false;
   PpaSrmHelper ppa_rotation_;
   void* rotation_buffer_ = nullptr;

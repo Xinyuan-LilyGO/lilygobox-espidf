@@ -2,7 +2,7 @@
  * @Description: 整机测试列表、测试流程与结果交互页面实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-17 09:16:03
+ * @LastEditTime: 2026-07-17 10:30:19
  * @License: GPL 3.0
  */
 #include "ui/views/cit_view.h"
@@ -117,8 +117,6 @@ struct CitViewState {
   std::array<lv_obj_t*, kTouchDisplayPointCount> touch_point_markers = {};
   int width = 0;
   int height = 0;
-  hal::ScreenProvider* screen = nullptr;
-  // 串行化 CIT 触摸测试与面板休眠转换。
   hal::LvglPort* lvgl_port = nullptr;
   hal::DeviceDiagnosticsProvider* diagnostics_provider = nullptr;
   hal::DeviceInfoProvider* device_info_provider = nullptr;
@@ -339,6 +337,10 @@ void ClearTestPageState(CitViewState* state) {
     return;
   }
 
+  if (state->lvgl_port != nullptr) {
+    state->lvgl_port->SetTouchReadMode(
+        hal::LvglPort::TouchReadMode::kSinglePoint);
+  }
   SetCitStatusBarVisible(state, true);
   state->test_page = nullptr;
   state->test_content = nullptr;
@@ -1433,6 +1435,10 @@ void CitViewDeleteCallback(lv_event_t* event) {
     lv_timer_delete(state->refresh_timer);
     state->refresh_timer = nullptr;
   }
+  if (state->lvgl_port != nullptr) {
+    state->lvgl_port->SetTouchReadMode(
+        hal::LvglPort::TouchReadMode::kSinglePoint);
+  }
   SetCitStatusBarVisible(state, true);
   StopActiveTestHardware(state);
   delete state;
@@ -2396,6 +2402,10 @@ bool AddTouchContent(lv_obj_t* content, CitViewState* state) {
   if (state->test_data_label == nullptr) {
     return false;
   }
+  if (state->lvgl_port != nullptr) {
+    state->lvgl_port->SetTouchReadMode(
+        hal::LvglPort::TouchReadMode::kMultiPoint);
+  }
   RefreshTouchTestData(state);
   return true;
 }
@@ -3005,7 +3015,6 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
     lv_obj_delete(container);
     return nullptr;
   }
-  state->screen = config.screen;
   state->lvgl_port = config.lvgl_port;
   state->diagnostics_provider = config.diagnostics;
   state->device_info_provider = config.device_info;

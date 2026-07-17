@@ -2,7 +2,7 @@
  * @Description: 系统应用初始化、任务调度与电源状态管理实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-17 09:16:03
+ * @LastEditTime: 2026-07-17 10:30:19
  * @License: GPL 3.0
  */
 #include "app/application.h"
@@ -43,6 +43,7 @@ constexpr uint32_t kScreenLockSleepConfirmMs = 3 * 1000;
 constexpr uint32_t kAwakeLockScreenSleepTimeoutMs = 10 * 1000;
 constexpr uint32_t kLowBatteryStartupWarningMs = 10 * 1000;
 constexpr uint32_t kScreenLockFadeMs = 300;
+constexpr uint32_t kScreenBrightnessTransitionWaitMs = 10;
 constexpr uint32_t kLockedStorageFlushRetryMs = 5 * 1000;
 constexpr int kScreenLockFadeStepCount = 12;
 constexpr int kScreenUnlockSwipeMinDistance = 120;
@@ -1065,7 +1066,10 @@ bool Application::ReadScreenTouchWhileAwake(
 
 bool Application::SetScreenBrightnessWhileAwake(int percent) {
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
-  if (screen == nullptr || !lvgl_port_.TryBeginScreenTransition()) {
+  const TickType_t timeout_ticks =
+      pdMS_TO_TICKS(kScreenBrightnessTransitionWaitMs);
+  if (screen == nullptr ||
+      !lvgl_port_.TryBeginScreenTransition(timeout_ticks)) {
     return false;
   }
 

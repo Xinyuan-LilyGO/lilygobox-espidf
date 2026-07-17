@@ -2,7 +2,7 @@
  * @Description: LVGL 显示刷新、触摸读取与任务循环实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-17 09:36:59
+ * @LastEditTime: 2026-07-17 10:30:19
  * @License: GPL 3.0
  */
 #include "hal/lvgl_port.h"
@@ -31,11 +31,6 @@ bool IsValidTouchPoint(const TouchPoint& point, int screen_width,
     int screen_height) {
   return point.x >= 0 && point.x < screen_width && point.y >= 0 &&
          point.y < screen_height;
-}
-
-uint32_t PackTouchCoordinates(const TouchPoint& point) {
-  return static_cast<uint16_t>(point.x) |
-      (static_cast<uint32_t>(static_cast<uint16_t>(point.y)) << 16);
 }
 
 ppa_srm_rotation_angle_t ToPpaRotation(lv_display_rotation_t rotation) {
@@ -163,11 +158,27 @@ void LvglPort::SetInputBlocked(bool blocked) {
   active_edge_touch_flag_ = false;
   pending_edge_touch_flag_ = false;
   has_last_touch_point_ = false;
+  portENTER_CRITICAL(&touch_cache_lock_);
+  cached_touch_point_count_ = 0;
+  portEXIT_CRITICAL(&touch_cache_lock_);
 }
 
 bool LvglPort::IsInputBlocked() const {
   return input_blocked_.load(std::memory_order_acquire) ||
-      sleep_input_block_count_.load(std::memory_order_acquire) > 0;
+         sleep_input_block_count_.load(std::memory_order_acquire) > 0;
+}
+
+void LvglPort::SetTouchReadMode(TouchReadMode mode) {
+  if (touch_read_mode_.exchange(mode, std::memory_order_acq_rel) == mode) {
+    return;
+  }
+
+  active_edge_touch_flag_ = false;
+  pending_edge_touch_flag_ = false;
+  has_last_touch_point_ = false;
+  portENTER_CRITICAL(&touch_cache_lock_);
+  cached_touch_point_count_ = 0;
+  portEXIT_CRITICAL(&touch_cache_lock_);
 }
 
 bool LvglPort::ReadTouch(TouchPoint* point, bool* access_available) {
@@ -179,28 +190,48 @@ bool LvglPort::ReadTouch(TouchPoint* point, bool* access_available) {
   }
 
   if (IsInputBlocked()) {
-    return ReadHardwareTouch(point, false, access_available);
+    size_t point_count = 0;
+    return ReadHardwareTouch(TouchReadMode::kSinglePoint, point, 1,
+        &point_count, false, access_available);
   }
   if (access_available != nullptr) {
     *access_available = true;
   }
-  if (!has_last_touch_point_.load(std::memory_order_acquire)) {
+  portENTER_CRITICAL(&touch_cache_lock_);
+  const bool touched = cached_touch_point_count_ > 0;
+  if (touched) {
+    *point = cached_touch_points_[0];
+  }
+  portEXIT_CRITICAL(&touch_cache_lock_);
+  if (touched) {
+    point->edge_touch_flag =
+        active_edge_touch_flag_.load(std::memory_order_acquire);
+  }
+  return touched;
+}
+
+bool LvglPort::ReadTouchPoints(
+    TouchPoint* points, size_t max_points, size_t* point_count) {
+  if (point_count != nullptr) {
+    *point_count = 0;
+  }
+  if (points == nullptr || max_points == 0 || point_count == nullptr) {
     return false;
   }
 
-  const uint32_t coordinates =
-      cached_touch_coordinates_.load(std::memory_order_acquire);
-  point->id = 1;
-  point->x = static_cast<int16_t>(coordinates & UINT16_MAX);
-  point->y = static_cast<int16_t>(coordinates >> 16);
-  point->pressure = 0;
-  point->edge_touch_flag =
-      active_edge_touch_flag_.load(std::memory_order_acquire);
-  return true;
+  portENTER_CRITICAL(&touch_cache_lock_);
+  const size_t count = std::min(max_points, cached_touch_point_count_);
+  for (size_t i = 0; i < count; ++i) {
+    points[i] = cached_touch_points_[i];
+  }
+  portEXIT_CRITICAL(&touch_cache_lock_);
+  *point_count = count;
+  return count > 0;
 }
 
-bool LvglPort::ReadTouchPoints(TouchPoint* points, size_t max_points,
-    size_t* point_count, bool* access_available) {
+bool LvglPort::ReadHardwareTouch(TouchReadMode mode, TouchPoint* points,
+    size_t max_points, size_t* point_count, bool input_must_be_enabled,
+    bool* access_available) {
   if (access_available != nullptr) {
     *access_available = false;
   }
@@ -212,31 +243,20 @@ bool LvglPort::ReadTouchPoints(TouchPoint* points, size_t max_points,
     return false;
   }
 
-  const bool can_access = !IsDisplayFlushPaused();
+  const bool can_access =
+      !IsDisplayFlushPaused() && (!input_must_be_enabled || !IsInputBlocked());
   if (access_available != nullptr) {
     *access_available = can_access;
   }
-  const bool touched = can_access &&
-      screen_->ReadScreenTouchPoints(points, max_points, point_count);
-  EndScreenTransition();
-  return touched;
-}
-
-bool LvglPort::ReadHardwareTouch(TouchPoint* point,
-    bool input_must_be_enabled, bool* access_available) {
-  if (access_available != nullptr) {
-    *access_available = false;
+  bool touched = false;
+  if (can_access) {
+    if (mode == TouchReadMode::kMultiPoint) {
+      touched = screen_->ReadScreenTouchPoints(points, max_points, point_count);
+    } else {
+      touched = screen_->ReadScreenTouch(&points[0]);
+      *point_count = touched ? 1 : 0;
+    }
   }
-  if (point == nullptr || screen_ == nullptr || !TryBeginScreenTransition()) {
-    return false;
-  }
-
-  const bool can_access = !IsDisplayFlushPaused() &&
-      (!input_must_be_enabled || !IsInputBlocked());
-  if (access_available != nullptr) {
-    *access_available = can_access;
-  }
-  const bool touched = can_access && screen_->ReadScreenTouch(point);
   EndScreenTransition();
   return touched;
 }
@@ -246,6 +266,9 @@ void LvglPort::AcquireSleepInputBlock() {
   active_edge_touch_flag_ = false;
   pending_edge_touch_flag_ = false;
   has_last_touch_point_ = false;
+  portENTER_CRITICAL(&touch_cache_lock_);
+  cached_touch_point_count_ = 0;
+  portEXIT_CRITICAL(&touch_cache_lock_);
 }
 
 void LvglPort::ReleaseSleepInputBlock() {
@@ -258,12 +281,12 @@ void LvglPort::ReleaseSleepInputBlock() {
 
 bool LvglPort::BeginScreenTransition() {
   return screen_transition_mutex_ != nullptr &&
-      xSemaphoreTake(screen_transition_mutex_, portMAX_DELAY) == pdTRUE;
+         xSemaphoreTake(screen_transition_mutex_, portMAX_DELAY) == pdTRUE;
 }
 
-bool LvglPort::TryBeginScreenTransition() {
+bool LvglPort::TryBeginScreenTransition(TickType_t timeout_ticks) {
   return screen_transition_mutex_ != nullptr &&
-      xSemaphoreTake(screen_transition_mutex_, 0) == pdTRUE;
+         xSemaphoreTake(screen_transition_mutex_, timeout_ticks) == pdTRUE;
 }
 
 void LvglPort::EndScreenTransition() {
@@ -464,19 +487,61 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
     self->active_edge_touch_flag_ = false;
     self->pending_edge_touch_flag_ = false;
     self->has_last_touch_point_ = false;
+    portENTER_CRITICAL(&self->touch_cache_lock_);
+    self->cached_touch_point_count_ = 0;
+    portEXIT_CRITICAL(&self->touch_cache_lock_);
     data->state = LV_INDEV_STATE_REL;
     return;
   }
 
-  TouchPoint point;
+  TouchPoint point = {};
+  std::array<TouchPoint, kMaxTouchPointCount> sampled_points = {};
+  size_t sampled_point_count = 0;
+  size_t valid_point_count = 0;
   bool access_available = false;
-  const bool result = self->ReadHardwareTouch(
-      &point, true, &access_available);
+  const TouchReadMode read_mode =
+      self->touch_read_mode_.load(std::memory_order_acquire);
+  bool result = self->ReadHardwareTouch(read_mode, sampled_points.data(),
+      sampled_points.size(), &sampled_point_count, true, &access_available);
+  if (access_available) {
+    bool edge_touch = false;
+    if (result) {
+      for (size_t i = 0; i < sampled_point_count; ++i) {
+        const TouchPoint& sampled_point = sampled_points[i];
+        edge_touch = edge_touch || sampled_point.edge_touch_flag;
+        const bool edge_only_point =
+            sampled_point.id == 0 && sampled_point.edge_touch_flag;
+        if (edge_only_point ||
+            !IsValidTouchPoint(sampled_point, self->screen_->ScreenWidth(),
+                self->screen_->ScreenHeight())) {
+          continue;
+        }
+        sampled_points[valid_point_count++] = sampled_point;
+      }
+    }
+    if (valid_point_count > 0) {
+      point = sampled_points[0];
+      point.edge_touch_flag = point.edge_touch_flag || edge_touch;
+      result = true;
+    } else if (edge_touch) {
+      point.id = 0;
+      point.x = -1;
+      point.y = -1;
+      point.pressure = 0;
+      point.edge_touch_flag = true;
+      result = true;
+    } else {
+      result = false;
+    }
+  }
   if (!access_available) {
     if (self->IsInputBlocked() || self->IsDisplayFlushPaused()) {
       self->active_edge_touch_flag_ = false;
       self->pending_edge_touch_flag_ = false;
       self->has_last_touch_point_ = false;
+      portENTER_CRITICAL(&self->touch_cache_lock_);
+      self->cached_touch_point_count_ = 0;
+      portEXIT_CRITICAL(&self->touch_cache_lock_);
       data->state = LV_INDEV_STATE_REL;
       return;
     }
@@ -488,10 +553,30 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
     }
     return;
   }
+
+  portENTER_CRITICAL(&self->touch_cache_lock_);
+  const bool input_available =
+      !self->IsInputBlocked() && !self->IsDisplayFlushPaused();
+  if (input_available) {
+    for (size_t i = 0; i < valid_point_count; ++i) {
+      self->cached_touch_points_[i] = sampled_points[i];
+    }
+    self->cached_touch_point_count_ = valid_point_count;
+  } else {
+    self->cached_touch_point_count_ = 0;
+  }
+  portEXIT_CRITICAL(&self->touch_cache_lock_);
+  if (!input_available) {
+    self->active_edge_touch_flag_ = false;
+    self->pending_edge_touch_flag_ = false;
+    self->has_last_touch_point_ = false;
+    data->state = LV_INDEV_STATE_REL;
+    return;
+  }
+
   if (result) {
-    const bool valid_point =
-        IsValidTouchPoint(point, self->screen_->ScreenWidth(),
-            self->screen_->ScreenHeight());
+    const bool valid_point = IsValidTouchPoint(
+        point, self->screen_->ScreenWidth(), self->screen_->ScreenHeight());
     if (!valid_point) {
       if (point.edge_touch_flag) {
         self->pending_edge_touch_flag_ = true;
@@ -514,8 +599,6 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
     self->pending_edge_touch_flag_ = false;
     self->last_touch_point_.x = point.x;
     self->last_touch_point_.y = point.y;
-    self->cached_touch_coordinates_.store(
-        PackTouchCoordinates(point), std::memory_order_release);
     self->has_last_touch_point_.store(true, std::memory_order_release);
 
     data->state = LV_INDEV_STATE_PR;

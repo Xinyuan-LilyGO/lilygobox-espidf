@@ -2,7 +2,7 @@
  * @Description: T-Display-P4 设备初始化与硬件 Provider 适配实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-16 10:08:14
+ * @LastEditTime: 2026-07-17 10:30:19
  * @License: GPL 3.0
  */
 #include "hal/device/t_display_p4/t_display_p4_device.h"
@@ -109,6 +109,14 @@ constexpr uint32_t kWifiSntpSyncIntervalMs = 20 * 1000;
 
 // 当前接收 SNTP 同步回调的设备实例
 std::atomic<TDisplayP4Device*> g_wifi_time_sync_owner{nullptr};
+
+void SetEdgeTouchPoint(TouchPoint* point) {
+  point->id = 0;
+  point->x = -1;
+  point->y = -1;
+  point->pressure = 0;
+  point->edge_touch_flag = true;
+}
 
 /**
  * @brief 将屏幕旋转角度规整到摄像头预览支持的范围
@@ -950,6 +958,10 @@ bool TDisplayP4Device::ReadScreenTouchPoints(
         points[*point_count].edge_touch_flag = touch_point.edge_touch_flag;
         ++(*point_count);
       }
+      if (*point_count == 0 && touch_point.edge_touch_flag) {
+        SetEdgeTouchPoint(&points[0]);
+        *point_count = 1;
+      }
       return *point_count > 0;
     }
     case device::ScreenType::kRm69a10: {
@@ -966,12 +978,19 @@ bool TDisplayP4Device::ReadScreenTouchPoints(
             touch_point.info[i].y == UINT16_MAX) {
           continue;
         }
+        if (touch_point.edge_touch_flag && touch_point.info[i].finger_id == 0) {
+          continue;
+        }
         points[*point_count].id = touch_point.info[i].finger_id;
         points[*point_count].x = touch_point.info[i].x;
         points[*point_count].y = touch_point.info[i].y;
         points[*point_count].pressure = touch_point.info[i].pressure_value;
         points[*point_count].edge_touch_flag = touch_point.edge_touch_flag;
         ++(*point_count);
+      }
+      if (*point_count == 0 && touch_point.edge_touch_flag) {
+        SetEdgeTouchPoint(&points[0]);
+        *point_count = 1;
       }
       return *point_count > 0;
     }
