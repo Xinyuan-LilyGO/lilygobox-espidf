@@ -2,7 +2,7 @@
  * @Description: RF control app view
  * @Author: LILYGO_L
  * @Date: 2026-07-12 00:00:00
- * @LastEditTime: 2026-07-17 18:22:57
+ * @LastEditTime: 2026-07-17 18:40:56
  * @License: GPL 3.0
  */
 #include "ui/views/rf_view.h"
@@ -492,6 +492,10 @@ uint32_t ProfileIndicatorColor(
   return kInactiveIndicatorColor;
 }
 
+/**
+ * @brief 同步 RF 配置列表与聊天摘要的运行时显示数据
+ * @param state RF 页面状态
+ */
 void SyncModuleItems(RfViewState* state) {
   if (state == nullptr) {
     return;
@@ -770,7 +774,7 @@ bool CreateReceiveTelemetry(lv_obj_t* parent, const char* rssi,
  * @brief 创建发送消息下方的时间和发送结果图标
  * @param parent 父对象
  * @param time 时间文本
- * @param success 是否发送成功
+ * @param delivery 消息发送状态
  * @param y 顶部坐标
  * @return 创建成功返回 true，否则返回 false
  */
@@ -869,6 +873,11 @@ bool CreateSystemMessage(lv_obj_t* parent, const char* text, int y,
   return true;
 }
 
+/**
+ * @brief 渲染当前 RF 配置最近的聊天记录
+ * @param state RF 页面状态
+ * @return 所有可见消息创建成功时返回 true
+ */
 bool RenderChatMessages(RfViewState* state) {
   if (state == nullptr || state->detail_chat_body == nullptr ||
       state->detail_index >= state->module_count) {
@@ -951,6 +960,11 @@ bool AppendSystemMessage(RfViewState* state, size_t profile_index,
   return appended;
 }
 
+/**
+ * @brief 将指定 RF 配置中等待发送结果的消息标记为失败
+ * @param state RF 页面状态
+ * @param profile_id RF 配置 ID
+ */
 void FailPendingMessages(RfViewState* state, uint32_t profile_id) {
   if (state == nullptr || profile_id == 0) {
     return;
@@ -958,6 +972,10 @@ void FailPendingMessages(RfViewState* state, uint32_t profile_id) {
   app::GetRfChatRepository().FailPending(profile_id);
 }
 
+/**
+ * @brief 更新聊天页和配置页显示的射频状态
+ * @param state RF 页面状态
+ */
 void UpdateDetailStatus(RfViewState* state) {
   if (state == nullptr) {
     return;
@@ -1689,6 +1707,10 @@ void ModuleRowClickedEventCallback(lv_event_t* event) {
   }
 }
 
+/**
+ * @brief 处理 RF 配置行长按并进入多选模式
+ * @param event LVGL 事件对象
+ */
 void ModuleRowLongPressedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_LONG_PRESSED) {
     return;
@@ -1707,6 +1729,10 @@ void ModuleRowLongPressedEventCallback(lv_event_t* event) {
   RenderModuleList(action->state);
 }
 
+/**
+ * @brief 处理 RF 设置页面退出动画完成事件
+ * @param animation LVGL 动画对象
+ */
 void RfSettingsCloseCompletedCallback(lv_anim_t* animation) {
   auto* state = static_cast<RfViewState*>(lv_anim_get_user_data(animation));
   if (state == nullptr || state->app_settings_page == nullptr) {
@@ -1748,6 +1774,10 @@ void RfSettingsBackClickedEventCallback(lv_event_t* event) {
   }
 }
 
+/**
+ * @brief 处理 RF 设置页面边缘返回手势
+ * @param event LVGL 事件对象
+ */
 void RfSettingsEdgeBackEventCallback(lv_event_t* event) {
   auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->app_settings_page == nullptr ||
@@ -3084,6 +3114,10 @@ bool ShowProfileSettingsPage(RfViewState* state, size_t index) {
   return true;
 }
 
+/**
+ * @brief 删除当前选中的 RF 配置及其聊天记录
+ * @param state RF 页面状态
+ */
 void DeleteSelectedProfiles(RfViewState* state) {
   if (state == nullptr) {
     return;

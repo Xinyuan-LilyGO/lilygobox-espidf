@@ -1,8 +1,8 @@
 /*
- * @Description: 偏好存储统一管理，提供 RAM 缓存和熄屏落盘
+ * @Description: NVS 与 LittleFS 持久化统一管理，提供 RAM 缓存和熄屏落盘
  * @Author: LILYGO_L
  * @Date: 2026-07-03 00:00:00
- * @LastEditTime: 2026-07-16 00:00:00
+ * @LastEditTime: 2026-07-17 18:40:56
  * @License: GPL 3.0
  */
 #pragma once
@@ -10,12 +10,12 @@
 namespace lilygo_box::app {
 
 /**
- * @brief 初始化协调器并将全部 NVS 偏好加载到长期 RAM 缓存
+ * @brief 初始化存储协调器并将 NVS 偏好和 RF 聊天记录加载到 RAM
  */
 void InitStorage();
 
 /**
- * @brief 判断是否存在尚未写入 NVS 的 RAM 修改
+ * @brief 判断是否存在尚未写入 NVS 或 LittleFS 的 RAM 修改
  * @return 存在待落盘修改返回 true
  */
 bool HasPendingStorageWrites();
@@ -43,7 +43,7 @@ bool FreezeStorageUpdatesForShutdown();
 void ResumeStorageUpdatesAfterShutdownFailure();
 
 /**
- * @brief 在物理屏幕关闭后同步清除默认 NVS 并重启设备
+ * @brief 在物理屏幕关闭后同步清除默认 NVS 和应用 LittleFS 并重启设备
  *
  * 调用方必须先确保物理屏幕已经完全关闭。
  * @return 擦除失败并返回调用方时返回 false，成功后设备会立即重启

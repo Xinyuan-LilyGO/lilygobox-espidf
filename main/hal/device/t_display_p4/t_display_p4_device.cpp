@@ -2,7 +2,7 @@
  * @Description: T-Display-P4 设备初始化与硬件 Provider 适配实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-17 17:57:58
+ * @LastEditTime: 2026-07-17 18:40:56
  * @License: GPL 3.0
  */
 #include "hal/device/t_display_p4/t_display_p4_device.h"
@@ -362,6 +362,12 @@ void SelectImageCalibration(uint32_t frequency_hz,
   }
 }
 
+/**
+ * @brief 校验应用层 LoRa 参数并转换为 SX1262 驱动配置
+ * @param source 应用层 LoRa 配置
+ * @param target SX1262 驱动配置输出地址
+ * @return 参数有效且转换成功时返回 true
+ */
 bool BuildSx1262Config(const LoraRadioConfig& source,
     usp_cpp_bus_driver::Sx126x::LoraConfig* target) {
   if (target == nullptr || source.frequency_hz < 150000000 ||

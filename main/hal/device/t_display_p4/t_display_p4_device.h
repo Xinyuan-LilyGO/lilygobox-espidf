@@ -2,7 +2,7 @@
  * @Description: T-Display-P4 设备及硬件 Provider 适配接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-17 14:22:41
+ * @LastEditTime: 2026-07-17 18:40:56
  * @License: GPL 3.0
  */
 #pragma once
@@ -303,12 +303,48 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   bool ReadRtcStatus(RtcStatus* status) override;
 
+  /**
+   * @brief 读取板载 SX1262 支持的射频协议和负载能力
+   * @param capabilities 射频能力输出地址
+   * @return 能力信息读取成功时返回 true
+   */
   bool ReadRfCapabilities(RfCapabilities* capabilities) override;
+
+  /**
+   * @brief 配置板载 SX1262 并启动指定射频会话的连续接收
+   * @param config 待激活的射频配置
+   * @return 配置成功且连续接收已启动时返回 true
+   */
   bool ActivateRf(const RfRadioConfig& config) override;
+
+  /**
+   * @brief 停止当前射频会话并将板载 SX1262 切换到待机状态
+   * @return 停止成功或 SX1262 无需处理时返回 true
+   */
   bool DeactivateRf() override;
+
+  /**
+   * @brief 使用板载 SX1262 启动一条可关联异步事件的射频发送
+   * @param data 待发送数据
+   * @param size 数据长度
+   * @param request_token 调用方提供的发送请求唯一序号
+   * @return 发送命令成功启动时返回 true
+   */
   bool SendRf(
       const uint8_t* data, size_t size, uint64_t request_token) override;
+
+  /**
+   * @brief 非阻塞轮询板载 SX1262 的收发和芯片错误事件
+   * @param event 射频事件输出地址，无事件时类型保持为 kNone
+   * @return 轮询及必要的硬件状态处理成功时返回 true
+   */
   bool PollRfEvent(RfEvent* event) override;
+
+  /**
+   * @brief 读取板载 SX1262 的会话、硬件和发送状态
+   * @param status 射频状态输出地址
+   * @return 状态读取成功时返回 true
+   */
   bool ReadRfStatus(RfStatus* status) override;
 
   /**
