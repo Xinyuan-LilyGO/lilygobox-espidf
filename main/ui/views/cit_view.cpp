@@ -2,7 +2,7 @@
  * @Description: 整机测试列表、测试流程与结果交互页面实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-15 10:16:17
+ * @LastEditTime: 2026-07-17 09:16:03
  * @License: GPL 3.0
  */
 #include "ui/views/cit_view.h"
@@ -163,19 +163,6 @@ void SetCitRowsClickable(CitViewState* state, bool enabled);
 void TestPageEdgeBackEventCallback(lv_event_t* event);
 void ScreenColorOverlayEventCallback(lv_event_t* event);
 void ScreenColorOverlayEdgeBackEventCallback(lv_event_t* event);
-
-bool TryBeginCitScreenAccess(CitViewState* state) {
-  if (state == nullptr || state->screen == nullptr ||
-      state->lvgl_port == nullptr ||
-      !state->lvgl_port->TryBeginScreenTransition()) {
-    return false;
-  }
-  if (state->lvgl_port->IsDisplayFlushPaused()) {
-    state->lvgl_port->EndScreenTransition();
-    return false;
-  }
-  return true;
-}
 
 /**
  * @brief 设置对象的文本颜色和字体
@@ -534,17 +521,13 @@ const lv_font_t* GetStatusIconFont() {
  * @param state CIT 页面状态
  */
 void RefreshTouchState(CitViewState* state) {
-  if (state == nullptr || state->screen == nullptr || state->touch_was_seen) {
+  if (state == nullptr || state->lvgl_port == nullptr ||
+      state->touch_was_seen) {
     return;
   }
 
   hal::TouchPoint point;
-  if (!TryBeginCitScreenAccess(state)) {
-    return;
-  }
-  const bool result = state->screen->ReadScreenTouch(&point);
-  state->lvgl_port->EndScreenTransition();
-  if (result) {
+  if (state->lvgl_port->ReadTouch(&point)) {
     state->touch_was_seen = true;
   }
 }
@@ -629,12 +612,9 @@ void RefreshTouchTestData(CitViewState* state) {
 
   std::array<hal::TouchPoint, kTouchDisplayPointCount> points = {};
   size_t point_count = 0;
-  bool touch_read = false;
-  if (TryBeginCitScreenAccess(state)) {
-    touch_read = state->screen->ReadScreenTouchPoints(
-        points.data(), points.size(), &point_count);
-    state->lvgl_port->EndScreenTransition();
-  }
+  const bool touch_read = state->lvgl_port != nullptr &&
+      state->lvgl_port->ReadTouchPoints(
+          points.data(), points.size(), &point_count);
   if (touch_read) {
     state->touch_was_seen = point_count > 0;
   }

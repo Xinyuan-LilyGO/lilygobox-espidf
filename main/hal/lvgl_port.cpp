@@ -2,7 +2,7 @@
  * @Description: LVGL 显示刷新、触摸读取与任务循环实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-17 02:10:57
+ * @LastEditTime: 2026-07-17 09:36:59
  * @License: GPL 3.0
  */
 #include "hal/lvgl_port.h"
@@ -170,9 +170,21 @@ bool LvglPort::IsInputBlocked() const {
       sleep_input_block_count_.load(std::memory_order_acquire) > 0;
 }
 
-bool LvglPort::ReadCachedTouch(TouchPoint* point) const {
-  if (point == nullptr ||
-      !has_last_touch_point_.load(std::memory_order_acquire)) {
+bool LvglPort::ReadTouch(TouchPoint* point, bool* access_available) {
+  if (access_available != nullptr) {
+    *access_available = false;
+  }
+  if (point == nullptr || screen_ == nullptr || IsDisplayFlushPaused()) {
+    return false;
+  }
+
+  if (IsInputBlocked()) {
+    return ReadHardwareTouch(point, false, access_available);
+  }
+  if (access_available != nullptr) {
+    *access_available = true;
+  }
+  if (!has_last_touch_point_.load(std::memory_order_acquire)) {
     return false;
   }
 
@@ -185,6 +197,48 @@ bool LvglPort::ReadCachedTouch(TouchPoint* point) const {
   point->edge_touch_flag =
       active_edge_touch_flag_.load(std::memory_order_acquire);
   return true;
+}
+
+bool LvglPort::ReadTouchPoints(TouchPoint* points, size_t max_points,
+    size_t* point_count, bool* access_available) {
+  if (access_available != nullptr) {
+    *access_available = false;
+  }
+  if (point_count != nullptr) {
+    *point_count = 0;
+  }
+  if (points == nullptr || max_points == 0 || point_count == nullptr ||
+      screen_ == nullptr || !TryBeginScreenTransition()) {
+    return false;
+  }
+
+  const bool can_access = !IsDisplayFlushPaused();
+  if (access_available != nullptr) {
+    *access_available = can_access;
+  }
+  const bool touched = can_access &&
+      screen_->ReadScreenTouchPoints(points, max_points, point_count);
+  EndScreenTransition();
+  return touched;
+}
+
+bool LvglPort::ReadHardwareTouch(TouchPoint* point,
+    bool input_must_be_enabled, bool* access_available) {
+  if (access_available != nullptr) {
+    *access_available = false;
+  }
+  if (point == nullptr || screen_ == nullptr || !TryBeginScreenTransition()) {
+    return false;
+  }
+
+  const bool can_access = !IsDisplayFlushPaused() &&
+      (!input_must_be_enabled || !IsInputBlocked());
+  if (access_available != nullptr) {
+    *access_available = can_access;
+  }
+  const bool touched = can_access && screen_->ReadScreenTouch(point);
+  EndScreenTransition();
+  return touched;
 }
 
 void LvglPort::AcquireSleepInputBlock() {
@@ -414,7 +468,18 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
     return;
   }
 
-  if (!self->TryBeginScreenTransition()) {
+  TouchPoint point;
+  bool access_available = false;
+  const bool result = self->ReadHardwareTouch(
+      &point, true, &access_available);
+  if (!access_available) {
+    if (self->IsInputBlocked() || self->IsDisplayFlushPaused()) {
+      self->active_edge_touch_flag_ = false;
+      self->pending_edge_touch_flag_ = false;
+      self->has_last_touch_point_ = false;
+      data->state = LV_INDEV_STATE_REL;
+      return;
+    }
     if (self->has_last_touch_point_.load(std::memory_order_acquire)) {
       data->state = LV_INDEV_STATE_PR;
       data->point = self->last_touch_point_;
@@ -423,21 +488,6 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
     }
     return;
   }
-  const bool access_blocked = self->input_blocked_.load() ||
-      self->sleep_input_block_count_.load(std::memory_order_acquire) > 0 ||
-      self->IsDisplayFlushPaused();
-  if (access_blocked) {
-    self->EndScreenTransition();
-    self->active_edge_touch_flag_ = false;
-    self->pending_edge_touch_flag_ = false;
-    self->has_last_touch_point_ = false;
-    data->state = LV_INDEV_STATE_REL;
-    return;
-  }
-
-  TouchPoint point;
-  const bool result = self->screen_->ReadScreenTouch(&point);
-  self->EndScreenTransition();
   if (result) {
     const bool valid_point =
         IsValidTouchPoint(point, self->screen_->ScreenWidth(),

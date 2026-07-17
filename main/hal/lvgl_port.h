@@ -2,7 +2,7 @@
  * @Description: LVGL 显示、触摸与任务端口管理接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-17 02:10:57
+ * @LastEditTime: 2026-07-17 09:34:33
  * @License: GPL 3.0
  */
 #pragma once
@@ -64,11 +64,23 @@ class LvglPort final {
   bool IsInputBlocked() const;
 
   /**
-   * @brief 读取 LVGL 最近一次缓存的有效触摸点
+   * @brief 读取当前统一触摸状态
    * @param point 触摸点输出地址
-   * @return 当前缓存状态为按下返回 true
+   * @param access_available 当前触摸源是否可访问的可选输出地址
+   * @return 读取到触摸点返回 true，否则返回 false
    */
-  bool ReadCachedTouch(TouchPoint* point) const;
+  bool ReadTouch(TouchPoint* point, bool* access_available = nullptr);
+
+  /**
+   * @brief 读取当前多个触摸点
+   * @param points 触摸点输出数组
+   * @param max_points 输出数组可容纳的最大触点数量
+   * @param point_count 实际读取到的触点数量输出地址
+   * @param access_available 触摸硬件当前是否可访问的可选输出地址
+   * @return 读取到至少一个触摸点返回 true，否则返回 false
+   */
+  bool ReadTouchPoints(TouchPoint* points, size_t max_points,
+      size_t* point_count, bool* access_available = nullptr);
 
   /**
    * @brief 为一个熄屏所有者增加输入屏蔽引用
@@ -226,6 +238,16 @@ class LvglPort final {
   bool RotateFlushBuffer(lv_display_t* lvgl_display, const lv_area_t* area,
       uint8_t* pixel_map, lv_area_t* rotated_area, uint8_t** rotated_pixel_map);
 
+  /**
+   * @brief 在屏幕访问锁内读取一个硬件触摸点
+   * @param point 触摸点输出地址
+   * @param input_must_be_enabled 是否要求 LVGL 输入处于启用状态
+   * @param access_available 触摸硬件当前是否可访问的可选输出地址
+   * @return 读取到触摸点返回 true，否则返回 false
+   */
+  bool ReadHardwareTouch(TouchPoint* point, bool input_must_be_enabled,
+      bool* access_available);
+
   ScreenProvider* screen_ = nullptr;
   lv_display_t* lvgl_display_ = nullptr;
   lv_indev_t* input_device_ = nullptr;
@@ -259,7 +281,7 @@ class LvglPort final {
   size_t rotation_buffer_size_ = 0;
   lv_point_t last_touch_point_ = {};
   _lock_t lock_ = nullptr;
-  // 串行化面板休眠、唤醒以及相邻的熄屏存储事务。
+  // 串行化触摸读取、面板休眠唤醒以及相邻的熄屏存储事务。
   StaticSemaphore_t screen_transition_mutex_buffer_;
   SemaphoreHandle_t screen_transition_mutex_ = nullptr;
 };

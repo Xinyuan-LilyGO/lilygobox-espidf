@@ -2,7 +2,7 @@
  * @Description: 系统应用生命周期与启动协调接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-12 23:05:00
+ * @LastEditTime: 2026-07-17 09:16:03
  * @License: GPL 3.0
  */
 #pragma once
@@ -138,9 +138,9 @@ class Application final {
       const hal::TouchPoint& current) const;
 
   /**
-   * @brief 在短屏幕事务内读取亮屏触摸状态
+   * @brief 通过统一触摸入口读取亮屏触摸状态
    * @param point 触摸点输出
-   * @param access_available 可选返回当前是否允许访问屏幕硬件
+   * @param access_available 可选返回当前触摸源是否可访问
    * @return 检测到有效触摸返回 true
    */
   bool ReadScreenTouchWhileAwake(
