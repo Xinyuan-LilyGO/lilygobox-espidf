@@ -2,7 +2,7 @@
  * @Description: Radio control app view
  * @Author: LILYGO_L
  * @Date: 2026-07-12 00:00:00
- * @LastEditTime: 2026-07-18 21:00:42
+ * @LastEditTime: 2026-07-18 22:23:07
  * @License: GPL 3.0
  */
 #include "ui/views/radio_view.h"
@@ -84,6 +84,15 @@ constexpr int kAddInputHeight = 70;
 constexpr int kAddProfileNameSectionHeight = 126;
 // 聊天时间线首尾与相邻区域保持一致的视觉间距。
 constexpr int kChatTimelineInset = 18;
+// 从底部离开该距离后显示“回到最新消息”按钮。
+constexpr int kChatJumpRevealDistance = 24;
+// 允许滚动回弹产生少量误差，避免按钮在底部反复闪烁。
+constexpr int kChatBottomTolerance = 8;
+constexpr int kChatJumpButtonSize = 70;
+constexpr int kChatJumpButtonRightMargin = 24;
+constexpr int kChatJumpButtonBottomGap = 16;
+constexpr int kChatJumpButtonHiddenOffset = 12;
+constexpr uint32_t kChatJumpAnimationMs = 180;
 // Font22 英文系统提示的保守字宽估算，避免保存回调同步遍历字体。
 constexpr int kSystemMessageGlyphWidthEstimate = 13;
 constexpr int kAddSwitchRowHeight = 108;
@@ -220,6 +229,8 @@ struct RadioViewState {
   lv_obj_t* detail_composer_background = nullptr;
   lv_obj_t* detail_divider = nullptr;
   lv_obj_t* detail_send_button = nullptr;
+  // 历史消息模式下显示的“回到最新消息”悬浮按钮。
+  lv_obj_t* detail_chat_jump_button = nullptr;
   lv_obj_t* add_page = nullptr;
   lv_obj_t* add_body = nullptr;
   // 首次创建 Radio 配置时使用的名称输入框。
@@ -277,6 +288,8 @@ struct RadioViewState {
   uint32_t rendered_chat_profile_id = 0;
   // 下一条聊天行在时间线中的顶部坐标。
   int rendered_chat_y = kChatTimelineInset;
+  // 上一次滚动事件读取的纵向位置，用于识别用户滚动方向。
+  int32_t chat_last_scroll_y = 0;
   int selected_add_chip = 0;
   int selected_add_protocol = 0;
   int selected_add_sf = kDefaultSpreadingFactorIndex;
@@ -299,6 +312,14 @@ struct RadioViewState {
   bool module_list_dirty = false;
   // 聊天页被上层页面遮挡时延后执行的自动滚动请求。
   bool chat_scroll_pending = false;
+  // 当前视口是否继续自动跟随最新消息。
+  bool chat_follow_latest = true;
+  // 固定渲染页已满时是否有尚未装入时间线的新消息。
+  bool chat_latest_page_pending = false;
+  // 屏蔽程序滚动产生的 LVGL 滚动事件，避免误判为用户操作。
+  bool chat_programmatic_scroll = false;
+  // 回到底部按钮当前是否处于显示目标状态。
+  bool chat_jump_button_visible = false;
   bool selection_mode = false;
   bool detail_closing = false;
   bool app_settings_closing = false;
@@ -329,6 +350,7 @@ struct RadioAddOptionAction {
 
 bool RenderModuleList(RadioViewState* state);
 bool RenderHeader(RadioViewState* state);
+bool RenderChatMessages(RadioViewState* state);
 void MarkModuleListDirty(RadioViewState* state);
 void RefreshModuleListIfVisible(RadioViewState* state);
 void ResetRenderedChatState(RadioViewState* state);
@@ -379,6 +401,14 @@ const lv_font_t* Font48() { return &lvgl_font_google_sans_flex_48; }
  */
 const lv_font_t* OutlineIconFont44() {
   return &lvgl_font_material_symbols_outline_44;
+}
+
+/**
+ * @brief 获取 56 号轮廓图标字体
+ * @return 字体指针
+ */
+const lv_font_t* OutlineIconFont56() {
+  return &lvgl_font_material_symbols_outline_56;
 }
 
 /**
@@ -693,6 +723,7 @@ void DetailCloseCompletedCallback(lv_anim_t* animation) {
     state->detail_composer_background = nullptr;
     state->detail_divider = nullptr;
     state->detail_send_button = nullptr;
+    state->detail_chat_jump_button = nullptr;
     state->detail_chat_body = nullptr;
     state->detail_chat_timeline = nullptr;
     state->detail_status_label = nullptr;
@@ -727,6 +758,7 @@ void CloseModuleDetail(RadioViewState* state) {
     state->detail_composer_background = nullptr;
     state->detail_divider = nullptr;
     state->detail_send_button = nullptr;
+    state->detail_chat_jump_button = nullptr;
     state->detail_chat_body = nullptr;
     state->detail_chat_timeline = nullptr;
     state->detail_status_label = nullptr;
@@ -966,8 +998,11 @@ void ChatTimelineDrawEventCallback(lv_event_t* event) {
         row_y > body_area.y2) {
       continue;
     }
-    if (rendered.message != nullptr &&
-        rendered.message->type == RadioChatMessageType::kSystem) {
+    if (rendered.message == nullptr ||
+        rendered.message->sequence != rendered.sequence) {
+      continue;
+    }
+    if (rendered.message->type == RadioChatMessageType::kSystem) {
       DrawSystemChatMessage(
           layer, timeline_area.x1, row_y, rendered);
     } else {
@@ -992,7 +1027,12 @@ void ResetRenderedChatState(RadioViewState* state) {
   state->rendered_chat_count = 0;
   state->rendered_chat_profile_id = 0;
   state->rendered_chat_y = kChatTimelineInset;
+  state->chat_last_scroll_y = 0;
   state->chat_scroll_pending = false;
+  state->chat_follow_latest = true;
+  state->chat_latest_page_pending = false;
+  state->chat_programmatic_scroll = false;
+  state->chat_jump_button_visible = false;
 }
 
 /**
@@ -1062,6 +1102,180 @@ bool LayoutChatMessage(RadioViewState* state,
 }
 
 /**
+ * @brief 计算聊天时间线底部对应的滚动位置
+ * @param body 聊天消息区域
+ * @param content_height 聊天时间线完整内容高度
+ * @param viewport_height 已知的新视口高度，负数表示读取当前高度
+ * @return 滚动到底部所需的纵向位置
+ */
+int32_t ChatBottomScrollY(
+    lv_obj_t* body, int content_height, int viewport_height = -1) {
+  if (body == nullptr) {
+    return 0;
+  }
+  const int body_height = viewport_height >= 0
+      ? viewport_height
+      : lv_obj_get_height(body);
+  return std::max<int32_t>(
+      0, content_height + kChatTimelineInset - body_height);
+}
+
+/**
+ * @brief 判断当前聊天视口是否位于最新消息附近
+ * @param state Radio 页面状态
+ * @return 距离底部不超过容差时返回 true
+ */
+bool IsChatAtBottom(const RadioViewState* state) {
+  if (state == nullptr || state->detail_chat_body == nullptr) {
+    return true;
+  }
+  const int32_t target = ChatBottomScrollY(state->detail_chat_body,
+      state->rendered_chat_y);
+  const int32_t current =
+      lv_obj_get_scroll_y(state->detail_chat_body);
+  return target - current <= kChatBottomTolerance;
+}
+
+/**
+ * @brief 设置聊天回到底部按钮的纵向位置
+ * @param object LVGL 按钮对象
+ * @param y 目标纵坐标
+ */
+void SetChatJumpButtonY(void* object, int32_t y) {
+  if (object != nullptr) {
+    lv_obj_set_y(static_cast<lv_obj_t*>(object), y);
+  }
+}
+
+/**
+ * @brief 获取聊天回到底部按钮的显示位置
+ * @param state Radio 页面状态
+ * @return 按钮显示时的纵坐标
+ */
+int ChatJumpButtonVisibleY(const RadioViewState* state) {
+  if (state == nullptr) {
+    return 0;
+  }
+  const int divider_y = state->detail_divider == nullptr
+      ? state->config.height - 108
+      : lv_obj_get_y(state->detail_divider);
+  return divider_y - kChatJumpButtonSize - kChatJumpButtonBottomGap;
+}
+
+/**
+ * @brief 获取聊天回到底部按钮藏入输入区后的位置
+ * @param state Radio 页面状态
+ * @return 按钮隐藏时的纵坐标
+ */
+int ChatJumpButtonHiddenY(const RadioViewState* state) {
+  if (state == nullptr) {
+    return 0;
+  }
+  const int divider_y = state->detail_divider == nullptr
+      ? state->config.height - 108
+      : lv_obj_get_y(state->detail_divider);
+  return divider_y + kChatJumpButtonHiddenOffset;
+}
+
+/**
+ * @brief 在回到底部按钮下移动画结束后真正隐藏对象
+ * @param animation LVGL 动画对象
+ */
+void ChatJumpButtonHideCompletedCallback(lv_anim_t* animation) {
+  auto* state = static_cast<RadioViewState*>(
+      lv_anim_get_user_data(animation));
+  if (state == nullptr || state->detail_chat_jump_button == nullptr ||
+      state->chat_jump_button_visible) {
+    return;
+  }
+  lv_obj_add_flag(state->detail_chat_jump_button, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_set_y(state->detail_chat_jump_button,
+      ChatJumpButtonHiddenY(state));
+}
+
+/**
+ * @brief 按当前输入区位置同步回到底部按钮
+ * @param state Radio 页面状态
+ */
+void PositionChatJumpButton(RadioViewState* state) {
+  if (state == nullptr || state->detail_chat_jump_button == nullptr) {
+    return;
+  }
+  lv_anim_delete(state->detail_chat_jump_button, SetChatJumpButtonY);
+  if (state->chat_jump_button_visible) {
+    lv_obj_remove_flag(
+        state->detail_chat_jump_button, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(
+        state->detail_chat_jump_button, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_y(state->detail_chat_jump_button,
+        ChatJumpButtonVisibleY(state));
+  } else {
+    lv_obj_remove_flag(
+        state->detail_chat_jump_button, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_y(state->detail_chat_jump_button,
+        ChatJumpButtonHiddenY(state));
+    lv_obj_add_flag(
+        state->detail_chat_jump_button, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+/**
+ * @brief 使用纵向滑动显示或隐藏回到底部按钮
+ * @param state Radio 页面状态
+ * @param visible 是否显示按钮
+ */
+void SetChatJumpButtonVisible(RadioViewState* state, bool visible) {
+  if (state == nullptr) {
+    return;
+  }
+  if (state->chat_jump_button_visible == visible) {
+    return;
+  }
+  state->chat_jump_button_visible = visible;
+  lv_obj_t* button = state->detail_chat_jump_button;
+  if (button == nullptr) {
+    return;
+  }
+  const bool was_hidden = lv_obj_has_flag(button, LV_OBJ_FLAG_HIDDEN);
+  const int32_t start_y = was_hidden
+      ? ChatJumpButtonHiddenY(state)
+      : lv_obj_get_y(button);
+  const int32_t end_y = visible
+      ? ChatJumpButtonVisibleY(state)
+      : ChatJumpButtonHiddenY(state);
+  lv_anim_delete(button, SetChatJumpButtonY);
+  if (visible) {
+    lv_obj_remove_flag(button, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
+  } else {
+    lv_obj_remove_flag(button, LV_OBJ_FLAG_CLICKABLE);
+  }
+  if (start_y == end_y) {
+    lv_obj_set_y(button, end_y);
+    if (!visible) {
+      lv_obj_add_flag(button, LV_OBJ_FLAG_HIDDEN);
+    }
+    return;
+  }
+  lv_obj_set_y(button, start_y);
+  lv_anim_t animation;
+  lv_anim_init(&animation);
+  lv_anim_set_var(&animation, button);
+  lv_anim_set_values(&animation, start_y, end_y);
+  lv_anim_set_duration(&animation, kChatJumpAnimationMs);
+  lv_anim_set_path_cb(&animation, visible
+      ? lv_anim_path_ease_out
+      : lv_anim_path_ease_in);
+  lv_anim_set_exec_cb(&animation, SetChatJumpButtonY);
+  if (!visible) {
+    lv_anim_set_user_data(&animation, state);
+    lv_anim_set_completed_cb(
+        &animation, ChatJumpButtonHideCompletedCallback);
+  }
+  lv_anim_start(&animation);
+}
+
+/**
  * @brief 将聊天消息区域滚动到最后一条消息
  * @param body 聊天消息区域
  * @param content_height 聊天时间线完整内容高度
@@ -1072,11 +1286,8 @@ void ScrollChatToBottom(
   if (body == nullptr) {
     return;
   }
-  const int body_height = viewport_height >= 0
-      ? viewport_height
-      : lv_obj_get_height(body);
-  const int32_t target = std::max<int32_t>(
-      0, content_height + kChatTimelineInset - body_height);
+  const int32_t target =
+      ChatBottomScrollY(body, content_height, viewport_height);
   const int32_t current = lv_obj_get_scroll_y(body);
   const int32_t delta = current - target;
   if (delta != 0) {
@@ -1113,8 +1324,14 @@ void RequestChatScrollToBottom(
     return;
   }
   state->chat_scroll_pending = false;
+  state->chat_programmatic_scroll = true;
   ScrollChatToBottom(state->detail_chat_body,
       state->rendered_chat_y, viewport_height);
+  state->chat_programmatic_scroll = false;
+  state->chat_last_scroll_y =
+      lv_obj_get_scroll_y(state->detail_chat_body);
+  state->chat_follow_latest = true;
+  SetChatJumpButtonVisible(state, false);
 }
 
 /**
@@ -1127,6 +1344,87 @@ void ApplyPendingChatScroll(RadioViewState* state) {
     return;
   }
   RequestChatScrollToBottom(state);
+}
+
+/**
+ * @brief 点击悬浮按钮后装入最新消息并回到底部
+ * @param event LVGL 点击事件
+ */
+void ChatJumpButtonClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* state = static_cast<RadioViewState*>(
+      lv_event_get_user_data(event));
+  if (state == nullptr) {
+    return;
+  }
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+  state->chat_follow_latest = true;
+  state->chat_latest_page_pending = false;
+  RenderChatMessages(state);
+  RequestChatScrollToBottom(state);
+}
+
+/**
+ * @brief 根据用户滚动方向维护 Telegram 风格回到底部按钮
+ * @param event 聊天滚动区域事件
+ */
+void DetailChatScrollEventCallback(lv_event_t* event) {
+  auto* state = static_cast<RadioViewState*>(
+      lv_event_get_user_data(event));
+  if (state == nullptr || state->detail_chat_body == nullptr) {
+    return;
+  }
+  const lv_event_code_t code = lv_event_get_code(event);
+  if (code != LV_EVENT_SCROLL_BEGIN && code != LV_EVENT_SCROLL &&
+      code != LV_EVENT_SCROLL_END) {
+    return;
+  }
+  const int32_t current =
+      lv_obj_get_scroll_y(state->detail_chat_body);
+  if (state->chat_programmatic_scroll) {
+    state->chat_last_scroll_y = current;
+    return;
+  }
+  if (code == LV_EVENT_SCROLL_BEGIN) {
+    state->chat_last_scroll_y = current;
+    return;
+  }
+  const int32_t target = ChatBottomScrollY(state->detail_chat_body,
+      state->rendered_chat_y);
+  const int32_t bottom_distance = std::max<int32_t>(0, target - current);
+  const bool at_bottom = bottom_distance <= kChatBottomTolerance;
+  if (code == LV_EVENT_SCROLL) {
+    const bool moving_page_down = current > state->chat_last_scroll_y;
+    const bool moving_page_up = current < state->chat_last_scroll_y;
+    if (at_bottom && !state->chat_latest_page_pending) {
+      state->chat_follow_latest = true;
+      SetChatJumpButtonVisible(state, false);
+    } else {
+      state->chat_follow_latest = false;
+      if (moving_page_up) {
+        SetChatJumpButtonVisible(state, false);
+      } else if (moving_page_down &&
+          bottom_distance >= kChatJumpRevealDistance) {
+        SetChatJumpButtonVisible(state, true);
+      }
+    }
+    state->chat_last_scroll_y = current;
+    return;
+  }
+  state->chat_last_scroll_y = current;
+  if (!at_bottom) {
+    return;
+  }
+  state->chat_follow_latest = true;
+  if (state->chat_latest_page_pending) {
+    state->chat_latest_page_pending = false;
+    RenderChatMessages(state);
+  } else {
+    SetChatJumpButtonVisible(state, false);
+  }
 }
 
 /**
@@ -1197,19 +1495,40 @@ bool RenderChatMessages(RadioViewState* state) {
   const uint32_t repository_done_ms = lv_tick_get();
   const bool same_profile =
       state->rendered_chat_profile_id == profile.id;
+  const bool follow_latest =
+      !same_profile || state->chat_follow_latest;
+  const int32_t previous_scroll_y =
+      lv_obj_get_scroll_y(state->detail_chat_body);
   size_t overlap = same_profile
       ? FindChatLayoutOverlap(state, messages, message_count)
       : 0;
+  const bool full_historical_page = same_profile && !follow_latest &&
+      state->rendered_chat_count == app::kRadioChatPageCapacity &&
+      message_count == app::kRadioChatPageCapacity;
+  if (full_historical_page &&
+      (state->chat_latest_page_pending ||
+          overlap < state->rendered_chat_count)) {
+    // 历史窗口已满时保持当前页，避免每来一条消息就移除顶部内容。
+    state->chat_latest_page_pending = true;
+    lv_obj_invalidate(state->detail_chat_timeline);
+    return true;
+  }
   const bool rebuild = !same_profile ||
       (state->rendered_chat_count > 0 && message_count > 0 &&
           overlap == 0);
   bool timeline_changed = rebuild ||
       state->rendered_chat_count != message_count;
+  int removed_height = 0;
   if (rebuild || message_count == 0) {
     ResetRenderedChatState(state);
+    state->chat_follow_latest = message_count == 0 || follow_latest;
+    PositionChatJumpButton(state);
     overlap = 0;
   } else if (state->rendered_chat_count > overlap) {
     const size_t removed_count = state->rendered_chat_count - overlap;
+    for (size_t index = 0; index < removed_count; ++index) {
+      removed_height += state->rendered_chat_messages[index].height;
+    }
     for (size_t index = 0; index < overlap; ++index) {
       state->rendered_chat_messages[index] =
           state->rendered_chat_messages[removed_count + index];
@@ -1254,7 +1573,24 @@ bool RenderChatMessages(RadioViewState* state) {
   lv_obj_invalidate(state->detail_chat_timeline);
   const uint32_t invalidate_done_ms = lv_tick_get();
   if (timeline_changed) {
-    RequestChatScrollToBottom(state);
+    if (message_count == 0 || follow_latest) {
+      state->chat_latest_page_pending = false;
+      RequestChatScrollToBottom(state);
+    } else {
+      if (removed_height > 0) {
+        const int32_t target =
+            std::max<int32_t>(0, previous_scroll_y - removed_height);
+        const int32_t current =
+            lv_obj_get_scroll_y(state->detail_chat_body);
+        state->chat_programmatic_scroll = true;
+        lv_obj_scroll_by(state->detail_chat_body, 0,
+            current - target, LV_ANIM_OFF);
+        state->chat_programmatic_scroll = false;
+        state->chat_last_scroll_y =
+            lv_obj_get_scroll_y(state->detail_chat_body);
+      }
+      state->chat_follow_latest = false;
+    }
   }
   const uint32_t finished_ms = lv_tick_get();
   if (finished_ms - started_ms >= kSlowRadioUiThresholdMs) {
@@ -1859,6 +2195,9 @@ void DetailSendClickedEventCallback(lv_event_t* event) {
   lv_textarea_set_text(state->detail_input, "");
   SyncModuleItems(state);
   const uint32_t summary_done_ms = lv_tick_get();
+  // 发送自己的消息时切换回最新会话，确保新气泡立即可见。
+  state->chat_follow_latest = true;
+  state->chat_latest_page_pending = false;
   RenderChatMessages(state);
   MarkModuleListDirty(state);
   const uint32_t finished_ms = lv_tick_get();
@@ -1885,6 +2224,9 @@ void SetDetailKeyboardVisible(RadioViewState* state, bool visible) {
       state->detail_chat_body == nullptr) {
     return;
   }
+  const bool follow_latest =
+      state->chat_follow_latest && IsChatAtBottom(state);
+  state->chat_follow_latest = follow_latest;
   const int keyboard_height = state->config.height *
       kAddKeyboardHeightPercent / 100;
   const int offset = visible ? keyboard_height : 0;
@@ -1901,7 +2243,10 @@ void SetDetailKeyboardVisible(RadioViewState* state, bool visible) {
       0, static_cast<int32_t>(composer_top) -
              lv_obj_get_y(state->detail_chat_body));
   lv_obj_set_height(state->detail_chat_body, chat_height);
-  RequestChatScrollToBottom(state, chat_height);
+  PositionChatJumpButton(state);
+  if (follow_latest) {
+    RequestChatScrollToBottom(state, chat_height);
+  }
   if (!visible) {
     HideSharedKeyboard(state->detail_keyboard);
   }
@@ -1938,6 +2283,52 @@ void DetailKeyboardDismissClickedEventCallback(lv_event_t* event) {
 }
 
 /**
+ * @brief 创建 Telegram 风格的回到底部悬浮按钮
+ * @param page 聊天详情页面
+ * @param state Radio 页面状态
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateChatJumpButton(lv_obj_t* page, RadioViewState* state) {
+  if (page == nullptr || state == nullptr) {
+    return false;
+  }
+  lv_obj_t* button = lv_button_create(page);
+  if (button == nullptr) {
+    return false;
+  }
+  state->detail_chat_jump_button = button;
+  lv_obj_set_size(button, kChatJumpButtonSize, kChatJumpButtonSize);
+  lv_obj_set_x(button, state->config.width - kChatJumpButtonSize -
+      kChatJumpButtonRightMargin);
+  lv_obj_set_y(button, ChatJumpButtonHiddenY(state));
+  lv_obj_set_style_radius(
+      button, kChatJumpButtonSize / 2, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      button, lv_color_hex(kMainBackgroundColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      button, lv_color_hex(kSurfaceContainerHighColor), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
+  lv_obj_set_style_border_width(button, 1, LV_PART_MAIN);
+  lv_obj_set_style_border_color(
+      button, lv_color_hex(kOutlineVariantColor), LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
+  lv_obj_add_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_remove_flag(button, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(button, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_t* icon_label = CreateLabel(button, icon::kKeyboardArrowDown,
+      kSettingsSecondaryTextColor, OutlineIconFont56());
+  if (icon_label == nullptr) {
+    return false;
+  }
+  lv_obj_align(icon_label, LV_ALIGN_CENTER, 0, -1);
+  lv_obj_add_event_cb(button, ChatJumpButtonClickedEventCallback,
+      LV_EVENT_CLICKED, state);
+  return true;
+}
+
+/**
  * @brief 创建聊天页面底部发送输入区域
  * @param page 详情页面对象
  * @param state 射频页面状态
@@ -1948,6 +2339,9 @@ bool CreateChatComposer(lv_obj_t* page, RadioViewState* state) {
     return false;
   }
   const int divider_y = state->config.height - 108;
+  if (!CreateChatJumpButton(page, state)) {
+    return false;
+  }
   lv_obj_t* background = lv_obj_create(page);
   if (background == nullptr) {
     return false;
@@ -2086,6 +2480,7 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
   state->detail_composer_background = nullptr;
   state->detail_divider = nullptr;
   state->detail_send_button = nullptr;
+  state->detail_chat_jump_button = nullptr;
   state->detail_chat_body = nullptr;
   state->detail_chat_timeline = nullptr;
   state->detail_title_label = nullptr;
@@ -2181,6 +2576,8 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
   lv_obj_add_flag(chat_body, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_add_event_cb(chat_body,
       DetailKeyboardDismissClickedEventCallback, LV_EVENT_CLICKED, state);
+  lv_obj_add_event_cb(chat_body,
+      DetailChatScrollEventCallback, LV_EVENT_ALL, state);
   state->detail_chat_body = chat_body;
   lv_obj_t* timeline = lv_obj_create(chat_body);
   if (timeline == nullptr) {
@@ -2207,6 +2604,7 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
     state->detail_composer_background = nullptr;
     state->detail_divider = nullptr;
     state->detail_send_button = nullptr;
+    state->detail_chat_jump_button = nullptr;
     state->detail_chat_body = nullptr;
     state->detail_chat_timeline = nullptr;
     return false;
