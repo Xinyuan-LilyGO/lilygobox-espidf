@@ -2,7 +2,7 @@
  * @Description: Radio control app view
  * @Author: LILYGO_L
  * @Date: 2026-07-12 00:00:00
- * @LastEditTime: 2026-07-18 23:35:35
+ * @LastEditTime: 2026-07-18 23:41:38
  * @License: GPL 3.0
  */
 #include "ui/views/radio_view.h"
@@ -3454,6 +3454,9 @@ bool RenderModuleList(RadioViewState* state) {
   lv_obj_clean(state->module_list);
   if (state->module_count == 0) {
     const bool rendered = CreateEmptyRadioContent(state);
+    if (rendered) {
+      EnableEdgeBackSwipeEventBubble(state->module_list);
+    }
     state->module_list_dirty = !rendered;
     return rendered;
   }
@@ -3465,6 +3468,7 @@ bool RenderModuleList(RadioViewState* state) {
       return false;
     }
   }
+  EnableEdgeBackSwipeEventBubble(state->module_list);
   state->module_list_dirty = false;
   return true;
 }
