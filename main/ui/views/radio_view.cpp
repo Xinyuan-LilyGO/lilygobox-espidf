@@ -2,7 +2,7 @@
  * @Description: Radio control app view
  * @Author: LILYGO_L
  * @Date: 2026-07-12 00:00:00
- * @LastEditTime: 2026-07-19 00:03:43
+ * @LastEditTime: 2026-07-19 00:11:17
  * @License: GPL 3.0
  */
 #include "ui/views/radio_view.h"
@@ -100,7 +100,7 @@ constexpr int kAddSwitchRowGap = 12;
 constexpr int kProfileNameEditButtonSize = 62;
 constexpr int kProfileNameEditButtonTop = 66;
 constexpr int kProfileNameEditButtonSide = 18;
-constexpr int kProfileNameEditTitleTop = 170;
+constexpr int kProfileNameEditTitleTop = 154;
 constexpr int kProfileNameEditTextAreaTop = 280;
 constexpr int kProfileNameEditTextAreaHeight = 88;
 constexpr int kProfileNameEditTextAreaSide = 26;
