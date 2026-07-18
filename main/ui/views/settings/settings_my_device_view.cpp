@@ -2,7 +2,7 @@
  * @Description: Settings My Device detail page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-07-18 00:00:00
+ * @LastEditTime: 2026-07-19 00:24:37
  * @License: GPL 3.0
  */
 #include "ui/views/settings/settings_view_internal.h"
@@ -1019,9 +1019,17 @@ bool CreateMyDeviceSnapshotArea(lv_obj_t* parent, int width,
   lv_obj_align_to(brand_text, brand_icon, LV_ALIGN_OUT_RIGHT_MID,
       kMyDeviceBrandIconGap, 0);
 
-  lv_obj_t* version =
-      CreateLabel(parent, info.software.software_version,
-          lv_color_hex(kSecondaryTextColor), Font24());
+  const char* software_version = info.software.software_version;
+  if (software_version == nullptr || software_version[0] == '\0') {
+    software_version = "unknown";
+  }
+  char version_text[64] = {};
+  const bool has_version_prefix =
+      software_version[0] == 'v' || software_version[0] == 'V';
+  std::snprintf(version_text, sizeof(version_text),
+      has_version_prefix ? "%s" : "v%s", software_version);
+  lv_obj_t* version = CreateLabel(parent, version_text,
+      lv_color_hex(kSecondaryTextColor), Font24());
   if (version == nullptr) {
     return false;
   }

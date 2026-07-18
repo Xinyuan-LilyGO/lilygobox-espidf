@@ -2,7 +2,7 @@
  * @Description: System status runtime cache
  * @Author: LILYGO_L
  * @Date: 2026-06-24 00:00:00
- * @LastEditTime: 2026-06-25 09:51:45
+ * @LastEditTime: 2026-07-19 00:20:12
  * @License: GPL 3.0
  */
 #pragma once
@@ -29,7 +29,7 @@ class SystemStatusCache final {
       hal::RtcProvider* rtc, hal::BmuProvider* bmu, hal::WifiProvider* wifi);
 
   /**
-   * @brief 刷新 RTC 时间缓存
+   * @brief 使用系统时钟刷新时间缓存，不再访问外部 RTC
    * @return 刷新成功返回 true，否则返回 false
    */
   bool RefreshClock();
@@ -88,7 +88,6 @@ class SystemStatusCache final {
   bool wifi_status_valid() const { return wifi_status_valid_; }
 
  private:
-  hal::RtcProvider* rtc_ = nullptr;
   hal::BmuProvider* bmu_ = nullptr;
   hal::WifiProvider* wifi_ = nullptr;
   hal::RtcStatus rtc_status_ = {};
@@ -98,6 +97,10 @@ class SystemStatusCache final {
   bool rtc_status_valid_ = false;
   bool bmu_status_valid_ = false;
   bool wifi_status_valid_ = false;
+  // 系统时钟是否已经由开机时读取的外部 RTC 初始化。
+  bool system_clock_initialized_ = false;
+  // 保留开机时读取的 PCF8563 时钟完整性状态供诊断页面显示。
+  bool rtc_clock_integrity_ = false;
 };
 
 }  // namespace lilygo_box::app
