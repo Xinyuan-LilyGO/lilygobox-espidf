@@ -1,11 +1,11 @@
 /*
- * @Description: RF 聊天热缓存、会话摘要与 LittleFS 日志仓库实现
+ * @Description: Radio 聊天热缓存、会话摘要与 LittleFS 日志仓库实现
  * @Author: LILYGO_L
  * @Date: 2026-07-17 00:00:00
  * @LastEditTime: 2026-07-17 17:22:18
  * @License: GPL 3.0
  */
-#include "app/rf_chat_repository.h"
+#include "app/radio_chat_repository.h"
 
 #include <sys/stat.h>
 #include <unistd.h>
@@ -30,17 +30,17 @@ namespace {
 constexpr size_t kFallbackGlobalCapacity = 32;
 // 日志达到容量上限后单次压缩保留的记录数量。
 constexpr size_t kCompactionTarget =
-    kRfChatStorageCapacity - kRfChatStorageCapacity / 8;
-// RF 聊天记录在 LittleFS 中的分层目录名称。
+    kRadioChatStorageCapacity - kRadioChatStorageCapacity / 8;
+// Radio 聊天记录在 LittleFS 中的分层目录名称。
 constexpr char kApplicationDirectory[] = "lilygobox";
 constexpr char kDataDirectory[] = "data";
-constexpr char kRfDirectory[] = "rf";
+constexpr char kRadioDirectory[] = "radio";
 constexpr char kChatDirectory[] = "chat";
-constexpr char kChatLogFile[] = "messages.rfchat";
+constexpr char kChatLogFile[] = "messages.radiochat";
 constexpr char kChatTempFile[] = "messages.tmp";
 
 // 固定长度聊天记录的格式标识和版本。
-constexpr uint32_t kRecordMagic = 0x52464348;
+constexpr uint32_t kRecordMagic = 0x52414348;
 constexpr uint16_t kRecordVersion = 1;
 // 固定长度聊天记录中各字段的字节偏移。
 constexpr size_t kMagicOffset = 0;
@@ -54,14 +54,14 @@ constexpr size_t kDeliveryOffset = 23;
 constexpr size_t kRssiOffset = 24;
 constexpr size_t kSnrOffset = 25;
 constexpr size_t kTimeOffset = 28;
-constexpr size_t kTextOffset = kTimeOffset + kRfChatTimeCapacity;
-constexpr size_t kChecksumOffset = kTextOffset + kRfChatTextCapacity;
+constexpr size_t kTextOffset = kTimeOffset + kRadioChatTimeCapacity;
+constexpr size_t kChecksumOffset = kTextOffset + kRadioChatTextCapacity;
 constexpr size_t kDiskRecordSize = kChecksumOffset + sizeof(uint32_t);
 
 // 固定长度二进制聊天记录缓冲区。
 using DiskRecord = std::array<uint8_t, kDiskRecordSize>;
 static_assert(kDiskRecordSize <= UINT16_MAX,
-    "RF chat disk record size exceeds its file format field");
+    "Radio chat disk record size exceeds its file format field");
 
 struct ChatLogReadBuffer {
   // 当前聊天日志文件路径。
@@ -69,7 +69,7 @@ struct ChatLogReadBuffer {
   // 从 LittleFS 读取的单条固定长度记录。
   DiskRecord record = {};
   // 完成格式校验和解码后的聊天消息。
-  RfChatMessage message;
+  RadioChatMessage message;
 };
 
 /**
@@ -217,8 +217,8 @@ uint32_t CalculateChecksum(const uint8_t* data, size_t size) {
  * @param delivery 消息发送状态
  * @return 消息无需继续等待射频结果时返回 true
  */
-bool IsFinalDelivery(RfChatDeliveryState delivery) {
-  return delivery != RfChatDeliveryState::kSending;
+bool IsFinalDelivery(RadioChatDeliveryState delivery) {
+  return delivery != RadioChatDeliveryState::kSending;
 }
 
 /**
@@ -241,9 +241,9 @@ bool CreateDirectory(const char* path) {
 }
 
 /**
- * @brief 判断 RF 配置 ID 是否包含在指定数组中
- * @param profile_ids RF 配置 ID 数组
- * @param profile_count RF 配置数量
+ * @brief 判断 Radio 配置 ID 是否包含在指定数组中
+ * @param profile_ids Radio 配置 ID 数组
+ * @param profile_count Radio 配置数量
  * @param profile_id 待检查配置 ID
  * @return 数组包含指定配置时返回 true
  */
@@ -260,13 +260,13 @@ bool ContainsProfileId(
  * @param record 磁盘记录输出
  * @return 消息字段有效并完成编码时返回 true
  */
-bool EncodeRecord(const RfChatMessage& message, DiskRecord* record) {
+bool EncodeRecord(const RadioChatMessage& message, DiskRecord* record) {
   if (record == nullptr || message.profile_id == 0 || message.sequence == 0) {
     return false;
   }
   record->fill(0);
   const size_t text_length =
-      std::min(std::strlen(message.text), kRfChatTextCapacity - 1);
+      std::min(std::strlen(message.text), kRadioChatTextCapacity - 1);
   StoreUint32(record->data() + kMagicOffset, kRecordMagic);
   StoreUint16(record->data() + kVersionOffset, kRecordVersion);
   StoreUint16(record->data() + kRecordSizeOffset,
@@ -279,7 +279,8 @@ bool EncodeRecord(const RfChatMessage& message, DiskRecord* record) {
   (*record)[kDeliveryOffset] = static_cast<uint8_t>(message.delivery);
   (*record)[kRssiOffset] = static_cast<uint8_t>(message.rssi_dbm);
   (*record)[kSnrOffset] = static_cast<uint8_t>(message.snr_db);
-  std::memcpy(record->data() + kTimeOffset, message.time, kRfChatTimeCapacity);
+  std::memcpy(record->data() + kTimeOffset, message.time,
+      kRadioChatTimeCapacity);
   std::memcpy(record->data() + kTextOffset, message.text, text_length);
   StoreUint32(record->data() + kChecksumOffset,
       CalculateChecksum(record->data(), kChecksumOffset));
@@ -292,7 +293,7 @@ bool EncodeRecord(const RfChatMessage& message, DiskRecord* record) {
  * @param message 消息输出
  * @return 记录格式和校验值均有效时返回 true
  */
-bool DecodeRecord(const DiskRecord& record, RfChatMessage* message) {
+bool DecodeRecord(const DiskRecord& record, RadioChatMessage* message) {
   if (message == nullptr ||
       LoadUint32(record.data() + kMagicOffset) != kRecordMagic ||
       LoadUint16(record.data() + kVersionOffset) != kRecordVersion ||
@@ -302,24 +303,27 @@ bool DecodeRecord(const DiskRecord& record, RfChatMessage* message) {
     return false;
   }
   const size_t text_length = LoadUint16(record.data() + kTextLengthOffset);
-  const auto type = static_cast<RfChatMessageType>(record[kMessageTypeOffset]);
-  auto delivery = static_cast<RfChatDeliveryState>(record[kDeliveryOffset]);
-  if (text_length >= kRfChatTextCapacity || type > RfChatMessageType::kSystem ||
-      delivery > RfChatDeliveryState::kFailed) {
+  const auto type =
+      static_cast<RadioChatMessageType>(record[kMessageTypeOffset]);
+  auto delivery = static_cast<RadioChatDeliveryState>(record[kDeliveryOffset]);
+  if (text_length >= kRadioChatTextCapacity ||
+      type > RadioChatMessageType::kSystem ||
+      delivery > RadioChatDeliveryState::kFailed) {
     return false;
   }
-  if (delivery == RfChatDeliveryState::kSending) {
-    delivery = RfChatDeliveryState::kFailed;
+  if (delivery == RadioChatDeliveryState::kSending) {
+    delivery = RadioChatDeliveryState::kFailed;
   }
-  *message = RfChatMessage{};
+  *message = RadioChatMessage{};
   message->sequence = LoadUint64(record.data() + kSequenceOffset);
   message->profile_id = LoadUint32(record.data() + kProfileIdOffset);
   message->type = type;
   message->delivery = delivery;
   message->rssi_dbm = static_cast<int8_t>(record[kRssiOffset]);
   message->snr_db = static_cast<int8_t>(record[kSnrOffset]);
-  std::memcpy(message->time, record.data() + kTimeOffset, kRfChatTimeCapacity);
-  message->time[kRfChatTimeCapacity - 1] = '\0';
+  std::memcpy(message->time, record.data() + kTimeOffset,
+      kRadioChatTimeCapacity);
+  message->time[kRadioChatTimeCapacity - 1] = '\0';
   std::memcpy(message->text, record.data() + kTextOffset, text_length);
   message->text[text_length] = '\0';
   return message->sequence != 0 && message->profile_id != 0;
@@ -327,9 +331,9 @@ bool DecodeRecord(const DiskRecord& record, RfChatMessage* message) {
 
 }  // namespace
 
-struct RfChatRepository::Entry {
+struct RadioChatRepository::Entry {
   // 缓存中保存的完整聊天消息。
-  RfChatMessage message;
+  RadioChatMessage message;
   // 消息在当前运行会话中的显示顺序。
   uint64_t order = 0;
   // 当前条目是否保存有效消息。
@@ -340,24 +344,24 @@ struct RfChatRepository::Entry {
   bool queued = false;
 };
 
-struct RfChatRepository::ProfileState {
-  // 状态所属 RF 配置的稳定 ID。
+struct RadioChatRepository::ProfileState {
+  // 状态所属 Radio 配置的稳定 ID。
   uint32_t profile_id = 0;
   // 尚未进入聊天页面查看的消息数量。
   uint16_t unread_count = 0;
-  // 当前 RF 配置最近一次访问的顺序。
+  // 当前 Radio 配置最近一次访问的顺序。
   uint64_t last_access_order = 0;
-  // RF 主页面显示的最新消息摘要。
-  char latest_message[kRfChatSummaryCapacity] = {};
+  // Radio 主页面显示的最新消息摘要。
+  char latest_message[kRadioChatSummaryCapacity] = {};
   // 最新消息的本地时间文本。
-  char latest_time[kRfChatTimeCapacity] = {};
+  char latest_time[kRadioChatTimeCapacity] = {};
   // 当前配置是否已经从 LittleFS 补载历史记录。
   bool history_loaded = false;
 };
 
-class RfChatRepository::ScopedLock final {
+class RadioChatRepository::ScopedLock final {
  public:
-  explicit ScopedLock(const RfChatRepository* repository)
+  explicit ScopedLock(const RadioChatRepository* repository)
       : repository_(repository),
         locked_(repository_ != nullptr && repository_->Lock()) {}
 
@@ -370,16 +374,16 @@ class RfChatRepository::ScopedLock final {
   bool locked() const { return locked_; }
 
  private:
-  const RfChatRepository* repository_ = nullptr;
+  const RadioChatRepository* repository_ = nullptr;
   bool locked_ = false;
 };
 
-RfChatRepository::~RfChatRepository() {
+RadioChatRepository::~RadioChatRepository() {
   heap_caps_free(entries_);
   heap_caps_free(profile_states_);
 }
 
-bool RfChatRepository::Lock() const {
+bool RadioChatRepository::Lock() const {
   if (mutex_ == nullptr) {
     mutex_ = xSemaphoreCreateRecursiveMutexStatic(&mutex_buffer_);
   }
@@ -387,30 +391,30 @@ bool RfChatRepository::Lock() const {
          xSemaphoreTakeRecursive(mutex_, portMAX_DELAY) == pdTRUE;
 }
 
-void RfChatRepository::Unlock() const {
+void RadioChatRepository::Unlock() const {
   if (mutex_ != nullptr) {
     xSemaphoreGiveRecursive(mutex_);
   }
 }
 
-bool RfChatRepository::InitializeCache() {
+bool RadioChatRepository::InitializeCache() {
   if (entries_ != nullptr && profile_states_ != nullptr) {
     return true;
   }
-  entries_ = static_cast<Entry*>(heap_caps_calloc(kRfChatGlobalCapacity,
+  entries_ = static_cast<Entry*>(heap_caps_calloc(kRadioChatGlobalCapacity,
       sizeof(Entry), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (entries_ != nullptr) {
-    capacity_ = kRfChatGlobalCapacity;
+    capacity_ = kRadioChatGlobalCapacity;
   } else {
     entries_ = static_cast<Entry*>(heap_caps_calloc(kFallbackGlobalCapacity,
         sizeof(Entry), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     capacity_ = entries_ == nullptr ? 0 : kFallbackGlobalCapacity;
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "RF chat PSRAM allocation failed, capacity=%u\n",
+        "Radio chat PSRAM allocation failed, capacity=%u\n",
         static_cast<unsigned>(capacity_));
   }
   profile_states_ =
-      static_cast<ProfileState*>(heap_caps_calloc(kRfProfileCapacity,
+      static_cast<ProfileState*>(heap_caps_calloc(kRadioProfileCapacity,
           sizeof(ProfileState), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
   if (entries_ == nullptr || profile_states_ == nullptr) {
     heap_caps_free(entries_);
@@ -419,7 +423,7 @@ bool RfChatRepository::InitializeCache() {
     profile_states_ = nullptr;
     capacity_ = 0;
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "RF chat cache allocation failed\n");
+        "Radio chat cache allocation failed\n");
     return false;
   }
   const uint32_t session_id = std::max(esp_random(), uint32_t{1});
@@ -427,18 +431,18 @@ bool RfChatRepository::InitializeCache() {
   return true;
 }
 
-bool RfChatRepository::Initialize() {
+bool RadioChatRepository::Initialize() {
   ScopedLock lock(this);
   return lock.locked() && InitializeCache();
 }
 
-RfChatRepository::ProfileState* RfChatRepository::FindProfileState(
+RadioChatRepository::ProfileState* RadioChatRepository::FindProfileState(
     uint32_t profile_id, bool create) {
   if (profile_id == 0 || profile_states_ == nullptr) {
     return nullptr;
   }
   ProfileState* empty = nullptr;
-  for (size_t index = 0; index < kRfProfileCapacity; ++index) {
+  for (size_t index = 0; index < kRadioProfileCapacity; ++index) {
     ProfileState& state = profile_states_[index];
     if (state.profile_id == profile_id) {
       return &state;
@@ -455,12 +459,12 @@ RfChatRepository::ProfileState* RfChatRepository::FindProfileState(
   return nullptr;
 }
 
-const RfChatRepository::ProfileState* RfChatRepository::FindProfileState(
+const RadioChatRepository::ProfileState* RadioChatRepository::FindProfileState(
     uint32_t profile_id) const {
   if (profile_id == 0 || profile_states_ == nullptr) {
     return nullptr;
   }
-  for (size_t index = 0; index < kRfProfileCapacity; ++index) {
+  for (size_t index = 0; index < kRadioProfileCapacity; ++index) {
     if (profile_states_[index].profile_id == profile_id) {
       return &profile_states_[index];
     }
@@ -468,7 +472,7 @@ const RfChatRepository::ProfileState* RfChatRepository::FindProfileState(
   return nullptr;
 }
 
-RfChatRepository::Entry* RfChatRepository::FindEntry(uint64_t sequence) {
+RadioChatRepository::Entry* RadioChatRepository::FindEntry(uint64_t sequence) {
   if (entries_ == nullptr || sequence == 0) {
     return nullptr;
   }
@@ -480,7 +484,7 @@ RfChatRepository::Entry* RfChatRepository::FindEntry(uint64_t sequence) {
   return nullptr;
 }
 
-RfChatRepository::Entry* RfChatRepository::SelectInsertionEntry(
+RadioChatRepository::Entry* RadioChatRepository::SelectInsertionEntry(
     uint32_t profile_id) {
   if (entries_ == nullptr || capacity_ == 0 || profile_id == 0) {
     return nullptr;
@@ -491,7 +495,7 @@ RfChatRepository::Entry* RfChatRepository::SelectInsertionEntry(
   Entry* least_recent_other_entry = nullptr;
   uint64_t least_recent_other_order = UINT64_MAX;
   const size_t profile_capacity =
-      std::min(kRfChatActiveProfileCapacity, capacity_);
+      std::min(kRadioChatActiveProfileCapacity, capacity_);
   for (size_t index = 0; index < capacity_; ++index) {
     Entry& entry = entries_[index];
     if (!entry.used) {
@@ -540,20 +544,21 @@ RfChatRepository::Entry* RfChatRepository::SelectInsertionEntry(
                                              : least_recent_other_entry;
 }
 
-void RfChatRepository::QueueEntry(Entry* entry) {
+void RadioChatRepository::QueueEntry(Entry* entry) {
   if (entry == nullptr || !entry->used || !entry->dirty || entry->queued ||
       !IsFinalDelivery(entry->message.delivery) ||
-      pending_count_ >= kRfChatPendingCapacity) {
+      pending_count_ >= kRadioChatPendingCapacity) {
     return;
   }
-  const size_t tail = (pending_head_ + pending_count_) % kRfChatPendingCapacity;
+  const size_t tail =
+      (pending_head_ + pending_count_) % kRadioChatPendingCapacity;
   pending_sequences_[tail] = entry->message.sequence;
   entry->queued = true;
   ++pending_count_;
 }
 
-void RfChatRepository::RefillPendingQueue() {
-  while (pending_count_ < kRfChatPendingCapacity) {
+void RadioChatRepository::RefillPendingQueue() {
+  while (pending_count_ < kRadioChatPendingCapacity) {
     Entry* oldest = nullptr;
     for (size_t index = 0; index < capacity_; ++index) {
       Entry& entry = entries_[index];
@@ -572,17 +577,17 @@ void RfChatRepository::RefillPendingQueue() {
   }
 }
 
-void RfChatRepository::RebuildPendingQueue() {
+void RadioChatRepository::RebuildPendingQueue() {
   pending_head_ = 0;
   pending_count_ = 0;
-  std::fill_n(pending_sequences_, kRfChatPendingCapacity, uint64_t{0});
+  std::fill_n(pending_sequences_, kRadioChatPendingCapacity, uint64_t{0});
   for (size_t index = 0; index < capacity_; ++index) {
     entries_[index].queued = false;
   }
   RefillPendingQueue();
 }
 
-uint64_t RfChatRepository::Append(RfChatMessage message) {
+uint64_t RadioChatRepository::Append(RadioChatMessage message) {
   ScopedLock lock(this);
   if (!lock.locked() || !InitializeCache() || message.profile_id == 0) {
     return 0;
@@ -608,8 +613,8 @@ uint64_t RfChatRepository::Append(RfChatMessage message) {
   return message.sequence;
 }
 
-bool RfChatRepository::UpdateDelivery(
-    uint64_t sequence, RfChatDeliveryState delivery) {
+bool RadioChatRepository::UpdateDelivery(
+    uint64_t sequence, RadioChatDeliveryState delivery) {
   ScopedLock lock(this);
   if (!lock.locked()) {
     return false;
@@ -624,7 +629,7 @@ bool RfChatRepository::UpdateDelivery(
   return true;
 }
 
-void RfChatRepository::FailPending(uint32_t profile_id) {
+void RadioChatRepository::FailPending(uint32_t profile_id) {
   ScopedLock lock(this);
   if (!lock.locked()) {
     return;
@@ -632,22 +637,22 @@ void RfChatRepository::FailPending(uint32_t profile_id) {
   for (size_t index = 0; index < capacity_; ++index) {
     Entry& entry = entries_[index];
     if (entry.used && entry.message.profile_id == profile_id &&
-        entry.message.delivery == RfChatDeliveryState::kSending) {
-      entry.message.delivery = RfChatDeliveryState::kFailed;
+        entry.message.delivery == RadioChatDeliveryState::kSending) {
+      entry.message.delivery = RadioChatDeliveryState::kFailed;
       entry.dirty = true;
       QueueEntry(&entry);
     }
   }
 }
 
-size_t RfChatRepository::GetRecent(uint32_t profile_id,
-    const RfChatMessage** messages, size_t capacity) const {
+size_t RadioChatRepository::GetRecent(uint32_t profile_id,
+    const RadioChatMessage** messages, size_t capacity) const {
   ScopedLock lock(this);
   if (!lock.locked() || entries_ == nullptr || messages == nullptr ||
       capacity == 0) {
     return 0;
   }
-  std::array<const Entry*, kRfChatActiveProfileCapacity> matching = {};
+  std::array<const Entry*, kRadioChatActiveProfileCapacity> matching = {};
   size_t matching_count = 0;
   for (size_t index = 0; index < capacity_; ++index) {
     if (entries_[index].used &&
@@ -671,7 +676,7 @@ size_t RfChatRepository::GetRecent(uint32_t profile_id,
   return output_count;
 }
 
-size_t RfChatRepository::GetCachedMessageCount() const {
+size_t RadioChatRepository::GetCachedMessageCount() const {
   ScopedLock lock(this);
   if (!lock.locked() || entries_ == nullptr) {
     return 0;
@@ -682,8 +687,8 @@ size_t RfChatRepository::GetCachedMessageCount() const {
       }));
 }
 
-bool RfChatRepository::GetOldestPending(
-    uint32_t profile_id, RfChatMessage* message) const {
+bool RadioChatRepository::GetOldestPending(
+    uint32_t profile_id, RadioChatMessage* message) const {
   ScopedLock lock(this);
   if (!lock.locked() || profile_id == 0 || message == nullptr ||
       entries_ == nullptr) {
@@ -693,7 +698,7 @@ bool RfChatRepository::GetOldestPending(
   for (size_t index = 0; index < capacity_; ++index) {
     const Entry& entry = entries_[index];
     if (!entry.used || entry.message.profile_id != profile_id ||
-        entry.message.delivery != RfChatDeliveryState::kSending) {
+        entry.message.delivery != RadioChatDeliveryState::kSending) {
       continue;
     }
     if (oldest == nullptr || entry.order < oldest->order) {
@@ -707,7 +712,7 @@ bool RfChatRepository::GetOldestPending(
   return true;
 }
 
-void RfChatRepository::RefreshProfileSummary(uint32_t profile_id) {
+void RadioChatRepository::RefreshProfileSummary(uint32_t profile_id) {
   ProfileState* state = FindProfileState(profile_id, true);
   if (state == nullptr) {
     return;
@@ -729,13 +734,13 @@ void RfChatRepository::RefreshProfileSummary(uint32_t profile_id) {
       state->latest_time, sizeof(state->latest_time), latest->message.time);
 }
 
-bool RfChatRepository::GetProfileSummary(
-    uint32_t profile_id, RfChatProfileSummary* summary) const {
+bool RadioChatRepository::GetProfileSummary(
+    uint32_t profile_id, RadioChatProfileSummary* summary) const {
   ScopedLock lock(this);
   if (!lock.locked() || summary == nullptr) {
     return false;
   }
-  *summary = RfChatProfileSummary{};
+  *summary = RadioChatProfileSummary{};
   const ProfileState* state = FindProfileState(profile_id);
   if (state == nullptr) {
     return false;
@@ -748,7 +753,7 @@ bool RfChatRepository::GetProfileSummary(
   return true;
 }
 
-void RfChatRepository::TouchProfile(uint32_t profile_id) {
+void RadioChatRepository::TouchProfile(uint32_t profile_id) {
   ScopedLock lock(this);
   if (!lock.locked()) {
     return;
@@ -759,7 +764,7 @@ void RfChatRepository::TouchProfile(uint32_t profile_id) {
   }
 }
 
-void RfChatRepository::IncrementUnread(uint32_t profile_id) {
+void RadioChatRepository::IncrementUnread(uint32_t profile_id) {
   ScopedLock lock(this);
   if (!lock.locked()) {
     return;
@@ -770,7 +775,7 @@ void RfChatRepository::IncrementUnread(uint32_t profile_id) {
   }
 }
 
-void RfChatRepository::MarkRead(uint32_t profile_id) {
+void RadioChatRepository::MarkRead(uint32_t profile_id) {
   ScopedLock lock(this);
   if (!lock.locked()) {
     return;
@@ -781,7 +786,7 @@ void RfChatRepository::MarkRead(uint32_t profile_id) {
   }
 }
 
-void RfChatRepository::RemoveProfile(uint32_t profile_id) {
+void RadioChatRepository::RemoveProfile(uint32_t profile_id) {
   ScopedLock lock(this);
   if (!lock.locked() || profile_id == 0) {
     return;
@@ -800,13 +805,13 @@ void RfChatRepository::RemoveProfile(uint32_t profile_id) {
       std::find(pending_delete_profile_ids_,
           pending_delete_profile_ids_ + pending_delete_count_,
           profile_id) != pending_delete_profile_ids_ + pending_delete_count_;
-  if (!already_pending && pending_delete_count_ < kRfProfileCapacity) {
+  if (!already_pending && pending_delete_count_ < kRadioProfileCapacity) {
     pending_delete_profile_ids_[pending_delete_count_++] = profile_id;
   }
   RebuildPendingQueue();
 }
 
-bool RfChatRepository::GetStorageDirectory(
+bool RadioChatRepository::GetStorageDirectory(
     char* output, size_t output_size) const {
   if (output == nullptr || output_size == 0) {
     return false;
@@ -820,11 +825,11 @@ bool RfChatRepository::GetStorageDirectory(
   return AppendPathComponent(output, output_size, base_path) &&
          AppendPathComponent(output, output_size, kApplicationDirectory) &&
          AppendPathComponent(output, output_size, kDataDirectory) &&
-         AppendPathComponent(output, output_size, kRfDirectory) &&
+         AppendPathComponent(output, output_size, kRadioDirectory) &&
          AppendPathComponent(output, output_size, kChatDirectory);
 }
 
-bool RfChatRepository::BuildLogPath(char* output, size_t output_size) const {
+bool RadioChatRepository::BuildLogPath(char* output, size_t output_size) const {
   char directory[160] = {};
   if (!GetStorageDirectory(directory, sizeof(directory))) {
     return false;
@@ -834,7 +839,7 @@ bool RfChatRepository::BuildLogPath(char* output, size_t output_size) const {
          AppendPathComponent(output, output_size, kChatLogFile);
 }
 
-bool RfChatRepository::EnsureStorageDirectory() {
+bool RadioChatRepository::EnsureStorageDirectory() {
   if (!IsLittleFsStorageMounted()) {
     return false;
   }
@@ -844,7 +849,7 @@ bool RfChatRepository::EnsureStorageDirectory() {
   }
   char path[160] = {};
   const char* directories[] = {
-      kApplicationDirectory, kDataDirectory, kRfDirectory, kChatDirectory};
+      kApplicationDirectory, kDataDirectory, kRadioDirectory, kChatDirectory};
   if (!AppendPathComponent(path, sizeof(path), base_path)) {
     return false;
   }
@@ -857,7 +862,7 @@ bool RfChatRepository::EnsureStorageDirectory() {
   return true;
 }
 
-bool RfChatRepository::LoadLog(
+bool RadioChatRepository::LoadLog(
     const uint32_t* profile_ids, size_t profile_count) {
   auto buffer = std::unique_ptr<ChatLogReadBuffer>(
       new (std::nothrow) ChatLogReadBuffer{});
@@ -931,7 +936,7 @@ bool RfChatRepository::LoadLog(
   stored_record_count_ = valid_record_count;
   log_scanned_ = true;
   compaction_pending_ = compaction_pending_ ||
-                        valid_record_count > kRfChatStorageCapacity ||
+                        valid_record_count > kRadioChatStorageCapacity ||
                         valid_record_count != record_count ||
                         static_cast<size_t>(file_size) % kDiskRecordSize != 0;
   for (size_t index = 0; index < profile_count; ++index) {
@@ -940,13 +945,13 @@ bool RfChatRepository::LoadLog(
   return result;
 }
 
-bool RfChatRepository::LoadProfiles(
+bool RadioChatRepository::LoadProfiles(
     const uint32_t* profile_ids, size_t profile_count) {
   ScopedLock lock(this);
   if (!lock.locked() || !InitializeCache()) {
     return false;
   }
-  if (profile_count > kRfProfileCapacity ||
+  if (profile_count > kRadioProfileCapacity ||
       (profile_count > 0 && profile_ids == nullptr)) {
     return false;
   }
@@ -956,7 +961,7 @@ bool RfChatRepository::LoadProfiles(
     }
     return EnsureStorageDirectory() && LoadLog(nullptr, 0);
   }
-  uint32_t unloaded_profile_ids[kRfProfileCapacity] = {};
+  uint32_t unloaded_profile_ids[kRadioProfileCapacity] = {};
   size_t unloaded_profile_count = 0;
   for (size_t index = 0; index < profile_count; ++index) {
     ProfileState* state = FindProfileState(profile_ids[index], true);
@@ -982,7 +987,7 @@ bool RfChatRepository::LoadProfiles(
   return true;
 }
 
-bool RfChatRepository::PersistEntry(Entry* entry) {
+bool RadioChatRepository::PersistEntry(Entry* entry) {
   if (entry == nullptr || !entry->used || !entry->dirty ||
       !IsFinalDelivery(entry->message.delivery)) {
     return true;
@@ -996,7 +1001,7 @@ bool RfChatRepository::PersistEntry(Entry* entry) {
   if (!log_scanned_ && !LoadLog(nullptr, 0)) {
     return false;
   }
-  if (stored_record_count_ >= kRfChatStorageCapacity &&
+  if (stored_record_count_ >= kRadioChatStorageCapacity &&
       !CompactLog(kCompactionTarget)) {
     return false;
   }
@@ -1025,7 +1030,7 @@ bool RfChatRepository::PersistEntry(Entry* entry) {
   }
   if (aligned_size >= static_cast<long>(kDiskRecordSize)) {
     DiskRecord last_record = {};
-    RfChatMessage last_message;
+    RadioChatMessage last_message;
     if (std::fseek(file, aligned_size - static_cast<long>(kDiskRecordSize),
             SEEK_SET) != 0 ||
         std::fread(last_record.data(), 1, last_record.size(), file) !=
@@ -1057,7 +1062,7 @@ bool RfChatRepository::PersistEntry(Entry* entry) {
   return true;
 }
 
-bool RfChatRepository::CompactLog(size_t keep_records) {
+bool RadioChatRepository::CompactLog(size_t keep_records) {
   char path[224] = {};
   char temporary_path[224] = {};
   if (!BuildLogPath(path, sizeof(path))) {
@@ -1090,7 +1095,7 @@ bool RfChatRepository::CompactLog(size_t keep_records) {
   size_t valid_record_count = 0;
   DiskRecord record = {};
   while (std::fread(record.data(), 1, record.size(), source) == record.size()) {
-    RfChatMessage message;
+    RadioChatMessage message;
     if (DecodeRecord(record, &message) &&
         !ContainsProfileId(pending_delete_profile_ids_, pending_delete_count_,
             message.profile_id)) {
@@ -1112,7 +1117,7 @@ bool RfChatRepository::CompactLog(size_t keep_records) {
   size_t written_record_count = 0;
   bool result = true;
   while (std::fread(record.data(), 1, record.size(), source) == record.size()) {
-    RfChatMessage message;
+    RadioChatMessage message;
     if (!DecodeRecord(record, &message) ||
         ContainsProfileId(pending_delete_profile_ids_, pending_delete_count_,
             message.profile_id)) {
@@ -1145,14 +1150,14 @@ bool RfChatRepository::CompactLog(size_t keep_records) {
   return true;
 }
 
-bool RfChatRepository::DeletePendingProfiles() {
+bool RadioChatRepository::DeletePendingProfiles() {
   if (pending_delete_count_ == 0) {
     return true;
   }
-  return CompactLog(kRfChatStorageCapacity);
+  return CompactLog(kRadioChatStorageCapacity);
 }
 
-bool RfChatRepository::FlushPending(size_t maximum_records) {
+bool RadioChatRepository::FlushPending(size_t maximum_records) {
   ScopedLock lock(this);
   if (!lock.locked()) {
     return false;
@@ -1169,9 +1174,9 @@ bool RfChatRepository::FlushPending(size_t maximum_records) {
     return false;
   }
   if (compaction_pending_ &&
-      !CompactLog(stored_record_count_ > kRfChatStorageCapacity
+      !CompactLog(stored_record_count_ > kRadioChatStorageCapacity
                       ? kCompactionTarget
-                      : kRfChatStorageCapacity)) {
+                      : kRadioChatStorageCapacity)) {
     return false;
   }
   size_t written = 0;
@@ -1191,7 +1196,7 @@ bool RfChatRepository::FlushPending(size_t maximum_records) {
       entry->queued = false;
     }
     pending_sequences_[pending_head_] = 0;
-    pending_head_ = (pending_head_ + 1) % kRfChatPendingCapacity;
+    pending_head_ = (pending_head_ + 1) % kRadioChatPendingCapacity;
     --pending_count_;
     ++written;
   }
@@ -1199,7 +1204,7 @@ bool RfChatRepository::FlushPending(size_t maximum_records) {
   return true;
 }
 
-bool RfChatRepository::HasPendingWrites() const {
+bool RadioChatRepository::HasPendingWrites() const {
   ScopedLock lock(this);
   if (!lock.locked()) {
     return true;
@@ -1216,8 +1221,8 @@ bool RfChatRepository::HasPendingWrites() const {
   return false;
 }
 
-RfChatRepository& GetRfChatRepository() {
-  static RfChatRepository repository;
+RadioChatRepository& GetRadioChatRepository() {
+  static RadioChatRepository repository;
   return repository;
 }
 

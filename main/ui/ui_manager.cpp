@@ -734,10 +734,10 @@ IconStyle GetIconStyle(const app::AppEntry& app_entry) {
     };
   }
 
-  if (IsId(app_entry.id, "rf")) {
+  if (IsId(app_entry.id, "radio")) {
     return {
         .symbol = nullptr,
-        .image = &rf_inner_icon_68x68,
+        .image = &radio_inner_icon_68x68,
         .shell_color = 0x554890,
         .surface_color = 0xA69CDB,
         .pressed_shell_color = 0x443971,
@@ -847,7 +847,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
     hal::BmuProvider* bmu,
     hal::CameraProvider* camera,
     hal::RtcProvider* rtc,
-    hal::RfProvider* rf,
+    hal::RadioProvider* radio,
     hal::ImuProvider* imu,
     hal::EthernetProvider* ethernet,
     hal::WifiProvider* wifi,
@@ -866,7 +866,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   bmu_provider_ = bmu;
   camera_provider_ = camera;
   rtc_provider_ = rtc;
-  rf_provider_ = rf;
+  radio_provider_ = radio;
   imu_provider_ = imu;
   ethernet_provider_ = ethernet;
   wifi_provider_ = wifi;
@@ -2355,7 +2355,7 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   config.bmu = bmu_provider_;
   config.camera = camera_provider_;
   config.rtc = rtc_provider_;
-  config.rf = rf_provider_;
+  config.radio = radio_provider_;
   config.imu = imu_provider_;
   config.ethernet = ethernet_provider_;
   config.wifi = wifi_provider_;

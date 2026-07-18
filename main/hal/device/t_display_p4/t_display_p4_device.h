@@ -33,7 +33,7 @@ class TDisplayP4Device final : public ScreenProvider,
                                public CameraProvider,
                                public BmuProvider,
                                public RtcProvider,
-                               public RfProvider,
+                               public RadioProvider,
                                public EthernetProvider,
                                public WifiProvider,
                                public StorageProvider,
@@ -308,20 +308,20 @@ class TDisplayP4Device final : public ScreenProvider,
    * @param capabilities 射频能力输出地址
    * @return 能力信息读取成功时返回 true
    */
-  bool ReadRfCapabilities(RfCapabilities* capabilities) override;
+  bool ReadRadioCapabilities(RadioCapabilities* capabilities) override;
 
   /**
    * @brief 配置板载 SX1262 并启动指定射频会话的连续接收
    * @param config 待激活的射频配置
    * @return 配置成功且连续接收已启动时返回 true
    */
-  bool ActivateRf(const RfRadioConfig& config) override;
+  bool ActivateRadio(const RadioConfig& config) override;
 
   /**
    * @brief 停止当前射频会话并将板载 SX1262 切换到待机状态
    * @return 停止成功或 SX1262 无需处理时返回 true
    */
-  bool DeactivateRf() override;
+  bool DeactivateRadio() override;
 
   /**
    * @brief 使用板载 SX1262 启动一条可关联异步事件的射频发送
@@ -330,7 +330,7 @@ class TDisplayP4Device final : public ScreenProvider,
    * @param request_token 调用方提供的发送请求唯一序号
    * @return 发送命令成功启动时返回 true
    */
-  bool SendRf(
+  bool SendRadio(
       const uint8_t* data, size_t size, uint64_t request_token) override;
 
   /**
@@ -338,14 +338,14 @@ class TDisplayP4Device final : public ScreenProvider,
    * @param event 射频事件输出地址，无事件时类型保持为 kNone
    * @return 轮询及必要的硬件状态处理成功时返回 true
    */
-  bool PollRfEvent(RfEvent* event) override;
+  bool PollRadioEvent(RadioEvent* event) override;
 
   /**
    * @brief 读取板载 SX1262 的会话、硬件和发送状态
    * @param status 射频状态输出地址
    * @return 状态读取成功时返回 true
    */
-  bool ReadRfStatus(RfStatus* status) override;
+  bool ReadRadioStatus(RadioStatus* status) override;
 
   /**
    * @brief 读取 ICM20948 IMU 运动状态
@@ -982,7 +982,7 @@ class TDisplayP4Device final : public ScreenProvider,
   struct RadioState {
     // 保护射频配置、发送事务和芯片状态。
     SemaphoreHandle_t mutex = nullptr;
-    // 当前激活 RF 配置的稳定 ID。
+    // 当前激活 Radio 配置的稳定 ID。
     uint32_t active_client_token = 0;
     // 当前发送消息的唯一序号，空闲时为 0。
     uint64_t transmit_request_token = 0;

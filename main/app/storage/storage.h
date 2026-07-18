@@ -10,7 +10,7 @@
 namespace lilygo_box::app {
 
 /**
- * @brief 初始化存储协调器并将 NVS 偏好和 RF 聊天记录加载到 RAM
+ * @brief 初始化存储协调器并将 NVS 偏好和 Radio 聊天记录加载到 RAM
  */
 void InitStorage();
 

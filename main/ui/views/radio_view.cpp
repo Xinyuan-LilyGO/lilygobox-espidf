@@ -1,11 +1,11 @@
 /*
- * @Description: RF control app view
+ * @Description: Radio control app view
  * @Author: LILYGO_L
  * @Date: 2026-07-12 00:00:00
  * @LastEditTime: 2026-07-17 18:40:56
  * @License: GPL 3.0
  */
-#include "ui/views/rf_view.h"
+#include "ui/views/radio_view.h"
 
 #include <algorithm>
 #include <cctype>
@@ -15,10 +15,10 @@
 #include <cstdlib>
 #include <cstring>
 
-#include "app/rf_chat_repository.h"
-#include "app/storage/rf_storage.h"
+#include "app/radio_chat_repository.h"
+#include "app/storage/radio_storage.h"
 #include "base/logger.h"
-#include "hal/providers/rf_provider.h"
+#include "hal/providers/radio_provider.h"
 #include "hal/providers/rtc_provider.h"
 #include "ui/animation/transition_animation.h"
 #include "ui/input/edge_back_gesture.h"
@@ -95,7 +95,7 @@ constexpr uint32_t kProfileSwitchAnimationMs = 180;
 constexpr lv_style_selector_t kProfileSwitchCheckedIndicatorSelector =
     static_cast<lv_style_selector_t>(LV_PART_INDICATOR) |
     static_cast<lv_style_selector_t>(LV_STATE_CHECKED);
-// RF 芯片异常时先快速恢复，持续失败后降低重试频率但不永久停止。
+// Radio 芯片异常时先快速恢复，持续失败后降低重试频率但不永久停止。
 constexpr uint32_t kActivationRetryPeriodMs = 2000;
 constexpr uint32_t kActivationRetrySlowPeriodMs = 10000;
 constexpr uint8_t kActivationFastRetryCount = 5;
@@ -104,7 +104,7 @@ constexpr char kIntegerAcceptedChars[] = "0123456789";
 constexpr char kHexAcceptedChars[] = "0123456789abcdefABCDEF";
 constexpr char kProfileNameAcceptedChars[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_. ";
-constexpr char kProfileCreatedMessage[] = "RF profile created";
+constexpr char kProfileCreatedMessage[] = "Radio profile created";
 constexpr char kSettingsChangedMessage[] = "Settings changed";
 
 /**
@@ -128,7 +128,7 @@ void CopyBoundedString(
   destination[copy_size] = '\0';
 }
 
-struct RfModuleItem {
+struct RadioModuleItem {
   const char* short_name;
   const char* name;
   const char* latest_message;
@@ -137,14 +137,14 @@ struct RfModuleItem {
   uint16_t unread_count = 0;
 };
 
-constexpr size_t kRfModuleCapacity = app::kRfProfileCapacity;
-using app::RfChatDeliveryState;
-using app::RfChatMessage;
-using app::RfChatMessageType;
+constexpr size_t kRadioModuleCapacity = app::kRadioProfileCapacity;
+using app::RadioChatDeliveryState;
+using app::RadioChatMessage;
+using app::RadioChatMessageType;
 
-struct RfViewState {
+struct RadioViewState {
   AppViewConfig config;
-  hal::RfCapabilities capabilities;
+  hal::RadioCapabilities capabilities;
   lv_obj_t* root = nullptr;
   lv_obj_t* detail_page = nullptr;
   lv_obj_t* app_settings_page = nullptr;
@@ -162,7 +162,7 @@ struct RfViewState {
   lv_obj_t* detail_send_button = nullptr;
   lv_obj_t* add_page = nullptr;
   lv_obj_t* add_body = nullptr;
-  // 首次创建 RF 配置时使用的名称输入框。
+  // 首次创建 Radio 配置时使用的名称输入框。
   lv_obj_t* add_name_input = nullptr;
   lv_obj_t* add_frequency_input = nullptr;
   lv_obj_t* add_power_input = nullptr;
@@ -184,8 +184,8 @@ struct RfViewState {
   lv_obj_t* detail_title_label = nullptr;
   lv_obj_t* detail_notice_label = nullptr;
   lv_timer_t* radio_timer = nullptr;
-  lv_obj_t* add_chip_buttons[hal::kRfCapabilityCapacity] = {};
-  lv_obj_t* add_protocol_buttons[hal::kRfCapabilityCapacity] = {};
+  lv_obj_t* add_chip_buttons[hal::kRadioCapabilityCapacity] = {};
+  lv_obj_t* add_protocol_buttons[hal::kRadioCapabilityCapacity] = {};
   lv_obj_t* add_sf_buttons[8] = {};
   lv_obj_t* add_bandwidth_buttons[4] = {};
   lv_obj_t* add_coding_rate_buttons[4] = {};
@@ -196,21 +196,21 @@ struct RfViewState {
   EdgeBackSwipeState profile_settings_edge_swipe = {};
   EdgeBackSwipeState profile_name_edit_edge_swipe = {};
   EdgeBackSwipeState add_edge_swipe = {};
-  RfModuleItem modules[kRfModuleCapacity] = {};
-  char latest_messages[kRfModuleCapacity][96] = {};
-  char message_times[kRfModuleCapacity][16] = {};
-  uint16_t unread_counts[kRfModuleCapacity] = {};
-  bool selected_modules[kRfModuleCapacity] = {};
-  app::RfPreferences preferences;
+  RadioModuleItem modules[kRadioModuleCapacity] = {};
+  char latest_messages[kRadioModuleCapacity][96] = {};
+  char message_times[kRadioModuleCapacity][16] = {};
+  uint16_t unread_counts[kRadioModuleCapacity] = {};
+  bool selected_modules[kRadioModuleCapacity] = {};
+  app::RadioPreferences preferences;
   size_t module_count = 0;
   int selected_add_chip = 0;
   int selected_add_protocol = 0;
   int selected_add_sf = kDefaultSpreadingFactorIndex;
   int selected_add_bandwidth = 1;
   int selected_add_coding_rate = 0;
-  size_t detail_index = kRfModuleCapacity;
-  size_t profile_settings_index = kRfModuleCapacity;
-  size_t editing_index = kRfModuleCapacity;
+  size_t detail_index = kRadioModuleCapacity;
+  size_t profile_settings_index = kRadioModuleCapacity;
+  size_t editing_index = kRadioModuleCapacity;
   uint32_t last_activation_retry_tick = 0;
   uint8_t activation_retry_count = 0;
   bool selection_mode = false;
@@ -221,13 +221,13 @@ struct RfViewState {
   bool add_closing = false;
 };
 
-struct RfModuleAction {
-  RfViewState* state = nullptr;
+struct RadioModuleAction {
+  RadioViewState* state = nullptr;
   size_t index = 0;
   bool long_press_handled = false;
 };
 
-enum class RfAddOptionGroup {
+enum class RadioAddOptionGroup {
   kChip,
   kProtocol,
   kSpreadingFactor,
@@ -235,22 +235,22 @@ enum class RfAddOptionGroup {
   kCodingRate,
 };
 
-struct RfAddOptionAction {
-  RfViewState* state = nullptr;
-  RfAddOptionGroup group = RfAddOptionGroup::kChip;
+struct RadioAddOptionAction {
+  RadioViewState* state = nullptr;
+  RadioAddOptionGroup group = RadioAddOptionGroup::kChip;
   int index = 0;
 };
 
-bool RenderModuleList(RfViewState* state);
-bool RenderHeader(RfViewState* state);
-void CloseSelectionMode(RfViewState* state);
-bool ShowAddModulePage(RfViewState* state);
-bool ShowModuleSettings(RfViewState* state, size_t index,
+bool RenderModuleList(RadioViewState* state);
+bool RenderHeader(RadioViewState* state);
+void CloseSelectionMode(RadioViewState* state);
+bool ShowAddModulePage(RadioViewState* state);
+bool ShowModuleSettings(RadioViewState* state, size_t index,
     bool from_detail);
-bool ShowRfSettingsPage(RfViewState* state);
-bool ShowProfileSettingsPage(RfViewState* state, size_t index);
-bool ShowProfileNameEditPage(RfViewState* state);
-void RefreshProfileSettingsPage(RfViewState* state);
+bool ShowRadioSettingsPage(RadioViewState* state);
+bool ShowProfileSettingsPage(RadioViewState* state, size_t index);
+bool ShowProfileNameEditPage(RadioViewState* state);
+void RefreshProfileSettingsPage(RadioViewState* state);
 
 /**
  * @brief 获取 22 号 Google Sans 字体
@@ -328,7 +328,7 @@ lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, uint32_t color,
   return label;
 }
 
-hal::RfRadioConfig ToRadioConfig(const app::RfProfile& profile) {
+hal::RadioConfig ToRadioConfig(const app::RadioProfile& profile) {
   return {
       .client_token = profile.id,
       .chip = profile.chip,
@@ -348,22 +348,22 @@ hal::RfRadioConfig ToRadioConfig(const app::RfProfile& profile) {
   };
 }
 
-const char* ChipDisplayName(rf::ChipType chip) {
+const char* ChipDisplayName(radio::ChipType chip) {
   switch (chip) {
-    case rf::ChipType::kSx1262:
+    case radio::ChipType::kSx1262:
       return "SX1262";
     default:
       return "Unknown chip";
   }
 }
 
-const char* ChipShortName(rf::ChipType chip) {
-  return chip == rf::ChipType::kSx1262 ? "SX" : "RF";
+const char* ChipShortName(radio::ChipType chip) {
+  return chip == radio::ChipType::kSx1262 ? "SX" : "Radio";
 }
 
-const char* ProtocolDisplayName(rf::ProtocolType protocol) {
+const char* ProtocolDisplayName(radio::ProtocolType protocol) {
   switch (protocol) {
-    case rf::ProtocolType::kLora:
+    case radio::ProtocolType::kLora:
       return "LoRa";
     default:
       return "Unknown protocol";
@@ -377,7 +377,7 @@ const char* ProtocolDisplayName(rf::ProtocolType protocol) {
  * @return 可编辑内容完全一致时返回 true
  */
 bool AreProfileSettingsEqual(
-    const app::RfProfile& lhs, const app::RfProfile& rhs) {
+    const app::RadioProfile& lhs, const app::RadioProfile& rhs) {
   return std::strcmp(lhs.name, rhs.name) == 0 &&
          lhs.chip == rhs.chip && lhs.protocol == rhs.protocol &&
          lhs.frequency_hz == rhs.frequency_hz &&
@@ -393,12 +393,12 @@ bool AreProfileSettingsEqual(
 }
 
 bool IsProfileSupported(
-    const RfViewState* state, const app::RfProfile& profile) {
+    const RadioViewState* state, const app::RadioProfile& profile) {
   if (state == nullptr) {
     return false;
   }
   for (size_t index = 0; index < state->capabilities.count; ++index) {
-    const hal::RfCapability& capability =
+    const hal::RadioCapability& capability =
         state->capabilities.entries[index];
     if (capability.chip == profile.chip &&
         capability.protocol == profile.protocol) {
@@ -408,19 +408,19 @@ bool IsProfileSupported(
   return false;
 }
 
-size_t FindProfileIndex(const RfViewState* state, uint32_t profile_id) {
+size_t FindProfileIndex(const RadioViewState* state, uint32_t profile_id) {
   if (state == nullptr) {
-    return kRfModuleCapacity;
+    return kRadioModuleCapacity;
   }
   for (size_t index = 0; index < state->module_count; ++index) {
     if (state->preferences.profiles[index].id == profile_id) {
       return index;
     }
   }
-  return kRfModuleCapacity;
+  return kRadioModuleCapacity;
 }
 
-void FormatCurrentTime(const RfViewState* state, char* output,
+void FormatCurrentTime(const RadioViewState* state, char* output,
     size_t output_size) {
   if (output == nullptr || output_size == 0) {
     return;
@@ -436,7 +436,7 @@ void FormatCurrentTime(const RfViewState* state, char* output,
   std::snprintf(output, output_size, "Now");
 }
 
-const char* ProfileStatusText(const RfViewState* state, size_t index) {
+const char* ProfileStatusText(const RadioViewState* state, size_t index) {
   if (state == nullptr || index >= state->module_count) {
     return "Inactive";
   }
@@ -448,13 +448,13 @@ const char* ProfileStatusText(const RfViewState* state, size_t index) {
           state->preferences.active_profile_id) {
     return "Inactive";
   }
-  hal::RfStatus status;
-  if (state->config.rf == nullptr ||
-      !state->config.rf->ReadRfStatus(&status) ||
-      status.state == hal::RfLinkState::kChipError) {
+  hal::RadioStatus status;
+  if (state->config.radio == nullptr ||
+      !state->config.radio->ReadRadioStatus(&status) ||
+      status.state == hal::RadioLinkState::kChipError) {
     return "Chip error";
   }
-  return status.state == hal::RfLinkState::kActive &&
+  return status.state == hal::RadioLinkState::kActive &&
       status.active_client_token ==
           state->preferences.profiles[index].id
       ? "Active"
@@ -481,7 +481,7 @@ uint32_t ProfileStatusColor(const char* status) {
  * @return 当前配置对应的状态标记颜色
  */
 uint32_t ProfileIndicatorColor(
-    const RfViewState* state, size_t index) {
+    const RadioViewState* state, size_t index) {
   const char* status = ProfileStatusText(state, index);
   if (std::strcmp(status, "Active") == 0) {
     return kActiveIndicatorColor;
@@ -493,17 +493,17 @@ uint32_t ProfileIndicatorColor(
 }
 
 /**
- * @brief 同步 RF 配置列表与聊天摘要的运行时显示数据
- * @param state RF 页面状态
+ * @brief 同步 Radio 配置列表与聊天摘要的运行时显示数据
+ * @param state Radio 页面状态
  */
-void SyncModuleItems(RfViewState* state) {
+void SyncModuleItems(RadioViewState* state) {
   if (state == nullptr) {
     return;
   }
   state->module_count = state->preferences.profile_count;
-  app::RfChatRepository& repository = app::GetRfChatRepository();
+  app::RadioChatRepository& repository = app::GetRadioChatRepository();
   for (size_t index = 0; index < state->module_count; ++index) {
-    app::RfChatProfileSummary summary;
+    app::RadioChatProfileSummary summary;
     if (repository.GetProfileSummary(
             state->preferences.profiles[index].id, &summary)) {
       CopyBoundedString(state->latest_messages[index],
@@ -535,11 +535,11 @@ void SyncModuleItems(RfViewState* state) {
  * @brief 释放射频页面状态
  * @param event LVGL 事件对象
  */
-void RfViewDeleteEventCallback(lv_event_t* event) {
+void RadioViewDeleteEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_DELETE) {
     return;
   }
-  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   if (state != nullptr && state->radio_timer != nullptr) {
     lv_timer_delete(state->radio_timer);
     state->radio_timer = nullptr;
@@ -553,7 +553,7 @@ void RfViewDeleteEventCallback(lv_event_t* event) {
  */
 void ModuleActionDeleteEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_DELETE) {
-    delete static_cast<RfModuleAction*>(lv_event_get_user_data(event));
+    delete static_cast<RadioModuleAction*>(lv_event_get_user_data(event));
   }
 }
 
@@ -562,7 +562,7 @@ void ModuleActionDeleteEventCallback(lv_event_t* event) {
  * @param animation LVGL 动画对象
  */
 void DetailCloseCompletedCallback(lv_anim_t* animation) {
-  auto* state = static_cast<RfViewState*>(
+  auto* state = static_cast<RadioViewState*>(
       lv_anim_get_user_data(animation));
   if (state != nullptr && state->detail_page != nullptr) {
     lv_obj_t* page = state->detail_page;
@@ -576,7 +576,7 @@ void DetailCloseCompletedCallback(lv_anim_t* animation) {
     state->detail_status_label = nullptr;
     state->detail_title_label = nullptr;
     state->detail_notice_label = nullptr;
-    state->detail_index = kRfModuleCapacity;
+    state->detail_index = kRadioModuleCapacity;
     state->detail_edge_swipe = EdgeBackSwipeState();
     state->detail_closing = false;
     lv_obj_delete(page);
@@ -587,7 +587,7 @@ void DetailCloseCompletedCallback(lv_anim_t* animation) {
  * @brief 关闭射频模块信息详情页
  * @param state 射频页面状态
  */
-void CloseModuleDetail(RfViewState* state) {
+void CloseModuleDetail(RadioViewState* state) {
   if (state == nullptr || state->detail_page == nullptr ||
       state->detail_closing) {
     return;
@@ -608,7 +608,7 @@ void CloseModuleDetail(RfViewState* state) {
     state->detail_status_label = nullptr;
     state->detail_title_label = nullptr;
     state->detail_notice_label = nullptr;
-    state->detail_index = kRfModuleCapacity;
+    state->detail_index = kRadioModuleCapacity;
     state->detail_edge_swipe = EdgeBackSwipeState();
     state->detail_closing = false;
     lv_obj_delete(page);
@@ -622,7 +622,7 @@ void CloseModuleDetail(RfViewState* state) {
 void DetailBackClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
     CloseModuleDetail(
-        static_cast<RfViewState*>(lv_event_get_user_data(event)));
+        static_cast<RadioViewState*>(lv_event_get_user_data(event)));
   }
 }
 
@@ -631,7 +631,7 @@ void DetailBackClickedEventCallback(lv_event_t* event) {
  * @param event LVGL 事件对象
  */
 void DetailEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->detail_page == nullptr ||
       !HandleEdgeBackSwipeEvent(event, state->config.width,
           &state->detail_edge_swipe)) {
@@ -646,7 +646,7 @@ void DetailHeaderClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   if (state != nullptr && state->detail_index < state->module_count) {
     ShowProfileSettingsPage(state, state->detail_index);
   }
@@ -779,12 +779,13 @@ bool CreateReceiveTelemetry(lv_obj_t* parent, const char* rssi,
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateSendStatus(
-    lv_obj_t* parent, const char* time, RfChatDeliveryState delivery, int y) {
+    lv_obj_t* parent, const char* time,
+    RadioChatDeliveryState delivery, int y) {
   if (parent == nullptr || time == nullptr) {
     return false;
   }
-  const bool sending = delivery == RfChatDeliveryState::kSending;
-  const bool success = delivery == RfChatDeliveryState::kSent;
+  const bool sending = delivery == RadioChatDeliveryState::kSending;
+  const bool success = delivery == RadioChatDeliveryState::kSent;
   if (!sending) {
     lv_obj_t* icon_label = CreateLabel(parent,
         success ? icon::kCheck : icon::kClose,
@@ -874,26 +875,26 @@ bool CreateSystemMessage(lv_obj_t* parent, const char* text, int y,
 }
 
 /**
- * @brief 渲染当前 RF 配置最近的聊天记录
- * @param state RF 页面状态
+ * @brief 渲染当前 Radio 配置最近的聊天记录
+ * @param state Radio 页面状态
  * @return 所有可见消息创建成功时返回 true
  */
-bool RenderChatMessages(RfViewState* state) {
+bool RenderChatMessages(RadioViewState* state) {
   if (state == nullptr || state->detail_chat_body == nullptr ||
       state->detail_index >= state->module_count) {
     return false;
   }
   lv_obj_t* body = state->detail_chat_body;
   lv_obj_clean(body);
-  const app::RfProfile& profile =
+  const app::RadioProfile& profile =
       state->preferences.profiles[state->detail_index];
-  const RfChatMessage* messages[app::kRfChatPageCapacity] = {};
-  const size_t message_count = app::GetRfChatRepository().GetRecent(
-      profile.id, messages, app::kRfChatPageCapacity);
+  const RadioChatMessage* messages[app::kRadioChatPageCapacity] = {};
+  const size_t message_count = app::GetRadioChatRepository().GetRecent(
+      profile.id, messages, app::kRadioChatPageCapacity);
   int chat_y = kChatTimelineInset;
   for (size_t index = 0; index < message_count; ++index) {
-    const RfChatMessage& message = *messages[index];
-    if (message.type == RfChatMessageType::kSystem) {
+    const RadioChatMessage& message = *messages[index];
+    if (message.type == RadioChatMessageType::kSystem) {
       int message_height = 0;
       if (!CreateSystemMessage(
               body, message.text, chat_y, state->config.width,
@@ -903,7 +904,7 @@ bool RenderChatMessages(RfViewState* state) {
       chat_y += message_height + 18;
       continue;
     }
-    const bool outgoing = message.delivery != RfChatDeliveryState::kReceived;
+    const bool outgoing = message.delivery != RadioChatDeliveryState::kReceived;
     int bubble_height = 0;
     if (CreateChatBubble(body, message.text, chat_y,
             state->config.width - 100, outgoing,
@@ -942,18 +943,18 @@ bool RenderChatMessages(RfViewState* state) {
  * @param text 系统提示文本
  * @return 追加成功返回 true，否则返回 false
  */
-bool AppendSystemMessage(RfViewState* state, size_t profile_index,
+bool AppendSystemMessage(RadioViewState* state, size_t profile_index,
     const char* text) {
   if (state == nullptr || text == nullptr ||
       profile_index >= state->preferences.profile_count) {
     return false;
   }
-  RfChatMessage message;
+  RadioChatMessage message;
   message.profile_id = state->preferences.profiles[profile_index].id;
-  message.type = RfChatMessageType::kSystem;
+  message.type = RadioChatMessageType::kSystem;
   FormatCurrentTime(state, message.time, sizeof(message.time));
   CopyBoundedString(message.text, sizeof(message.text), text);
-  const bool appended = app::GetRfChatRepository().Append(message) != 0;
+  const bool appended = app::GetRadioChatRepository().Append(message) != 0;
   if (appended) {
     SyncModuleItems(state);
   }
@@ -961,22 +962,22 @@ bool AppendSystemMessage(RfViewState* state, size_t profile_index,
 }
 
 /**
- * @brief 将指定 RF 配置中等待发送结果的消息标记为失败
- * @param state RF 页面状态
- * @param profile_id RF 配置 ID
+ * @brief 将指定 Radio 配置中等待发送结果的消息标记为失败
+ * @param state Radio 页面状态
+ * @param profile_id Radio 配置 ID
  */
-void FailPendingMessages(RfViewState* state, uint32_t profile_id) {
+void FailPendingMessages(RadioViewState* state, uint32_t profile_id) {
   if (state == nullptr || profile_id == 0) {
     return;
   }
-  app::GetRfChatRepository().FailPending(profile_id);
+  app::GetRadioChatRepository().FailPending(profile_id);
 }
 
 /**
  * @brief 更新聊天页和配置页显示的射频状态
- * @param state RF 页面状态
+ * @param state Radio 页面状态
  */
-void UpdateDetailStatus(RfViewState* state) {
+void UpdateDetailStatus(RadioViewState* state) {
   if (state == nullptr) {
     return;
   }
@@ -1007,7 +1008,7 @@ void UpdateDetailStatus(RfViewState* state) {
  * @param output 文本输出缓冲区
  * @param output_size 输出缓冲区容量
  */
-void FormatPacketText(const hal::RfEvent& event, char* output,
+void FormatPacketText(const hal::RadioEvent& event, char* output,
     size_t output_size) {
   if (output == nullptr || output_size == 0) {
     return;
@@ -1039,19 +1040,19 @@ void FormatPacketText(const hal::RfEvent& event, char* output,
 }
 
 /**
- * @brief 从内部存储补载全部 RF 配置的最近聊天记录
- * @param state RF 页面状态
+ * @brief 从内部存储补载全部 Radio 配置的最近聊天记录
+ * @param state Radio 页面状态
  * @return 内部存储可用且补载完成时返回 true
  */
-bool LoadCurrentChatProfiles(RfViewState* state) {
+bool LoadCurrentChatProfiles(RadioViewState* state) {
   if (state == nullptr) {
     return false;
   }
-  uint32_t profile_ids[kRfModuleCapacity] = {};
+  uint32_t profile_ids[kRadioModuleCapacity] = {};
   for (size_t index = 0; index < state->preferences.profile_count; ++index) {
     profile_ids[index] = state->preferences.profiles[index].id;
   }
-  if (!app::GetRfChatRepository().LoadProfiles(
+  if (!app::GetRadioChatRepository().LoadProfiles(
           profile_ids, state->preferences.profile_count)) {
     return false;
   }
@@ -1067,21 +1068,21 @@ bool LoadCurrentChatProfiles(RfViewState* state) {
  * @param reason 射频失败原因
  * @return 生命周期覆盖当前进程的静态文本
  */
-const char* RfFailureReasonText(hal::RfFailureReason reason) {
+const char* RadioFailureReasonText(hal::RadioFailureReason reason) {
   switch (reason) {
-    case hal::RfFailureReason::kNone:
+    case hal::RadioFailureReason::kNone:
       return "none";
-    case hal::RfFailureReason::kHardwareUnavailable:
+    case hal::RadioFailureReason::kHardwareUnavailable:
       return "hardware unavailable";
-    case hal::RfFailureReason::kIrqReadFailed:
+    case hal::RadioFailureReason::kIrqReadFailed:
       return "IRQ access failed";
-    case hal::RfFailureReason::kIrqClearFailed:
+    case hal::RadioFailureReason::kIrqClearFailed:
       return "IRQ clear failed";
-    case hal::RfFailureReason::kHardwareTimeout:
+    case hal::RadioFailureReason::kHardwareTimeout:
       return "hardware timeout";
-    case hal::RfFailureReason::kSoftwareTimeout:
+    case hal::RadioFailureReason::kSoftwareTimeout:
       return "software timeout";
-    case hal::RfFailureReason::kReceiveRestartFailed:
+    case hal::RadioFailureReason::kReceiveRestartFailed:
       return "receive restart failed";
   }
   return "unknown";
@@ -1089,30 +1090,30 @@ const char* RfFailureReasonText(hal::RfFailureReason reason) {
 
 /**
  * @brief 在射频空闲时启动当前配置最早的等待消息
- * @param state RF 页面状态
+ * @param state Radio 页面状态
  * @return 成功启动发送时返回 true
  */
-bool TryStartNextPendingMessage(RfViewState* state) {
-  if (state == nullptr || state->config.rf == nullptr ||
+bool TryStartNextPendingMessage(RadioViewState* state) {
+  if (state == nullptr || state->config.radio == nullptr ||
       state->preferences.active_profile_id == 0) {
     return false;
   }
-  hal::RfStatus status;
-  if (!state->config.rf->ReadRfStatus(&status) ||
-      status.state != hal::RfLinkState::kActive || status.transmitting) {
+  hal::RadioStatus status;
+  if (!state->config.radio->ReadRadioStatus(&status) ||
+      status.state != hal::RadioLinkState::kActive || status.transmitting) {
     return false;
   }
-  RfChatMessage message;
-  if (!app::GetRfChatRepository().GetOldestPending(
+  RadioChatMessage message;
+  if (!app::GetRadioChatRepository().GetOldestPending(
           state->preferences.active_profile_id, &message)) {
     return false;
   }
   const size_t length = std::strlen(message.text);
-  if (length == 0 || length > hal::kRfPayloadCapacity) {
-    app::GetRfChatRepository().UpdateDelivery(
-        message.sequence, RfChatDeliveryState::kFailed);
+  if (length == 0 || length > hal::kRadioPayloadCapacity) {
+    app::GetRadioChatRepository().UpdateDelivery(
+        message.sequence, RadioChatDeliveryState::kFailed);
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "RF queued message rejected: profile=%lu, message=%lu, "
+        "Radio queued message rejected: profile=%lu, message=%lu, "
         "size=%u bytes\n",
         static_cast<unsigned long>(message.profile_id),
         static_cast<unsigned long>(static_cast<uint32_t>(message.sequence)),
@@ -1124,14 +1125,14 @@ bool TryStartNextPendingMessage(RfViewState* state) {
     RenderModuleList(state);
     return false;
   }
-  const bool started = state->config.rf->SendRf(
+  const bool started = state->config.radio->SendRadio(
       reinterpret_cast<const uint8_t*>(message.text), length,
       message.sequence);
   if (!started) {
-    app::GetRfChatRepository().UpdateDelivery(
-        message.sequence, RfChatDeliveryState::kFailed);
+    app::GetRadioChatRepository().UpdateDelivery(
+        message.sequence, RadioChatDeliveryState::kFailed);
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "RF queued message start failed: profile=%lu, message=%lu, "
+        "Radio queued message start failed: profile=%lu, message=%lu, "
         "size=%u bytes\n",
         static_cast<unsigned long>(message.profile_id),
         static_cast<unsigned long>(static_cast<uint32_t>(message.sequence)),
@@ -1147,25 +1148,25 @@ bool TryStartNextPendingMessage(RfViewState* state) {
 
 /**
  * @brief 轮询射频事件并仅在发送空闲时处理聊天存储
- * @param timer RF 页面定时器
+ * @param timer Radio 页面定时器
  */
 void RadioTimerCallback(lv_timer_t* timer) {
-  auto* state = static_cast<RfViewState*>(lv_timer_get_user_data(timer));
+  auto* state = static_cast<RadioViewState*>(lv_timer_get_user_data(timer));
   if (state == nullptr) {
     return;
   }
-  if (state->config.rf == nullptr ||
+  if (state->config.radio == nullptr ||
       state->preferences.active_profile_id == 0) {
     return;
   }
-  hal::RfStatus status;
-  const bool status_available = state->config.rf->ReadRfStatus(&status);
+  hal::RadioStatus status;
+  const bool status_available = state->config.radio->ReadRadioStatus(&status);
   const bool use_fast_retry =
       state->activation_retry_count < kActivationFastRetryCount;
   const uint32_t retry_period_ms = use_fast_retry
       ? kActivationRetryPeriodMs
       : kActivationRetrySlowPeriodMs;
-  if (status_available && status.state == hal::RfLinkState::kChipError &&
+  if (status_available && status.state == hal::RadioLinkState::kChipError &&
       lv_tick_get() - state->last_activation_retry_tick >=
           retry_period_ms) {
     const size_t retry_index =
@@ -1176,7 +1177,7 @@ void RadioTimerCallback(lv_timer_t* timer) {
     }
     if (retry_index < state->module_count &&
         IsProfileSupported(state, state->preferences.profiles[retry_index])) {
-      const bool activated = state->config.rf->ActivateRf(
+      const bool activated = state->config.radio->ActivateRadio(
           ToRadioConfig(state->preferences.profiles[retry_index]));
       if (activated) {
         state->activation_retry_count = 0;
@@ -1184,12 +1185,12 @@ void RadioTimerCallback(lv_timer_t* timer) {
       UpdateDetailStatus(state);
       RenderModuleList(state);
     }
-  } else if (status_available && status.state == hal::RfLinkState::kActive) {
+  } else if (status_available && status.state == hal::RadioLinkState::kActive) {
     state->activation_retry_count = 0;
   }
-  hal::RfEvent event;
-  const bool poll_succeeded = state->config.rf->PollRfEvent(&event);
-  if (event.type == hal::RfEventType::kNone) {
+  hal::RadioEvent event;
+  const bool poll_succeeded = state->config.radio->PollRadioEvent(&event);
+  if (event.type == hal::RadioEventType::kNone) {
     if (!poll_succeeded || !status_available || status.transmitting) {
       return;
     }
@@ -1197,25 +1198,25 @@ void RadioTimerCallback(lv_timer_t* timer) {
     return;
   }
   const uint32_t profile_id = event.client_token;
-  if (event.type == hal::RfEventType::kTransmitComplete ||
-      event.type == hal::RfEventType::kTransmitFailed ||
-      event.type == hal::RfEventType::kChipError) {
-    const RfChatDeliveryState delivery =
-        event.type == hal::RfEventType::kTransmitComplete
-            ? RfChatDeliveryState::kSent
-            : RfChatDeliveryState::kFailed;
+  if (event.type == hal::RadioEventType::kTransmitComplete ||
+      event.type == hal::RadioEventType::kTransmitFailed ||
+      event.type == hal::RadioEventType::kChipError) {
+    const RadioChatDeliveryState delivery =
+        event.type == hal::RadioEventType::kTransmitComplete
+            ? RadioChatDeliveryState::kSent
+            : RadioChatDeliveryState::kFailed;
     bool updated = false;
     if (event.request_token != 0) {
-      updated = app::GetRfChatRepository().UpdateDelivery(
+      updated = app::GetRadioChatRepository().UpdateDelivery(
           event.request_token, delivery);
     }
-    if (event.type == hal::RfEventType::kChipError) {
-      app::GetRfChatRepository().FailPending(profile_id);
+    if (event.type == hal::RadioEventType::kChipError) {
+      app::GetRadioChatRepository().FailPending(profile_id);
     }
-    if (event.type == hal::RfEventType::kTransmitComplete) {
+    if (event.type == hal::RadioEventType::kTransmitComplete) {
       if (!updated) {
         LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-            "RF message was sent, but it is missing from chat history: "
+            "Radio message was sent, but it is missing from chat history: "
             "profile=%lu, message=%lu\n",
             static_cast<unsigned long>(profile_id),
             static_cast<unsigned long>(
@@ -1223,38 +1224,38 @@ void RadioTimerCallback(lv_timer_t* timer) {
       }
     } else if (event.request_token != 0) {
       LogMessage(LogLevel::kError, __FILE__, __LINE__,
-          "RF message %lu failed on profile %lu: %s\n",
+          "Radio message %lu failed on profile %lu: %s\n",
           static_cast<unsigned long>(
               static_cast<uint32_t>(event.request_token)),
           static_cast<unsigned long>(profile_id),
-          RfFailureReasonText(event.failure_reason));
+          RadioFailureReasonText(event.failure_reason));
     } else {
       LogMessage(LogLevel::kError, __FILE__, __LINE__,
-          "RF radio error on profile %lu: %s\n",
+          "Radio radio error on profile %lu: %s\n",
           static_cast<unsigned long>(profile_id),
-          RfFailureReasonText(event.failure_reason));
+          RadioFailureReasonText(event.failure_reason));
     }
   }
   const size_t profile_index = FindProfileIndex(state, profile_id);
   if (profile_index >= state->module_count) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "RF event ignored: unknown profile=%lu, type=%u\n",
+        "Radio event ignored: unknown profile=%lu, type=%u\n",
         static_cast<unsigned long>(profile_id),
         static_cast<unsigned>(event.type));
     return;
   }
-  if (event.type == hal::RfEventType::kPacketReceived) {
-    RfChatMessage message;
+  if (event.type == hal::RadioEventType::kPacketReceived) {
+    RadioChatMessage message;
     message.profile_id = profile_id;
-    message.delivery = RfChatDeliveryState::kReceived;
+    message.delivery = RadioChatDeliveryState::kReceived;
     message.rssi_dbm = event.rssi_dbm;
     message.snr_db = event.snr_db;
     FormatCurrentTime(state, message.time, sizeof(message.time));
     FormatPacketText(event, message.text, sizeof(message.text));
-    if (app::GetRfChatRepository().Append(message) != 0) {
+    if (app::GetRadioChatRepository().Append(message) != 0) {
       if (state->detail_page == nullptr ||
           state->detail_index != profile_index) {
-        app::GetRfChatRepository().IncrementUnread(profile_id);
+        app::GetRadioChatRepository().IncrementUnread(profile_id);
       }
     }
   }
@@ -1296,47 +1297,48 @@ void DetailSendClickedEventCallback(lv_event_t* event) {
   }
   lv_event_stop_bubbling(event);
   lv_event_stop_processing(event);
-  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->detail_input == nullptr ||
       state->detail_index >= state->module_count) {
     return;
   }
   const char* text = lv_textarea_get_text(state->detail_input);
   const size_t length = text == nullptr ? 0 : std::strlen(text);
-  const app::RfProfile& profile =
+  const app::RadioProfile& profile =
       state->preferences.profiles[state->detail_index];
   if (length == 0) {
     return;
   }
-  if (length > hal::kRfPayloadCapacity) {
+  if (length > hal::kRadioPayloadCapacity) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "RF message rejected: payload too large, bytes=%u, maximum=%u\n",
+        "Radio message rejected: payload too large, bytes=%u, maximum=%u\n",
         static_cast<unsigned>(length),
-        static_cast<unsigned>(hal::kRfPayloadCapacity));
+        static_cast<unsigned>(hal::kRadioPayloadCapacity));
     return;
   }
   if (profile.id != state->preferences.active_profile_id) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "RF message rejected: profile is inactive, profile=%lu, active=%lu\n",
+        "Radio message rejected: profile is inactive, profile=%lu, "
+        "active=%lu\n",
         static_cast<unsigned long>(profile.id),
         static_cast<unsigned long>(state->preferences.active_profile_id));
     return;
   }
-  if (state->config.rf == nullptr) {
+  if (state->config.radio == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "RF message rejected: RF provider is unavailable, profile=%lu\n",
+        "Radio message rejected: Radio provider is unavailable, profile=%lu\n",
         static_cast<unsigned long>(profile.id));
     return;
   }
-  RfChatMessage message;
+  RadioChatMessage message;
   message.profile_id = profile.id;
-  message.delivery = RfChatDeliveryState::kSending;
+  message.delivery = RadioChatDeliveryState::kSending;
   FormatCurrentTime(state, message.time, sizeof(message.time));
   CopyBoundedString(message.text, sizeof(message.text), text);
-  const uint64_t sequence = app::GetRfChatRepository().Append(message);
+  const uint64_t sequence = app::GetRadioChatRepository().Append(message);
   if (sequence == 0) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "RF message rejected: chat cache is unavailable, profile=%lu\n",
+        "Radio message rejected: chat cache is unavailable, profile=%lu\n",
         static_cast<unsigned long>(profile.id));
     return;
   }
@@ -1352,7 +1354,7 @@ void DetailSendClickedEventCallback(lv_event_t* event) {
  * @param state 射频页面状态
  * @param visible 是否显示键盘
  */
-void SetDetailKeyboardVisible(RfViewState* state, bool visible) {
+void SetDetailKeyboardVisible(RadioViewState* state, bool visible) {
   if (state == nullptr || state->detail_input == nullptr ||
       state->detail_composer_background == nullptr ||
       state->detail_divider == nullptr ||
@@ -1387,7 +1389,7 @@ void SetDetailKeyboardVisible(RfViewState* state, bool visible) {
  * @param event LVGL 事件对象
  */
 void DetailInputEventCallback(lv_event_t* event) {
-  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   const lv_event_code_t code = lv_event_get_code(event);
   if (code == LV_EVENT_FOCUSED || code == LV_EVENT_CLICKED) {
     SetDetailKeyboardVisible(state, true);
@@ -1404,7 +1406,7 @@ void DetailKeyboardDismissClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->detail_input == nullptr) {
     return;
   }
@@ -1418,7 +1420,7 @@ void DetailKeyboardDismissClickedEventCallback(lv_event_t* event) {
  * @param state 射频页面状态
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateChatComposer(lv_obj_t* page, RfViewState* state) {
+bool CreateChatComposer(lv_obj_t* page, RadioViewState* state) {
   if (page == nullptr || state == nullptr) {
     return false;
   }
@@ -1534,18 +1536,18 @@ bool CreateChatComposer(lv_obj_t* page, RfViewState* state) {
  * @param index 模块索引
  * @return 创建成功返回 true，否则返回 false
  */
-bool ShowModuleDetail(RfViewState* state, size_t index) {
+bool ShowModuleDetail(RadioViewState* state, size_t index) {
   if (state == nullptr || state->root == nullptr ||
       index >= state->module_count) {
     return false;
   }
   const uint32_t profile_id = state->preferences.profiles[index].id;
-  app::RfChatRepository& repository = app::GetRfChatRepository();
+  app::RadioChatRepository& repository = app::GetRadioChatRepository();
   repository.TouchProfile(profile_id);
   if (repository.LoadProfiles(&profile_id, 1)) {
     SyncModuleItems(state);
   }
-  const RfModuleItem& item = state->modules[index];
+  const RadioModuleItem& item = state->modules[index];
   lv_obj_t* page = lv_obj_create(state->root);
   if (page == nullptr) {
     return false;
@@ -1679,7 +1681,7 @@ void ModuleRowClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  auto* action = static_cast<RfModuleAction*>(
+  auto* action = static_cast<RadioModuleAction*>(
       lv_event_get_user_data(event));
   if (action == nullptr || action->state == nullptr) {
     return;
@@ -1688,7 +1690,7 @@ void ModuleRowClickedEventCallback(lv_event_t* event) {
     action->long_press_handled = false;
     return;
   }
-  RfViewState* state = action->state;
+  RadioViewState* state = action->state;
   if (state->selection_mode) {
     state->selected_modules[action->index] =
         !state->selected_modules[action->index];
@@ -1708,14 +1710,14 @@ void ModuleRowClickedEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 处理 RF 配置行长按并进入多选模式
+ * @brief 处理 Radio 配置行长按并进入多选模式
  * @param event LVGL 事件对象
  */
 void ModuleRowLongPressedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_LONG_PRESSED) {
     return;
   }
-  auto* action = static_cast<RfModuleAction*>(
+  auto* action = static_cast<RadioModuleAction*>(
       lv_event_get_user_data(event));
   if (action == nullptr || action->state == nullptr ||
       action->index >= action->state->module_count) {
@@ -1730,11 +1732,11 @@ void ModuleRowLongPressedEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 处理 RF 设置页面退出动画完成事件
+ * @brief 处理 Radio 设置页面退出动画完成事件
  * @param animation LVGL 动画对象
  */
-void RfSettingsCloseCompletedCallback(lv_anim_t* animation) {
-  auto* state = static_cast<RfViewState*>(lv_anim_get_user_data(animation));
+void RadioSettingsCloseCompletedCallback(lv_anim_t* animation) {
+  auto* state = static_cast<RadioViewState*>(lv_anim_get_user_data(animation));
   if (state == nullptr || state->app_settings_page == nullptr) {
     return;
   }
@@ -1746,10 +1748,10 @@ void RfSettingsCloseCompletedCallback(lv_anim_t* animation) {
 }
 
 /**
- * @brief 使用退出动画关闭 RF 应用设置页面
- * @param state RF 页面状态
+ * @brief 使用退出动画关闭 Radio 应用设置页面
+ * @param state Radio 页面状态
  */
-void CloseRfSettingsPage(RfViewState* state) {
+void CloseRadioSettingsPage(RadioViewState* state) {
   if (state == nullptr || state->app_settings_page == nullptr ||
       state->app_settings_closing) {
     return;
@@ -1757,7 +1759,7 @@ void CloseRfSettingsPage(RfViewState* state) {
   state->app_settings_closing = true;
   if (StartSlideRightWindowTransition(state->app_settings_page,
           state->config.width, kAnimationMs, state,
-          RfSettingsCloseCompletedCallback)) {
+          RadioSettingsCloseCompletedCallback)) {
     return;
   }
   lv_obj_t* page = state->app_settings_page;
@@ -1767,36 +1769,36 @@ void CloseRfSettingsPage(RfViewState* state) {
   lv_obj_delete(page);
 }
 
-void RfSettingsBackClickedEventCallback(lv_event_t* event) {
+void RadioSettingsBackClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
-    CloseRfSettingsPage(
-        static_cast<RfViewState*>(lv_event_get_user_data(event)));
+    CloseRadioSettingsPage(
+        static_cast<RadioViewState*>(lv_event_get_user_data(event)));
   }
 }
 
 /**
- * @brief 处理 RF 设置页面边缘返回手势
+ * @brief 处理 Radio 设置页面边缘返回手势
  * @param event LVGL 事件对象
  */
-void RfSettingsEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+void RadioSettingsEdgeBackEventCallback(lv_event_t* event) {
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->app_settings_page == nullptr ||
       !HandleEdgeBackSwipeEvent(
           event, state->config.width, &state->app_settings_edge_swipe)) {
     return;
   }
-  CloseRfSettingsPage(state);
+  CloseRadioSettingsPage(state);
   lv_event_stop_bubbling(event);
   lv_event_stop_processing(event);
 }
 
 /**
- * @brief 创建与音乐设置页面一致的 RF 设置页标题栏
+ * @brief 创建与音乐设置页面一致的 Radio 设置页标题栏
  * @param page 设置页面对象
- * @param state RF 页面状态
+ * @param state Radio 页面状态
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateRfSettingsHeader(lv_obj_t* page, RfViewState* state) {
+bool CreateRadioSettingsHeader(lv_obj_t* page, RadioViewState* state) {
   lv_obj_t* back = lv_button_create(page);
   if (back == nullptr) {
     return false;
@@ -1810,14 +1812,15 @@ bool CreateRfSettingsHeader(lv_obj_t* page, RfViewState* state) {
   lv_obj_set_style_bg_opa(back, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(back, LV_OPA_TRANSP, LV_STATE_PRESSED);
   lv_obj_add_event_cb(
-      back, RfSettingsBackClickedEventCallback, LV_EVENT_CLICKED, state);
+      back, RadioSettingsBackClickedEventCallback, LV_EVENT_CLICKED, state);
   lv_obj_t* back_icon =
       CreateLabel(back, icon::kArrowBack, kMainTextColor, OutlineIconFont44());
   if (back_icon == nullptr) {
     return false;
   }
   lv_obj_align(back_icon, LV_ALIGN_CENTER, -4, 0);
-  lv_obj_t* title = CreateLabel(page, "RF settings", kMainTextColor, Font48());
+  lv_obj_t* title = CreateLabel(
+      page, "Radio settings", kMainTextColor, Font48());
   if (title == nullptr) {
     return false;
   }
@@ -1826,12 +1829,12 @@ bool CreateRfSettingsHeader(lv_obj_t* page, RfViewState* state) {
 }
 
 /**
- * @brief 创建 RF 聊天数据目录的只读设置行
+ * @brief 创建 Radio 聊天数据目录的只读设置行
  * @param page 设置页面对象
- * @param state RF 页面状态
+ * @param state Radio 页面状态
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateRfStorageSettingRow(lv_obj_t* page, RfViewState* state) {
+bool CreateRadioStorageSettingRow(lv_obj_t* page, RadioViewState* state) {
   lv_obj_t* row = lv_obj_create(page);
   if (row == nullptr) {
     return false;
@@ -1849,7 +1852,7 @@ bool CreateRfStorageSettingRow(lv_obj_t* page, RfViewState* state) {
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 34, 23);
   }
   char path[192] = {};
-  if (!app::GetRfChatRepository().GetStorageDirectory(path, sizeof(path))) {
+  if (!app::GetRadioChatRepository().GetStorageDirectory(path, sizeof(path))) {
     CopyBoundedString(path, sizeof(path), "Storage unavailable");
   }
   lv_obj_t* subtitle =
@@ -1864,11 +1867,11 @@ bool CreateRfStorageSettingRow(lv_obj_t* page, RfViewState* state) {
 }
 
 /**
- * @brief 显示 RF 应用设置页面和聊天数据目录
- * @param state RF 页面状态
+ * @brief 显示 Radio 应用设置页面和聊天数据目录
+ * @param state Radio 页面状态
  * @return 显示成功返回 true，否则返回 false
  */
-bool ShowRfSettingsPage(RfViewState* state) {
+bool ShowRadioSettingsPage(RadioViewState* state) {
   if (state == nullptr || state->root == nullptr) {
     return false;
   }
@@ -1893,8 +1896,8 @@ bool ShowRfSettingsPage(RfViewState* state) {
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
-  AddEdgeBackSwipeEvents(page, RfSettingsEdgeBackEventCallback, state);
-  if (!CreateRfSettingsHeader(page, state)) {
+  AddEdgeBackSwipeEvents(page, RadioSettingsEdgeBackEventCallback, state);
+  if (!CreateRadioSettingsHeader(page, state)) {
     lv_obj_delete(page);
     state->app_settings_page = nullptr;
     return false;
@@ -1903,7 +1906,7 @@ bool ShowRfSettingsPage(RfViewState* state) {
   if (section != nullptr) {
     lv_obj_align(section, LV_ALIGN_TOP_LEFT, 28, 254);
   }
-  if (section == nullptr || !CreateRfStorageSettingRow(page, state)) {
+  if (section == nullptr || !CreateRadioStorageSettingRow(page, state)) {
     lv_obj_delete(page);
     state->app_settings_page = nullptr;
     return false;
@@ -1922,7 +1925,7 @@ bool ShowRfSettingsPage(RfViewState* state) {
  * @brief 关闭射频导航侧边栏
  * @param state 射频页面状态
  */
-void CloseRfDrawer(RfViewState* state) {
+void CloseRadioDrawer(RadioViewState* state) {
   if (state != nullptr) {
     CloseNavigationDrawer(&state->drawer);
   }
@@ -1936,27 +1939,27 @@ void DrawerRefreshClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  CloseRfDrawer(
-      static_cast<RfViewState*>(lv_event_get_user_data(event)));
+  CloseRadioDrawer(
+      static_cast<RadioViewState*>(lv_event_get_user_data(event)));
 }
 
 void DrawerSettingsClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   if (state == nullptr) {
     return;
   }
-  CloseRfDrawer(state);
-  ShowRfSettingsPage(state);
+  CloseRadioDrawer(state);
+  ShowRadioSettingsPage(state);
 }
 
 /**
  * @brief 显示射频页面导航侧边栏
  * @param state 射频页面状态
  */
-void ShowRfDrawer(RfViewState* state) {
+void ShowRadioDrawer(RadioViewState* state) {
   if (state == nullptr || state->root == nullptr ||
       IsNavigationDrawerOpen(&state->drawer)) {
     return;
@@ -1969,7 +1972,7 @@ void ShowRfDrawer(RfViewState* state) {
   config.icon_color = kSecondaryTextColor;
   config.pressed_color = kPressedColor;
   config.divider_color = kOutlineVariantColor;
-  config.title = "RF";
+  config.title = "Radio";
   config.title_font = Font36();
   config.item_font = Font28();
   config.icon_font = FillIconFont44();
@@ -1994,8 +1997,8 @@ void ShowRfDrawer(RfViewState* state) {
  */
 void MenuClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
-    ShowRfDrawer(
-        static_cast<RfViewState*>(lv_event_get_user_data(event)));
+    ShowRadioDrawer(
+        static_cast<RadioViewState*>(lv_event_get_user_data(event)));
   }
 }
 
@@ -2007,8 +2010,8 @@ void MenuClickedEventCallback(lv_event_t* event) {
  * @param index 射频配置索引
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateModuleAvatar(lv_obj_t* row, const RfModuleItem& item,
-    const RfViewState* state, size_t index) {
+bool CreateModuleAvatar(lv_obj_t* row, const RadioModuleItem& item,
+    const RadioViewState* state, size_t index) {
   lv_obj_t* status_indicator = lv_obj_create(row);
   if (status_indicator == nullptr) {
     return false;
@@ -2081,8 +2084,8 @@ bool CreateModuleAvatar(lv_obj_t* row, const RfModuleItem& item,
  * @param width 行宽度
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateModuleRow(lv_obj_t* parent, const RfModuleItem& item,
-    RfViewState* state, size_t index, int y, int width) {
+bool CreateModuleRow(lv_obj_t* parent, const RadioModuleItem& item,
+    RadioViewState* state, size_t index, int y, int width) {
   lv_obj_t* row = lv_button_create(parent);
   if (row == nullptr) {
     return false;
@@ -2100,7 +2103,7 @@ bool CreateModuleRow(lv_obj_t* parent, const RfModuleItem& item,
     lv_obj_delete(row);
     return false;
   }
-  auto* action = new RfModuleAction{.state = state, .index = index};
+  auto* action = new RadioModuleAction{.state = state, .index = index};
   lv_obj_add_event_cb(row, ModuleRowClickedEventCallback,
                       LV_EVENT_CLICKED, action);
   lv_obj_add_event_cb(row, ModuleRowLongPressedEventCallback,
@@ -2176,7 +2179,7 @@ bool CreateModuleRow(lv_obj_t* parent, const RfModuleItem& item,
  * @param state 射频页面状态
  * @return 构建成功返回 true，否则返回 false
  */
-bool RenderModuleList(RfViewState* state) {
+bool RenderModuleList(RadioViewState* state) {
   if (state == nullptr || state->module_list == nullptr) {
     return false;
   }
@@ -2191,7 +2194,7 @@ bool RenderModuleList(RfViewState* state) {
   return true;
 }
 
-size_t SelectedModuleCount(const RfViewState* state) {
+size_t SelectedModuleCount(const RadioViewState* state) {
   size_t count = 0;
   for (size_t index = 0; state != nullptr &&
        index < state->module_count; ++index) {
@@ -2202,7 +2205,7 @@ size_t SelectedModuleCount(const RfViewState* state) {
   return count;
 }
 
-void CloseSelectionMode(RfViewState* state) {
+void CloseSelectionMode(RadioViewState* state) {
   if (state == nullptr) {
     return;
   }
@@ -2216,11 +2219,11 @@ void CloseSelectionMode(RfViewState* state) {
 }
 
 /**
- * @brief 处理 RF 主界面多选状态下的左右边缘滑动
+ * @brief 处理 Radio 主界面多选状态下的左右边缘滑动
  * @param event LVGL 事件对象
  */
 void SelectionEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || !state->selection_mode ||
       !HandleEdgeBackSwipeEvent(event, state->config.width,
           &state->selection_edge_swipe)) {
@@ -2235,7 +2238,7 @@ void SelectionEdgeBackEventCallback(lv_event_t* event) {
 void SelectionCloseClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
     CloseSelectionMode(
-        static_cast<RfViewState*>(lv_event_get_user_data(event)));
+        static_cast<RadioViewState*>(lv_event_get_user_data(event)));
   }
 }
 
@@ -2247,11 +2250,11 @@ void SelectionCloseClickedEventCallback(lv_event_t* event) {
  * @return 状态有效且更新完成时返回 true
  */
 bool SetProfileActiveState(
-    RfViewState* state, size_t index, bool active) {
+    RadioViewState* state, size_t index, bool active) {
   if (state == nullptr || index >= state->module_count) {
     return false;
   }
-  app::RfProfile& profile = state->preferences.profiles[index];
+  app::RadioProfile& profile = state->preferences.profiles[index];
   const bool currently_active =
       state->preferences.active_profile_id == profile.id;
   if (active == currently_active) {
@@ -2262,16 +2265,16 @@ bool SetProfileActiveState(
   state->last_activation_retry_tick = lv_tick_get();
   if (active) {
     state->preferences.active_profile_id = profile.id;
-    if (state->config.rf != nullptr) {
-      state->config.rf->ActivateRf(ToRadioConfig(profile));
+    if (state->config.radio != nullptr) {
+      state->config.radio->ActivateRadio(ToRadioConfig(profile));
     }
   } else {
-    if (state->config.rf != nullptr) {
-      state->config.rf->DeactivateRf();
+    if (state->config.radio != nullptr) {
+      state->config.radio->DeactivateRadio();
     }
     state->preferences.active_profile_id = 0;
   }
-  app::UpdateRfPreferences(state->preferences);
+  app::UpdateRadioPreferences(state->preferences);
   UpdateDetailStatus(state);
   RenderModuleList(state);
   RefreshProfileSettingsPage(state);
@@ -2282,7 +2285,7 @@ bool SetProfileActiveState(
  * @brief 清空射频配置名称编辑页保存的控件引用
  * @param state 射频页面状态
  */
-void ResetProfileNameEditReferences(RfViewState* state) {
+void ResetProfileNameEditReferences(RadioViewState* state) {
   if (state == nullptr) {
     return;
   }
@@ -2298,7 +2301,7 @@ void ResetProfileNameEditReferences(RfViewState* state) {
  * @param animation LVGL 动画对象
  */
 void ProfileNameEditCloseCompletedCallback(lv_anim_t* animation) {
-  auto* state = static_cast<RfViewState*>(
+  auto* state = static_cast<RadioViewState*>(
       lv_anim_get_user_data(animation));
   if (state == nullptr || state->profile_name_edit_page == nullptr) {
     return;
@@ -2313,7 +2316,7 @@ void ProfileNameEditCloseCompletedCallback(lv_anim_t* animation) {
  * @param state 射频页面状态
  * @param animated 是否播放退出动画
  */
-void CloseProfileNameEditPage(RfViewState* state, bool animated) {
+void CloseProfileNameEditPage(RadioViewState* state, bool animated) {
   if (state == nullptr || state->profile_name_edit_page == nullptr ||
       state->profile_name_edit_closing) {
     return;
@@ -2335,7 +2338,7 @@ void CloseProfileNameEditPage(RfViewState* state, bool animated) {
  * @param event LVGL 事件对象
  */
 void ProfileNameEditEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->profile_name_edit_page == nullptr ||
       state->profile_name_edit_closing ||
       !HandleEdgeBackSwipeEvent(event, state->config.width,
@@ -2357,7 +2360,7 @@ void ProfileNameEditBackgroundClickedEventCallback(lv_event_t* event) {
           lv_event_get_current_target_obj(event)) {
     return;
   }
-  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   if (state != nullptr) {
     HideSharedKeyboard(state->profile_name_edit_keyboard);
   }
@@ -2370,7 +2373,7 @@ void ProfileNameEditBackgroundClickedEventCallback(lv_event_t* event) {
 void ProfileNameEditCancelClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
     CloseProfileNameEditPage(
-        static_cast<RfViewState*>(lv_event_get_user_data(event)), true);
+        static_cast<RadioViewState*>(lv_event_get_user_data(event)), true);
   }
 }
 
@@ -2382,7 +2385,7 @@ void ProfileNameEditConfirmClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->profile_name_edit_text_area == nullptr ||
       state->profile_settings_index >= state->module_count) {
     return;
@@ -2393,13 +2396,13 @@ void ProfileNameEditConfirmClickedEventCallback(lv_event_t* event) {
     return;
   }
   const size_t index = state->profile_settings_index;
-  app::RfProfile& profile = state->preferences.profiles[index];
+  app::RadioProfile& profile = state->preferences.profiles[index];
   if (std::strcmp(profile.name, text) == 0) {
     CloseProfileNameEditPage(state, true);
     return;
   }
   CopyBoundedString(profile.name, sizeof(profile.name), text);
-  app::UpdateRfPreferences(state->preferences);
+  app::UpdateRadioPreferences(state->preferences);
   AppendSystemMessage(state, index, kSettingsChangedMessage);
   SyncModuleItems(state);
   if (state->detail_title_label != nullptr &&
@@ -2418,7 +2421,7 @@ void ProfileNameEditConfirmClickedEventCallback(lv_event_t* event) {
 void ProfileNameAreaClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
     ShowProfileNameEditPage(
-        static_cast<RfViewState*>(lv_event_get_user_data(event)));
+        static_cast<RadioViewState*>(lv_event_get_user_data(event)));
   }
 }
 
@@ -2432,7 +2435,7 @@ void ProfileNameAreaClickedEventCallback(lv_event_t* event) {
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateProfileNameEditToolbarButton(lv_obj_t* parent,
-    RfViewState* state, const char* icon_text, int x,
+    RadioViewState* state, const char* icon_text, int x,
     lv_event_cb_t callback) {
   if (parent == nullptr || state == nullptr || icon_text == nullptr ||
       callback == nullptr) {
@@ -2513,7 +2516,7 @@ void ApplyProfileNameEditTextAreaStyle(lv_obj_t* text_area) {
  * @param state 射频页面状态
  * @return 显示成功返回 true，否则返回 false
  */
-bool ShowProfileNameEditPage(RfViewState* state) {
+bool ShowProfileNameEditPage(RadioViewState* state) {
   if (state == nullptr || state->root == nullptr ||
       state->profile_settings_page == nullptr ||
       state->profile_settings_index >= state->module_count) {
@@ -2584,7 +2587,7 @@ bool ShowProfileNameEditPage(RfViewState* state) {
       kProfileNameEditTextAreaTop);
   lv_textarea_set_one_line(text_area, true);
   lv_textarea_set_max_length(
-      text_area, app::kRfProfileNameCapacity - 1);
+      text_area, app::kRadioProfileNameCapacity - 1);
   lv_textarea_set_accepted_chars(text_area, kProfileNameAcceptedChars);
   lv_textarea_set_text(text_area,
       state->preferences.profiles[state->profile_settings_index].name);
@@ -2592,7 +2595,7 @@ bool ShowProfileNameEditPage(RfViewState* state) {
   ApplyProfileNameEditTextAreaStyle(text_area);
 
   lv_obj_t* help = CreateLabel(page,
-      "This name is used to identify this RF profile.",
+      "This name is used to identify this Radio profile.",
       kSecondaryTextColor, Font24());
   if (help == nullptr) {
     CloseProfileNameEditPage(state, false);
@@ -2633,7 +2636,7 @@ bool ShowProfileNameEditPage(RfViewState* state) {
  * @brief 清空射频配置资料页保存的控件引用
  * @param state 射频页面状态
  */
-void ResetProfileSettingsReferences(RfViewState* state) {
+void ResetProfileSettingsReferences(RadioViewState* state) {
   if (state == nullptr) {
     return;
   }
@@ -2641,7 +2644,7 @@ void ResetProfileSettingsReferences(RfViewState* state) {
   state->profile_settings_active_switch = nullptr;
   state->profile_settings_name_label = nullptr;
   state->profile_settings_header_status_label = nullptr;
-  state->profile_settings_index = kRfModuleCapacity;
+  state->profile_settings_index = kRadioModuleCapacity;
   state->profile_settings_edge_swipe = EdgeBackSwipeState();
   state->profile_settings_closing = false;
 }
@@ -2650,7 +2653,7 @@ void ResetProfileSettingsReferences(RfViewState* state) {
  * @brief 根据射频配置名称调整名称按钮宽度和滚动方式
  * @param state 射频页面状态
  */
-void UpdateProfileSettingsNameLayout(RfViewState* state) {
+void UpdateProfileSettingsNameLayout(RadioViewState* state) {
   if (state == nullptr || state->profile_settings_name_label == nullptr) {
     return;
   }
@@ -2689,13 +2692,13 @@ void UpdateProfileSettingsNameLayout(RfViewState* state) {
  * @brief 刷新射频配置资料页中的动态信息
  * @param state 射频页面状态
  */
-void RefreshProfileSettingsPage(RfViewState* state) {
+void RefreshProfileSettingsPage(RadioViewState* state) {
   if (state == nullptr || state->profile_settings_page == nullptr ||
       state->profile_settings_index >= state->module_count) {
     return;
   }
   const size_t index = state->profile_settings_index;
-  const app::RfProfile& profile = state->preferences.profiles[index];
+  const app::RadioProfile& profile = state->preferences.profiles[index];
   if (state->profile_settings_name_label != nullptr) {
     lv_label_set_text(state->profile_settings_name_label, profile.name);
     UpdateProfileSettingsNameLayout(state);
@@ -2735,7 +2738,7 @@ void RefreshProfileSettingsPage(RfViewState* state) {
  * @param animation LVGL 动画对象
  */
 void ProfileSettingsCloseCompletedCallback(lv_anim_t* animation) {
-  auto* state = static_cast<RfViewState*>(
+  auto* state = static_cast<RadioViewState*>(
       lv_anim_get_user_data(animation));
   if (state == nullptr || state->profile_settings_page == nullptr) {
     return;
@@ -2749,7 +2752,7 @@ void ProfileSettingsCloseCompletedCallback(lv_anim_t* animation) {
  * @brief 使用退出动画关闭射频配置资料页
  * @param state 射频页面状态
  */
-void CloseProfileSettingsPage(RfViewState* state) {
+void CloseProfileSettingsPage(RadioViewState* state) {
   if (state == nullptr || state->profile_settings_page == nullptr ||
       state->profile_settings_closing) {
     return;
@@ -2772,7 +2775,7 @@ void CloseProfileSettingsPage(RfViewState* state) {
 void ProfileSettingsBackClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
     CloseProfileSettingsPage(
-        static_cast<RfViewState*>(lv_event_get_user_data(event)));
+        static_cast<RadioViewState*>(lv_event_get_user_data(event)));
   }
 }
 
@@ -2781,7 +2784,7 @@ void ProfileSettingsBackClickedEventCallback(lv_event_t* event) {
  * @param event LVGL 事件对象
  */
 void ProfileSettingsEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->profile_settings_page == nullptr ||
       !HandleEdgeBackSwipeEvent(event, state->config.width,
           &state->profile_settings_edge_swipe)) {
@@ -2800,7 +2803,7 @@ void ProfileSettingsActiveChangedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED) {
     return;
   }
-  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   if (state == nullptr ||
       state->profile_settings_index >= state->module_count) {
     return;
@@ -2814,11 +2817,11 @@ void ProfileSettingsActiveChangedEventCallback(lv_event_t* event) {
  * @brief 处理射频参数设置入口点击事件
  * @param event LVGL 事件对象
  */
-void ProfileRfSettingsClickedEventCallback(lv_event_t* event) {
+void ProfileRadioSettingsClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   if (state != nullptr &&
       state->profile_settings_index < state->module_count) {
     ShowModuleSettings(state, state->profile_settings_index, true);
@@ -2855,7 +2858,7 @@ bool CreateProfileSettingsSection(
  * @param height 列表行高度
  * @return 创建成功返回列表行，否则返回 nullptr
  */
-lv_obj_t* CreateProfileSettingsRow(lv_obj_t* parent, RfViewState* state,
+lv_obj_t* CreateProfileSettingsRow(lv_obj_t* parent, RadioViewState* state,
     const char* title, const char* subtitle, int y, lv_event_cb_t callback,
     bool show_chevron, int text_y_offset = 0, int height = 120) {
   if (parent == nullptr || state == nullptr || title == nullptr ||
@@ -2922,7 +2925,7 @@ lv_obj_t* CreateProfileSettingsRow(lv_obj_t* parent, RfViewState* state,
  * @param index 配置索引
  * @return 显示成功返回 true，否则返回 false
  */
-bool ShowProfileSettingsPage(RfViewState* state, size_t index) {
+bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
   if (state == nullptr || state->root == nullptr ||
       index >= state->module_count) {
     return false;
@@ -2931,8 +2934,8 @@ bool ShowProfileSettingsPage(RfViewState* state, size_t index) {
     lv_obj_move_to_index(state->profile_settings_page, -1);
     return true;
   }
-  const RfModuleItem& item = state->modules[index];
-  const app::RfProfile& profile = state->preferences.profiles[index];
+  const RadioModuleItem& item = state->modules[index];
+  const app::RadioProfile& profile = state->preferences.profiles[index];
   lv_obj_t* page = lv_obj_create(state->root);
   if (page == nullptr) {
     return false;
@@ -3060,7 +3063,7 @@ bool ShowProfileSettingsPage(RfViewState* state, size_t index) {
   lv_obj_set_pos(
       state->profile_settings_header_status_label, 170, 94);
 
-  if (!CreateProfileSettingsSection(body, "RF PROFILE", 164)) {
+  if (!CreateProfileSettingsSection(body, "Radio PROFILE", 164)) {
     ResetProfileSettingsReferences(state);
     lv_obj_delete(page);
     return false;
@@ -3068,10 +3071,10 @@ bool ShowProfileSettingsPage(RfViewState* state, size_t index) {
   lv_obj_t* active_row = CreateProfileSettingsRow(body, state,
       "Active profile",
       "Use this profile for sending and receiving", 196, nullptr, false);
-  lv_obj_t* rf_row = CreateProfileSettingsRow(body, state,
-      "RF settings", "Manage radio parameters and behavior", 332,
-      ProfileRfSettingsClickedEventCallback, true, -2, 136);
-  if (active_row == nullptr || rf_row == nullptr) {
+  lv_obj_t* radio_row = CreateProfileSettingsRow(body, state,
+      "Radio settings", "Manage radio parameters and behavior", 332,
+      ProfileRadioSettingsClickedEventCallback, true, -2, 136);
+  if (active_row == nullptr || radio_row == nullptr) {
     ResetProfileSettingsReferences(state);
     lv_obj_delete(page);
     return false;
@@ -3115,24 +3118,24 @@ bool ShowProfileSettingsPage(RfViewState* state, size_t index) {
 }
 
 /**
- * @brief 删除当前选中的 RF 配置及其聊天记录
- * @param state RF 页面状态
+ * @brief 删除当前选中的 Radio 配置及其聊天记录
+ * @param state Radio 页面状态
  */
-void DeleteSelectedProfiles(RfViewState* state) {
+void DeleteSelectedProfiles(RadioViewState* state) {
   if (state == nullptr) {
     return;
   }
-  app::RfPreferences next = state->preferences;
+  app::RadioPreferences next = state->preferences;
   size_t write_index = 0;
   for (size_t read_index = 0;
        read_index < state->module_count; ++read_index) {
     if (state->selected_modules[read_index]) {
-      app::GetRfChatRepository().RemoveProfile(next.profiles[read_index].id);
+      app::GetRadioChatRepository().RemoveProfile(next.profiles[read_index].id);
       if (next.profiles[read_index].id == next.active_profile_id) {
         FailPendingMessages(state, next.active_profile_id);
         next.active_profile_id = 0;
-        if (state->config.rf != nullptr) {
-          state->config.rf->DeactivateRf();
+        if (state->config.radio != nullptr) {
+          state->config.radio->DeactivateRadio();
         }
       }
       continue;
@@ -3141,24 +3144,24 @@ void DeleteSelectedProfiles(RfViewState* state) {
     ++write_index;
   }
   next.profile_count = write_index;
-  for (size_t index = write_index; index < kRfModuleCapacity; ++index) {
-    next.profiles[index] = app::RfProfile{};
+  for (size_t index = write_index; index < kRadioModuleCapacity; ++index) {
+    next.profiles[index] = app::RadioProfile{};
   }
   state->preferences = next;
-  app::UpdateRfPreferences(state->preferences);
+  app::UpdateRadioPreferences(state->preferences);
   SyncModuleItems(state);
   CloseSelectionMode(state);
 }
 
 /**
- * @brief 确认删除选中的 RF 配置
- * @param context RF 页面状态
+ * @brief 确认删除选中的 Radio 配置
+ * @param context Radio 页面状态
  */
 void DeleteProfilesConfirmed(void* context) {
-  DeleteSelectedProfiles(static_cast<RfViewState*>(context));
+  DeleteSelectedProfiles(static_cast<RadioViewState*>(context));
 }
 
-bool ShowDeleteConfirmation(RfViewState* state) {
+bool ShowDeleteConfirmation(RadioViewState* state) {
   if (state == nullptr || state->root == nullptr ||
       IsPromptDialogVisible(&state->delete_dialog)) {
     return false;
@@ -3220,13 +3223,13 @@ bool ShowDeleteConfirmation(RfViewState* state) {
 void SelectionDeleteClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
     ShowDeleteConfirmation(
-        static_cast<RfViewState*>(lv_event_get_user_data(event)));
+        static_cast<RadioViewState*>(lv_event_get_user_data(event)));
   }
 }
 
 lv_obj_t* CreateHeaderIconButton(lv_obj_t* parent, const char* icon_text,
     int x, int size, const lv_font_t* icon_font,
-    lv_event_cb_t callback, RfViewState* state) {
+    lv_event_cb_t callback, RadioViewState* state) {
   if (parent == nullptr || icon_text == nullptr || icon_font == nullptr ||
       size <= 0 || callback == nullptr) {
     return nullptr;
@@ -3247,14 +3250,14 @@ lv_obj_t* CreateHeaderIconButton(lv_obj_t* parent, const char* icon_text,
   return button;
 }
 
-bool RenderHeader(RfViewState* state) {
+bool RenderHeader(RadioViewState* state) {
   if (state == nullptr || state->header_area == nullptr) {
     return false;
   }
   lv_obj_clean(state->header_area);
   if (state->add_button != nullptr) {
     if (state->selection_mode ||
-        state->module_count >= kRfModuleCapacity) {
+        state->module_count >= kRadioModuleCapacity) {
       lv_obj_add_flag(state->add_button, LV_OBJ_FLAG_HIDDEN);
     } else {
       lv_obj_remove_flag(state->add_button, LV_OBJ_FLAG_HIDDEN);
@@ -3265,13 +3268,13 @@ bool RenderHeader(RfViewState* state) {
         icon::kMenu, 20, 72, &lvgl_font_material_symbols_fill_56,
         MenuClickedEventCallback, state);
     lv_obj_t* title = CreateLabel(
-        state->header_area, "RF", kMainTextColor, Font36());
+        state->header_area, "Radio", kMainTextColor, Font36());
     if (menu == nullptr || title == nullptr) {
       return false;
     }
     lv_obj_set_pos(title, 104, 2);
     char summary_text[48] = {};
-    if (state->module_count >= kRfModuleCapacity) {
+    if (state->module_count >= kRadioModuleCapacity) {
       std::snprintf(summary_text, sizeof(summary_text),
           "%u profiles | limit reached",
           static_cast<unsigned>(state->module_count));
@@ -3308,7 +3311,7 @@ bool RenderHeader(RfViewState* state) {
   return true;
 }
 
-bool CreateHeader(lv_obj_t* parent, RfViewState* state) {
+bool CreateHeader(lv_obj_t* parent, RadioViewState* state) {
   lv_obj_t* area = lv_obj_create(parent);
   if (area == nullptr) {
     return false;
@@ -3329,7 +3332,7 @@ bool CreateHeader(lv_obj_t* parent, RfViewState* state) {
  */
 void AddOptionActionDeleteEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_DELETE) {
-    delete static_cast<RfAddOptionAction*>(lv_event_get_user_data(event));
+    delete static_cast<RadioAddOptionAction*>(lv_event_get_user_data(event));
   }
 }
 
@@ -3372,7 +3375,7 @@ void UpdateOptionButtonGroup(
  * @brief 更新添加模块页面的所有选项样式
  * @param state 射频页面状态
  */
-void UpdateAddOptionSelection(RfViewState* state) {
+void UpdateAddOptionSelection(RadioViewState* state) {
   if (state == nullptr) {
     return;
   }
@@ -3403,7 +3406,7 @@ bool IsFrequencyValidForChip(int chip_index, double frequency_mhz) {
  * @param state 射频页面状态
  * @return 频率格式和范围正确返回 true，否则返回 false
  */
-bool IsAddFrequencyValid(const RfViewState* state) {
+bool IsAddFrequencyValid(const RadioViewState* state) {
   if (state == nullptr || state->add_frequency_input == nullptr) {
     return false;
   }
@@ -3468,7 +3471,7 @@ void UpdateAddTextAreaErrorStyle(lv_obj_t* input, bool valid) {
  * @brief 更新射频参数页所有输入框的错误边框
  * @param state 射频页面状态
  */
-void UpdateAddInputErrorStyles(RfViewState* state) {
+void UpdateAddInputErrorStyles(RadioViewState* state) {
   if (state == nullptr) {
     return;
   }
@@ -3491,7 +3494,7 @@ void UpdateAddInputErrorStyles(RfViewState* state) {
  * @param state 射频页面状态
  * @return 信息完整返回 true，否则返回 false
  */
-bool IsAddModuleFormComplete(const RfViewState* state) {
+bool IsAddModuleFormComplete(const RadioViewState* state) {
   if (state == nullptr) {
     return false;
   }
@@ -3502,7 +3505,7 @@ bool IsAddModuleFormComplete(const RfViewState* state) {
       state->add_preamble_input == nullptr ||
       state->add_sync_word_input == nullptr ||
       (state->editing_index >= state->module_count &&
-       state->module_count >= kRfModuleCapacity)) {
+       state->module_count >= kRadioModuleCapacity)) {
     return false;
   }
   const char* profile_name = editing
@@ -3537,7 +3540,7 @@ bool IsAddModuleFormComplete(const RfViewState* state) {
  * @brief 更新添加模块提交按钮的启用状态
  * @param state 射频页面状态
  */
-void UpdateAddSubmitButton(RfViewState* state) {
+void UpdateAddSubmitButton(RadioViewState* state) {
   if (state == nullptr || state->add_submit_button == nullptr) {
     return;
   }
@@ -3566,18 +3569,18 @@ void AddOptionClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  auto* action = static_cast<RfAddOptionAction*>(
+  auto* action = static_cast<RadioAddOptionAction*>(
       lv_event_get_user_data(event));
   if (action == nullptr || action->state == nullptr) {
     return;
   }
-  if (action->group == RfAddOptionGroup::kChip) {
+  if (action->group == RadioAddOptionGroup::kChip) {
     action->state->selected_add_chip = action->index;
-  } else if (action->group == RfAddOptionGroup::kProtocol) {
+  } else if (action->group == RadioAddOptionGroup::kProtocol) {
     action->state->selected_add_protocol = action->index;
-  } else if (action->group == RfAddOptionGroup::kSpreadingFactor) {
+  } else if (action->group == RadioAddOptionGroup::kSpreadingFactor) {
     action->state->selected_add_sf = action->index;
-  } else if (action->group == RfAddOptionGroup::kBandwidth) {
+  } else if (action->group == RadioAddOptionGroup::kBandwidth) {
     action->state->selected_add_bandwidth = action->index;
   } else {
     action->state->selected_add_coding_rate = action->index;
@@ -3593,7 +3596,7 @@ void AddOptionClickedEventCallback(lv_event_t* event) {
  * @param visible 是否显示键盘
  */
 void SetAddKeyboardVisible(
-    RfViewState* state, lv_obj_t* input, bool visible) {
+    RadioViewState* state, lv_obj_t* input, bool visible) {
   if (state == nullptr || state->add_body == nullptr) {
     return;
   }
@@ -3628,7 +3631,7 @@ void SetAddKeyboardVisible(
  * @param event LVGL 事件对象
  */
 void AddInputEventCallback(lv_event_t* event) {
-  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   const lv_event_code_t code = lv_event_get_code(event);
   if (code == LV_EVENT_VALUE_CHANGED) {
     UpdateAddSubmitButton(state);
@@ -3652,7 +3655,7 @@ void AddInputEventCallback(lv_event_t* event) {
  * @param animation LVGL 动画对象
  */
 void AddPageCloseCompletedCallback(lv_anim_t* animation) {
-  auto* state = static_cast<RfViewState*>(
+  auto* state = static_cast<RadioViewState*>(
       lv_anim_get_user_data(animation));
   if (state == nullptr || state->add_page == nullptr) {
     return;
@@ -3673,7 +3676,7 @@ void AddPageCloseCompletedCallback(lv_anim_t* animation) {
   state->add_submit_button = nullptr;
   state->add_submit_label = nullptr;
   state->add_edge_swipe = EdgeBackSwipeState();
-  state->editing_index = kRfModuleCapacity;
+  state->editing_index = kRadioModuleCapacity;
   state->add_closing = false;
   lv_obj_delete(page);
 }
@@ -3682,7 +3685,7 @@ void AddPageCloseCompletedCallback(lv_anim_t* animation) {
  * @brief 使用退出动画关闭添加模块页面
  * @param state 射频页面状态
  */
-void CloseAddModulePage(RfViewState* state) {
+void CloseAddModulePage(RadioViewState* state) {
   if (state == nullptr || state->add_page == nullptr ||
       state->add_closing) {
     return;
@@ -3708,7 +3711,7 @@ void CloseAddModulePage(RfViewState* state) {
     state->add_submit_button = nullptr;
     state->add_submit_label = nullptr;
     state->add_edge_swipe = EdgeBackSwipeState();
-    state->editing_index = kRfModuleCapacity;
+    state->editing_index = kRadioModuleCapacity;
     state->add_closing = false;
     lv_obj_delete(page);
   }
@@ -3721,7 +3724,7 @@ void CloseAddModulePage(RfViewState* state) {
 void AddPageBackClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
     CloseAddModulePage(
-        static_cast<RfViewState*>(lv_event_get_user_data(event)));
+        static_cast<RadioViewState*>(lv_event_get_user_data(event)));
   }
 }
 
@@ -3730,7 +3733,7 @@ void AddPageBackClickedEventCallback(lv_event_t* event) {
  * @param event LVGL 事件对象
  */
 void AddPageEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->add_page == nullptr ||
       !HandleEdgeBackSwipeEvent(event, state->config.width,
           &state->add_edge_swipe)) {
@@ -3749,7 +3752,7 @@ void AddPageBackgroundClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_CLICKED &&
       lv_event_get_target_obj(event) ==
           lv_event_get_current_target_obj(event)) {
-    auto* state = static_cast<RfViewState*>(
+    auto* state = static_cast<RadioViewState*>(
         lv_event_get_user_data(event));
     if (state != nullptr) {
       SetAddKeyboardVisible(state, nullptr, false);
@@ -3765,7 +3768,7 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  auto* state = static_cast<RfViewState*>(lv_event_get_user_data(event));
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   if (!IsAddModuleFormComplete(state)) {
     return;
   }
@@ -3773,10 +3776,10 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
   const size_t index = editing
       ? state->editing_index
       : state->module_count;
-  app::RfProfile profile = editing
+  app::RadioProfile profile = editing
       ? state->preferences.profiles[index]
-      : app::RfProfile{};
-  const app::RfProfile previous_profile = profile;
+      : app::RadioProfile{};
+  const app::RadioProfile previous_profile = profile;
   if (!editing) {
     profile.id = state->preferences.next_profile_id++;
     if (profile.id == 0) {
@@ -3831,17 +3834,17 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
     state->preferences.active_profile_id = profile.id;
     state->activation_retry_count = 0;
     state->last_activation_retry_tick = lv_tick_get();
-    if (state->config.rf != nullptr) {
-      state->config.rf->ActivateRf(ToRadioConfig(profile));
+    if (state->config.radio != nullptr) {
+      state->config.radio->ActivateRadio(ToRadioConfig(profile));
     }
   } else if (state->preferences.active_profile_id == profile.id) {
     state->preferences.active_profile_id = 0;
     FailPendingMessages(state, profile.id);
-    if (state->config.rf != nullptr) {
-      state->config.rf->DeactivateRf();
+    if (state->config.radio != nullptr) {
+      state->config.radio->DeactivateRadio();
     }
   }
-  app::UpdateRfPreferences(state->preferences);
+  app::UpdateRadioPreferences(state->preferences);
   if (!editing) {
     AppendSystemMessage(state, index, kProfileCreatedMessage);
   } else if (settings_changed) {
@@ -3889,8 +3892,8 @@ bool CreateAddParameterTitle(lv_obj_t* parent, const char* text, int y) {
  * @param height 按钮高度
  * @return 创建成功返回按钮对象，否则返回 nullptr
  */
-lv_obj_t* CreateAddOptionButton(lv_obj_t* parent, RfViewState* state,
-    RfAddOptionGroup group, int index, const char* text, int x, int y,
+lv_obj_t* CreateAddOptionButton(lv_obj_t* parent, RadioViewState* state,
+    RadioAddOptionGroup group, int index, const char* text, int x, int y,
     int width, int height) {
   lv_obj_t* button = lv_button_create(parent);
   if (button == nullptr) {
@@ -3912,7 +3915,7 @@ lv_obj_t* CreateAddOptionButton(lv_obj_t* parent, RfViewState* state,
     lv_obj_delete(button);
     return nullptr;
   }
-  auto* action = new RfAddOptionAction{
+  auto* action = new RadioAddOptionAction{
       .state = state,
       .group = group,
       .index = index,
@@ -3940,7 +3943,7 @@ lv_obj_t* CreateAddOptionButton(lv_obj_t* parent, RfViewState* state,
  * @param max_length 最大输入长度
  * @return 创建成功返回输入框对象，否则返回 nullptr
  */
-lv_obj_t* CreateAddTextArea(lv_obj_t* parent, RfViewState* state,
+lv_obj_t* CreateAddTextArea(lv_obj_t* parent, RadioViewState* state,
     const char* placeholder, const char* text, int y, int max_length) {
   lv_obj_t* input = lv_textarea_create(parent);
   if (input == nullptr) {
@@ -3987,7 +3990,7 @@ lv_obj_t* CreateAddTextArea(lv_obj_t* parent, RfViewState* state,
   return input;
 }
 
-lv_obj_t* CreateAddSwitchRow(lv_obj_t* parent, RfViewState* state,
+lv_obj_t* CreateAddSwitchRow(lv_obj_t* parent, RadioViewState* state,
     const char* title, const char* subtitle, int y, bool checked) {
   lv_obj_t* row = lv_obj_create(parent);
   if (row == nullptr) {
@@ -4052,13 +4055,13 @@ lv_obj_t* CreateAddSwitchRow(lv_obj_t* parent, RfViewState* state,
  * @param state 射频页面状态
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateAddModuleContent(RfViewState* state) {
+bool CreateAddModuleContent(RadioViewState* state) {
   lv_obj_t* body = state->add_body;
   const bool editing = state->editing_index < state->module_count;
   const int content_offset = editing ? 0 : kAddProfileNameSectionHeight;
-  const app::RfProfile profile = editing
+  const app::RadioProfile profile = editing
       ? state->preferences.profiles[state->editing_index]
-      : app::RfProfile{};
+      : app::RadioProfile{};
   char frequency[16] = {};
   char power[8] = {};
   char preamble[12] = {};
@@ -4080,21 +4083,21 @@ bool CreateAddModuleContent(RfViewState* state) {
       return false;
     }
     state->add_name_input = CreateAddTextArea(body, state,
-        "Profile name", "", 44, app::kRfProfileNameCapacity - 1);
+        "Profile name", "", 44, app::kRadioProfileNameCapacity - 1);
     if (state->add_name_input == nullptr) {
       return false;
     }
     lv_textarea_set_accepted_chars(
         state->add_name_input, kProfileNameAcceptedChars);
   }
-  if (!CreateAddParameterTitle(body, "RF CHIP", 8 + content_offset)) {
+  if (!CreateAddParameterTitle(body, "Radio CHIP", 8 + content_offset)) {
     return false;
   }
 
   const int option_gap = 10;
   const int option_area_width = state->config.width - 56;
   state->add_chip_buttons[0] = CreateAddOptionButton(body, state,
-      RfAddOptionGroup::kChip, 0,
+      RadioAddOptionGroup::kChip, 0,
       ChipDisplayName(profile.chip), 28, 44 + content_offset, 150, 62);
   if (state->add_chip_buttons[0] == nullptr) {
     return false;
@@ -4104,7 +4107,7 @@ bool CreateAddModuleContent(RfViewState* state) {
     return false;
   }
   state->add_protocol_buttons[0] = CreateAddOptionButton(body, state,
-      RfAddOptionGroup::kProtocol, 0,
+      RadioAddOptionGroup::kProtocol, 0,
       ProtocolDisplayName(profile.protocol), 28, 170 + content_offset,
       116, 62);
   if (state->add_protocol_buttons[0] == nullptr) {
@@ -4157,7 +4160,7 @@ bool CreateAddModuleContent(RfViewState* state) {
     const int column = index % 4;
     const int row = index / 4;
     state->add_sf_buttons[index] = CreateAddOptionButton(body, state,
-        RfAddOptionGroup::kSpreadingFactor, index, sf_names[index],
+        RadioAddOptionGroup::kSpreadingFactor, index, sf_names[index],
         28 + column * (option_width + option_gap),
         436 + content_offset + row * 68, option_width, 58);
     if (state->add_sf_buttons[index] == nullptr) {
@@ -4172,7 +4175,7 @@ bool CreateAddModuleContent(RfViewState* state) {
   const char* bandwidth_names[] = {"62.5", "125", "250", "500"};
   for (int index = 0; index < 4; ++index) {
     state->add_bandwidth_buttons[index] = CreateAddOptionButton(
-        body, state, RfAddOptionGroup::kBandwidth, index,
+        body, state, RadioAddOptionGroup::kBandwidth, index,
         bandwidth_names[index],
         28 + index * (option_width + option_gap), 618 + content_offset,
         option_width, 60);
@@ -4187,7 +4190,7 @@ bool CreateAddModuleContent(RfViewState* state) {
   const char* coding_names[] = {"4/5", "4/6", "4/7", "4/8"};
   for (int index = 0; index < 4; ++index) {
     state->add_coding_rate_buttons[index] = CreateAddOptionButton(
-        body, state, RfAddOptionGroup::kCodingRate, index,
+        body, state, RadioAddOptionGroup::kCodingRate, index,
         coding_names[index],
         28 + index * (option_width + option_gap), 746 + content_offset,
         option_width, 60);
@@ -4294,7 +4297,7 @@ bool CreateAddModuleContent(RfViewState* state) {
  * @param state 射频页面状态
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateAddModuleHeader(lv_obj_t* page, RfViewState* state) {
+bool CreateAddModuleHeader(lv_obj_t* page, RadioViewState* state) {
   lv_obj_t* back = lv_button_create(page);
   if (back == nullptr) {
     return false;
@@ -4313,8 +4316,8 @@ bool CreateAddModuleHeader(lv_obj_t* page, RfViewState* state) {
   lv_obj_align(icon_label, LV_ALIGN_CENTER, -4, 0);
   lv_obj_t* title = CreateLabel(
       page, state->editing_index < state->module_count
-          ? "RF profile"
-          : "Add RF profile",
+          ? "Radio profile"
+          : "Add Radio profile",
       kMainTextColor, Font48());
   if (title == nullptr) {
     return false;
@@ -4329,7 +4332,7 @@ bool CreateAddModuleHeader(lv_obj_t* page, RfViewState* state) {
  * @param state 射频页面状态
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateAddModuleActionArea(lv_obj_t* page, RfViewState* state) {
+bool CreateAddModuleActionArea(lv_obj_t* page, RadioViewState* state) {
   lv_obj_t* area = lv_obj_create(page);
   if (area == nullptr) {
     return false;
@@ -4379,12 +4382,12 @@ bool CreateAddModuleActionArea(lv_obj_t* page, RfViewState* state) {
  * @param state 射频页面状态
  * @return 显示成功返回 true，否则返回 false
  */
-bool ShowAddModulePage(RfViewState* state) {
+bool ShowAddModulePage(RadioViewState* state) {
   if (state == nullptr || state->root == nullptr) {
     return false;
   }
   if (state->editing_index >= state->module_count &&
-      state->module_count >= kRfModuleCapacity) {
+      state->module_count >= kRadioModuleCapacity) {
     return false;
   }
   if (state->add_page != nullptr) {
@@ -4394,9 +4397,9 @@ bool ShowAddModulePage(RfViewState* state) {
   state->selected_add_chip = 0;
   state->selected_add_protocol = 0;
   const bool editing = state->editing_index < state->module_count;
-  const app::RfProfile profile = editing
+  const app::RadioProfile profile = editing
       ? state->preferences.profiles[state->editing_index]
-      : app::RfProfile{};
+      : app::RadioProfile{};
   state->selected_add_sf = editing
       ? std::clamp(static_cast<int>(profile.spreading_factor) - 5, 0, 7)
       : kDefaultSpreadingFactorIndex;
@@ -4524,7 +4527,7 @@ bool ShowAddModulePage(RfViewState* state) {
   return true;
 }
 
-bool ShowModuleSettings(RfViewState* state, size_t index,
+bool ShowModuleSettings(RadioViewState* state, size_t index,
     bool from_detail) {
   if (state == nullptr || index >= state->module_count) {
     return false;
@@ -4542,10 +4545,10 @@ bool ShowModuleSettings(RfViewState* state, size_t index,
  */
 void AddButtonClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
-    auto* state = static_cast<RfViewState*>(
+    auto* state = static_cast<RadioViewState*>(
         lv_event_get_user_data(event));
     if (state != nullptr) {
-      state->editing_index = kRfModuleCapacity;
+      state->editing_index = kRadioModuleCapacity;
       ShowAddModulePage(state);
     }
   }
@@ -4598,13 +4601,13 @@ bool CreateLargeAddIcon(lv_obj_t* parent) {
  * @param state 射频页面状态
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateAddButton(lv_obj_t* parent, RfViewState* state) {
+bool CreateAddButton(lv_obj_t* parent, RadioViewState* state) {
   lv_obj_t* button = lv_button_create(parent);
   if (button == nullptr) {
     return false;
   }
   state->add_button = button;
-  if (state->module_count >= kRfModuleCapacity) {
+  if (state->module_count >= kRadioModuleCapacity) {
     lv_obj_add_flag(button, LV_OBJ_FLAG_HIDDEN);
   }
   lv_obj_set_size(button, 96, 96);
@@ -4631,22 +4634,22 @@ bool CreateAddButton(lv_obj_t* parent, RfViewState* state) {
 
 }  // namespace
 
-lv_obj_t* CreateRfView(lv_obj_t* parent, const app::AppEntry& app_entry,
+lv_obj_t* CreateRadioView(lv_obj_t* parent, const app::AppEntry& app_entry,
     const AppViewConfig& config) {
   if (parent == nullptr || app_entry.id == nullptr ||
       config.width <= 0 || config.height <= 0) {
     return nullptr;
   }
-  auto* state = new RfViewState{};
+  auto* state = new RadioViewState{};
   state->config = config;
-  if (config.rf != nullptr) {
-    if (config.rf->ReadRfCapabilities(&state->capabilities)) {
+  if (config.radio != nullptr) {
+    if (config.radio->ReadRadioCapabilities(&state->capabilities)) {
       state->capabilities.count = std::min(
-          state->capabilities.count, hal::kRfCapabilityCapacity);
+          state->capabilities.count, hal::kRadioCapabilityCapacity);
     }
   }
-  app::GetRfPreferences(&state->preferences);
-  app::RfChatRepository& chat_repository = app::GetRfChatRepository();
+  app::GetRadioPreferences(&state->preferences);
+  app::RadioChatRepository& chat_repository = app::GetRadioChatRepository();
   chat_repository.Initialize();
   chat_repository.TouchProfile(state->preferences.active_profile_id);
   if (!LoadCurrentChatProfiles(state)) {
@@ -4654,11 +4657,11 @@ lv_obj_t* CreateRfView(lv_obj_t* parent, const app::AppEntry& app_entry,
   }
   const size_t active_index = FindProfileIndex(
       state, state->preferences.active_profile_id);
-  if (config.rf != nullptr && active_index < state->module_count &&
+  if (config.radio != nullptr && active_index < state->module_count &&
       IsProfileSupported(
           state, state->preferences.profiles[active_index])) {
     state->last_activation_retry_tick = lv_tick_get();
-    config.rf->ActivateRf(ToRadioConfig(
+    config.radio->ActivateRadio(ToRadioConfig(
         state->preferences.profiles[active_index]));
   }
   lv_obj_t* root = lv_obj_create(parent);
@@ -4676,7 +4679,7 @@ lv_obj_t* CreateRfView(lv_obj_t* parent, const app::AppEntry& app_entry,
   lv_obj_set_style_border_width(root, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(root, 0, LV_PART_MAIN);
   lv_obj_add_event_cb(
-      root, RfViewDeleteEventCallback, LV_EVENT_DELETE, state);
+      root, RadioViewDeleteEventCallback, LV_EVENT_DELETE, state);
   AddEdgeBackSwipeEvents(root, SelectionEdgeBackEventCallback, state);
   if (config.set_status_bar_visible) {
     config.set_status_bar_visible(true);

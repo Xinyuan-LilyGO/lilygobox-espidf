@@ -13,13 +13,13 @@
 #include <memory>
 #include <new>
 
-#include "app/rf_chat_repository.h"
+#include "app/radio_chat_repository.h"
 #include "app/storage/display_storage.h"
 #include "app/storage/first_boot_storage.h"
 #include "app/storage/haptic_storage.h"
 #include "app/storage/littlefs_storage.h"
 #include "app/storage/music_storage.h"
-#include "app/storage/rf_storage.h"
+#include "app/storage/radio_storage.h"
 #include "app/storage/sound_storage.h"
 #include "app/storage/storage_internal.h"
 #include "app/storage/wifi_storage.h"
@@ -48,7 +48,7 @@ constexpr StorageBackend kStorageBackends[] = {
     {StageFirstBootStorage, FinishFirstBootStorage},
     {StageHapticStorage, FinishHapticStorage},
     {StageMusicStorage, FinishMusicStorage},
-    {StageRfStorage, FinishRfStorage},
+    {StageRadioStorage, FinishRadioStorage},
     {StageSoundStorage, FinishSoundStorage},
     {StageWifiPreferencesStorage, FinishWifiPreferencesStorage},
     {StageWifiSavedNetworksStorage, FinishWifiSavedNetworksStorage},
@@ -158,36 +158,36 @@ bool FlushStoragePass() {
 }
 
 /**
- * @brief 在启动阶段将现有 RF 配置的 LittleFS 聊天记录预载到 RAM
+ * @brief 在启动阶段将现有 Radio 配置的 LittleFS 聊天记录预载到 RAM
  */
-void InitRfChatCache() {
-  RfChatRepository& repository = GetRfChatRepository();
+void InitRadioChatCache() {
+  RadioChatRepository& repository = GetRadioChatRepository();
   if (!repository.Initialize()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Initialize RF chat cache failed\n");
+        "Initialize Radio chat cache failed\n");
     return;
   }
 
-  auto preferences = std::unique_ptr<RfPreferences>(
-      new (std::nothrow) RfPreferences{});
-  if (preferences == nullptr || !GetRfPreferences(preferences.get())) {
+  auto preferences = std::unique_ptr<RadioPreferences>(
+      new (std::nothrow) RadioPreferences{});
+  if (preferences == nullptr || !GetRadioPreferences(preferences.get())) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Read RF preferences for chat cache failed\n");
+        "Read Radio preferences for chat cache failed\n");
     return;
   }
 
-  std::array<uint32_t, kRfProfileCapacity> profile_ids = {};
+  std::array<uint32_t, kRadioProfileCapacity> profile_ids = {};
   for (size_t index = 0; index < preferences->profile_count; ++index) {
     profile_ids[index] = preferences->profiles[index].id;
   }
   if (!repository.LoadProfiles(
           profile_ids.data(), preferences->profile_count)) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Preload RF chat history failed\n");
+        "Preload Radio chat history failed\n");
     return;
   }
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-      "RF chat cache loaded: profiles=%u, records=%u\n",
+      "Radio chat cache loaded: profiles=%u, records=%u\n",
       static_cast<unsigned>(preferences->profile_count),
       static_cast<unsigned>(repository.GetCachedMessageCount()));
 }
@@ -231,13 +231,13 @@ void InitStorage() {
   InitFirstBootCache();
   InitHapticCache();
   InitMusicCache();
-  InitRfCache();
+  InitRadioCache();
   InitSoundCache();
   InitWifiCache();
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
       "NVS caches loaded: domains=%u, status=ready\n",
       static_cast<unsigned>(kStorageDomainCount));
-  InitRfChatCache();
+  InitRadioChatCache();
 }
 
 bool HasPendingStorageWrites() {
@@ -246,7 +246,7 @@ bool HasPendingStorageWrites() {
     StorageCacheLock lock;
     nvs_dirty = lock.IsLocked() && g_dirty_domains != 0;
   }
-  return nvs_dirty || GetRfChatRepository().HasPendingWrites();
+  return nvs_dirty || GetRadioChatRepository().HasPendingWrites();
 }
 
 bool FlushPendingStorageAfterScreenOff() {
@@ -265,7 +265,7 @@ bool FlushPendingStorageAfterScreenOff() {
     if (nvs_dirty) {
       FlushStoragePass();
     }
-    GetRfChatRepository().FlushPending(kRfChatGlobalCapacity);
+    GetRadioChatRepository().FlushPending(kRadioChatGlobalCapacity);
   }
   const bool complete = !HasPendingStorageWrites();
   xSemaphoreGive(g_storage_io_mutex);

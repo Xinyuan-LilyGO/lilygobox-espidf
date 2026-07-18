@@ -25,7 +25,7 @@ struct DeviceProviderContext {
   BmuProvider* bmu = nullptr;
   CameraProvider* camera = nullptr;
   RtcProvider* rtc = nullptr;
-  RfProvider* rf = nullptr;
+  RadioProvider* radio = nullptr;
   EthernetProvider* ethernet = nullptr;
   WifiProvider* wifi = nullptr;
   StorageProvider* storage = nullptr;

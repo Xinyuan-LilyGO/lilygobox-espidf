@@ -11,13 +11,13 @@
 #define LV_ATTRIBUTE_MEM_ALIGN
 #endif
 
-#ifndef LV_ATTRIBUTE_IMAGE_RF_INNER_ICON_68X68
-#define LV_ATTRIBUTE_IMAGE_RF_INNER_ICON_68X68
+#ifndef LV_ATTRIBUTE_IMAGE_RADIO_INNER_ICON_68X68
+#define LV_ATTRIBUTE_IMAGE_RADIO_INNER_ICON_68X68
 #endif
 
 static const LV_ATTRIBUTE_MEM_ALIGN LV_ATTRIBUTE_LARGE_CONST
-    LV_ATTRIBUTE_IMAGE_RF_INNER_ICON_68X68 uint8_t
-    rf_inner_icon_68x68_map[] = {
+    LV_ATTRIBUTE_IMAGE_RADIO_INNER_ICON_68X68 uint8_t
+    radio_inner_icon_68x68_map[] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -2332,13 +2332,13 @@ static const LV_ATTRIBUTE_MEM_ALIGN LV_ATTRIBUTE_LARGE_CONST
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 
-const lv_image_dsc_t rf_inner_icon_68x68 = {
+const lv_image_dsc_t radio_inner_icon_68x68 = {
     .header.magic = LV_IMAGE_HEADER_MAGIC,
     .header.cf = LV_COLOR_FORMAT_ARGB8888,
     .header.flags = 0,
     .header.w = 68,
     .header.h = 68,
     .header.stride = 272,
-    .data_size = sizeof(rf_inner_icon_68x68_map),
-    .data = rf_inner_icon_68x68_map,
+    .data_size = sizeof(radio_inner_icon_68x68_map),
+    .data = radio_inner_icon_68x68_map,
 };

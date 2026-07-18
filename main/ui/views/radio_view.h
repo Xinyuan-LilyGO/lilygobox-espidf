@@ -1,5 +1,5 @@
 /*
- * @Description: RF control app view
+ * @Description: Radio control app view
  * @Author: LILYGO_L
  * @Date: 2026-07-12 00:00:00
  * @LastEditTime: 2026-07-12 00:00:00
@@ -20,7 +20,7 @@ namespace lilygo_box::ui {
  * @param config 应用视图配置
  * @return 创建成功返回页面根对象，否则返回 nullptr
  */
-lv_obj_t* CreateRfView(lv_obj_t* parent, const app::AppEntry& app_entry,
+lv_obj_t* CreateRadioView(lv_obj_t* parent, const app::AppEntry& app_entry,
     const AppViewConfig& config);
 
 }  // namespace lilygo_box::ui

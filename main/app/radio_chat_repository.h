@@ -1,5 +1,5 @@
 /*
- * @Description: RF 聊天热缓存、会话摘要与 LittleFS 日志仓库
+ * @Description: Radio 聊天热缓存、会话摘要与 LittleFS 日志仓库
  * @Author: LILYGO_L
  * @Date: 2026-07-17 00:00:00
  * @LastEditTime: 2026-07-17 17:22:18
@@ -10,30 +10,30 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "app/storage/rf_storage.h"
+#include "app/storage/radio_storage.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
 namespace lilygo_box::app {
 
 // 单条聊天文本缓冲区容量，包含字符串结尾字符。
-inline constexpr size_t kRfChatTextCapacity = 511;
+inline constexpr size_t kRadioChatTextCapacity = 511;
 // 消息时间文本缓冲区容量，包含字符串结尾字符。
-inline constexpr size_t kRfChatTimeCapacity = 16;
-// RF 主页面最新消息摘要缓冲区容量。
-inline constexpr size_t kRfChatSummaryCapacity = 96;
-// 单个 RF 配置在热缓存中最多保留的消息数量。
-inline constexpr size_t kRfChatActiveProfileCapacity = 64;
+inline constexpr size_t kRadioChatTimeCapacity = 16;
+// Radio 主页面最新消息摘要缓冲区容量。
+inline constexpr size_t kRadioChatSummaryCapacity = 96;
+// 单个 Radio 配置在热缓存中最多保留的消息数量。
+inline constexpr size_t kRadioChatActiveProfileCapacity = 64;
 // 聊天页面单次渲染的最近消息数量。
-inline constexpr size_t kRfChatPageCapacity = 32;
+inline constexpr size_t kRadioChatPageCapacity = 32;
 // PSRAM 热缓存最多保留的消息总数。
-inline constexpr size_t kRfChatGlobalCapacity = 256;
+inline constexpr size_t kRadioChatGlobalCapacity = 256;
 // LittleFS 聊天日志最多保留的消息总数。
-inline constexpr size_t kRfChatStorageCapacity = 1024;
+inline constexpr size_t kRadioChatStorageCapacity = 1024;
 // 等待写入 LittleFS 的消息队列容量。
-inline constexpr size_t kRfChatPendingCapacity = 16;
+inline constexpr size_t kRadioChatPendingCapacity = 16;
 
-enum class RfChatDeliveryState : uint8_t {
+enum class RadioChatDeliveryState : uint8_t {
   // 从对端接收的消息。
   kReceived,
   // 正在等待射频发送结果的消息。
@@ -44,59 +44,59 @@ enum class RfChatDeliveryState : uint8_t {
   kFailed,
 };
 
-enum class RfChatMessageType : uint8_t {
+enum class RadioChatMessageType : uint8_t {
   // 用户发送或接收的普通消息。
   kUser,
-  // RF 配置变更等系统提示。
+  // Radio 配置变更等系统提示。
   kSystem,
 };
 
-struct RfChatMessage {
+struct RadioChatMessage {
   // 跨缓存和磁盘记录使用的消息唯一序号。
   uint64_t sequence = 0;
-  // 消息所属 RF 配置的稳定 ID。
+  // 消息所属 Radio 配置的稳定 ID。
   uint32_t profile_id = 0;
   // 聊天页面显示的消息正文。
-  char text[kRfChatTextCapacity] = {};
+  char text[kRadioChatTextCapacity] = {};
   // 消息产生时的本地时间文本。
-  char time[kRfChatTimeCapacity] = {};
+  char time[kRadioChatTimeCapacity] = {};
   // 消息内容类型。
-  RfChatMessageType type = RfChatMessageType::kUser;
+  RadioChatMessageType type = RadioChatMessageType::kUser;
   // 消息接收或发送状态。
-  RfChatDeliveryState delivery = RfChatDeliveryState::kReceived;
+  RadioChatDeliveryState delivery = RadioChatDeliveryState::kReceived;
   // 接收信号强度，发送消息和系统消息保持为 0。
   int8_t rssi_dbm = 0;
   // 接收信噪比，发送消息和系统消息保持为 0。
   int8_t snr_db = 0;
 };
 
-struct RfChatProfileSummary {
-  // 当前 RF 配置的最新消息摘要。
-  char latest_message[kRfChatSummaryCapacity] = {};
+struct RadioChatProfileSummary {
+  // 当前 Radio 配置的最新消息摘要。
+  char latest_message[kRadioChatSummaryCapacity] = {};
   // 最新消息的本地时间文本。
-  char latest_time[kRfChatTimeCapacity] = {};
-  // 当前 RF 配置尚未查看的消息数量。
+  char latest_time[kRadioChatTimeCapacity] = {};
+  // 当前 Radio 配置尚未查看的消息数量。
   uint16_t unread_count = 0;
 };
 
-class RfChatRepository final {
+class RadioChatRepository final {
  public:
-  RfChatRepository() = default;
-  ~RfChatRepository();
+  RadioChatRepository() = default;
+  ~RadioChatRepository();
 
-  RfChatRepository(const RfChatRepository&) = delete;
-  RfChatRepository& operator=(const RfChatRepository&) = delete;
+  RadioChatRepository(const RadioChatRepository&) = delete;
+  RadioChatRepository& operator=(const RadioChatRepository&) = delete;
 
   /**
-   * @brief 初始化 RF 聊天热缓存
+   * @brief 初始化 Radio 聊天热缓存
    * @return 热缓存可用时返回 true
    */
   bool Initialize();
 
   /**
-   * @brief 补载指定 RF 配置最近的 LittleFS 聊天记录
-   * @param profile_ids RF 配置 ID 数组
-   * @param profile_count RF 配置数量
+   * @brief 补载指定 Radio 配置最近的 LittleFS 聊天记录
+   * @param profile_ids Radio 配置 ID 数组
+   * @param profile_count Radio 配置数量
    * @return 所有可读取记录均处理完成时返回 true
    */
   bool LoadProfiles(const uint32_t* profile_ids, size_t profile_count);
@@ -106,7 +106,7 @@ class RfChatRepository final {
    * @param message 待追加消息
    * @return 分配给消息的稳定序号，失败返回 0
    */
-  uint64_t Append(RfChatMessage message);
+  uint64_t Append(RadioChatMessage message);
 
   /**
    * @brief 更新指定消息的发送状态
@@ -114,22 +114,22 @@ class RfChatRepository final {
    * @param delivery 新发送状态
    * @return 找到并更新消息时返回 true
    */
-  bool UpdateDelivery(uint64_t sequence, RfChatDeliveryState delivery);
+  bool UpdateDelivery(uint64_t sequence, RadioChatDeliveryState delivery);
 
   /**
    * @brief 将指定配置的全部等待发送消息标记为失败
-   * @param profile_id RF 配置 ID
+   * @param profile_id Radio 配置 ID
    */
   void FailPending(uint32_t profile_id);
 
   /**
    * @brief 获取指定配置最近消息的只读视图
-   * @param profile_id RF 配置 ID
+   * @param profile_id Radio 配置 ID
    * @param messages 消息指针输出数组
    * @param capacity 输出数组容量
    * @return 写入输出数组的消息数量
    */
-  size_t GetRecent(uint32_t profile_id, const RfChatMessage** messages,
+  size_t GetRecent(uint32_t profile_id, const RadioChatMessage** messages,
       size_t capacity) const;
 
   /**
@@ -140,42 +140,42 @@ class RfChatRepository final {
 
   /**
    * @brief 获取指定配置最早一条等待射频结果的消息
-   * @param profile_id RF 配置 ID
+   * @param profile_id Radio 配置 ID
    * @param message 消息副本输出
    * @return 存在等待消息时返回 true
    */
-  bool GetOldestPending(uint32_t profile_id, RfChatMessage* message) const;
+  bool GetOldestPending(uint32_t profile_id, RadioChatMessage* message) const;
 
   /**
    * @brief 获取指定配置的最新消息摘要与未读数量
-   * @param profile_id RF 配置 ID
+   * @param profile_id Radio 配置 ID
    * @param summary 摘要输出
    * @return 配置存在聊天状态时返回 true
    */
   bool GetProfileSummary(
-      uint32_t profile_id, RfChatProfileSummary* summary) const;
+      uint32_t profile_id, RadioChatProfileSummary* summary) const;
 
   /**
    * @brief 将指定配置标记为最近访问并提高其热缓存保留优先级
-   * @param profile_id RF 配置 ID
+   * @param profile_id Radio 配置 ID
    */
   void TouchProfile(uint32_t profile_id);
 
   /**
    * @brief 增加指定配置的未读数量
-   * @param profile_id RF 配置 ID
+   * @param profile_id Radio 配置 ID
    */
   void IncrementUnread(uint32_t profile_id);
 
   /**
    * @brief 清空指定配置的未读数量
-   * @param profile_id RF 配置 ID
+   * @param profile_id Radio 配置 ID
    */
   void MarkRead(uint32_t profile_id);
 
   /**
-   * @brief 删除指定 RF 配置的 RAM 与 LittleFS 聊天记录
-   * @param profile_id RF 配置 ID
+   * @brief 删除指定 Radio 配置的 RAM 与 LittleFS 聊天记录
+   * @param profile_id Radio 配置 ID
    */
   void RemoveProfile(uint32_t profile_id);
 
@@ -193,7 +193,7 @@ class RfChatRepository final {
   bool HasPendingWrites() const;
 
   /**
-   * @brief 生成当前 RF 聊天数据目录
+   * @brief 生成当前 Radio 聊天数据目录
    * @param output 路径输出缓冲区
    * @param output_size 输出缓冲区大小
    * @return 路径有效且未截断时返回 true
@@ -206,13 +206,13 @@ class RfChatRepository final {
   class ScopedLock;
 
   /**
-   * @brief 取得 RF 聊天仓库递归互斥锁
+   * @brief 取得 Radio 聊天仓库递归互斥锁
    * @return 成功取得互斥锁时返回 true
    */
   bool Lock() const;
 
   /**
-   * @brief 释放 RF 聊天仓库递归互斥锁
+   * @brief 释放 Radio 聊天仓库递归互斥锁
    */
   void Unlock() const;
 
@@ -223,15 +223,15 @@ class RfChatRepository final {
   bool InitializeCache();
 
   /**
-   * @brief 创建 RF 聊天数据目录
+   * @brief 创建 Radio 聊天数据目录
    * @return LittleFS 和完整目录均可用时返回 true
    */
   bool EnsureStorageDirectory();
 
   /**
-   * @brief 从 LittleFS 日志补载指定 RF 配置的最近聊天记录
-   * @param profile_ids RF 配置 ID 数组
-   * @param profile_count RF 配置数量
+   * @brief 从 LittleFS 日志补载指定 Radio 配置的最近聊天记录
+   * @param profile_ids Radio 配置 ID 数组
+   * @param profile_count Radio 配置数量
    * @return 文件不存在或可读记录均处理完成时返回 true
    */
   bool LoadLog(const uint32_t* profile_ids, size_t profile_count);
@@ -244,7 +244,7 @@ class RfChatRepository final {
   bool PersistEntry(Entry* entry);
 
   /**
-   * @brief 从聊天日志移除等待清理的 RF 配置记录
+   * @brief 从聊天日志移除等待清理的 Radio 配置记录
    * @return 所有等待记录均删除完成时返回 true
    */
   bool DeletePendingProfiles();
@@ -258,22 +258,22 @@ class RfChatRepository final {
 
   /**
    * @brief 按单配置容量和最近访问顺序选择写入位置
-   * @param profile_id 待写消息所属 RF 配置 ID
+   * @param profile_id 待写消息所属 Radio 配置 ID
    * @return 可写缓存条目，缓存不可用时返回 nullptr
    */
   Entry* SelectInsertionEntry(uint32_t profile_id);
 
   /**
-   * @brief 查找或创建指定 RF 配置的运行时状态
-   * @param profile_id RF 配置 ID
+   * @brief 查找或创建指定 Radio 配置的运行时状态
+   * @param profile_id Radio 配置 ID
    * @param create 未找到时是否创建状态
    * @return 找到或创建的状态，否则返回 nullptr
    */
   ProfileState* FindProfileState(uint32_t profile_id, bool create);
 
   /**
-   * @brief 查找指定 RF 配置的只读运行时状态
-   * @param profile_id RF 配置 ID
+   * @brief 查找指定 Radio 配置的只读运行时状态
+   * @param profile_id Radio 配置 ID
    * @return 找到时返回状态，否则返回 nullptr
    */
   const ProfileState* FindProfileState(uint32_t profile_id) const;
@@ -295,13 +295,13 @@ class RfChatRepository final {
   void RebuildPendingQueue();
 
   /**
-   * @brief 使用缓存中的最新消息刷新 RF 配置摘要
-   * @param profile_id RF 配置 ID
+   * @brief 使用缓存中的最新消息刷新 Radio 配置摘要
+   * @param profile_id Radio 配置 ID
    */
   void RefreshProfileSummary(uint32_t profile_id);
 
   /**
-   * @brief 生成 RF 聊天日志文件路径
+   * @brief 生成 Radio 聊天日志文件路径
    * @param output 路径输出缓冲区
    * @param output_size 输出缓冲区大小
    * @return 路径有效且未截断时返回 true
@@ -317,7 +317,7 @@ class RfChatRepository final {
 
   // 固定容量的消息热缓存，优先分配在 PSRAM。
   Entry* entries_ = nullptr;
-  // RF 配置的摘要、未读数和最近访问状态。
+  // Radio 配置的摘要、未读数和最近访问状态。
   ProfileState* profile_states_ = nullptr;
   // entries_ 的实际容量，PSRAM 失败时使用回退容量。
   size_t capacity_ = 0;
@@ -327,17 +327,17 @@ class RfChatRepository final {
   uint64_t next_sequence_ = 1;
   // 维护消息显示先后关系的运行时顺序计数器。
   uint64_t next_entry_order_ = 1;
-  // 维护 RF 配置最近访问顺序的计数器。
+  // 维护 Radio 配置最近访问顺序的计数器。
   uint64_t next_access_order_ = 1;
   // 等待写入 LittleFS 的消息序号环形队列。
-  uint64_t pending_sequences_[kRfChatPendingCapacity] = {};
+  uint64_t pending_sequences_[kRadioChatPendingCapacity] = {};
   // 环形队列首条消息的位置。
   size_t pending_head_ = 0;
   // 环形队列当前有效消息数量。
   size_t pending_count_ = 0;
-  // 等待从聊天日志删除的 RF 配置 ID。
-  uint32_t pending_delete_profile_ids_[kRfProfileCapacity] = {};
-  // 等待删除的 RF 配置数量。
+  // 等待从聊天日志删除的 Radio 配置 ID。
+  uint32_t pending_delete_profile_ids_[kRadioProfileCapacity] = {};
+  // 等待删除的 Radio 配置数量。
   size_t pending_delete_count_ = 0;
   // 当前聊天日志中已经确认的有效记录数量。
   size_t stored_record_count_ = 0;
@@ -352,9 +352,9 @@ class RfChatRepository final {
 };
 
 /**
- * @brief 获取应用进程内共享的 RF 聊天仓库
- * @return RF 聊天仓库引用
+ * @brief 获取应用进程内共享的 Radio 聊天仓库
+ * @return Radio 聊天仓库引用
  */
-RfChatRepository& GetRfChatRepository();
+RadioChatRepository& GetRadioChatRepository();
 
 }  // namespace lilygo_box::app

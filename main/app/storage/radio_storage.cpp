@@ -5,7 +5,7 @@
  * @LastEditTime: 2026-07-16 22:38:14
  * @License: GPL 3.0
  */
-#include "app/storage/rf_storage.h"
+#include "app/storage/radio_storage.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -22,25 +22,25 @@ namespace lilygo_box::app {
 namespace {
 
 constexpr const char* kNvsNamespace = "settings";
-constexpr const char* kNvsKey = "rf_profiles";
-constexpr uint32_t kMagic = 0x52465046;
+constexpr const char* kNvsKey = "radio_profiles";
+constexpr uint32_t kMagic = 0x52415046;
 
 struct Blob {
-  // 校验当前 NVS 数据是否属于 RF 配置。
+  // 校验当前 NVS 数据是否属于 Radio 配置。
   uint32_t magic = kMagic;
   // SX1262 LoRa 配置列表及唯一激活项。
-  RfPreferences preferences;
+  RadioPreferences preferences;
 };
 
-void ResetProfile(RfProfile* profile) {
+void ResetProfile(RadioProfile* profile) {
   if (profile == nullptr) {
     return;
   }
   profile->id = 0;
   std::fill(profile->name,
-      profile->name + kRfProfileNameCapacity, '\0');
-  profile->chip = rf::ChipType::kSx1262;
-  profile->protocol = rf::ProtocolType::kLora;
+      profile->name + kRadioProfileNameCapacity, '\0');
+  profile->chip = radio::ChipType::kSx1262;
+  profile->protocol = radio::ProtocolType::kLora;
   profile->frequency_hz = 915000000;
   profile->bandwidth_hz = 125000;
   profile->preamble_length = 8;
@@ -53,14 +53,14 @@ void ResetProfile(RfProfile* profile) {
   profile->rx_boosted = true;
 }
 
-void ResetPreferences(RfPreferences* preferences) {
+void ResetPreferences(RadioPreferences* preferences) {
   if (preferences == nullptr) {
     return;
   }
-  for (size_t index = 0; index < kRfProfileCapacity; ++index) {
+  for (size_t index = 0; index < kRadioProfileCapacity; ++index) {
     ResetProfile(&preferences->profiles[index]);
   }
-  RfProfile& profile = preferences->profiles[0];
+  RadioProfile& profile = preferences->profiles[0];
   profile.id = 1;
   std::snprintf(profile.name, sizeof(profile.name), "LoRa 915 MHz");
   preferences->profile_count = 1;
@@ -68,7 +68,7 @@ void ResetPreferences(RfPreferences* preferences) {
   preferences->next_profile_id = 2;
 }
 
-bool HasProfileId(const RfPreferences& preferences, uint32_t id) {
+bool HasProfileId(const RadioPreferences& preferences, uint32_t id) {
   for (size_t index = 0; index < preferences.profile_count; ++index) {
     if (preferences.profiles[index].id == id) {
       return true;
@@ -78,7 +78,7 @@ bool HasProfileId(const RfPreferences& preferences, uint32_t id) {
 }
 
 bool HasProfileIdBefore(
-    const RfPreferences& preferences, size_t end, uint32_t id) {
+    const RadioPreferences& preferences, size_t end, uint32_t id) {
   for (size_t index = 0; index < end; ++index) {
     if (preferences.profiles[index].id == id) {
       return true;
@@ -93,7 +93,7 @@ bool IsSupportedBandwidth(uint32_t bandwidth_hz) {
 }
 
 uint32_t NextUnusedProfileId(
-    const RfPreferences& preferences, size_t end, uint32_t start) {
+    const RadioPreferences& preferences, size_t end, uint32_t start) {
   uint32_t candidate = start == 0 ? 1 : start;
   while (HasProfileIdBefore(preferences, end, candidate)) {
     ++candidate;
@@ -105,31 +105,31 @@ uint32_t NextUnusedProfileId(
 }
 
 void NormalizeProfileName(char* name) {
-  name[kRfProfileNameCapacity - 1] = '\0';
+  name[kRadioProfileNameCapacity - 1] = '\0';
   size_t length = 0;
-  while (length < kRfProfileNameCapacity && name[length] != '\0') {
+  while (length < kRadioProfileNameCapacity && name[length] != '\0') {
     ++length;
   }
-  std::fill(name + length + 1, name + kRfProfileNameCapacity, '\0');
+  std::fill(name + length + 1, name + kRadioProfileNameCapacity, '\0');
 }
 
-void NormalizePreferences(RfPreferences* preferences) {
+void NormalizePreferences(RadioPreferences* preferences) {
   if (preferences == nullptr) {
     return;
   }
-  RfPreferences& result = *preferences;
-  result.profile_count = std::min(result.profile_count, kRfProfileCapacity);
+  RadioPreferences& result = *preferences;
+  result.profile_count = std::min(result.profile_count, kRadioProfileCapacity);
   uint32_t maximum_id = 0;
   for (size_t index = 0; index < result.profile_count; ++index) {
-    RfProfile& profile = result.profiles[index];
+    RadioProfile& profile = result.profiles[index];
     NormalizeProfileName(profile.name);
     if (profile.name[0] == '\0') {
       std::snprintf(profile.name, sizeof(profile.name),
-          "RF profile %u", static_cast<unsigned>(index + 1));
+          "Radio profile %u", static_cast<unsigned>(index + 1));
       NormalizeProfileName(profile.name);
     }
-    profile.chip = rf::ChipType::kSx1262;
-    profile.protocol = rf::ProtocolType::kLora;
+    profile.chip = radio::ChipType::kSx1262;
+    profile.protocol = radio::ProtocolType::kLora;
     if (profile.frequency_hz < 150000000 ||
         profile.frequency_hz > 960000000) {
       profile.frequency_hz = 915000000;
@@ -165,12 +165,12 @@ void NormalizePreferences(RfPreferences* preferences) {
   result.next_profile_id = NextUnusedProfileId(
       result, result.profile_count, next_start);
   for (size_t index = result.profile_count;
-       index < kRfProfileCapacity; ++index) {
+       index < kRadioProfileCapacity; ++index) {
     ResetProfile(&result.profiles[index]);
   }
 }
 
-bool RfProfileEqual(const RfProfile& left, const RfProfile& right) {
+bool RadioProfileEqual(const RadioProfile& left, const RadioProfile& right) {
   return left.id == right.id &&
       std::strcmp(left.name, right.name) == 0 &&
       left.chip == right.chip && left.protocol == right.protocol &&
@@ -186,15 +186,15 @@ bool RfProfileEqual(const RfProfile& left, const RfProfile& right) {
       left.rx_boosted == right.rx_boosted;
 }
 
-bool RfPreferencesEqual(
-    const RfPreferences& left, const RfPreferences& right) {
+bool RadioPreferencesEqual(
+    const RadioPreferences& left, const RadioPreferences& right) {
   if (left.profile_count != right.profile_count ||
       left.active_profile_id != right.active_profile_id ||
       left.next_profile_id != right.next_profile_id) {
     return false;
   }
   for (size_t index = 0; index < left.profile_count; ++index) {
-    if (!RfProfileEqual(left.profiles[index], right.profiles[index])) {
+    if (!RadioProfileEqual(left.profiles[index], right.profiles[index])) {
       return false;
     }
   }
@@ -203,25 +203,25 @@ bool RfPreferencesEqual(
 
 bool BlobEqual(const Blob& left, const Blob& right) {
   return left.magic == right.magic &&
-      RfPreferencesEqual(left.preferences, right.preferences);
+      RadioPreferencesEqual(left.preferences, right.preferences);
 }
 
-DeferredStorageCache<Blob> g_rf_cache(
-    StorageDomain::kRfProfiles, BlobEqual);
+DeferredStorageCache<Blob> g_radio_cache(
+    StorageDomain::kRadioProfiles, BlobEqual);
 
-void LogRfStorageError(const char* operation, esp_err_t error) {
+void LogRadioStorageError(const char* operation, esp_err_t error) {
   LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-      "RF profile NVS %s failed, error=%s\n", operation,
+      "Radio profile NVS %s failed, error=%s\n", operation,
       esp_err_to_name(error));
 }
 
 }  // namespace
 
-void InitRfCache() {
+void InitRadioCache() {
   auto blob = std::unique_ptr<Blob>(new (std::nothrow) Blob());
   if (blob == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Allocate RF profile initialization buffer failed\n");
+        "Allocate Radio profile initialization buffer failed\n");
     return;
   }
   ResetPreferences(&blob->preferences);
@@ -236,10 +236,10 @@ void InitRfCache() {
         blob->magic != kMagic) {
       if (result != ESP_ERR_NVS_NOT_FOUND) {
         if (result != ESP_OK) {
-          LogRfStorageError("load", result);
+          LogRadioStorageError("load", result);
         } else {
           LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-              "RF profile NVS blob is invalid\n");
+              "Radio profile NVS blob is invalid\n");
         }
       }
       blob->magic = kMagic;
@@ -248,21 +248,21 @@ void InitRfCache() {
       NormalizePreferences(&blob->preferences);
     }
   } else if (result != ESP_ERR_NVS_NOT_FOUND) {
-    LogRfStorageError("open", result);
+    LogRadioStorageError("open", result);
   }
 
-  if (!g_rf_cache.Initialize(*blob)) {
+  if (!g_radio_cache.Initialize(*blob)) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Initialize RF profile cache failed\n");
+        "Initialize Radio profile cache failed\n");
   }
 }
 
-bool GetRfPreferences(RfPreferences* preferences) {
+bool GetRadioPreferences(RadioPreferences* preferences) {
   if (preferences == nullptr) {
     return false;
   }
   auto blob = std::unique_ptr<Blob>(new (std::nothrow) Blob());
-  if (blob == nullptr || !g_rf_cache.Read(blob.get())) {
+  if (blob == nullptr || !g_radio_cache.Read(blob.get())) {
     ResetPreferences(preferences);
     return false;
   }
@@ -270,32 +270,32 @@ bool GetRfPreferences(RfPreferences* preferences) {
   return true;
 }
 
-bool UpdateRfPreferences(const RfPreferences& preferences) {
+bool UpdateRadioPreferences(const RadioPreferences& preferences) {
   auto blob = std::unique_ptr<Blob>(new (std::nothrow) Blob());
   if (blob == nullptr) {
     return false;
   }
   blob->preferences = preferences;
   NormalizePreferences(&blob->preferences);
-  return g_rf_cache.Update(*blob);
+  return g_radio_cache.Update(*blob);
 }
 
-StorageStageResult StageRfStorage(nvs_handle_t handle) {
+StorageStageResult StageRadioStorage(nvs_handle_t handle) {
   const Blob* blob = nullptr;
-  if (!g_rf_cache.BeginFlush(&blob)) {
+  if (!g_radio_cache.BeginFlush(&blob)) {
     return StorageStageResult::kClean;
   }
 
   const esp_err_t result = nvs_set_blob(handle, kNvsKey, blob, sizeof(*blob));
   if (result != ESP_OK) {
-    LogRfStorageError("stage", result);
+    LogRadioStorageError("stage", result);
     return StorageStageResult::kFailed;
   }
   return StorageStageResult::kStaged;
 }
 
-void FinishRfStorage(bool committed) {
-  g_rf_cache.FinishFlush(committed);
+void FinishRadioStorage(bool committed) {
+  g_radio_cache.FinishFlush(committed);
 }
 
 }  // namespace lilygo_box::app

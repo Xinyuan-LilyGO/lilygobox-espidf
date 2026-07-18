@@ -1,5 +1,5 @@
 /*
- * @Description: RF 芯片与协议公共类型
+ * @Description: Radio 芯片与协议公共类型
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
  * @LastEditTime: 2026-07-16 00:00:00
@@ -9,7 +9,7 @@
 
 #include <cstdint>
 
-namespace lilygo_box::rf {
+namespace lilygo_box::radio {
 
 enum class ChipType : uint8_t {
   kUnknown = 0,
@@ -21,4 +21,4 @@ enum class ProtocolType : uint8_t {
   kLora = 1,
 };
 
-}  // namespace lilygo_box::rf
+}  // namespace lilygo_box::radio

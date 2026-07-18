@@ -33,7 +33,7 @@ class HapticProvider;
 class ImuProvider;
 class LvglPort;
 class RtcProvider;
-class RfProvider;
+class RadioProvider;
 class WifiProvider;
 class StorageProvider;
 }  // namespace lilygo_box::hal
@@ -71,7 +71,7 @@ class UiManager final {
       hal::BmuProvider* bmu,
       hal::CameraProvider* camera,
       hal::RtcProvider* rtc,
-      hal::RfProvider* rf,
+      hal::RadioProvider* radio,
       hal::ImuProvider* imu,
       hal::EthernetProvider* ethernet,
       hal::WifiProvider* wifi,
@@ -468,7 +468,7 @@ class UiManager final {
   hal::BmuProvider* bmu_provider_ = nullptr;
   hal::CameraProvider* camera_provider_ = nullptr;
   hal::RtcProvider* rtc_provider_ = nullptr;
-  hal::RfProvider* rf_provider_ = nullptr;
+  hal::RadioProvider* radio_provider_ = nullptr;
   hal::ImuProvider* imu_provider_ = nullptr;
   hal::EthernetProvider* ethernet_provider_ = nullptr;
   hal::WifiProvider* wifi_provider_ = nullptr;

@@ -31,7 +31,7 @@ class HapticProvider;
 class ImuProvider;
 class LvglPort;
 class RtcProvider;
-class RfProvider;
+class RadioProvider;
 class ScreenProvider;
 class StorageProvider;
 class WifiProvider;
@@ -66,7 +66,7 @@ struct AppViewConfig {
   // 实时时钟状态提供者。
   hal::RtcProvider* rtc = nullptr;
   // SX1262 LoRa 状态、配置与收发提供者。
-  hal::RfProvider* rf = nullptr;
+  hal::RadioProvider* radio = nullptr;
   // 姿态传感器状态提供者。
   hal::ImuProvider* imu = nullptr;
   // 以太网状态和控制提供者。

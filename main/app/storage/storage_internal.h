@@ -2,7 +2,7 @@
  * @Description: 延迟 NVS 持久化内部协调接口
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
- * @LastEditTime: 2026-07-16 00:00:00
+ * @LastEditTime: 2026-07-18 00:00:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -18,7 +18,7 @@ enum class StorageDomain : uint8_t {
   kFirstBoot,
   kHaptic,
   kMusicSources,
-  kRfProfiles,
+  kRadioProfiles,
   kSound,
   kWifiPreferences,
   kWifiSavedNetworks,
@@ -186,21 +186,108 @@ class DeferredStorageCache final {
   bool flush_pending_ = false;
 };
 
+/**
+ * @brief 将显示偏好脏快照暂存到当前 NVS 事务
+ * @param handle 已打开的共享 NVS 句柄
+ * @return 无修改、暂存成功或暂存失败
+ */
 StorageStageResult StageDisplayStorage(nvs_handle_t handle);
+
+/**
+ * @brief 根据 NVS 事务提交结果结束显示偏好快照
+ * @param committed 事务是否提交成功
+ */
 void FinishDisplayStorage(bool committed);
+
+/**
+ * @brief 将首次开机状态脏快照暂存到当前 NVS 事务
+ * @param handle 已打开的共享 NVS 句柄
+ * @return 无修改、暂存成功或暂存失败
+ */
 StorageStageResult StageFirstBootStorage(nvs_handle_t handle);
+
+/**
+ * @brief 根据 NVS 事务提交结果结束首次开机状态快照
+ * @param committed 事务是否提交成功
+ */
 void FinishFirstBootStorage(bool committed);
+
+/**
+ * @brief 将振动偏好脏快照暂存到当前 NVS 事务
+ * @param handle 已打开的共享 NVS 句柄
+ * @return 无修改、暂存成功或暂存失败
+ */
 StorageStageResult StageHapticStorage(nvs_handle_t handle);
+
+/**
+ * @brief 根据 NVS 事务提交结果结束振动偏好快照
+ * @param committed 事务是否提交成功
+ */
 void FinishHapticStorage(bool committed);
+
+/**
+ * @brief 将音乐源偏好脏快照暂存到当前 NVS 事务
+ * @param handle 已打开的共享 NVS 句柄
+ * @return 无修改、暂存成功或暂存失败
+ */
 StorageStageResult StageMusicStorage(nvs_handle_t handle);
+
+/**
+ * @brief 根据 NVS 事务提交结果结束音乐源偏好快照
+ * @param committed 事务是否提交成功
+ */
 void FinishMusicStorage(bool committed);
-StorageStageResult StageRfStorage(nvs_handle_t handle);
-void FinishRfStorage(bool committed);
+
+/**
+ * @brief 将 Radio 配置脏快照暂存到当前 NVS 事务
+ * @param handle 已打开的共享 NVS 句柄
+ * @return 无修改、暂存成功或暂存失败
+ */
+StorageStageResult StageRadioStorage(nvs_handle_t handle);
+
+/**
+ * @brief 根据 NVS 事务提交结果结束 Radio 配置快照
+ * @param committed 事务是否提交成功
+ */
+void FinishRadioStorage(bool committed);
+
+/**
+ * @brief 将声音偏好脏快照暂存到当前 NVS 事务
+ * @param handle 已打开的共享 NVS 句柄
+ * @return 无修改、暂存成功或暂存失败
+ */
 StorageStageResult StageSoundStorage(nvs_handle_t handle);
+
+/**
+ * @brief 根据 NVS 事务提交结果结束声音偏好快照
+ * @param committed 事务是否提交成功
+ */
 void FinishSoundStorage(bool committed);
+
+/**
+ * @brief 将 WLAN 偏好脏快照暂存到当前 NVS 事务
+ * @param handle 已打开的共享 NVS 句柄
+ * @return 无修改、暂存成功或暂存失败
+ */
 StorageStageResult StageWifiPreferencesStorage(nvs_handle_t handle);
+
+/**
+ * @brief 根据 NVS 事务提交结果结束 WLAN 偏好快照
+ * @param committed 事务是否提交成功
+ */
 void FinishWifiPreferencesStorage(bool committed);
+
+/**
+ * @brief 将已保存 WLAN 凭据脏快照暂存到当前 NVS 事务
+ * @param handle 已打开的共享 NVS 句柄
+ * @return 无修改、暂存成功或暂存失败
+ */
 StorageStageResult StageWifiSavedNetworksStorage(nvs_handle_t handle);
+
+/**
+ * @brief 根据 NVS 事务提交结果结束已保存 WLAN 凭据快照
+ * @param committed 事务是否提交成功
+ */
 void FinishWifiSavedNetworksStorage(bool committed);
 
 }  // namespace lilygo_box::app

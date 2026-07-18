@@ -10,20 +10,20 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "base/rf_types.h"
+#include "base/radio_types.h"
 
 namespace lilygo_box::hal {
 
-inline constexpr size_t kRfPayloadCapacity = 255;
-inline constexpr size_t kRfCapabilityCapacity = 8;
+inline constexpr size_t kRadioPayloadCapacity = 255;
+inline constexpr size_t kRadioCapabilityCapacity = 8;
 
-enum class RfLinkState {
+enum class RadioLinkState {
   kInactive,
   kActive,
   kChipError,
 };
 
-enum class RfEventType {
+enum class RadioEventType {
   kNone,
   kPacketReceived,
   kTransmitComplete,
@@ -31,7 +31,7 @@ enum class RfEventType {
   kChipError,
 };
 
-enum class RfFailureReason : uint8_t {
+enum class RadioFailureReason : uint8_t {
   // 当前事件没有错误。
   kNone,
   // 射频硬件未初始化或已离线。
@@ -71,37 +71,37 @@ struct LoraRadioConfig {
   bool rx_boosted = true;
 };
 
-struct RfRadioConfig {
-  // RF 配置的稳定 ID，用于关联异步事件。
+struct RadioConfig {
+  // Radio 配置的稳定 ID，用于关联异步事件。
   uint32_t client_token = 0;
   // 当前配置使用的物理射频芯片。
-  rf::ChipType chip = rf::ChipType::kUnknown;
+  radio::ChipType chip = radio::ChipType::kUnknown;
   // 当前配置使用的空中协议。
-  rf::ProtocolType protocol = rf::ProtocolType::kUnknown;
+  radio::ProtocolType protocol = radio::ProtocolType::kUnknown;
   // LoRa 协议参数。
   LoraRadioConfig lora;
 };
 
-struct RfCapability {
+struct RadioCapability {
   // 当前能力项对应的物理射频芯片。
-  rf::ChipType chip = rf::ChipType::kUnknown;
+  radio::ChipType chip = radio::ChipType::kUnknown;
   // 当前能力项支持的空中协议。
-  rf::ProtocolType protocol = rf::ProtocolType::kUnknown;
+  radio::ProtocolType protocol = radio::ProtocolType::kUnknown;
   // 当前芯片和协议组合允许的最大负载长度。
   size_t maximum_payload_size = 0;
 };
 
-struct RfCapabilities {
+struct RadioCapabilities {
   // 当前设备支持的射频芯片和协议组合。
-  RfCapability entries[kRfCapabilityCapacity] = {};
+  RadioCapability entries[kRadioCapabilityCapacity] = {};
   // entries 数组中的有效能力项数量。
   size_t count = 0;
 };
 
-struct RfStatus {
+struct RadioStatus {
   // 当前射频会话状态。
-  RfLinkState state = RfLinkState::kInactive;
-  // 当前激活 RF 配置的稳定 ID。
+  RadioLinkState state = RadioLinkState::kInactive;
+  // 当前激活 Radio 配置的稳定 ID。
   uint32_t active_client_token = 0;
   // SX1262 驱动是否可用。
   bool hardware_ready = false;
@@ -109,17 +109,17 @@ struct RfStatus {
   bool transmitting = false;
 };
 
-struct RfEvent {
+struct RadioEvent {
   // 本次轮询得到的事件类型。
-  RfEventType type = RfEventType::kNone;
-  // 事件所属 RF 配置的稳定 ID。
+  RadioEventType type = RadioEventType::kNone;
+  // 事件所属 Radio 配置的稳定 ID。
   uint32_t client_token = 0;
   // 发送请求对应的消息唯一序号，接收事件保持为 0。
   uint64_t request_token = 0;
   // 发送失败或芯片错误的具体原因。
-  RfFailureReason failure_reason = RfFailureReason::kNone;
+  RadioFailureReason failure_reason = RadioFailureReason::kNone;
   // 接收事件的数据负载。
-  uint8_t payload[kRfPayloadCapacity] = {};
+  uint8_t payload[kRadioPayloadCapacity] = {};
   // 接收数据负载的有效长度。
   size_t payload_size = 0;
   // 接收数据包的信号强度。
@@ -128,29 +128,29 @@ struct RfEvent {
   int8_t snr_db = 0;
 };
 
-class RfProvider {
+class RadioProvider {
  public:
-  virtual ~RfProvider() = default;
+  virtual ~RadioProvider() = default;
 
   /**
    * @brief 读取当前设备支持的射频芯片、协议和负载能力
    * @param capabilities 射频能力输出地址
    * @return 能力信息读取成功时返回 true
    */
-  virtual bool ReadRfCapabilities(RfCapabilities* capabilities) = 0;
+  virtual bool ReadRadioCapabilities(RadioCapabilities* capabilities) = 0;
 
   /**
    * @brief 配置并激活指定射频会话，同时进入接收状态
    * @param config 待激活的射频配置
    * @return 配置成功且接收已启动时返回 true
    */
-  virtual bool ActivateRf(const RfRadioConfig& config) = 0;
+  virtual bool ActivateRadio(const RadioConfig& config) = 0;
 
   /**
    * @brief 停止当前射频会话并将射频芯片切换到待机状态
    * @return 停止成功或射频硬件无需处理时返回 true
    */
-  virtual bool DeactivateRf() = 0;
+  virtual bool DeactivateRadio() = 0;
 
   /**
    * @brief 启动一条可与异步完成事件准确关联的射频发送
@@ -159,7 +159,7 @@ class RfProvider {
    * @param request_token 调用方提供的发送请求唯一序号
    * @return 发送命令成功启动时返回 true
    */
-  virtual bool SendRf(
+  virtual bool SendRadio(
       const uint8_t* data, size_t size, uint64_t request_token) = 0;
 
   /**
@@ -167,14 +167,14 @@ class RfProvider {
    * @param event 射频事件输出地址，无事件时类型保持为 kNone
    * @return 轮询及必要的硬件状态处理成功时返回 true
    */
-  virtual bool PollRfEvent(RfEvent* event) = 0;
+  virtual bool PollRadioEvent(RadioEvent* event) = 0;
 
   /**
    * @brief 读取当前射频会话、硬件和发送状态
    * @param status 射频状态输出地址
    * @return 状态读取成功时返回 true
    */
-  virtual bool ReadRfStatus(RfStatus* status) = 0;
+  virtual bool ReadRadioStatus(RadioStatus* status) = 0;
 };
 
 }  // namespace lilygo_box::hal

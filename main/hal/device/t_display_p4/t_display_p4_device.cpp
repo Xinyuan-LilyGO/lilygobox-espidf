@@ -86,9 +86,9 @@ constexpr uint32_t kCameraFrameIntervalMs = 10;
 constexpr uint32_t kCameraStopWaitTimeoutMs = 5000;
 constexpr uint32_t kCameraOutputClearFrameCount = 3;
 // LoRa 发送硬件超时的最小值和额外保护时间。
-constexpr uint32_t kMinimumRfTransmitTimeoutMs = 1000;
-constexpr uint32_t kRfTransmitTimeoutMarginMs = 500;
-constexpr uint32_t kRfTransmitWatchdogGraceMs = 1000;
+constexpr uint32_t kMinimumRadioTransmitTimeoutMs = 1000;
+constexpr uint32_t kRadioTransmitTimeoutMarginMs = 500;
+constexpr uint32_t kRadioTransmitWatchdogGraceMs = 1000;
 constexpr float kRadiansToDegrees = 57.2957795F;
 constexpr const char* kCameraDeviceName = ESP_VIDEO_MIPI_CSI_DEVICE_NAME;
 constexpr size_t kGpsMaxReadBufferBytes = 4096;
@@ -110,15 +110,15 @@ constexpr const char* kWifiSntpServer = "pool.ntp.org";
 constexpr int kWifiMaxReconnectCount = 8;
 constexpr int64_t kWifiValidUnixTimeThreshold = 1700000000LL;
 constexpr uint32_t kWifiSntpSyncIntervalMs = 20 * 1000;
-constexpr size_t kRfIrqTextCapacity = 160;
+constexpr size_t kRadioIrqTextCapacity = 160;
 
 // SX1262 IRQ 位与日志名称映射。
-struct RfIrqDescription {
+struct RadioIrqDescription {
   uint16_t mask;
   const char* name;
 };
 
-constexpr std::array<RfIrqDescription, 10> kRfIrqDescriptions = {{
+constexpr std::array<RadioIrqDescription, 10> kRadioIrqDescriptions = {{
     {static_cast<uint16_t>(SX126X_IRQ_TX_DONE), "TX_DONE"},
     {static_cast<uint16_t>(SX126X_IRQ_RX_DONE), "RX_DONE"},
     {static_cast<uint16_t>(SX126X_IRQ_PREAMBLE_DETECTED),
@@ -138,7 +138,7 @@ constexpr std::array<RfIrqDescription, 10> kRfIrqDescriptions = {{
  * @param output 输出文本缓冲区
  * @param output_size 输出文本缓冲区大小
  */
-void FormatRfIrqMask(uint16_t irq_mask, char* output, size_t output_size) {
+void FormatRadioIrqMask(uint16_t irq_mask, char* output, size_t output_size) {
   if (output == nullptr || output_size == 0) {
     return;
   }
@@ -159,7 +159,7 @@ void FormatRfIrqMask(uint16_t irq_mask, char* output, size_t output_size) {
   };
 
   uint16_t unknown_mask = irq_mask;
-  for (const RfIrqDescription& description : kRfIrqDescriptions) {
+  for (const RadioIrqDescription& description : kRadioIrqDescriptions) {
     if ((irq_mask & description.mask) == 0) {
       continue;
     }
@@ -452,9 +452,9 @@ bool CalculateLoraTransmitTiming(const LoraRadioConfig& config,
     return false;
   }
   const uint32_t margin_ms =
-      std::max(kRfTransmitTimeoutMarginMs, time_on_air_ms / 4);
+      std::max(kRadioTransmitTimeoutMarginMs, time_on_air_ms / 4);
   const uint64_t requested_timeout_ms =
-      std::max<uint64_t>(kMinimumRfTransmitTimeoutMs,
+      std::max<uint64_t>(kMinimumRadioTransmitTimeoutMs,
           static_cast<uint64_t>(time_on_air_ms) + margin_ms);
   *timing = LoraTransmitTiming{};
   timing->time_on_air_ms = time_on_air_ms;
@@ -463,7 +463,7 @@ bool CalculateLoraTransmitTiming(const LoraRadioConfig& config,
           ? static_cast<uint32_t>(requested_timeout_ms)
           : 0;
   timing->watchdog_timeout_ms = static_cast<uint32_t>(std::min<uint64_t>(
-      requested_timeout_ms + kRfTransmitWatchdogGraceMs, UINT32_MAX));
+      requested_timeout_ms + kRadioTransmitWatchdogGraceMs, UINT32_MAX));
   return true;
 }
 
@@ -3398,31 +3398,31 @@ bool TDisplayP4Device::ReadRtcStatus(RtcStatus* status) {
   return true;
 }
 
-bool TDisplayP4Device::ReadRfCapabilities(RfCapabilities* capabilities) {
+bool TDisplayP4Device::ReadRadioCapabilities(RadioCapabilities* capabilities) {
   if (capabilities == nullptr) {
     return false;
   }
-  *capabilities = RfCapabilities();
+  *capabilities = RadioCapabilities();
   capabilities->entries[0] = {
-      .chip = rf::ChipType::kSx1262,
-      .protocol = rf::ProtocolType::kLora,
-      .maximum_payload_size = kRfPayloadCapacity,
+      .chip = radio::ChipType::kSx1262,
+      .protocol = radio::ProtocolType::kLora,
+      .maximum_payload_size = kRadioPayloadCapacity,
   };
   capabilities->count = 1;
   return true;
 }
 
-bool TDisplayP4Device::ActivateRf(const RfRadioConfig& config) {
+bool TDisplayP4Device::ActivateRadio(const RadioConfig& config) {
   if (radio_.mutex == nullptr ||
       xSemaphoreTake(radio_.mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "RF activate failed: mutex unavailable, profile=%lu\n",
+        "Radio activate failed: mutex unavailable, profile=%lu\n",
         static_cast<unsigned long>(config.client_token));
     return false;
   }
   usp_cpp_bus_driver::Sx126x::LoraConfig driver_config;
-  bool result = config.chip == rf::ChipType::kSx1262 &&
-                config.protocol == rf::ProtocolType::kLora &&
+  bool result = config.chip == radio::ChipType::kSx1262 &&
+                config.protocol == radio::ProtocolType::kLora &&
                 BuildSx1262Config(config.lora, &driver_config);
   if (result && driver_.IsSx1262Ready()) {
     auto* radio = driver_.chip().sx1262.get();
@@ -3440,7 +3440,7 @@ bool TDisplayP4Device::ActivateRf(const RfRadioConfig& config) {
   radio_.lora_config = config.lora;
   xSemaphoreGive(radio_.mutex);
   LogMessage(result ? LogLevel::kDebug : LogLevel::kError, __FILE__, __LINE__,
-      "RF activate %s: profile=%lu, frequency=%lu Hz, SF=%u, "
+      "Radio activate %s: profile=%lu, frequency=%lu Hz, SF=%u, "
       "bandwidth=%lu Hz\n",
       result ? "succeeded" : "failed",
       static_cast<unsigned long>(config.client_token),
@@ -3450,11 +3450,11 @@ bool TDisplayP4Device::ActivateRf(const RfRadioConfig& config) {
   return result;
 }
 
-bool TDisplayP4Device::DeactivateRf() {
+bool TDisplayP4Device::DeactivateRadio() {
   if (radio_.mutex == nullptr ||
       xSemaphoreTake(radio_.mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "RF deactivate failed: mutex unavailable\n");
+        "Radio deactivate failed: mutex unavailable\n");
     return false;
   }
   bool result = true;
@@ -3473,16 +3473,16 @@ bool TDisplayP4Device::DeactivateRf() {
   radio_.transmit_deadline_us = 0;
   xSemaphoreGive(radio_.mutex);
   LogMessage(result ? LogLevel::kInfo : LogLevel::kError, __FILE__, __LINE__,
-      "RF deactivate %s\n", result ? "succeeded" : "failed");
+      "Radio deactivate %s\n", result ? "succeeded" : "failed");
   return result;
 }
 
-bool TDisplayP4Device::SendRf(
+bool TDisplayP4Device::SendRadio(
     const uint8_t* data, size_t size, uint64_t request_token) {
-  if (data == nullptr || size == 0 || size > kRfPayloadCapacity ||
+  if (data == nullptr || size == 0 || size > kRadioPayloadCapacity ||
       request_token == 0) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "RF send rejected: invalid request, message=%lu, size=%u bytes\n",
+        "Radio send rejected: invalid request, message=%lu, size=%u bytes\n",
         static_cast<unsigned long>(static_cast<uint32_t>(request_token)),
         static_cast<unsigned>(size));
     return false;
@@ -3490,13 +3490,13 @@ bool TDisplayP4Device::SendRf(
   if (radio_.mutex == nullptr ||
       xSemaphoreTake(radio_.mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "RF send rejected: radio is busy, message=%lu\n",
+        "Radio send rejected: radio is busy, message=%lu\n",
         static_cast<unsigned long>(static_cast<uint32_t>(request_token)));
     return false;
   }
   if (!radio_.active) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "RF send rejected: profile %lu is inactive, message=%lu\n",
+        "Radio send rejected: profile %lu is inactive, message=%lu\n",
         static_cast<unsigned long>(radio_.active_client_token),
         static_cast<unsigned long>(static_cast<uint32_t>(request_token)));
     xSemaphoreGive(radio_.mutex);
@@ -3504,7 +3504,8 @@ bool TDisplayP4Device::SendRf(
   }
   if (radio_.transmitting) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "RF send rejected: message %lu is still transmitting, new message=%lu\n",
+        "Radio send rejected: message %lu is still transmitting, "
+        "new message=%lu\n",
         static_cast<unsigned long>(
             static_cast<uint32_t>(radio_.transmit_request_token)),
         static_cast<unsigned long>(static_cast<uint32_t>(request_token)));
@@ -3514,7 +3515,7 @@ bool TDisplayP4Device::SendRf(
   if (!driver_.IsSx1262Ready()) {
     radio_.chip_error = true;
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "RF send rejected: SX1262 is unavailable, message=%lu\n",
+        "Radio send rejected: SX1262 is unavailable, message=%lu\n",
         static_cast<unsigned long>(static_cast<uint32_t>(request_token)));
     xSemaphoreGive(radio_.mutex);
     return false;
@@ -3522,7 +3523,8 @@ bool TDisplayP4Device::SendRf(
   LoraTransmitTiming timing;
   if (!CalculateLoraTransmitTiming(radio_.lora_config, size, &timing)) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "RF send rejected: invalid LoRa timing, message=%lu, size=%u bytes\n",
+        "Radio send rejected: invalid LoRa timing, message=%lu, "
+        "size=%u bytes\n",
         static_cast<unsigned long>(static_cast<uint32_t>(request_token)),
         static_cast<unsigned>(size));
     xSemaphoreGive(radio_.mutex);
@@ -3542,12 +3544,12 @@ bool TDisplayP4Device::SendRf(
   xSemaphoreGive(radio_.mutex);
   if (result) {
     LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
-        "RF send started: profile %lu, %u bytes, estimated %lu ms\n",
+        "Radio send started: profile %lu, %u bytes, estimated %lu ms\n",
         static_cast<unsigned long>(profile_id), static_cast<unsigned>(size),
         static_cast<unsigned long>(timing.time_on_air_ms));
   } else {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "RF send start failed: profile=%lu, message=%lu, size=%u bytes\n",
+        "Radio send start failed: profile=%lu, message=%lu, size=%u bytes\n",
         static_cast<unsigned long>(profile_id),
         static_cast<unsigned long>(static_cast<uint32_t>(request_token)),
         static_cast<unsigned>(size));
@@ -3555,15 +3557,15 @@ bool TDisplayP4Device::SendRf(
   return result;
 }
 
-bool TDisplayP4Device::PollRfEvent(RfEvent* event) {
+bool TDisplayP4Device::PollRadioEvent(RadioEvent* event) {
   if (event == nullptr) {
     return false;
   }
-  *event = RfEvent();
+  *event = RadioEvent();
   if (radio_.mutex == nullptr ||
       xSemaphoreTake(radio_.mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "RF event poll failed: mutex unavailable\n");
+        "Radio event poll failed: mutex unavailable\n");
     return false;
   }
   event->client_token = radio_.active_client_token;
@@ -3576,13 +3578,13 @@ bool TDisplayP4Device::PollRfEvent(RfEvent* event) {
     radio_.active = false;
     radio_.transmitting = false;
     radio_.chip_error = true;
-    event->type = RfEventType::kChipError;
-    event->failure_reason = RfFailureReason::kHardwareUnavailable;
+    event->type = RadioEventType::kChipError;
+    event->failure_reason = RadioFailureReason::kHardwareUnavailable;
     radio_.transmit_request_token = 0;
     radio_.transmit_deadline_us = 0;
     xSemaphoreGive(radio_.mutex);
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "RF event failed: SX1262 is unavailable, profile=%lu, message=%lu\n",
+        "Radio event failed: SX1262 is unavailable, profile=%lu, message=%lu\n",
         static_cast<unsigned long>(event->client_token),
         static_cast<unsigned long>(
             static_cast<uint32_t>(event->request_token)));
@@ -3595,13 +3597,13 @@ bool TDisplayP4Device::PollRfEvent(RfEvent* event) {
     radio_.active = false;
     radio_.transmitting = false;
     radio_.chip_error = true;
-    event->type = RfEventType::kChipError;
-    event->failure_reason = RfFailureReason::kIrqReadFailed;
+    event->type = RadioEventType::kChipError;
+    event->failure_reason = RadioFailureReason::kIrqReadFailed;
     radio_.transmit_request_token = 0;
     radio_.transmit_deadline_us = 0;
     xSemaphoreGive(radio_.mutex);
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "RF event failed: cannot read IRQ, profile=%lu, message=%lu\n",
+        "Radio event failed: cannot read IRQ, profile=%lu, message=%lu\n",
         static_cast<unsigned long>(event->client_token),
         static_cast<unsigned long>(
             static_cast<uint32_t>(event->request_token)));
@@ -3616,11 +3618,11 @@ bool TDisplayP4Device::PollRfEvent(RfEvent* event) {
       radio_.chip_error = !recovered;
       radio_.transmit_request_token = 0;
       radio_.transmit_deadline_us = 0;
-      event->type = RfEventType::kTransmitFailed;
-      event->failure_reason = RfFailureReason::kSoftwareTimeout;
+      event->type = RadioEventType::kTransmitFailed;
+      event->failure_reason = RadioFailureReason::kSoftwareTimeout;
       xSemaphoreGive(radio_.mutex);
       LogMessage(LogLevel::kError, __FILE__, __LINE__,
-          "RF send failed: software timeout, profile=%lu, message=%lu, "
+          "Radio send failed: software timeout, profile=%lu, message=%lu, "
           "receive recovery=%s\n",
           static_cast<unsigned long>(event->client_token),
           static_cast<unsigned long>(
@@ -3637,11 +3639,11 @@ bool TDisplayP4Device::PollRfEvent(RfEvent* event) {
   const bool rx_done = (irq_mask & SX126X_IRQ_RX_DONE) != 0;
   const bool receive_error =
       (irq_mask & (SX126X_IRQ_HEADER_ERROR | SX126X_IRQ_CRC_ERROR)) != 0;
-  char irq_text[kRfIrqTextCapacity] = {};
+  char irq_text[kRadioIrqTextCapacity] = {};
   bool irq_text_ready = false;
   const auto irq_text_for_log = [&]() -> const char* {
     if (!irq_text_ready) {
-      FormatRfIrqMask(irq_mask, irq_text, sizeof(irq_text));
+      FormatRadioIrqMask(irq_mask, irq_text, sizeof(irq_text));
       irq_text_ready = true;
     }
     return irq_text;
@@ -3653,11 +3655,11 @@ bool TDisplayP4Device::PollRfEvent(RfEvent* event) {
     radio_.chip_error = true;
     radio_.transmit_request_token = 0;
     radio_.transmit_deadline_us = 0;
-    event->type = RfEventType::kChipError;
-    event->failure_reason = RfFailureReason::kIrqClearFailed;
+    event->type = RadioEventType::kChipError;
+    event->failure_reason = RadioFailureReason::kIrqClearFailed;
     xSemaphoreGive(radio_.mutex);
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "RF event failed: cannot clear IRQ %s, message=%lu\n",
+        "Radio event failed: cannot clear IRQ %s, message=%lu\n",
         irq_text_for_log(),
         static_cast<unsigned long>(
             static_cast<uint32_t>(event->request_token)));
@@ -3671,22 +3673,22 @@ bool TDisplayP4Device::PollRfEvent(RfEvent* event) {
     radio_.active = receive_restarted;
     radio_.chip_error = !receive_restarted;
     if (timed_out) {
-      event->type = RfEventType::kTransmitFailed;
-      event->failure_reason = RfFailureReason::kHardwareTimeout;
+      event->type = RadioEventType::kTransmitFailed;
+      event->failure_reason = RadioFailureReason::kHardwareTimeout;
     } else {
-      event->type = RfEventType::kTransmitComplete;
+      event->type = RadioEventType::kTransmitComplete;
       if (!receive_restarted) {
-        event->failure_reason = RfFailureReason::kReceiveRestartFailed;
+        event->failure_reason = RadioFailureReason::kReceiveRestartFailed;
       }
     }
     result = receive_restarted;
-    if (event->type == RfEventType::kTransmitComplete && receive_restarted) {
+    if (event->type == RadioEventType::kTransmitComplete && receive_restarted) {
       LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
-          "RF send completed: profile %lu\n",
+          "Radio send completed: profile %lu\n",
           static_cast<unsigned long>(event->client_token));
-    } else if (event->type == RfEventType::kTransmitFailed) {
+    } else if (event->type == RadioEventType::kTransmitFailed) {
       LogMessage(LogLevel::kError, __FILE__, __LINE__,
-          "RF send failed: hardware timeout, profile=%lu, message=%lu, "
+          "Radio send failed: hardware timeout, profile=%lu, message=%lu, "
           "receive recovery=%s\n",
           static_cast<unsigned long>(event->client_token),
           static_cast<unsigned long>(
@@ -3694,7 +3696,7 @@ bool TDisplayP4Device::PollRfEvent(RfEvent* event) {
           receive_restarted ? "succeeded" : "failed");
     } else {
       LogMessage(LogLevel::kError, __FILE__, __LINE__,
-          "RF send completed, but receive restart failed: profile=%lu, "
+          "Radio send completed, but receive restart failed: profile=%lu, "
           "message=%lu\n",
           static_cast<unsigned long>(event->client_token),
           static_cast<unsigned long>(
@@ -3702,7 +3704,7 @@ bool TDisplayP4Device::PollRfEvent(RfEvent* event) {
     }
   } else if (radio_.transmitting) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "RF send ignored unrelated IRQ %s, message=%lu\n",
+        "Radio send ignored unrelated IRQ %s, message=%lu\n",
         irq_text_for_log(),
         static_cast<unsigned long>(
             static_cast<uint32_t>(event->request_token)));
@@ -3710,10 +3712,10 @@ bool TDisplayP4Device::PollRfEvent(RfEvent* event) {
     uint8_t received_size = 0;
     usp_cpp_bus_driver::Sx126x::PacketMetrics metrics;
     result = radio->ReadPacket(
-        event->payload, kRfPayloadCapacity, received_size, &metrics);
+        event->payload, kRadioPayloadCapacity, received_size, &metrics);
     result = result && radio->StartReceive();
     if (result) {
-      event->type = RfEventType::kPacketReceived;
+      event->type = RadioEventType::kPacketReceived;
       event->payload_size = received_size;
       event->rssi_dbm = metrics.rssi_dbm;
       event->snr_db = metrics.snr_db;
@@ -3722,7 +3724,7 @@ bool TDisplayP4Device::PollRfEvent(RfEvent* event) {
     result = radio->StartReceive();
     if (receive_error) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "RF RX packet rejected: IRQ=%s\n", irq_text_for_log());
+          "Radio RX packet rejected: IRQ=%s\n", irq_text_for_log());
     }
   }
 
@@ -3730,16 +3732,16 @@ bool TDisplayP4Device::PollRfEvent(RfEvent* event) {
     radio_.active = false;
     radio_.transmitting = false;
     radio_.chip_error = true;
-    if (event->type != RfEventType::kTransmitComplete) {
-      event->type = RfEventType::kChipError;
+    if (event->type != RadioEventType::kTransmitComplete) {
+      event->type = RadioEventType::kChipError;
     }
-    if (event->failure_reason == RfFailureReason::kNone) {
-      event->failure_reason = RfFailureReason::kReceiveRestartFailed;
+    if (event->failure_reason == RadioFailureReason::kNone) {
+      event->failure_reason = RadioFailureReason::kReceiveRestartFailed;
     }
     radio_.transmit_request_token = 0;
     radio_.transmit_deadline_us = 0;
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "RF event processing failed: profile=%lu, message=%lu, IRQ=%s\n",
+        "Radio event processing failed: profile=%lu, message=%lu, IRQ=%s\n",
         static_cast<unsigned long>(event->client_token),
         static_cast<unsigned long>(
             static_cast<uint32_t>(event->request_token)),
@@ -3749,7 +3751,7 @@ bool TDisplayP4Device::PollRfEvent(RfEvent* event) {
   return result;
 }
 
-bool TDisplayP4Device::ReadRfStatus(RfStatus* status) {
+bool TDisplayP4Device::ReadRadioStatus(RadioStatus* status) {
   if (status == nullptr || radio_.mutex == nullptr ||
       xSemaphoreTake(radio_.mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
     return false;
@@ -3758,11 +3760,11 @@ bool TDisplayP4Device::ReadRfStatus(RfStatus* status) {
   status->transmitting = radio_.transmitting;
   status->active_client_token = radio_.active_client_token;
   if (radio_.chip_error || (radio_.active && !status->hardware_ready)) {
-    status->state = RfLinkState::kChipError;
+    status->state = RadioLinkState::kChipError;
   } else if (radio_.active) {
-    status->state = RfLinkState::kActive;
+    status->state = RadioLinkState::kActive;
   } else {
-    status->state = RfLinkState::kInactive;
+    status->state = RadioLinkState::kInactive;
   }
   xSemaphoreGive(radio_.mutex);
   return true;
