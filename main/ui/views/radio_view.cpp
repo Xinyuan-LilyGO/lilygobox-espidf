@@ -2,7 +2,7 @@
  * @Description: Radio control app view
  * @Author: LILYGO_L
  * @Date: 2026-07-12 00:00:00
- * @LastEditTime: 2026-07-18 22:23:07
+ * @LastEditTime: 2026-07-18 22:46:49
  * @License: GPL 3.0
  */
 #include "ui/views/radio_view.h"
@@ -4955,6 +4955,9 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
     AppendSystemMessage(state, index, kSettingsChangedMessage);
   }
   SyncModuleItems(state);
+  if (!editing) {
+    RenderHeader(state);
+  }
   MarkModuleListDirty(state);
   RefreshProfileSettingsPage(state);
   CloseSelectionMode(state);
