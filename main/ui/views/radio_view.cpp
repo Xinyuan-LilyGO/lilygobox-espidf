@@ -2,7 +2,7 @@
  * @Description: Radio control app view
  * @Author: LILYGO_L
  * @Date: 2026-07-12 00:00:00
- * @LastEditTime: 2026-07-18 22:46:49
+ * @LastEditTime: 2026-07-18 23:35:35
  * @License: GPL 3.0
  */
 #include "ui/views/radio_view.h"
@@ -190,6 +190,15 @@ enum class RadioCommandType : uint8_t {
   kSend,
 };
 
+enum class RadioComposerMode : uint8_t {
+  kActive,
+  kInactive,
+  kActivating,
+  kChipError,
+  kUnsupported,
+  kUnavailable,
+};
+
 struct RadioCommandJob {
   // 后台任务发布结果前最后写入的完成标记。
   std::atomic<bool> completed = false;
@@ -229,6 +238,8 @@ struct RadioViewState {
   lv_obj_t* detail_composer_background = nullptr;
   lv_obj_t* detail_divider = nullptr;
   lv_obj_t* detail_send_button = nullptr;
+  lv_obj_t* detail_composer_action_button = nullptr;
+  lv_obj_t* detail_composer_action_label = nullptr;
   // 历史消息模式下显示的“回到最新消息”悬浮按钮。
   lv_obj_t* detail_chat_jump_button = nullptr;
   lv_obj_t* add_page = nullptr;
@@ -362,6 +373,9 @@ bool ShowRadioSettingsPage(RadioViewState* state);
 bool ShowProfileSettingsPage(RadioViewState* state, size_t index);
 bool ShowProfileNameEditPage(RadioViewState* state);
 void RefreshProfileSettingsPage(RadioViewState* state);
+bool SetProfileActiveState(
+    RadioViewState* state, size_t index, bool active);
+void UpdateChatComposerState(RadioViewState* state);
 
 /**
  * @brief 获取 22 号 Google Sans 字体
@@ -584,42 +598,93 @@ void FormatCurrentTime(const RadioViewState* state, char* output,
   std::snprintf(output, output_size, "Now");
 }
 
-const char* ProfileStatusText(const RadioViewState* state, size_t index) {
+/**
+ * @brief 判断指定配置是否有等待执行或正在执行的激活命令
+ * @param state Radio 页面状态
+ * @param profile_id 配置 ID
+ * @return 激活命令尚未完成时返回 true
+ */
+bool IsProfileActivationPending(
+    const RadioViewState* state, uint32_t profile_id) {
+  if (state == nullptr || profile_id == 0) {
+    return false;
+  }
+  if (state->pending_control_command &&
+      state->pending_control_type == RadioCommandType::kActivate &&
+      state->pending_control_config.client_token == profile_id) {
+    return true;
+  }
+  return state->radio_command_job != nullptr &&
+      state->radio_command_job->type == RadioCommandType::kActivate &&
+      state->radio_command_job->config.client_token == profile_id;
+}
+
+/**
+ * @brief 获取聊天输入区域对应的运行状态
+ * @param state Radio 页面状态
+ * @param index Radio 配置索引
+ * @return 当前输入区域模式
+ */
+RadioComposerMode GetRadioComposerMode(
+    const RadioViewState* state, size_t index) {
   if (state == nullptr || index >= state->module_count) {
-    return "Inactive";
+    return RadioComposerMode::kUnavailable;
   }
-  if (!IsProfileSupported(
-          state, state->preferences.profiles[index])) {
-    return "Unsupported";
+  if (state->config.radio == nullptr) {
+    return RadioComposerMode::kUnavailable;
   }
-  if (state->preferences.profiles[index].id !=
-          state->preferences.active_profile_id) {
-    return "Inactive";
+  const app::RadioProfile& profile = state->preferences.profiles[index];
+  if (!IsProfileSupported(state, profile)) {
+    return RadioComposerMode::kUnsupported;
   }
-  if (!state->radio_status_available) {
-    return state->radio_command_job != nullptr ||
-        state->pending_control_command
-        ? "Inactive"
-        : "Chip error";
+  if (profile.id != state->preferences.active_profile_id) {
+    return RadioComposerMode::kInactive;
   }
-  if (state->radio_status.state == hal::RadioLinkState::kChipError) {
-    return "Chip error";
+  if (IsProfileActivationPending(state, profile.id)) {
+    return RadioComposerMode::kActivating;
   }
-  return state->radio_status.state == hal::RadioLinkState::kActive &&
-      state->radio_status.active_client_token ==
-          state->preferences.profiles[index].id
-      ? "Active"
-      : "Inactive";
+  if (!state->radio_status_available ||
+      state->radio_status.state == hal::RadioLinkState::kChipError) {
+    return RadioComposerMode::kChipError;
+  }
+  if (state->radio_status.state == hal::RadioLinkState::kActive &&
+      state->radio_status.active_client_token == profile.id) {
+    return RadioComposerMode::kActive;
+  }
+  return RadioComposerMode::kChipError;
+}
+
+const char* ProfileStatusText(const RadioViewState* state, size_t index) {
+  switch (GetRadioComposerMode(state, index)) {
+    case RadioComposerMode::kActive:
+      return "Active";
+    case RadioComposerMode::kActivating:
+      return "Activating";
+    case RadioComposerMode::kChipError:
+      return "Chip error";
+    case RadioComposerMode::kUnsupported:
+      return "Unsupported";
+    case RadioComposerMode::kUnavailable:
+      return "Unavailable";
+    case RadioComposerMode::kInactive:
+    default:
+      return "Inactive";
+  }
 }
 
 uint32_t ProfileStatusColor(const char* status) {
   if (status != nullptr && std::strcmp(status, "Active") == 0) {
     return kSendSuccessColor;
   }
+  if (status != nullptr && std::strcmp(status, "Activating") == 0) {
+    return kPrimaryColor;
+  }
   if (status != nullptr && std::strcmp(status, "Chip error") == 0) {
     return kSendFailureColor;
   }
-  if (status != nullptr && std::strcmp(status, "Unsupported") == 0) {
+  if (status != nullptr &&
+      (std::strcmp(status, "Unsupported") == 0 ||
+          std::strcmp(status, "Unavailable") == 0)) {
     return kWarningColor;
   }
   return kSecondaryTextColor;
@@ -636,6 +701,9 @@ uint32_t ProfileIndicatorColor(
   const char* status = ProfileStatusText(state, index);
   if (std::strcmp(status, "Active") == 0) {
     return kActiveIndicatorColor;
+  }
+  if (std::strcmp(status, "Activating") == 0) {
+    return kPrimaryColor;
   }
   if (std::strcmp(status, "Chip error") == 0) {
     return kSendFailureColor;
@@ -723,6 +791,8 @@ void DetailCloseCompletedCallback(lv_anim_t* animation) {
     state->detail_composer_background = nullptr;
     state->detail_divider = nullptr;
     state->detail_send_button = nullptr;
+    state->detail_composer_action_button = nullptr;
+    state->detail_composer_action_label = nullptr;
     state->detail_chat_jump_button = nullptr;
     state->detail_chat_body = nullptr;
     state->detail_chat_timeline = nullptr;
@@ -758,6 +828,8 @@ void CloseModuleDetail(RadioViewState* state) {
     state->detail_composer_background = nullptr;
     state->detail_divider = nullptr;
     state->detail_send_button = nullptr;
+    state->detail_composer_action_button = nullptr;
+    state->detail_composer_action_label = nullptr;
     state->detail_chat_jump_button = nullptr;
     state->detail_chat_body = nullptr;
     state->detail_chat_timeline = nullptr;
@@ -1672,6 +1744,7 @@ void UpdateDetailStatus(RadioViewState* state) {
         state->profile_settings_header_status_label,
         status_color, LV_PART_MAIN);
   }
+  UpdateChatComposerState(state);
 }
 
 /**
@@ -1859,6 +1932,7 @@ void QueueRadioControlCommand(RadioViewState* state,
   state->pending_control_config = config;
   state->pending_control_command = true;
   StartPendingRadioControlCommand(state);
+  UpdateDetailStatus(state);
 }
 
 /**
@@ -2150,6 +2224,10 @@ void DetailSendClickedEventCallback(lv_event_t* event) {
       state->detail_index >= state->module_count) {
     return;
   }
+  if (GetRadioComposerMode(state, state->detail_index) !=
+      RadioComposerMode::kActive) {
+    return;
+  }
   const uint32_t started_ms = lv_tick_get();
   const char* text = lv_textarea_get_text(state->detail_input);
   const size_t length = text == nullptr ? 0 : std::strlen(text);
@@ -2239,6 +2317,10 @@ void SetDetailKeyboardVisible(RadioViewState* state, bool visible) {
       state->config.height - 89 - offset);
   lv_obj_set_y(state->detail_send_button,
       state->config.height - 87 - offset);
+  if (state->detail_composer_action_button != nullptr) {
+    lv_obj_set_y(state->detail_composer_action_button,
+        state->config.height - 87 - offset);
+  }
   const int32_t chat_height = std::max<int32_t>(
       0, static_cast<int32_t>(composer_top) -
              lv_obj_get_y(state->detail_chat_body));
@@ -2264,6 +2346,108 @@ void DetailInputEventCallback(lv_event_t* event) {
   } else if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
     SetDetailKeyboardVisible(state, false);
   }
+}
+
+/**
+ * @brief 处理聊天输入区域右侧的激活、重试或设置操作
+ * @param event LVGL 点击事件
+ */
+void DetailComposerActionClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->detail_index >= state->module_count) {
+    return;
+  }
+  const size_t index = state->detail_index;
+  const RadioComposerMode mode = GetRadioComposerMode(state, index);
+  if (mode == RadioComposerMode::kInactive) {
+    SetProfileActiveState(state, index, true);
+    return;
+  }
+  if (mode == RadioComposerMode::kUnsupported) {
+    ShowProfileSettingsPage(state, index);
+    return;
+  }
+  if (mode != RadioComposerMode::kChipError) {
+    return;
+  }
+  const app::RadioProfile& profile = state->preferences.profiles[index];
+  state->activation_retry_count = 0;
+  state->last_activation_retry_tick = lv_tick_get();
+  QueueRadioControlCommand(state, RadioCommandType::kActivate,
+      ToRadioConfig(profile));
+  RefreshProfileSettingsPage(state);
+  MarkModuleListDirty(state);
+}
+
+/**
+ * @brief 根据当前 Radio 状态切换聊天输入区和整行操作按钮
+ * @param state Radio 页面状态
+ */
+void UpdateChatComposerState(RadioViewState* state) {
+  if (state == nullptr || state->detail_input == nullptr ||
+      state->detail_send_button == nullptr ||
+      state->detail_composer_action_button == nullptr ||
+      state->detail_composer_action_label == nullptr ||
+      state->detail_index >= state->module_count) {
+    return;
+  }
+  const RadioComposerMode mode =
+      GetRadioComposerMode(state, state->detail_index);
+  if (mode == RadioComposerMode::kActive) {
+    lv_obj_remove_state(state->detail_input, LV_STATE_DISABLED);
+    lv_obj_remove_flag(state->detail_input, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(state->detail_send_button, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(
+        state->detail_composer_action_button, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+
+  lv_obj_remove_state(state->detail_input, LV_STATE_FOCUSED);
+  SetDetailKeyboardVisible(state, false);
+  lv_obj_add_state(state->detail_input, LV_STATE_DISABLED);
+  lv_obj_add_flag(state->detail_input, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(state->detail_send_button, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_remove_flag(
+      state->detail_composer_action_button, LV_OBJ_FLAG_HIDDEN);
+
+  const char* action_text = "Inactive  |  Activate";
+  bool action_enabled = true;
+  switch (mode) {
+    case RadioComposerMode::kActivating:
+      action_text = "Activating...";
+      action_enabled = false;
+      break;
+    case RadioComposerMode::kChipError:
+      action_text = "Chip error  |  Retry";
+      break;
+    case RadioComposerMode::kUnsupported:
+      action_text = "Unsupported  |  Settings";
+      break;
+    case RadioComposerMode::kUnavailable:
+      action_text = "Radio unavailable";
+      action_enabled = false;
+      break;
+    case RadioComposerMode::kInactive:
+    case RadioComposerMode::kActive:
+    default:
+      break;
+  }
+  SetLabelTextIfChanged(state->detail_composer_action_label, action_text);
+  if (action_enabled) {
+    lv_obj_remove_state(
+        state->detail_composer_action_button, LV_STATE_DISABLED);
+  } else {
+    lv_obj_add_state(
+        state->detail_composer_action_button, LV_STATE_DISABLED);
+  }
+  lv_obj_set_style_text_color(state->detail_composer_action_label,
+      lv_color_hex(action_enabled ? kOnPrimaryColor : kDisabledTextColor),
+      LV_PART_MAIN);
 }
 
 /**
@@ -2431,6 +2615,37 @@ bool CreateChatComposer(lv_obj_t* page, RadioViewState* state) {
   lv_obj_add_event_cb(send, DetailSendClickedEventCallback,
       LV_EVENT_CLICKED, state);
 
+  lv_obj_t* composer_action = lv_button_create(page);
+  if (composer_action == nullptr) {
+    return false;
+  }
+  lv_obj_add_flag(composer_action, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_add_flag(composer_action, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_set_size(composer_action, state->config.width - 96, 66);
+  lv_obj_set_pos(composer_action, 48, state->config.height - 87);
+  lv_obj_set_style_radius(composer_action, 33, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      composer_action, lv_color_hex(kPrimaryColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(composer_action,
+      lv_color_hex(kPrimaryPressedColor), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(composer_action,
+      lv_color_hex(kDisabledContainerColor), LV_STATE_DISABLED);
+  lv_obj_set_style_bg_opa(composer_action, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(composer_action, 0, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(composer_action, 0, LV_PART_MAIN);
+  if (!AddPressCancelOnLeave(composer_action)) {
+    return false;
+  }
+  state->detail_composer_action_button = composer_action;
+  state->detail_composer_action_label = CreateLabel(
+      composer_action, "Inactive  |  Activate", kOnPrimaryColor, Font22());
+  if (state->detail_composer_action_label == nullptr) {
+    return false;
+  }
+  lv_obj_center(state->detail_composer_action_label);
+  lv_obj_add_event_cb(composer_action,
+      DetailComposerActionClickedEventCallback, LV_EVENT_CLICKED, state);
+
   SharedKeyboardConfig keyboard_config;
   keyboard_config.width = state->config.width;
   keyboard_config.height = state->config.height *
@@ -2444,6 +2659,7 @@ bool CreateChatComposer(lv_obj_t* page, RadioViewState* state) {
   lv_obj_add_flag(state->detail_keyboard, LV_OBJ_FLAG_GESTURE_BUBBLE);
   AddEdgeBackSwipeEvents(state->detail_keyboard,
       DetailEdgeBackEventCallback, state);
+  UpdateChatComposerState(state);
   return true;
 }
 
@@ -2480,6 +2696,8 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
   state->detail_composer_background = nullptr;
   state->detail_divider = nullptr;
   state->detail_send_button = nullptr;
+  state->detail_composer_action_button = nullptr;
+  state->detail_composer_action_label = nullptr;
   state->detail_chat_jump_button = nullptr;
   state->detail_chat_body = nullptr;
   state->detail_chat_timeline = nullptr;
@@ -2604,6 +2822,8 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
     state->detail_composer_background = nullptr;
     state->detail_divider = nullptr;
     state->detail_send_button = nullptr;
+    state->detail_composer_action_button = nullptr;
+    state->detail_composer_action_label = nullptr;
     state->detail_chat_jump_button = nullptr;
     state->detail_chat_body = nullptr;
     state->detail_chat_timeline = nullptr;
