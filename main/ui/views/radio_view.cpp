@@ -2,22 +2,28 @@
  * @Description: Radio control app view
  * @Author: LILYGO_L
  * @Date: 2026-07-12 00:00:00
- * @LastEditTime: 2026-07-18 00:00:00
+ * @LastEditTime: 2026-07-18 21:00:42
  * @License: GPL 3.0
  */
 #include "ui/views/radio_view.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
+#include <new>
 
 #include "app/radio_chat_repository.h"
 #include "app/storage/radio_storage.h"
+#include "app/system_status_cache.h"
 #include "base/logger.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "hal/providers/radio_provider.h"
 #include "hal/providers/rtc_provider.h"
 #include "ui/animation/transition_animation.h"
@@ -78,6 +84,8 @@ constexpr int kAddInputHeight = 70;
 constexpr int kAddProfileNameSectionHeight = 126;
 // 聊天时间线首尾与相邻区域保持一致的视觉间距。
 constexpr int kChatTimelineInset = 18;
+// Font22 英文系统提示的保守字宽估算，避免保存回调同步遍历字体。
+constexpr int kSystemMessageGlyphWidthEstimate = 13;
 constexpr int kAddSwitchRowHeight = 108;
 constexpr int kAddSwitchRowGap = 12;
 constexpr int kProfileNameEditButtonSize = 62;
@@ -99,6 +107,10 @@ constexpr lv_style_selector_t kProfileSwitchCheckedIndicatorSelector =
 constexpr uint32_t kActivationRetryPeriodMs = 2000;
 constexpr uint32_t kActivationRetrySlowPeriodMs = 10000;
 constexpr uint8_t kActivationFastRetryCount = 5;
+constexpr uint32_t kRadioCommandTaskStackBytes = 8 * 1024;
+constexpr UBaseType_t kRadioCommandTaskPriority = tskIDLE_PRIORITY;
+// UI 回调超过该时间才记录回归日志，正常路径只读取 LVGL 毫秒 tick。
+constexpr uint32_t kSlowRadioUiThresholdMs = 80;
 constexpr char kFrequencyAcceptedChars[] = "0123456789.";
 constexpr char kIntegerAcceptedChars[] = "0123456789";
 constexpr char kHexAcceptedChars[] = "0123456789abcdefABCDEF";
@@ -142,9 +154,57 @@ using app::RadioChatDeliveryState;
 using app::RadioChatMessage;
 using app::RadioChatMessageType;
 
+struct RenderedRadioChatMessage {
+  // 仓库中的消息只在 LVGL 线程内更新，绘制期间保持有效。
+  const RadioChatMessage* message = nullptr;
+  // 消息缓存中的稳定序号，用于判断时间线内容是否变化。
+  uint64_t sequence = 0;
+  // 消息行相对时间线对象的顶部坐标。
+  int y = 0;
+  // 当前消息行的完整高度。
+  int height = 0;
+  // 气泡或系统提示容器的水平位置。
+  int content_x = 0;
+  // 气泡或系统提示容器的宽度。
+  int content_width = 0;
+  // 气泡或系统提示容器的高度。
+  int content_height = 0;
+  // 气泡正文的实际排版高度。
+  int text_height = 0;
+  // 发送状态或接收参数区域相对消息行的顶部坐标。
+  int status_y = 0;
+};
+
+enum class RadioCommandType : uint8_t {
+  kActivate,
+  kDeactivate,
+  kSend,
+};
+
+struct RadioCommandJob {
+  // 后台任务发布结果前最后写入的完成标记。
+  std::atomic<bool> completed = false;
+  // 生命周期覆盖应用运行期的硬件 Provider。
+  hal::RadioProvider* provider = nullptr;
+  // 激活命令使用的完整配置快照。
+  hal::RadioConfig config;
+  // 发送命令使用的独立负载副本。
+  uint8_t payload[hal::kRadioPayloadCapacity] = {};
+  // payload 中的有效字节数量。
+  size_t payload_size = 0;
+  // 与聊天仓库发送状态关联的消息序号。
+  uint64_t request_token = 0;
+  // 当前任务需要执行的硬件命令。
+  RadioCommandType type = RadioCommandType::kActivate;
+  // 硬件命令的最终执行结果。
+  bool success = false;
+};
+
 struct RadioViewState {
   AppViewConfig config;
   hal::RadioCapabilities capabilities;
+  // 由定时器单次读取并供整帧界面复用的射频状态。
+  hal::RadioStatus radio_status;
   lv_obj_t* root = nullptr;
   lv_obj_t* detail_page = nullptr;
   lv_obj_t* app_settings_page = nullptr;
@@ -180,9 +240,10 @@ struct RadioViewState {
   lv_obj_t* module_list = nullptr;
   lv_obj_t* header_area = nullptr;
   lv_obj_t* detail_chat_body = nullptr;
+  // 聊天区仅保留一个无子控件的自绘时间线，避免滚动递归移动消息树。
+  lv_obj_t* detail_chat_timeline = nullptr;
   lv_obj_t* detail_status_label = nullptr;
   lv_obj_t* detail_title_label = nullptr;
-  lv_obj_t* detail_notice_label = nullptr;
   lv_timer_t* radio_timer = nullptr;
   lv_obj_t* add_chip_buttons[hal::kRadioCapabilityCapacity] = {};
   lv_obj_t* add_protocol_buttons[hal::kRadioCapabilityCapacity] = {};
@@ -197,12 +258,25 @@ struct RadioViewState {
   EdgeBackSwipeState profile_name_edit_edge_swipe = {};
   EdgeBackSwipeState add_edge_swipe = {};
   RadioModuleItem modules[kRadioModuleCapacity] = {};
+  // 当前聊天页面最多保留 32 条轻量布局记录。
+  RenderedRadioChatMessage
+      rendered_chat_messages[app::kRadioChatPageCapacity] = {};
   char latest_messages[kRadioModuleCapacity][96] = {};
   char message_times[kRadioModuleCapacity][16] = {};
   uint16_t unread_counts[kRadioModuleCapacity] = {};
   bool selected_modules[kRadioModuleCapacity] = {};
   app::RadioPreferences preferences;
+  // 正在后台执行的唯一射频硬件命令。
+  std::shared_ptr<RadioCommandJob> radio_command_job;
+  // 等待当前发送结束后应用的最后一份控制配置。
+  hal::RadioConfig pending_control_config;
   size_t module_count = 0;
+  // rendered_chat_messages 中当前有效布局数量。
+  size_t rendered_chat_count = 0;
+  // 当前增量时间线所属的 Radio 配置 ID。
+  uint32_t rendered_chat_profile_id = 0;
+  // 下一条聊天行在时间线中的顶部坐标。
+  int rendered_chat_y = kChatTimelineInset;
   int selected_add_chip = 0;
   int selected_add_protocol = 0;
   int selected_add_sf = kDefaultSpreadingFactorIndex;
@@ -213,6 +287,18 @@ struct RadioViewState {
   size_t editing_index = kRadioModuleCapacity;
   uint32_t last_activation_retry_tick = 0;
   uint8_t activation_retry_count = 0;
+  // 合并后的激活或停用命令类型。
+  RadioCommandType pending_control_type = RadioCommandType::kActivate;
+  // 是否存在等待硬件空闲的控制命令。
+  bool pending_control_command = false;
+  // 发送启动后到收到完成事件前保持为 true。
+  bool transmit_in_flight = false;
+  // radio_status 是否为最近一次成功读取的结果。
+  bool radio_status_available = false;
+  // 被子页面遮挡期间是否有会话摘要等待刷新。
+  bool module_list_dirty = false;
+  // 聊天页被上层页面遮挡时延后执行的自动滚动请求。
+  bool chat_scroll_pending = false;
   bool selection_mode = false;
   bool detail_closing = false;
   bool app_settings_closing = false;
@@ -243,6 +329,9 @@ struct RadioAddOptionAction {
 
 bool RenderModuleList(RadioViewState* state);
 bool RenderHeader(RadioViewState* state);
+void MarkModuleListDirty(RadioViewState* state);
+void RefreshModuleListIfVisible(RadioViewState* state);
+void ResetRenderedChatState(RadioViewState* state);
 void CloseSelectionMode(RadioViewState* state);
 bool ShowAddModulePage(RadioViewState* state);
 bool ShowModuleSettings(RadioViewState* state, size_t index,
@@ -334,6 +423,26 @@ lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, uint32_t color,
   lv_obj_set_style_text_color(label, lv_color_hex(color), LV_PART_MAIN);
   lv_obj_set_style_text_font(label, font, LV_PART_MAIN);
   return label;
+}
+
+/**
+ * @brief 仅在内容变化时更新标签，避免重复计算字体布局
+ * @param label LVGL 标签
+ * @param text 新文本
+ * @return 标签内容发生变化时返回 true
+ */
+bool SetLabelTextIfChanged(lv_obj_t* label, const char* text) {
+  if (label == nullptr) {
+    return false;
+  }
+  const char* new_text = text == nullptr ? "" : text;
+  const char* current_text = lv_label_get_text(label);
+  if (current_text != nullptr &&
+      std::strcmp(current_text, new_text) == 0) {
+    return false;
+  }
+  lv_label_set_text(label, new_text);
+  return true;
 }
 
 hal::RadioConfig ToRadioConfig(const app::RadioProfile& profile) {
@@ -433,9 +542,10 @@ void FormatCurrentTime(const RadioViewState* state, char* output,
   if (output == nullptr || output_size == 0) {
     return;
   }
-  hal::RtcStatus status;
-  if (state != nullptr && state->config.rtc != nullptr &&
-      state->config.rtc->ReadRtcStatus(&status) && status.ready) {
+  const app::SystemStatusCache* system_status =
+      state == nullptr ? nullptr : state->config.system_status;
+  if (system_status != nullptr && system_status->rtc_status_valid()) {
+    const hal::RtcStatus& status = system_status->rtc_status();
     std::snprintf(output, output_size, "%02u:%02u",
         static_cast<unsigned>(status.hour),
         static_cast<unsigned>(status.minute));
@@ -456,14 +566,17 @@ const char* ProfileStatusText(const RadioViewState* state, size_t index) {
           state->preferences.active_profile_id) {
     return "Inactive";
   }
-  hal::RadioStatus status;
-  if (state->config.radio == nullptr ||
-      !state->config.radio->ReadRadioStatus(&status) ||
-      status.state == hal::RadioLinkState::kChipError) {
+  if (!state->radio_status_available) {
+    return state->radio_command_job != nullptr ||
+        state->pending_control_command
+        ? "Inactive"
+        : "Chip error";
+  }
+  if (state->radio_status.state == hal::RadioLinkState::kChipError) {
     return "Chip error";
   }
-  return status.state == hal::RadioLinkState::kActive &&
-      status.active_client_token ==
+  return state->radio_status.state == hal::RadioLinkState::kActive &&
+      state->radio_status.active_client_token ==
           state->preferences.profiles[index].id
       ? "Active"
       : "Inactive";
@@ -581,13 +694,15 @@ void DetailCloseCompletedCallback(lv_anim_t* animation) {
     state->detail_divider = nullptr;
     state->detail_send_button = nullptr;
     state->detail_chat_body = nullptr;
+    state->detail_chat_timeline = nullptr;
     state->detail_status_label = nullptr;
     state->detail_title_label = nullptr;
-    state->detail_notice_label = nullptr;
     state->detail_index = kRadioModuleCapacity;
     state->detail_edge_swipe = EdgeBackSwipeState();
     state->detail_closing = false;
+    ResetRenderedChatState(state);
     lv_obj_delete(page);
+    RefreshModuleListIfVisible(state);
   }
 }
 
@@ -613,13 +728,15 @@ void CloseModuleDetail(RadioViewState* state) {
     state->detail_divider = nullptr;
     state->detail_send_button = nullptr;
     state->detail_chat_body = nullptr;
+    state->detail_chat_timeline = nullptr;
     state->detail_status_label = nullptr;
     state->detail_title_label = nullptr;
-    state->detail_notice_label = nullptr;
     state->detail_index = kRadioModuleCapacity;
     state->detail_edge_swipe = EdgeBackSwipeState();
     state->detail_closing = false;
+    ResetRenderedChatState(state);
     lv_obj_delete(page);
+    RefreshModuleListIfVisible(state);
   }
 }
 
@@ -661,286 +778,497 @@ void DetailHeaderClickedEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 创建带独立小圆角尾部的聊天气泡
- * @param parent 父对象
- * @param text 气泡主文本
+ * @brief 绘制一个聊天区域矩形
+ * @param layer LVGL 绘制层
+ * @param x 左侧坐标
  * @param y 顶部坐标
- * @param max_width 气泡最大宽度
- * @param outgoing 是否为右侧发送气泡
- * @param rendered_height 返回气泡实际高度
- * @return 创建成功返回气泡对象，否则返回 nullptr
+ * @param width 宽度
+ * @param height 高度
+ * @param color 填充颜色
+ * @param radius 圆角半径
  */
-lv_obj_t* CreateChatBubble(lv_obj_t* parent, const char* text,
-    int y, int max_width, bool outgoing, int* rendered_height) {
-  if (parent == nullptr || text == nullptr || max_width <= 0 ||
-      rendered_height == nullptr) {
-    return nullptr;
+void DrawChatRectangle(lv_layer_t* layer, int x, int y, int width,
+    int height, uint32_t color, int radius) {
+  if (layer == nullptr || width <= 0 || height <= 0) {
+    return;
   }
-  const uint32_t background_color =
+  lv_draw_rect_dsc_t descriptor;
+  lv_draw_rect_dsc_init(&descriptor);
+  descriptor.bg_color = lv_color_hex(color);
+  descriptor.bg_opa = LV_OPA_COVER;
+  descriptor.border_opa = LV_OPA_TRANSP;
+  descriptor.radius = radius;
+  lv_area_t area = {};
+  area.x1 = x;
+  area.y1 = y;
+  area.x2 = x + width - 1;
+  area.y2 = y + height - 1;
+  lv_draw_rect(layer, &descriptor, &area);
+}
+
+/**
+ * @brief 在聊天自绘对象中绘制一段文本
+ * @param layer LVGL 绘制层
+ * @param text 文本
+ * @param color 文本颜色
+ * @param font 字体
+ * @param x 左侧坐标
+ * @param y 顶部坐标
+ * @param width 文本区域宽度
+ * @param height 文本区域高度
+ * @param alignment 文本水平对齐方式
+ * @param local_text 文本是否来自当前回调的临时缓冲区
+ */
+void DrawChatText(lv_layer_t* layer, const char* text, uint32_t color,
+    const lv_font_t* font, int x, int y, int width, int height,
+    lv_text_align_t alignment, bool local_text) {
+  if (layer == nullptr || text == nullptr || font == nullptr ||
+      width <= 0 || height <= 0) {
+    return;
+  }
+  lv_draw_label_dsc_t descriptor;
+  lv_draw_label_dsc_init(&descriptor);
+  descriptor.text = text;
+  descriptor.text_local = local_text ? 1 : 0;
+  descriptor.font = font;
+  descriptor.color = lv_color_hex(color);
+  descriptor.align = alignment;
+  lv_area_t area = {};
+  area.x1 = x;
+  area.y1 = y;
+  area.x2 = x + width - 1;
+  area.y2 = y + height - 1;
+  lv_draw_label(layer, &descriptor, &area);
+}
+
+/**
+ * @brief 绘制聊天时间线中一条系统提示
+ * @param layer LVGL 绘制层
+ * @param timeline_x 时间线对象左侧绝对坐标
+ * @param row_y 消息行顶部绝对坐标
+ * @param rendered 消息布局
+ */
+void DrawSystemChatMessage(lv_layer_t* layer, int timeline_x, int row_y,
+    const RenderedRadioChatMessage& rendered) {
+  const RadioChatMessage* message = rendered.message;
+  if (message == nullptr) {
+    return;
+  }
+  const int box_x = timeline_x + rendered.content_x;
+  DrawChatRectangle(layer, box_x, row_y, rendered.content_width,
+      rendered.content_height, kNoticeContainerColor, 21);
+  DrawChatText(layer, message->text, kSecondaryTextColor, Font22(),
+      box_x + 14, row_y + 8, rendered.content_width - 28,
+      rendered.content_height - 16, LV_TEXT_ALIGN_CENTER, false);
+}
+
+/**
+ * @brief 绘制聊天时间线中一条用户消息
+ * @param layer LVGL 绘制层
+ * @param timeline_x 时间线对象左侧绝对坐标
+ * @param timeline_width 时间线宽度
+ * @param row_y 消息行顶部绝对坐标
+ * @param rendered 消息布局
+ */
+void DrawUserChatMessage(lv_layer_t* layer, int timeline_x,
+    int timeline_width, int row_y,
+    const RenderedRadioChatMessage& rendered) {
+  const RadioChatMessage* message = rendered.message;
+  if (message == nullptr) {
+    return;
+  }
+  const bool outgoing =
+      message->delivery != RadioChatDeliveryState::kReceived;
+  const uint32_t bubble_color =
       outgoing ? kPrimaryColor : kSurfaceContainerColor;
   const uint32_t text_color = outgoing ? kOnPrimaryColor : kMainTextColor;
-  lv_obj_t* bubble = lv_obj_create(parent);
-  if (bubble == nullptr) {
-    return nullptr;
-  }
-  lv_obj_remove_flag(bubble, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_flag(bubble, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_style_bg_color(
-      bubble, lv_color_hex(background_color), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(bubble, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(bubble, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(bubble, 20, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(bubble, 0, LV_PART_MAIN);
+  const int bubble_x = timeline_x + rendered.content_x;
+  DrawChatRectangle(layer, bubble_x, row_y, rendered.content_width,
+      rendered.content_height, bubble_color, 20);
+  const int corner_x = outgoing
+      ? bubble_x + rendered.content_width - 20
+      : bubble_x;
+  DrawChatRectangle(layer, corner_x,
+      row_y + rendered.content_height - 20, 20, 20,
+      bubble_color, 6);
+  DrawChatText(layer, message->text, text_color, Font24(),
+      bubble_x + 18,
+      row_y + (rendered.content_height - rendered.text_height) / 2,
+      rendered.content_width - 36, rendered.text_height,
+      LV_TEXT_ALIGN_LEFT, false);
 
-  lv_obj_t* title = CreateLabel(bubble, text, text_color, Font24());
-  if (title == nullptr) {
-    lv_obj_delete(bubble);
-    return nullptr;
+  const int status_y = row_y + rendered.status_y;
+  if (!outgoing) {
+    char rssi[32] = {};
+    char snr[32] = {};
+    std::snprintf(rssi, sizeof(rssi), "RSSI  %d dBm",
+        static_cast<int>(message->rssi_dbm));
+    std::snprintf(snr, sizeof(snr), "SNR  %+d",
+        static_cast<int>(message->snr_db));
+    DrawChatText(layer, rssi, kSecondaryTextColor, Font22(),
+        timeline_x + 28, status_y, 140, 30,
+        LV_TEXT_ALIGN_LEFT, true);
+    DrawChatText(layer, snr, kSecondaryTextColor, Font22(),
+        timeline_x + 174, status_y, 120, 30,
+        LV_TEXT_ALIGN_LEFT, true);
+    DrawChatText(layer, message->time, kSecondaryTextColor, Font22(),
+        timeline_x + 28, status_y + 28, 180, 30,
+        LV_TEXT_ALIGN_LEFT, false);
+    return;
   }
-  lv_obj_update_layout(title);
-  int bubble_width = lv_obj_get_width(title) + 36;
-  if (bubble_width < 90) {
-    bubble_width = 90;
-  }
-  if (bubble_width > max_width) {
-    bubble_width = max_width;
-  }
-  lv_obj_set_width(title, bubble_width - 36);
-  lv_label_set_long_mode(title, LV_LABEL_LONG_WRAP);
-  lv_obj_update_layout(title);
-  int bubble_height = lv_obj_get_height(title) + 28;
-  if (bubble_height < 64) {
-    bubble_height = 64;
-  }
-  const int x = outgoing
-                    ? lv_obj_get_width(parent) - bubble_width - 28
-                    : 28;
-  lv_obj_set_size(bubble, bubble_width, bubble_height);
-  lv_obj_set_pos(bubble, x, y);
-  lv_obj_align(title, LV_ALIGN_LEFT_MID, 18, 0);
 
-  lv_obj_t* corner = lv_obj_create(parent);
-  if (corner == nullptr) {
-    lv_obj_delete(bubble);
-    return nullptr;
-  }
-  lv_obj_remove_style_all(corner);
-  lv_obj_remove_flag(corner, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_flag(corner, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_size(corner, 20, 20);
-  lv_obj_set_pos(corner, x + (outgoing ? bubble_width - 20 : 0),
-      y + bubble_height - 20);
-  lv_obj_set_style_bg_color(
-      corner, lv_color_hex(background_color), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(corner, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(corner, 0, LV_PART_MAIN);
-  lv_obj_set_style_outline_width(corner, 0, LV_PART_MAIN);
-  lv_obj_set_style_shadow_width(corner, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(corner, 6, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(corner, 0, LV_PART_MAIN);
-  *rendered_height = bubble_height;
-  return bubble;
-}
-
-/**
- * @brief 创建接收消息下方的射频参数和时间
- * @param parent 父对象
- * @param rssi RSSI 参数文本
- * @param snr SNR 参数文本
- * @param time 时间文本
- * @param y 参数文本顶部坐标
- * @return 创建成功返回 true，否则返回 false
- */
-bool CreateReceiveTelemetry(lv_obj_t* parent, const char* rssi,
-    const char* snr, const char* time, int y) {
-  if (parent == nullptr || rssi == nullptr || snr == nullptr ||
-      time == nullptr) {
-    return false;
-  }
-  lv_obj_t* parameters = CreateLabel(parent, rssi,
-      kSecondaryTextColor, Font22());
-  if (parameters == nullptr) {
-    return false;
-  }
-  lv_obj_set_pos(parameters, 28, y);
-  lv_obj_t* snr_label = CreateLabel(parent, snr,
-      kSecondaryTextColor, Font22());
-  if (snr_label == nullptr) {
-    return false;
-  }
-  lv_obj_set_pos(snr_label, 174, y);
-  lv_obj_t* time_label = CreateLabel(parent, time,
-      kSecondaryTextColor, Font22());
-  if (time_label == nullptr) {
-    return false;
-  }
-  lv_obj_set_pos(time_label, 28, y + 28);
-  return true;
-}
-
-/**
- * @brief 创建发送消息下方的时间和发送结果图标
- * @param parent 父对象
- * @param time 时间文本
- * @param delivery 消息发送状态
- * @param y 顶部坐标
- * @return 创建成功返回 true，否则返回 false
- */
-bool CreateSendStatus(
-    lv_obj_t* parent, const char* time,
-    RadioChatDeliveryState delivery, int y) {
-  if (parent == nullptr || time == nullptr) {
-    return false;
-  }
-  const bool sending = delivery == RadioChatDeliveryState::kSending;
-  const bool success = delivery == RadioChatDeliveryState::kSent;
-  if (!sending) {
-    lv_obj_t* icon_label = CreateLabel(parent,
-        success ? icon::kCheck : icon::kClose,
-        success ? kSendSuccessColor : kSendFailureColor,
-        FillIconFont32());
-    if (icon_label == nullptr) {
-      return false;
-    }
-    lv_obj_align(icon_label, LV_ALIGN_TOP_RIGHT, -28, y - 5);
-  }
-  const char* prefix = sending ? "Sending  " : "";
+  const bool sending =
+      message->delivery == RadioChatDeliveryState::kSending;
+  const bool success =
+      message->delivery == RadioChatDeliveryState::kSent;
   char status_text[32] = {};
-  std::snprintf(status_text, sizeof(status_text), "%s%s", prefix, time);
-  lv_obj_t* time_label = CreateLabel(
-      parent, status_text, kSecondaryTextColor, Font22());
-  if (time_label == nullptr) {
+  std::snprintf(status_text, sizeof(status_text), "%s%s",
+      sending ? "Sending  " : "", message->time);
+  const int time_right = timeline_x + timeline_width -
+      (sending ? 28 : 66);
+  DrawChatText(layer, status_text, kSecondaryTextColor, Font22(),
+      timeline_x + 28, status_y, time_right - timeline_x - 28, 30,
+      LV_TEXT_ALIGN_RIGHT, true);
+  if (!sending) {
+    DrawChatText(layer, success ? icon::kCheck : icon::kClose,
+        success ? kSendSuccessColor : kSendFailureColor,
+        FillIconFont32(), timeline_x + timeline_width - 62,
+        status_y - 5, 34, 40, LV_TEXT_ALIGN_RIGHT, false);
+  }
+}
+
+/**
+ * @brief 绘制聊天时间线当前可见的消息
+ * @param event LVGL 绘制事件
+ */
+void ChatTimelineDrawEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_DRAW_MAIN) {
+    return;
+  }
+  auto* state =
+      static_cast<RadioViewState*>(lv_event_get_user_data(event));
+  lv_obj_t* timeline = lv_event_get_target_obj(event);
+  lv_layer_t* layer = lv_event_get_layer(event);
+  if (state == nullptr || timeline == nullptr || layer == nullptr ||
+      state->detail_chat_body == nullptr) {
+    return;
+  }
+  lv_area_t timeline_area = {};
+  lv_area_t body_area = {};
+  lv_obj_get_coords(timeline, &timeline_area);
+  lv_obj_get_coords(state->detail_chat_body, &body_area);
+  const int timeline_width = lv_area_get_width(&timeline_area);
+  for (size_t index = 0; index < state->rendered_chat_count; ++index) {
+    const RenderedRadioChatMessage& rendered =
+        state->rendered_chat_messages[index];
+    const int row_y = timeline_area.y1 + rendered.y;
+    if (row_y + rendered.height < body_area.y1 ||
+        row_y > body_area.y2) {
+      continue;
+    }
+    if (rendered.message != nullptr &&
+        rendered.message->type == RadioChatMessageType::kSystem) {
+      DrawSystemChatMessage(
+          layer, timeline_area.x1, row_y, rendered);
+    } else {
+      DrawUserChatMessage(layer, timeline_area.x1,
+          timeline_width, row_y, rendered);
+    }
+  }
+}
+
+/**
+ * @brief 清空聊天自绘时间线的布局状态
+ * @param state Radio 页面状态
+ */
+void ResetRenderedChatState(RadioViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+  for (RenderedRadioChatMessage& message :
+       state->rendered_chat_messages) {
+    message = RenderedRadioChatMessage();
+  }
+  state->rendered_chat_count = 0;
+  state->rendered_chat_profile_id = 0;
+  state->rendered_chat_y = kChatTimelineInset;
+  state->chat_scroll_pending = false;
+}
+
+/**
+ * @brief 计算一条消息在自绘时间线中的布局
+ * @param state Radio 页面状态
+ * @param message 聊天消息
+ * @param y 消息行顶部坐标
+ * @param output 布局输出
+ * @return 参数和布局有效时返回 true
+ */
+bool LayoutChatMessage(RadioViewState* state,
+    const RadioChatMessage& message, int y,
+    RenderedRadioChatMessage* output) {
+  if (state == nullptr || output == nullptr) {
     return false;
   }
-  lv_obj_align(time_label, LV_ALIGN_TOP_RIGHT,
-      sending ? -28 : -66, y);
+  RenderedRadioChatMessage rendered;
+  rendered.message = &message;
+  rendered.sequence = message.sequence;
+  rendered.y = y;
+  lv_point_t text_size = {};
+  if (message.type == RadioChatMessageType::kSystem) {
+    const int max_label_width =
+        std::max(1, state->config.width - 92);
+    const int estimated_width = std::max(1,
+        static_cast<int>(std::strlen(message.text)) *
+            kSystemMessageGlyphWidthEstimate);
+    const int label_width =
+        std::min(estimated_width, max_label_width);
+    const int line_count = std::max(
+        1, (estimated_width + max_label_width - 1) / max_label_width);
+    const int text_height =
+        lv_font_get_line_height(Font22()) * line_count;
+    rendered.content_width = label_width + 28;
+    rendered.content_height = text_height + 16;
+    rendered.content_x =
+        (state->config.width - rendered.content_width) / 2;
+    rendered.text_height = text_height;
+    rendered.height = rendered.content_height + 18;
+    *output = rendered;
+    return true;
+  }
+
+  const int max_bubble_width =
+      std::max(90, state->config.width - 100);
+  lv_text_get_size(&text_size, message.text, Font24(), 0, 0,
+      LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+  const int unwrapped_width = static_cast<int>(text_size.x);
+  rendered.content_width = std::clamp(
+      unwrapped_width + 36, 90, max_bubble_width);
+  const int label_width = rendered.content_width - 36;
+  if (unwrapped_width > label_width) {
+    lv_text_get_size(&text_size, message.text, Font24(), 0, 0,
+        label_width, LV_TEXT_FLAG_NONE);
+  }
+  rendered.text_height = static_cast<int>(text_size.y);
+  rendered.content_height = std::max(rendered.text_height + 28, 64);
+  const bool outgoing =
+      message.delivery != RadioChatDeliveryState::kReceived;
+  rendered.content_x = outgoing
+      ? state->config.width - rendered.content_width - 28
+      : 28;
+  rendered.status_y = rendered.content_height + 8;
+  rendered.height = rendered.status_y + (outgoing ? 48 : 76);
+  *output = rendered;
   return true;
 }
 
 /**
  * @brief 将聊天消息区域滚动到最后一条消息
  * @param body 聊天消息区域
+ * @param content_height 聊天时间线完整内容高度
+ * @param viewport_height 已知的新视口高度，负数表示读取当前高度
  */
-void ScrollChatToBottom(lv_obj_t* body) {
+void ScrollChatToBottom(
+    lv_obj_t* body, int content_height, int viewport_height = -1) {
   if (body == nullptr) {
     return;
   }
-  lv_obj_update_layout(body);
-  const int32_t bottom =
-      lv_obj_get_scroll_top(body) + lv_obj_get_scroll_bottom(body);
-  lv_obj_scroll_to_y(body, bottom, LV_ANIM_OFF);
-  lv_obj_invalidate(body);
+  const int body_height = viewport_height >= 0
+      ? viewport_height
+      : lv_obj_get_height(body);
+  const int32_t target = std::max<int32_t>(
+      0, content_height + kChatTimelineInset - body_height);
+  const int32_t current = lv_obj_get_scroll_y(body);
+  const int32_t delta = current - target;
+  if (delta != 0) {
+    // content_height 已经给出精确边界，直接滚动可避免
+    // lv_obj_scroll_to_y() 对整张 screen 执行同步布局更新。
+    lv_obj_scroll_by(body, 0, delta, LV_ANIM_OFF);
+  }
 }
 
 /**
- * @brief 创建聊天时间线中的系统提示
- * @param parent 聊天消息区域
- * @param text 提示文本
- * @param y 顶部坐标
- * @param page_width 页面宽度
- * @param message_height 实际提示高度输出
- * @return 创建成功返回 true，否则返回 false
+ * @brief 判断聊天时间线当前是否真正显示在最上层
+ * @param state Radio 页面状态
+ * @return 没有设置子页面遮挡聊天页时返回 true
  */
-bool CreateSystemMessage(lv_obj_t* parent, const char* text, int y,
-    int page_width, int* message_height) {
-  if (parent == nullptr || text == nullptr || message_height == nullptr) {
-    return false;
+bool IsChatTimelineVisible(const RadioViewState* state) {
+  return state != nullptr && state->detail_page != nullptr &&
+      state->profile_settings_page == nullptr &&
+      state->profile_name_edit_page == nullptr &&
+      state->add_page == nullptr && !state->detail_closing;
+}
+
+/**
+ * @brief 立即或延后将聊天时间线滚动到底部
+ * @param state Radio 页面状态
+ * @param viewport_height 已知的新视口高度，负数表示读取当前高度
+ */
+void RequestChatScrollToBottom(
+    RadioViewState* state, int viewport_height = -1) {
+  if (state == nullptr || state->detail_chat_body == nullptr) {
+    return;
   }
-  lv_obj_t* notice_box = lv_obj_create(parent);
-  if (notice_box == nullptr) {
-    return false;
+  if (!IsChatTimelineVisible(state)) {
+    state->chat_scroll_pending = true;
+    return;
   }
-  lv_obj_remove_flag(notice_box, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(notice_box,
-      lv_color_hex(kNoticeContainerColor), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(notice_box, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(notice_box, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(notice_box, 0, LV_PART_MAIN);
-  lv_obj_t* notice_label = CreateLabel(
-      notice_box, text, kSecondaryTextColor, Font22());
-  if (notice_label == nullptr) {
-    return false;
+  state->chat_scroll_pending = false;
+  ScrollChatToBottom(state->detail_chat_body,
+      state->rendered_chat_y, viewport_height);
+}
+
+/**
+ * @brief 在聊天页重新可见后应用等待中的自动滚动
+ * @param state Radio 页面状态
+ */
+void ApplyPendingChatScroll(RadioViewState* state) {
+  if (state == nullptr || !state->chat_scroll_pending ||
+      !IsChatTimelineVisible(state)) {
+    return;
   }
-  lv_obj_set_width(notice_label, LV_SIZE_CONTENT);
-  lv_label_set_long_mode(notice_label, LV_LABEL_LONG_WRAP);
-  lv_obj_update_layout(notice_label);
-  const int32_t max_label_width = std::max<int32_t>(
-      1, static_cast<int32_t>(page_width) - 92);
-  const int32_t label_width = std::min<int32_t>(
-      lv_obj_get_width(notice_label), max_label_width);
-  lv_obj_set_width(notice_label, label_width);
-  lv_obj_update_layout(notice_label);
-  const int32_t box_width = label_width + 28;
-  const int32_t box_height = lv_obj_get_height(notice_label) + 16;
-  lv_obj_set_size(notice_box, box_width, box_height);
-  lv_obj_align(notice_box, LV_ALIGN_TOP_MID, 0, y);
-  lv_obj_set_style_radius(notice_box, 21, LV_PART_MAIN);
-  lv_obj_set_style_text_align(
-      notice_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-  lv_obj_center(notice_label);
-  *message_height = static_cast<int>(box_height);
-  return true;
+  RequestChatScrollToBottom(state);
+}
+
+/**
+ * @brief 查找旧布局后缀与新消息前缀的最大重合数量
+ * @param state Radio 页面状态
+ * @param messages 最新消息数组
+ * @param message_count 最新消息数量
+ * @return 可以直接复用的布局数量
+ */
+size_t FindChatLayoutOverlap(const RadioViewState* state,
+    const RadioChatMessage* const* messages, size_t message_count) {
+  if (state == nullptr || messages == nullptr) {
+    return 0;
+  }
+  const size_t maximum =
+      std::min(state->rendered_chat_count, message_count);
+  for (size_t overlap = maximum; overlap > 0; --overlap) {
+    const size_t old_first = state->rendered_chat_count - overlap;
+    bool matches = true;
+    for (size_t index = 0; index < overlap; ++index) {
+      matches = messages[index] != nullptr &&
+          state->rendered_chat_messages[old_first + index].sequence ==
+              messages[index]->sequence;
+      if (!matches) {
+        break;
+      }
+    }
+    if (matches) {
+      return overlap;
+    }
+  }
+  return 0;
+}
+
+/**
+ * @brief 重新排列保留的轻量聊天布局
+ * @param state Radio 页面状态
+ */
+void RelayoutChatMessages(RadioViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+  int chat_y = kChatTimelineInset;
+  for (size_t index = 0; index < state->rendered_chat_count; ++index) {
+    state->rendered_chat_messages[index].y = chat_y;
+    chat_y += state->rendered_chat_messages[index].height;
+  }
+  state->rendered_chat_y = chat_y;
 }
 
 /**
  * @brief 渲染当前 Radio 配置最近的聊天记录
  * @param state Radio 页面状态
- * @return 所有可见消息创建成功时返回 true
+ * @return 时间线更新成功时返回 true
  */
 bool RenderChatMessages(RadioViewState* state) {
   if (state == nullptr || state->detail_chat_body == nullptr ||
+      state->detail_chat_timeline == nullptr ||
       state->detail_index >= state->module_count) {
     return false;
   }
-  lv_obj_t* body = state->detail_chat_body;
-  lv_obj_clean(body);
+  const uint32_t started_ms = lv_tick_get();
   const app::RadioProfile& profile =
       state->preferences.profiles[state->detail_index];
   const RadioChatMessage* messages[app::kRadioChatPageCapacity] = {};
   const size_t message_count = app::GetRadioChatRepository().GetRecent(
       profile.id, messages, app::kRadioChatPageCapacity);
-  int chat_y = kChatTimelineInset;
-  for (size_t index = 0; index < message_count; ++index) {
-    const RadioChatMessage& message = *messages[index];
-    if (message.type == RadioChatMessageType::kSystem) {
-      int message_height = 0;
-      if (!CreateSystemMessage(
-              body, message.text, chat_y, state->config.width,
-              &message_height)) {
-        return false;
-      }
-      chat_y += message_height + 18;
-      continue;
+  const uint32_t repository_done_ms = lv_tick_get();
+  const bool same_profile =
+      state->rendered_chat_profile_id == profile.id;
+  size_t overlap = same_profile
+      ? FindChatLayoutOverlap(state, messages, message_count)
+      : 0;
+  const bool rebuild = !same_profile ||
+      (state->rendered_chat_count > 0 && message_count > 0 &&
+          overlap == 0);
+  bool timeline_changed = rebuild ||
+      state->rendered_chat_count != message_count;
+  if (rebuild || message_count == 0) {
+    ResetRenderedChatState(state);
+    overlap = 0;
+  } else if (state->rendered_chat_count > overlap) {
+    const size_t removed_count = state->rendered_chat_count - overlap;
+    for (size_t index = 0; index < overlap; ++index) {
+      state->rendered_chat_messages[index] =
+          state->rendered_chat_messages[removed_count + index];
     }
-    const bool outgoing = message.delivery != RadioChatDeliveryState::kReceived;
-    int bubble_height = 0;
-    if (CreateChatBubble(body, message.text, chat_y,
-            state->config.width - 100, outgoing,
-            &bubble_height) == nullptr) {
+    for (size_t index = overlap;
+         index < state->rendered_chat_count; ++index) {
+      state->rendered_chat_messages[index] =
+          RenderedRadioChatMessage();
+    }
+    state->rendered_chat_count = overlap;
+    RelayoutChatMessages(state);
+    timeline_changed = true;
+  }
+  state->rendered_chat_profile_id = profile.id;
+  for (size_t index = 0; index < overlap; ++index) {
+    if (messages[index] == nullptr) {
       return false;
     }
-    chat_y += bubble_height + 8;
-    if (outgoing) {
-      if (!CreateSendStatus(
-              body, message.time, message.delivery, chat_y)) {
-        return false;
-      }
-      chat_y += 48;
-    } else {
-      char rssi[32] = {};
-      char snr[32] = {};
-      std::snprintf(rssi, sizeof(rssi), "RSSI  %d dBm",
-          static_cast<int>(message.rssi_dbm));
-      std::snprintf(snr, sizeof(snr), "SNR  %+d",
-          static_cast<int>(message.snr_db));
-      if (!CreateReceiveTelemetry(
-              body, rssi, snr, message.time, chat_y)) {
-        return false;
-      }
-      chat_y += 76;
-    }
+    state->rendered_chat_messages[index].message = messages[index];
   }
-  ScrollChatToBottom(body);
+  const uint32_t diff_done_ms = lv_tick_get();
+  for (size_t index = overlap; index < message_count; ++index) {
+    if (messages[index] == nullptr || !LayoutChatMessage(state,
+            *messages[index], state->rendered_chat_y,
+            &state->rendered_chat_messages[index])) {
+      return false;
+    }
+    state->rendered_chat_y +=
+        state->rendered_chat_messages[index].height;
+    ++state->rendered_chat_count;
+    timeline_changed = true;
+  }
+  const uint32_t layout_done_ms = lv_tick_get();
+  const int timeline_height = std::max(state->rendered_chat_y, 1);
+  if (lv_obj_get_width(state->detail_chat_timeline) !=
+          state->config.width ||
+      lv_obj_get_height(state->detail_chat_timeline) != timeline_height) {
+    lv_obj_set_size(state->detail_chat_timeline,
+        state->config.width, timeline_height);
+  }
+  const uint32_t size_done_ms = lv_tick_get();
+  lv_obj_invalidate(state->detail_chat_timeline);
+  const uint32_t invalidate_done_ms = lv_tick_get();
+  if (timeline_changed) {
+    RequestChatScrollToBottom(state);
+  }
+  const uint32_t finished_ms = lv_tick_get();
+  if (finished_ms - started_ms >= kSlowRadioUiThresholdMs) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Radio chat render slow: repository=%lu ms, diff=%lu ms, "
+        "layout=%lu ms, size=%lu ms, invalidate=%lu ms, "
+        "scroll=%lu ms\n",
+        static_cast<unsigned long>(repository_done_ms - started_ms),
+        static_cast<unsigned long>(diff_done_ms - repository_done_ms),
+        static_cast<unsigned long>(layout_done_ms - diff_done_ms),
+        static_cast<unsigned long>(size_done_ms - layout_done_ms),
+        static_cast<unsigned long>(invalidate_done_ms - size_done_ms),
+        static_cast<unsigned long>(finished_ms - invalidate_done_ms));
+  }
   return true;
 }
 
@@ -992,7 +1320,7 @@ void UpdateDetailStatus(RadioViewState* state) {
   if (state->detail_status_label != nullptr &&
       state->detail_index < state->module_count) {
     const char* status = ProfileStatusText(state, state->detail_index);
-    lv_label_set_text(state->detail_status_label, status);
+    SetLabelTextIfChanged(state->detail_status_label, status);
     lv_obj_set_style_text_color(state->detail_status_label,
         lv_color_hex(ProfileStatusColor(status)), LV_PART_MAIN);
   }
@@ -1002,7 +1330,7 @@ void UpdateDetailStatus(RadioViewState* state) {
         ProfileStatusText(state, state->profile_settings_index);
     const lv_color_t status_color =
         lv_color_hex(ProfileStatusColor(status));
-    lv_label_set_text(
+    SetLabelTextIfChanged(
         state->profile_settings_header_status_label, status);
     lv_obj_set_style_text_color(
         state->profile_settings_header_status_label,
@@ -1097,18 +1425,193 @@ const char* RadioFailureReasonText(hal::RadioFailureReason reason) {
 }
 
 /**
+ * @brief 在独立任务中执行可能阻塞 SPI 总线的射频命令
+ * @param context 共享射频命令任务上下文
+ */
+void RadioCommandTaskEntry(void* context) {
+  auto* shared_job =
+      static_cast<std::shared_ptr<RadioCommandJob>*>(context);
+  if (shared_job == nullptr) {
+    vTaskDelete(nullptr);
+    return;
+  }
+  std::shared_ptr<RadioCommandJob> job = *shared_job;
+  delete shared_job;
+  if (job->provider != nullptr) {
+    switch (job->type) {
+      case RadioCommandType::kActivate:
+        job->success = job->provider->ActivateRadio(job->config);
+        break;
+      case RadioCommandType::kDeactivate:
+        job->success = job->provider->DeactivateRadio();
+        break;
+      case RadioCommandType::kSend:
+        job->success = job->provider->SendRadio(
+            job->payload, job->payload_size, job->request_token);
+        break;
+    }
+  }
+  job->completed.store(true, std::memory_order_release);
+  job.reset();
+  vTaskDelete(nullptr);
+}
+
+/**
+ * @brief 启动一个后台射频命令任务
+ * @param state Radio 页面状态
+ * @param job 射频命令任务
+ * @return FreeRTOS 任务成功创建时返回 true
+ */
+bool StartRadioCommand(RadioViewState* state,
+    const std::shared_ptr<RadioCommandJob>& job) {
+  if (state == nullptr || job == nullptr ||
+      state->radio_command_job != nullptr) {
+    return false;
+  }
+  state->radio_command_job = job;
+  if (job->type != RadioCommandType::kSend) {
+    state->radio_status_available = false;
+  }
+  auto* task_context =
+      new (std::nothrow) std::shared_ptr<RadioCommandJob>(job);
+  if (task_context != nullptr &&
+      xTaskCreate(RadioCommandTaskEntry, "radio_cmd",
+          kRadioCommandTaskStackBytes, task_context,
+          kRadioCommandTaskPriority, nullptr) == pdPASS) {
+    return true;
+  }
+  delete task_context;
+  job->success = false;
+  job->completed.store(true, std::memory_order_release);
+  LogMessage(LogLevel::kError, __FILE__, __LINE__,
+      "Radio command task could not be created\n");
+  return false;
+}
+
+/**
+ * @brief 在射频空闲后启动最后一次配置或停用请求
+ * @param state Radio 页面状态
+ * @return 后台命令已进入执行状态时返回 true
+ */
+bool StartPendingRadioControlCommand(RadioViewState* state) {
+  if (state == nullptr || !state->pending_control_command ||
+      state->radio_command_job != nullptr || state->transmit_in_flight ||
+      state->config.radio == nullptr) {
+    return false;
+  }
+  auto job = std::make_shared<RadioCommandJob>();
+  job->provider = state->config.radio;
+  job->type = state->pending_control_type;
+  job->config = state->pending_control_config;
+  state->pending_control_command = false;
+  StartRadioCommand(state, job);
+  return true;
+}
+
+/**
+ * @brief 合并并异步执行 Radio 激活或停用请求
+ * @param state Radio 页面状态
+ * @param type 激活或停用命令类型
+ * @param config 激活配置，停用命令可传默认配置
+ */
+void QueueRadioControlCommand(RadioViewState* state,
+    RadioCommandType type, const hal::RadioConfig& config) {
+  if (state == nullptr || state->config.radio == nullptr) {
+    return;
+  }
+  state->pending_control_type = type;
+  state->pending_control_config = config;
+  state->pending_control_command = true;
+  StartPendingRadioControlCommand(state);
+}
+
+/**
+ * @brief 异步启动一条等待消息，避免 SPI 操作阻塞 LVGL 回调
+ * @param state Radio 页面状态
+ * @param message 待发送聊天消息
+ * @return 消息已交给后台任务时返回 true
+ */
+bool StartRadioSendCommand(
+    RadioViewState* state, const RadioChatMessage& message) {
+  const size_t length = std::strlen(message.text);
+  if (state == nullptr || state->config.radio == nullptr || length == 0 ||
+      length > hal::kRadioPayloadCapacity ||
+      state->radio_command_job != nullptr ||
+      state->pending_control_command || state->transmit_in_flight) {
+    return false;
+  }
+  auto job = std::make_shared<RadioCommandJob>();
+  job->provider = state->config.radio;
+  job->type = RadioCommandType::kSend;
+  job->payload_size = length;
+  job->request_token = message.sequence;
+  std::memcpy(job->payload, message.text, length);
+  state->transmit_in_flight = true;
+  StartRadioCommand(state, job);
+  return true;
+}
+
+/**
+ * @brief 收割后台射频命令结果并更新最小范围的界面
+ * @param state Radio 页面状态
+ * @return 当前没有后台射频命令时返回 true
+ */
+bool FinishRadioCommand(RadioViewState* state) {
+  if (state == nullptr) {
+    return false;
+  }
+  if (state->radio_command_job == nullptr) {
+    return true;
+  }
+  if (!state->radio_command_job->completed.load(
+          std::memory_order_acquire)) {
+    return false;
+  }
+  const std::shared_ptr<RadioCommandJob> job = state->radio_command_job;
+  state->radio_command_job.reset();
+  if (job->type == RadioCommandType::kSend && !job->success) {
+    state->transmit_in_flight = false;
+    app::GetRadioChatRepository().UpdateDelivery(
+        job->request_token, RadioChatDeliveryState::kFailed);
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Radio queued message start failed: message=%lu, size=%u bytes\n",
+        static_cast<unsigned long>(
+            static_cast<uint32_t>(job->request_token)),
+        static_cast<unsigned>(job->payload_size));
+    SyncModuleItems(state);
+    if (state->detail_page != nullptr) {
+      RenderChatMessages(state);
+    }
+    MarkModuleListDirty(state);
+  } else if (job->type != RadioCommandType::kSend) {
+    state->radio_status_available = false;
+    if (job->success && job->type == RadioCommandType::kActivate) {
+      state->activation_retry_count = 0;
+    }
+    if (job->type == RadioCommandType::kDeactivate) {
+      state->radio_status = hal::RadioStatus();
+      state->radio_status_available = job->success;
+      UpdateDetailStatus(state);
+      RefreshProfileSettingsPage(state);
+      MarkModuleListDirty(state);
+    }
+  }
+  if (!state->transmit_in_flight) {
+    StartPendingRadioControlCommand(state);
+  }
+  return state->radio_command_job == nullptr;
+}
+
+/**
  * @brief 在射频空闲时启动当前配置最早的等待消息
  * @param state Radio 页面状态
  * @return 成功启动发送时返回 true
  */
 bool TryStartNextPendingMessage(RadioViewState* state) {
   if (state == nullptr || state->config.radio == nullptr ||
-      state->preferences.active_profile_id == 0) {
-    return false;
-  }
-  hal::RadioStatus status;
-  if (!state->config.radio->ReadRadioStatus(&status) ||
-      status.state != hal::RadioLinkState::kActive || status.transmitting) {
+      state->preferences.active_profile_id == 0 ||
+      state->radio_command_job != nullptr ||
+      state->pending_control_command || state->transmit_in_flight) {
     return false;
   }
   RadioChatMessage message;
@@ -1130,28 +1633,10 @@ bool TryStartNextPendingMessage(RadioViewState* state) {
     if (state->detail_page != nullptr) {
       RenderChatMessages(state);
     }
-    RenderModuleList(state);
+    MarkModuleListDirty(state);
     return false;
   }
-  const bool started = state->config.radio->SendRadio(
-      reinterpret_cast<const uint8_t*>(message.text), length,
-      message.sequence);
-  if (!started) {
-    app::GetRadioChatRepository().UpdateDelivery(
-        message.sequence, RadioChatDeliveryState::kFailed);
-    LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Radio queued message start failed: profile=%lu, message=%lu, "
-        "size=%u bytes\n",
-        static_cast<unsigned long>(message.profile_id),
-        static_cast<unsigned long>(static_cast<uint32_t>(message.sequence)),
-        static_cast<unsigned>(length));
-    SyncModuleItems(state);
-    if (state->detail_page != nullptr) {
-      RenderChatMessages(state);
-    }
-    RenderModuleList(state);
-  }
-  return started;
+  return StartRadioSendCommand(state, message);
 }
 
 /**
@@ -1163,12 +1648,32 @@ void RadioTimerCallback(lv_timer_t* timer) {
   if (state == nullptr) {
     return;
   }
+  if (!FinishRadioCommand(state) || state->radio_command_job != nullptr) {
+    return;
+  }
   if (state->config.radio == nullptr ||
       state->preferences.active_profile_id == 0) {
     return;
   }
   hal::RadioStatus status;
   const bool status_available = state->config.radio->ReadRadioStatus(&status);
+  const bool status_changed =
+      state->radio_status_available != status_available ||
+      (status_available &&
+          (state->radio_status.state != status.state ||
+              state->radio_status.active_client_token !=
+                  status.active_client_token ||
+              state->radio_status.hardware_ready != status.hardware_ready ||
+              state->radio_status.transmitting != status.transmitting));
+  state->radio_status_available = status_available;
+  if (status_available) {
+    state->radio_status = status;
+  }
+  if (status_changed) {
+    UpdateDetailStatus(state);
+    RefreshProfileSettingsPage(state);
+    MarkModuleListDirty(state);
+  }
   const bool use_fast_retry =
       state->activation_retry_count < kActivationFastRetryCount;
   const uint32_t retry_period_ms = use_fast_retry
@@ -1185,13 +1690,9 @@ void RadioTimerCallback(lv_timer_t* timer) {
     }
     if (retry_index < state->module_count &&
         IsProfileSupported(state, state->preferences.profiles[retry_index])) {
-      const bool activated = state->config.radio->ActivateRadio(
+      QueueRadioControlCommand(state, RadioCommandType::kActivate,
           ToRadioConfig(state->preferences.profiles[retry_index]));
-      if (activated) {
-        state->activation_retry_count = 0;
-      }
-      UpdateDetailStatus(state);
-      RenderModuleList(state);
+      return;
     }
   } else if (status_available && status.state == hal::RadioLinkState::kActive) {
     state->activation_retry_count = 0;
@@ -1209,6 +1710,7 @@ void RadioTimerCallback(lv_timer_t* timer) {
   if (event.type == hal::RadioEventType::kTransmitComplete ||
       event.type == hal::RadioEventType::kTransmitFailed ||
       event.type == hal::RadioEventType::kChipError) {
+    state->transmit_in_flight = false;
     const RadioChatDeliveryState delivery =
         event.type == hal::RadioEventType::kTransmitComplete
             ? RadioChatDeliveryState::kSent
@@ -1250,6 +1752,7 @@ void RadioTimerCallback(lv_timer_t* timer) {
         "Radio event ignored: unknown profile=%lu, type=%u\n",
         static_cast<unsigned long>(profile_id),
         static_cast<unsigned>(event.type));
+    StartPendingRadioControlCommand(state);
     return;
   }
   if (event.type == hal::RadioEventType::kPacketReceived) {
@@ -1273,7 +1776,8 @@ void RadioTimerCallback(lv_timer_t* timer) {
   if (state->detail_page != nullptr && state->detail_index == profile_index) {
     RenderChatMessages(state);
   }
-  RenderModuleList(state);
+  MarkModuleListDirty(state);
+  StartPendingRadioControlCommand(state);
   TryStartNextPendingMessage(state);
 }
 
@@ -1310,6 +1814,7 @@ void DetailSendClickedEventCallback(lv_event_t* event) {
       state->detail_index >= state->module_count) {
     return;
   }
+  const uint32_t started_ms = lv_tick_get();
   const char* text = lv_textarea_get_text(state->detail_input);
   const size_t length = text == nullptr ? 0 : std::strlen(text);
   const app::RadioProfile& profile =
@@ -1350,11 +1855,21 @@ void DetailSendClickedEventCallback(lv_event_t* event) {
         static_cast<unsigned long>(profile.id));
     return;
   }
-  TryStartNextPendingMessage(state);
+  const uint32_t message_done_ms = lv_tick_get();
   lv_textarea_set_text(state->detail_input, "");
   SyncModuleItems(state);
+  const uint32_t summary_done_ms = lv_tick_get();
   RenderChatMessages(state);
-  RenderModuleList(state);
+  MarkModuleListDirty(state);
+  const uint32_t finished_ms = lv_tick_get();
+  if (finished_ms - started_ms >= kSlowRadioUiThresholdMs) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Radio send UI slow: message=%lu ms, summary=%lu ms, "
+        "render=%lu ms\n",
+        static_cast<unsigned long>(message_done_ms - started_ms),
+        static_cast<unsigned long>(summary_done_ms - message_done_ms),
+        static_cast<unsigned long>(finished_ms - summary_done_ms));
+  }
 }
 
 /**
@@ -1386,7 +1901,7 @@ void SetDetailKeyboardVisible(RadioViewState* state, bool visible) {
       0, static_cast<int32_t>(composer_top) -
              lv_obj_get_y(state->detail_chat_body));
   lv_obj_set_height(state->detail_chat_body, chat_height);
-  ScrollChatToBottom(state->detail_chat_body);
+  RequestChatScrollToBottom(state, chat_height);
   if (!visible) {
     HideSharedKeyboard(state->detail_keyboard);
   }
@@ -1556,6 +2071,7 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
     SyncModuleItems(state);
   }
   const RadioModuleItem& item = state->modules[index];
+  ResetRenderedChatState(state);
   lv_obj_t* page = lv_obj_create(state->root);
   if (page == nullptr) {
     return false;
@@ -1564,12 +2080,14 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
   state->detail_index = index;
   repository.MarkRead(profile_id);
   SyncModuleItems(state);
-  RenderModuleList(state);
+  MarkModuleListDirty(state);
   state->detail_input = nullptr;
   state->detail_keyboard = nullptr;
   state->detail_composer_background = nullptr;
   state->detail_divider = nullptr;
   state->detail_send_button = nullptr;
+  state->detail_chat_body = nullptr;
+  state->detail_chat_timeline = nullptr;
   state->detail_title_label = nullptr;
   state->detail_edge_swipe = EdgeBackSwipeState();
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
@@ -1664,6 +2182,22 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
   lv_obj_add_event_cb(chat_body,
       DetailKeyboardDismissClickedEventCallback, LV_EVENT_CLICKED, state);
   state->detail_chat_body = chat_body;
+  lv_obj_t* timeline = lv_obj_create(chat_body);
+  if (timeline == nullptr) {
+    lv_obj_delete(page);
+    state->detail_page = nullptr;
+    state->detail_chat_body = nullptr;
+    return false;
+  }
+  lv_obj_remove_style_all(timeline);
+  lv_obj_remove_flag(timeline, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(timeline, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(timeline, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(timeline, state->config.width, 1);
+  lv_obj_set_pos(timeline, 0, 0);
+  lv_obj_add_event_cb(timeline, ChatTimelineDrawEventCallback,
+      LV_EVENT_DRAW_MAIN, state);
+  state->detail_chat_timeline = timeline;
 
   if (!RenderChatMessages(state) || !CreateChatComposer(page, state)) {
     lv_obj_delete(page);
@@ -1673,6 +2207,8 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
     state->detail_composer_background = nullptr;
     state->detail_divider = nullptr;
     state->detail_send_button = nullptr;
+    state->detail_chat_body = nullptr;
+    state->detail_chat_timeline = nullptr;
     return false;
   }
   EnableEdgeBackSwipeEventBubble(page);
@@ -2299,16 +2835,55 @@ bool RenderModuleList(RadioViewState* state) {
   }
   lv_obj_clean(state->module_list);
   if (state->module_count == 0) {
-    return CreateEmptyRadioContent(state);
+    const bool rendered = CreateEmptyRadioContent(state);
+    state->module_list_dirty = !rendered;
+    return rendered;
   }
   for (size_t index = 0; index < state->module_count; ++index) {
     if (!CreateModuleRow(state->module_list, state->modules[index], state,
         index, static_cast<int>(index) * kRowHeight,
         state->config.width)) {
+      state->module_list_dirty = true;
       return false;
     }
   }
+  state->module_list_dirty = false;
   return true;
+}
+
+/**
+ * @brief 判断会话列表当前是否位于所有子页面上方
+ * @param state Radio 页面状态
+ * @return 主会话列表当前可见时返回 true
+ */
+bool IsModuleListVisible(const RadioViewState* state) {
+  return state != nullptr && state->detail_page == nullptr &&
+      state->app_settings_page == nullptr &&
+      state->profile_settings_page == nullptr &&
+      state->profile_name_edit_page == nullptr && state->add_page == nullptr;
+}
+
+/**
+ * @brief 在主会话列表可见时处理一次延迟刷新
+ * @param state Radio 页面状态
+ */
+void RefreshModuleListIfVisible(RadioViewState* state) {
+  if (state != nullptr && state->module_list_dirty &&
+      IsModuleListVisible(state)) {
+    RenderModuleList(state);
+  }
+}
+
+/**
+ * @brief 标记会话摘要已变化，并避免重建被子页面遮挡的列表
+ * @param state Radio 页面状态
+ */
+void MarkModuleListDirty(RadioViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+  state->module_list_dirty = true;
+  RefreshModuleListIfVisible(state);
 }
 
 size_t SelectedModuleCount(const RadioViewState* state) {
@@ -2323,7 +2898,7 @@ size_t SelectedModuleCount(const RadioViewState* state) {
 }
 
 void CloseSelectionMode(RadioViewState* state) {
-  if (state == nullptr) {
+  if (state == nullptr || !state->selection_mode) {
     return;
   }
   state->selection_mode = false;
@@ -2332,7 +2907,7 @@ void CloseSelectionMode(RadioViewState* state) {
     selected = false;
   }
   RenderHeader(state);
-  RenderModuleList(state);
+  MarkModuleListDirty(state);
 }
 
 /**
@@ -2382,18 +2957,16 @@ bool SetProfileActiveState(
   state->last_activation_retry_tick = lv_tick_get();
   if (active) {
     state->preferences.active_profile_id = profile.id;
-    if (state->config.radio != nullptr) {
-      state->config.radio->ActivateRadio(ToRadioConfig(profile));
-    }
+    QueueRadioControlCommand(state, RadioCommandType::kActivate,
+        ToRadioConfig(profile));
   } else {
-    if (state->config.radio != nullptr) {
-      state->config.radio->DeactivateRadio();
-    }
     state->preferences.active_profile_id = 0;
+    QueueRadioControlCommand(state, RadioCommandType::kDeactivate,
+        hal::RadioConfig());
   }
   app::UpdateRadioPreferences(state->preferences);
   UpdateDetailStatus(state);
-  RenderModuleList(state);
+  MarkModuleListDirty(state);
   RefreshProfileSettingsPage(state);
   return true;
 }
@@ -2524,10 +3097,10 @@ void ProfileNameEditConfirmClickedEventCallback(lv_event_t* event) {
   SyncModuleItems(state);
   if (state->detail_title_label != nullptr &&
       state->detail_index == index) {
-    lv_label_set_text(state->detail_title_label, profile.name);
+    SetLabelTextIfChanged(state->detail_title_label, profile.name);
   }
   RefreshProfileSettingsPage(state);
-  RenderModuleList(state);
+  MarkModuleListDirty(state);
   CloseProfileNameEditPage(state, true);
 }
 
@@ -2817,14 +3390,16 @@ void RefreshProfileSettingsPage(RadioViewState* state) {
   const size_t index = state->profile_settings_index;
   const app::RadioProfile& profile = state->preferences.profiles[index];
   if (state->profile_settings_name_label != nullptr) {
-    lv_label_set_text(state->profile_settings_name_label, profile.name);
-    UpdateProfileSettingsNameLayout(state);
+    if (SetLabelTextIfChanged(
+            state->profile_settings_name_label, profile.name)) {
+      UpdateProfileSettingsNameLayout(state);
+    }
   }
   if (state->profile_settings_header_status_label != nullptr) {
     const char* status = ProfileStatusText(state, index);
     const lv_color_t status_color =
         lv_color_hex(ProfileStatusColor(status));
-    lv_label_set_text(
+    SetLabelTextIfChanged(
         state->profile_settings_header_status_label, status);
     lv_obj_set_style_text_color(
         state->profile_settings_header_status_label,
@@ -2863,6 +3438,7 @@ void ProfileSettingsCloseCompletedCallback(lv_anim_t* animation) {
   lv_obj_t* page = state->profile_settings_page;
   ResetProfileSettingsReferences(state);
   lv_obj_delete(page);
+  ApplyPendingChatScroll(state);
 }
 
 /**
@@ -2882,6 +3458,7 @@ void CloseProfileSettingsPage(RadioViewState* state) {
     lv_obj_t* page = state->profile_settings_page;
     ResetProfileSettingsReferences(state);
     lv_obj_delete(page);
+    ApplyPendingChatScroll(state);
   }
 }
 
@@ -3251,9 +3828,8 @@ void DeleteSelectedProfiles(RadioViewState* state) {
       if (next.profiles[read_index].id == next.active_profile_id) {
         FailPendingMessages(state, next.active_profile_id);
         next.active_profile_id = 0;
-        if (state->config.radio != nullptr) {
-          state->config.radio->DeactivateRadio();
-        }
+        QueueRadioControlCommand(state, RadioCommandType::kDeactivate,
+            hal::RadioConfig());
       }
       continue;
     }
@@ -3796,6 +4372,8 @@ void AddPageCloseCompletedCallback(lv_anim_t* animation) {
   state->editing_index = kRadioModuleCapacity;
   state->add_closing = false;
   lv_obj_delete(page);
+  ApplyPendingChatScroll(state);
+  RefreshModuleListIfVisible(state);
 }
 
 /**
@@ -3807,7 +4385,8 @@ void CloseAddModulePage(RadioViewState* state) {
       state->add_closing) {
     return;
   }
-  HideSharedKeyboard(state->add_keyboard);
+  // 键盘是 add_page 的子对象，会随页面一起滑出并删除。此处不再解绑
+  // textarea，避免关闭回调中触发一次无意义的焦点和字体布局刷新。
   state->add_closing = true;
   if (!StartSlideRightWindowTransition(state->add_page,
       state->config.width, kAnimationMs, state,
@@ -3831,6 +4410,8 @@ void CloseAddModulePage(RadioViewState* state) {
     state->editing_index = kRadioModuleCapacity;
     state->add_closing = false;
     lv_obj_delete(page);
+    ApplyPendingChatScroll(state);
+    RefreshModuleListIfVisible(state);
   }
 }
 
@@ -3889,10 +4470,13 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
   if (!IsAddModuleFormComplete(state)) {
     return;
   }
+  const uint32_t started_ms = lv_tick_get();
   const bool editing = state->editing_index < state->module_count;
   const size_t index = editing
       ? state->editing_index
       : state->module_count;
+  const uint32_t previous_active_profile_id =
+      state->preferences.active_profile_id;
   app::RadioProfile profile = editing
       ? state->preferences.profiles[index]
       : app::RadioProfile{};
@@ -3945,22 +4529,27 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
   }
   const bool activate = lv_obj_has_state(
       state->add_active_switch, LV_STATE_CHECKED);
+  const uint32_t form_done_ms = lv_tick_get();
   if (activate) {
-    FailPendingMessages(
-        state, state->preferences.active_profile_id);
+    const bool requires_reconfigure = !editing || settings_changed ||
+        previous_active_profile_id != profile.id;
+    if (requires_reconfigure) {
+      FailPendingMessages(state, previous_active_profile_id);
+    }
     state->preferences.active_profile_id = profile.id;
     state->activation_retry_count = 0;
     state->last_activation_retry_tick = lv_tick_get();
-    if (state->config.radio != nullptr) {
-      state->config.radio->ActivateRadio(ToRadioConfig(profile));
+    if (requires_reconfigure) {
+      QueueRadioControlCommand(state, RadioCommandType::kActivate,
+          ToRadioConfig(profile));
     }
-  } else if (state->preferences.active_profile_id == profile.id) {
+  } else if (previous_active_profile_id == profile.id) {
     state->preferences.active_profile_id = 0;
     FailPendingMessages(state, profile.id);
-    if (state->config.radio != nullptr) {
-      state->config.radio->DeactivateRadio();
-    }
+    QueueRadioControlCommand(state, RadioCommandType::kDeactivate,
+        hal::RadioConfig());
   }
+  const uint32_t command_done_ms = lv_tick_get();
   app::UpdateRadioPreferences(state->preferences);
   if (!editing) {
     AppendSystemMessage(state, index, kProfileCreatedMessage);
@@ -3968,15 +4557,31 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
     AppendSystemMessage(state, index, kSettingsChangedMessage);
   }
   SyncModuleItems(state);
+  MarkModuleListDirty(state);
   RefreshProfileSettingsPage(state);
   CloseSelectionMode(state);
+  const uint32_t data_done_ms = lv_tick_get();
   if (state->detail_title_label != nullptr &&
       state->detail_index == index) {
-    lv_label_set_text(state->detail_title_label, profile.name);
+    SetLabelTextIfChanged(state->detail_title_label, profile.name);
     RenderChatMessages(state);
   }
+  const uint32_t detail_done_ms = lv_tick_get();
   UpdateDetailStatus(state);
+  const uint32_t status_done_ms = lv_tick_get();
   CloseAddModulePage(state);
+  const uint32_t finished_ms = lv_tick_get();
+  if (finished_ms - started_ms >= kSlowRadioUiThresholdMs) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Radio settings UI slow: form=%lu ms, command=%lu ms, "
+        "data=%lu ms, detail=%lu ms, status=%lu ms, close=%lu ms\n",
+        static_cast<unsigned long>(form_done_ms - started_ms),
+        static_cast<unsigned long>(command_done_ms - form_done_ms),
+        static_cast<unsigned long>(data_done_ms - command_done_ms),
+        static_cast<unsigned long>(detail_done_ms - data_done_ms),
+        static_cast<unsigned long>(status_done_ms - detail_done_ms),
+        static_cast<unsigned long>(finished_ms - status_done_ms));
+  }
 }
 
 /**
@@ -4778,8 +5383,8 @@ lv_obj_t* CreateRadioView(lv_obj_t* parent, const app::AppEntry& app_entry,
       IsProfileSupported(
           state, state->preferences.profiles[active_index])) {
     state->last_activation_retry_tick = lv_tick_get();
-    config.radio->ActivateRadio(ToRadioConfig(
-        state->preferences.profiles[active_index]));
+    QueueRadioControlCommand(state, RadioCommandType::kActivate,
+        ToRadioConfig(state->preferences.profiles[active_index]));
   }
   lv_obj_t* root = lv_obj_create(parent);
   if (root == nullptr) {
