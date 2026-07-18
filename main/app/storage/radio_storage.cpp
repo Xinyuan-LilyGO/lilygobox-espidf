@@ -1,8 +1,8 @@
 /*
- * @Description: SX1262 LoRa 配置列表与唯一激活项持久化实现
+ * @Description: Radio 配置列表与唯一激活项持久化实现
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
- * @LastEditTime: 2026-07-16 22:38:14
+ * @LastEditTime: 2026-07-18 00:00:00
  * @License: GPL 3.0
  */
 #include "app/storage/radio_storage.h"
@@ -28,7 +28,7 @@ constexpr uint32_t kMagic = 0x52415046;
 struct Blob {
   // 校验当前 NVS 数据是否属于 Radio 配置。
   uint32_t magic = kMagic;
-  // SX1262 LoRa 配置列表及唯一激活项。
+  // Radio 配置列表及唯一激活项。
   RadioPreferences preferences;
 };
 
@@ -60,12 +60,9 @@ void ResetPreferences(RadioPreferences* preferences) {
   for (size_t index = 0; index < kRadioProfileCapacity; ++index) {
     ResetProfile(&preferences->profiles[index]);
   }
-  RadioProfile& profile = preferences->profiles[0];
-  profile.id = 1;
-  std::snprintf(profile.name, sizeof(profile.name), "LoRa 915 MHz");
-  preferences->profile_count = 1;
-  preferences->active_profile_id = 1;
-  preferences->next_profile_id = 2;
+  preferences->profile_count = 0;
+  preferences->active_profile_id = 0;
+  preferences->next_profile_id = 1;
 }
 
 bool HasProfileId(const RadioPreferences& preferences, uint32_t id) {

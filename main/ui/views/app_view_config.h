@@ -65,7 +65,7 @@ struct AppViewConfig {
   hal::CameraProvider* camera = nullptr;
   // 实时时钟状态提供者。
   hal::RtcProvider* rtc = nullptr;
-  // SX1262 LoRa 状态、配置与收发提供者。
+  // Radio 状态、配置与收发提供者。
   hal::RadioProvider* radio = nullptr;
   // 姿态传感器状态提供者。
   hal::ImuProvider* imu = nullptr;

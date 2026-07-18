@@ -2,7 +2,7 @@
  * @Description: LittleFS 内部存储挂载与容量查询接口
  * @Author: LILYGO_L
  * @Date: 2026-07-17 15:20:00
- * @LastEditTime: 2026-07-17 16:10:00
+ * @LastEditTime: 2026-07-18 00:00:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -38,9 +38,9 @@ const char* LittleFsStorageBasePath();
 bool GetLittleFsStorageInfo(size_t* total_bytes, size_t* used_bytes);
 
 /**
- * @brief 格式化 LittleFS 内部存储分区
- * @return 格式化成功时返回 true
+ * @brief 卸载并完整擦除全部 LittleFS 数据分区
+ * @return 找到的全部 LittleFS 分区均擦除成功时返回 true
  */
-bool FormatLittleFsStorage();
+bool EraseAllLittleFsStorage();
 
 }  // namespace lilygo_box::app

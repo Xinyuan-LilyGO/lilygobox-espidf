@@ -1,5 +1,5 @@
 /*
- * @Description: SX1262 LoRa 射频状态、配置与收发 Provider 接口
+ * @Description: Radio 射频状态、配置与收发 Provider 接口
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
  * @LastEditTime: 2026-07-17 18:40:56

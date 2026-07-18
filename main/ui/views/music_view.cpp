@@ -2,7 +2,7 @@
  * @Description: 音乐应用视图
  * @Author: LILYGO_L
  * @Date: 2026-07-08 00:00:00
- * @LastEditTime: 2026-07-15 15:27:31
+ * @LastEditTime: 2026-07-18 00:00:00
  * @License: GPL 3.0
  */
 #include "ui/views/music_view.h"
@@ -75,7 +75,7 @@ constexpr uint32_t kPlaybackStatusIntervalMs = 250;
 constexpr uint32_t kMusicScanStartDelayMs = 850;
 constexpr uint32_t kMusicScanTaskStackBytes = 8 * 1024;
 constexpr UBaseType_t kMusicScanTaskPriority = 2;
-constexpr int kMusicEmptyGroupOffsetY = -80;
+constexpr int kMusicEmptyGroupOffsetY = -100;
 constexpr int kMusicScanningGroupOffsetY = -48;
 constexpr int kMusicStatusIconSize = 96;
 
@@ -1170,7 +1170,7 @@ lv_obj_t* CreateArtwork(lv_obj_t* parent, int size, int radius) {
 
   lv_obj_t* icon_label =
       CreateLabel(artwork, icon::kMusic, lv_color_hex(kPrimaryColor),
-          MaterialOutlineIconFont56());
+          MaterialFillIconFont56());
   if (icon_label != nullptr) {
     lv_obj_center(icon_label);
   }
@@ -1202,7 +1202,7 @@ lv_obj_t* CreateMusicStatusIcon(lv_obj_t* parent, const char* icon_text) {
   lv_obj_set_style_pad_all(background, 0, LV_PART_MAIN);
 
   lv_obj_t* icon_label = CreateLabel(background, icon_text,
-      lv_color_hex(kPrimaryColor), MaterialFillIconFont32());
+      lv_color_hex(kPrimaryColor), MaterialFillIconFont56());
   if (icon_label != nullptr) {
     lv_obj_center(icon_label);
   }
@@ -1502,7 +1502,7 @@ bool CreateEmptyMusicContent(lv_obj_t* parent, MusicViewState* state) {
       storage_available ? "No music found" : "Storage device not found",
       lv_color_hex(kMainTextColor), Font28());
   if (message != nullptr) {
-    lv_obj_align(message, LV_ALIGN_TOP_MID, 0, 116);
+    lv_obj_align(message, LV_ALIGN_TOP_MID, 0, 112);
   }
   lv_obj_t* hint = CreateLabel(group,
       storage_available ? "Add a music source or scan again."
@@ -1512,7 +1512,7 @@ bool CreateEmptyMusicContent(lv_obj_t* parent, MusicViewState* state) {
     lv_obj_set_width(hint, state->config.width - 80);
     lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
-    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 154);
+    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 150);
   }
   lv_obj_t* scan_button = lv_button_create(group);
   if (scan_button == nullptr) {
@@ -1525,7 +1525,7 @@ bool CreateEmptyMusicContent(lv_obj_t* parent, MusicViewState* state) {
   lv_obj_set_style_bg_opa(scan_button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(scan_button, 0, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(scan_button, 0, LV_PART_MAIN);
-  lv_obj_align(scan_button, LV_ALIGN_TOP_MID, 0, 194);
+  lv_obj_align(scan_button, LV_ALIGN_TOP_MID, 0, 190);
   lv_obj_add_event_cb(scan_button, RefreshMusicClickedEventCallback,
       LV_EVENT_CLICKED, state);
   lv_obj_t* scan_label = CreateLabel(scan_button,
@@ -2696,7 +2696,7 @@ bool CreateMusicSourcesPromptRow(
   lv_obj_add_event_cb(remove, MusicSourceActionDeleteEventCallback,
                       LV_EVENT_DELETE, action);
   lv_obj_t* delete_icon = CreateLabel(remove, icon::kDelete,
-      lv_color_hex(kSecondaryTextColor), MaterialOutlineIconFont44());
+      lv_color_hex(kSecondaryTextColor), MaterialFillIconFont44());
   if (delete_icon != nullptr) {
     lv_obj_center(delete_icon);
   }

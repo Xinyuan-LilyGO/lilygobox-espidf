@@ -1015,7 +1015,7 @@ class TDisplayP4Device final : public ScreenProvider,
   WifiState wifi_;
   // WiFi 获取时间测试状态，保存测试流程和进入前配置
   WifiTimeTestState wifi_time_test_;
-  // SX1262 LoRa 会话状态，单芯片只允许一个活动配置。
+  // Radio 会话状态，单芯片只允许一个活动配置。
   RadioState radio_;
   bool gps_running_ = false;
   GpsStatus gps_status_;

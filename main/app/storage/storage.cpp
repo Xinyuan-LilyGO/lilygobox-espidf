@@ -2,7 +2,7 @@
  * @Description: 偏好存储统一管理实现
  * @Author: LILYGO_L
  * @Date: 2026-07-03 00:00:00
- * @LastEditTime: 2026-07-17 17:22:18
+ * @LastEditTime: 2026-07-18 00:00:00
  * @License: GPL 3.0
  */
 #include "app/storage/storage.h"
@@ -25,6 +25,7 @@
 #include "app/storage/wifi_storage.h"
 #include "base/logger.h"
 #include "esp_err.h"
+#include "esp_partition.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -192,6 +193,37 @@ void InitRadioChatCache() {
       static_cast<unsigned>(repository.GetCachedMessageCount()));
 }
 
+bool EraseAllNvsPartitions() {
+  esp_partition_iterator_t iterator = esp_partition_find(
+      ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_NVS, nullptr);
+  if (iterator == nullptr) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "No NVS partition found during factory reset\n");
+    return false;
+  }
+
+  bool success = true;
+  while (iterator != nullptr) {
+    const esp_partition_t* partition = esp_partition_get(iterator);
+    if (partition == nullptr) {
+      success = false;
+      iterator = esp_partition_next(iterator);
+      continue;
+    }
+
+    const esp_err_t erase_result = nvs_flash_erase_partition_ptr(partition);
+    if (erase_result != ESP_OK) {
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "Erase NVS partition %s failed: %s\n", partition->label,
+          esp_err_to_name(erase_result));
+      success = false;
+    }
+    iterator = esp_partition_next(iterator);
+  }
+  esp_partition_iterator_release(iterator);
+  return success;
+}
+
 }  // namespace
 
 StorageCacheLock::StorageCacheLock() {
@@ -300,16 +332,19 @@ bool FactoryResetAfterScreenOff() {
     return false;
   }
 
-  const esp_err_t result = nvs_flash_erase();
-  if (result != ESP_OK) {
+  if (!EraseAllLittleFsStorage()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Factory reset failed: %s\n", esp_err_to_name(result));
+        "Factory reset could not erase all LittleFS partitions\n");
+    InitLittleFsStorage();
     xSemaphoreGive(g_storage_io_mutex);
     return false;
   }
-  if (!FormatLittleFsStorage()) {
+
+  if (!EraseAllNvsPartitions()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Factory reset could not clear LittleFS storage\n");
+        "Factory reset could not erase all NVS partitions\n");
+    nvs_flash_init();
+    InitLittleFsStorage();
     xSemaphoreGive(g_storage_io_mutex);
     return false;
   }

@@ -2,7 +2,7 @@
  * @Description: Radio 聊天热缓存、会话摘要与 LittleFS 日志仓库实现
  * @Author: LILYGO_L
  * @Date: 2026-07-17 00:00:00
- * @LastEditTime: 2026-07-17 17:22:18
+ * @LastEditTime: 2026-07-18 00:00:00
  * @License: GPL 3.0
  */
 #include "app/radio_chat_repository.h"
@@ -959,7 +959,7 @@ bool RadioChatRepository::LoadProfiles(
     if (log_scanned_) {
       return true;
     }
-    return EnsureStorageDirectory() && LoadLog(nullptr, 0);
+    return LoadLog(nullptr, 0);
   }
   uint32_t unloaded_profile_ids[kRadioProfileCapacity] = {};
   size_t unloaded_profile_count = 0;
@@ -971,9 +971,6 @@ bool RadioChatRepository::LoadProfiles(
   }
   if (unloaded_profile_count == 0) {
     return true;
-  }
-  if (!EnsureStorageDirectory()) {
-    return false;
   }
   if (!LoadLog(unloaded_profile_ids, unloaded_profile_count)) {
     return false;
@@ -1167,9 +1164,6 @@ bool RadioChatRepository::FlushPending(size_t maximum_records) {
       !compaction_pending_) {
     return true;
   }
-  if (!EnsureStorageDirectory()) {
-    return false;
-  }
   if (!DeletePendingProfiles()) {
     return false;
   }
@@ -1177,6 +1171,9 @@ bool RadioChatRepository::FlushPending(size_t maximum_records) {
       !CompactLog(stored_record_count_ > kRadioChatStorageCapacity
                       ? kCompactionTarget
                       : kRadioChatStorageCapacity)) {
+    return false;
+  }
+  if (pending_count_ != 0 && !EnsureStorageDirectory()) {
     return false;
   }
   size_t written = 0;

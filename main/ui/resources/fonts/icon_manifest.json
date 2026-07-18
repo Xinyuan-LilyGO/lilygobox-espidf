@@ -59,7 +59,14 @@
       "size": 56,
       "optical_size": 48,
       "output": "main/ui/resources/fonts/icons/lvgl_font_material_rounded_fill_56.c",
-      "icons": ["Menu", "RestartAlt", "PowerSettingsNew"]
+      "icons": [
+        "Menu",
+        "Music",
+        "PowerSettingsNew",
+        "RestartAlt",
+        "SdStorage",
+        "SettingsInputAntenna"
+      ]
     },
     {
       "id": "material_rounded_outline_44",
@@ -74,8 +81,7 @@
         "ArrowBack",
         "Check",
         "ChevronRight",
-        "Close",
-        "Warning"
+        "Close"
       ]
     },
     {
@@ -101,7 +107,12 @@
       "optical_size": 48,
       "output": "main/ui/resources/fonts/icons/lvgl_font_material_rounded_outline_56.c",
       "icon_set": "all_used",
-      "exclude_icons": ["BatteryAndroid0"]
+      "exclude_icons": [
+        "BatteryAndroid0",
+        "Music",
+        "SdStorage",
+        "SettingsInputAntenna"
+      ]
     }
   ],
   "icons": {

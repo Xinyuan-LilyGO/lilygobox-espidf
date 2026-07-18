@@ -2,7 +2,7 @@
  * @Description: LittleFS 与 SD 卡只读文件浏览页面
  * @Author: LILYGO_L
  * @Date: 2026-07-09 00:00:00
- * @LastEditTime: 2026-07-17 18:09:39
+ * @LastEditTime: 2026-07-18 00:00:00
  * @License: GPL 3.0
  */
 #include "ui/views/files_view.h"
@@ -1091,7 +1091,7 @@ void RenderNoStorageContent(FilesViewState* state) {
   MakeTransparent(group);
   lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(group, state->config.width, 280);
-  lv_obj_align(group, LV_ALIGN_CENTER, 0, 26);
+  lv_obj_align(group, LV_ALIGN_CENTER, 0, -100);
 
   lv_obj_t* icon_background = lv_obj_create(group);
   if (icon_background != nullptr) {
@@ -1105,8 +1105,9 @@ void RenderNoStorageContent(FilesViewState* state) {
     lv_obj_set_style_border_width(icon_background, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(icon_background, 0, LV_PART_MAIN);
     lv_obj_align(icon_background, LV_ALIGN_TOP_MID, 0, 0);
-    lv_obj_t* icon_label = CreateMaterialIcon(icon_background, icon::kSdStorage,
-                                              lv_color_hex(kActionColor));
+    lv_obj_t* icon_label = CreateMaterialIcon(
+        icon_background, icon::kSdStorage, lv_color_hex(kActionColor),
+        FilesFillIconFont56());
     if (icon_label != nullptr) {
       lv_obj_center(icon_label);
     }
@@ -1115,7 +1116,7 @@ void RenderNoStorageContent(FilesViewState* state) {
   lv_obj_t* message = CreateLabel(group, "SD card not found",
                                   lv_color_hex(kPrimaryTextColor), Font28());
   if (message != nullptr) {
-    lv_obj_align(message, LV_ALIGN_TOP_MID, 0, 116);
+    lv_obj_align(message, LV_ALIGN_TOP_MID, 0, 112);
   }
   lv_obj_t* hint = CreateLabel(group, "Insert a card and scan again.",
                                lv_color_hex(kSecondaryTextColor), Font22());
@@ -1123,12 +1124,12 @@ void RenderNoStorageContent(FilesViewState* state) {
     lv_obj_set_width(hint, state->config.width - 80);
     lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
-    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 154);
+    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 150);
   }
   lv_obj_t* refresh = CreatePrimaryActionButton(
       group, "Scan again", 196, RefreshStorageClickedEventCallback, state);
   if (refresh != nullptr) {
-    lv_obj_align(refresh, LV_ALIGN_TOP_MID, 0, 194);
+    lv_obj_align(refresh, LV_ALIGN_TOP_MID, 0, 190);
   }
   EnableEdgeBackSwipeEventBubble(state->content);
 }
@@ -1397,15 +1398,23 @@ void DrawerSdCardClickedEventCallback(lv_event_t* event) {
     return;
   }
   auto* state = static_cast<FilesViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->config.storage == nullptr) {
+  if (state == nullptr) {
     return;
   }
   state->selected_storage = FilesStorageKind::kSdCard;
-  const char* base_path = state->config.storage->SdCardBasePath();
-  if (base_path != nullptr && base_path[0] != '\0') {
-    RenderDirectoryContent(state, base_path);
-  }
+  StopStorageDiscovery(state);
   CloseDrawer(state);
+  if (state->config.storage != nullptr &&
+      state->config.storage->IsSdCardMounted()) {
+    const char* base_path = state->config.storage->SdCardBasePath();
+    if (base_path != nullptr && base_path[0] != '\0' &&
+        RenderDirectoryContent(state, base_path)) {
+      return;
+    }
+  }
+  state->storage_was_mounted = false;
+  state->storage_missing_checks = 0;
+  RenderNoStorageContent(state);
 }
 
 /**
@@ -1623,8 +1632,9 @@ void ShowDrawer(FilesViewState* state) {
   } else {
     const char* storage_state =
         state->storage_retry_timer != nullptr ? "Scanning..." : "Not connected";
-    CreateStorageStateDrawerItem(drawer, drawer_width, "SD Card",
-        storage_state, icon::kSdStorage, drawer_y);
+    CreateStorageDrawerItem(drawer, drawer_width, "SD Card", storage_state,
+        icon::kSdStorage, drawer_y, IsSdCardSelected(state),
+        DrawerSdCardClickedEventCallback, state);
   }
   drawer_y += 116;
 

@@ -2,7 +2,7 @@
  * @Description: Settings view internal helpers
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-07-16 21:15:56
+ * @LastEditTime: 2026-07-18 00:00:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -333,6 +333,12 @@ const lv_font_t* MaterialIconFont32();
  * @return 字体指针
  */
 const lv_font_t* MaterialIconFont44();
+
+/**
+ * @brief 获取 56 号 Material Symbols 字体
+ * @return 字体指针
+ */
+const lv_font_t* MaterialIconFont56();
 
 /**
  * @brief 创建文本标签

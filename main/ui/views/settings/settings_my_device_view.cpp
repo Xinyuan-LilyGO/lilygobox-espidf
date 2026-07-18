@@ -2,7 +2,7 @@
  * @Description: Settings My Device detail page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-07-16 21:30:05
+ * @LastEditTime: 2026-07-18 00:00:00
  * @License: GPL 3.0
  */
 #include "ui/views/settings/settings_view_internal.h"
@@ -626,7 +626,8 @@ void FactoryResetConfirmClickedEventCallback(lv_event_t* event) {
     return;
   }
 
-  // 与锁屏、关机共用屏幕事务，确保面板完全关闭后再擦除 NVS。
+  // 与锁屏、关机共用屏幕事务。
+  // 确保面板关闭后再擦除 NVS 和 LittleFS。
   lvgl_port->AcquireSleepInputBlock();
   if (!lvgl_port->PauseDisplayFlush()) {
     lvgl_port->ReleaseSleepInputBlock();
@@ -722,7 +723,7 @@ bool CreateFactoryResetContent(lv_obj_t* parent, SettingsViewState* state,
   lv_obj_align(icon_box, LV_ALIGN_TOP_MID, 0, icon_top);
 
   lv_obj_t* warning_icon = CreateLabel(icon_box, icon::kWarning,
-      lv_color_hex(kFactoryResetColor), MaterialIconFont44());
+      lv_color_hex(kFactoryResetColor), MaterialIconFont56());
   if (warning_icon == nullptr) {
     return false;
   }
@@ -738,7 +739,7 @@ bool CreateFactoryResetContent(lv_obj_t* parent, SettingsViewState* state,
   lv_obj_align(heading, LV_ALIGN_TOP_MID, 0, heading_top);
 
   lv_obj_t* message = CreateLabel(parent,
-      "All saved settings, Wi-Fi networks, and device preferences will be "
+      "All NVS settings and all files in internal LittleFS storage will be "
       "permanently erased. Files on the SD card will not be deleted.",
       lv_color_hex(kSecondaryTextColor), Font28());
   if (message == nullptr) {
@@ -766,8 +767,8 @@ bool CreateFactoryResetContent(lv_obj_t* parent, SettingsViewState* state,
   lv_obj_align(notice_icon, LV_ALIGN_LEFT_MID, 22, 0);
 
   lv_obj_t* notice_text = CreateLabel(notice,
-      "This action can't be undone. The device will restart with factory "
-      "defaults.",
+      "This permanently clears NVS and LittleFS. The device will restart "
+      "with factory defaults.",
       lv_color_hex(kFactoryResetContainerTextColor), Font24());
   if (notice_text == nullptr) {
     return false;

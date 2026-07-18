@@ -1,5 +1,5 @@
 /*
- * @Description: SX1262 LoRa 配置列表与唯一激活项持久化接口
+ * @Description: Radio 配置列表与唯一激活项持久化接口
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
  * @LastEditTime: 2026-07-18 00:00:00
@@ -49,7 +49,7 @@ struct RadioProfile {
 };
 
 struct RadioPreferences {
-  // 用户创建的 SX1262 LoRa 配置列表。
+  // 用户创建的 Radio 配置列表。
   RadioProfile profiles[kRadioProfileCapacity] = {};
   // 当前有效配置数量。
   size_t profile_count = 0;

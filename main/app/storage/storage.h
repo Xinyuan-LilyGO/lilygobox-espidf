@@ -2,7 +2,7 @@
  * @Description: NVS 与 LittleFS 持久化统一管理，提供 RAM 缓存和熄屏落盘
  * @Author: LILYGO_L
  * @Date: 2026-07-03 00:00:00
- * @LastEditTime: 2026-07-17 18:40:56
+ * @LastEditTime: 2026-07-18 00:00:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -43,7 +43,9 @@ bool FreezeStorageUpdatesForShutdown();
 void ResumeStorageUpdatesAfterShutdownFailure();
 
 /**
- * @brief 在物理屏幕关闭后同步清除默认 NVS 和应用 LittleFS 并重启设备
+ * @brief 在物理屏幕关闭后擦除全部 NVS 和 LittleFS 分区
+ *
+ * 擦除成功后立即重启设备。
  *
  * 调用方必须先确保物理屏幕已经完全关闭。
  * @return 擦除失败并返回调用方时返回 false，成功后设备会立即重启

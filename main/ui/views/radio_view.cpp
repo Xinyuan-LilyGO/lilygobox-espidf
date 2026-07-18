@@ -2,7 +2,7 @@
  * @Description: Radio control app view
  * @Author: LILYGO_L
  * @Date: 2026-07-12 00:00:00
- * @LastEditTime: 2026-07-17 18:40:56
+ * @LastEditTime: 2026-07-18 00:00:00
  * @License: GPL 3.0
  */
 #include "ui/views/radio_view.h"
@@ -306,6 +306,14 @@ const lv_font_t* FillIconFont32() {
  */
 const lv_font_t* FillIconFont44() {
   return &lvgl_font_material_symbols_fill_44;
+}
+
+/**
+ * @brief 获取 56 号填充图标字体
+ * @return 字体指针
+ */
+const lv_font_t* FillIconFont56() {
+  return &lvgl_font_material_symbols_fill_56;
 }
 
 /**
@@ -2175,6 +2183,112 @@ bool CreateModuleRow(lv_obj_t* parent, const RadioModuleItem& item,
 }
 
 /**
+ * @brief 处理 Radio 空状态添加配置按钮点击事件
+ * @param event LVGL 事件对象
+ */
+void EmptyAddProfileClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  ShowAddModulePage(
+      static_cast<RadioViewState*>(lv_event_get_user_data(event)));
+}
+
+/**
+ * @brief 创建 Radio 主界面的空配置引导内容
+ * @param state Radio 页面状态
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateEmptyRadioContent(RadioViewState* state) {
+  if (state == nullptr || state->module_list == nullptr) {
+    return false;
+  }
+  lv_obj_t* group = lv_obj_create(state->module_list);
+  if (group == nullptr) {
+    return false;
+  }
+  const auto fail = [group]() {
+    lv_obj_delete(group);
+    return false;
+  };
+  lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(group, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(group, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(group, state->config.width, 280);
+  lv_obj_align(group, LV_ALIGN_CENTER, 0, -100);
+  lv_obj_set_style_bg_opa(group, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_border_width(group, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(group, 0, LV_PART_MAIN);
+
+  lv_obj_t* icon_surface = lv_obj_create(group);
+  if (icon_surface == nullptr) {
+    return fail();
+  }
+  lv_obj_remove_flag(icon_surface, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(icon_surface, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(icon_surface, 96, 96);
+  lv_obj_align(icon_surface, LV_ALIGN_TOP_MID, 0, 0);
+  lv_obj_set_style_radius(icon_surface, 48, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(icon_surface,
+      lv_color_hex(kSurfaceContainerColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(icon_surface, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(icon_surface, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(icon_surface, 0, LV_PART_MAIN);
+  lv_obj_t* status_icon = CreateLabel(icon_surface,
+      icon::kSettingsInputAntenna, kPrimaryColor, FillIconFont56());
+  if (status_icon == nullptr) {
+    return fail();
+  }
+  lv_obj_center(status_icon);
+
+  lv_obj_t* title = CreateLabel(
+      group, "No Radio profiles", kMainTextColor, Font28());
+  if (title == nullptr) {
+    return fail();
+  }
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 112);
+
+  lv_obj_t* hint = CreateLabel(group,
+      "Tap Add profile or use the + button in the bottom-right.",
+      kSecondaryTextColor, Font22());
+  if (hint == nullptr) {
+    return fail();
+  }
+  lv_obj_set_width(hint, state->config.width - 96);
+  lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
+  lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 150);
+
+  lv_obj_t* add_button = lv_button_create(group);
+  if (add_button == nullptr) {
+    return fail();
+  }
+  lv_obj_add_flag(add_button, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(add_button, 220, 64);
+  lv_obj_align(add_button, LV_ALIGN_TOP_MID, 0, 214);
+  lv_obj_set_style_radius(add_button, 32, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      add_button, lv_color_hex(kPrimaryColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      add_button, lv_color_hex(kPrimaryPressedColor), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_opa(add_button, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(add_button, 0, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(add_button, 0, LV_PART_MAIN);
+  if (!AddPressCancelOnLeave(add_button)) {
+    return fail();
+  }
+  lv_obj_add_event_cb(add_button, EmptyAddProfileClickedEventCallback,
+      LV_EVENT_CLICKED, state);
+  lv_obj_t* add_label = CreateLabel(
+      add_button, "Add profile", kOnPrimaryColor, Font24());
+  if (add_label == nullptr) {
+    return fail();
+  }
+  lv_obj_center(add_label);
+  return true;
+}
+
+/**
  * @brief 重新构建射频模块列表并更新数量
  * @param state 射频页面状态
  * @return 构建成功返回 true，否则返回 false
@@ -2184,6 +2298,9 @@ bool RenderModuleList(RadioViewState* state) {
     return false;
   }
   lv_obj_clean(state->module_list);
+  if (state->module_count == 0) {
+    return CreateEmptyRadioContent(state);
+  }
   for (size_t index = 0; index < state->module_count; ++index) {
     if (!CreateModuleRow(state->module_list, state->modules[index], state,
         index, static_cast<int>(index) * kRowHeight,
