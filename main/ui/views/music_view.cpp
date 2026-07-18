@@ -2,7 +2,7 @@
  * @Description: 音乐应用视图
  * @Author: LILYGO_L
  * @Date: 2026-07-08 00:00:00
- * @LastEditTime: 2026-07-18 00:00:00
+ * @LastEditTime: 2026-07-19 00:58:33
  * @License: GPL 3.0
  */
 #include "ui/views/music_view.h"
@@ -65,6 +65,17 @@ constexpr int kProgressThumbNormalWidth = 10;
 constexpr int kProgressThumbPressedWidth = 13;
 constexpr int kProgressThumbPressedHeight = 60;
 constexpr int kDefaultTrackDurationSeconds = 90;
+constexpr int kPlayerLandscapeSideMargin = 40;
+constexpr int kPlayerLandscapeColumnGap = 24;
+constexpr int kPlayerLandscapeBottomMargin = 36;
+constexpr int kPlayerLandscapeArtworkWidthPercent = 43;
+constexpr int kPlayerLandscapeRegularContentTop = 146;
+constexpr int kPlayerLandscapeCompactContentTop = 128;
+constexpr int kPlayerLandscapeDetailsTopOffset = 40;
+constexpr int kPlayerLandscapeProgressDownOffset = 18;
+constexpr int kPlayerLandscapeControlRowGap = 120;
+constexpr int kPlayerLandscapeRegularControlGap = 20;
+constexpr int kPlayerLandscapeCompactControlGap = 12;
 constexpr int kSettingsAnimationMs = 240;
 constexpr int kMusicSourcesHeaderTop = 112;
 constexpr int kMusicSourcesAddTop = 98;
@@ -1268,26 +1279,104 @@ bool CreatePlayerPage(MusicViewState* state) {
     lv_obj_align_to(subheading, heading, LV_ALIGN_OUT_BOTTOM_MID, 0, 2);
   }
 
-  const bool compact_layout = state->config.height < 700;
-  const int artwork_size = compact_layout
-      ? std::min(state->config.width / 3, state->config.height / 3)
-      : std::min(state->config.width - 64, state->config.height / 2);
-  const int artwork_y = compact_layout ? 124 : 164;
-  const int title_y = artwork_y + artwork_size + (compact_layout ? 12 : 34);
-  const int track_y = title_y + (compact_layout ? 74 : 142);
-  const lv_font_t* title_font = compact_layout ? Font28() : Font36();
-  const lv_font_t* artist_font = compact_layout ? Font24() : Font28();
+  const bool landscape_layout = state->config.width > state->config.height;
+  const bool compact_portrait =
+      !landscape_layout && state->config.height < 700;
+  const bool compact_landscape =
+      landscape_layout && state->config.height < 600;
+  const lv_font_t* title_font = compact_portrait ? Font28() : Font36();
+  const lv_font_t* artist_font = compact_portrait ? Font24() : Font28();
   const int title_height =
       static_cast<int>(lv_font_get_line_height(title_font));
   const int artist_height =
       static_cast<int>(lv_font_get_line_height(artist_font));
-  const int artist_y = title_y + title_height + (compact_layout ? 8 : 12);
-  const int control_bottom = compact_layout ? -62 : -94;
-  const int side_control_bottom = compact_layout ? -76 : -108;
-  const int side_control_offset = compact_layout ? 96 : 120;
+
+  int artwork_size = 0;
+  int artwork_x = 0;
+  int artwork_y = 0;
+  int text_x = 32;
+  int text_width = state->config.width - 64;
+  int title_y = 0;
+  int artist_y = 0;
+  int track_y = 0;
+  int time_y = 0;
+  int play_button_size = 116;
+  int side_button_size = 88;
+  int mode_button_size = 72;
+  int mode_button_x = 0;
+  int previous_button_x = 0;
+  int play_button_x = 0;
+  int next_button_x = 0;
+  int control_center_y = 0;
+  int control_gap = 0;
+  int control_bottom = compact_portrait ? -62 : -94;
+  int side_control_bottom = compact_portrait ? -76 : -108;
+  int side_control_offset = compact_portrait ? 96 : 120;
+
+  // 横屏使用独立双栏，避免继续沿用竖屏的纵向坐标而挤出屏幕。
+  if (landscape_layout) {
+    const int content_top = compact_landscape
+                                ? kPlayerLandscapeCompactContentTop
+                                : kPlayerLandscapeRegularContentTop;
+    const int available_width = state->config.width -
+        2 * kPlayerLandscapeSideMargin - kPlayerLandscapeColumnGap;
+    const int artwork_column_width = available_width *
+        kPlayerLandscapeArtworkWidthPercent / 100;
+    artwork_size = std::min(artwork_column_width,
+        state->config.height - content_top -
+            kPlayerLandscapeBottomMargin);
+    artwork_size = std::max(1, artwork_size);
+    artwork_x = kPlayerLandscapeSideMargin +
+        (artwork_column_width - artwork_size) / 2;
+    artwork_y = content_top +
+        (state->config.height - content_top -
+            kPlayerLandscapeBottomMargin - artwork_size) / 2;
+    text_x = artwork_x + artwork_size + kPlayerLandscapeColumnGap;
+    text_width = state->config.width - kPlayerLandscapeSideMargin - text_x;
+    title_y = content_top +
+        (compact_landscape ? 8 : kPlayerLandscapeDetailsTopOffset);
+    artist_y = title_y + title_height + 10;
+    track_y = artist_y + artist_height +
+        (compact_landscape ? 20 : 36) +
+        kPlayerLandscapeProgressDownOffset;
+    time_y = track_y + 60;
+
+    control_gap = compact_landscape
+                      ? kPlayerLandscapeCompactControlGap
+                      : kPlayerLandscapeRegularControlGap;
+    const int desired_control_center_y =
+        time_y + kPlayerLandscapeControlRowGap;
+    const int maximum_control_center_y = state->config.height -
+        kPlayerLandscapeBottomMargin - play_button_size / 2;
+    control_center_y =
+        std::min(desired_control_center_y, maximum_control_center_y);
+    play_button_x = text_x + (text_width - play_button_size) / 2;
+    previous_button_x =
+        play_button_x - control_gap - side_button_size;
+    next_button_x = play_button_x + play_button_size + control_gap;
+    mode_button_x =
+        previous_button_x - control_gap - mode_button_size;
+  } else {
+    artwork_size = compact_portrait
+        ? std::min(state->config.width / 3, state->config.height / 3)
+        : std::min(state->config.width - 64, state->config.height / 2);
+    artwork_y = compact_portrait ? 124 : 164;
+    title_y = artwork_y + artwork_size +
+        (compact_portrait ? 12 : 34);
+    artist_y = title_y + title_height +
+        (compact_portrait ? 8 : 12);
+    track_y = title_y + (compact_portrait ? 74 : 142);
+    time_y = track_y + 60;
+  }
+
   lv_obj_t* artwork = CreateArtwork(page, artwork_size, 26);
   if (artwork != nullptr) {
-    lv_obj_align(artwork, LV_ALIGN_TOP_MID, 0, artwork_y);
+    if (landscape_layout) {
+      lv_obj_align(
+          artwork, LV_ALIGN_TOP_LEFT, artwork_x, artwork_y);
+    } else {
+      lv_obj_align(artwork, LV_ALIGN_TOP_MID, 0, artwork_y);
+    }
   }
 
   state->player_title_label =
@@ -1295,10 +1384,11 @@ bool CreatePlayerPage(MusicViewState* state) {
           page, "Unknown Track", lv_color_hex(kMainTextColor), title_font);
   if (state->player_title_label != nullptr) {
     lv_obj_set_size(state->player_title_label,
-        state->config.width - 64, title_height);
+        text_width, title_height);
     lv_label_set_long_mode(
         state->player_title_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_align(state->player_title_label, LV_ALIGN_TOP_LEFT, 32, title_y);
+    lv_obj_align(
+        state->player_title_label, LV_ALIGN_TOP_LEFT, text_x, title_y);
   }
   state->player_artist_label =
       CreateLabel(page, "Unknown Artist", lv_color_hex(kSecondaryTextColor),
@@ -1306,19 +1396,18 @@ bool CreatePlayerPage(MusicViewState* state) {
   if (state->player_artist_label != nullptr &&
       state->player_title_label != nullptr) {
     lv_obj_set_size(state->player_artist_label,
-        state->config.width - 64, artist_height);
+        text_width, artist_height);
     lv_label_set_long_mode(
         state->player_artist_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_align(
-        state->player_artist_label, LV_ALIGN_TOP_LEFT, 32, artist_y);
+        state->player_artist_label, LV_ALIGN_TOP_LEFT, text_x, artist_y);
   }
 
   state->progress_slider = lv_slider_create(page);
   if (state->progress_slider != nullptr) {
     lv_obj_t* slider = state->progress_slider;
-    lv_obj_set_size(slider, state->config.width - 64,
-        kProgressSliderHeight);
-    lv_obj_align(slider, LV_ALIGN_TOP_LEFT, 32, track_y);
+    lv_obj_set_size(slider, text_width, kProgressSliderHeight);
+    lv_obj_align(slider, LV_ALIGN_TOP_LEFT, text_x, track_y);
     lv_slider_set_range(slider, 0, 100);
     lv_slider_set_value(slider, 0, LV_ANIM_OFF);
     lv_obj_set_style_bg_opa(slider, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -1347,15 +1436,17 @@ bool CreatePlayerPage(MusicViewState* state) {
   state->current_time_label =
       CreateLabel(page, "0:00", lv_color_hex(kSecondaryTextColor), Font24());
   if (state->current_time_label != nullptr) {
-    lv_obj_align(state->current_time_label, LV_ALIGN_TOP_LEFT, 32,
-        track_y + 60);
+    lv_obj_align(state->current_time_label, LV_ALIGN_TOP_LEFT, text_x,
+        time_y);
     UpdateMusicCurrentTime(state, 0);
   }
   state->total_time_label =
       CreateLabel(page, "0:00", lv_color_hex(kSecondaryTextColor), Font24());
   if (state->total_time_label != nullptr) {
-    lv_obj_align(state->total_time_label, LV_ALIGN_TOP_RIGHT, -32,
-        track_y + 60);
+    const int right_margin =
+        state->config.width - text_x - text_width;
+    lv_obj_align(state->total_time_label, LV_ALIGN_TOP_RIGHT, -right_margin,
+        time_y);
     const app::MusicTrack* track = CurrentMusicTrack(state->session);
     SetMusicTimeLabel(state->total_time_label,
         track == nullptr
@@ -1365,10 +1456,15 @@ bool CreatePlayerPage(MusicViewState* state) {
 
   lv_obj_t* previous =
       CreatePlayerControlButton(page, MusicControlIcon::kSkipPrevious,
-          88, kSecondaryContainerColor, kPrimaryColor);
+          side_button_size, kSecondaryContainerColor, kPrimaryColor);
   if (previous != nullptr) {
-    lv_obj_align(previous, LV_ALIGN_BOTTOM_MID, -side_control_offset,
-        side_control_bottom);
+    if (landscape_layout) {
+      lv_obj_set_pos(previous, previous_button_x,
+          control_center_y - side_button_size / 2);
+    } else {
+      lv_obj_align(previous, LV_ALIGN_BOTTOM_MID, -side_control_offset,
+          side_control_bottom);
+    }
     lv_obj_add_event_cb(previous, PreviousTrackClickedEventCallback,
         LV_EVENT_CLICKED, state);
   }
@@ -1382,10 +1478,17 @@ bool CreatePlayerPage(MusicViewState* state) {
     MakeTransparent(playback_mode_button);
     lv_obj_remove_flag(playback_mode_button, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(playback_mode_button, LV_OBJ_FLAG_CLICK_FOCUSABLE);
-    lv_obj_set_size(playback_mode_button, 72, 72);
-    lv_obj_align_to(playback_mode_button, previous, LV_ALIGN_OUT_LEFT_MID,
-        -20, 0);
-    lv_obj_set_style_radius(playback_mode_button, 36, LV_PART_MAIN);
+    lv_obj_set_size(
+        playback_mode_button, mode_button_size, mode_button_size);
+    if (landscape_layout) {
+      lv_obj_set_pos(playback_mode_button, mode_button_x,
+          control_center_y - mode_button_size / 2);
+    } else {
+      lv_obj_align_to(playback_mode_button, previous, LV_ALIGN_OUT_LEFT_MID,
+          -20, 0);
+    }
+    lv_obj_set_style_radius(
+        playback_mode_button, mode_button_size / 2, LV_PART_MAIN);
     lv_obj_set_style_bg_color(playback_mode_button,
         lv_color_hex(kSecondaryContainerColor), LV_PART_MAIN);
     lv_obj_set_style_outline_width(playback_mode_button, 0, LV_PART_MAIN);
@@ -1394,7 +1497,8 @@ bool CreatePlayerPage(MusicViewState* state) {
         lv_color_hex(kSecondaryContainerColor), pressed_selector);
     lv_obj_set_style_bg_opa(playback_mode_button, LV_OPA_COVER,
         pressed_selector);
-    lv_obj_set_style_radius(playback_mode_button, 36, pressed_selector);
+    lv_obj_set_style_radius(
+        playback_mode_button, mode_button_size / 2, pressed_selector);
     state->playback_mode_label =
         CreateLabel(playback_mode_button,
             PlaybackModeIcon(state->session->playback_mode),
@@ -1409,9 +1513,16 @@ bool CreatePlayerPage(MusicViewState* state) {
   }
   state->play_button =
       CreatePlayerControlButton(
-          page, MusicControlIcon::kPlay, 116, kPrimaryColor, 0xFFFFFF);
+          page, MusicControlIcon::kPlay, play_button_size,
+          kPrimaryColor, 0xFFFFFF);
   if (state->play_button != nullptr) {
-    lv_obj_align(state->play_button, LV_ALIGN_BOTTOM_MID, 0, control_bottom);
+    if (landscape_layout) {
+      lv_obj_set_pos(state->play_button, play_button_x,
+          control_center_y - play_button_size / 2);
+    } else {
+      lv_obj_align(
+          state->play_button, LV_ALIGN_BOTTOM_MID, 0, control_bottom);
+    }
     lv_obj_remove_event_cb(
         state->play_button, StaticControlIconDrawEventCallback);
     lv_obj_add_event_cb(
@@ -1424,10 +1535,15 @@ bool CreatePlayerPage(MusicViewState* state) {
   }
   lv_obj_t* next =
       CreatePlayerControlButton(page, MusicControlIcon::kSkipNext,
-          88, kSecondaryContainerColor, kPrimaryColor);
+          side_button_size, kSecondaryContainerColor, kPrimaryColor);
   if (next != nullptr) {
-    lv_obj_align(next, LV_ALIGN_BOTTOM_MID, side_control_offset,
-        side_control_bottom);
+    if (landscape_layout) {
+      lv_obj_set_pos(next, next_button_x,
+          control_center_y - side_button_size / 2);
+    } else {
+      lv_obj_align(next, LV_ALIGN_BOTTOM_MID, side_control_offset,
+          side_control_bottom);
+    }
     lv_obj_add_event_cb(next, NextTrackClickedEventCallback,
         LV_EVENT_CLICKED, state);
   }
