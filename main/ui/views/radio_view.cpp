@@ -2,7 +2,7 @@
  * @Description: Radio control app view
  * @Author: LILYGO_L
  * @Date: 2026-07-12 00:00:00
- * @LastEditTime: 2026-07-18 23:41:38
+ * @LastEditTime: 2026-07-19 00:03:43
  * @License: GPL 3.0
  */
 #include "ui/views/radio_view.h"
@@ -2415,7 +2415,7 @@ void UpdateChatComposerState(RadioViewState* state) {
   lv_obj_remove_flag(
       state->detail_composer_action_button, LV_OBJ_FLAG_HIDDEN);
 
-  const char* action_text = "Inactive  |  Activate";
+  const char* action_text = "Activate this profile";
   bool action_enabled = true;
   switch (mode) {
     case RadioComposerMode::kActivating:
@@ -2423,10 +2423,10 @@ void UpdateChatComposerState(RadioViewState* state) {
       action_enabled = false;
       break;
     case RadioComposerMode::kChipError:
-      action_text = "Chip error  |  Retry";
+      action_text = "Retry initialization";
       break;
     case RadioComposerMode::kUnsupported:
-      action_text = "Unsupported  |  Settings";
+      action_text = "Open settings";
       break;
     case RadioComposerMode::kUnavailable:
       action_text = "Radio unavailable";
@@ -2638,7 +2638,7 @@ bool CreateChatComposer(lv_obj_t* page, RadioViewState* state) {
   }
   state->detail_composer_action_button = composer_action;
   state->detail_composer_action_label = CreateLabel(
-      composer_action, "Inactive  |  Activate", kOnPrimaryColor, Font22());
+      composer_action, "Activate this profile", kOnPrimaryColor, Font22());
   if (state->detail_composer_action_label == nullptr) {
     return false;
   }
