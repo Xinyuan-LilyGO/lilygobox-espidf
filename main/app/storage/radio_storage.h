@@ -2,7 +2,7 @@
  * @Description: Radio 配置列表与唯一激活项持久化接口
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
- * @LastEditTime: 2026-07-18 00:00:00
+ * @LastEditTime: 2026-07-19 01:30:46
  * @License: GPL 3.0
  */
 #pragma once
@@ -46,6 +46,8 @@ struct RadioProfile {
   bool invert_iq = false;
   // 是否使用 SX1262 增强接收模式。
   bool rx_boosted = true;
+  // 天线路径，默认使用 RF1 板载天线，可切换至 RF2 外置天线。
+  radio::AntennaType antenna = radio::AntennaType::kInternal;
 };
 
 struct RadioPreferences {

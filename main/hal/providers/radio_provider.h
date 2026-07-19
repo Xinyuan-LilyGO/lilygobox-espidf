@@ -2,7 +2,7 @@
  * @Description: Radio 射频状态、配置与收发 Provider 接口
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
- * @LastEditTime: 2026-07-17 18:40:56
+ * @LastEditTime: 2026-07-19 01:30:46
  * @License: GPL 3.0
  */
 #pragma once
@@ -78,6 +78,8 @@ struct RadioConfig {
   radio::ChipType chip = radio::ChipType::kUnknown;
   // 当前配置使用的空中协议。
   radio::ProtocolType protocol = radio::ProtocolType::kUnknown;
+  // 当前配置使用的物理天线路径。
+  radio::AntennaType antenna = radio::AntennaType::kInternal;
   // LoRa 协议参数。
   LoraRadioConfig lora;
 };

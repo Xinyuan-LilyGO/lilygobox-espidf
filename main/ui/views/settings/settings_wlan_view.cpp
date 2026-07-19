@@ -2,7 +2,7 @@
  * @Description: Settings WLAN detail page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-07-16 21:18:15
+ * @LastEditTime: 2026-07-19 10:51:42
  * @License: GPL 3.0
  */
 #include "ui/views/settings/settings_view_internal.h"
@@ -1920,11 +1920,11 @@ bool CreateWifiOptionRow(lv_obj_t* parent, SettingsViewState* state,
         LV_EVENT_CLICKED, state);
   }
 
-  const uint32_t label_color = std::strcmp(text, "Delete network") == 0
-                                   ? 0xE53935
-                                   : kPrimaryTextColor;
+  const bool delete_network = std::strcmp(text, "Delete network") == 0;
+  const uint32_t label_color =
+      delete_network ? 0xE53935 : kPrimaryTextColor;
   lv_obj_t* label = CreateLabel(row, text, lv_color_hex(label_color),
-      Font32());
+      delete_network ? Font28() : Font32());
   if (label == nullptr) {
     return false;
   }

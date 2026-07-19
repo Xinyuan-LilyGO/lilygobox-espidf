@@ -2,7 +2,7 @@
  * @Description: Radio 配置列表与唯一激活项持久化实现
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
- * @LastEditTime: 2026-07-18 00:00:00
+ * @LastEditTime: 2026-07-19 01:30:46
  * @License: GPL 3.0
  */
 #include "app/storage/radio_storage.h"
@@ -51,6 +51,7 @@ void ResetProfile(RadioProfile* profile) {
   profile->crc_enabled = true;
   profile->invert_iq = false;
   profile->rx_boosted = true;
+  profile->antenna = radio::AntennaType::kInternal;
 }
 
 void ResetPreferences(RadioPreferences* preferences) {
@@ -147,6 +148,10 @@ void NormalizePreferences(RadioPreferences* preferences) {
     }
     profile.output_power_dbm = std::clamp<int8_t>(
         profile.output_power_dbm, -9, 22);
+    if (profile.antenna != radio::AntennaType::kInternal &&
+        profile.antenna != radio::AntennaType::kExternal) {
+      profile.antenna = radio::AntennaType::kInternal;
+    }
     if (profile.id == 0 ||
         HasProfileIdBefore(result, index, profile.id)) {
       profile.id = NextUnusedProfileId(
@@ -180,7 +185,8 @@ bool RadioProfileEqual(const RadioProfile& left, const RadioProfile& right) {
       left.output_power_dbm == right.output_power_dbm &&
       left.crc_enabled == right.crc_enabled &&
       left.invert_iq == right.invert_iq &&
-      left.rx_boosted == right.rx_boosted;
+      left.rx_boosted == right.rx_boosted &&
+      left.antenna == right.antenna;
 }
 
 bool RadioPreferencesEqual(

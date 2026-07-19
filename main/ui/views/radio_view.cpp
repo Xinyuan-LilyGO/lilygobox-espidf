@@ -2,7 +2,7 @@
  * @Description: Radio control app view
  * @Author: LILYGO_L
  * @Date: 2026-07-12 00:00:00
- * @LastEditTime: 2026-07-19 00:11:17
+ * @LastEditTime: 2026-07-19 11:08:08
  * @License: GPL 3.0
  */
 #include "ui/views/radio_view.h"
@@ -58,6 +58,7 @@ constexpr uint32_t kSendFailureColor = 0xBA1A1A;
 constexpr uint32_t kActiveIndicatorColor = 0x23A55A;
 constexpr uint32_t kInactiveIndicatorColor = 0xC7C5CC;
 constexpr uint32_t kInputErrorColor = 0xBA1A1A;
+constexpr uint32_t kDeleteActionColor = 0xE53935;
 constexpr uint32_t kWarningColor = 0x8A4F00;
 constexpr int kHeaderTop = 68;
 constexpr int kListTop = 154;
@@ -253,6 +254,7 @@ struct RadioViewState {
   lv_obj_t* add_crc_switch = nullptr;
   lv_obj_t* add_iq_switch = nullptr;
   lv_obj_t* add_rx_boost_switch = nullptr;
+  lv_obj_t* add_external_antenna_switch = nullptr;
   lv_obj_t* add_active_switch = nullptr;
   lv_obj_t* add_keyboard = nullptr;
   lv_obj_t* add_submit_button = nullptr;
@@ -309,6 +311,8 @@ struct RadioViewState {
   size_t detail_index = kRadioModuleCapacity;
   size_t profile_settings_index = kRadioModuleCapacity;
   size_t editing_index = kRadioModuleCapacity;
+  // 单项删除确认期间使用配置 ID，避免列表索引变化后删错配置。
+  uint32_t pending_delete_profile_id = 0;
   uint32_t last_activation_retry_tick = 0;
   uint8_t activation_retry_count = 0;
   // 合并后的激活或停用命令类型。
@@ -332,6 +336,8 @@ struct RadioViewState {
   // 回到底部按钮当前是否处于显示目标状态。
   bool chat_jump_button_visible = false;
   bool selection_mode = false;
+  // 阻止详情页创建期间的快速重复点击再次进入配置。
+  bool detail_opening = false;
   bool detail_closing = false;
   bool app_settings_closing = false;
   bool profile_settings_closing = false;
@@ -371,6 +377,7 @@ bool ShowModuleSettings(RadioViewState* state, size_t index,
     bool from_detail);
 bool ShowRadioSettingsPage(RadioViewState* state);
 bool ShowProfileSettingsPage(RadioViewState* state, size_t index);
+bool ShowProfileDeleteConfirmation(RadioViewState* state, size_t index);
 bool ShowProfileNameEditPage(RadioViewState* state);
 void RefreshProfileSettingsPage(RadioViewState* state);
 bool SetProfileActiveState(
@@ -494,6 +501,7 @@ hal::RadioConfig ToRadioConfig(const app::RadioProfile& profile) {
       .client_token = profile.id,
       .chip = profile.chip,
       .protocol = profile.protocol,
+      .antenna = profile.antenna,
       .lora = {
           .frequency_hz = profile.frequency_hz,
           .bandwidth_hz = profile.bandwidth_hz,
@@ -550,7 +558,8 @@ bool AreProfileSettingsEqual(
          lhs.output_power_dbm == rhs.output_power_dbm &&
          lhs.crc_enabled == rhs.crc_enabled &&
          lhs.invert_iq == rhs.invert_iq &&
-         lhs.rx_boosted == rhs.rx_boosted;
+         lhs.rx_boosted == rhs.rx_boosted &&
+         lhs.antenna == rhs.antenna;
 }
 
 bool IsProfileSupported(
@@ -2671,9 +2680,11 @@ bool CreateChatComposer(lv_obj_t* page, RadioViewState* state) {
  */
 bool ShowModuleDetail(RadioViewState* state, size_t index) {
   if (state == nullptr || state->root == nullptr ||
-      index >= state->module_count) {
+      index >= state->module_count || state->detail_page != nullptr ||
+      state->detail_opening || state->detail_closing) {
     return false;
   }
+  state->detail_opening = true;
   const uint32_t profile_id = state->preferences.profiles[index].id;
   app::RadioChatRepository& repository = app::GetRadioChatRepository();
   repository.TouchProfile(profile_id);
@@ -2684,6 +2695,7 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
   ResetRenderedChatState(state);
   lv_obj_t* page = lv_obj_create(state->root);
   if (page == nullptr) {
+    state->detail_opening = false;
     return false;
   }
   state->detail_page = page;
@@ -2716,6 +2728,7 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
   if (back == nullptr) {
     lv_obj_delete(page);
     state->detail_page = nullptr;
+    state->detail_opening = false;
     return false;
   }
   lv_obj_remove_style_all(back);
@@ -2778,6 +2791,7 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
   if (chat_body == nullptr) {
     lv_obj_delete(page);
     state->detail_page = nullptr;
+    state->detail_opening = false;
     return false;
   }
   lv_obj_set_pos(chat_body, 0, chat_top);
@@ -2802,6 +2816,7 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
     lv_obj_delete(page);
     state->detail_page = nullptr;
     state->detail_chat_body = nullptr;
+    state->detail_opening = false;
     return false;
   }
   lv_obj_remove_style_all(timeline);
@@ -2827,11 +2842,13 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
     state->detail_chat_jump_button = nullptr;
     state->detail_chat_body = nullptr;
     state->detail_chat_timeline = nullptr;
+    state->detail_opening = false;
     return false;
   }
   EnableEdgeBackSwipeEventBubble(page);
   StartSlideLeftWindowTransition(
       page, state->config.width, kAnimationMs, nullptr, nullptr);
+  state->detail_opening = false;
   return true;
 }
 
@@ -4061,6 +4078,7 @@ void ProfileSettingsCloseCompletedCallback(lv_anim_t* animation) {
   ResetProfileSettingsReferences(state);
   lv_obj_delete(page);
   ApplyPendingChatScroll(state);
+  RefreshModuleListIfVisible(state);
 }
 
 /**
@@ -4081,6 +4099,7 @@ void CloseProfileSettingsPage(RadioViewState* state) {
     ResetProfileSettingsReferences(state);
     lv_obj_delete(page);
     ApplyPendingChatScroll(state);
+    RefreshModuleListIfVisible(state);
   }
 }
 
@@ -4233,6 +4252,101 @@ lv_obj_t* CreateProfileSettingsRow(lv_obj_t* parent, RadioViewState* state,
     lv_obj_align(chevron, LV_ALIGN_RIGHT_MID, -34, 0);
   }
   return row;
+}
+
+/**
+ * @brief 处理配置详情页删除配置操作
+ * @param event LVGL 事件对象
+ */
+void ProfileDeleteClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
+  if (state != nullptr) {
+    ShowProfileDeleteConfirmation(state, state->profile_settings_index);
+  }
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+}
+
+/**
+ * @brief 创建配置详情页底部的删除操作行
+ * @param parent 父对象
+ * @param state Radio 页面状态
+ * @param y 顶部坐标
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateProfileDeleteRow(
+    lv_obj_t* parent, RadioViewState* state, int y) {
+  if (parent == nullptr || state == nullptr) {
+    return false;
+  }
+  lv_obj_t* row = lv_obj_create(parent);
+  if (row == nullptr) {
+    return false;
+  }
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(row, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(row, state->config.width, 108);
+  lv_obj_set_pos(row, 0, y);
+  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      row, lv_color_hex(kPressedColor), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
+  lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
+  if (!AddPressCancelOnLeave(row)) {
+    lv_obj_delete(row);
+    return false;
+  }
+  lv_obj_add_event_cb(row, ProfileDeleteClickedEventCallback,
+      LV_EVENT_CLICKED, state);
+
+  lv_obj_t* label = CreateLabel(
+      row, "Delete profile", kDeleteActionColor, Font28());
+  lv_obj_t* chevron = CreateLabel(row, icon::kChevronRight,
+      kSecondaryTextColor, OutlineIconFont44());
+  if (label == nullptr || chevron == nullptr) {
+    lv_obj_delete(row);
+    return false;
+  }
+  lv_obj_set_width(label, state->config.width - 138);
+  lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+  lv_obj_align(label, LV_ALIGN_LEFT_MID, 34, 0);
+  lv_obj_align(chevron, LV_ALIGN_RIGHT_MID, -34, 0);
+  return true;
+}
+
+/**
+ * @brief 创建 Radio 配置详情页操作分割线
+ * @param parent 父对象
+ * @param state Radio 页面状态
+ * @param y 顶部坐标
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateProfileActionDivider(
+    lv_obj_t* parent, RadioViewState* state, int y) {
+  if (parent == nullptr || state == nullptr) {
+    return false;
+  }
+  constexpr int kSidePadding = 28;
+  lv_obj_t* divider = lv_obj_create(parent);
+  if (divider == nullptr) {
+    return false;
+  }
+  lv_obj_remove_flag(divider, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(divider, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(divider, state->config.width - 2 * kSidePadding, 1);
+  lv_obj_set_pos(divider, kSidePadding, y);
+  lv_obj_set_style_bg_color(
+      divider, lv_color_hex(kOutlineVariantColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(divider, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(divider, 0, LV_PART_MAIN);
+  return true;
 }
 
 /**
@@ -4390,7 +4504,9 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
   lv_obj_t* radio_row = CreateProfileSettingsRow(body, state,
       "Radio settings", "Manage radio parameters and behavior", 332,
       ProfileRadioSettingsClickedEventCallback, true, -2, 136);
-  if (active_row == nullptr || radio_row == nullptr) {
+  if (active_row == nullptr || radio_row == nullptr ||
+      !CreateProfileActionDivider(body, state, 476) ||
+      !CreateProfileDeleteRow(body, state, 484)) {
     ResetProfileSettingsReferences(state);
     lv_obj_delete(page);
     return false;
@@ -4469,15 +4585,86 @@ void DeleteSelectedProfiles(RadioViewState* state) {
 }
 
 /**
- * @brief 确认删除选中的 Radio 配置
- * @param context Radio 页面状态
+ * @brief 删除指定 ID 的单个 Radio 配置及其聊天记录
+ * @param state Radio 页面状态
+ * @param profile_id 待删除配置 ID
  */
-void DeleteProfilesConfirmed(void* context) {
-  DeleteSelectedProfiles(static_cast<RadioViewState*>(context));
+void DeleteProfileById(RadioViewState* state, uint32_t profile_id) {
+  if (state == nullptr || profile_id == 0) {
+    return;
+  }
+  const size_t index = FindProfileIndex(state, profile_id);
+  if (index >= state->module_count) {
+    return;
+  }
+
+  const bool close_detail = state->detail_page != nullptr &&
+      state->detail_index == index;
+  CloseProfileSettingsPage(state);
+  if (close_detail) {
+    CloseModuleDetail(state);
+  }
+
+  app::RadioPreferences next = state->preferences;
+  app::GetRadioChatRepository().RemoveProfile(profile_id);
+  if (next.active_profile_id == profile_id) {
+    FailPendingMessages(state, profile_id);
+    next.active_profile_id = 0;
+    QueueRadioControlCommand(state, RadioCommandType::kDeactivate,
+        hal::RadioConfig());
+  }
+  for (size_t read_index = index + 1;
+       read_index < next.profile_count; ++read_index) {
+    next.profiles[read_index - 1] = next.profiles[read_index];
+  }
+  --next.profile_count;
+  next.profiles[next.profile_count] = app::RadioProfile{};
+  state->preferences = next;
+  app::UpdateRadioPreferences(state->preferences);
+  SyncModuleItems(state);
+  RenderHeader(state);
+  MarkModuleListDirty(state);
 }
 
-bool ShowDeleteConfirmation(RadioViewState* state) {
-  if (state == nullptr || state->root == nullptr ||
+/**
+ * @brief 取消单项配置删除时清除待删除 ID
+ * @param context Radio 页面状态
+ */
+void ProfileDeleteCancelled(void* context) {
+  auto* state = static_cast<RadioViewState*>(context);
+  if (state != nullptr) {
+    state->pending_delete_profile_id = 0;
+  }
+}
+
+/**
+ * @brief 确认删除单个 Radio 配置
+ * @param context Radio 页面状态
+ */
+void ProfileDeleteConfirmed(void* context) {
+  auto* state = static_cast<RadioViewState*>(context);
+  if (state == nullptr) {
+    return;
+  }
+  const uint32_t profile_id = state->pending_delete_profile_id;
+  state->pending_delete_profile_id = 0;
+  DeleteProfileById(state, profile_id);
+}
+
+/**
+ * @brief 显示通用 Radio 删除确认底部弹窗
+ * @param state Radio 页面状态
+ * @param title 弹窗标题
+ * @param message 二级提示文本
+ * @param confirm_callback 确认回调
+ * @param cancel_callback 取消回调
+ * @return 显示成功返回 true，否则返回 false
+ */
+bool ShowRadioDeletePrompt(RadioViewState* state, const char* title,
+    const char* message, PromptDialogActionCallback confirm_callback,
+    PromptDialogActionCallback cancel_callback = nullptr) {
+  if (state == nullptr || state->root == nullptr || title == nullptr ||
+      message == nullptr || confirm_callback == nullptr ||
       IsPromptDialogVisible(&state->delete_dialog)) {
     return false;
   }
@@ -4504,7 +4691,8 @@ bool ShowDeleteConfirmation(RadioViewState* state) {
   config.confirm_text = "OK";
   config.title_font = Font32();
   config.action_font = Font28();
-  config.confirm_callback = DeleteProfilesConfirmed;
+  config.cancel_callback = cancel_callback;
+  config.confirm_callback = confirm_callback;
   config.callback_context = state;
   config.slide_from_bottom = true;
   lv_obj_t* body = ShowPromptDialog(
@@ -4514,25 +4702,60 @@ bool ShowDeleteConfirmation(RadioViewState* state) {
   }
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
 
-  lv_obj_t* title = CreateLabel(
-      body, "Delete profiles", kMainTextColor, Font32());
-  lv_obj_t* message = CreateLabel(body,
-      "Messages and settings for the selected profiles will be removed.",
-      kSecondaryTextColor, Font24());
-  if (title == nullptr || message == nullptr) {
+  lv_obj_t* title_label = CreateLabel(
+      body, title, kMainTextColor, Font32());
+  lv_obj_t* message_label = CreateLabel(
+      body, message, kSecondaryTextColor, Font24());
+  if (title_label == nullptr || message_label == nullptr) {
     ClosePromptDialog(&state->delete_dialog);
     return false;
   }
   const int content_width =
       config.dialog_width - 2 * kDeletePromptInnerPadding;
-  lv_obj_set_size(title, content_width, 42);
-  lv_obj_set_pos(title, kDeletePromptInnerPadding, 34);
-  lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-  lv_obj_set_width(message, content_width);
-  lv_obj_set_pos(message, kDeletePromptInnerPadding, 78);
-  lv_label_set_long_mode(message, LV_LABEL_LONG_WRAP);
-  lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_set_size(title_label, content_width, 42);
+  lv_obj_set_pos(title_label, kDeletePromptInnerPadding, 34);
+  lv_obj_set_style_text_align(
+      title_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_set_width(message_label, content_width);
+  lv_obj_set_pos(message_label, kDeletePromptInnerPadding, 78);
+  lv_label_set_long_mode(message_label, LV_LABEL_LONG_WRAP);
+  lv_obj_set_style_text_align(
+      message_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   return true;
+}
+
+/**
+ * @brief 显示单个 Radio 配置删除确认底部弹窗
+ * @param state Radio 页面状态
+ * @param index 待删除配置索引
+ * @return 显示成功返回 true，否则返回 false
+ */
+bool ShowProfileDeleteConfirmation(RadioViewState* state, size_t index) {
+  if (state == nullptr || index >= state->module_count) {
+    return false;
+  }
+  state->pending_delete_profile_id = state->preferences.profiles[index].id;
+  if (ShowRadioDeletePrompt(state, "Delete profile",
+          "Messages and settings for this profile will be removed.",
+          ProfileDeleteConfirmed, ProfileDeleteCancelled)) {
+    return true;
+  }
+  state->pending_delete_profile_id = 0;
+  return false;
+}
+
+/**
+ * @brief 确认删除选中的 Radio 配置
+ * @param context Radio 页面状态
+ */
+void DeleteProfilesConfirmed(void* context) {
+  DeleteSelectedProfiles(static_cast<RadioViewState*>(context));
+}
+
+bool ShowDeleteConfirmation(RadioViewState* state) {
+  return ShowRadioDeletePrompt(state, "Delete profiles",
+      "Messages and settings for the selected profiles will be removed.",
+      DeleteProfilesConfirmed);
 }
 
 void SelectionDeleteClickedEventCallback(lv_event_t* event) {
@@ -4819,6 +5042,11 @@ bool IsAddModuleFormComplete(const RadioViewState* state) {
       state->add_power_input == nullptr ||
       state->add_preamble_input == nullptr ||
       state->add_sync_word_input == nullptr ||
+      state->add_crc_switch == nullptr ||
+      state->add_iq_switch == nullptr ||
+      state->add_rx_boost_switch == nullptr ||
+      state->add_external_antenna_switch == nullptr ||
+      (!editing && state->add_active_switch == nullptr) ||
       (state->editing_index >= state->module_count &&
        state->module_count >= kRadioModuleCapacity)) {
     return false;
@@ -4986,6 +5214,7 @@ void AddPageCloseCompletedCallback(lv_anim_t* animation) {
   state->add_crc_switch = nullptr;
   state->add_iq_switch = nullptr;
   state->add_rx_boost_switch = nullptr;
+  state->add_external_antenna_switch = nullptr;
   state->add_active_switch = nullptr;
   state->add_keyboard = nullptr;
   state->add_submit_button = nullptr;
@@ -5024,6 +5253,7 @@ void CloseAddModulePage(RadioViewState* state) {
     state->add_crc_switch = nullptr;
     state->add_iq_switch = nullptr;
     state->add_rx_boost_switch = nullptr;
+    state->add_external_antenna_switch = nullptr;
     state->add_active_switch = nullptr;
     state->add_keyboard = nullptr;
     state->add_submit_button = nullptr;
@@ -5143,33 +5373,34 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
       state->add_iq_switch, LV_STATE_CHECKED);
   profile.rx_boosted = lv_obj_has_state(
       state->add_rx_boost_switch, LV_STATE_CHECKED);
+  profile.antenna = lv_obj_has_state(
+      state->add_external_antenna_switch, LV_STATE_CHECKED)
+      ? radio::AntennaType::kExternal
+      : radio::AntennaType::kInternal;
   const bool settings_changed = editing &&
       !AreProfileSettingsEqual(previous_profile, profile);
   state->preferences.profiles[index] = profile;
   if (!editing) {
     ++state->preferences.profile_count;
   }
-  const bool activate = lv_obj_has_state(
+  const bool activate_new_profile = !editing && lv_obj_has_state(
       state->add_active_switch, LV_STATE_CHECKED);
   const uint32_t form_done_ms = lv_tick_get();
-  if (activate) {
-    const bool requires_reconfigure = !editing || settings_changed ||
-        previous_active_profile_id != profile.id;
-    if (requires_reconfigure) {
-      FailPendingMessages(state, previous_active_profile_id);
-    }
+  const bool requires_reconfigure = editing && settings_changed &&
+      previous_active_profile_id == profile.id;
+  if (activate_new_profile) {
+    FailPendingMessages(state, previous_active_profile_id);
     state->preferences.active_profile_id = profile.id;
     state->activation_retry_count = 0;
     state->last_activation_retry_tick = lv_tick_get();
-    if (requires_reconfigure) {
-      QueueRadioControlCommand(state, RadioCommandType::kActivate,
-          ToRadioConfig(profile));
-    }
-  } else if (previous_active_profile_id == profile.id) {
-    state->preferences.active_profile_id = 0;
+    QueueRadioControlCommand(state, RadioCommandType::kActivate,
+        ToRadioConfig(profile));
+  } else if (requires_reconfigure) {
     FailPendingMessages(state, profile.id);
-    QueueRadioControlCommand(state, RadioCommandType::kDeactivate,
-        hal::RadioConfig());
+    state->activation_retry_count = 0;
+    state->last_activation_retry_tick = lv_tick_get();
+    QueueRadioControlCommand(state, RadioCommandType::kActivate,
+        ToRadioConfig(profile));
   }
   const uint32_t command_done_ms = lv_tick_get();
   app::UpdateRadioPreferences(state->preferences);
@@ -5613,25 +5844,31 @@ bool CreateAddModuleContent(RadioViewState* state) {
   const int switch_rows_top = 1258 + content_offset;
   constexpr int kSwitchRowPitch =
       kAddSwitchRowHeight + kAddSwitchRowGap;
+  state->add_external_antenna_switch = CreateAddSwitchRow(body, state,
+      "External antenna", "Enable the external antenna", switch_rows_top,
+      profile.antenna == radio::AntennaType::kExternal);
   state->add_crc_switch = CreateAddSwitchRow(body, state,
-      "CRC", "Reject damaged LoRa packets", switch_rows_top,
-      profile.crc_enabled);
+      "CRC", "Reject damaged LoRa packets",
+      switch_rows_top + kSwitchRowPitch, profile.crc_enabled);
   state->add_iq_switch = CreateAddSwitchRow(body, state,
       "Invert IQ", "Enable only when the peer also inverts IQ",
-      switch_rows_top + kSwitchRowPitch,
+      switch_rows_top + 2 * kSwitchRowPitch,
       profile.invert_iq);
   state->add_rx_boost_switch = CreateAddSwitchRow(body, state,
       "RX boost", "Higher receive sensitivity",
-      switch_rows_top + 2 * kSwitchRowPitch,
-      profile.rx_boosted);
-  state->add_active_switch = CreateAddSwitchRow(body, state,
-      "Active profile", "Only one profile can use the SX1262",
       switch_rows_top + 3 * kSwitchRowPitch,
-      !editing || state->preferences.active_profile_id == profile.id);
+      profile.rx_boosted);
+  state->add_active_switch = nullptr;
+  if (!editing) {
+    state->add_active_switch = CreateAddSwitchRow(body, state,
+        "Active profile", "Only one profile can use the SX1262",
+        switch_rows_top + 4 * kSwitchRowPitch, true);
+  }
   if (state->add_crc_switch == nullptr ||
       state->add_iq_switch == nullptr ||
       state->add_rx_boost_switch == nullptr ||
-      state->add_active_switch == nullptr) {
+      state->add_external_antenna_switch == nullptr ||
+      (!editing && state->add_active_switch == nullptr)) {
     return false;
   }
   UpdateAddOptionSelection(state);

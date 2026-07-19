@@ -2,7 +2,7 @@
  * @Description: T-Display-P4 设备初始化与硬件 Provider 适配实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-17 18:40:56
+ * @LastEditTime: 2026-07-19 01:30:46
  * @License: GPL 3.0
  */
 #include "hal/device/t_display_p4/t_display_p4_device.h"
@@ -3421,9 +3421,21 @@ bool TDisplayP4Device::ActivateRadio(const RadioConfig& config) {
     return false;
   }
   usp_cpp_bus_driver::Sx126x::LoraConfig driver_config;
+  const bool antenna_supported =
+      config.antenna == radio::AntennaType::kInternal ||
+      config.antenna == radio::AntennaType::kExternal;
   bool result = config.chip == radio::ChipType::kSx1262 &&
                 config.protocol == radio::ProtocolType::kLora &&
+                antenna_supported &&
                 BuildSx1262Config(config.lora, &driver_config);
+  if (result) {
+    auto* antenna_switch = driver_.chip().xl9535.get();
+    const uint8_t antenna_level =
+        config.antenna == radio::AntennaType::kExternal ? 0 : 1;
+    result = driver_.IsXl9535Ready() && antenna_switch != nullptr &&
+             antenna_switch->GpioWrite(
+                 gpio::xl9535::kSky13453Vctl, antenna_level);
+  }
   if (result && driver_.IsSx1262Ready()) {
     auto* radio = driver_.chip().sx1262.get();
     result = radio != nullptr && radio->Configure(driver_config) &&
@@ -3441,12 +3453,13 @@ bool TDisplayP4Device::ActivateRadio(const RadioConfig& config) {
   xSemaphoreGive(radio_.mutex);
   LogMessage(result ? LogLevel::kDebug : LogLevel::kError, __FILE__, __LINE__,
       "Radio activate %s: profile=%lu, frequency=%lu Hz, SF=%u, "
-      "bandwidth=%lu Hz\n",
+      "bandwidth=%lu Hz, antenna=%s\n",
       result ? "succeeded" : "failed",
       static_cast<unsigned long>(config.client_token),
       static_cast<unsigned long>(config.lora.frequency_hz),
       static_cast<unsigned>(config.lora.spreading_factor),
-      static_cast<unsigned long>(config.lora.bandwidth_hz));
+      static_cast<unsigned long>(config.lora.bandwidth_hz),
+      config.antenna == radio::AntennaType::kExternal ? "RF2" : "RF1");
   return result;
 }
 
