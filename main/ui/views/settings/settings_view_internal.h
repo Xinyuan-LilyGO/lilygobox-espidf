@@ -2,7 +2,7 @@
  * @Description: Settings view internal helpers
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-07-19 00:11:17
+ * @LastEditTime: 2026-07-19 11:17:26
  * @License: GPL 3.0
  */
 #pragma once
@@ -82,15 +82,13 @@ constexpr lv_opa_t kDetailOptionPressedOpacity = LV_OPA_COVER;
 constexpr int kNameEditButtonSize = kDetailBackButtonSize;
 constexpr int kNameEditButtonTop = kDetailBackButtonTop;
 constexpr int kNameEditButtonSide = kDetailBackButtonLeft;
-constexpr int kNameEditTitleTop = 154;
-constexpr int kNameEditTextAreaTop = 280;
+constexpr int kNameEditTextAreaTop = 174;
 constexpr int kNameEditTextAreaHeight = 88;
 constexpr int kNameEditTextAreaSide = 26;
 constexpr int kNameEditHelpTop =
     kNameEditTextAreaTop + kNameEditTextAreaHeight + 10;
 constexpr int kNameEditKeyboardHeightPercent = 35;
-constexpr int kWifiTitleTop = 154;
-constexpr int kWifiBodyTop = 238;
+constexpr int kWifiBodyTop = kDetailBodyTop;
 constexpr int kWifiSidePadding = 34;
 constexpr int kWifiRowHeight = 80;
 constexpr int kWifiSectionHeight = 54;

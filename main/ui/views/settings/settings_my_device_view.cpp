@@ -2,7 +2,7 @@
  * @Description: Settings My Device detail page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-07-19 00:24:37
+ * @LastEditTime: 2026-07-19 11:17:26
  * @License: GPL 3.0
  */
 #include "ui/views/settings/settings_view_internal.h"
@@ -1458,6 +1458,15 @@ bool CreateDeviceNameEditHeader(
     return false;
   }
 
+  lv_obj_t* title = CreateLabel(
+      parent, "Edit device name", lv_color_hex(kTitleColor), Font32());
+  if (title == nullptr) {
+    return false;
+  }
+  lv_obj_set_width(title, width);
+  lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, kDetailTitleTop);
+
   return true;
 }
 
@@ -1470,14 +1479,6 @@ bool CreateDeviceNameEditHeader(
  */
 bool CreateDeviceNameEditContent(
     lv_obj_t* parent, SettingsViewState* state, const AppViewConfig& config) {
-  lv_obj_t* title = CreateLabel(
-      parent, "Edit device name", lv_color_hex(kTitleColor), Font48());
-  if (title == nullptr) {
-    return false;
-  }
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, kNameEditTextAreaSide,
-      kNameEditTitleTop);
-
   lv_obj_t* text_area = lv_textarea_create(parent);
   if (text_area == nullptr) {
     return false;

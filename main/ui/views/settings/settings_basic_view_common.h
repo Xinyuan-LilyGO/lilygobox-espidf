@@ -2,7 +2,7 @@
  * @Description: Settings basic page shared helpers
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-07-13 22:08:45
+ * @LastEditTime: 2026-07-19 11:17:26
  * @License: GPL 3.0
  */
 #pragma once
@@ -14,8 +14,7 @@
 
 namespace lilygo_box::ui {
 
-constexpr int kBasicTitleTop = 154;
-constexpr int kBasicBodyTop = 238;
+constexpr int kBasicBodyTop = kDetailBodyTop;
 constexpr int kBasicSidePadding = 34;
 constexpr int kBasicRowHeight = 86;
 constexpr int kBasicSectionHeight = 54;

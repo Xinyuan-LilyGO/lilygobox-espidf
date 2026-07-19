@@ -2,7 +2,7 @@
  * @Description: Settings basic page shared helpers
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-07-13 21:51:14
+ * @LastEditTime: 2026-07-19 11:17:26
  * @License: GPL 3.0
  */
 #include "ui/views/settings/settings_basic_view_common.h"
@@ -208,12 +208,14 @@ bool CreateBasicHeader(
   lv_obj_align(back_icon, LV_ALIGN_CENTER, kDetailBackIconOffsetX, 0);
 
   lv_obj_t* title_label =
-      CreateLabel(page, title, lv_color_hex(kTitleColor), Font48());
+      CreateLabel(page, title, lv_color_hex(kTitleColor), Font32());
   if (title_label == nullptr) {
     return false;
   }
-  lv_obj_align(title_label, LV_ALIGN_TOP_LEFT, kBasicSidePadding,
-      kBasicTitleTop);
+  lv_obj_set_width(title_label, state->config.width);
+  lv_obj_set_style_text_align(
+      title_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, kDetailTitleTop);
   return true;
 }
 

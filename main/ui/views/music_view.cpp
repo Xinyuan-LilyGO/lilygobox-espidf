@@ -2,7 +2,7 @@
  * @Description: 音乐应用视图
  * @Author: LILYGO_L
  * @Date: 2026-07-08 00:00:00
- * @LastEditTime: 2026-07-19 00:58:33
+ * @LastEditTime: 2026-07-19 11:17:26
  * @License: GPL 3.0
  */
 #include "ui/views/music_view.h"
@@ -77,6 +77,8 @@ constexpr int kPlayerLandscapeControlRowGap = 120;
 constexpr int kPlayerLandscapeRegularControlGap = 20;
 constexpr int kPlayerLandscapeCompactControlGap = 12;
 constexpr int kSettingsAnimationMs = 240;
+constexpr int kNavigationTitleTop = 78;
+constexpr int kNavigationBodyTop = 148;
 constexpr int kMusicSourcesHeaderTop = 112;
 constexpr int kMusicSourcesAddTop = 98;
 constexpr int kMusicSourcesListTop = 174;
@@ -341,12 +343,6 @@ const lv_font_t* Font32() { return &lvgl_font_google_sans_flex_32; }
  * @return 字体指针
  */
 const lv_font_t* Font36() { return &lvgl_font_google_sans_flex_36; }
-
-/**
- * @brief 获取 48 号 Google Sans 字体
- * @return 字体指针
- */
-const lv_font_t* Font48() { return &lvgl_font_google_sans_flex_48; }
 
 /**
  * @brief 获取 56 号轮廓 Material Symbols 字体
@@ -2042,7 +2038,7 @@ bool CreateMusicSourcesSettingRow(
   lv_obj_remove_style_all(row);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(row, state->config.width, 120);
-  lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 300);
+  lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 210);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_bg_color(row, lv_color_hex(kSurfaceContainerColor),
                             LV_STATE_PRESSED);
@@ -2100,11 +2096,14 @@ bool CreateSettingsStyleHeader(lv_obj_t* page, const char* title,
   lv_obj_align(back_icon, LV_ALIGN_CENTER, -4, 0);
 
   lv_obj_t* title_label = CreateLabel(
-      page, title, lv_color_hex(kMainTextColor), Font48());
+      page, title, lv_color_hex(kMainTextColor), Font32());
   if (title_label == nullptr) {
     return false;
   }
-  lv_obj_align(title_label, LV_ALIGN_TOP_LEFT, 34, 154);
+  lv_obj_set_width(title_label, state->config.width);
+  lv_obj_set_style_text_align(
+      title_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, kNavigationTitleTop);
   return true;
 }
 
@@ -2381,8 +2380,8 @@ void SourcesEdgeBackEventCallback(lv_event_t* event) {
   }
   MakeTransparent(state->sources_body);
   lv_obj_set_size(state->sources_body, state->config.width,
-                  state->config.height - 238);
-  lv_obj_set_pos(state->sources_body, 0, 238);
+      state->config.height - kNavigationBodyTop);
+  lv_obj_set_pos(state->sources_body, 0, kNavigationBodyTop);
   lv_obj_set_scroll_dir(state->sources_body, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(state->sources_body, LV_SCROLLBAR_MODE_OFF);
   lv_obj_add_flag(state->sources_body, LV_OBJ_FLAG_SCROLLABLE);
@@ -3342,7 +3341,7 @@ bool ShowMusicSettingsPage(MusicViewState* state) {
   lv_obj_t* section = CreateLabel(
       page, "LIBRARY", lv_color_hex(kPrimaryColor), Font22());
   if (section != nullptr) {
-    lv_obj_align(section, LV_ALIGN_TOP_LEFT, 28, 254);
+    lv_obj_align(section, LV_ALIGN_TOP_LEFT, 28, 164);
   }
   if (!CreateMusicSourcesSettingRow(page, state)) {
     lv_obj_delete(page);

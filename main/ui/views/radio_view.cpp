@@ -2,7 +2,7 @@
  * @Description: Radio control app view
  * @Author: LILYGO_L
  * @Date: 2026-07-12 00:00:00
- * @LastEditTime: 2026-07-19 11:08:08
+ * @LastEditTime: 2026-07-19 11:17:26
  * @License: GPL 3.0
  */
 #include "ui/views/radio_view.h"
@@ -77,7 +77,9 @@ constexpr int kProfileNameActionRightMargin = 18;
 constexpr int kProfileNameActionHeight = 58;
 constexpr int kProfileNameActionHorizontalPadding = 12;
 constexpr int kDefaultSpreadingFactorIndex = 7;
-constexpr int kAddPageHeaderHeight = 232;
+constexpr int kNavigationTitleTop = 78;
+constexpr int kNavigationBodyTop = 148;
+constexpr int kAddPageHeaderHeight = kNavigationBodyTop;
 constexpr int kAddPageActionHeight = 124;
 constexpr int kAddKeyboardHeightPercent = 35;
 constexpr int kAddKeyboardTopGap = 12;
@@ -101,11 +103,10 @@ constexpr int kAddSwitchRowGap = 12;
 constexpr int kProfileNameEditButtonSize = 62;
 constexpr int kProfileNameEditButtonTop = 66;
 constexpr int kProfileNameEditButtonSide = 18;
-constexpr int kProfileNameEditTitleTop = 154;
-constexpr int kProfileNameEditTextAreaTop = 280;
+constexpr int kProfileNameEditTextAreaTop = 174;
 constexpr int kProfileNameEditTextAreaHeight = 88;
 constexpr int kProfileNameEditTextAreaSide = 26;
-constexpr int kProfileNameEditHelpTop = 378;
+constexpr int kProfileNameEditHelpTop = 272;
 constexpr int kProfileNameEditKeyboardHeightPercent = 35;
 constexpr int kProfileSwitchWidth = 78;
 constexpr int kProfileSwitchHeight = 44;
@@ -409,12 +410,6 @@ const lv_font_t* Font32() { return &lvgl_font_google_sans_flex_32; }
  * @return 字体指针
  */
 const lv_font_t* Font36() { return &lvgl_font_google_sans_flex_36; }
-
-/**
- * @brief 获取 48 号 Google Sans 字体
- * @return 字体指针
- */
-const lv_font_t* Font48() { return &lvgl_font_google_sans_flex_48; }
 
 /**
  * @brief 获取 44 号轮廓图标字体
@@ -2999,11 +2994,13 @@ bool CreateRadioSettingsHeader(lv_obj_t* page, RadioViewState* state) {
   }
   lv_obj_align(back_icon, LV_ALIGN_CENTER, -4, 0);
   lv_obj_t* title = CreateLabel(
-      page, "Radio settings", kMainTextColor, Font48());
+      page, "Radio settings", kMainTextColor, Font32());
   if (title == nullptr) {
     return false;
   }
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 34, 154);
+  lv_obj_set_width(title, state->config.width);
+  lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, kNavigationTitleTop);
   return true;
 }
 
@@ -3020,7 +3017,7 @@ bool CreateRadioStorageSettingRow(lv_obj_t* page, RadioViewState* state) {
   }
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(row, state->config.width, 120);
-  lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 300);
+  lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 210);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
@@ -3083,7 +3080,7 @@ bool ShowRadioSettingsPage(RadioViewState* state) {
   }
   lv_obj_t* section = CreateLabel(page, "STORAGE", kPrimaryColor, Font22());
   if (section != nullptr) {
-    lv_obj_align(section, LV_ALIGN_TOP_LEFT, 28, 254);
+    lv_obj_align(section, LV_ALIGN_TOP_LEFT, 28, 164);
   }
   if (section == nullptr || !CreateRadioStorageSettingRow(page, state)) {
     lv_obj_delete(page);
@@ -3892,13 +3889,14 @@ bool ShowProfileNameEditPage(RadioViewState* state) {
     return false;
   }
   lv_obj_t* title = CreateLabel(
-      page, "Edit profile name", kMainTextColor, Font48());
+      page, "Edit profile name", kMainTextColor, Font32());
   if (title == nullptr) {
     CloseProfileNameEditPage(state, false);
     return false;
   }
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, kProfileNameEditTextAreaSide,
-      kProfileNameEditTitleTop);
+  lv_obj_set_width(title, state->config.width);
+  lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, kNavigationTitleTop);
 
   lv_obj_t* text_area = lv_textarea_create(page);
   if (text_area == nullptr) {
@@ -4405,14 +4403,17 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
   lv_obj_t* back_icon = CreateLabel(
       back, icon::kArrowBack, kMainTextColor, OutlineIconFont44());
   lv_obj_t* page_title = CreateLabel(
-      page, "Profile settings", kMainTextColor, Font48());
+      page, "Profile settings", kMainTextColor, Font32());
   if (back_icon == nullptr || page_title == nullptr) {
     ResetProfileSettingsReferences(state);
     lv_obj_delete(page);
     return false;
   }
   lv_obj_align(back_icon, LV_ALIGN_CENTER, -4, 0);
-  lv_obj_set_pos(page_title, 34, 154);
+  lv_obj_set_width(page_title, state->config.width);
+  lv_obj_set_style_text_align(
+      page_title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_align(page_title, LV_ALIGN_TOP_MID, 0, kNavigationTitleTop);
 
   lv_obj_t* body = lv_obj_create(page);
   if (body == nullptr) {
@@ -4420,8 +4421,9 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
     lv_obj_delete(page);
     return false;
   }
-  lv_obj_set_pos(body, 0, 224);
-  lv_obj_set_size(body, state->config.width, state->config.height - 224);
+  lv_obj_set_pos(body, 0, kNavigationBodyTop);
+  lv_obj_set_size(body, state->config.width,
+      state->config.height - kNavigationBodyTop);
   lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_border_width(body, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(body, 0, LV_PART_MAIN);
@@ -5902,11 +5904,13 @@ bool CreateAddModuleHeader(lv_obj_t* page, RadioViewState* state) {
       page, state->editing_index < state->module_count
           ? "Radio profile"
           : "Add Radio profile",
-      kMainTextColor, Font48());
+      kMainTextColor, Font32());
   if (title == nullptr) {
     return false;
   }
-  lv_obj_set_pos(title, 34, 154);
+  lv_obj_set_width(title, state->config.width);
+  lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, kNavigationTitleTop);
   return true;
 }
 
