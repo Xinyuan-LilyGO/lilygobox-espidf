@@ -259,6 +259,11 @@ void CloseMyDevicePage(SettingsViewState* state, bool animated) {
     return;
   }
 
+  if (state->firmware_update_page != nullptr ||
+      state->firmware_update_closing) {
+    CloseFirmwareUpdatePage(state, animated);
+    return;
+  }
   if (state->factory_reset_page != nullptr || state->factory_reset_closing) {
     CloseFactoryResetPage(state, animated);
     return;
@@ -302,7 +307,9 @@ void MyDeviceEdgeBackEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->detail_page == nullptr ||
       state->detail_closing || state->name_edit_page != nullptr ||
-      state->name_edit_closing || state->factory_reset_page != nullptr ||
+      state->name_edit_closing || state->firmware_update_page != nullptr ||
+      state->firmware_update_closing ||
+      state->factory_reset_page != nullptr ||
       state->factory_reset_closing || state->config.screen == nullptr ||
       !HandleEdgeBackSwipeEvent(event, state->config.width,
           &state->detail_swipe)) {
@@ -920,6 +927,19 @@ bool CreateCheckIcon(lv_obj_t* parent) {
 }
 
 /**
+ * @brief 处理我的设备页面固件更新按钮点击事件
+ * @param event LVGL 事件对象
+ */
+void FirmwareUpdateButtonClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+
+  ShowFirmwareUpdatePage(
+      static_cast<SettingsViewState*>(lv_event_get_user_data(event)));
+}
+
+/**
  * @brief 创建我的设备页面顶部导航栏
  * @param parent 父对象
  * @param state 设置页面状态
@@ -986,6 +1006,7 @@ bool CreateMyDeviceHeader(
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateMyDeviceSnapshotArea(lv_obj_t* parent, int width,
+    SettingsViewState* state,
     const app::CurrentDeviceInfoSnapshot& info) {
   lv_obj_t* brand_group = lv_obj_create(parent);
   if (brand_group == nullptr) {
@@ -1048,7 +1069,11 @@ bool CreateMyDeviceSnapshotArea(lv_obj_t* parent, int width,
   lv_obj_align(update_button, LV_ALIGN_TOP_MID, 0, kDetailUpdateTop);
   lv_obj_set_style_bg_color(update_button, lv_color_hex(kDetailBlueColor),
       LV_PART_MAIN);
+  lv_obj_set_style_bg_color(update_button,
+      lv_color_hex(theme::LightNeutralTheme().action_pressed),
+      LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(update_button, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(update_button, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(update_button, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(update_button, kDetailUpdateHeight / 3,
       LV_PART_MAIN);
@@ -1057,6 +1082,8 @@ bool CreateMyDeviceSnapshotArea(lv_obj_t* parent, int width,
   if (!AddPressCancelOnLeave(update_button)) {
     return false;
   }
+  lv_obj_add_event_cb(update_button,
+      FirmwareUpdateButtonClickedEventCallback, LV_EVENT_CLICKED, state);
 
   lv_obj_t* update_text =
       CreateLabel(update_button, "New version", lv_color_hex(0xFFFFFF),
@@ -1416,7 +1443,7 @@ bool ShowMyDevicePageInternal(SettingsViewState* state) {
   }
 
   const bool created = CreateMyDeviceSnapshotArea(
-                           body, config.width, device_info) &&
+                           body, config.width, state, device_info) &&
                        CreateDeviceInfoCard(
                            body, config, config.width, state, device_info) &&
                        CreateDeviceSpecCard(

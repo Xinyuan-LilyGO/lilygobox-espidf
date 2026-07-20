@@ -73,7 +73,8 @@ constexpr uint32_t kDetailBackgroundColor =
     theme::LightNeutralTheme().surface_container;
 constexpr uint32_t kDetailCardColor =
     theme::LightNeutralTheme().surface_container_lowest;
-constexpr uint32_t kDeviceInfoPressedColor = theme::LightNeutralTheme().state_layer;
+constexpr uint32_t kDeviceInfoPressedColor =
+    theme::LightNeutralTheme().state_layer;
 constexpr uint32_t kDetailBlueColor = theme::LightNeutralTheme().action;
 constexpr uint32_t kDetailBackColor = theme::LightNeutralTheme().on_surface;
 constexpr uint32_t kDetailOptionPressedColor =
@@ -169,6 +170,7 @@ struct SettingsViewState {
   AppViewConfig config;
   lv_obj_t* root = nullptr;
   lv_obj_t* detail_page = nullptr;
+  lv_obj_t* firmware_update_page = nullptr;
   lv_obj_t* name_edit_page = nullptr;
   lv_obj_t* name_edit_text_area = nullptr;
   lv_obj_t* name_edit_keyboard = nullptr;
@@ -219,6 +221,7 @@ struct SettingsViewState {
   // 当前弹窗正在处理的 WLAN，复制出来避免列表刷新后地址失效。
   WifiNetworkAction wifi_pending_action = {};
   EdgeBackSwipeState detail_swipe = {};
+  EdgeBackSwipeState firmware_update_swipe = {};
   EdgeBackSwipeState name_edit_swipe = {};
   EdgeBackSwipeState factory_reset_swipe = {};
   EdgeBackSwipeState wifi_swipe = {};
@@ -232,6 +235,7 @@ struct SettingsViewState {
   // 上一次渲染的 WLAN 状态摘要，用来跳过重复刷新。
   uint32_t wifi_refresh_key = 0;
   bool detail_closing = false;
+  bool firmware_update_closing = false;
   bool name_edit_closing = false;
   bool factory_reset_closing = false;
   bool factory_reset_started = false;
@@ -432,6 +436,20 @@ lv_obj_t* CreateToolbarButton(
  * @return 打开成功返回 true，否则返回 false
  */
 bool ShowMyDevicePage(SettingsViewState* state);
+
+/**
+ * @brief 从我的设备页面打开静态固件更新预览页
+ * @param state 设置页面状态
+ * @return 打开成功返回 true，否则返回 false
+ */
+bool ShowFirmwareUpdatePage(SettingsViewState* state);
+
+/**
+ * @brief 关闭静态固件更新预览页
+ * @param state 设置页面状态
+ * @param animated 是否播放关闭动画
+ */
+void CloseFirmwareUpdatePage(SettingsViewState* state, bool animated);
 
 /**
  * @brief 从设置主页打开 WLAN 详情页

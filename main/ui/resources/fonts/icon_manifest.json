@@ -156,6 +156,7 @@
       "codepoint": 58134
     },
     "Lock": {"cpp_name": "kLock", "codepoint": 59545},
+    "Memory": {"cpp_name": "kMemory", "codepoint": 58146},
     "Menu": {"cpp_name": "kMenu", "codepoint": 58834},
     "Music": {"cpp_name": "kMusic", "codepoint": 58373},
     "NearMe": {
