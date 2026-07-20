@@ -171,6 +171,19 @@ struct SettingsViewState {
   lv_obj_t* root = nullptr;
   lv_obj_t* detail_page = nullptr;
   lv_obj_t* firmware_update_page = nullptr;
+  lv_obj_t* firmware_update_body = nullptr;
+  lv_obj_t* firmware_update_scan_group = nullptr;
+  lv_obj_t* firmware_update_scan_message_label = nullptr;
+  lv_obj_t* firmware_update_scan_hint_label = nullptr;
+  lv_obj_t* firmware_update_heading_label = nullptr;
+  lv_obj_t* firmware_update_card = nullptr;
+  lv_obj_t* firmware_update_release_label = nullptr;
+  lv_obj_t* firmware_update_main_version_label = nullptr;
+  lv_obj_t* firmware_update_wireless_version_label = nullptr;
+  lv_obj_t* firmware_update_notes_label = nullptr;
+  lv_obj_t* firmware_update_download_button = nullptr;
+  lv_obj_t* firmware_update_download_button_label = nullptr;
+  lv_obj_t* firmware_update_spinner = nullptr;
   lv_obj_t* name_edit_page = nullptr;
   lv_obj_t* name_edit_text_area = nullptr;
   lv_obj_t* name_edit_keyboard = nullptr;
@@ -204,6 +217,7 @@ struct SettingsViewState {
   lv_timer_t* wifi_refresh_timer = nullptr;
   lv_timer_t* battery_refresh_timer = nullptr;
   lv_timer_t* factory_reset_countdown_timer = nullptr;
+  lv_timer_t* firmware_update_refresh_timer = nullptr;
   lv_obj_t* battery_overview_fill = nullptr;
   lv_obj_t* battery_overview_time_label = nullptr;
   lv_obj_t* battery_overview_status_icon_label = nullptr;

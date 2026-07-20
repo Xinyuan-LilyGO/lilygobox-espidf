@@ -1,0 +1,13 @@
+{
+  "device_id": "t_display_p4",
+  "repository": "Xinyuan-LilyGO/lilygobox-espidf",
+  "manifest_asset_name": "lilygobox-t-display-p4-ota-manifest.json",
+  "components": {
+    "esp32p4": {
+      "asset_name": "lilygobox-t-display-p4-esp32p4.bin"
+    },
+    "esp32c6": {
+      "asset_name": "lilygobox-t-display-p4-esp32c6.bin"
+    }
+  }
+}

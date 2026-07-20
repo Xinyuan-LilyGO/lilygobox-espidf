@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <cstdlib>
 
+#include "app/firmware_update_manager.h"
 #include "app/storage/display_storage.h"
 #include "app/storage/first_boot_storage.h"
 #include "app/storage/littlefs_storage.h"
@@ -192,6 +193,10 @@ bool Application::Init() {
     return false;
   }
   app::InitStorage();
+  if (!app::InitFirmwareUpdateManager(device_provider_context_.wifi)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Initialize firmware update manager failed\n");
+  }
   lilygo_box::ui::SetLvglPortForRotation(&lvgl_port_);
   app::DisplayPreferences display_preferences = app::GetDisplayPreferences();
   lvgl_port_.Lock();

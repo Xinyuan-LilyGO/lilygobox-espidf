@@ -1086,7 +1086,7 @@ bool CreateMyDeviceSnapshotArea(lv_obj_t* parent, int width,
       FirmwareUpdateButtonClickedEventCallback, LV_EVENT_CLICKED, state);
 
   lv_obj_t* update_text =
-      CreateLabel(update_button, "New version", lv_color_hex(0xFFFFFF),
+      CreateLabel(update_button, "Check for updates", lv_color_hex(0xFFFFFF),
           Font28());
   if (update_text == nullptr) {
     return false;

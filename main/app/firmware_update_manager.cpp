@@ -1,0 +1,1987 @@
+/*
+ * @Description: LilygoBox ESP32-C6 与 ESP32-P4 组合固件 OTA 更新实现
+ * @Author: LILYGO_L
+ * @Date: 2026-07-20 00:00:00
+ * @LastEditTime: 2026-07-20 00:00:00
+ * @License: GPL 3.0
+ */
+#include "app/firmware_update_manager.h"
+
+#include <algorithm>
+#include <cerrno>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <limits>
+#include <memory>
+#include <sys/stat.h>
+
+#include "app/storage/littlefs_storage.h"
+#include "base/logger.h"
+#include "cJSON.h"
+#include "esp_app_desc.h"
+#include "esp_app_format.h"
+#include "esp_crt_bundle.h"
+#include "esp_err.h"
+#include "esp_hosted.h"
+#include "esp_hosted_api_types.h"
+#include "esp_hosted_ota.h"
+#include "esp_http_client.h"
+#include "esp_https_ota.h"
+#include "esp_ota_ops.h"
+#include "esp_partition.h"
+#include "esp_system.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+#include "hal/providers/wifi_provider.h"
+#include "mbedtls/sha256.h"
+
+namespace lilygo_box::app {
+namespace {
+
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
+constexpr char kCurrentDeviceId[] = "t_display_p4";
+constexpr char kManifestUrl[] =
+    "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/releases/"
+    "latest/download/lilygobox-t-display-p4-ota-manifest.json";
+#else
+constexpr char kCurrentDeviceId[] = "";
+constexpr char kManifestUrl[] = "";
+#endif
+constexpr int kSupportedManifestVersion = 1;
+constexpr char kReleaseDownloadPrefix[] =
+    "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/releases/download/";
+constexpr char kMainReleaseAssetName[] =
+    "lilygobox-t-display-p4-esp32p4.bin";
+constexpr char kWirelessReleaseAssetName[] =
+    "lilygobox-t-display-p4-esp32c6.bin";
+constexpr char kOtaDirectory[] = "/littlefs/ota";
+constexpr char kSavedManifestPath[] = "/littlefs/ota/lilygobox-ota.json";
+constexpr char kSavedManifestTempPath[] =
+    "/littlefs/ota/lilygobox-ota.json.tmp";
+constexpr char kWirelessFirmwarePath[] =
+    "/littlefs/ota/lilygobox-esp32c6.bin";
+constexpr char kWirelessFirmwareTempPath[] =
+    "/littlefs/ota/lilygobox-esp32c6.bin.tmp";
+constexpr char kPendingUpdatePath[] = "/littlefs/ota/pending-update";
+constexpr char kWirelessFirmwareProjectName[] = "network_adapter";
+constexpr esp_chip_id_t kExpectedWirelessChipId = ESP_CHIP_ID_ESP32C6;
+constexpr int kHttpTimeoutMs = 15000;
+constexpr int kHttpBufferSize = 4096;
+constexpr size_t kManifestMaximumSize = 8 * 1024;
+constexpr size_t kMaximumFirmwareAssetSize = 64 * 1024 * 1024;
+constexpr size_t kImageSearchAlignment = 0x1000;
+constexpr size_t kWirelessFirmwareChunkSize = 1500;
+constexpr size_t kHashReadChunkSize = 4096;
+constexpr size_t kSha256ByteCount = 32;
+constexpr size_t kSha256TextLength = kSha256ByteCount * 2;
+constexpr uint8_t kMaximumImageSegmentCount = 16;
+constexpr uint32_t kRestartDelayMs = 1200;
+constexpr uint32_t kWirelessReadyPollMs = 250;
+constexpr uint32_t kWirelessReadyTimeoutMs = 15 * 1000;
+constexpr uint32_t kManifestDownloadTimeoutMs = 45 * 1000;
+constexpr uint32_t kFirmwareDownloadTimeoutMs = 10 * 60 * 1000;
+constexpr uint32_t kWorkerTaskStackBytes = 16 * 1024;
+constexpr UBaseType_t kWorkerTaskPriority = 5;
+
+struct FirmwareReleaseManifest {
+  char device_id[32] = {};
+  char release_version[32] = {};
+  char main_version[32] = {};
+  char main_url[384] = {};
+  size_t main_size_bytes = 0;
+  char main_sha256[kSha256TextLength + 1] = {};
+  char wireless_version[32] = {};
+  char wireless_url[384] = {};
+  size_t wireless_size_bytes = 0;
+  char wireless_sha256[kSha256TextLength + 1] = {};
+  char notes[kFirmwareUpdateNoteCapacity][128] = {};
+  size_t note_count = 0;
+};
+
+struct FirmwareImageInfo {
+  size_t offset = 0;
+  size_t size = 0;
+  esp_app_desc_t app_desc = {};
+};
+
+struct ManifestDownloadContext {
+  char* data = nullptr;
+  size_t size = 0;
+  TickType_t started_tick = 0;
+  bool overflow = false;
+  bool timed_out = false;
+};
+
+struct FirmwareDownloadContext {
+  FILE* file = nullptr;
+  size_t downloaded_size = 0;
+  size_t expected_size = 0;
+  TickType_t started_tick = 0;
+  bool write_failed = false;
+  bool overflow = false;
+  bool timed_out = false;
+};
+
+struct FirmwareUpdateManagerState {
+  SemaphoreHandle_t mutex = nullptr;
+  hal::WifiProvider* wifi = nullptr;
+  FirmwareUpdateSnapshot snapshot;
+  FirmwareReleaseManifest manifest;
+  bool initialized = false;
+  bool manifest_valid = false;
+  bool worker_running = false;
+};
+
+FirmwareUpdateManagerState g_manager;
+
+enum class WirelessUpdateResult {
+  kNotRequired,
+  kRestarting,
+  kFailed,
+};
+
+enum class MainUpdateResult {
+  kNotRequired,
+  kRestarting,
+  kFailed,
+};
+
+/**
+ * @brief 安全复制以空字符结尾的短文本
+ * @param destination 目标缓冲区
+ * @param destination_size 目标缓冲区长度
+ * @param source 源文本
+ */
+void CopyText(char* destination, size_t destination_size,
+    const char* source) {
+  if (destination == nullptr || destination_size == 0) {
+    return;
+  }
+  std::snprintf(destination, destination_size, "%s",
+      source == nullptr ? "" : source);
+}
+
+/**
+ * @brief 获取固件更新状态互斥锁
+ * @return 获取成功返回 true，否则返回 false
+ */
+bool LockManager() {
+  return g_manager.mutex != nullptr &&
+         xSemaphoreTake(g_manager.mutex, portMAX_DELAY) == pdTRUE;
+}
+
+/**
+ * @brief 释放固件更新状态互斥锁
+ */
+void UnlockManager() {
+  if (g_manager.mutex != nullptr) {
+    xSemaphoreGive(g_manager.mutex);
+  }
+}
+
+/**
+ * @brief 判断指定阶段是否正在执行网络或安装操作
+ * @param stage 固件更新阶段
+ * @return 正在执行返回 true，否则返回 false
+ */
+bool IsBusyStage(FirmwareUpdateStage stage) {
+  switch (stage) {
+    case FirmwareUpdateStage::kWaitingForNetwork:
+    case FirmwareUpdateStage::kChecking:
+    case FirmwareUpdateStage::kDownloadingWireless:
+    case FirmwareUpdateStage::kInstallingWireless:
+    case FirmwareUpdateStage::kDownloadingMain:
+    case FirmwareUpdateStage::kRestarting:
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * @brief 更新界面可见的固件更新阶段、消息和进度
+ * @param stage 新阶段
+ * @param message 状态消息
+ * @param progress_percent 进度百分比
+ */
+void SetStage(FirmwareUpdateStage stage, const char* message,
+    int progress_percent = 0) {
+  if (!LockManager()) {
+    return;
+  }
+  g_manager.snapshot.stage = stage;
+  g_manager.snapshot.busy = IsBusyStage(stage);
+  g_manager.snapshot.progress_percent =
+      std::clamp(progress_percent, 0, 100);
+  CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+      message);
+  UnlockManager();
+}
+
+/**
+ * @brief 将当前后台任务标记为已经结束
+ */
+void FinishWorker() {
+  if (!LockManager()) {
+    return;
+  }
+  g_manager.worker_running = false;
+  g_manager.snapshot.busy = IsBusyStage(g_manager.snapshot.stage);
+  UnlockManager();
+}
+
+/**
+ * @brief 记录固件更新失败原因并结束忙碌状态
+ * @param message 面向界面的失败原因
+ */
+void SetFailure(const char* message) {
+  SetStage(FirmwareUpdateStage::kFailed, message);
+  LogMessage(LogLevel::kError, __FILE__, __LINE__,
+      "Firmware update failed: %s\n", message == nullptr ? "unknown" : message);
+}
+
+/**
+ * @brief 读取当前 ESP32-P4 应用版本
+ * @param version 版本字符串输出缓冲区
+ * @param version_size 输出缓冲区长度
+ * @return 读取成功返回 true，否则返回 false
+ */
+bool ReadCurrentMainVersion(char* version, size_t version_size) {
+  const esp_app_desc_t* description = esp_app_get_description();
+  if (description == nullptr || description->version[0] == '\0') {
+    return false;
+  }
+  CopyText(version, version_size, description->version);
+  return true;
+}
+
+/**
+ * @brief 读取当前 ESP32-C6 ESP-Hosted 固件版本
+ * @param version 版本字符串输出缓冲区
+ * @param version_size 输出缓冲区长度
+ * @return 读取成功返回 true，否则返回 false
+ */
+bool ReadCurrentWirelessVersion(char* version, size_t version_size) {
+  esp_hosted_coprocessor_fwver_t hosted_version = {};
+  const esp_err_t result =
+      esp_hosted_get_coprocessor_fwversion(&hosted_version);
+  if (result != ESP_OK) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Read ESP32-C6 firmware version failed: %s\n",
+        esp_err_to_name(result));
+    return false;
+  }
+  std::snprintf(version, version_size, "%lu.%lu.%lu",
+      static_cast<unsigned long>(hosted_version.major1),
+      static_cast<unsigned long>(hosted_version.minor1),
+      static_cast<unsigned long>(hosted_version.patch1));
+  return true;
+}
+
+/**
+ * @brief 判断当前 WLAN 是否已经获取 IP 地址
+ * @return 网络可用于 HTTPS 下载返回 true，否则返回 false
+ */
+bool IsNetworkReady() {
+  hal::WifiProvider* wifi = nullptr;
+  if (LockManager()) {
+    wifi = g_manager.wifi;
+    UnlockManager();
+  }
+  hal::WifiStatus status;
+  return wifi != nullptr && wifi->ReadWifiStatus(&status) && status.got_ip;
+}
+
+/**
+ * @brief 判断当前编译目标是否配置了独立的固件更新设备标识
+ * @return 已配置受支持设备返回 true，否则返回 false
+ */
+bool IsFirmwareUpdateDeviceSupported() {
+  return kCurrentDeviceId[0] != '\0' && kManifestUrl[0] != '\0';
+}
+
+/**
+ * @brief 计算从指定 FreeRTOS 时刻开始经过的毫秒数
+ * @param started_tick 起始系统节拍
+ * @return 已经过的毫秒数
+ */
+uint32_t ElapsedMilliseconds(TickType_t started_tick) {
+  const TickType_t elapsed_ticks = xTaskGetTickCount() - started_tick;
+  const uint64_t elapsed_ms =
+      static_cast<uint64_t>(elapsed_ticks) * portTICK_PERIOD_MS;
+  constexpr uint32_t maximum = std::numeric_limits<uint32_t>::max();
+  return elapsed_ms > maximum ? maximum : static_cast<uint32_t>(elapsed_ms);
+}
+
+/**
+ * @brief 在限定时间内等待 ESP32-C6 控制通道可读取固件版本
+ * @param version 版本字符串输出缓冲区
+ * @param version_size 输出缓冲区长度
+ * @param timeout_ms 最长等待时间，单位为毫秒
+ * @return 成功读取版本返回 true，超时返回 false
+ */
+bool WaitForCurrentWirelessVersion(
+    char* version, size_t version_size, uint32_t timeout_ms) {
+  hal::WifiProvider* wifi = nullptr;
+  if (LockManager()) {
+    wifi = g_manager.wifi;
+    UnlockManager();
+  }
+  // 这里只启动 ESP-Hosted/WLAN 驱动，不要求设备已经连接到无线路由器。
+  if (wifi == nullptr || !wifi->StartWifi()) {
+    return false;
+  }
+  const TickType_t started_tick = xTaskGetTickCount();
+  do {
+    esp_hosted_coprocessor_fwver_t hosted_version = {};
+    if (esp_hosted_get_coprocessor_fwversion(&hosted_version) == ESP_OK) {
+      std::snprintf(version, version_size, "%lu.%lu.%lu",
+          static_cast<unsigned long>(hosted_version.major1),
+          static_cast<unsigned long>(hosted_version.minor1),
+          static_cast<unsigned long>(hosted_version.patch1));
+      return true;
+    }
+    vTaskDelay(pdMS_TO_TICKS(kWirelessReadyPollMs));
+  } while (ElapsedMilliseconds(started_tick) < timeout_ms);
+  LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+      "Wait for ESP32-C6 firmware version timed out\n");
+  return false;
+}
+
+/**
+ * @brief 确认 OTA 启动的新 P4 应用有效并取消回滚
+ */
+void ConfirmRunningMainFirmware() {
+#if defined(CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE)
+  const esp_partition_t* running_partition = esp_ota_get_running_partition();
+  esp_ota_img_states_t ota_state = ESP_OTA_IMG_UNDEFINED;
+  const esp_err_t state_result =
+      esp_ota_get_state_partition(running_partition, &ota_state);
+  if (state_result != ESP_OK || ota_state != ESP_OTA_IMG_PENDING_VERIFY) {
+    return;
+  }
+  const esp_err_t result = esp_ota_mark_app_valid_cancel_rollback();
+  if (result != ESP_OK) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Mark running P4 firmware valid failed: %s\n",
+        esp_err_to_name(result));
+  }
+#endif
+}
+
+/**
+ * @brief 确保 LittleFS 中的 OTA 专用目录存在
+ * @return 目录可用返回 true，否则返回 false
+ */
+bool EnsureOtaDirectory() {
+  if (!IsLittleFsStorageMounted()) {
+    return false;
+  }
+  if (mkdir(kOtaDirectory, 0775) == 0 || errno == EEXIST) {
+    return true;
+  }
+  LogMessage(LogLevel::kError, __FILE__, __LINE__,
+      "Create OTA directory failed: errno=%d\n", errno);
+  return false;
+}
+
+/**
+ * @brief 判断清单提供的下载地址是否为 HTTPS 地址
+ * @param url 待检查地址
+ * @return 地址有效返回 true，否则返回 false
+ */
+bool IsHttpsUrl(const char* url) {
+  return url != nullptr && std::strncmp(url, "https://", 8) == 0;
+}
+
+/**
+ * @brief 解析严格的三段式固件版本号
+ * @param text 版本字符串
+ * @param parts 三个版本数字的输出缓冲区
+ * @return 版本格式为“主版本.次版本.修订版本”返回 true，否则返回 false
+ */
+bool ParseSemanticVersion(const char* text, uint32_t parts[3]) {
+  if (text == nullptr || text[0] == '\0') {
+    return false;
+  }
+  uint32_t parsed_parts[3] = {};
+  const char* cursor = text;
+  for (size_t index = 0; index < 3; ++index) {
+    if (*cursor < '0' || *cursor > '9') {
+      return false;
+    }
+    uint64_t value = 0;
+    do {
+      value = value * 10 + static_cast<uint64_t>(*cursor - '0');
+      if (value > std::numeric_limits<uint32_t>::max()) {
+        return false;
+      }
+      ++cursor;
+    } while (*cursor >= '0' && *cursor <= '9');
+    parsed_parts[index] = static_cast<uint32_t>(value);
+    if (index < 2) {
+      if (*cursor != '.') {
+        return false;
+      }
+      ++cursor;
+    }
+  }
+  if (*cursor != '\0') {
+    return false;
+  }
+  if (parts != nullptr) {
+    for (size_t index = 0; index < 3; ++index) {
+      parts[index] = parsed_parts[index];
+    }
+  }
+  return true;
+}
+
+/**
+ * @brief 比较两个严格的三段式固件版本号
+ * @param left 左侧版本
+ * @param right 右侧版本
+ * @param valid 比较结果是否有效的输出地址
+ * @return 左侧较新返回 1，相同返回 0，较旧返回 -1
+ */
+int CompareSemanticVersions(
+    const char* left, const char* right, bool* valid = nullptr) {
+  uint32_t left_parts[3] = {};
+  uint32_t right_parts[3] = {};
+  const bool parsed = ParseSemanticVersion(left, left_parts) &&
+                      ParseSemanticVersion(right, right_parts);
+  if (valid != nullptr) {
+    *valid = parsed;
+  }
+  if (!parsed) {
+    return 0;
+  }
+  for (size_t index = 0; index < 3; ++index) {
+    if (left_parts[index] != right_parts[index]) {
+      return left_parts[index] > right_parts[index] ? 1 : -1;
+    }
+  }
+  return 0;
+}
+
+/**
+ * @brief 判断清单目标版本是否高于设备当前版本
+ * @param current_version 当前版本
+ * @param target_version 清单目标版本
+ * @param valid 比较结果是否有效的输出地址
+ * @return 目标版本更高返回 true，否则返回 false
+ */
+bool IsVersionUpgrade(const char* current_version, const char* target_version,
+    bool* valid = nullptr) {
+  bool comparison_valid = false;
+  const int comparison = CompareSemanticVersions(
+      target_version, current_version, &comparison_valid);
+  if (valid != nullptr) {
+    *valid = comparison_valid;
+  }
+  return comparison_valid && comparison > 0;
+}
+
+/**
+ * @brief 判断文本是否为完整的 SHA-256 十六进制摘要
+ * @param text 待检查文本
+ * @return 正好包含 64 个十六进制字符返回 true，否则返回 false
+ */
+bool IsSha256Text(const char* text) {
+  if (text == nullptr || std::strlen(text) != kSha256TextLength) {
+    return false;
+  }
+  for (size_t index = 0; index < kSha256TextLength; ++index) {
+    const char value = text[index];
+    if (!((value >= '0' && value <= '9') ||
+            (value >= 'a' && value <= 'f') ||
+            (value >= 'A' && value <= 'F'))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * @brief 将十六进制字符转换为数值
+ * @param value 十六进制字符
+ * @return 对应的 0 至 15 数值，无效字符返回 255
+ */
+uint8_t HexadecimalValue(char value) {
+  if (value >= '0' && value <= '9') {
+    return static_cast<uint8_t>(value - '0');
+  }
+  if (value >= 'a' && value <= 'f') {
+    return static_cast<uint8_t>(value - 'a' + 10);
+  }
+  if (value >= 'A' && value <= 'F') {
+    return static_cast<uint8_t>(value - 'A' + 10);
+  }
+  return 0xFF;
+}
+
+/**
+ * @brief 比较二进制摘要和清单中的 SHA-256 文本
+ * @param digest 32 字节二进制摘要
+ * @param expected_sha256 清单摘要文本
+ * @return 摘要完全一致返回 true，否则返回 false
+ */
+bool MatchesSha256(
+    const uint8_t digest[kSha256ByteCount], const char* expected_sha256) {
+  if (digest == nullptr || !IsSha256Text(expected_sha256)) {
+    return false;
+  }
+  for (size_t index = 0; index < kSha256ByteCount; ++index) {
+    const uint8_t high = HexadecimalValue(expected_sha256[index * 2]);
+    const uint8_t low = HexadecimalValue(expected_sha256[index * 2 + 1]);
+    if (high == 0xFF || low == 0xFF ||
+        digest[index] != static_cast<uint8_t>((high << 4) | low)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * @brief 检查组件地址是否属于指定仓库的一个正式 Release
+ * @param url 清单组件地址
+ * @param asset_name 固定资源文件名
+ * @return 仓库、三段式 tag 和文件名均有效返回 true，否则返回 false
+ */
+bool IsExpectedReleaseAssetUrl(const char* url, const char* asset_name) {
+  if (!IsHttpsUrl(url) || asset_name == nullptr ||
+      std::strncmp(url, kReleaseDownloadPrefix,
+          sizeof(kReleaseDownloadPrefix) - 1) != 0) {
+    return false;
+  }
+  const char* tag = url + sizeof(kReleaseDownloadPrefix) - 1;
+  const char* separator = std::strchr(tag, '/');
+  if (separator == nullptr || separator == tag || separator[1] == '\0' ||
+      std::strchr(separator + 1, '/') != nullptr ||
+      std::strcmp(separator + 1, asset_name) != 0) {
+    return false;
+  }
+  const size_t tag_length = static_cast<size_t>(separator - tag);
+  char release_tag[32] = {};
+  if (tag_length >= sizeof(release_tag)) {
+    return false;
+  }
+  std::memcpy(release_tag, tag, tag_length);
+  release_tag[tag_length] = '\0';
+  return release_tag[0] == 'v' &&
+         ParseSemanticVersion(release_tag + 1, nullptr);
+}
+
+/**
+ * @brief 从 JSON 对象读取必需的字符串字段
+ * @param object JSON 对象
+ * @param name 字段名
+ * @param destination 目标缓冲区
+ * @param destination_size 目标缓冲区长度
+ * @return 字段存在且非空返回 true，否则返回 false
+ */
+bool ReadRequiredJsonString(const cJSON* object, const char* name,
+    char* destination, size_t destination_size) {
+  const cJSON* item = cJSON_GetObjectItemCaseSensitive(object, name);
+  if (!cJSON_IsString(item) || item->valuestring == nullptr ||
+      item->valuestring[0] == '\0') {
+    return false;
+  }
+  CopyText(destination, destination_size, item->valuestring);
+  return std::strlen(item->valuestring) < destination_size;
+}
+
+/**
+ * @brief 从 JSON 对象读取受限的正整数字节数
+ * @param object JSON 对象
+ * @param name 字段名
+ * @param value 数值输出地址
+ * @return 字段是允许范围内的正整数返回 true，否则返回 false
+ */
+bool ReadRequiredJsonSize(
+    const cJSON* object, const char* name, size_t* value) {
+  const cJSON* item = cJSON_GetObjectItemCaseSensitive(object, name);
+  if (!cJSON_IsNumber(item) || value == nullptr || item->valuedouble <= 0 ||
+      item->valuedouble > static_cast<double>(kMaximumFirmwareAssetSize)) {
+    return false;
+  }
+  const size_t parsed = static_cast<size_t>(item->valuedouble);
+  if (static_cast<double>(parsed) != item->valuedouble) {
+    return false;
+  }
+  *value = parsed;
+  return true;
+}
+
+/**
+ * @brief 解析 GitHub Release 中的组合固件清单
+ * @param json_text 清单 JSON 文本
+ * @param manifest 清单解析结果
+ * @return 清单结构和字段有效返回 true，否则返回 false
+ */
+bool ParseManifest(
+    const char* json_text, FirmwareReleaseManifest* manifest) {
+  if (json_text == nullptr || manifest == nullptr) {
+    return false;
+  }
+  std::unique_ptr<cJSON, decltype(&cJSON_Delete)> root(
+      cJSON_Parse(json_text), &cJSON_Delete);
+  if (root == nullptr || !cJSON_IsObject(root.get())) {
+    return false;
+  }
+  const cJSON* manifest_version =
+      cJSON_GetObjectItemCaseSensitive(root.get(), "manifest_version");
+  const cJSON* main =
+      cJSON_GetObjectItemCaseSensitive(root.get(), "esp32p4");
+  const cJSON* wireless =
+      cJSON_GetObjectItemCaseSensitive(root.get(), "esp32c6");
+  // 当前固定清单文件名永久属于版本 1；附加字段应被旧程序安全忽略。
+  // 如果新字段会改变安装语义，必须启用新的清单文件名。
+  if (!cJSON_IsNumber(manifest_version) ||
+      manifest_version->valueint != kSupportedManifestVersion ||
+      manifest_version->valuedouble != kSupportedManifestVersion ||
+      !cJSON_IsObject(main) || !cJSON_IsObject(wireless)) {
+    return false;
+  }
+
+  FirmwareReleaseManifest parsed;
+  if (!ReadRequiredJsonString(root.get(), "device_id", parsed.device_id,
+          sizeof(parsed.device_id)) ||
+      !ReadRequiredJsonString(root.get(), "release",
+          parsed.release_version, sizeof(parsed.release_version)) ||
+      !ReadRequiredJsonString(main, "version", parsed.main_version,
+          sizeof(parsed.main_version)) ||
+      !ReadRequiredJsonString(
+          main, "url", parsed.main_url, sizeof(parsed.main_url)) ||
+      !ReadRequiredJsonSize(
+          main, "size_bytes", &parsed.main_size_bytes) ||
+      !ReadRequiredJsonString(main, "sha256", parsed.main_sha256,
+          sizeof(parsed.main_sha256)) ||
+      !ReadRequiredJsonString(wireless, "version",
+          parsed.wireless_version, sizeof(parsed.wireless_version)) ||
+      !ReadRequiredJsonString(wireless, "url", parsed.wireless_url,
+          sizeof(parsed.wireless_url)) ||
+      !ReadRequiredJsonSize(
+          wireless, "size_bytes", &parsed.wireless_size_bytes) ||
+      !ReadRequiredJsonString(wireless, "sha256", parsed.wireless_sha256,
+          sizeof(parsed.wireless_sha256)) ||
+      parsed.release_version[0] != 'v' ||
+      !ParseSemanticVersion(parsed.release_version + 1, nullptr) ||
+      !ParseSemanticVersion(parsed.main_version, nullptr) ||
+      !ParseSemanticVersion(parsed.wireless_version, nullptr) ||
+      !IsSha256Text(parsed.main_sha256) ||
+      !IsSha256Text(parsed.wireless_sha256) ||
+      !IsExpectedReleaseAssetUrl(
+          parsed.main_url, kMainReleaseAssetName) ||
+      !IsExpectedReleaseAssetUrl(
+          parsed.wireless_url, kWirelessReleaseAssetName)) {
+    return false;
+  }
+
+  const cJSON* notes =
+      cJSON_GetObjectItemCaseSensitive(root.get(), "whats_new");
+  if (cJSON_IsArray(notes)) {
+    const cJSON* note = nullptr;
+    cJSON_ArrayForEach(note, notes) {
+      if (parsed.note_count >= kFirmwareUpdateNoteCapacity) {
+        break;
+      }
+      if (!cJSON_IsString(note) || note->valuestring == nullptr ||
+          note->valuestring[0] == '\0' ||
+          std::strlen(note->valuestring) >= sizeof(parsed.notes[0])) {
+        return false;
+      }
+      CopyText(parsed.notes[parsed.note_count], sizeof(parsed.notes[0]),
+          note->valuestring);
+      ++parsed.note_count;
+    }
+  }
+  *manifest = parsed;
+  return true;
+}
+
+/**
+ * @brief 将有效清单原子保存到 OTA 专用目录
+ * @param json_text 清单 JSON 文本
+ * @return 保存成功返回 true，否则返回 false
+ */
+bool SaveManifest(const char* json_text) {
+  if (!EnsureOtaDirectory() || json_text == nullptr) {
+    return false;
+  }
+  std::remove(kSavedManifestTempPath);
+  std::unique_ptr<FILE, decltype(&std::fclose)> file(
+      std::fopen(kSavedManifestTempPath, "wb"), &std::fclose);
+  if (file == nullptr) {
+    return false;
+  }
+  const size_t size = std::strlen(json_text);
+  const bool written = std::fwrite(json_text, 1, size, file.get()) == size &&
+                       std::fflush(file.get()) == 0;
+  file.reset();
+  if (!written) {
+    std::remove(kSavedManifestTempPath);
+    return false;
+  }
+  std::remove(kSavedManifestPath);
+  if (std::rename(kSavedManifestTempPath, kSavedManifestPath) != 0) {
+    std::remove(kSavedManifestTempPath);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * @brief 从 LittleFS 读取上次更新保存的清单
+ * @param manifest 清单解析结果
+ * @return 读取并解析成功返回 true，否则返回 false
+ */
+bool LoadSavedManifest(FirmwareReleaseManifest* manifest) {
+  std::unique_ptr<FILE, decltype(&std::fclose)> file(
+      std::fopen(kSavedManifestPath, "rb"), &std::fclose);
+  if (file == nullptr || std::fseek(file.get(), 0, SEEK_END) != 0) {
+    return false;
+  }
+  const long file_size = std::ftell(file.get());
+  if (file_size <= 0 ||
+      static_cast<size_t>(file_size) > kManifestMaximumSize) {
+    return false;
+  }
+  std::rewind(file.get());
+  auto text = std::make_unique<char[]>(static_cast<size_t>(file_size) + 1);
+  if (text == nullptr ||
+      std::fread(text.get(), 1, static_cast<size_t>(file_size), file.get()) !=
+          static_cast<size_t>(file_size)) {
+    return false;
+  }
+  text[static_cast<size_t>(file_size)] = '\0';
+  return ParseManifest(text.get(), manifest);
+}
+
+/**
+ * @brief 接收固件清单 HTTP 响应内容
+ * @param event HTTP 客户端事件
+ * @return 接收成功返回 ESP_OK，否则返回 ESP_FAIL
+ */
+esp_err_t ManifestDownloadEventHandler(esp_http_client_event_t* event) {
+  if (event == nullptr || event->user_data == nullptr) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  auto* context = static_cast<ManifestDownloadContext*>(event->user_data);
+  if (ElapsedMilliseconds(context->started_tick) >=
+      kManifestDownloadTimeoutMs) {
+    context->timed_out = true;
+    return ESP_ERR_TIMEOUT;
+  }
+  if (event->event_id != HTTP_EVENT_ON_DATA || event->data_len <= 0) {
+    return ESP_OK;
+  }
+  if (esp_http_client_get_status_code(event->client) != 200) {
+    return ESP_OK;
+  }
+  const size_t incoming_size = static_cast<size_t>(event->data_len);
+  if (context->data == nullptr ||
+      incoming_size > kManifestMaximumSize - context->size) {
+    context->overflow = true;
+    return ESP_FAIL;
+  }
+  std::memcpy(context->data + context->size, event->data, incoming_size);
+  context->size += incoming_size;
+  context->data[context->size] = '\0';
+  return ESP_OK;
+}
+
+/**
+ * @brief 从 GitHub Releases 下载并解析最新固件清单
+ * @param manifest 清单解析结果
+ * @return 下载、解析和持久化均成功返回 true，否则返回 false
+ */
+bool DownloadManifest(FirmwareReleaseManifest* manifest) {
+  auto buffer = std::make_unique<char[]>(kManifestMaximumSize + 1);
+  if (buffer == nullptr) {
+    return false;
+  }
+  buffer[0] = '\0';
+  ManifestDownloadContext context;
+  context.data = buffer.get();
+  context.started_tick = xTaskGetTickCount();
+
+  esp_http_client_config_t config = {};
+  config.url = kManifestUrl;
+  config.crt_bundle_attach = esp_crt_bundle_attach;
+  config.timeout_ms = kHttpTimeoutMs;
+  config.buffer_size = kHttpBufferSize;
+  config.buffer_size_tx = kHttpBufferSize;
+  config.event_handler = ManifestDownloadEventHandler;
+  config.user_data = &context;
+  config.keep_alive_enable = true;
+  config.max_redirection_count = 5;
+  esp_http_client_handle_t client = esp_http_client_init(&config);
+  if (client == nullptr) {
+    return false;
+  }
+  const esp_err_t result = esp_http_client_perform(client);
+  const int status_code = esp_http_client_get_status_code(client);
+  esp_http_client_cleanup(client);
+  if (result != ESP_OK || status_code != 200 || context.overflow ||
+      context.size == 0) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Download firmware manifest failed: result=%s HTTP=%d size=%u\n",
+        esp_err_to_name(result), status_code,
+        static_cast<unsigned>(context.size));
+    if (!IsNetworkReady()) {
+      SetFailure("Wi-Fi lost while checking");
+    } else if (context.timed_out ||
+               ElapsedMilliseconds(context.started_tick) >=
+                   kManifestDownloadTimeoutMs) {
+      SetFailure("Update check timed out");
+    } else {
+      SetFailure("Update information unavailable");
+    }
+    return false;
+  }
+  if (!ParseManifest(buffer.get(), manifest)) {
+    SetFailure("Update information invalid");
+    return false;
+  }
+  if (std::strcmp(manifest->device_id, kCurrentDeviceId) != 0) {
+    SetFailure("Update package is for another device");
+    return false;
+  }
+  if (!SaveManifest(buffer.get())) {
+    SetFailure("Cannot save update information");
+    return false;
+  }
+  return true;
+}
+
+/**
+ * @brief 将固件字节数格式化为界面使用的容量文本
+ * @param size_bytes 固件字节数
+ * @param destination 输出缓冲区
+ * @param destination_size 输出缓冲区长度
+ */
+void FormatFirmwareSize(size_t size_bytes, char* destination,
+    size_t destination_size) {
+  if (destination == nullptr || destination_size == 0) {
+    return;
+  }
+  constexpr double bytes_per_kilobyte = 1024.0;
+  constexpr double bytes_per_megabyte = 1024.0 * 1024.0;
+  if (size_bytes >= static_cast<size_t>(bytes_per_megabyte)) {
+    std::snprintf(destination, destination_size, "%.1f MB",
+        static_cast<double>(size_bytes) / bytes_per_megabyte);
+  } else {
+    std::snprintf(destination, destination_size, "%.0f KB",
+        static_cast<double>(size_bytes) / bytes_per_kilobyte);
+  }
+}
+
+/**
+ * @brief 使用清单和当前版本刷新界面状态
+ * @param manifest 已验证的固件清单
+ * @param main_current 当前 P4 版本
+ * @param wireless_current 当前 C6 版本
+ * @return 当前版本可比较并成功刷新状态返回 true，否则返回 false
+ */
+bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
+    const char* main_current, const char* wireless_current) {
+  bool main_version_valid = false;
+  bool wireless_version_valid = false;
+  const bool main_update_available = IsVersionUpgrade(
+      main_current, manifest.main_version, &main_version_valid);
+  const bool wireless_update_available = IsVersionUpgrade(
+      wireless_current, manifest.wireless_version, &wireless_version_valid);
+  if (!main_version_valid || !wireless_version_valid) {
+    SetFailure("Installed firmware version invalid");
+    return false;
+  }
+  const bool update_available =
+      main_update_available || wireless_update_available;
+  // 固件卡片显示完整目标包大小，实际下载组件仍由版本比较结果决定。
+  const size_t package_size_bytes =
+      manifest.main_size_bytes + manifest.wireless_size_bytes;
+  if (!LockManager()) {
+    return false;
+  }
+  g_manager.manifest = manifest;
+  g_manager.manifest_valid = true;
+  g_manager.snapshot.manifest_available = true;
+  g_manager.snapshot.update_available = update_available;
+  g_manager.snapshot.progress_percent = 0;
+  CopyText(g_manager.snapshot.release_version,
+      sizeof(g_manager.snapshot.release_version), manifest.release_version);
+  FormatFirmwareSize(package_size_bytes, g_manager.snapshot.package_size,
+      sizeof(g_manager.snapshot.package_size));
+  CopyText(g_manager.snapshot.main_current_version,
+      sizeof(g_manager.snapshot.main_current_version), main_current);
+  CopyText(g_manager.snapshot.main_target_version,
+      sizeof(g_manager.snapshot.main_target_version), manifest.main_version);
+  CopyText(g_manager.snapshot.wireless_current_version,
+      sizeof(g_manager.snapshot.wireless_current_version), wireless_current);
+  CopyText(g_manager.snapshot.wireless_target_version,
+      sizeof(g_manager.snapshot.wireless_target_version),
+      manifest.wireless_version);
+  g_manager.snapshot.note_count = manifest.note_count;
+  for (size_t index = 0; index < kFirmwareUpdateNoteCapacity; ++index) {
+    CopyText(g_manager.snapshot.notes[index],
+        sizeof(g_manager.snapshot.notes[index]), manifest.notes[index]);
+  }
+  g_manager.snapshot.stage = update_available
+      ? FirmwareUpdateStage::kUpdateAvailable
+      : FirmwareUpdateStage::kUpToDate;
+  g_manager.snapshot.busy = false;
+  CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+      update_available ? "New version available" : "Firmware is up to date");
+  UnlockManager();
+  return true;
+}
+
+/**
+ * @brief 将重启续跑清单恢复到界面快照
+ * @param manifest 已验证的本地固件清单
+ */
+void ApplyPendingManifestSnapshot(
+    const FirmwareReleaseManifest& manifest) {
+  char main_current[32] = {};
+  ReadCurrentMainVersion(main_current, sizeof(main_current));
+  if (!LockManager()) {
+    return;
+  }
+  g_manager.manifest = manifest;
+  g_manager.manifest_valid = true;
+  g_manager.snapshot.manifest_available = true;
+  g_manager.snapshot.update_available = true;
+  CopyText(g_manager.snapshot.release_version,
+      sizeof(g_manager.snapshot.release_version), manifest.release_version);
+  const size_t maximum_pending_size =
+      manifest.main_size_bytes + manifest.wireless_size_bytes;
+  FormatFirmwareSize(maximum_pending_size, g_manager.snapshot.package_size,
+      sizeof(g_manager.snapshot.package_size));
+  CopyText(g_manager.snapshot.main_current_version,
+      sizeof(g_manager.snapshot.main_current_version), main_current);
+  CopyText(g_manager.snapshot.main_target_version,
+      sizeof(g_manager.snapshot.main_target_version), manifest.main_version);
+  CopyText(g_manager.snapshot.wireless_target_version,
+      sizeof(g_manager.snapshot.wireless_target_version),
+      manifest.wireless_version);
+  g_manager.snapshot.note_count = manifest.note_count;
+  for (size_t index = 0; index < kFirmwareUpdateNoteCapacity; ++index) {
+    CopyText(g_manager.snapshot.notes[index],
+        sizeof(g_manager.snapshot.notes[index]), manifest.notes[index]);
+  }
+  UnlockManager();
+}
+
+/**
+ * @brief 从固件文件指定偏移读取数据
+ * @param file 已打开的固件文件
+ * @param file_size 文件总长度
+ * @param offset 读取偏移
+ * @param destination 目标缓冲区
+ * @param size 读取长度
+ * @return 读取成功返回 true，否则返回 false
+ */
+bool ReadFirmwareFile(FILE* file, size_t file_size, size_t offset,
+    void* destination, size_t size) {
+  if (file == nullptr || destination == nullptr || offset > file_size ||
+      size > file_size - offset ||
+      std::fseek(file, static_cast<long>(offset), SEEK_SET) != 0) {
+    return false;
+  }
+  return std::fread(destination, 1, size, file) == size;
+}
+
+/**
+ * @brief 获取固件文件长度并恢复到文件开头
+ * @param file 已打开的固件文件
+ * @param file_size 文件长度输出地址
+ * @return 文件非空且读取成功返回 true，否则返回 false
+ */
+bool GetFirmwareFileSize(FILE* file, size_t* file_size) {
+  if (file == nullptr || file_size == nullptr ||
+      std::fseek(file, 0, SEEK_END) != 0) {
+    return false;
+  }
+  const long end_offset = std::ftell(file);
+  if (end_offset <= 0) {
+    return false;
+  }
+  std::rewind(file);
+  *file_size = static_cast<size_t>(end_offset);
+  return true;
+}
+
+/**
+ * @brief 校验已打开文件的精确长度和 SHA-256
+ * @param file 已打开的文件
+ * @param file_size 实际文件长度
+ * @param expected_size 清单要求的文件长度
+ * @param expected_sha256 清单要求的 SHA-256
+ * @return 长度和摘要均一致返回 true，否则返回 false
+ */
+bool VerifyFileIntegrity(FILE* file, size_t file_size, size_t expected_size,
+    const char* expected_sha256) {
+  if (file == nullptr || file_size != expected_size ||
+      !IsSha256Text(expected_sha256) || std::fseek(file, 0, SEEK_SET) != 0) {
+    return false;
+  }
+  auto buffer = std::make_unique<uint8_t[]>(kHashReadChunkSize);
+  if (buffer == nullptr) {
+    return false;
+  }
+  mbedtls_sha256_context sha256_context;
+  mbedtls_sha256_init(&sha256_context);
+  bool success = mbedtls_sha256_starts(&sha256_context, 0) == 0;
+  size_t hashed_size = 0;
+  while (success && hashed_size < file_size) {
+    const size_t chunk_size =
+        std::min(kHashReadChunkSize, file_size - hashed_size);
+    success = std::fread(buffer.get(), 1, chunk_size, file) == chunk_size &&
+              mbedtls_sha256_update(
+                  &sha256_context, buffer.get(), chunk_size) == 0;
+    hashed_size += success ? chunk_size : 0;
+  }
+  uint8_t digest[kSha256ByteCount] = {};
+  success = success &&
+            mbedtls_sha256_finish(&sha256_context, digest) == 0 &&
+            MatchesSha256(digest, expected_sha256);
+  mbedtls_sha256_free(&sha256_context);
+  std::rewind(file);
+  return success;
+}
+
+/**
+ * @brief 校验 P4 OTA 分区中已写入镜像的精确长度范围和 SHA-256
+ * @param partition P4 目标 OTA 分区
+ * @param image_size 清单要求的镜像长度
+ * @param expected_sha256 清单要求的 SHA-256
+ * @return 指定镜像范围摘要一致返回 true，否则返回 false
+ */
+bool VerifyPartitionIntegrity(const esp_partition_t* partition,
+    size_t image_size, const char* expected_sha256) {
+  if (partition == nullptr || image_size == 0 ||
+      image_size > partition->size || !IsSha256Text(expected_sha256)) {
+    return false;
+  }
+  auto buffer = std::make_unique<uint8_t[]>(kHashReadChunkSize);
+  if (buffer == nullptr) {
+    return false;
+  }
+  mbedtls_sha256_context sha256_context;
+  mbedtls_sha256_init(&sha256_context);
+  bool success = mbedtls_sha256_starts(&sha256_context, 0) == 0;
+  size_t hashed_size = 0;
+  while (success && hashed_size < image_size) {
+    const size_t chunk_size =
+        std::min(kHashReadChunkSize, image_size - hashed_size);
+    success = esp_partition_read(
+                  partition, hashed_size, buffer.get(), chunk_size) == ESP_OK &&
+              mbedtls_sha256_update(
+                  &sha256_context, buffer.get(), chunk_size) == 0;
+    hashed_size += success ? chunk_size : 0;
+  }
+  uint8_t digest[kSha256ByteCount] = {};
+  success = success &&
+            mbedtls_sha256_finish(&sha256_context, digest) == 0 &&
+            MatchesSha256(digest, expected_sha256);
+  mbedtls_sha256_free(&sha256_context);
+  return success;
+}
+
+/**
+ * @brief 根据 ESP 镜像头计算应用镜像完整长度
+ * @param file 已打开的固件文件
+ * @param file_size 文件总长度
+ * @param image_offset 应用镜像起始偏移
+ * @param image_header 应用镜像头
+ * @param image_size 应用镜像长度输出地址
+ * @return 镜像结构有效返回 true，否则返回 false
+ */
+bool CalculateImageSize(FILE* file, size_t file_size, size_t image_offset,
+    const esp_image_header_t& image_header, size_t* image_size) {
+  if (image_size == nullptr || image_header.segment_count == 0 ||
+      image_header.segment_count > kMaximumImageSegmentCount) {
+    return false;
+  }
+  size_t cursor = image_offset + sizeof(esp_image_header_t);
+  size_t total_size = sizeof(esp_image_header_t);
+  for (uint8_t index = 0; index < image_header.segment_count; ++index) {
+    esp_image_segment_header_t segment_header = {};
+    if (!ReadFirmwareFile(file, file_size, cursor, &segment_header,
+            sizeof(segment_header))) {
+      return false;
+    }
+    cursor += sizeof(segment_header);
+    total_size += sizeof(segment_header);
+    if (cursor > file_size || segment_header.data_len > file_size - cursor) {
+      return false;
+    }
+    cursor += segment_header.data_len;
+    total_size += segment_header.data_len;
+  }
+  total_size += 16 - total_size % 16;
+  if (image_header.hash_appended == 1) {
+    total_size += 32;
+  }
+  if (image_offset > file_size || total_size > file_size - image_offset) {
+    return false;
+  }
+  *image_size = total_size;
+  return true;
+}
+
+/**
+ * @brief 在独立或合并固件中查找 ESP32-C6 network_adapter 镜像
+ * @param file 已打开的固件文件
+ * @param file_size 文件总长度
+ * @param image_info 镜像信息输出地址
+ * @return 找到匹配镜像返回 true，否则返回 false
+ */
+bool FindWirelessFirmwareImage(
+    FILE* file, size_t file_size, FirmwareImageInfo* image_info) {
+  if (file == nullptr || image_info == nullptr) {
+    return false;
+  }
+  const size_t minimum_size = sizeof(esp_image_header_t) +
+      sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t);
+  for (size_t offset = 0; offset + minimum_size <= file_size;
+       offset += kImageSearchAlignment) {
+    esp_image_header_t header = {};
+    if (!ReadFirmwareFile(file, file_size, offset, &header, sizeof(header)) ||
+        header.magic != ESP_IMAGE_HEADER_MAGIC ||
+        header.chip_id != kExpectedWirelessChipId ||
+        header.segment_count == 0 ||
+        header.segment_count > kMaximumImageSegmentCount) {
+      continue;
+    }
+    esp_app_desc_t description = {};
+    const size_t description_offset = offset + sizeof(esp_image_header_t) +
+                                      sizeof(esp_image_segment_header_t);
+    if (!ReadFirmwareFile(file, file_size, description_offset, &description,
+            sizeof(description)) ||
+        description.magic_word != ESP_APP_DESC_MAGIC_WORD ||
+        std::strncmp(description.project_name, kWirelessFirmwareProjectName,
+            sizeof(kWirelessFirmwareProjectName)) != 0) {
+      continue;
+    }
+    size_t image_size = 0;
+    if (!CalculateImageSize(
+            file, file_size, offset, header, &image_size)) {
+      continue;
+    }
+    image_info->offset = offset;
+    image_info->size = image_size;
+    image_info->app_desc = description;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * @brief 检查 LittleFS 中的 ESP32-C6 固件文件
+ * @param path 固件文件路径
+ * @param manifest 已验证的固件清单
+ * @param image_info 镜像信息输出地址
+ * @return 长度、摘要、芯片、项目名和版本均匹配返回 true，否则返回 false
+ */
+bool InspectWirelessFirmware(const char* path,
+    const FirmwareReleaseManifest& manifest,
+    FirmwareImageInfo* image_info) {
+  std::unique_ptr<FILE, decltype(&std::fclose)> file(
+      std::fopen(path, "rb"), &std::fclose);
+  size_t file_size = 0;
+  FirmwareImageInfo parsed;
+  if (file == nullptr || !GetFirmwareFileSize(file.get(), &file_size) ||
+      !VerifyFileIntegrity(file.get(), file_size,
+          manifest.wireless_size_bytes, manifest.wireless_sha256) ||
+      !FindWirelessFirmwareImage(file.get(), file_size, &parsed) ||
+      std::strncmp(parsed.app_desc.version, manifest.wireless_version,
+          sizeof(parsed.app_desc.version)) != 0) {
+    return false;
+  }
+  if (image_info != nullptr) {
+    *image_info = parsed;
+  }
+  return true;
+}
+
+/**
+ * @brief 将 ESP32-C6 固件 HTTP 数据写入 LittleFS 临时文件
+ * @param event HTTP 客户端事件
+ * @return 写入成功返回 ESP_OK，否则返回 ESP_FAIL
+ */
+esp_err_t WirelessDownloadEventHandler(esp_http_client_event_t* event) {
+  if (event == nullptr || event->user_data == nullptr) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  auto* context = static_cast<FirmwareDownloadContext*>(event->user_data);
+  if (ElapsedMilliseconds(context->started_tick) >=
+      kFirmwareDownloadTimeoutMs) {
+    context->timed_out = true;
+    return ESP_ERR_TIMEOUT;
+  }
+  if (event->event_id != HTTP_EVENT_ON_DATA || event->data_len <= 0) {
+    return ESP_OK;
+  }
+  if (esp_http_client_get_status_code(event->client) != 200) {
+    return ESP_OK;
+  }
+  const size_t incoming_size = static_cast<size_t>(event->data_len);
+  if (context->downloaded_size > context->expected_size ||
+      incoming_size > context->expected_size - context->downloaded_size) {
+    context->overflow = true;
+    return ESP_FAIL;
+  }
+  if (context->file == nullptr ||
+      std::fwrite(event->data, 1, event->data_len, context->file) !=
+          incoming_size) {
+    context->write_failed = true;
+    return ESP_FAIL;
+  }
+  context->downloaded_size += incoming_size;
+  const int progress = context->expected_size > 0
+      ? static_cast<int>(context->downloaded_size * 100 /
+            context->expected_size)
+      : 0;
+  SetStage(FirmwareUpdateStage::kDownloadingWireless,
+      "Downloading ESP32-C6 firmware", progress);
+  return ESP_OK;
+}
+
+/**
+ * @brief 下载并验证 ESP32-C6 固件到 LittleFS 的 OTA 专用目录
+ * @param manifest 已验证的固件清单
+ * @return 下载文件有效并安装成功返回 true，否则返回 false
+ */
+bool DownloadWirelessFirmware(const FirmwareReleaseManifest& manifest) {
+  if (!EnsureOtaDirectory()) {
+    SetFailure("LittleFS storage unavailable");
+    return false;
+  }
+  std::remove(kWirelessFirmwareTempPath);
+  std::unique_ptr<FILE, decltype(&std::fclose)> output(
+      std::fopen(kWirelessFirmwareTempPath, "wb"), &std::fclose);
+  if (output == nullptr) {
+    SetFailure("Cannot create C6 firmware file");
+    return false;
+  }
+  FirmwareDownloadContext context;
+  context.file = output.get();
+  context.expected_size = manifest.wireless_size_bytes;
+  context.started_tick = xTaskGetTickCount();
+  esp_http_client_config_t config = {};
+  config.url = manifest.wireless_url;
+  config.crt_bundle_attach = esp_crt_bundle_attach;
+  config.timeout_ms = kHttpTimeoutMs;
+  config.buffer_size = kHttpBufferSize;
+  config.buffer_size_tx = kHttpBufferSize;
+  config.event_handler = WirelessDownloadEventHandler;
+  config.user_data = &context;
+  config.keep_alive_enable = true;
+  config.max_redirection_count = 5;
+  esp_http_client_handle_t client = esp_http_client_init(&config);
+  if (client == nullptr) {
+    output.reset();
+    std::remove(kWirelessFirmwareTempPath);
+    SetFailure("Cannot start C6 download");
+    return false;
+  }
+  const esp_err_t result = esp_http_client_perform(client);
+  const int status_code = esp_http_client_get_status_code(client);
+  const int64_t content_length = esp_http_client_get_content_length(client);
+  if (std::fflush(output.get()) != 0) {
+    context.write_failed = true;
+  }
+  output.reset();
+  esp_http_client_cleanup(client);
+  const bool complete_length = content_length <= 0 ||
+      context.downloaded_size == static_cast<size_t>(content_length);
+  FirmwareImageInfo image_info;
+  if (result != ESP_OK || status_code != 200 || context.write_failed ||
+      context.overflow ||
+      context.downloaded_size == 0 || !complete_length ||
+      context.downloaded_size != manifest.wireless_size_bytes ||
+      !InspectWirelessFirmware(
+          kWirelessFirmwareTempPath, manifest, &image_info)) {
+    std::remove(kWirelessFirmwareTempPath);
+    if (!IsNetworkReady()) {
+      SetFailure("Wi-Fi lost during C6 download");
+    } else if (context.timed_out ||
+               ElapsedMilliseconds(context.started_tick) >=
+                   kFirmwareDownloadTimeoutMs) {
+      SetFailure("C6 firmware download timed out");
+    } else {
+      SetFailure("Downloaded C6 firmware invalid");
+    }
+    return false;
+  }
+  std::remove(kWirelessFirmwarePath);
+  if (std::rename(kWirelessFirmwareTempPath, kWirelessFirmwarePath) != 0) {
+    std::remove(kWirelessFirmwareTempPath);
+    SetFailure("Cannot save C6 firmware file");
+    return false;
+  }
+  return true;
+}
+
+/**
+ * @brief 检查是否存在重启后继续更新 P4 的标记
+ * @return 标记存在返回 true，否则返回 false
+ */
+bool HasPendingUpdate() {
+  std::unique_ptr<FILE, decltype(&std::fclose)> marker(
+      std::fopen(kPendingUpdatePath, "rb"), &std::fclose);
+  return marker != nullptr;
+}
+
+/**
+ * @brief 写入重启后继续组合更新的标记
+ * @return 写入成功返回 true，否则返回 false
+ */
+bool SetPendingUpdate() {
+  if (HasPendingUpdate()) {
+    return true;
+  }
+  if (!EnsureOtaDirectory()) {
+    return false;
+  }
+  std::unique_ptr<FILE, decltype(&std::fclose)> marker(
+      std::fopen(kPendingUpdatePath, "wb"), &std::fclose);
+  if (marker == nullptr) {
+    return false;
+  }
+  const bool written = std::fwrite("1", 1, 1, marker.get()) == 1 &&
+                       std::fflush(marker.get()) == 0;
+  marker.reset();
+  if (!written) {
+    std::remove(kPendingUpdatePath);
+  }
+  return written;
+}
+
+/**
+ * @brief 清除组合更新续跑标记
+ * @return 标记已清除或原本不存在返回 true，否则返回 false
+ */
+bool ClearPendingUpdate() {
+  errno = 0;
+  if (std::remove(kPendingUpdatePath) == 0 || errno == ENOENT) {
+    return true;
+  }
+  LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+      "Remove pending firmware update marker failed: errno=%d\n", errno);
+  return false;
+}
+
+/**
+ * @brief 清理 OTA 产生的 C6 临时固件文件
+ */
+void CleanupWirelessFiles() {
+  std::remove(kWirelessFirmwareTempPath);
+  std::remove(kWirelessFirmwarePath);
+}
+
+/**
+ * @brief 判断当前 C6 固件是否支持显式激活 OTA 镜像
+ * @param version 当前 C6 ESP-Hosted 版本
+ * @return 版本不低于 2.6.0 返回 true，否则返回 false
+ */
+bool SupportsWirelessOtaActivate(
+    const esp_hosted_coprocessor_fwver_t& version) {
+  return version.major1 > 2 ||
+         (version.major1 == 2 && version.minor1 >= 6);
+}
+
+/**
+ * @brief 将 LittleFS 中的目标固件写入 ESP32-C6
+ * @param manifest 已验证的固件清单
+ * @param keep_marker_on_failure 失败时是否保留续跑标记
+ * @return 更新结果
+ */
+WirelessUpdateResult UpdateWirelessFirmware(
+    const FirmwareReleaseManifest& manifest, bool keep_marker_on_failure) {
+  char current_version[32] = {};
+  if (!ReadCurrentWirelessVersion(
+          current_version, sizeof(current_version))) {
+    SetFailure("Cannot read C6 firmware version");
+    return WirelessUpdateResult::kFailed;
+  }
+  bool version_valid = false;
+  const bool update_required = IsVersionUpgrade(current_version,
+      manifest.wireless_version, &version_valid);
+  if (!version_valid) {
+    SetFailure("C6 firmware version invalid");
+    return WirelessUpdateResult::kFailed;
+  }
+  if (!update_required) {
+    return WirelessUpdateResult::kNotRequired;
+  }
+  FirmwareImageInfo image_info;
+  if (!InspectWirelessFirmware(
+          kWirelessFirmwarePath, manifest, &image_info)) {
+    SetFailure("Stored C6 firmware invalid");
+    return WirelessUpdateResult::kFailed;
+  }
+  std::unique_ptr<FILE, decltype(&std::fclose)> file(
+      std::fopen(kWirelessFirmwarePath, "rb"), &std::fclose);
+  size_t file_size = 0;
+  if (file == nullptr || !GetFirmwareFileSize(file.get(), &file_size) ||
+      !SetPendingUpdate()) {
+    SetFailure("Cannot prepare C6 update");
+    return WirelessUpdateResult::kFailed;
+  }
+  auto chunk = std::make_unique<uint8_t[]>(kWirelessFirmwareChunkSize);
+  if (chunk == nullptr) {
+    if (!keep_marker_on_failure) {
+      ClearPendingUpdate();
+    }
+    SetFailure("Not enough memory for C6 update");
+    return WirelessUpdateResult::kFailed;
+  }
+
+  esp_hosted_coprocessor_fwver_t hosted_version = {};
+  if (esp_hosted_get_coprocessor_fwversion(&hosted_version) != ESP_OK) {
+    if (!keep_marker_on_failure) {
+      ClearPendingUpdate();
+    }
+    SetFailure("Cannot read C6 OTA capability");
+    return WirelessUpdateResult::kFailed;
+  }
+  SetStage(FirmwareUpdateStage::kInstallingWireless,
+      "Installing ESP32-C6 firmware", 0);
+  esp_err_t result = esp_hosted_slave_ota_begin();
+  if (result != ESP_OK) {
+    if (!keep_marker_on_failure) {
+      ClearPendingUpdate();
+    }
+    SetFailure("Cannot start C6 update");
+    return WirelessUpdateResult::kFailed;
+  }
+  size_t sent_size = 0;
+  while (sent_size < image_info.size) {
+    const size_t chunk_size = std::min(
+        kWirelessFirmwareChunkSize, image_info.size - sent_size);
+    if (!ReadFirmwareFile(file.get(), file_size,
+            image_info.offset + sent_size, chunk.get(), chunk_size) ||
+        esp_hosted_slave_ota_write(
+            chunk.get(), static_cast<uint32_t>(chunk_size)) != ESP_OK) {
+      esp_hosted_slave_ota_end();
+      if (!keep_marker_on_failure) {
+        ClearPendingUpdate();
+      }
+      SetFailure("Writing C6 firmware failed");
+      return WirelessUpdateResult::kFailed;
+    }
+    sent_size += chunk_size;
+    SetStage(FirmwareUpdateStage::kInstallingWireless,
+        "Installing ESP32-C6 firmware",
+        static_cast<int>(sent_size * 100 / image_info.size));
+  }
+  result = esp_hosted_slave_ota_end();
+  if (result != ESP_OK ||
+      (SupportsWirelessOtaActivate(hosted_version) &&
+          esp_hosted_slave_ota_activate() != ESP_OK)) {
+    if (!keep_marker_on_failure) {
+      ClearPendingUpdate();
+    }
+    SetFailure("C6 firmware verification failed");
+    return WirelessUpdateResult::kFailed;
+  }
+  SetStage(FirmwareUpdateStage::kRestarting,
+      "Restarting to finish the update", 100);
+  vTaskDelay(pdMS_TO_TICKS(kRestartDelayMs));
+  esp_restart();
+  return WirelessUpdateResult::kRestarting;
+}
+
+/**
+ * @brief 检查下载到 P4 OTA 分区中的应用描述信息
+ * @param new_app 新应用描述信息
+ * @param manifest 已验证的固件清单
+ * @return 项目名和版本均符合清单返回 true，否则返回 false
+ */
+bool ValidateMainFirmwareImage(const esp_app_desc_t& new_app,
+    const FirmwareReleaseManifest& manifest) {
+  const esp_app_desc_t* running_app = esp_app_get_description();
+  return running_app != nullptr &&
+         std::strncmp(new_app.project_name, running_app->project_name,
+             sizeof(new_app.project_name)) == 0 &&
+         std::strncmp(new_app.version, manifest.main_version,
+             sizeof(new_app.version)) == 0;
+}
+
+/**
+ * @brief 通过 HTTPS 将主固件写入 ESP32-P4 备用 OTA 分区
+ * @param manifest 已验证的固件清单
+ * @param keep_marker_on_failure 失败时是否保留续跑标记
+ * @return 更新结果
+ */
+MainUpdateResult UpdateMainFirmware(
+    const FirmwareReleaseManifest& manifest, bool keep_marker_on_failure) {
+  char current_version[32] = {};
+  if (!ReadCurrentMainVersion(current_version, sizeof(current_version))) {
+    SetFailure("Cannot read P4 firmware version");
+    return MainUpdateResult::kFailed;
+  }
+  bool version_valid = false;
+  const bool update_required = IsVersionUpgrade(
+      current_version, manifest.main_version, &version_valid);
+  if (!version_valid) {
+    SetFailure("P4 firmware version invalid");
+    return MainUpdateResult::kFailed;
+  }
+  if (!update_required) {
+    return MainUpdateResult::kNotRequired;
+  }
+  if (!SetPendingUpdate()) {
+    SetFailure("Cannot save P4 update state");
+    return MainUpdateResult::kFailed;
+  }
+  const esp_partition_t* update_partition =
+      esp_ota_get_next_update_partition(nullptr);
+  if (update_partition == nullptr || manifest.main_size_bytes == 0 ||
+      manifest.main_size_bytes > update_partition->size) {
+    if (!keep_marker_on_failure) {
+      ClearPendingUpdate();
+    }
+    SetFailure("P4 firmware does not fit OTA partition");
+    return MainUpdateResult::kFailed;
+  }
+  esp_http_client_config_t http_config = {};
+  http_config.url = manifest.main_url;
+  http_config.crt_bundle_attach = esp_crt_bundle_attach;
+  http_config.timeout_ms = kHttpTimeoutMs;
+  http_config.buffer_size = kHttpBufferSize;
+  http_config.buffer_size_tx = kHttpBufferSize;
+  http_config.keep_alive_enable = true;
+  http_config.max_redirection_count = 5;
+  esp_https_ota_config_t ota_config = {};
+  ota_config.http_config = &http_config;
+
+  SetStage(FirmwareUpdateStage::kDownloadingMain,
+      "Downloading ESP32-P4 firmware", 0);
+  esp_https_ota_handle_t ota_handle = nullptr;
+  esp_err_t result = esp_https_ota_begin(&ota_config, &ota_handle);
+  if (result != ESP_OK) {
+    if (!keep_marker_on_failure) {
+      ClearPendingUpdate();
+    }
+    SetFailure("Cannot start P4 download");
+    return MainUpdateResult::kFailed;
+  }
+  esp_app_desc_t new_app = {};
+  result = esp_https_ota_get_img_desc(ota_handle, &new_app);
+  if (result != ESP_OK || !ValidateMainFirmwareImage(new_app, manifest)) {
+    esp_https_ota_abort(ota_handle);
+    if (!keep_marker_on_failure) {
+      ClearPendingUpdate();
+    }
+    SetFailure("Downloaded P4 firmware invalid");
+    return MainUpdateResult::kFailed;
+  }
+  const TickType_t download_started_tick = xTaskGetTickCount();
+  bool download_timed_out = false;
+  do {
+    if (ElapsedMilliseconds(download_started_tick) >=
+        kFirmwareDownloadTimeoutMs) {
+      download_timed_out = true;
+      result = ESP_ERR_TIMEOUT;
+      break;
+    }
+    result = esp_https_ota_perform(ota_handle);
+    const int image_size = esp_https_ota_get_image_size(ota_handle);
+    const int image_read = esp_https_ota_get_image_len_read(ota_handle);
+    if (image_read >= 0 &&
+        static_cast<size_t>(image_read) > manifest.main_size_bytes) {
+      result = ESP_ERR_INVALID_SIZE;
+      break;
+    }
+    const int progress = image_size > 0 && image_read >= 0
+        ? image_read * 100 / image_size
+        : 0;
+    SetStage(FirmwareUpdateStage::kDownloadingMain,
+        "Downloading ESP32-P4 firmware", progress);
+  } while (result == ESP_ERR_HTTPS_OTA_IN_PROGRESS);
+  if (result != ESP_OK ||
+      !esp_https_ota_is_complete_data_received(ota_handle)) {
+    esp_https_ota_abort(ota_handle);
+    if (!keep_marker_on_failure) {
+      ClearPendingUpdate();
+    }
+    if (!IsNetworkReady()) {
+      SetFailure("Wi-Fi lost during P4 download");
+    } else if (download_timed_out) {
+      SetFailure("P4 firmware download timed out");
+    } else {
+      SetFailure("P4 firmware download failed");
+    }
+    return MainUpdateResult::kFailed;
+  }
+  const int downloaded_size = esp_https_ota_get_image_len_read(ota_handle);
+  if (downloaded_size < 0 ||
+      static_cast<size_t>(downloaded_size) != manifest.main_size_bytes) {
+    esp_https_ota_abort(ota_handle);
+    if (!keep_marker_on_failure) {
+      ClearPendingUpdate();
+    }
+    SetFailure("Downloaded P4 firmware size mismatch");
+    return MainUpdateResult::kFailed;
+  }
+  result = esp_https_ota_finish(ota_handle);
+  if (result != ESP_OK) {
+    if (!keep_marker_on_failure) {
+      ClearPendingUpdate();
+    }
+    SetFailure("P4 firmware verification failed");
+    return MainUpdateResult::kFailed;
+  }
+  const esp_partition_t* boot_partition = esp_ota_get_boot_partition();
+  if (boot_partition == nullptr ||
+      boot_partition->address != update_partition->address ||
+      !VerifyPartitionIntegrity(boot_partition, manifest.main_size_bytes,
+          manifest.main_sha256)) {
+    const esp_partition_t* running_partition = esp_ota_get_running_partition();
+    const bool boot_restored = running_partition != nullptr &&
+        esp_ota_set_boot_partition(running_partition) == ESP_OK;
+    if (!keep_marker_on_failure) {
+      ClearPendingUpdate();
+    }
+    SetFailure(boot_restored ? "P4 firmware SHA-256 mismatch"
+                             : "Cannot restore P4 boot partition");
+    return MainUpdateResult::kFailed;
+  }
+  SetStage(FirmwareUpdateStage::kRestarting,
+      "Restarting into the new firmware", 100);
+  vTaskDelay(pdMS_TO_TICKS(kRestartDelayMs));
+  esp_restart();
+  return MainUpdateResult::kRestarting;
+}
+
+/**
+ * @brief 执行一次最新固件检查任务
+ * @param context FreeRTOS 任务参数，本任务未使用
+ */
+void CheckTask(void* context) {
+  static_cast<void>(context);
+  if (!IsNetworkReady()) {
+    SetFailure("Wi-Fi is not connected");
+    FinishWorker();
+    vTaskDelete(nullptr);
+    return;
+  }
+  SetStage(FirmwareUpdateStage::kChecking,
+      "Loading update information");
+  FirmwareReleaseManifest manifest;
+  char main_current[32] = {};
+  char wireless_current[32] = {};
+  if (!DownloadManifest(&manifest)) {
+    FinishWorker();
+    vTaskDelete(nullptr);
+    return;
+  }
+  if (!ReadCurrentMainVersion(main_current, sizeof(main_current)) ||
+      !ReadCurrentWirelessVersion(
+          wireless_current, sizeof(wireless_current))) {
+    SetFailure("Installed versions unavailable");
+  } else {
+    ApplyManifestSnapshot(manifest, main_current, wireless_current);
+  }
+  FinishWorker();
+  vTaskDelete(nullptr);
+}
+
+/**
+ * @brief 执行用户确认的 P4 与 C6 组合更新任务
+ * @param context FreeRTOS 任务参数，本任务未使用
+ */
+void UpdateTask(void* context) {
+  static_cast<void>(context);
+  FirmwareReleaseManifest manifest;
+  if (LockManager()) {
+    manifest = g_manager.manifest;
+    UnlockManager();
+  }
+  const bool keep_marker_on_failure = HasPendingUpdate();
+  if (!IsNetworkReady()) {
+    SetFailure("Wi-Fi is not connected");
+    FinishWorker();
+    vTaskDelete(nullptr);
+    return;
+  }
+  char main_current[32] = {};
+  char wireless_current[32] = {};
+  if (!ReadCurrentMainVersion(main_current, sizeof(main_current)) ||
+      !ReadCurrentWirelessVersion(
+          wireless_current, sizeof(wireless_current))) {
+    SetFailure("Installed versions unavailable");
+    FinishWorker();
+    vTaskDelete(nullptr);
+    return;
+  }
+  bool main_version_valid = false;
+  bool wireless_version_valid = false;
+  const bool main_update_required = IsVersionUpgrade(main_current,
+      manifest.main_version, &main_version_valid);
+  const bool wireless_update_required = IsVersionUpgrade(wireless_current,
+      manifest.wireless_version, &wireless_version_valid);
+  if (!main_version_valid || !wireless_version_valid) {
+    SetFailure("Installed firmware version invalid");
+    FinishWorker();
+    vTaskDelete(nullptr);
+    return;
+  }
+
+  // C6 镜像必须在切换任何固件前完整落盘，后续步骤不再依赖网络下载它。
+  if (wireless_update_required) {
+    if (!DownloadWirelessFirmware(manifest)) {
+      FinishWorker();
+      vTaskDelete(nullptr);
+      return;
+    }
+  }
+  // 组合更新先更新 P4，避免新 C6 让旧 P4 永久失去联网下载能力。
+  if (main_update_required) {
+    const MainUpdateResult main_result =
+        UpdateMainFirmware(manifest, keep_marker_on_failure);
+    if (main_result != MainUpdateResult::kNotRequired) {
+      FinishWorker();
+      vTaskDelete(nullptr);
+      return;
+    }
+  }
+  if (wireless_update_required) {
+    const WirelessUpdateResult wireless_result =
+        UpdateWirelessFirmware(manifest, keep_marker_on_failure);
+    if (wireless_result != WirelessUpdateResult::kNotRequired) {
+      FinishWorker();
+      vTaskDelete(nullptr);
+      return;
+    }
+  }
+  ClearPendingUpdate();
+  CleanupWirelessFiles();
+  ApplyManifestSnapshot(manifest, main_current, wireless_current);
+  FinishWorker();
+  vTaskDelete(nullptr);
+}
+
+/**
+ * @brief 在重启后按安全顺序恢复未完成的组合更新任务
+ * @param context FreeRTOS 任务参数，本任务未使用
+ */
+void ResumeTask(void* context) {
+  static_cast<void>(context);
+  FirmwareReleaseManifest manifest;
+  if (!LoadSavedManifest(&manifest)) {
+    ClearPendingUpdate();
+    SetFailure("Saved update information missing");
+    FinishWorker();
+    vTaskDelete(nullptr);
+    return;
+  }
+  if (std::strcmp(manifest.device_id, kCurrentDeviceId) != 0) {
+    ClearPendingUpdate();
+    SetFailure("Saved update is for another device");
+    FinishWorker();
+    vTaskDelete(nullptr);
+    return;
+  }
+  ApplyPendingManifestSnapshot(manifest);
+  char wireless_current[32] = {};
+  if (!WaitForCurrentWirelessVersion(wireless_current,
+          sizeof(wireless_current), kWirelessReadyTimeoutMs)) {
+    SetFailure("Cannot verify C6 after restart");
+    FinishWorker();
+    vTaskDelete(nullptr);
+    return;
+  }
+  char main_current[32] = {};
+  if (!ReadCurrentMainVersion(main_current, sizeof(main_current))) {
+    SetFailure("Cannot verify P4 after restart");
+    FinishWorker();
+    vTaskDelete(nullptr);
+    return;
+  }
+  bool main_version_valid = false;
+  bool wireless_version_valid = false;
+  const bool main_update_required = IsVersionUpgrade(main_current,
+      manifest.main_version, &main_version_valid);
+  const bool wireless_update_required = IsVersionUpgrade(wireless_current,
+      manifest.wireless_version, &wireless_version_valid);
+  if (!main_version_valid || !wireless_version_valid) {
+    SetFailure("Installed firmware version invalid");
+    FinishWorker();
+    vTaskDelete(nullptr);
+    return;
+  }
+
+  // 如果 C6 仍需更新，必须先确认本地镜像可用，再考虑重启进入新的 P4。
+  if (wireless_update_required &&
+      !InspectWirelessFirmware(kWirelessFirmwarePath, manifest, nullptr)) {
+    if (!IsNetworkReady()) {
+      SetFailure("Update paused: no Wi-Fi");
+      FinishWorker();
+      vTaskDelete(nullptr);
+      return;
+    }
+    if (!DownloadWirelessFirmware(manifest)) {
+      FinishWorker();
+      vTaskDelete(nullptr);
+      return;
+    }
+  }
+  if (main_update_required) {
+    if (!IsNetworkReady()) {
+      SetFailure("Update paused: no Wi-Fi");
+      FinishWorker();
+      vTaskDelete(nullptr);
+      return;
+    }
+    const MainUpdateResult main_result = UpdateMainFirmware(manifest, true);
+    if (main_result != MainUpdateResult::kNotRequired) {
+      FinishWorker();
+      vTaskDelete(nullptr);
+      return;
+    }
+  }
+  // 新 P4 只有在 C6 本地镜像已经可恢复时才取消 bootloader 回滚保护。
+  ConfirmRunningMainFirmware();
+  if (wireless_update_required) {
+    const WirelessUpdateResult wireless_result =
+        UpdateWirelessFirmware(manifest, true);
+    if (wireless_result != WirelessUpdateResult::kNotRequired) {
+      FinishWorker();
+      vTaskDelete(nullptr);
+      return;
+    }
+  }
+  ClearPendingUpdate();
+  CleanupWirelessFiles();
+  ApplyManifestSnapshot(manifest, main_current, wireless_current);
+  FinishWorker();
+  vTaskDelete(nullptr);
+}
+
+/**
+ * @brief 创建固件更新后台任务并处理创建失败状态
+ * @param task 任务入口
+ * @param name FreeRTOS 任务名称
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateWorker(TaskFunction_t task, const char* name) {
+  const BaseType_t result = xTaskCreate(task, name, kWorkerTaskStackBytes,
+      nullptr, kWorkerTaskPriority, nullptr);
+  if (result == pdPASS) {
+    return true;
+  }
+  if (LockManager()) {
+    g_manager.worker_running = false;
+    UnlockManager();
+  }
+  SetFailure("Cannot create update task");
+  return false;
+}
+
+}  // namespace
+
+bool InitFirmwareUpdateManager(hal::WifiProvider* wifi) {
+  if (g_manager.initialized) {
+    if (LockManager()) {
+      g_manager.wifi = wifi;
+      UnlockManager();
+    }
+    return true;
+  }
+  g_manager.mutex = xSemaphoreCreateMutex();
+  if (g_manager.mutex == nullptr) {
+    return false;
+  }
+  g_manager.wifi = wifi;
+  g_manager.initialized = true;
+  g_manager.snapshot.device_supported =
+      IsFirmwareUpdateDeviceSupported();
+  if (!g_manager.snapshot.device_supported) {
+    g_manager.snapshot.stage = FirmwareUpdateStage::kFailed;
+    CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+        "Updates unavailable for this device");
+  }
+  CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+      g_manager.snapshot.device_supported
+          ? "Check for firmware updates"
+          : "Updates unavailable for this device");
+  if (!ReadCurrentMainVersion(g_manager.snapshot.main_current_version,
+          sizeof(g_manager.snapshot.main_current_version))) {
+    CopyText(g_manager.snapshot.main_current_version,
+        sizeof(g_manager.snapshot.main_current_version), "unknown");
+  }
+  if (!g_manager.snapshot.device_supported) {
+    ConfirmRunningMainFirmware();
+    return true;
+  }
+  if (!HasPendingUpdate()) {
+    ConfirmRunningMainFirmware();
+    return true;
+  }
+  g_manager.worker_running = true;
+  g_manager.snapshot.busy = true;
+  return CreateWorker(ResumeTask, "ota_resume");
+}
+
+bool RequestFirmwareUpdateCheck() {
+  if (!LockManager()) {
+    return false;
+  }
+  if (!g_manager.initialized || g_manager.worker_running ||
+      !g_manager.snapshot.device_supported) {
+    UnlockManager();
+    return false;
+  }
+  g_manager.worker_running = true;
+  g_manager.snapshot.stage = FirmwareUpdateStage::kChecking;
+  g_manager.snapshot.busy = true;
+  g_manager.snapshot.manifest_available = false;
+  g_manager.snapshot.update_available = false;
+  g_manager.snapshot.progress_percent = 0;
+  g_manager.manifest_valid = false;
+  CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+      "Checking for updates");
+  UnlockManager();
+  return CreateWorker(CheckTask, "ota_check");
+}
+
+bool StartFirmwareUpdate() {
+  if (!LockManager()) {
+    return false;
+  }
+  if (!g_manager.initialized || g_manager.worker_running ||
+      !g_manager.snapshot.device_supported ||
+      !g_manager.manifest_valid) {
+    UnlockManager();
+    return false;
+  }
+  g_manager.worker_running = true;
+  g_manager.snapshot.busy = true;
+  g_manager.snapshot.progress_percent = 0;
+  CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+      "Preparing firmware download");
+  UnlockManager();
+  return CreateWorker(UpdateTask, "ota_update");
+}
+
+FirmwareUpdateSnapshot GetFirmwareUpdateSnapshot() {
+  FirmwareUpdateSnapshot snapshot;
+  if (!LockManager()) {
+    CopyText(snapshot.message, sizeof(snapshot.message),
+        "Firmware update service is unavailable");
+    snapshot.stage = FirmwareUpdateStage::kFailed;
+    return snapshot;
+  }
+  snapshot = g_manager.snapshot;
+  UnlockManager();
+  return snapshot;
+}
+
+}  // namespace lilygo_box::app

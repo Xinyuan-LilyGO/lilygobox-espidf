@@ -150,6 +150,10 @@ void SettingsViewDeleteEventCallback(lv_event_t* event) {
     lv_timer_delete(state->factory_reset_countdown_timer);
     state->factory_reset_countdown_timer = nullptr;
   }
+  if (state != nullptr && state->firmware_update_refresh_timer != nullptr) {
+    lv_timer_delete(state->firmware_update_refresh_timer);
+    state->firmware_update_refresh_timer = nullptr;
+  }
   delete state;
 }
 

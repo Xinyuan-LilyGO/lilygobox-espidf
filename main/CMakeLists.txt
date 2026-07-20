@@ -41,6 +41,9 @@ idf_component_register(
         esp_audio_codec
         esp_eth
         esp_event
+        esp_hosted
+        esp_http_client
+        esp_https_ota
         fatfs
         esp_hw_support
         esp_netif
@@ -51,4 +54,6 @@ idf_component_register(
         heap
         littlefs
         lwip
+        mbedtls
+        json
         spi_flash)
