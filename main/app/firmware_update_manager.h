@@ -54,6 +54,7 @@ struct FirmwareUpdateSnapshot {
   char current_release_channel[16] = {};
   char current_release_time[32] = {};
   char package_size[24] = {};
+  char current_package_size[24] = {};
   char main_size[24] = {};
   char wireless_size[24] = {};
   char current_main_size[24] = {};

@@ -249,17 +249,24 @@ void FirmwareUpdateEdgeBackEventCallback(lv_event_t* event) {
  */
 void FormatFirmwareVersion(const char* current_version,
     const char* target_version, char* output, size_t output_size) {
-  const char* current =
-      current_version != nullptr && current_version[0] != '\0'
-          ? current_version
-          : "unknown";
+  const bool current_available =
+      current_version != nullptr && current_version[0] != '\0' &&
+      std::strcmp(current_version, "unknown") != 0;
   if (target_version != nullptr && target_version[0] != '\0' &&
-      std::strcmp(current, target_version) != 0) {
-    std::snprintf(
-        output, output_size, "v%s -> v%s", current, target_version);
+      (!current_available ||
+          std::strcmp(current_version, target_version) != 0)) {
+    if (current_available) {
+      std::snprintf(output, output_size, "v%s -> v%s",
+          current_version, target_version);
+    } else {
+      std::snprintf(
+          output, output_size, "Unknown -> v%s", target_version);
+    }
     return;
   }
-  std::snprintf(output, output_size, "v%s", current);
+  std::snprintf(output, output_size,
+      current_available ? "v%s" : "%s",
+      current_available ? current_version : "Unknown");
 }
 
 /**
@@ -359,7 +366,7 @@ void FormatFirmwareNotesText(
   size_t used = 0;
   for (size_t index = 0; index < note_count; ++index) {
     const int written = std::snprintf(output + used, output_size - used,
-        "%s- %s", index == 0 ? "" : "\n", notes[index]);
+        "%s• %s", index == 0 ? "" : "\n", notes[index]);
     if (written < 0 ||
         static_cast<size_t>(written) >= output_size - used) {
       break;
@@ -1115,14 +1122,14 @@ bool CreateFirmwareUpdateCard(
   const int component_width = card_width - 2 * kUpdateCardPadding;
   if (!CreateFirmwareComponentRow(card, kUpdateComponentsTop,
           component_width, icon::kMemory, "Main firmware", "ESP32-P4",
-          "vunknown", 0x3F82F6, &state->firmware_update_main_row,
+          "Unknown", 0x3F82F6, &state->firmware_update_main_row,
           &state->firmware_update_main_chip_label,
           &state->firmware_update_main_version_label) ||
       !CreateFirmwareComponentRow(card,
           kUpdateComponentsTop + kUpdateComponentHeight +
               kUpdateComponentGap,
           component_width, icon::kSignalWifi4Bar, "Wireless firmware",
-          "ESP32-C6", "vunknown", 0x8B68F6,
+          "ESP32-C6", "Unknown", 0x8B68F6,
           &state->firmware_update_wireless_row,
           &state->firmware_update_wireless_chip_label,
           &state->firmware_update_wireless_version_label)) {
@@ -1272,7 +1279,7 @@ bool CreateFirmwareUpdateBody(
   }
   lv_obj_set_width(brand_text, LV_SIZE_CONTENT);
 
-  lv_obj_t* version = CreateLabel(brand_group, "vunknown",
+  lv_obj_t* version = CreateLabel(brand_group, "Unknown",
       lv_color_hex(kSecondaryTextColor), Font24());
   if (version == nullptr) {
     return false;
@@ -1507,13 +1514,22 @@ lv_obj_t* CreateCurrentFirmwareLogCard(lv_obj_t* body, int x, int y,
     return discard_card();
   }
 
-  char current_release[64] = {};
+  char current_release_version[32] = {};
   if (snapshot.current_release_version[0] != '\0') {
-    std::snprintf(current_release, sizeof(current_release), "%s",
+    std::snprintf(current_release_version,
+        sizeof(current_release_version), "%s",
         snapshot.current_release_version);
   } else {
     FormatFirmwareVersion(snapshot.main_current_version, nullptr,
-        current_release, sizeof(current_release));
+        current_release_version, sizeof(current_release_version));
+  }
+  char current_release[64] = {};
+  if (snapshot.current_package_size[0] != '\0') {
+    std::snprintf(current_release, sizeof(current_release), "%s  |  %s",
+        current_release_version, snapshot.current_package_size);
+  } else {
+    std::snprintf(current_release, sizeof(current_release), "%s",
+        current_release_version);
   }
   lv_obj_t* version = CreateLabel(card, current_release,
       lv_color_hex(kSecondaryTextColor), Font24());

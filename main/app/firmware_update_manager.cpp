@@ -1587,6 +1587,10 @@ bool RestoreInstalledManifestSnapshot(const char* main_current) {
   CopyText(State().snapshot.wireless_current_version,
       sizeof(State().snapshot.wireless_current_version),
       installed_manifest->wireless_version);
+  FormatFirmwareSize(installed_manifest->main_size_bytes +
+          installed_manifest->wireless_size_bytes,
+      State().snapshot.current_package_size,
+      sizeof(State().snapshot.current_package_size));
   FormatFirmwareSize(installed_manifest->main_size_bytes,
       State().snapshot.current_main_size,
       sizeof(State().snapshot.current_main_size));
@@ -1685,6 +1689,10 @@ bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
       State().snapshot.wireless_size,
       sizeof(State().snapshot.wireless_size));
   if (installed_manifest_valid) {
+    FormatFirmwareSize(installed_manifest.main_size_bytes +
+            installed_manifest.wireless_size_bytes,
+        State().snapshot.current_package_size,
+        sizeof(State().snapshot.current_package_size));
     FormatFirmwareSize(installed_manifest.main_size_bytes,
         State().snapshot.current_main_size,
         sizeof(State().snapshot.current_main_size));
@@ -1692,6 +1700,7 @@ bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
         State().snapshot.current_wireless_size,
         sizeof(State().snapshot.current_wireless_size));
   } else {
+    State().snapshot.current_package_size[0] = '\0';
     State().snapshot.current_main_size[0] = '\0';
     State().snapshot.current_wireless_size[0] = '\0';
   }
