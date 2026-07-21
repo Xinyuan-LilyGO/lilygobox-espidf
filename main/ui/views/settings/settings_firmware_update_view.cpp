@@ -680,7 +680,7 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
         std::snprintf(button_text, sizeof(button_text), "Restarting...");
         break;
       case app::FirmwareUpdateStage::kFailed:
-        std::snprintf(button_text, sizeof(button_text), "Retry update");
+        std::snprintf(button_text, sizeof(button_text), "Retry download");
         break;
       case app::FirmwareUpdateStage::kUpToDate:
       case app::FirmwareUpdateStage::kIdle:

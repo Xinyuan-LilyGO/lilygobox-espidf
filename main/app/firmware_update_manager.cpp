@@ -2,7 +2,7 @@
  * @Description: LilygoBox 主固件与无线固件组合 OTA 更新实现
  * @Author: LILYGO_L
  * @Date: 2026-07-20 00:00:00
- * @LastEditTime: 2026-07-20 00:00:00
+ * @LastEditTime: 2026-07-21 14:51:29
  * @License: GPL 3.0
  */
 #include "app/firmware_update_manager.h"
@@ -2683,7 +2683,6 @@ MainUpdateResult UpdateMainFirmware(
         result = ESP_FAIL;
         break;
       }
-      const int image_size = esp_https_ota_get_image_size(ota_handle);
       const int image_read = esp_https_ota_get_image_len_read(ota_handle);
       if (image_read >= 0 &&
           static_cast<size_t>(image_read) > manifest.main_size_bytes) {
@@ -2691,8 +2690,9 @@ MainUpdateResult UpdateMainFirmware(
         result = ESP_ERR_INVALID_SIZE;
         break;
       }
-      const int progress = image_size > 0 && image_read >= 0
-          ? image_read * 100 / image_size
+      const int progress = image_read >= 0
+          ? static_cast<int>(static_cast<size_t>(image_read) * 100 /
+                manifest.main_size_bytes)
           : 0;
       SetStage(FirmwareUpdateStage::kDownloadingMain,
           "Downloading Main firmware", progress);
@@ -3122,7 +3122,7 @@ void ResumeTask(void* context) {
       !InspectWirelessFirmware(kWirelessFirmwarePath, manifest, nullptr)) {
     std::remove(kWirelessFirmwarePath);
     if (!IsNetworkReady()) {
-      SetFailure("Update paused: no Wi-Fi");
+      SetFailure("Wi-Fi is not connected");
       FinishWorker();
       vTaskDelete(nullptr);
       return;
@@ -3147,7 +3147,7 @@ void ResumeTask(void* context) {
   }
   if (main_update_required) {
     if (!IsNetworkReady()) {
-      SetFailure("Update paused: no Wi-Fi");
+      SetFailure("Wi-Fi is not connected");
       FinishWorker();
       vTaskDelete(nullptr);
       return;
