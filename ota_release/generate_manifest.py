@@ -9,15 +9,20 @@ import json
 import re
 import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 
 MANIFEST_VERSION = 1
+RELEASE_CHANNELS = ("stable", "beta", "dev")
 MAX_FIRMWARE_ASSET_SIZE = 64 * 1024 * 1024
 MAX_VERSION_NUMBER = (1 << 32) - 1
 SEMANTIC_VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+RELEASE_TIME_PATTERN = re.compile(
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}[+-][0-9]{2}:[0-9]{2}$"
+)
 
 
 def normalize_version(value: str, name: str) -> str:
@@ -37,6 +42,29 @@ def normalize_version(value: str, name: str) -> str:
 def version_key(version: str) -> tuple[int, int, int]:
     """把已经校验的三段式版本转换为可比较数值。"""
     return tuple(int(part) for part in version.split("."))
+
+
+def current_release_time() -> str:
+    """生成包含本地时区且精确到分钟的 Release 时间。"""
+    return datetime.now().astimezone().isoformat(timespec="minutes")
+
+
+def validate_release_time(value: Any) -> str:
+    """校验带时区且精确到分钟的 ISO 8601 Release 时间。"""
+    if not isinstance(value, str) or not RELEASE_TIME_PATTERN.fullmatch(value):
+        raise ValueError("release_time 必须是带时区的分钟时间")
+    try:
+        datetime.fromisoformat(value)
+    except ValueError as error:
+        raise ValueError("release_time 日期或时间无效") from error
+    return value
+
+
+def validate_release_channel(value: Any) -> str:
+    """校验固件发布频道。"""
+    if not isinstance(value, str) or value not in RELEASE_CHANNELS:
+        raise ValueError("channel 必须是 stable、beta 或 dev")
+    return value
 
 
 def calculate_sha256(path: Path) -> str:
@@ -139,6 +167,10 @@ def validate_previous_manifest(
     if not isinstance(release, str) or not release.startswith("v"):
         raise ValueError("上一版清单 release 无效")
     normalize_version(release[1:], "上一版清单 release")
+    release_time = manifest.get("release_time")
+    if release_time is not None:
+        validate_release_time(release_time)
+    validate_release_channel(manifest.get("channel", "stable"))
     repository = config["repository"]
     inherited: dict[str, dict[str, Any]] = {}
     for name, component_config in config["components"].items():
@@ -237,6 +269,12 @@ def build_argument_parser(default_config: Path) -> argparse.ArgumentParser:
     )
     parser.add_argument("--release", required=True, help="Release 版本，例如 1.2.0")
     parser.add_argument(
+        "--channel",
+        choices=RELEASE_CHANNELS,
+        default="stable",
+        help="发布频道，默认 stable",
+    )
+    parser.add_argument(
         "--component",
         action="append",
         default=[],
@@ -333,6 +371,8 @@ def main() -> int:
             "manifest_version": MANIFEST_VERSION,
             "device_id": config["device_id"],
             "release": release_tag,
+            "channel": args.channel,
+            "release_time": current_release_time(),
         }
         upload_files: list[Path] = []
         for name, component_config in config["components"].items():

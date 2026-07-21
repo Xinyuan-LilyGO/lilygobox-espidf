@@ -172,18 +172,42 @@ struct SettingsViewState {
   lv_obj_t* detail_page = nullptr;
   lv_obj_t* firmware_update_page = nullptr;
   lv_obj_t* firmware_update_body = nullptr;
+  lv_obj_t* firmware_update_current_page = nullptr;
+  lv_obj_t* firmware_update_new_page = nullptr;
   lv_obj_t* firmware_update_scan_group = nullptr;
   lv_obj_t* firmware_update_scan_message_label = nullptr;
   lv_obj_t* firmware_update_scan_hint_label = nullptr;
+  lv_obj_t* firmware_update_status_version_label = nullptr;
+  lv_obj_t* firmware_update_status_log_button = nullptr;
+  lv_obj_t* firmware_update_status_log_button_label = nullptr;
+  lv_obj_t* firmware_update_page_indicator = nullptr;
+  lv_obj_t* firmware_update_current_page_dot = nullptr;
+  lv_obj_t* firmware_update_new_page_dot = nullptr;
   lv_obj_t* firmware_update_heading_label = nullptr;
   lv_obj_t* firmware_update_card = nullptr;
   lv_obj_t* firmware_update_release_label = nullptr;
+  lv_obj_t* firmware_update_channel_label = nullptr;
+  lv_obj_t* firmware_update_release_time_label = nullptr;
+  lv_obj_t* firmware_update_components_title = nullptr;
+  lv_obj_t* firmware_update_main_row = nullptr;
+  lv_obj_t* firmware_update_main_chip_label = nullptr;
   lv_obj_t* firmware_update_main_version_label = nullptr;
+  lv_obj_t* firmware_update_wireless_row = nullptr;
+  lv_obj_t* firmware_update_wireless_chip_label = nullptr;
   lv_obj_t* firmware_update_wireless_version_label = nullptr;
+  lv_obj_t* firmware_update_components_divider = nullptr;
+  lv_obj_t* firmware_update_notes_title = nullptr;
   lv_obj_t* firmware_update_notes_label = nullptr;
   lv_obj_t* firmware_update_download_button = nullptr;
+  lv_obj_t* firmware_update_progress_fill = nullptr;
   lv_obj_t* firmware_update_download_button_label = nullptr;
+  lv_obj_t* firmware_update_pause_button = nullptr;
+  lv_obj_t* firmware_update_pause_button_label = nullptr;
+  lv_obj_t* firmware_update_cancel_button = nullptr;
+  lv_obj_t* firmware_update_cancel_button_label = nullptr;
   lv_obj_t* firmware_update_spinner = nullptr;
+  lv_obj_t* firmware_update_log_page = nullptr;
+  lv_obj_t* firmware_update_log_body = nullptr;
   lv_obj_t* name_edit_page = nullptr;
   lv_obj_t* name_edit_text_area = nullptr;
   lv_obj_t* name_edit_keyboard = nullptr;
@@ -236,6 +260,7 @@ struct SettingsViewState {
   WifiNetworkAction wifi_pending_action = {};
   EdgeBackSwipeState detail_swipe = {};
   EdgeBackSwipeState firmware_update_swipe = {};
+  EdgeBackSwipeState firmware_update_log_swipe = {};
   EdgeBackSwipeState name_edit_swipe = {};
   EdgeBackSwipeState factory_reset_swipe = {};
   EdgeBackSwipeState wifi_swipe = {};
@@ -250,6 +275,10 @@ struct SettingsViewState {
   uint32_t wifi_refresh_key = 0;
   bool detail_closing = false;
   bool firmware_update_closing = false;
+  bool firmware_update_log_closing = false;
+  int firmware_update_page_index = 0;
+  // 检查完成并发现新版本后，自动切换到新版本详情页。
+  bool firmware_update_auto_show_new_page = false;
   bool name_edit_closing = false;
   bool factory_reset_closing = false;
   bool factory_reset_started = false;
@@ -452,14 +481,14 @@ lv_obj_t* CreateToolbarButton(
 bool ShowMyDevicePage(SettingsViewState* state);
 
 /**
- * @brief 从我的设备页面打开静态固件更新预览页
+ * @brief 从我的设备页面打开固件更新页面
  * @param state 设置页面状态
  * @return 打开成功返回 true，否则返回 false
  */
 bool ShowFirmwareUpdatePage(SettingsViewState* state);
 
 /**
- * @brief 关闭静态固件更新预览页
+ * @brief 关闭固件更新页面
  * @param state 设置页面状态
  * @param animated 是否播放关闭动画
  */

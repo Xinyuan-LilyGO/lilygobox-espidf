@@ -26,6 +26,8 @@ enum class FirmwareUpdateStage {
   kDownloadingWireless,
   kInstallingWireless,
   kDownloadingMain,
+  kPaused,
+  kReadyToInstall,
   kRestarting,
   kFailed,
 };
@@ -37,14 +39,28 @@ struct FirmwareUpdateSnapshot {
   bool busy = false;
   bool manifest_available = false;
   bool update_available = false;
+  bool manual_update_required = false;
+  bool main_update_available = false;
+  bool wireless_update_available = false;
   char release_version[32] = {};
+  char release_channel[16] = {};
+  char release_time[32] = {};
+  char current_release_version[32] = {};
+  char current_release_channel[16] = {};
+  char current_release_time[32] = {};
   char package_size[24] = {};
+  char main_size[24] = {};
+  char wireless_size[24] = {};
+  char current_main_size[24] = {};
+  char current_wireless_size[24] = {};
   char main_current_version[32] = {};
   char main_target_version[32] = {};
   char wireless_current_version[32] = {};
   char wireless_target_version[32] = {};
   char notes[kFirmwareUpdateNoteCapacity][128] = {};
   size_t note_count = 0;
+  char current_notes[kFirmwareUpdateNoteCapacity][128] = {};
+  size_t current_note_count = 0;
   char message[128] = {};
 };
 
@@ -66,6 +82,30 @@ bool RequestFirmwareUpdateCheck();
  * @return 更新任务启动成功返回 true，否则返回 false
  */
 bool StartFirmwareUpdate();
+
+/**
+ * @brief 暂停当前固件下载任务
+ * @return 暂停请求被接受返回 true，否则返回 false
+ */
+bool PauseFirmwareUpdate();
+
+/**
+ * @brief 从当前固件组件继续已暂停的下载任务
+ * @return 下载任务重新启动返回 true，否则返回 false
+ */
+bool ResumeFirmwareUpdate();
+
+/**
+ * @brief 取消下载中或已准备的更新并保留当前固件
+ * @return 取消请求被接受返回 true，否则返回 false
+ */
+bool CancelFirmwareUpdate();
+
+/**
+ * @brief 安装已经准备好的固件并重启设备
+ * @return 安装任务启动成功返回 true，否则返回 false
+ */
+bool InstallFirmwareUpdateAndRestart();
 
 /**
  * @brief 读取可供界面显示的固件更新状态快照

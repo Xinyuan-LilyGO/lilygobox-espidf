@@ -41,7 +41,7 @@ namespace lilygo_box::app {
 namespace {
 
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
-constexpr char kCurrentDeviceId[] = "t_display_p4";
+constexpr char kCurrentDeviceId[] = "t-display-p4";
 constexpr char kManifestUrl[] =
     "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/releases/"
     "latest/download/lilygobox-t-display-p4-ota-manifest.json";
@@ -60,6 +60,10 @@ constexpr char kOtaDirectory[] = "/littlefs/ota";
 constexpr char kSavedManifestPath[] = "/littlefs/ota/lilygobox-ota.json";
 constexpr char kSavedManifestTempPath[] =
     "/littlefs/ota/lilygobox-ota.json.tmp";
+constexpr char kInstalledManifestPath[] =
+    "/littlefs/ota/lilygobox-installed.json";
+constexpr char kInstalledManifestTempPath[] =
+    "/littlefs/ota/lilygobox-installed.json.tmp";
 constexpr char kWirelessFirmwarePath[] =
     "/littlefs/ota/lilygobox-esp32c6.bin";
 constexpr char kWirelessFirmwareTempPath[] =
@@ -88,6 +92,8 @@ constexpr UBaseType_t kWorkerTaskPriority = 5;
 struct FirmwareReleaseManifest {
   char device_id[32] = {};
   char release_version[32] = {};
+  char release_channel[16] = {};
+  char release_time[32] = {};
   char main_version[32] = {};
   char main_url[384] = {};
   size_t main_size_bytes = 0;
@@ -122,6 +128,8 @@ struct FirmwareDownloadContext {
   bool write_failed = false;
   bool overflow = false;
   bool timed_out = false;
+  bool pause_requested = false;
+  bool cancel_requested = false;
 };
 
 struct FirmwareUpdateManagerState {
@@ -132,6 +140,8 @@ struct FirmwareUpdateManagerState {
   bool initialized = false;
   bool manifest_valid = false;
   bool worker_running = false;
+  bool pause_requested = false;
+  bool cancel_requested = false;
 };
 
 FirmwareUpdateManagerState g_manager;
@@ -144,8 +154,31 @@ enum class WirelessUpdateResult {
 
 enum class MainUpdateResult {
   kNotRequired,
+  kPrepared,
+  kPaused,
+  kCancelled,
   kRestarting,
   kFailed,
+};
+
+enum class FirmwareDownloadResult {
+  kCompleted,
+  kPaused,
+  kCancelled,
+  kFailed,
+};
+
+enum class TransferRequest {
+  kNone,
+  kPause,
+  kCancel,
+};
+
+// 固件清单解析结果，用于区分格式错误和不兼容版本。
+enum class ManifestParseResult {
+  kSuccess,
+  kInvalid,
+  kUnsupportedVersion,
 };
 
 /**
@@ -164,6 +197,31 @@ void CopyText(char* destination, size_t destination_size,
 }
 
 /**
+ * @brief 为版本号添加 v 前缀并安全写入目标缓冲区
+ * @param destination 目标缓冲区
+ * @param destination_size 目标缓冲区长度
+ * @param version 不含前缀的版本号
+ */
+void CopyReleaseVersion(char* destination, size_t destination_size,
+    const char* version) {
+  if (destination == nullptr || destination_size == 0) {
+    return;
+  }
+  const char* source =
+      version == nullptr || version[0] == '\0' ? "unknown" : version;
+  size_t destination_index = 0;
+  if (destination_index + 1 < destination_size) {
+    destination[destination_index++] = 'v';
+  }
+  size_t source_index = 0;
+  while (destination_index + 1 < destination_size &&
+         source[source_index] != '\0') {
+    destination[destination_index++] = source[source_index++];
+  }
+  destination[destination_index] = '\0';
+}
+
+/**
  * @brief 获取固件更新状态互斥锁
  * @return 获取成功返回 true，否则返回 false
  */
@@ -179,6 +237,18 @@ void UnlockManager() {
   if (g_manager.mutex != nullptr) {
     xSemaphoreGive(g_manager.mutex);
   }
+}
+
+TransferRequest ReadTransferRequest() {
+  if (!LockManager()) {
+    return TransferRequest::kNone;
+  }
+  const TransferRequest request = g_manager.cancel_requested
+      ? TransferRequest::kCancel
+      : g_manager.pause_requested ? TransferRequest::kPause
+                                  : TransferRequest::kNone;
+  UnlockManager();
+  return request;
 }
 
 /**
@@ -205,9 +275,10 @@ bool IsBusyStage(FirmwareUpdateStage stage) {
  * @param stage 新阶段
  * @param message 状态消息
  * @param progress_percent 进度百分比
+ * @param manual_update_required 是否需要提示用户执行手动更新
  */
 void SetStage(FirmwareUpdateStage stage, const char* message,
-    int progress_percent = 0) {
+    int progress_percent = 0, bool manual_update_required = false) {
   if (!LockManager()) {
     return;
   }
@@ -215,6 +286,8 @@ void SetStage(FirmwareUpdateStage stage, const char* message,
   g_manager.snapshot.busy = IsBusyStage(stage);
   g_manager.snapshot.progress_percent =
       std::clamp(progress_percent, 0, 100);
+  g_manager.snapshot.manual_update_required =
+      stage == FirmwareUpdateStage::kFailed && manual_update_required;
   CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
       message);
   UnlockManager();
@@ -235,9 +308,11 @@ void FinishWorker() {
 /**
  * @brief 记录固件更新失败原因并结束忙碌状态
  * @param message 面向界面的失败原因
+ * @param manual_update_required 是否需要提示用户执行手动更新
  */
-void SetFailure(const char* message) {
-  SetStage(FirmwareUpdateStage::kFailed, message);
+void SetFailure(const char* message, bool manual_update_required = false) {
+  SetStage(FirmwareUpdateStage::kFailed, message, 0,
+      manual_update_required);
   LogMessage(LogLevel::kError, __FILE__, __LINE__,
       "Firmware update failed: %s\n", message == nullptr ? "unknown" : message);
 }
@@ -594,6 +669,63 @@ bool ReadRequiredJsonString(const cJSON* object, const char* name,
 }
 
 /**
+ * @brief 校验带时区且精确到分钟的 ISO 8601 发布时间
+ * @param text 发布时间文本
+ * @return 格式和日期范围有效返回 true，否则返回 false
+ */
+bool IsReleaseTimeText(const char* text) {
+  if (text == nullptr || std::strlen(text) != 22 || text[4] != '-' ||
+      text[7] != '-' || text[10] != 'T' || text[13] != ':' ||
+      (text[16] != '+' && text[16] != '-') || text[19] != ':') {
+    return false;
+  }
+  constexpr int digit_positions[] = {
+      0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18, 20, 21};
+  for (int position : digit_positions) {
+    if (text[position] < '0' || text[position] > '9') {
+      return false;
+    }
+  }
+  const auto pair_value = [text](int position) {
+    return (text[position] - '0') * 10 + text[position + 1] - '0';
+  };
+  const int year = (text[0] - '0') * 1000 + (text[1] - '0') * 100 +
+                   (text[2] - '0') * 10 + text[3] - '0';
+  const int month = pair_value(5);
+  const int day = pair_value(8);
+  const int hour = pair_value(11);
+  const int minute = pair_value(14);
+  const int offset_hour = pair_value(17);
+  const int offset_minute = pair_value(20);
+  if (year == 0 || month < 1 || month > 12 || hour > 23 || minute > 59 ||
+      offset_hour > 14 || offset_minute > 59 ||
+      (offset_hour == 14 && offset_minute != 0)) {
+    return false;
+  }
+  constexpr int days_per_month[] = {
+      31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  int maximum_day = days_per_month[month - 1];
+  const bool leap_year =
+      year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+  if (month == 2 && leap_year) {
+    maximum_day = 29;
+  }
+  return day >= 1 && day <= maximum_day;
+}
+
+/**
+ * @brief 判断固件发布频道是否受支持
+ * @param channel 发布频道文本
+ * @return stable、beta 或 dev 返回 true，否则返回 false
+ */
+bool IsReleaseChannelSupported(const char* channel) {
+  return channel != nullptr &&
+         (std::strcmp(channel, "stable") == 0 ||
+             std::strcmp(channel, "beta") == 0 ||
+             std::strcmp(channel, "dev") == 0);
+}
+
+/**
  * @brief 从 JSON 对象读取受限的正整数字节数
  * @param object JSON 对象
  * @param name 字段名
@@ -619,20 +751,24 @@ bool ReadRequiredJsonSize(
  * @brief 解析 GitHub Release 中的组合固件清单
  * @param json_text 清单 JSON 文本
  * @param manifest 清单解析结果
- * @return 清单结构和字段有效返回 true，否则返回 false
+ * @return 成功、清单无效或清单版本不受支持
  */
-bool ParseManifest(
+ManifestParseResult ParseManifest(
     const char* json_text, FirmwareReleaseManifest* manifest) {
   if (json_text == nullptr || manifest == nullptr) {
-    return false;
+    return ManifestParseResult::kInvalid;
   }
   std::unique_ptr<cJSON, decltype(&cJSON_Delete)> root(
       cJSON_Parse(json_text), &cJSON_Delete);
   if (root == nullptr || !cJSON_IsObject(root.get())) {
-    return false;
+    return ManifestParseResult::kInvalid;
   }
   const cJSON* manifest_version =
       cJSON_GetObjectItemCaseSensitive(root.get(), "manifest_version");
+  const cJSON* release_time =
+      cJSON_GetObjectItemCaseSensitive(root.get(), "release_time");
+  const cJSON* release_channel =
+      cJSON_GetObjectItemCaseSensitive(root.get(), "channel");
   const cJSON* main =
       cJSON_GetObjectItemCaseSensitive(root.get(), "esp32p4");
   const cJSON* wireless =
@@ -640,13 +776,34 @@ bool ParseManifest(
   // 当前固定清单文件名永久属于版本 1；附加字段应被旧程序安全忽略。
   // 如果新字段会改变安装语义，必须启用新的清单文件名。
   if (!cJSON_IsNumber(manifest_version) ||
-      manifest_version->valueint != kSupportedManifestVersion ||
-      manifest_version->valuedouble != kSupportedManifestVersion ||
-      !cJSON_IsObject(main) || !cJSON_IsObject(wireless)) {
-    return false;
+      manifest_version->valuedouble != manifest_version->valueint) {
+    return ManifestParseResult::kInvalid;
+  }
+  if (manifest_version->valueint != kSupportedManifestVersion) {
+    return ManifestParseResult::kUnsupportedVersion;
+  }
+  if (!cJSON_IsObject(main) || !cJSON_IsObject(wireless)) {
+    return ManifestParseResult::kInvalid;
+  }
+  if (release_time != nullptr &&
+      (!cJSON_IsString(release_time) || release_time->valuestring == nullptr ||
+          !IsReleaseTimeText(release_time->valuestring))) {
+    return ManifestParseResult::kInvalid;
   }
 
   FirmwareReleaseManifest parsed;
+  CopyText(parsed.release_channel, sizeof(parsed.release_channel), "stable");
+  if (release_channel != nullptr) {
+    if (!cJSON_IsString(release_channel) ||
+        release_channel->valuestring == nullptr ||
+        !IsReleaseChannelSupported(release_channel->valuestring) ||
+        std::strlen(release_channel->valuestring) >=
+            sizeof(parsed.release_channel)) {
+      return ManifestParseResult::kInvalid;
+    }
+    CopyText(parsed.release_channel, sizeof(parsed.release_channel),
+        release_channel->valuestring);
+  }
   if (!ReadRequiredJsonString(root.get(), "device_id", parsed.device_id,
           sizeof(parsed.device_id)) ||
       !ReadRequiredJsonString(root.get(), "release",
@@ -677,7 +834,11 @@ bool ParseManifest(
           parsed.main_url, kMainReleaseAssetName) ||
       !IsExpectedReleaseAssetUrl(
           parsed.wireless_url, kWirelessReleaseAssetName)) {
-    return false;
+    return ManifestParseResult::kInvalid;
+  }
+  if (release_time != nullptr) {
+    CopyText(parsed.release_time, sizeof(parsed.release_time),
+        release_time->valuestring);
   }
 
   const cJSON* notes =
@@ -691,7 +852,7 @@ bool ParseManifest(
       if (!cJSON_IsString(note) || note->valuestring == nullptr ||
           note->valuestring[0] == '\0' ||
           std::strlen(note->valuestring) >= sizeof(parsed.notes[0])) {
-        return false;
+        return ManifestParseResult::kInvalid;
       }
       CopyText(parsed.notes[parsed.note_count], sizeof(parsed.notes[0]),
           note->valuestring);
@@ -699,7 +860,7 @@ bool ParseManifest(
     }
   }
   *manifest = parsed;
-  return true;
+  return ManifestParseResult::kSuccess;
 }
 
 /**
@@ -734,13 +895,15 @@ bool SaveManifest(const char* json_text) {
 }
 
 /**
- * @brief 从 LittleFS 读取上次更新保存的清单
+ * @brief 从 LittleFS 指定路径读取并解析固件清单
+ * @param path 固件清单路径
  * @param manifest 清单解析结果
  * @return 读取并解析成功返回 true，否则返回 false
  */
-bool LoadSavedManifest(FirmwareReleaseManifest* manifest) {
+bool LoadManifestFile(
+    const char* path, FirmwareReleaseManifest* manifest) {
   std::unique_ptr<FILE, decltype(&std::fclose)> file(
-      std::fopen(kSavedManifestPath, "rb"), &std::fclose);
+      std::fopen(path, "rb"), &std::fclose);
   if (file == nullptr || std::fseek(file.get(), 0, SEEK_END) != 0) {
     return false;
   }
@@ -757,7 +920,94 @@ bool LoadSavedManifest(FirmwareReleaseManifest* manifest) {
     return false;
   }
   text[static_cast<size_t>(file_size)] = '\0';
-  return ParseManifest(text.get(), manifest);
+  return ParseManifest(text.get(), manifest) ==
+      ManifestParseResult::kSuccess;
+}
+
+/**
+ * @brief 读取最近一次在线检查保存的固件清单
+ * @param manifest 清单解析结果
+ * @return 读取并解析成功返回 true，否则返回 false
+ */
+bool LoadSavedManifest(FirmwareReleaseManifest* manifest) {
+  return LoadManifestFile(kSavedManifestPath, manifest);
+}
+
+/**
+ * @brief 读取当前已安装版本对应的固件清单
+ * @param manifest 清单解析结果
+ * @return 读取并解析成功返回 true，否则返回 false
+ */
+bool LoadInstalledManifest(FirmwareReleaseManifest* manifest) {
+  return LoadManifestFile(kInstalledManifestPath, manifest);
+}
+
+/**
+ * @brief 将最近一次检查清单保存为当前已安装版本记录
+ * @return 原子复制成功返回 true，否则返回 false
+ */
+bool SaveInstalledManifest() {
+  if (!EnsureOtaDirectory()) {
+    return false;
+  }
+  std::unique_ptr<FILE, decltype(&std::fclose)> source(
+      std::fopen(kSavedManifestPath, "rb"), &std::fclose);
+  std::remove(kInstalledManifestTempPath);
+  std::unique_ptr<FILE, decltype(&std::fclose)> destination(
+      std::fopen(kInstalledManifestTempPath, "wb"), &std::fclose);
+  if (source == nullptr || destination == nullptr) {
+    std::remove(kInstalledManifestTempPath);
+    return false;
+  }
+  uint8_t buffer[1024] = {};
+  bool copied = true;
+  while (copied) {
+    const size_t size = std::fread(buffer, 1, sizeof(buffer), source.get());
+    if (size > 0 &&
+        std::fwrite(buffer, 1, size, destination.get()) != size) {
+      copied = false;
+      break;
+    }
+    if (size < sizeof(buffer)) {
+      copied = std::feof(source.get()) != 0;
+      break;
+    }
+  }
+  copied = copied && std::fflush(destination.get()) == 0;
+  source.reset();
+  destination.reset();
+  if (!copied) {
+    std::remove(kInstalledManifestTempPath);
+    return false;
+  }
+  std::remove(kInstalledManifestPath);
+  if (std::rename(
+          kInstalledManifestTempPath, kInstalledManifestPath) != 0) {
+    std::remove(kInstalledManifestTempPath);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * @brief 在线检查覆盖缓存前保留当前已安装版本的日志
+ */
+void PreserveInstalledManifestBeforeCheck() {
+  FirmwareReleaseManifest saved_manifest;
+  char main_current[32] = {};
+  char wireless_current[32] = {};
+  if (!LoadSavedManifest(&saved_manifest) ||
+      !ReadCurrentMainVersion(main_current, sizeof(main_current)) ||
+      !ReadCurrentWirelessVersion(
+          wireless_current, sizeof(wireless_current)) ||
+      std::strcmp(saved_manifest.main_version, main_current) != 0 ||
+      std::strcmp(saved_manifest.wireless_version, wireless_current) != 0) {
+    return;
+  }
+  if (!SaveInstalledManifest()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Preserve installed firmware release notes failed\n");
+  }
 }
 
 /**
@@ -842,8 +1092,14 @@ bool DownloadManifest(FirmwareReleaseManifest* manifest) {
     }
     return false;
   }
-  if (!ParseManifest(buffer.get(), manifest)) {
-    SetFailure("Update information invalid");
+  const ManifestParseResult parse_result =
+      ParseManifest(buffer.get(), manifest);
+  if (parse_result != ManifestParseResult::kSuccess) {
+    if (parse_result == ManifestParseResult::kUnsupportedVersion) {
+      SetFailure("Manual firmware update required", true);
+    } else {
+      SetFailure("Update information invalid");
+    }
     return false;
   }
   if (std::strcmp(manifest->device_id, kCurrentDeviceId) != 0) {
@@ -887,7 +1143,8 @@ void FormatFirmwareSize(size_t size_bytes, char* destination,
  * @return 当前版本可比较并成功刷新状态返回 true，否则返回 false
  */
 bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
-    const char* main_current, const char* wireless_current) {
+    const char* main_current, const char* wireless_current,
+    bool save_as_installed = false) {
   bool main_version_valid = false;
   bool wireless_version_valid = false;
   const bool main_update_available = IsVersionUpgrade(
@@ -900,9 +1157,24 @@ bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
   }
   const bool update_available =
       main_update_available || wireless_update_available;
-  // 固件卡片显示完整目标包大小，实际下载组件仍由版本比较结果决定。
   const size_t package_size_bytes =
-      manifest.main_size_bytes + manifest.wireless_size_bytes;
+      (main_update_available ? manifest.main_size_bytes : 0) +
+      (wireless_update_available ? manifest.wireless_size_bytes : 0);
+  FirmwareReleaseManifest installed_manifest;
+  bool installed_manifest_valid = false;
+  if (!update_available) {
+    installed_manifest = manifest;
+    installed_manifest_valid = true;
+    if (save_as_installed && !SaveInstalledManifest()) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Save installed firmware release notes failed\n");
+    }
+  } else if (LoadInstalledManifest(&installed_manifest) &&
+             std::strcmp(installed_manifest.main_version, main_current) == 0 &&
+             std::strcmp(
+                 installed_manifest.wireless_version, wireless_current) == 0) {
+    installed_manifest_valid = true;
+  }
   if (!LockManager()) {
     return false;
   }
@@ -910,11 +1182,51 @@ bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
   g_manager.manifest_valid = true;
   g_manager.snapshot.manifest_available = true;
   g_manager.snapshot.update_available = update_available;
+  g_manager.snapshot.main_update_available = main_update_available;
+  g_manager.snapshot.wireless_update_available =
+      wireless_update_available;
   g_manager.snapshot.progress_percent = 0;
   CopyText(g_manager.snapshot.release_version,
       sizeof(g_manager.snapshot.release_version), manifest.release_version);
+  CopyText(g_manager.snapshot.release_channel,
+      sizeof(g_manager.snapshot.release_channel), manifest.release_channel);
+  CopyText(g_manager.snapshot.release_time,
+      sizeof(g_manager.snapshot.release_time), manifest.release_time);
+  if (installed_manifest_valid) {
+    CopyText(g_manager.snapshot.current_release_version,
+        sizeof(g_manager.snapshot.current_release_version),
+        installed_manifest.release_version);
+    CopyText(g_manager.snapshot.current_release_channel,
+        sizeof(g_manager.snapshot.current_release_channel),
+        installed_manifest.release_channel);
+    CopyText(g_manager.snapshot.current_release_time,
+        sizeof(g_manager.snapshot.current_release_time),
+        installed_manifest.release_time);
+  } else {
+    CopyReleaseVersion(g_manager.snapshot.current_release_version,
+        sizeof(g_manager.snapshot.current_release_version), main_current);
+    CopyText(g_manager.snapshot.current_release_channel,
+        sizeof(g_manager.snapshot.current_release_channel), "stable");
+    g_manager.snapshot.current_release_time[0] = '\0';
+  }
   FormatFirmwareSize(package_size_bytes, g_manager.snapshot.package_size,
       sizeof(g_manager.snapshot.package_size));
+  FormatFirmwareSize(manifest.main_size_bytes, g_manager.snapshot.main_size,
+      sizeof(g_manager.snapshot.main_size));
+  FormatFirmwareSize(manifest.wireless_size_bytes,
+      g_manager.snapshot.wireless_size,
+      sizeof(g_manager.snapshot.wireless_size));
+  if (installed_manifest_valid) {
+    FormatFirmwareSize(installed_manifest.main_size_bytes,
+        g_manager.snapshot.current_main_size,
+        sizeof(g_manager.snapshot.current_main_size));
+    FormatFirmwareSize(installed_manifest.wireless_size_bytes,
+        g_manager.snapshot.current_wireless_size,
+        sizeof(g_manager.snapshot.current_wireless_size));
+  } else {
+    g_manager.snapshot.current_main_size[0] = '\0';
+    g_manager.snapshot.current_wireless_size[0] = '\0';
+  }
   CopyText(g_manager.snapshot.main_current_version,
       sizeof(g_manager.snapshot.main_current_version), main_current);
   CopyText(g_manager.snapshot.main_target_version,
@@ -928,14 +1240,44 @@ bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
   for (size_t index = 0; index < kFirmwareUpdateNoteCapacity; ++index) {
     CopyText(g_manager.snapshot.notes[index],
         sizeof(g_manager.snapshot.notes[index]), manifest.notes[index]);
+    CopyText(g_manager.snapshot.current_notes[index],
+        sizeof(g_manager.snapshot.current_notes[index]),
+        installed_manifest_valid ? installed_manifest.notes[index] : "");
   }
+  g_manager.snapshot.current_note_count = installed_manifest_valid
+      ? installed_manifest.note_count
+      : 0;
   g_manager.snapshot.stage = update_available
       ? FirmwareUpdateStage::kUpdateAvailable
       : FirmwareUpdateStage::kUpToDate;
   g_manager.snapshot.busy = false;
+  g_manager.snapshot.manual_update_required = false;
   CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
       update_available ? "New version available" : "Firmware is up to date");
   UnlockManager();
+  return true;
+}
+
+/**
+ * @brief 在线检查失败时恢复本地已安装版本及日志
+ * @param failure_message 页面显示的检查失败原因
+ * @return 本地记录与当前固件一致并恢复成功返回 true，否则返回 false
+ */
+bool ApplyInstalledManifestFallback(const char* failure_message) {
+  FirmwareReleaseManifest installed_manifest;
+  char main_current[32] = {};
+  char wireless_current[32] = {};
+  if (!LoadInstalledManifest(&installed_manifest) ||
+      !ReadCurrentMainVersion(main_current, sizeof(main_current)) ||
+      !ReadCurrentWirelessVersion(
+          wireless_current, sizeof(wireless_current)) ||
+      std::strcmp(installed_manifest.main_version, main_current) != 0 ||
+      std::strcmp(installed_manifest.wireless_version, wireless_current) != 0 ||
+      !ApplyManifestSnapshot(
+          installed_manifest, main_current, wireless_current)) {
+    return false;
+  }
+  SetFailure(failure_message);
   return true;
 }
 
@@ -956,12 +1298,28 @@ void ApplyPendingManifestSnapshot(
   g_manager.snapshot.update_available = true;
   CopyText(g_manager.snapshot.release_version,
       sizeof(g_manager.snapshot.release_version), manifest.release_version);
+  CopyText(g_manager.snapshot.release_channel,
+      sizeof(g_manager.snapshot.release_channel), manifest.release_channel);
+  CopyText(g_manager.snapshot.release_time,
+      sizeof(g_manager.snapshot.release_time), manifest.release_time);
   const size_t maximum_pending_size =
       manifest.main_size_bytes + manifest.wireless_size_bytes;
   FormatFirmwareSize(maximum_pending_size, g_manager.snapshot.package_size,
       sizeof(g_manager.snapshot.package_size));
+  FormatFirmwareSize(manifest.main_size_bytes, g_manager.snapshot.main_size,
+      sizeof(g_manager.snapshot.main_size));
+  FormatFirmwareSize(manifest.wireless_size_bytes,
+      g_manager.snapshot.wireless_size,
+      sizeof(g_manager.snapshot.wireless_size));
   CopyText(g_manager.snapshot.main_current_version,
       sizeof(g_manager.snapshot.main_current_version), main_current);
+  CopyReleaseVersion(g_manager.snapshot.current_release_version,
+      sizeof(g_manager.snapshot.current_release_version), main_current);
+  CopyText(g_manager.snapshot.current_release_channel,
+      sizeof(g_manager.snapshot.current_release_channel), "stable");
+  g_manager.snapshot.current_release_time[0] = '\0';
+  g_manager.snapshot.current_main_size[0] = '\0';
+  g_manager.snapshot.current_wireless_size[0] = '\0';
   CopyText(g_manager.snapshot.main_target_version,
       sizeof(g_manager.snapshot.main_target_version), manifest.main_version);
   CopyText(g_manager.snapshot.wireless_target_version,
@@ -1218,6 +1576,15 @@ esp_err_t WirelessDownloadEventHandler(esp_http_client_event_t* event) {
     return ESP_ERR_INVALID_ARG;
   }
   auto* context = static_cast<FirmwareDownloadContext*>(event->user_data);
+  const TransferRequest request = ReadTransferRequest();
+  if (request == TransferRequest::kCancel) {
+    context->cancel_requested = true;
+    return ESP_FAIL;
+  }
+  if (request == TransferRequest::kPause) {
+    context->pause_requested = true;
+    return ESP_FAIL;
+  }
   if (ElapsedMilliseconds(context->started_tick) >=
       kFirmwareDownloadTimeoutMs) {
     context->timed_out = true;
@@ -1256,17 +1623,18 @@ esp_err_t WirelessDownloadEventHandler(esp_http_client_event_t* event) {
  * @param manifest 已验证的固件清单
  * @return 下载文件有效并安装成功返回 true，否则返回 false
  */
-bool DownloadWirelessFirmware(const FirmwareReleaseManifest& manifest) {
+FirmwareDownloadResult DownloadWirelessFirmware(
+    const FirmwareReleaseManifest& manifest) {
   if (!EnsureOtaDirectory()) {
     SetFailure("LittleFS storage unavailable");
-    return false;
+    return FirmwareDownloadResult::kFailed;
   }
   std::remove(kWirelessFirmwareTempPath);
   std::unique_ptr<FILE, decltype(&std::fclose)> output(
       std::fopen(kWirelessFirmwareTempPath, "wb"), &std::fclose);
   if (output == nullptr) {
     SetFailure("Cannot create C6 firmware file");
-    return false;
+    return FirmwareDownloadResult::kFailed;
   }
   FirmwareDownloadContext context;
   context.file = output.get();
@@ -1287,7 +1655,7 @@ bool DownloadWirelessFirmware(const FirmwareReleaseManifest& manifest) {
     output.reset();
     std::remove(kWirelessFirmwareTempPath);
     SetFailure("Cannot start C6 download");
-    return false;
+    return FirmwareDownloadResult::kFailed;
   }
   const esp_err_t result = esp_http_client_perform(client);
   const int status_code = esp_http_client_get_status_code(client);
@@ -1297,6 +1665,15 @@ bool DownloadWirelessFirmware(const FirmwareReleaseManifest& manifest) {
   }
   output.reset();
   esp_http_client_cleanup(client);
+  const TransferRequest final_request = ReadTransferRequest();
+  if (context.cancel_requested || context.pause_requested ||
+      final_request != TransferRequest::kNone) {
+    std::remove(kWirelessFirmwareTempPath);
+    const bool cancelled = context.cancel_requested ||
+                           final_request == TransferRequest::kCancel;
+    return cancelled ? FirmwareDownloadResult::kCancelled
+                     : FirmwareDownloadResult::kPaused;
+  }
   const bool complete_length = content_length <= 0 ||
       context.downloaded_size == static_cast<size_t>(content_length);
   FirmwareImageInfo image_info;
@@ -1316,15 +1693,15 @@ bool DownloadWirelessFirmware(const FirmwareReleaseManifest& manifest) {
     } else {
       SetFailure("Downloaded C6 firmware invalid");
     }
-    return false;
+    return FirmwareDownloadResult::kFailed;
   }
   std::remove(kWirelessFirmwarePath);
   if (std::rename(kWirelessFirmwareTempPath, kWirelessFirmwarePath) != 0) {
     std::remove(kWirelessFirmwareTempPath);
     SetFailure("Cannot save C6 firmware file");
-    return false;
+    return FirmwareDownloadResult::kFailed;
   }
-  return true;
+  return FirmwareDownloadResult::kCompleted;
 }
 
 /**
@@ -1382,6 +1759,113 @@ bool ClearPendingUpdate() {
 void CleanupWirelessFiles() {
   std::remove(kWirelessFirmwareTempPath);
   std::remove(kWirelessFirmwarePath);
+}
+
+bool RestoreRunningBootPartition() {
+  const esp_partition_t* running_partition =
+      esp_ota_get_running_partition();
+  return running_partition != nullptr &&
+         esp_ota_set_boot_partition(running_partition) == ESP_OK;
+}
+
+bool CancelPreparedFirmware(bool finish_worker = false);
+
+void SetDownloadPaused() {
+  const bool marker_cleared = ClearPendingUpdate();
+  if (!LockManager()) {
+    return;
+  }
+  if (g_manager.cancel_requested) {
+    UnlockManager();
+    CancelPreparedFirmware(true);
+    return;
+  }
+  g_manager.pause_requested = false;
+  g_manager.cancel_requested = false;
+  g_manager.worker_running = false;
+  g_manager.snapshot.stage = marker_cleared
+      ? FirmwareUpdateStage::kPaused
+      : FirmwareUpdateStage::kFailed;
+  g_manager.snapshot.busy = false;
+  CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+      marker_cleared ? "Download paused"
+                     : "Cannot pause firmware update safely");
+  UnlockManager();
+  if (!marker_cleared) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Firmware update pause marker cleanup failed\n");
+  }
+}
+
+bool CancelPreparedFirmware(bool finish_worker) {
+  const bool boot_restored = RestoreRunningBootPartition();
+  const bool marker_cleared = ClearPendingUpdate();
+  CleanupWirelessFiles();
+  if (!LockManager()) {
+    return false;
+  }
+  g_manager.pause_requested = false;
+  g_manager.cancel_requested = false;
+  if (finish_worker) {
+    g_manager.worker_running = false;
+  }
+  const bool cancelled = boot_restored && marker_cleared;
+  g_manager.snapshot.stage = cancelled
+      ? FirmwareUpdateStage::kUpdateAvailable
+      : FirmwareUpdateStage::kFailed;
+  g_manager.snapshot.busy = false;
+  g_manager.snapshot.progress_percent = 0;
+  CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+      cancelled ? "Update cancelled"
+                : "Cannot restore current firmware safely");
+  UnlockManager();
+  if (!cancelled) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Firmware update cancellation cleanup failed\n");
+  }
+  return cancelled;
+}
+
+void FinishPreparedDownload() {
+  if (!ClearPendingUpdate()) {
+    if (!LockManager()) {
+      return;
+    }
+    g_manager.pause_requested = false;
+    g_manager.cancel_requested = false;
+    g_manager.worker_running = false;
+    g_manager.snapshot.stage = FirmwareUpdateStage::kFailed;
+    g_manager.snapshot.busy = false;
+    CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+        "Cannot finalize firmware download safely");
+    UnlockManager();
+    return;
+  }
+  if (!LockManager()) {
+    return;
+  }
+  const TransferRequest request = g_manager.cancel_requested
+      ? TransferRequest::kCancel
+      : g_manager.pause_requested ? TransferRequest::kPause
+                                  : TransferRequest::kNone;
+  if (request == TransferRequest::kNone) {
+    g_manager.pause_requested = false;
+    g_manager.cancel_requested = false;
+    g_manager.worker_running = false;
+    g_manager.snapshot.stage = FirmwareUpdateStage::kReadyToInstall;
+    g_manager.snapshot.busy = false;
+    g_manager.snapshot.progress_percent = 100;
+    CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+        "Ready to install and restart");
+    UnlockManager();
+    return;
+  }
+  UnlockManager();
+  if (request == TransferRequest::kCancel) {
+    CancelPreparedFirmware(true);
+  } else {
+    SetDownloadPaused();
+  }
 }
 
 /**
@@ -1520,7 +2004,8 @@ bool ValidateMainFirmwareImage(const esp_app_desc_t& new_app,
  * @return 更新结果
  */
 MainUpdateResult UpdateMainFirmware(
-    const FirmwareReleaseManifest& manifest, bool keep_marker_on_failure) {
+    const FirmwareReleaseManifest& manifest, bool keep_marker_on_failure,
+    bool activate_when_ready) {
   char current_version[32] = {};
   if (!ReadCurrentMainVersion(current_version, sizeof(current_version))) {
     SetFailure("Cannot read P4 firmware version");
@@ -1536,7 +2021,7 @@ MainUpdateResult UpdateMainFirmware(
   if (!update_required) {
     return MainUpdateResult::kNotRequired;
   }
-  if (!SetPendingUpdate()) {
+  if (activate_when_ready && !SetPendingUpdate()) {
     SetFailure("Cannot save P4 update state");
     return MainUpdateResult::kFailed;
   }
@@ -1584,7 +2069,13 @@ MainUpdateResult UpdateMainFirmware(
   }
   const TickType_t download_started_tick = xTaskGetTickCount();
   bool download_timed_out = false;
+  TransferRequest interrupted_by = TransferRequest::kNone;
   do {
+    interrupted_by = ReadTransferRequest();
+    if (interrupted_by != TransferRequest::kNone) {
+      result = ESP_FAIL;
+      break;
+    }
     if (ElapsedMilliseconds(download_started_tick) >=
         kFirmwareDownloadTimeoutMs) {
       download_timed_out = true;
@@ -1605,6 +2096,13 @@ MainUpdateResult UpdateMainFirmware(
     SetStage(FirmwareUpdateStage::kDownloadingMain,
         "Downloading ESP32-P4 firmware", progress);
   } while (result == ESP_ERR_HTTPS_OTA_IN_PROGRESS);
+  if (interrupted_by != TransferRequest::kNone) {
+    esp_https_ota_abort(ota_handle);
+    ClearPendingUpdate();
+    return interrupted_by == TransferRequest::kCancel
+        ? MainUpdateResult::kCancelled
+        : MainUpdateResult::kPaused;
+  }
   if (result != ESP_OK ||
       !esp_https_ota_is_complete_data_received(ota_handle)) {
     esp_https_ota_abort(ota_handle);
@@ -1630,6 +2128,14 @@ MainUpdateResult UpdateMainFirmware(
     SetFailure("Downloaded P4 firmware size mismatch");
     return MainUpdateResult::kFailed;
   }
+  interrupted_by = ReadTransferRequest();
+  if (interrupted_by != TransferRequest::kNone) {
+    esp_https_ota_abort(ota_handle);
+    ClearPendingUpdate();
+    return interrupted_by == TransferRequest::kCancel
+        ? MainUpdateResult::kCancelled
+        : MainUpdateResult::kPaused;
+  }
   result = esp_https_ota_finish(ota_handle);
   if (result != ESP_OK) {
     if (!keep_marker_on_failure) {
@@ -1653,6 +2159,20 @@ MainUpdateResult UpdateMainFirmware(
                              : "Cannot restore P4 boot partition");
     return MainUpdateResult::kFailed;
   }
+  if (!activate_when_ready) {
+    const esp_partition_t* running_partition =
+        esp_ota_get_running_partition();
+    if (running_partition == nullptr ||
+        esp_ota_set_boot_partition(running_partition) != ESP_OK) {
+      SetFailure("Cannot defer P4 firmware installation");
+      return MainUpdateResult::kFailed;
+    }
+    ClearPendingUpdate();
+    if (ReadTransferRequest() == TransferRequest::kCancel) {
+      return MainUpdateResult::kCancelled;
+    }
+    return MainUpdateResult::kPrepared;
+  }
   SetStage(FirmwareUpdateStage::kRestarting,
       "Restarting into the new firmware", 100);
   vTaskDelay(pdMS_TO_TICKS(kRestartDelayMs));
@@ -1666,8 +2186,11 @@ MainUpdateResult UpdateMainFirmware(
  */
 void CheckTask(void* context) {
   static_cast<void>(context);
+  PreserveInstalledManifestBeforeCheck();
   if (!IsNetworkReady()) {
-    SetFailure("Wi-Fi is not connected");
+    if (!ApplyInstalledManifestFallback("Wi-Fi is not connected")) {
+      SetFailure("Wi-Fi is not connected");
+    }
     FinishWorker();
     vTaskDelete(nullptr);
     return;
@@ -1678,6 +2201,16 @@ void CheckTask(void* context) {
   char main_current[32] = {};
   char wireless_current[32] = {};
   if (!DownloadManifest(&manifest)) {
+    bool manual_update_required = false;
+    if (LockManager()) {
+      manual_update_required =
+          g_manager.snapshot.manual_update_required;
+      UnlockManager();
+    }
+    if (!manual_update_required) {
+      ApplyInstalledManifestFallback(
+          "Unable to check updates; showing installed version");
+    }
     FinishWorker();
     vTaskDelete(nullptr);
     return;
@@ -1687,7 +2220,8 @@ void CheckTask(void* context) {
           wireless_current, sizeof(wireless_current))) {
     SetFailure("Installed versions unavailable");
   } else {
-    ApplyManifestSnapshot(manifest, main_current, wireless_current);
+    ApplyManifestSnapshot(
+        manifest, main_current, wireless_current, true);
   }
   FinishWorker();
   vTaskDelete(nullptr);
@@ -1704,7 +2238,6 @@ void UpdateTask(void* context) {
     manifest = g_manager.manifest;
     UnlockManager();
   }
-  const bool keep_marker_on_failure = HasPendingUpdate();
   if (!IsNetworkReady()) {
     SetFailure("Wi-Fi is not connected");
     FinishWorker();
@@ -1734,36 +2267,124 @@ void UpdateTask(void* context) {
     return;
   }
 
-  // C6 镜像必须在切换任何固件前完整落盘，后续步骤不再依赖网络下载它。
-  if (wireless_update_required) {
-    if (!DownloadWirelessFirmware(manifest)) {
-      FinishWorker();
+  // C6 镜像先完整落盘；暂停后恢复时可以直接复用已验证的文件。
+  if (wireless_update_required &&
+      !InspectWirelessFirmware(kWirelessFirmwarePath, manifest, nullptr)) {
+    const FirmwareDownloadResult wireless_result =
+        DownloadWirelessFirmware(manifest);
+    if (wireless_result != FirmwareDownloadResult::kCompleted) {
+      if (wireless_result == FirmwareDownloadResult::kPaused) {
+        SetDownloadPaused();
+      } else if (wireless_result == FirmwareDownloadResult::kCancelled) {
+        CancelPreparedFirmware(true);
+      } else {
+        FinishWorker();
+      }
       vTaskDelete(nullptr);
       return;
     }
   }
-  // 组合更新先更新 P4，避免新 C6 让旧 P4 永久失去联网下载能力。
+  // P4 镜像写入备用分区并校验，但确认安装前恢复当前启动分区。
   if (main_update_required) {
     const MainUpdateResult main_result =
-        UpdateMainFirmware(manifest, keep_marker_on_failure);
-    if (main_result != MainUpdateResult::kNotRequired) {
+        UpdateMainFirmware(manifest, false, false);
+    if (main_result == MainUpdateResult::kPaused) {
+      SetDownloadPaused();
+    } else if (main_result == MainUpdateResult::kCancelled) {
+      CancelPreparedFirmware(true);
+    }
+    if (main_result != MainUpdateResult::kNotRequired &&
+        main_result != MainUpdateResult::kPrepared) {
+      if (main_result != MainUpdateResult::kPaused &&
+          main_result != MainUpdateResult::kCancelled) {
+        FinishWorker();
+      }
+      vTaskDelete(nullptr);
+      return;
+    }
+  }
+  FinishPreparedDownload();
+  vTaskDelete(nullptr);
+}
+
+void InstallTask(void* context) {
+  static_cast<void>(context);
+  FirmwareReleaseManifest manifest;
+  if (LockManager()) {
+    manifest = g_manager.manifest;
+    UnlockManager();
+  }
+  char main_current[32] = {};
+  char wireless_current[32] = {};
+  if (!ReadCurrentMainVersion(main_current, sizeof(main_current)) ||
+      !ReadCurrentWirelessVersion(
+          wireless_current, sizeof(wireless_current))) {
+    SetFailure("Installed versions unavailable");
+    FinishWorker();
+    vTaskDelete(nullptr);
+    return;
+  }
+  bool main_version_valid = false;
+  bool wireless_version_valid = false;
+  const bool main_update_required = IsVersionUpgrade(main_current,
+      manifest.main_version, &main_version_valid);
+  const bool wireless_update_required = IsVersionUpgrade(wireless_current,
+      manifest.wireless_version, &wireless_version_valid);
+  if (!main_version_valid || !wireless_version_valid) {
+    SetFailure("Installed firmware version invalid");
+    FinishWorker();
+    vTaskDelete(nullptr);
+    return;
+  }
+  if (wireless_update_required &&
+      !InspectWirelessFirmware(kWirelessFirmwarePath, manifest, nullptr)) {
+    SetFailure("Prepared C6 firmware is unavailable");
+    FinishWorker();
+    vTaskDelete(nullptr);
+    return;
+  }
+  if (main_update_required) {
+    const esp_partition_t* update_partition =
+        esp_ota_get_next_update_partition(nullptr);
+    esp_app_desc_t staged_app = {};
+    const bool image_valid = update_partition != nullptr &&
+        esp_ota_get_partition_description(
+            update_partition, &staged_app) == ESP_OK &&
+        ValidateMainFirmwareImage(staged_app, manifest) &&
+        VerifyPartitionIntegrity(update_partition,
+            manifest.main_size_bytes, manifest.main_sha256);
+    if (!image_valid || !SetPendingUpdate() ||
+        esp_ota_set_boot_partition(update_partition) != ESP_OK) {
+      ClearPendingUpdate();
+      RestoreRunningBootPartition();
+      SetFailure("Cannot activate prepared P4 firmware");
       FinishWorker();
       vTaskDelete(nullptr);
       return;
     }
+    SetStage(FirmwareUpdateStage::kRestarting,
+        "Restarting into the new firmware", 100);
+    vTaskDelay(pdMS_TO_TICKS(kRestartDelayMs));
+    esp_restart();
+    vTaskDelete(nullptr);
+    return;
   }
   if (wireless_update_required) {
     const WirelessUpdateResult wireless_result =
-        UpdateWirelessFirmware(manifest, keep_marker_on_failure);
+        UpdateWirelessFirmware(manifest, false);
     if (wireless_result != WirelessUpdateResult::kNotRequired) {
       FinishWorker();
       vTaskDelete(nullptr);
       return;
     }
   }
-  ClearPendingUpdate();
-  CleanupWirelessFiles();
-  ApplyManifestSnapshot(manifest, main_current, wireless_current);
+  if (!ClearPendingUpdate()) {
+    SetFailure("Cannot clear completed update state");
+  } else {
+    CleanupWirelessFiles();
+    ApplyManifestSnapshot(
+        manifest, main_current, wireless_current, true);
+  }
   FinishWorker();
   vTaskDelete(nullptr);
 }
@@ -1817,6 +2438,14 @@ void ResumeTask(void* context) {
     vTaskDelete(nullptr);
     return;
   }
+  if (LockManager()) {
+    g_manager.snapshot.main_update_available = main_update_required;
+    g_manager.snapshot.wireless_update_available =
+        wireless_update_required;
+    g_manager.snapshot.update_available =
+        main_update_required || wireless_update_required;
+    UnlockManager();
+  }
 
   // 如果 C6 仍需更新，必须先确认本地镜像可用，再考虑重启进入新的 P4。
   if (wireless_update_required &&
@@ -1827,8 +2456,16 @@ void ResumeTask(void* context) {
       vTaskDelete(nullptr);
       return;
     }
-    if (!DownloadWirelessFirmware(manifest)) {
-      FinishWorker();
+    const FirmwareDownloadResult wireless_result =
+        DownloadWirelessFirmware(manifest);
+    if (wireless_result != FirmwareDownloadResult::kCompleted) {
+      if (wireless_result == FirmwareDownloadResult::kPaused) {
+        SetDownloadPaused();
+      } else if (wireless_result == FirmwareDownloadResult::kCancelled) {
+        CancelPreparedFirmware(true);
+      } else {
+        FinishWorker();
+      }
       vTaskDelete(nullptr);
       return;
     }
@@ -1840,9 +2477,18 @@ void ResumeTask(void* context) {
       vTaskDelete(nullptr);
       return;
     }
-    const MainUpdateResult main_result = UpdateMainFirmware(manifest, true);
+    const MainUpdateResult main_result =
+        UpdateMainFirmware(manifest, true, true);
+    if (main_result == MainUpdateResult::kPaused) {
+      SetDownloadPaused();
+    } else if (main_result == MainUpdateResult::kCancelled) {
+      CancelPreparedFirmware(true);
+    }
     if (main_result != MainUpdateResult::kNotRequired) {
-      FinishWorker();
+      if (main_result != MainUpdateResult::kPaused &&
+          main_result != MainUpdateResult::kCancelled) {
+        FinishWorker();
+      }
       vTaskDelete(nullptr);
       return;
     }
@@ -1858,9 +2504,13 @@ void ResumeTask(void* context) {
       return;
     }
   }
-  ClearPendingUpdate();
-  CleanupWirelessFiles();
-  ApplyManifestSnapshot(manifest, main_current, wireless_current);
+  if (!ClearPendingUpdate()) {
+    SetFailure("Cannot clear completed update state");
+  } else {
+    CleanupWirelessFiles();
+    ApplyManifestSnapshot(
+        manifest, main_current, wireless_current, true);
+  }
   FinishWorker();
   vTaskDelete(nullptr);
 }
@@ -1917,6 +2567,9 @@ bool InitFirmwareUpdateManager(hal::WifiProvider* wifi) {
     CopyText(g_manager.snapshot.main_current_version,
         sizeof(g_manager.snapshot.main_current_version), "unknown");
   }
+  CopyReleaseVersion(g_manager.snapshot.current_release_version,
+      sizeof(g_manager.snapshot.current_release_version),
+      g_manager.snapshot.main_current_version);
   if (!g_manager.snapshot.device_supported) {
     ConfirmRunningMainFirmware();
     return true;
@@ -1935,7 +2588,9 @@ bool RequestFirmwareUpdateCheck() {
     return false;
   }
   if (!g_manager.initialized || g_manager.worker_running ||
-      !g_manager.snapshot.device_supported) {
+      !g_manager.snapshot.device_supported ||
+      g_manager.snapshot.stage == FirmwareUpdateStage::kPaused ||
+      g_manager.snapshot.stage == FirmwareUpdateStage::kReadyToInstall) {
     UnlockManager();
     return false;
   }
@@ -1944,8 +2599,12 @@ bool RequestFirmwareUpdateCheck() {
   g_manager.snapshot.busy = true;
   g_manager.snapshot.manifest_available = false;
   g_manager.snapshot.update_available = false;
+  g_manager.snapshot.main_update_available = false;
+  g_manager.snapshot.wireless_update_available = false;
   g_manager.snapshot.progress_percent = 0;
   g_manager.manifest_valid = false;
+  g_manager.pause_requested = false;
+  g_manager.cancel_requested = false;
   CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
       "Checking for updates");
   UnlockManager();
@@ -1958,17 +2617,102 @@ bool StartFirmwareUpdate() {
   }
   if (!g_manager.initialized || g_manager.worker_running ||
       !g_manager.snapshot.device_supported ||
-      !g_manager.manifest_valid) {
+      !g_manager.manifest_valid ||
+      !g_manager.snapshot.update_available ||
+      (g_manager.snapshot.stage != FirmwareUpdateStage::kUpdateAvailable &&
+          g_manager.snapshot.stage != FirmwareUpdateStage::kFailed)) {
     UnlockManager();
     return false;
   }
   g_manager.worker_running = true;
   g_manager.snapshot.busy = true;
   g_manager.snapshot.progress_percent = 0;
+  g_manager.pause_requested = false;
+  g_manager.cancel_requested = false;
   CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
       "Preparing firmware download");
   UnlockManager();
   return CreateWorker(UpdateTask, "ota_update");
+}
+
+bool PauseFirmwareUpdate() {
+  if (!LockManager()) {
+    return false;
+  }
+  const bool can_pause = g_manager.worker_running &&
+      (g_manager.snapshot.stage == FirmwareUpdateStage::kDownloadingWireless ||
+          g_manager.snapshot.stage == FirmwareUpdateStage::kDownloadingMain);
+  if (can_pause) {
+    g_manager.pause_requested = true;
+    CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+        "Pausing download");
+  }
+  UnlockManager();
+  return can_pause;
+}
+
+bool ResumeFirmwareUpdate() {
+  if (!LockManager()) {
+    return false;
+  }
+  if (!g_manager.initialized || g_manager.worker_running ||
+      !g_manager.manifest_valid ||
+      g_manager.snapshot.stage != FirmwareUpdateStage::kPaused) {
+    UnlockManager();
+    return false;
+  }
+  g_manager.worker_running = true;
+  g_manager.snapshot.busy = true;
+  g_manager.pause_requested = false;
+  g_manager.cancel_requested = false;
+  CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+      "Resuming firmware download");
+  UnlockManager();
+  return CreateWorker(UpdateTask, "ota_resume_download");
+}
+
+bool CancelFirmwareUpdate() {
+  if (!LockManager()) {
+    return false;
+  }
+  const FirmwareUpdateStage stage = g_manager.snapshot.stage;
+  const bool downloading = g_manager.worker_running &&
+      (stage == FirmwareUpdateStage::kDownloadingWireless ||
+          stage == FirmwareUpdateStage::kDownloadingMain);
+  const bool prepared = !g_manager.worker_running &&
+      (stage == FirmwareUpdateStage::kPaused ||
+          stage == FirmwareUpdateStage::kReadyToInstall);
+  if (downloading) {
+    g_manager.cancel_requested = true;
+    g_manager.pause_requested = false;
+    CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+        "Cancelling update");
+  }
+  UnlockManager();
+  if (prepared) {
+    return CancelPreparedFirmware();
+  }
+  return downloading;
+}
+
+bool InstallFirmwareUpdateAndRestart() {
+  if (!LockManager()) {
+    return false;
+  }
+  if (!g_manager.initialized || g_manager.worker_running ||
+      !g_manager.manifest_valid ||
+      g_manager.snapshot.stage != FirmwareUpdateStage::kReadyToInstall) {
+    UnlockManager();
+    return false;
+  }
+  g_manager.worker_running = true;
+  g_manager.snapshot.busy = true;
+  g_manager.pause_requested = false;
+  g_manager.cancel_requested = false;
+  CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+      "Preparing installation");
+  UnlockManager();
+  return CreateWorker(InstallTask, "ota_install");
 }
 
 FirmwareUpdateSnapshot GetFirmwareUpdateSnapshot() {

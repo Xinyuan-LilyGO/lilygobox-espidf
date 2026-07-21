@@ -1,5 +1,5 @@
 {
-  "device_id": "t_display_p4",
+  "device_id": "t-display-p4",
   "repository": "Xinyuan-LilyGO/lilygobox-espidf",
   "manifest_asset_name": "lilygobox-t-display-p4-ota-manifest.json",
   "components": {

@@ -37,7 +37,7 @@ ota_release/
 │  ├─ lilygobox-espidf.bin
 │  └─ network_adapter.bin
 ├─ output/                         由脚本生成并被 Git 忽略
-│  └─ t_display_p4/
+│  └─ t-display-p4/
 │     └─ v1.0.1/
 ├─ .gitignore
 ├─ generate_manifest.py
@@ -54,6 +54,8 @@ ota_release/
 | `manifest_version` | 设备能够识别的 manifest 格式版本 |
 | `device_id` | 目标硬件标识 |
 | `release` | GitHub Release tag，例如 `v1.0.1` |
+| `channel` | 发布频道：`stable`、`beta` 或 `dev`，默认 `stable` |
+| `release_time` | Python 自动生成的发布时间，包含时区并精确到分钟 |
 | `version` | 对应组件的三段式固件版本 |
 | `url` | 组件资产所在的准确 GitHub Release 地址 |
 | `size_bytes` | Python 从二进制文件自动读取的精确大小 |
@@ -69,6 +71,8 @@ cd .\ota_release
 ```
 
 示例全部使用单行命令，可以直接粘贴到 CMD 或 PowerShell 中运行。
+不传 `--channel` 时默认生成稳定版；测试版本可显式使用 `--channel beta`
+或 `--channel dev`。
 
 ### 首次发布
 
@@ -83,7 +87,7 @@ python .\generate_manifest.py --release 1.0.0 --component "esp32p4=1.0.0=.\input
 C6 没有变化时，只需要提供新的 P4 固件和上一版 manifest：
 
 ```bat
-python .\generate_manifest.py --release 1.0.1 --component "esp32p4=1.0.1=.\input\lilygobox-espidf.bin" --previous-manifest ".\output\t_display_p4\v1.0.0\lilygobox-t-display-p4-ota-manifest.json" --note "Updated main firmware"
+python .\generate_manifest.py --release 1.0.1 --component "esp32p4=1.0.1=.\input\lilygobox-espidf.bin" --previous-manifest ".\output\t-display-p4\v1.0.0\lilygobox-t-display-p4-ota-manifest.json" --note "Updated main firmware"
 ```
 
 脚本会继承 C6 的版本、历史 Release 地址、大小和 SHA-256。本次只上传脚本列出的 manifest 与 P4 固件。
@@ -91,7 +95,7 @@ python .\generate_manifest.py --release 1.0.1 --component "esp32p4=1.0.1=.\input
 ### 仅更新 C6
 
 ```bat
-python .\generate_manifest.py --release 1.0.2 --component "esp32c6=2.12.4=.\input\network_adapter.bin" --previous-manifest ".\output\t_display_p4\v1.0.1\lilygobox-t-display-p4-ota-manifest.json" --note "Updated wireless firmware"
+python .\generate_manifest.py --release 1.0.2 --component "esp32c6=2.12.4=.\input\network_adapter.bin" --previous-manifest ".\output\t-display-p4\v1.0.1\lilygobox-t-display-p4-ota-manifest.json" --note "Updated wireless firmware"
 ```
 
 脚本会继承 P4 的信息。本次只上传脚本列出的 manifest 与 C6 固件。
@@ -113,7 +117,7 @@ python .\generate_manifest.py --release 1.0.2 --component "esp32c6=2.12.4=.\inpu
 例如仅更新 P4 的 `v1.0.1` 输出目录为：
 
 ```text
-ota_release/output/t_display_p4/v1.0.1/
+ota_release/output/t-display-p4/v1.0.1/
 ├─ lilygobox-t-display-p4-ota-manifest.json
 └─ lilygobox-t-display-p4-esp32p4.bin
 ```
