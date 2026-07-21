@@ -21,13 +21,18 @@
 namespace lilygo_box::app {
 namespace {
 
-constexpr const char* kNvsNamespace = "settings";
-constexpr const char* kNvsKey = "radio_profiles";
-constexpr uint32_t kMagic = 0x52415046;
+constexpr const char* kRadioProfilesNvsNamespace = "settings";
+constexpr const char* kRadioProfilesNvsKey = "radio_profiles";
+constexpr uint32_t kRadioProfilesMagic = 0x52415046;
+constexpr uint16_t kRadioProfilesSchemaVersion = 1;
 
-struct Blob {
+struct RadioProfilesBlob {
   // 校验当前 NVS 数据是否属于 Radio 配置。
-  uint32_t magic = kMagic;
+  uint32_t magic = kRadioProfilesMagic;
+  // 当前 Radio 配置存储结构版本。
+  uint16_t schema_version = kRadioProfilesSchemaVersion;
+  // 写入 NVS 的完整结构大小。
+  uint16_t struct_size = sizeof(RadioProfilesBlob);
   // Radio 配置列表及唯一激活项。
   RadioPreferences preferences;
 };
@@ -204,13 +209,16 @@ bool RadioPreferencesEqual(
   return true;
 }
 
-bool BlobEqual(const Blob& left, const Blob& right) {
+bool AreRadioProfilesBlobsEqual(
+    const RadioProfilesBlob& left, const RadioProfilesBlob& right) {
   return left.magic == right.magic &&
+      left.schema_version == right.schema_version &&
+      left.struct_size == right.struct_size &&
       RadioPreferencesEqual(left.preferences, right.preferences);
 }
 
-DeferredStorageCache<Blob> g_radio_cache(
-    StorageDomain::kRadioProfiles, BlobEqual);
+DeferredStorageCache<RadioProfilesBlob> g_radio_profiles_cache(
+    StorageDomain::kRadioProfiles, AreRadioProfilesBlobsEqual);
 
 void LogRadioStorageError(const char* operation, esp_err_t error) {
   LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
@@ -221,7 +229,8 @@ void LogRadioStorageError(const char* operation, esp_err_t error) {
 }  // namespace
 
 void InitRadioCache() {
-  auto blob = std::unique_ptr<Blob>(new (std::nothrow) Blob());
+  auto blob = std::unique_ptr<RadioProfilesBlob>(
+      new (std::nothrow) RadioProfilesBlob());
   if (blob == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Allocate Radio profile initialization buffer failed\n");
@@ -230,22 +239,27 @@ void InitRadioCache() {
   ResetPreferences(&blob->preferences);
 
   nvs_handle_t handle = 0;
-  esp_err_t result = nvs_open(kNvsNamespace, NVS_READONLY, &handle);
+  esp_err_t result = nvs_open(
+      kRadioProfilesNvsNamespace, NVS_READONLY, &handle);
   if (result == ESP_OK) {
     size_t size = sizeof(*blob);
-    result = nvs_get_blob(handle, kNvsKey, blob.get(), &size);
+    result = nvs_get_blob(
+        handle, kRadioProfilesNvsKey, blob.get(), &size);
     nvs_close(handle);
-    if (result != ESP_OK || size != sizeof(*blob) ||
-        blob->magic != kMagic) {
-      if (result != ESP_ERR_NVS_NOT_FOUND) {
-        if (result != ESP_OK) {
-          LogRadioStorageError("load", result);
-        } else {
-          LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-              "Radio profile NVS blob is invalid\n");
-        }
+    const bool valid = result == ESP_OK && size == sizeof(*blob) &&
+        blob->magic == kRadioProfilesMagic &&
+        blob->schema_version == kRadioProfilesSchemaVersion &&
+        blob->struct_size == sizeof(RadioProfilesBlob);
+    if (!valid) {
+      if (result == ESP_OK) {
+        LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+            "Radio profile NVS blob is incompatible\n");
+      } else if (result != ESP_ERR_NVS_NOT_FOUND) {
+        LogRadioStorageError("load", result);
       }
-      blob->magic = kMagic;
+      blob->magic = kRadioProfilesMagic;
+      blob->schema_version = kRadioProfilesSchemaVersion;
+      blob->struct_size = sizeof(RadioProfilesBlob);
       ResetPreferences(&blob->preferences);
     } else {
       NormalizePreferences(&blob->preferences);
@@ -254,7 +268,7 @@ void InitRadioCache() {
     LogRadioStorageError("open", result);
   }
 
-  if (!g_radio_cache.Initialize(*blob)) {
+  if (!g_radio_profiles_cache.Initialize(*blob)) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize Radio profile cache failed\n");
   }
@@ -264,8 +278,9 @@ bool GetRadioPreferences(RadioPreferences* preferences) {
   if (preferences == nullptr) {
     return false;
   }
-  auto blob = std::unique_ptr<Blob>(new (std::nothrow) Blob());
-  if (blob == nullptr || !g_radio_cache.Read(blob.get())) {
+  auto blob = std::unique_ptr<RadioProfilesBlob>(
+      new (std::nothrow) RadioProfilesBlob());
+  if (blob == nullptr || !g_radio_profiles_cache.Read(blob.get())) {
     ResetPreferences(preferences);
     return false;
   }
@@ -274,22 +289,24 @@ bool GetRadioPreferences(RadioPreferences* preferences) {
 }
 
 bool UpdateRadioPreferences(const RadioPreferences& preferences) {
-  auto blob = std::unique_ptr<Blob>(new (std::nothrow) Blob());
+  auto blob = std::unique_ptr<RadioProfilesBlob>(
+      new (std::nothrow) RadioProfilesBlob());
   if (blob == nullptr) {
     return false;
   }
   blob->preferences = preferences;
   NormalizePreferences(&blob->preferences);
-  return g_radio_cache.Update(*blob);
+  return g_radio_profiles_cache.Update(*blob);
 }
 
 StorageStageResult StageRadioStorage(nvs_handle_t handle) {
-  const Blob* blob = nullptr;
-  if (!g_radio_cache.BeginFlush(&blob)) {
+  const RadioProfilesBlob* blob = nullptr;
+  if (!g_radio_profiles_cache.BeginFlush(&blob)) {
     return StorageStageResult::kClean;
   }
 
-  const esp_err_t result = nvs_set_blob(handle, kNvsKey, blob, sizeof(*blob));
+  const esp_err_t result = nvs_set_blob(
+      handle, kRadioProfilesNvsKey, blob, sizeof(*blob));
   if (result != ESP_OK) {
     LogRadioStorageError("stage", result);
     return StorageStageResult::kFailed;
@@ -298,7 +315,7 @@ StorageStageResult StageRadioStorage(nvs_handle_t handle) {
 }
 
 void FinishRadioStorage(bool committed) {
-  g_radio_cache.FinishFlush(committed);
+  g_radio_profiles_cache.FinishFlush(committed);
 }
 
 }  // namespace lilygo_box::app

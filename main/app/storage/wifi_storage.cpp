@@ -22,24 +22,34 @@
 namespace lilygo_box::app {
 namespace {
 
-constexpr const char* kNvsNamespace = "settings";
-constexpr const char* kWifiSavedNvsKey = "wifi_saved";
-constexpr const char* kWifiPrefsNvsKey = "wifi_config";
-constexpr uint32_t kWifiSavedMagic = 0x57494649;
-constexpr uint32_t kWifiPrefsMagic = 0x57465052;
+constexpr const char* kWifiNvsNamespace = "settings";
+constexpr const char* kWifiSavedNetworksNvsKey = "wifi_saved";
+constexpr const char* kWifiPreferencesNvsKey = "wifi_config";
+constexpr uint32_t kWifiSavedNetworksMagic = 0x57494649;
+constexpr uint32_t kWifiPreferencesMagic = 0x57465052;
+constexpr uint16_t kWifiSavedNetworksSchemaVersion = 1;
+constexpr uint16_t kWifiPreferencesSchemaVersion = 1;
 
-struct SavedBlob {
+struct WifiSavedNetworksBlob {
   // 校验当前 NVS 数据是否属于已保存 WLAN 凭据。
-  uint32_t magic = kWifiSavedMagic;
+  uint32_t magic = kWifiSavedNetworksMagic;
+  // 当前已保存 WLAN 凭据存储结构版本。
+  uint16_t schema_version = kWifiSavedNetworksSchemaVersion;
+  // 写入 NVS 的完整结构大小。
+  uint16_t struct_size = sizeof(WifiSavedNetworksBlob);
   // networks 数组中的有效条目数量。
   uint32_t count = 0;
   // 用户确认连接后保存的 WLAN 凭据列表。
   WifiSavedNetwork networks[kWifiSavedNetworkCapacity] = {};
 };
 
-struct PrefsBlob {
+struct WifiPreferencesBlob {
   // 校验当前 NVS 数据是否属于 WLAN 用户偏好。
-  uint32_t magic = kWifiPrefsMagic;
+  uint32_t magic = kWifiPreferencesMagic;
+  // 当前 WLAN 用户偏好存储结构版本。
+  uint16_t schema_version = kWifiPreferencesSchemaVersion;
+  // 写入 NVS 的完整结构大小。
+  uint16_t struct_size = sizeof(WifiPreferencesBlob);
   // 用户是否期望启用 WLAN。
   uint8_t enabled_requested = 0;
   // 自动连接目标 SSID，空字符串表示未启用自动连接。
@@ -59,14 +69,18 @@ void CopyBoundedString(char (&destination)[Capacity], const char* source) {
   }
 }
 
-bool EqualPreferencesBlobs(const PrefsBlob& left, const PrefsBlob& right) {
+bool AreWifiPreferencesBlobsEqual(
+    const WifiPreferencesBlob& left,
+    const WifiPreferencesBlob& right) {
   return left.magic == right.magic &&
+      left.schema_version == right.schema_version &&
+      left.struct_size == right.struct_size &&
       left.enabled_requested == right.enabled_requested &&
       std::strcmp(left.auto_connect_ssid,
           right.auto_connect_ssid) == 0;
 }
 
-bool EqualSavedNetworks(
+bool AreWifiSavedNetworksEqual(
     const WifiSavedNetwork& left, const WifiSavedNetwork& right) {
   return std::strcmp(left.ssid, right.ssid) == 0 &&
       std::strcmp(left.password, right.password) == 0 &&
@@ -74,28 +88,36 @@ bool EqualSavedNetworks(
       left.rssi == right.rssi;
 }
 
-bool EqualSavedBlobs(const SavedBlob& left, const SavedBlob& right) {
-  if (left.magic != right.magic || left.count != right.count) {
+bool AreWifiSavedNetworksBlobsEqual(
+    const WifiSavedNetworksBlob& left,
+    const WifiSavedNetworksBlob& right) {
+  if (left.magic != right.magic ||
+      left.schema_version != right.schema_version ||
+      left.struct_size != right.struct_size ||
+      left.count != right.count) {
     return false;
   }
   for (size_t index = 0; index < left.count; ++index) {
-    if (!EqualSavedNetworks(left.networks[index], right.networks[index])) {
+    if (!AreWifiSavedNetworksEqual(
+            left.networks[index], right.networks[index])) {
       return false;
     }
   }
   return true;
 }
 
-PrefsBlob NormalizePreferencesBlob(const PrefsBlob& source) {
-  PrefsBlob normalized = {};
+WifiPreferencesBlob NormalizeWifiPreferencesBlob(
+    const WifiPreferencesBlob& source) {
+  WifiPreferencesBlob normalized = {};
   normalized.enabled_requested = source.enabled_requested == 0 ? 0 : 1;
   CopyBoundedString(
       normalized.auto_connect_ssid, source.auto_connect_ssid);
   return normalized;
 }
 
-PrefsBlob MakePreferencesBlob(const WifiPreferences& preferences) {
-  PrefsBlob blob = {};
+WifiPreferencesBlob MakeWifiPreferencesBlob(
+    const WifiPreferences& preferences) {
+  WifiPreferencesBlob blob = {};
   blob.enabled_requested = preferences.enabled_requested ? 1 : 0;
   CopyBoundedString(
       blob.auto_connect_ssid, preferences.auto_connect_ssid);
@@ -112,12 +134,14 @@ WifiSavedNetwork NormalizeSavedNetwork(const WifiSavedNetwork& source) {
   return normalized;
 }
 
-void MakeSavedBlob(const WifiSavedNetwork* networks, size_t count,
-    SavedBlob* blob) {
+void MakeWifiSavedNetworksBlob(const WifiSavedNetwork* networks, size_t count,
+    WifiSavedNetworksBlob* blob) {
   if (blob == nullptr) {
     return;
   }
-  blob->magic = kWifiSavedMagic;
+  blob->magic = kWifiSavedNetworksMagic;
+  blob->schema_version = kWifiSavedNetworksSchemaVersion;
+  blob->struct_size = sizeof(WifiSavedNetworksBlob);
   blob->count = 0;
   const size_t bounded_count =
       std::min(count, kWifiSavedNetworkCapacity);
@@ -135,7 +159,7 @@ void MakeSavedBlob(const WifiSavedNetwork* networks, size_t count,
   }
 }
 
-void NormalizeSavedBlob(SavedBlob* blob) {
+void NormalizeWifiSavedNetworksBlob(WifiSavedNetworksBlob* blob) {
   if (blob == nullptr) {
     return;
   }
@@ -155,34 +179,39 @@ void NormalizeSavedBlob(SavedBlob* blob) {
        index < kWifiSavedNetworkCapacity; ++index) {
     blob->networks[index] = WifiSavedNetwork();
   }
-  blob->magic = kWifiSavedMagic;
+  blob->magic = kWifiSavedNetworksMagic;
+  blob->schema_version = kWifiSavedNetworksSchemaVersion;
+  blob->struct_size = sizeof(WifiSavedNetworksBlob);
   blob->count = static_cast<uint32_t>(output_count);
 }
 
-DeferredStorageCache<PrefsBlob> g_preferences_cache(
-    StorageDomain::kWifiPreferences, EqualPreferencesBlobs);
-DeferredStorageCache<SavedBlob> g_saved_networks_cache(
-    StorageDomain::kWifiSavedNetworks, EqualSavedBlobs);
-std::atomic<bool> g_preferences_loaded{false};
+DeferredStorageCache<WifiPreferencesBlob> g_wifi_preferences_cache(
+    StorageDomain::kWifiPreferences, AreWifiPreferencesBlobsEqual);
+DeferredStorageCache<WifiSavedNetworksBlob> g_wifi_saved_networks_cache(
+    StorageDomain::kWifiSavedNetworks, AreWifiSavedNetworksBlobsEqual);
+std::atomic<bool> g_wifi_preferences_loaded{false};
 
-void LogNvsError(const char* operation, esp_err_t error) {
+void LogWifiStorageError(const char* operation, esp_err_t error) {
   LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
       "WLAN NVS %s failed, error=%s\n", operation,
       esp_err_to_name(error));
 }
 
-void LoadPreferencesBlob(nvs_handle_t handle, PrefsBlob* preferences,
+void LoadWifiPreferencesBlob(nvs_handle_t handle,
+    WifiPreferencesBlob* preferences,
     bool* loaded) {
   if (preferences == nullptr || loaded == nullptr) {
     return;
   }
-  PrefsBlob stored = {};
+  WifiPreferencesBlob stored = {};
   size_t size = sizeof(stored);
   const esp_err_t result =
-      nvs_get_blob(handle, kWifiPrefsNvsKey, &stored, &size);
+      nvs_get_blob(handle, kWifiPreferencesNvsKey, &stored, &size);
   if (result == ESP_OK && size == sizeof(stored) &&
-      stored.magic == kWifiPrefsMagic) {
-    *preferences = NormalizePreferencesBlob(stored);
+      stored.magic == kWifiPreferencesMagic &&
+      stored.schema_version == kWifiPreferencesSchemaVersion &&
+      stored.struct_size == sizeof(WifiPreferencesBlob)) {
+    *preferences = NormalizeWifiPreferencesBlob(stored);
     *loaded = true;
     return;
   }
@@ -190,32 +219,36 @@ void LoadPreferencesBlob(nvs_handle_t handle, PrefsBlob* preferences,
     return;
   }
   if (result != ESP_OK) {
-    LogNvsError("load preferences", result);
+    LogWifiStorageError("load preferences", result);
   } else {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "WLAN preferences blob is invalid\n");
   }
 }
 
-void LoadSavedBlob(nvs_handle_t handle, SavedBlob* saved_networks) {
+void LoadWifiSavedNetworksBlob(
+    nvs_handle_t handle, WifiSavedNetworksBlob* saved_networks) {
   if (saved_networks == nullptr) {
     return;
   }
-  MakeSavedBlob(nullptr, 0, saved_networks);
+  MakeWifiSavedNetworksBlob(nullptr, 0, saved_networks);
   size_t size = sizeof(*saved_networks);
   const esp_err_t result =
-      nvs_get_blob(handle, kWifiSavedNvsKey, saved_networks, &size);
+      nvs_get_blob(
+          handle, kWifiSavedNetworksNvsKey, saved_networks, &size);
   if (result == ESP_OK && size == sizeof(*saved_networks) &&
-      saved_networks->magic == kWifiSavedMagic) {
-    NormalizeSavedBlob(saved_networks);
+      saved_networks->magic == kWifiSavedNetworksMagic &&
+      saved_networks->schema_version == kWifiSavedNetworksSchemaVersion &&
+      saved_networks->struct_size == sizeof(WifiSavedNetworksBlob)) {
+    NormalizeWifiSavedNetworksBlob(saved_networks);
     return;
   }
-  MakeSavedBlob(nullptr, 0, saved_networks);
+  MakeWifiSavedNetworksBlob(nullptr, 0, saved_networks);
   if (result == ESP_ERR_NVS_NOT_FOUND) {
     return;
   }
   if (result != ESP_OK) {
-    LogNvsError("load saved networks", result);
+    LogWifiStorageError("load saved networks", result);
   } else {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "WLAN saved network blob is invalid\n");
@@ -229,13 +262,13 @@ bool UpdateWifiSavedNetworks(
   if (networks == nullptr && count > 0) {
     return false;
   }
-  auto blob = std::unique_ptr<SavedBlob>(
-      new (std::nothrow) SavedBlob());
+  auto blob = std::unique_ptr<WifiSavedNetworksBlob>(
+      new (std::nothrow) WifiSavedNetworksBlob());
   if (blob == nullptr) {
     return false;
   }
-  MakeSavedBlob(networks, count, blob.get());
-  return g_saved_networks_cache.Update(*blob);
+  MakeWifiSavedNetworksBlob(networks, count, blob.get());
+  return g_wifi_saved_networks_cache.Update(*blob);
 }
 
 bool GetWifiSavedNetworks(
@@ -245,9 +278,9 @@ bool GetWifiSavedNetworks(
   }
   *count = 0;
 
-  auto blob = std::unique_ptr<SavedBlob>(
-      new (std::nothrow) SavedBlob());
-  if (blob == nullptr || !g_saved_networks_cache.Read(blob.get())) {
+  auto blob = std::unique_ptr<WifiSavedNetworksBlob>(
+      new (std::nothrow) WifiSavedNetworksBlob());
+  if (blob == nullptr || !g_wifi_saved_networks_cache.Read(blob.get())) {
     return false;
   }
   const size_t output_count =
@@ -260,9 +293,9 @@ bool GetWifiSavedNetworks(
 }
 
 void InitWifiCache() {
-  PrefsBlob preferences = {};
-  auto saved_networks = std::unique_ptr<SavedBlob>(
-      new (std::nothrow) SavedBlob());
+  WifiPreferencesBlob preferences = {};
+  auto saved_networks = std::unique_ptr<WifiSavedNetworksBlob>(
+      new (std::nothrow) WifiSavedNetworksBlob());
   if (saved_networks == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Allocate WLAN saved network initialization buffer failed\n");
@@ -271,37 +304,37 @@ void InitWifiCache() {
 
   nvs_handle_t handle = 0;
   const esp_err_t open_result =
-      nvs_open(kNvsNamespace, NVS_READONLY, &handle);
+      nvs_open(kWifiNvsNamespace, NVS_READONLY, &handle);
   if (open_result == ESP_OK) {
-    LoadPreferencesBlob(handle, &preferences, &preferences_loaded);
+    LoadWifiPreferencesBlob(handle, &preferences, &preferences_loaded);
     if (saved_networks != nullptr) {
-      LoadSavedBlob(handle, saved_networks.get());
+      LoadWifiSavedNetworksBlob(handle, saved_networks.get());
     }
     nvs_close(handle);
   } else if (open_result != ESP_ERR_NVS_NOT_FOUND) {
-    LogNvsError("open cache", open_result);
+    LogWifiStorageError("open cache", open_result);
   }
 
   if (!preferences_loaded) {
     preferences.magic = 0;
   }
   const bool preferences_initialized =
-      g_preferences_cache.Initialize(preferences);
+      g_wifi_preferences_cache.Initialize(preferences);
   if (!preferences_initialized) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Initialize WLAN preferences cache failed\n");
   }
   if (saved_networks != nullptr &&
-      !g_saved_networks_cache.Initialize(*saved_networks)) {
+      !g_wifi_saved_networks_cache.Initialize(*saved_networks)) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Initialize WLAN saved network cache failed\n");
   }
-  g_preferences_loaded.store(preferences_loaded);
+  g_wifi_preferences_loaded.store(preferences_loaded);
 }
 
 WifiPreferences GetWifiPreferences() {
-  PrefsBlob blob = {};
-  if (!g_preferences_cache.Read(&blob)) {
+  WifiPreferencesBlob blob = {};
+  if (!g_wifi_preferences_cache.Read(&blob)) {
     return WifiPreferences{};
   }
   WifiPreferences preferences;
@@ -312,51 +345,53 @@ WifiPreferences GetWifiPreferences() {
 }
 
 bool HasWifiPreferences() {
-  return g_preferences_loaded.load();
+  return g_wifi_preferences_loaded.load();
 }
 
 bool UpdateWifiPreferences(const WifiPreferences& preferences) {
-  if (!g_preferences_cache.Update(MakePreferencesBlob(preferences))) {
+  if (!g_wifi_preferences_cache.Update(
+          MakeWifiPreferencesBlob(preferences))) {
     return false;
   }
-  g_preferences_loaded.store(true);
+  g_wifi_preferences_loaded.store(true);
   return true;
 }
 
 StorageStageResult StageWifiPreferencesStorage(nvs_handle_t handle) {
-  const PrefsBlob* blob = nullptr;
-  if (!g_preferences_cache.BeginFlush(&blob)) {
+  const WifiPreferencesBlob* blob = nullptr;
+  if (!g_wifi_preferences_cache.BeginFlush(&blob)) {
     return StorageStageResult::kClean;
   }
   const esp_err_t result =
-      nvs_set_blob(handle, kWifiPrefsNvsKey, blob, sizeof(*blob));
+      nvs_set_blob(handle, kWifiPreferencesNvsKey, blob, sizeof(*blob));
   if (result == ESP_OK) {
     return StorageStageResult::kStaged;
   }
-  LogNvsError("stage preferences", result);
+  LogWifiStorageError("stage preferences", result);
   return StorageStageResult::kFailed;
 }
 
 void FinishWifiPreferencesStorage(bool committed) {
-  g_preferences_cache.FinishFlush(committed);
+  g_wifi_preferences_cache.FinishFlush(committed);
 }
 
 StorageStageResult StageWifiSavedNetworksStorage(nvs_handle_t handle) {
-  const SavedBlob* blob = nullptr;
-  if (!g_saved_networks_cache.BeginFlush(&blob)) {
+  const WifiSavedNetworksBlob* blob = nullptr;
+  if (!g_wifi_saved_networks_cache.BeginFlush(&blob)) {
     return StorageStageResult::kClean;
   }
   const esp_err_t result =
-      nvs_set_blob(handle, kWifiSavedNvsKey, blob, sizeof(*blob));
+      nvs_set_blob(
+          handle, kWifiSavedNetworksNvsKey, blob, sizeof(*blob));
   if (result == ESP_OK) {
     return StorageStageResult::kStaged;
   }
-  LogNvsError("stage saved networks", result);
+  LogWifiStorageError("stage saved networks", result);
   return StorageStageResult::kFailed;
 }
 
 void FinishWifiSavedNetworksStorage(bool committed) {
-  g_saved_networks_cache.FinishFlush(committed);
+  g_wifi_saved_networks_cache.FinishFlush(committed);
 }
 
 }  // namespace lilygo_box::app

@@ -21,13 +21,18 @@
 namespace lilygo_box::app {
 namespace {
 
-constexpr const char* kNvsNamespace = "settings";
+constexpr const char* kMusicSourcesNvsNamespace = "settings";
 constexpr const char* kMusicSourcesNvsKey = "music_sources";
 constexpr uint32_t kMusicSourcesMagic = 0x4D555343;
+constexpr uint16_t kMusicSourcesSchemaVersion = 1;
 
 struct MusicSourcesBlob {
   // 校验当前 NVS 数据是否属于音乐源偏好。
   uint32_t magic = kMusicSourcesMagic;
+  // 当前音乐源偏好存储结构版本。
+  uint16_t schema_version = kMusicSourcesSchemaVersion;
+  // 写入 NVS 的完整结构大小。
+  uint16_t struct_size = sizeof(MusicSourcesBlob);
   // 用户配置的音乐源目录快照。
   MusicSourcePreferences preferences;
 };
@@ -47,6 +52,8 @@ void ResetMusicSourcesBlob(MusicSourcesBlob* blob) {
     return;
   }
   blob->magic = kMusicSourcesMagic;
+  blob->schema_version = kMusicSourcesSchemaVersion;
+  blob->struct_size = sizeof(MusicSourcesBlob);
   ResetMusicSourcePreferences(&blob->preferences);
 }
 
@@ -60,19 +67,25 @@ void NormalizePath(char* path) {
       path + kMusicSourcePathCapacity, '\0');
 }
 
-void NormalizeBlob(MusicSourcesBlob* blob) {
+void NormalizeMusicSourcesBlob(MusicSourcesBlob* blob) {
   if (blob == nullptr) {
     return;
   }
   blob->magic = kMusicSourcesMagic;
+  blob->schema_version = kMusicSourcesSchemaVersion;
+  blob->struct_size = sizeof(MusicSourcesBlob);
   for (size_t index = 0; index < kMusicSourceCapacity; ++index) {
     NormalizePath(blob->preferences.paths[index]);
   }
 }
 
-bool MusicSourcesBlobEqual(
+bool AreMusicSourcesBlobsEqual(
     const MusicSourcesBlob& left, const MusicSourcesBlob& right) {
   if (left.magic != right.magic) {
+    return false;
+  }
+  if (left.schema_version != right.schema_version ||
+      left.struct_size != right.struct_size) {
     return false;
   }
   for (size_t index = 0; index < kMusicSourceCapacity; ++index) {
@@ -85,7 +98,7 @@ bool MusicSourcesBlobEqual(
 }
 
 DeferredStorageCache<MusicSourcesBlob> g_music_sources_cache(
-    StorageDomain::kMusicSources, MusicSourcesBlobEqual);
+    StorageDomain::kMusicSources, AreMusicSourcesBlobsEqual);
 
 void LogMusicStorageError(const char* operation, esp_err_t error) {
   LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
@@ -105,21 +118,23 @@ void InitMusicCache() {
   }
 
   nvs_handle_t handle = 0;
-  esp_err_t result = nvs_open(kNvsNamespace, NVS_READONLY, &handle);
+  esp_err_t result = nvs_open(
+      kMusicSourcesNvsNamespace, NVS_READONLY, &handle);
   if (result == ESP_OK) {
     size_t size = sizeof(*blob);
     result = nvs_get_blob(
         handle, kMusicSourcesNvsKey, blob.get(), &size);
     nvs_close(handle);
-    if (result != ESP_OK || size != sizeof(*blob) ||
-        blob->magic != kMusicSourcesMagic) {
-      if (result != ESP_ERR_NVS_NOT_FOUND) {
-        if (result != ESP_OK) {
-          LogMusicStorageError("load", result);
-        } else {
-          LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-              "Music source NVS blob is invalid\n");
-        }
+    const bool valid = result == ESP_OK && size == sizeof(*blob) &&
+        blob->magic == kMusicSourcesMagic &&
+        blob->schema_version == kMusicSourcesSchemaVersion &&
+        blob->struct_size == sizeof(MusicSourcesBlob);
+    if (!valid) {
+      if (result == ESP_OK) {
+        LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+            "Music source NVS blob is incompatible\n");
+      } else if (result != ESP_ERR_NVS_NOT_FOUND) {
+        LogMusicStorageError("load", result);
       }
       ResetMusicSourcesBlob(blob.get());
     }
@@ -127,7 +142,7 @@ void InitMusicCache() {
     LogMusicStorageError("open", result);
   }
 
-  NormalizeBlob(blob.get());
+  NormalizeMusicSourcesBlob(blob.get());
   if (!g_music_sources_cache.Initialize(*blob)) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize music source cache failed\n");
@@ -157,7 +172,7 @@ bool UpdateMusicSourcePreferences(
     return false;
   }
   blob->preferences = preferences;
-  NormalizeBlob(blob.get());
+  NormalizeMusicSourcesBlob(blob.get());
   return g_music_sources_cache.Update(*blob);
 }
 
