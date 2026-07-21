@@ -180,6 +180,7 @@ FirmwareUpdateManagerState g_manager;
 
 enum class WirelessUpdateResult {
   kNotRequired,
+  kCompleted,
   kRestarting,
   kFailed,
 };
@@ -2394,10 +2395,12 @@ bool SupportsWirelessOtaActivate(
  * @brief 将 LittleFS 中的目标固件写入无线协处理器
  * @param manifest 已验证的固件清单
  * @param keep_marker_on_failure 失败时是否保留续跑标记
+ * @param restart_after_success 成功后是否立即重启主处理器
  * @return 更新结果
  */
 WirelessUpdateResult UpdateWirelessFirmware(
-    const FirmwareReleaseManifest& manifest, bool keep_marker_on_failure) {
+    const FirmwareReleaseManifest& manifest, bool keep_marker_on_failure,
+    bool restart_after_success) {
   char current_version[32] = {};
   if (!ReadCurrentWirelessVersion(
           current_version, sizeof(current_version))) {
@@ -2484,6 +2487,9 @@ WirelessUpdateResult UpdateWirelessFirmware(
     }
     SetFailure("Wireless firmware verification failed");
     return WirelessUpdateResult::kFailed;
+  }
+  if (!restart_after_success) {
+    return WirelessUpdateResult::kCompleted;
   }
   SetStage(FirmwareUpdateStage::kRestarting,
       "Restarting to finish the update", 100);
@@ -3011,18 +3017,37 @@ void InstallTask(void* context) {
     vTaskDelete(nullptr);
     return;
   }
+  const esp_partition_t* prepared_main_partition = nullptr;
   if (main_update_required) {
-    const esp_partition_t* update_partition =
+    prepared_main_partition =
         esp_ota_get_next_update_partition(nullptr);
     esp_app_desc_t staged_app = {};
-    const bool image_valid = update_partition != nullptr &&
+    const bool image_valid = prepared_main_partition != nullptr &&
         esp_ota_get_partition_description(
-            update_partition, &staged_app) == ESP_OK &&
+            prepared_main_partition, &staged_app) == ESP_OK &&
         ValidateMainFirmwareImage(staged_app, manifest) &&
-        VerifyPartitionIntegrity(update_partition,
+        VerifyPartitionIntegrity(prepared_main_partition,
             manifest.main_size_bytes, manifest.main_sha256);
-    if (!image_valid || !SetPendingUpdate() ||
-        esp_ota_set_boot_partition(update_partition) != ESP_OK) {
+    if (!image_valid) {
+      SetFailure("Prepared Main firmware is unavailable");
+      FinishWorker();
+      vTaskDelete(nullptr);
+      return;
+    }
+  }
+  if (main_update_required && wireless_update_required) {
+    const WirelessUpdateResult wireless_result = UpdateWirelessFirmware(
+        manifest, false, false);
+    if (wireless_result != WirelessUpdateResult::kCompleted &&
+        wireless_result != WirelessUpdateResult::kNotRequired) {
+      FinishWorker();
+      vTaskDelete(nullptr);
+      return;
+    }
+  }
+  if (main_update_required) {
+    if (!SetPendingUpdate() ||
+        esp_ota_set_boot_partition(prepared_main_partition) != ESP_OK) {
       ClearPendingUpdate();
       RestoreRunningBootPartition();
       SetFailure("Cannot activate prepared Main firmware");
@@ -3039,7 +3064,7 @@ void InstallTask(void* context) {
   }
   if (wireless_update_required) {
     const WirelessUpdateResult wireless_result =
-        UpdateWirelessFirmware(manifest, false);
+        UpdateWirelessFirmware(manifest, false, true);
     if (wireless_result != WirelessUpdateResult::kNotRequired) {
       FinishWorker();
       vTaskDelete(nullptr);
@@ -3172,7 +3197,7 @@ void ResumeTask(void* context) {
   ConfirmRunningMainFirmware();
   if (wireless_update_required) {
     const WirelessUpdateResult wireless_result =
-        UpdateWirelessFirmware(manifest, true);
+        UpdateWirelessFirmware(manifest, true, true);
     if (wireless_result != WirelessUpdateResult::kNotRequired) {
       FinishWorker();
       vTaskDelete(nullptr);
