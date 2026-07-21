@@ -12,9 +12,11 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <dirent.h>
 #include <limits>
 #include <memory>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "app/storage/littlefs_storage.h"
 #include "base/logger.h"
@@ -58,19 +60,26 @@ constexpr char kMainReleaseAssetName[] =
     "lilygobox-t-display-p4-esp32p4.bin";
 constexpr char kWirelessReleaseAssetName[] =
     "lilygobox-t-display-p4-esp32c6.bin";
-constexpr char kOtaDirectory[] = "/littlefs/ota";
-constexpr char kSavedManifestPath[] = "/littlefs/ota/lilygobox-ota.json";
+constexpr char kApplicationDirectory[] = "/littlefs/lilygobox";
+constexpr char kOtaDirectory[] = "/littlefs/lilygobox/ota";
+constexpr char kOtaStagingDirectory[] =
+    "/littlefs/lilygobox/ota/staging";
+constexpr char kCacheDirectory[] = "/littlefs/lilygobox/cache";
+constexpr char kOtaCacheDirectory[] = "/littlefs/lilygobox/cache/ota";
+constexpr char kSavedManifestPath[] =
+    "/littlefs/lilygobox/ota/manifest.json";
 constexpr char kSavedManifestTempPath[] =
-    "/littlefs/ota/lilygobox-ota.json.tmp";
+    "/littlefs/lilygobox/ota/manifest.json.tmp";
 constexpr char kInstalledManifestPath[] =
-    "/littlefs/ota/lilygobox-installed.json";
+    "/littlefs/lilygobox/ota/installed.json";
 constexpr char kInstalledManifestTempPath[] =
-    "/littlefs/ota/lilygobox-installed.json.tmp";
+    "/littlefs/lilygobox/ota/installed.json.tmp";
 constexpr char kWirelessFirmwarePath[] =
-    "/littlefs/ota/lilygobox-esp32c6.bin";
+    "/littlefs/lilygobox/ota/staging/wireless-firmware.bin";
 constexpr char kWirelessFirmwareTempPath[] =
-    "/littlefs/ota/lilygobox-esp32c6.bin.tmp";
-constexpr char kPendingUpdatePath[] = "/littlefs/ota/pending-update";
+    "/littlefs/lilygobox/cache/ota/wireless-firmware.bin.part";
+constexpr char kPendingUpdatePath[] =
+    "/littlefs/lilygobox/ota/pending-update";
 constexpr char kWirelessFirmwareProjectName[] = "network_adapter";
 constexpr esp_chip_id_t kExpectedWirelessChipId = ESP_CHIP_ID_ESP32C6;
 constexpr int kFirmwareHttpTimeoutMs = 15000;
@@ -78,6 +87,7 @@ constexpr int kHttpBufferSize = 4096;
 constexpr size_t kMaximumDownloadUrlLength = 512;
 constexpr size_t kManifestMaximumSize = 8 * 1024;
 constexpr size_t kMaximumFirmwareAssetSize = 64 * 1024 * 1024;
+constexpr size_t kMinimumLittleFsFreeReserve = 256 * 1024;
 constexpr size_t kImageSearchAlignment = 0x1000;
 constexpr size_t kWirelessFirmwareChunkSize = 1500;
 constexpr size_t kHashReadChunkSize = 4096;
@@ -554,18 +564,161 @@ void ConfirmRunningMainFirmware() {
 }
 
 /**
- * @brief 确保 LittleFS 中的 OTA 专用目录存在
+ * @brief 确保指定的 LittleFS 目录存在
+ * @param path 目录绝对路径
  * @return 目录可用返回 true，否则返回 false
  */
-bool EnsureOtaDirectory() {
-  if (!IsLittleFsStorageMounted()) {
+bool EnsureLittleFsDirectory(const char* path) {
+  if (path == nullptr || path[0] == '\0') {
     return false;
   }
-  if (mkdir(kOtaDirectory, 0775) == 0 || errno == EEXIST) {
+  errno = 0;
+  if (mkdir(path, 0775) == 0) {
     return true;
   }
+  if (errno == EEXIST) {
+    struct stat info = {};
+    if (stat(path, &info) == 0 && S_ISDIR(info.st_mode)) {
+      return true;
+    }
+  }
   LogMessage(LogLevel::kError, __FILE__, __LINE__,
-      "Create OTA directory failed: errno=%d\n", errno);
+      "Create LittleFS directory failed: path=%s errno=%d\n", path, errno);
+  return false;
+}
+
+/**
+ * @brief 确保 LilygoBox OTA、暂存和缓存目录均已创建
+ * @return 全部目录可用返回 true，否则返回 false
+ */
+bool EnsureOtaDirectories() {
+  return IsLittleFsStorageMounted() &&
+         EnsureLittleFsDirectory(kApplicationDirectory) &&
+         EnsureLittleFsDirectory(kOtaDirectory) &&
+         EnsureLittleFsDirectory(kOtaStagingDirectory) &&
+         EnsureLittleFsDirectory(kCacheDirectory) &&
+         EnsureLittleFsDirectory(kOtaCacheDirectory);
+}
+
+/**
+ * @brief 删除 OTA 缓存目录中的单个文件或子目录
+ * @param path 缓存目录内部的绝对路径
+ * @param depth 当前子目录深度
+ * @return 删除成功或路径不存在返回 true，否则返回 false
+ */
+bool RemoveOtaCacheEntry(const char* path, size_t depth) {
+  if (path == nullptr || path[0] == '\0' || depth > 4) {
+    return false;
+  }
+  const size_t cache_root_length = std::strlen(kOtaCacheDirectory);
+  if (std::strncmp(path, kOtaCacheDirectory, cache_root_length) != 0 ||
+      path[cache_root_length] != '/') {
+    return false;
+  }
+  struct stat info = {};
+  errno = 0;
+  if (stat(path, &info) != 0) {
+    return errno == ENOENT;
+  }
+  if (!S_ISDIR(info.st_mode)) {
+    errno = 0;
+    return std::remove(path) == 0 || errno == ENOENT;
+  }
+  std::unique_ptr<DIR, decltype(&closedir)> directory(
+      opendir(path), &closedir);
+  if (directory == nullptr) {
+    return false;
+  }
+  bool success = true;
+  while (dirent* entry = readdir(directory.get())) {
+    if (std::strcmp(entry->d_name, ".") == 0 ||
+        std::strcmp(entry->d_name, "..") == 0) {
+      continue;
+    }
+    char child_path[256] = {};
+    const int written = std::snprintf(child_path, sizeof(child_path),
+        "%s/%s", path, entry->d_name);
+    if (written <= 0 ||
+        static_cast<size_t>(written) >= sizeof(child_path) ||
+        !RemoveOtaCacheEntry(child_path, depth + 1)) {
+      success = false;
+    }
+  }
+  directory.reset();
+  errno = 0;
+  return (rmdir(path) == 0 || errno == ENOENT) && success;
+}
+
+/**
+ * @brief 清空 OTA 下载缓存目录中的全部临时文件
+ * @return 缓存为空或清理成功返回 true，否则返回 false
+ */
+bool ClearOtaDownloadCache() {
+  if (!EnsureOtaDirectories()) {
+    return false;
+  }
+  std::unique_ptr<DIR, decltype(&closedir)> directory(
+      opendir(kOtaCacheDirectory), &closedir);
+  if (directory == nullptr) {
+    return false;
+  }
+  bool success = true;
+  while (dirent* entry = readdir(directory.get())) {
+    if (std::strcmp(entry->d_name, ".") == 0 ||
+        std::strcmp(entry->d_name, "..") == 0) {
+      continue;
+    }
+    char path[256] = {};
+    const int written = std::snprintf(path, sizeof(path), "%s/%s",
+        kOtaCacheDirectory, entry->d_name);
+    if (written <= 0 || static_cast<size_t>(written) >= sizeof(path) ||
+        !RemoveOtaCacheEntry(path, 0)) {
+      success = false;
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Remove OTA cache file failed: path=%s errno=%d\n", path, errno);
+    }
+  }
+  return success;
+}
+
+/**
+ * @brief 清理原子写入中断后遗留的清单临时文件
+ */
+void CleanupManifestTemporaryFiles() {
+  std::remove(kSavedManifestTempPath);
+  std::remove(kInstalledManifestTempPath);
+}
+
+/**
+ * @brief 检查 LittleFS 是否有足够空间下载无线固件并保留安全余量
+ * @param firmware_size 无线固件字节数
+ * @return 剩余空间充足返回 true，否则返回 false
+ */
+bool HasWirelessFirmwareDownloadSpace(size_t firmware_size) {
+  size_t total_bytes = 0;
+  size_t used_bytes = 0;
+  if (firmware_size == 0 ||
+      !GetLittleFsStorageInfo(&total_bytes, &used_bytes) ||
+      used_bytes > total_bytes) {
+    return false;
+  }
+  const size_t free_bytes = total_bytes - used_bytes;
+  const size_t reserve_bytes = std::max(
+      kMinimumLittleFsFreeReserve, firmware_size / 10);
+  if (firmware_size > std::numeric_limits<size_t>::max() - reserve_bytes) {
+    return false;
+  }
+  const size_t required_bytes = firmware_size + reserve_bytes;
+  if (free_bytes >= required_bytes) {
+    return true;
+  }
+  LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+      "Not enough LittleFS space for Wireless firmware: free=%u "
+      "required=%u firmware=%u reserve=%u\n",
+      static_cast<unsigned>(free_bytes),
+      static_cast<unsigned>(required_bytes),
+      static_cast<unsigned>(firmware_size),
+      static_cast<unsigned>(reserve_bytes));
   return false;
 }
 
@@ -1048,7 +1201,7 @@ ManifestParseResult ParseManifest(
  * @return 保存成功返回 true，否则返回 false
  */
 bool SaveManifest(const char* json_text) {
-  if (!EnsureOtaDirectory() || json_text == nullptr) {
+  if (!EnsureOtaDirectories() || json_text == nullptr) {
     return false;
   }
   std::remove(kSavedManifestTempPath);
@@ -1126,7 +1279,7 @@ bool LoadInstalledManifest(FirmwareReleaseManifest* manifest) {
  * @return 原子复制成功返回 true，否则返回 false
  */
 bool SaveInstalledManifest() {
-  if (!EnsureOtaDirectory()) {
+  if (!EnsureOtaDirectories()) {
     return false;
   }
   std::unique_ptr<FILE, decltype(&std::fclose)> source(
@@ -1876,8 +2029,13 @@ esp_err_t WirelessDownloadEventHandler(esp_http_client_event_t* event) {
  */
 FirmwareDownloadResult DownloadWirelessFirmware(
     const FirmwareReleaseManifest& manifest) {
-  if (!EnsureOtaDirectory()) {
-    SetFailure("LittleFS storage unavailable");
+  if (!ClearOtaDownloadCache()) {
+    SetFailure("Cannot prepare OTA download storage");
+    return FirmwareDownloadResult::kFailed;
+  }
+  std::remove(kWirelessFirmwarePath);
+  if (!HasWirelessFirmwareDownloadSpace(manifest.wireless_size_bytes)) {
+    SetFailure("Not enough storage for Wireless firmware");
     return FirmwareDownloadResult::kFailed;
   }
   char backup_url[kMaximumDownloadUrlLength] = {};
@@ -2029,7 +2187,7 @@ bool SetPendingUpdate() {
   if (HasPendingUpdate()) {
     return true;
   }
-  if (!EnsureOtaDirectory()) {
+  if (!EnsureOtaDirectories()) {
     return false;
   }
   std::unique_ptr<FILE, decltype(&std::fclose)> marker(
@@ -2064,8 +2222,30 @@ bool ClearPendingUpdate() {
  * @brief 清理 OTA 产生的无线固件临时文件
  */
 void CleanupWirelessFiles() {
-  std::remove(kWirelessFirmwareTempPath);
+  ClearOtaDownloadCache();
   std::remove(kWirelessFirmwarePath);
+}
+
+/**
+ * @brief 启动时清理不再需要的 OTA 临时文件
+ * @return OTA 存储目录可用且缓存清理成功返回 true，否则返回 false
+ */
+bool PrepareOtaStorageOnStartup() {
+  if (!ClearOtaDownloadCache()) {
+    return false;
+  }
+  CleanupManifestTemporaryFiles();
+  bool staging_cleaned = true;
+  if (!HasPendingUpdate()) {
+    errno = 0;
+    if (std::remove(kWirelessFirmwarePath) != 0 && errno != ENOENT) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Remove stale Wireless firmware staging file failed: errno=%d\n",
+          errno);
+      staging_cleaned = false;
+    }
+  }
+  return staging_cleaned;
 }
 
 bool RestoreRunningBootPartition() {
@@ -2825,6 +3005,7 @@ void InstallTask(void* context) {
   }
   if (wireless_update_required &&
       !InspectWirelessFirmware(kWirelessFirmwarePath, manifest, nullptr)) {
+    std::remove(kWirelessFirmwarePath);
     SetFailure("Prepared Wireless firmware is unavailable");
     FinishWorker();
     vTaskDelete(nullptr);
@@ -2885,6 +3066,7 @@ void ResumeTask(void* context) {
   FirmwareReleaseManifest manifest;
   if (!LoadSavedManifest(&manifest)) {
     ClearPendingUpdate();
+    CleanupWirelessFiles();
     SetFailure("Saved update information missing");
     FinishWorker();
     vTaskDelete(nullptr);
@@ -2892,6 +3074,7 @@ void ResumeTask(void* context) {
   }
   if (std::strcmp(manifest.device_id, kCurrentDeviceId) != 0) {
     ClearPendingUpdate();
+    CleanupWirelessFiles();
     SetFailure("Saved update is for another device");
     FinishWorker();
     vTaskDelete(nullptr);
@@ -2937,6 +3120,7 @@ void ResumeTask(void* context) {
   // 如果无线固件仍需更新，必须先确认本地镜像可用，再考虑重启进入新的主固件。
   if (wireless_update_required &&
       !InspectWirelessFirmware(kWirelessFirmwarePath, manifest, nullptr)) {
+    std::remove(kWirelessFirmwarePath);
     if (!IsNetworkReady()) {
       SetFailure("Update paused: no Wi-Fi");
       FinishWorker();
@@ -3070,6 +3254,10 @@ bool InitFirmwareUpdateManager(hal::WifiProvider* wifi) {
   if (!g_manager.snapshot.device_supported) {
     ConfirmRunningMainFirmware();
     return true;
+  }
+  if (!PrepareOtaStorageOnStartup()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Prepare OTA storage directories failed\n");
   }
   if (!HasPendingUpdate()) {
     ConfirmRunningMainFirmware();
