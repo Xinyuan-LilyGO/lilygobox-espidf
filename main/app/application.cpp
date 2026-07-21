@@ -193,7 +193,8 @@ bool Application::Init() {
     return false;
   }
   app::InitStorage();
-  if (!app::InitFirmwareUpdateManager(device_provider_context_.wifi)) {
+  if (!app::FirmwareUpdateManager::Instance().Initialize(
+          device_provider_context_.wifi, *this)) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize firmware update manager failed\n");
   }

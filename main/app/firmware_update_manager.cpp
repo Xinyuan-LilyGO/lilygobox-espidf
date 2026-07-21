@@ -18,6 +18,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "app/application.h"
 #include "app/storage/littlefs_storage.h"
 #include "base/logger.h"
 #include "cJSON.h"
@@ -164,6 +165,7 @@ struct FirmwareUpdateManagerState {
   SemaphoreHandle_t mutex = nullptr;
   SemaphoreHandle_t http_client_mutex = nullptr;
   hal::WifiProvider* wifi = nullptr;
+  ::lilygo_box::Application* application = nullptr;
   esp_http_client_handle_t active_http_client = nullptr;
   FirmwareUpdateSnapshot snapshot;
   FirmwareReleaseManifest manifest;
@@ -176,7 +178,16 @@ struct FirmwareUpdateManagerState {
       FirmwareDownloadSource::kPrimary;
 };
 
-FirmwareUpdateManagerState g_manager;
+// 指向 Application 当前持有的唯一固件更新状态，不拥有该对象。
+FirmwareUpdateManagerState* g_active_firmware_update_state = nullptr;
+
+/**
+ * @brief 获取当前应用拥有的固件更新管理器状态
+ * @return 固件更新管理器状态
+ */
+FirmwareUpdateManagerState& State() {
+  return *g_active_firmware_update_state;
+}
 
 enum class WirelessUpdateResult {
   kNotRequired,
@@ -259,16 +270,16 @@ void CopyReleaseVersion(char* destination, size_t destination_size,
  * @return 获取成功返回 true，否则返回 false
  */
 bool LockManager() {
-  return g_manager.mutex != nullptr &&
-         xSemaphoreTake(g_manager.mutex, portMAX_DELAY) == pdTRUE;
+  return State().mutex != nullptr &&
+         xSemaphoreTake(State().mutex, portMAX_DELAY) == pdTRUE;
 }
 
 /**
  * @brief 释放固件更新状态互斥锁
  */
 void UnlockManager() {
-  if (g_manager.mutex != nullptr) {
-    xSemaphoreGive(g_manager.mutex);
+  if (State().mutex != nullptr) {
+    xSemaphoreGive(State().mutex);
   }
 }
 
@@ -277,38 +288,38 @@ void UnlockManager() {
  * @param client HTTP 客户端
  */
 void SetActiveHttpClient(esp_http_client_handle_t client) {
-  if (g_manager.http_client_mutex == nullptr ||
-      xSemaphoreTake(g_manager.http_client_mutex, portMAX_DELAY) != pdTRUE) {
+  if (State().http_client_mutex == nullptr ||
+      xSemaphoreTake(State().http_client_mutex, portMAX_DELAY) != pdTRUE) {
     return;
   }
-  g_manager.active_http_client = client;
-  xSemaphoreGive(g_manager.http_client_mutex);
+  State().active_http_client = client;
+  xSemaphoreGive(State().http_client_mutex);
 }
 
 /**
  * @brief 清除当前正在执行传输的 HTTP 客户端
  */
 void ClearActiveHttpClient() {
-  if (g_manager.http_client_mutex == nullptr ||
-      xSemaphoreTake(g_manager.http_client_mutex, portMAX_DELAY) != pdTRUE) {
+  if (State().http_client_mutex == nullptr ||
+      xSemaphoreTake(State().http_client_mutex, portMAX_DELAY) != pdTRUE) {
     return;
   }
-  g_manager.active_http_client = nullptr;
-  xSemaphoreGive(g_manager.http_client_mutex);
+  State().active_http_client = nullptr;
+  xSemaphoreGive(State().http_client_mutex);
 }
 
 /**
  * @brief 关闭当前 HTTP 连接以唤醒阻塞中的固件下载
  */
 void CloseActiveHttpClient() {
-  if (g_manager.http_client_mutex == nullptr ||
-      xSemaphoreTake(g_manager.http_client_mutex, portMAX_DELAY) != pdTRUE) {
+  if (State().http_client_mutex == nullptr ||
+      xSemaphoreTake(State().http_client_mutex, portMAX_DELAY) != pdTRUE) {
     return;
   }
-  if (g_manager.active_http_client != nullptr) {
-    esp_http_client_close(g_manager.active_http_client);
+  if (State().active_http_client != nullptr) {
+    esp_http_client_close(State().active_http_client);
   }
-  xSemaphoreGive(g_manager.http_client_mutex);
+  xSemaphoreGive(State().http_client_mutex);
 }
 
 /**
@@ -331,7 +342,7 @@ FirmwareDownloadSource GetPreferredDownloadSource() {
     return FirmwareDownloadSource::kPrimary;
   }
   const FirmwareDownloadSource source =
-      g_manager.preferred_download_source;
+      State().preferred_download_source;
   UnlockManager();
   return source;
 }
@@ -344,7 +355,7 @@ void SetPreferredDownloadSource(FirmwareDownloadSource source) {
   if (!LockManager()) {
     return;
   }
-  g_manager.preferred_download_source = source;
+  State().preferred_download_source = source;
   UnlockManager();
 }
 
@@ -361,9 +372,9 @@ TransferRequest ReadTransferRequest() {
   if (!LockManager()) {
     return TransferRequest::kNone;
   }
-  const TransferRequest request = g_manager.cancel_requested
+  const TransferRequest request = State().cancel_requested
       ? TransferRequest::kCancel
-      : g_manager.pause_requested ? TransferRequest::kPause
+      : State().pause_requested ? TransferRequest::kPause
                                   : TransferRequest::kNone;
   UnlockManager();
   return request;
@@ -389,6 +400,22 @@ bool IsBusyStage(FirmwareUpdateStage stage) {
 }
 
 /**
+ * @brief 请求应用熄屏并完成存储落盘后重启设备
+ */
+void RestartAfterScreenOff() {
+  if (State().application != nullptr) {
+    State().application->RestartDevice();
+    // RestartDevice 正常情况下不会返回；返回说明熄屏重启流程未完成。
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Application restart returned, restarting directly\n");
+  } else {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Firmware update application missing, restarting directly\n");
+  }
+  esp_restart();
+}
+
+/**
  * @brief 更新界面可见的固件更新阶段、消息和进度
  * @param stage 新阶段
  * @param message 状态消息
@@ -400,13 +427,13 @@ void SetStage(FirmwareUpdateStage stage, const char* message,
   if (!LockManager()) {
     return;
   }
-  g_manager.snapshot.stage = stage;
-  g_manager.snapshot.busy = IsBusyStage(stage);
-  g_manager.snapshot.progress_percent =
+  State().snapshot.stage = stage;
+  State().snapshot.busy = IsBusyStage(stage);
+  State().snapshot.progress_percent =
       std::clamp(progress_percent, 0, 100);
-  g_manager.snapshot.manual_update_required =
+  State().snapshot.manual_update_required =
       stage == FirmwareUpdateStage::kFailed && manual_update_required;
-  CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+  CopyText(State().snapshot.message, sizeof(State().snapshot.message),
       message);
   UnlockManager();
 }
@@ -418,8 +445,8 @@ void FinishWorker() {
   if (!LockManager()) {
     return;
   }
-  g_manager.worker_running = false;
-  g_manager.snapshot.busy = IsBusyStage(g_manager.snapshot.stage);
+  State().worker_running = false;
+  State().snapshot.busy = IsBusyStage(State().snapshot.stage);
   UnlockManager();
 }
 
@@ -480,7 +507,7 @@ bool ReadCurrentWirelessVersion(char* version, size_t version_size) {
 bool IsNetworkReady() {
   hal::WifiProvider* wifi = nullptr;
   if (LockManager()) {
-    wifi = g_manager.wifi;
+    wifi = State().wifi;
     UnlockManager();
   }
   hal::WifiStatus status;
@@ -519,7 +546,7 @@ bool WaitForCurrentWirelessVersion(
     char* version, size_t version_size, uint32_t timeout_ms) {
   hal::WifiProvider* wifi = nullptr;
   if (LockManager()) {
-    wifi = g_manager.wifi;
+    wifi = State().wifi;
     UnlockManager();
   }
   // 这里只启动 ESP-Hosted/WLAN 驱动，不要求设备已经连接到无线路由器。
@@ -1571,81 +1598,81 @@ bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
   if (!LockManager()) {
     return false;
   }
-  g_manager.manifest = manifest;
-  g_manager.manifest_valid = true;
-  g_manager.snapshot.manifest_available = true;
-  g_manager.snapshot.update_available = update_available;
-  g_manager.snapshot.main_update_available = main_update_available;
-  g_manager.snapshot.wireless_update_available =
+  State().manifest = manifest;
+  State().manifest_valid = true;
+  State().snapshot.manifest_available = true;
+  State().snapshot.update_available = update_available;
+  State().snapshot.main_update_available = main_update_available;
+  State().snapshot.wireless_update_available =
       wireless_update_available;
-  g_manager.snapshot.progress_percent = 0;
-  CopyText(g_manager.snapshot.release_version,
-      sizeof(g_manager.snapshot.release_version), manifest.release_version);
-  CopyText(g_manager.snapshot.release_channel,
-      sizeof(g_manager.snapshot.release_channel), manifest.release_channel);
-  CopyText(g_manager.snapshot.release_time,
-      sizeof(g_manager.snapshot.release_time), manifest.release_time);
+  State().snapshot.progress_percent = 0;
+  CopyText(State().snapshot.release_version,
+      sizeof(State().snapshot.release_version), manifest.release_version);
+  CopyText(State().snapshot.release_channel,
+      sizeof(State().snapshot.release_channel), manifest.release_channel);
+  CopyText(State().snapshot.release_time,
+      sizeof(State().snapshot.release_time), manifest.release_time);
   if (installed_manifest_valid) {
-    CopyText(g_manager.snapshot.current_release_version,
-        sizeof(g_manager.snapshot.current_release_version),
+    CopyText(State().snapshot.current_release_version,
+        sizeof(State().snapshot.current_release_version),
         installed_manifest.release_version);
-    CopyText(g_manager.snapshot.current_release_channel,
-        sizeof(g_manager.snapshot.current_release_channel),
+    CopyText(State().snapshot.current_release_channel,
+        sizeof(State().snapshot.current_release_channel),
         installed_manifest.release_channel);
-    CopyText(g_manager.snapshot.current_release_time,
-        sizeof(g_manager.snapshot.current_release_time),
+    CopyText(State().snapshot.current_release_time,
+        sizeof(State().snapshot.current_release_time),
         installed_manifest.release_time);
   } else {
-    CopyReleaseVersion(g_manager.snapshot.current_release_version,
-        sizeof(g_manager.snapshot.current_release_version), main_current);
-    CopyText(g_manager.snapshot.current_release_channel,
-        sizeof(g_manager.snapshot.current_release_channel), "stable");
-    g_manager.snapshot.current_release_time[0] = '\0';
+    CopyReleaseVersion(State().snapshot.current_release_version,
+        sizeof(State().snapshot.current_release_version), main_current);
+    CopyText(State().snapshot.current_release_channel,
+        sizeof(State().snapshot.current_release_channel), "stable");
+    State().snapshot.current_release_time[0] = '\0';
   }
-  FormatFirmwareSize(package_size_bytes, g_manager.snapshot.package_size,
-      sizeof(g_manager.snapshot.package_size));
-  FormatFirmwareSize(manifest.main_size_bytes, g_manager.snapshot.main_size,
-      sizeof(g_manager.snapshot.main_size));
+  FormatFirmwareSize(package_size_bytes, State().snapshot.package_size,
+      sizeof(State().snapshot.package_size));
+  FormatFirmwareSize(manifest.main_size_bytes, State().snapshot.main_size,
+      sizeof(State().snapshot.main_size));
   FormatFirmwareSize(manifest.wireless_size_bytes,
-      g_manager.snapshot.wireless_size,
-      sizeof(g_manager.snapshot.wireless_size));
+      State().snapshot.wireless_size,
+      sizeof(State().snapshot.wireless_size));
   if (installed_manifest_valid) {
     FormatFirmwareSize(installed_manifest.main_size_bytes,
-        g_manager.snapshot.current_main_size,
-        sizeof(g_manager.snapshot.current_main_size));
+        State().snapshot.current_main_size,
+        sizeof(State().snapshot.current_main_size));
     FormatFirmwareSize(installed_manifest.wireless_size_bytes,
-        g_manager.snapshot.current_wireless_size,
-        sizeof(g_manager.snapshot.current_wireless_size));
+        State().snapshot.current_wireless_size,
+        sizeof(State().snapshot.current_wireless_size));
   } else {
-    g_manager.snapshot.current_main_size[0] = '\0';
-    g_manager.snapshot.current_wireless_size[0] = '\0';
+    State().snapshot.current_main_size[0] = '\0';
+    State().snapshot.current_wireless_size[0] = '\0';
   }
-  CopyText(g_manager.snapshot.main_current_version,
-      sizeof(g_manager.snapshot.main_current_version), main_current);
-  CopyText(g_manager.snapshot.main_target_version,
-      sizeof(g_manager.snapshot.main_target_version), manifest.main_version);
-  CopyText(g_manager.snapshot.wireless_current_version,
-      sizeof(g_manager.snapshot.wireless_current_version), wireless_current);
-  CopyText(g_manager.snapshot.wireless_target_version,
-      sizeof(g_manager.snapshot.wireless_target_version),
+  CopyText(State().snapshot.main_current_version,
+      sizeof(State().snapshot.main_current_version), main_current);
+  CopyText(State().snapshot.main_target_version,
+      sizeof(State().snapshot.main_target_version), manifest.main_version);
+  CopyText(State().snapshot.wireless_current_version,
+      sizeof(State().snapshot.wireless_current_version), wireless_current);
+  CopyText(State().snapshot.wireless_target_version,
+      sizeof(State().snapshot.wireless_target_version),
       manifest.wireless_version);
-  g_manager.snapshot.note_count = manifest.note_count;
+  State().snapshot.note_count = manifest.note_count;
   for (size_t index = 0; index < kFirmwareUpdateNoteCapacity; ++index) {
-    CopyText(g_manager.snapshot.notes[index],
-        sizeof(g_manager.snapshot.notes[index]), manifest.notes[index]);
-    CopyText(g_manager.snapshot.current_notes[index],
-        sizeof(g_manager.snapshot.current_notes[index]),
+    CopyText(State().snapshot.notes[index],
+        sizeof(State().snapshot.notes[index]), manifest.notes[index]);
+    CopyText(State().snapshot.current_notes[index],
+        sizeof(State().snapshot.current_notes[index]),
         installed_manifest_valid ? installed_manifest.notes[index] : "");
   }
-  g_manager.snapshot.current_note_count = installed_manifest_valid
+  State().snapshot.current_note_count = installed_manifest_valid
       ? installed_manifest.note_count
       : 0;
-  g_manager.snapshot.stage = update_available
+  State().snapshot.stage = update_available
       ? FirmwareUpdateStage::kUpdateAvailable
       : FirmwareUpdateStage::kUpToDate;
-  g_manager.snapshot.busy = false;
-  g_manager.snapshot.manual_update_required = false;
-  CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+  State().snapshot.busy = false;
+  State().snapshot.manual_update_required = false;
+  CopyText(State().snapshot.message, sizeof(State().snapshot.message),
       update_available ? "New version available" : "Firmware is up to date");
   UnlockManager();
   return true;
@@ -1685,43 +1712,43 @@ void ApplyPendingManifestSnapshot(
   if (!LockManager()) {
     return;
   }
-  g_manager.manifest = manifest;
-  g_manager.manifest_valid = true;
-  g_manager.snapshot.manifest_available = true;
-  g_manager.snapshot.update_available = true;
-  CopyText(g_manager.snapshot.release_version,
-      sizeof(g_manager.snapshot.release_version), manifest.release_version);
-  CopyText(g_manager.snapshot.release_channel,
-      sizeof(g_manager.snapshot.release_channel), manifest.release_channel);
-  CopyText(g_manager.snapshot.release_time,
-      sizeof(g_manager.snapshot.release_time), manifest.release_time);
+  State().manifest = manifest;
+  State().manifest_valid = true;
+  State().snapshot.manifest_available = true;
+  State().snapshot.update_available = true;
+  CopyText(State().snapshot.release_version,
+      sizeof(State().snapshot.release_version), manifest.release_version);
+  CopyText(State().snapshot.release_channel,
+      sizeof(State().snapshot.release_channel), manifest.release_channel);
+  CopyText(State().snapshot.release_time,
+      sizeof(State().snapshot.release_time), manifest.release_time);
   const size_t maximum_pending_size =
       manifest.main_size_bytes + manifest.wireless_size_bytes;
-  FormatFirmwareSize(maximum_pending_size, g_manager.snapshot.package_size,
-      sizeof(g_manager.snapshot.package_size));
-  FormatFirmwareSize(manifest.main_size_bytes, g_manager.snapshot.main_size,
-      sizeof(g_manager.snapshot.main_size));
+  FormatFirmwareSize(maximum_pending_size, State().snapshot.package_size,
+      sizeof(State().snapshot.package_size));
+  FormatFirmwareSize(manifest.main_size_bytes, State().snapshot.main_size,
+      sizeof(State().snapshot.main_size));
   FormatFirmwareSize(manifest.wireless_size_bytes,
-      g_manager.snapshot.wireless_size,
-      sizeof(g_manager.snapshot.wireless_size));
-  CopyText(g_manager.snapshot.main_current_version,
-      sizeof(g_manager.snapshot.main_current_version), main_current);
-  CopyReleaseVersion(g_manager.snapshot.current_release_version,
-      sizeof(g_manager.snapshot.current_release_version), main_current);
-  CopyText(g_manager.snapshot.current_release_channel,
-      sizeof(g_manager.snapshot.current_release_channel), "stable");
-  g_manager.snapshot.current_release_time[0] = '\0';
-  g_manager.snapshot.current_main_size[0] = '\0';
-  g_manager.snapshot.current_wireless_size[0] = '\0';
-  CopyText(g_manager.snapshot.main_target_version,
-      sizeof(g_manager.snapshot.main_target_version), manifest.main_version);
-  CopyText(g_manager.snapshot.wireless_target_version,
-      sizeof(g_manager.snapshot.wireless_target_version),
+      State().snapshot.wireless_size,
+      sizeof(State().snapshot.wireless_size));
+  CopyText(State().snapshot.main_current_version,
+      sizeof(State().snapshot.main_current_version), main_current);
+  CopyReleaseVersion(State().snapshot.current_release_version,
+      sizeof(State().snapshot.current_release_version), main_current);
+  CopyText(State().snapshot.current_release_channel,
+      sizeof(State().snapshot.current_release_channel), "stable");
+  State().snapshot.current_release_time[0] = '\0';
+  State().snapshot.current_main_size[0] = '\0';
+  State().snapshot.current_wireless_size[0] = '\0';
+  CopyText(State().snapshot.main_target_version,
+      sizeof(State().snapshot.main_target_version), manifest.main_version);
+  CopyText(State().snapshot.wireless_target_version,
+      sizeof(State().snapshot.wireless_target_version),
       manifest.wireless_version);
-  g_manager.snapshot.note_count = manifest.note_count;
+  State().snapshot.note_count = manifest.note_count;
   for (size_t index = 0; index < kFirmwareUpdateNoteCapacity; ++index) {
-    CopyText(g_manager.snapshot.notes[index],
-        sizeof(g_manager.snapshot.notes[index]), manifest.notes[index]);
+    CopyText(State().snapshot.notes[index],
+        sizeof(State().snapshot.notes[index]), manifest.notes[index]);
   }
   UnlockManager();
 }
@@ -2270,19 +2297,19 @@ void SetDownloadPaused() {
   if (!LockManager()) {
     return;
   }
-  if (g_manager.cancel_requested) {
+  if (State().cancel_requested) {
     UnlockManager();
     CancelPreparedFirmware(true);
     return;
   }
-  g_manager.pause_requested = false;
-  g_manager.cancel_requested = false;
-  g_manager.worker_running = false;
-  g_manager.snapshot.stage = marker_cleared
+  State().pause_requested = false;
+  State().cancel_requested = false;
+  State().worker_running = false;
+  State().snapshot.stage = marker_cleared
       ? FirmwareUpdateStage::kPaused
       : FirmwareUpdateStage::kFailed;
-  g_manager.snapshot.busy = false;
-  CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+  State().snapshot.busy = false;
+  CopyText(State().snapshot.message, sizeof(State().snapshot.message),
       marker_cleared ? "Download paused"
                      : "Cannot pause firmware update safely");
   UnlockManager();
@@ -2299,18 +2326,18 @@ bool CancelPreparedFirmware(bool finish_worker) {
   if (!LockManager()) {
     return false;
   }
-  g_manager.pause_requested = false;
-  g_manager.cancel_requested = false;
+  State().pause_requested = false;
+  State().cancel_requested = false;
   if (finish_worker) {
-    g_manager.worker_running = false;
+    State().worker_running = false;
   }
   const bool cancelled = boot_restored && marker_cleared;
-  g_manager.snapshot.stage = cancelled
+  State().snapshot.stage = cancelled
       ? FirmwareUpdateStage::kUpdateAvailable
       : FirmwareUpdateStage::kFailed;
-  g_manager.snapshot.busy = false;
-  g_manager.snapshot.progress_percent = 0;
-  CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+  State().snapshot.busy = false;
+  State().snapshot.progress_percent = 0;
+  CopyText(State().snapshot.message, sizeof(State().snapshot.message),
       cancelled ? "Update cancelled"
                 : "Cannot restore current firmware safely");
   UnlockManager();
@@ -2343,12 +2370,12 @@ void FinishPreparedDownload() {
     if (!LockManager()) {
       return;
     }
-    g_manager.pause_requested = false;
-    g_manager.cancel_requested = false;
-    g_manager.worker_running = false;
-    g_manager.snapshot.stage = FirmwareUpdateStage::kFailed;
-    g_manager.snapshot.busy = false;
-    CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+    State().pause_requested = false;
+    State().cancel_requested = false;
+    State().worker_running = false;
+    State().snapshot.stage = FirmwareUpdateStage::kFailed;
+    State().snapshot.busy = false;
+    CopyText(State().snapshot.message, sizeof(State().snapshot.message),
         "Cannot finalize firmware download safely");
     UnlockManager();
     return;
@@ -2356,18 +2383,18 @@ void FinishPreparedDownload() {
   if (!LockManager()) {
     return;
   }
-  const TransferRequest request = g_manager.cancel_requested
+  const TransferRequest request = State().cancel_requested
       ? TransferRequest::kCancel
-      : g_manager.pause_requested ? TransferRequest::kPause
+      : State().pause_requested ? TransferRequest::kPause
                                   : TransferRequest::kNone;
   if (request == TransferRequest::kNone) {
-    g_manager.pause_requested = false;
-    g_manager.cancel_requested = false;
-    g_manager.worker_running = false;
-    g_manager.snapshot.stage = FirmwareUpdateStage::kReadyToInstall;
-    g_manager.snapshot.busy = false;
-    g_manager.snapshot.progress_percent = 100;
-    CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+    State().pause_requested = false;
+    State().cancel_requested = false;
+    State().worker_running = false;
+    State().snapshot.stage = FirmwareUpdateStage::kReadyToInstall;
+    State().snapshot.busy = false;
+    State().snapshot.progress_percent = 100;
+    CopyText(State().snapshot.message, sizeof(State().snapshot.message),
         "Ready to install and restart");
     UnlockManager();
     return;
@@ -2494,7 +2521,7 @@ WirelessUpdateResult UpdateWirelessFirmware(
   SetStage(FirmwareUpdateStage::kRestarting,
       "Restarting to finish the update", 100);
   vTaskDelay(pdMS_TO_TICKS(kRestartDelayMs));
-  esp_restart();
+  RestartAfterScreenOff();
   return WirelessUpdateResult::kRestarting;
 }
 
@@ -2845,7 +2872,7 @@ MainUpdateResult UpdateMainFirmware(
   SetStage(FirmwareUpdateStage::kRestarting,
       "Restarting into the new firmware", 100);
   vTaskDelay(pdMS_TO_TICKS(kRestartDelayMs));
-  esp_restart();
+  RestartAfterScreenOff();
   return MainUpdateResult::kRestarting;
 }
 
@@ -2873,7 +2900,7 @@ void CheckTask(void* context) {
     bool manual_update_required = false;
     if (LockManager()) {
       manual_update_required =
-          g_manager.snapshot.manual_update_required;
+          State().snapshot.manual_update_required;
       UnlockManager();
     }
     if (!manual_update_required) {
@@ -2904,7 +2931,7 @@ void UpdateTask(void* context) {
   static_cast<void>(context);
   FirmwareReleaseManifest manifest;
   if (LockManager()) {
-    manifest = g_manager.manifest;
+    manifest = State().manifest;
     UnlockManager();
   }
   if (!IsNetworkReady()) {
@@ -2984,7 +3011,7 @@ void InstallTask(void* context) {
   static_cast<void>(context);
   FirmwareReleaseManifest manifest;
   if (LockManager()) {
-    manifest = g_manager.manifest;
+    manifest = State().manifest;
     UnlockManager();
   }
   char main_current[32] = {};
@@ -3058,7 +3085,7 @@ void InstallTask(void* context) {
     SetStage(FirmwareUpdateStage::kRestarting,
         "Restarting into the new firmware", 100);
     vTaskDelay(pdMS_TO_TICKS(kRestartDelayMs));
-    esp_restart();
+    RestartAfterScreenOff();
     vTaskDelete(nullptr);
     return;
   }
@@ -3134,10 +3161,10 @@ void ResumeTask(void* context) {
     return;
   }
   if (LockManager()) {
-    g_manager.snapshot.main_update_available = main_update_required;
-    g_manager.snapshot.wireless_update_available =
+    State().snapshot.main_update_available = main_update_required;
+    State().snapshot.wireless_update_available =
         wireless_update_required;
-    g_manager.snapshot.update_available =
+    State().snapshot.update_available =
         main_update_required || wireless_update_required;
     UnlockManager();
   }
@@ -3228,7 +3255,7 @@ bool CreateWorker(TaskFunction_t task, const char* name) {
     return true;
   }
   if (LockManager()) {
-    g_manager.worker_running = false;
+    State().worker_running = false;
     UnlockManager();
   }
   SetFailure("Cannot create update task");
@@ -3237,46 +3264,78 @@ bool CreateWorker(TaskFunction_t task, const char* name) {
 
 }  // namespace
 
-bool InitFirmwareUpdateManager(hal::WifiProvider* wifi) {
-  if (g_manager.initialized) {
+// 隐藏 ESP-IDF 类型和固件更新运行状态，避免暴露到公共头文件。
+class FirmwareUpdateManager::Impl {
+ public:
+  // 当前管理器实例拥有的全部运行状态。
+  FirmwareUpdateManagerState state;
+};
+
+FirmwareUpdateManager::FirmwareUpdateManager()
+    : impl_(std::make_unique<Impl>()) {}
+
+FirmwareUpdateManager& FirmwareUpdateManager::Instance() {
+  static FirmwareUpdateManager manager;
+  return manager;
+}
+
+FirmwareUpdateManager::~FirmwareUpdateManager() {
+  if (impl_ != nullptr && g_active_firmware_update_state == &impl_->state) {
+    g_active_firmware_update_state = nullptr;
+  }
+}
+
+bool FirmwareUpdateManager::Initialize(hal::WifiProvider* wifi,
+    ::lilygo_box::Application& application) {
+  if (impl_ == nullptr) {
+    return false;
+  }
+  if (g_active_firmware_update_state != nullptr &&
+      g_active_firmware_update_state != &impl_->state) {
+    return false;
+  }
+  g_active_firmware_update_state = &impl_->state;
+  if (State().initialized) {
     if (LockManager()) {
-      g_manager.wifi = wifi;
+      State().wifi = wifi;
+      State().application = &application;
       UnlockManager();
     }
     return true;
   }
-  g_manager.mutex = xSemaphoreCreateMutex();
-  if (g_manager.mutex == nullptr) {
+  State().mutex = xSemaphoreCreateMutex();
+  if (State().mutex == nullptr) {
     return false;
   }
-  g_manager.http_client_mutex = xSemaphoreCreateMutex();
-  if (g_manager.http_client_mutex == nullptr) {
-    vSemaphoreDelete(g_manager.mutex);
-    g_manager.mutex = nullptr;
+  State().http_client_mutex = xSemaphoreCreateMutex();
+  if (State().http_client_mutex == nullptr) {
+    vSemaphoreDelete(State().mutex);
+    State().mutex = nullptr;
     return false;
   }
-  g_manager.wifi = wifi;
-  g_manager.initialized = true;
-  g_manager.snapshot.device_supported =
+  State().wifi = wifi;
+  State().application = &application;
+  State().initialized = true;
+  State().snapshot.device_supported =
       IsFirmwareUpdateDeviceSupported();
-  if (!g_manager.snapshot.device_supported) {
-    g_manager.snapshot.stage = FirmwareUpdateStage::kFailed;
-    CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+  if (!State().snapshot.device_supported) {
+    State().snapshot.stage = FirmwareUpdateStage::kFailed;
+    CopyText(State().snapshot.message, sizeof(State().snapshot.message),
         "Updates unavailable for this device");
   }
-  CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
-      g_manager.snapshot.device_supported
+  CopyText(State().snapshot.message, sizeof(State().snapshot.message),
+      State().snapshot.device_supported
           ? "Check for firmware updates"
           : "Updates unavailable for this device");
-  if (!ReadCurrentMainVersion(g_manager.snapshot.main_current_version,
-          sizeof(g_manager.snapshot.main_current_version))) {
-    CopyText(g_manager.snapshot.main_current_version,
-        sizeof(g_manager.snapshot.main_current_version), "unknown");
+  if (!ReadCurrentMainVersion(State().snapshot.main_current_version,
+          sizeof(State().snapshot.main_current_version))) {
+    CopyText(State().snapshot.main_current_version,
+        sizeof(State().snapshot.main_current_version), "unknown");
   }
-  CopyReleaseVersion(g_manager.snapshot.current_release_version,
-      sizeof(g_manager.snapshot.current_release_version),
-      g_manager.snapshot.main_current_version);
-  if (!g_manager.snapshot.device_supported) {
+  CopyReleaseVersion(State().snapshot.current_release_version,
+      sizeof(State().snapshot.current_release_version),
+      State().snapshot.main_current_version);
+  if (!State().snapshot.device_supported) {
     ConfirmRunningMainFirmware();
     return true;
   }
@@ -3288,116 +3347,131 @@ bool InitFirmwareUpdateManager(hal::WifiProvider* wifi) {
     ConfirmRunningMainFirmware();
     return true;
   }
-  g_manager.worker_running = true;
-  g_manager.snapshot.busy = true;
+  State().worker_running = true;
+  State().snapshot.busy = true;
   return CreateWorker(ResumeTask, "ota_resume");
 }
 
-bool RequestFirmwareUpdateCheck() {
+bool FirmwareUpdateManager::RequestCheck() {
+  if (impl_ == nullptr || g_active_firmware_update_state != &impl_->state) {
+    return false;
+  }
   if (!LockManager()) {
     return false;
   }
-  if (!g_manager.initialized || g_manager.worker_running ||
-      !g_manager.snapshot.device_supported ||
-      g_manager.snapshot.stage == FirmwareUpdateStage::kPaused ||
-      g_manager.snapshot.stage == FirmwareUpdateStage::kReadyToInstall) {
+  if (!State().initialized || State().worker_running ||
+      !State().snapshot.device_supported ||
+      State().snapshot.stage == FirmwareUpdateStage::kPaused ||
+      State().snapshot.stage == FirmwareUpdateStage::kReadyToInstall) {
     UnlockManager();
     return false;
   }
-  g_manager.worker_running = true;
-  g_manager.snapshot.stage = FirmwareUpdateStage::kChecking;
-  g_manager.snapshot.busy = true;
-  g_manager.snapshot.manifest_available = false;
-  g_manager.snapshot.update_available = false;
-  g_manager.snapshot.main_update_available = false;
-  g_manager.snapshot.wireless_update_available = false;
-  g_manager.snapshot.progress_percent = 0;
-  g_manager.manifest_valid = false;
-  g_manager.pause_requested = false;
-  g_manager.cancel_requested = false;
-  g_manager.preferred_download_source =
+  State().worker_running = true;
+  State().snapshot.stage = FirmwareUpdateStage::kChecking;
+  State().snapshot.busy = true;
+  State().snapshot.manifest_available = false;
+  State().snapshot.update_available = false;
+  State().snapshot.main_update_available = false;
+  State().snapshot.wireless_update_available = false;
+  State().snapshot.progress_percent = 0;
+  State().manifest_valid = false;
+  State().pause_requested = false;
+  State().cancel_requested = false;
+  State().preferred_download_source =
       FirmwareDownloadSource::kPrimary;
-  CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+  CopyText(State().snapshot.message, sizeof(State().snapshot.message),
       "Checking for updates");
   UnlockManager();
   return CreateWorker(CheckTask, "ota_check");
 }
 
-bool StartFirmwareUpdate() {
+bool FirmwareUpdateManager::StartUpdate() {
+  if (impl_ == nullptr || g_active_firmware_update_state != &impl_->state) {
+    return false;
+  }
   if (!LockManager()) {
     return false;
   }
-  if (!g_manager.initialized || g_manager.worker_running ||
-      !g_manager.snapshot.device_supported ||
-      !g_manager.manifest_valid ||
-      !g_manager.snapshot.update_available ||
-      (g_manager.snapshot.stage != FirmwareUpdateStage::kUpdateAvailable &&
-          g_manager.snapshot.stage != FirmwareUpdateStage::kFailed)) {
+  if (!State().initialized || State().worker_running ||
+      !State().snapshot.device_supported ||
+      !State().manifest_valid ||
+      !State().snapshot.update_available ||
+      (State().snapshot.stage != FirmwareUpdateStage::kUpdateAvailable &&
+          State().snapshot.stage != FirmwareUpdateStage::kFailed)) {
     UnlockManager();
     return false;
   }
-  g_manager.worker_running = true;
-  g_manager.snapshot.busy = true;
-  g_manager.snapshot.progress_percent = 0;
-  g_manager.pause_requested = false;
-  g_manager.cancel_requested = false;
-  CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+  State().worker_running = true;
+  State().snapshot.busy = true;
+  State().snapshot.progress_percent = 0;
+  State().pause_requested = false;
+  State().cancel_requested = false;
+  CopyText(State().snapshot.message, sizeof(State().snapshot.message),
       "Preparing firmware download");
   UnlockManager();
   return CreateWorker(UpdateTask, "ota_update");
 }
 
-bool PauseFirmwareUpdate() {
+bool FirmwareUpdateManager::Pause() {
+  if (impl_ == nullptr || g_active_firmware_update_state != &impl_->state) {
+    return false;
+  }
   if (!LockManager()) {
     return false;
   }
-  const bool can_pause = g_manager.worker_running &&
-      (g_manager.snapshot.stage == FirmwareUpdateStage::kDownloadingWireless ||
-          g_manager.snapshot.stage == FirmwareUpdateStage::kDownloadingMain);
+  const bool can_pause = State().worker_running &&
+      (State().snapshot.stage == FirmwareUpdateStage::kDownloadingWireless ||
+          State().snapshot.stage == FirmwareUpdateStage::kDownloadingMain);
   if (can_pause) {
-    g_manager.pause_requested = true;
-    CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+    State().pause_requested = true;
+    CopyText(State().snapshot.message, sizeof(State().snapshot.message),
         "Pausing download");
   }
   UnlockManager();
   return can_pause;
 }
 
-bool ResumeFirmwareUpdate() {
+bool FirmwareUpdateManager::Resume() {
+  if (impl_ == nullptr || g_active_firmware_update_state != &impl_->state) {
+    return false;
+  }
   if (!LockManager()) {
     return false;
   }
-  if (!g_manager.initialized || g_manager.worker_running ||
-      !g_manager.manifest_valid ||
-      g_manager.snapshot.stage != FirmwareUpdateStage::kPaused) {
+  if (!State().initialized || State().worker_running ||
+      !State().manifest_valid ||
+      State().snapshot.stage != FirmwareUpdateStage::kPaused) {
     UnlockManager();
     return false;
   }
-  g_manager.worker_running = true;
-  g_manager.snapshot.busy = true;
-  g_manager.pause_requested = false;
-  g_manager.cancel_requested = false;
-  CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+  State().worker_running = true;
+  State().snapshot.busy = true;
+  State().pause_requested = false;
+  State().cancel_requested = false;
+  CopyText(State().snapshot.message, sizeof(State().snapshot.message),
       "Resuming firmware download");
   UnlockManager();
   return CreateWorker(UpdateTask, "ota_resume_download");
 }
 
-bool CancelFirmwareUpdate() {
+bool FirmwareUpdateManager::Cancel() {
+  if (impl_ == nullptr || g_active_firmware_update_state != &impl_->state) {
+    return false;
+  }
   if (!LockManager()) {
     return false;
   }
-  const FirmwareUpdateStage stage = g_manager.snapshot.stage;
-  const bool downloading = g_manager.worker_running &&
+  const FirmwareUpdateStage stage = State().snapshot.stage;
+  const bool downloading = State().worker_running &&
       (stage == FirmwareUpdateStage::kDownloadingWireless ||
           stage == FirmwareUpdateStage::kDownloadingMain);
-  const bool prepared = !g_manager.worker_running &&
+  const bool prepared = !State().worker_running &&
       (stage == FirmwareUpdateStage::kPaused ||
           stage == FirmwareUpdateStage::kReadyToInstall);
   if (downloading) {
-    g_manager.cancel_requested = true;
-    g_manager.pause_requested = false;
-    CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+    State().cancel_requested = true;
+    State().pause_requested = false;
+    CopyText(State().snapshot.message, sizeof(State().snapshot.message),
         "Cancelling update");
   }
   UnlockManager();
@@ -3410,35 +3484,43 @@ bool CancelFirmwareUpdate() {
   return downloading;
 }
 
-bool InstallFirmwareUpdateAndRestart() {
+bool FirmwareUpdateManager::InstallAndRestart() {
+  if (impl_ == nullptr || g_active_firmware_update_state != &impl_->state) {
+    return false;
+  }
   if (!LockManager()) {
     return false;
   }
-  if (!g_manager.initialized || g_manager.worker_running ||
-      !g_manager.manifest_valid ||
-      g_manager.snapshot.stage != FirmwareUpdateStage::kReadyToInstall) {
+  if (!State().initialized || State().worker_running ||
+      !State().manifest_valid ||
+      State().snapshot.stage != FirmwareUpdateStage::kReadyToInstall) {
     UnlockManager();
     return false;
   }
-  g_manager.worker_running = true;
-  g_manager.snapshot.busy = true;
-  g_manager.pause_requested = false;
-  g_manager.cancel_requested = false;
-  CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
+  State().worker_running = true;
+  State().snapshot.busy = true;
+  State().pause_requested = false;
+  State().cancel_requested = false;
+  CopyText(State().snapshot.message, sizeof(State().snapshot.message),
       "Preparing installation");
   UnlockManager();
   return CreateWorker(InstallTask, "ota_install");
 }
 
-FirmwareUpdateSnapshot GetFirmwareUpdateSnapshot() {
+FirmwareUpdateSnapshot FirmwareUpdateManager::GetSnapshot() const {
   FirmwareUpdateSnapshot snapshot;
+  if (impl_ == nullptr || g_active_firmware_update_state != &impl_->state) {
+    CopyText(snapshot.message, sizeof(snapshot.message),
+        "Firmware update manager is not initialized");
+    return snapshot;
+  }
   if (!LockManager()) {
     CopyText(snapshot.message, sizeof(snapshot.message),
         "Firmware update service is unavailable");
     snapshot.stage = FirmwareUpdateStage::kFailed;
     return snapshot;
   }
-  snapshot = g_manager.snapshot;
+  snapshot = State().snapshot;
   UnlockManager();
   return snapshot;
 }

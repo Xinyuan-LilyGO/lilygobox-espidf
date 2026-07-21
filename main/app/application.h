@@ -32,6 +32,11 @@ class Application final {
    */
   void Run();
 
+  /**
+   * @brief 让设备进入深度睡眠级关断状态并重启
+   */
+  void RestartDevice();
+
  private:
   /**
    * @brief 启动后自动连接 WLAN 的后台任务入口
@@ -77,11 +82,6 @@ class Application final {
    * @return 关闭了关机菜单返回 true，否则返回 false
    */
   bool HidePowerMenuFromLockButton();
-
-  /**
-   * @brief 让设备进入深度睡眠级关断状态并重启
-   */
-  void RestartDevice();
 
   /**
    * @brief 让设备进入深度睡眠级关断状态

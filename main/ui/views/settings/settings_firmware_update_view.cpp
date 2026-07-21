@@ -84,6 +84,14 @@ constexpr uint32_t kUpdateCancelButtonPressedColor =
     theme::LightNeutralTheme().button_secondary_pressed;
 
 /**
+ * @brief 获取当前固件更新状态快照
+ * @return 固件更新状态快照
+ */
+app::FirmwareUpdateSnapshot GetFirmwareUpdateSnapshot() {
+  return app::FirmwareUpdateManager::Instance().GetSnapshot();
+}
+
+/**
  * @brief 创建固件更新版本卡片
  * @param body 页面可滚动内容区域
  * @param state 设置页面状态
@@ -200,13 +208,14 @@ void FirmwareUpdateBackClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  if (app::GetFirmwareUpdateSnapshot().stage ==
+  auto* state = static_cast<SettingsViewState*>(
+      lv_event_get_user_data(event));
+  if (GetFirmwareUpdateSnapshot().stage ==
       app::FirmwareUpdateStage::kReadyToInstall) {
     return;
   }
 
-  CloseFirmwareUpdatePage(
-      static_cast<SettingsViewState*>(lv_event_get_user_data(event)), true);
+  CloseFirmwareUpdatePage(state, true);
 }
 
 /**
@@ -216,7 +225,7 @@ void FirmwareUpdateBackClickedEventCallback(lv_event_t* event) {
 void FirmwareUpdateEdgeBackEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   const bool install_choice_required =
-      app::GetFirmwareUpdateSnapshot().stage ==
+      GetFirmwareUpdateSnapshot().stage ==
       app::FirmwareUpdateStage::kReadyToInstall;
   if (state == nullptr || state->firmware_update_page == nullptr ||
       state->firmware_update_closing || install_choice_required ||
@@ -452,7 +461,7 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
   }
 
   const app::FirmwareUpdateSnapshot snapshot =
-      app::GetFirmwareUpdateSnapshot();
+      GetFirmwareUpdateSnapshot();
   const bool new_version_available =
       snapshot.manifest_available && snapshot.update_available;
   const bool scanning =
@@ -776,7 +785,7 @@ void FirmwareUpdatePageScrollEventCallback(lv_event_t* event) {
     return;
   }
   const app::FirmwareUpdateSnapshot snapshot =
-      app::GetFirmwareUpdateSnapshot();
+      GetFirmwareUpdateSnapshot();
   const bool new_version_available =
       snapshot.manifest_available && snapshot.update_available;
   const int scroll_x =
@@ -808,15 +817,17 @@ void FirmwareUpdateDownloadClickedEventCallback(lv_event_t* event) {
   if (state == nullptr) {
     return;
   }
+  app::FirmwareUpdateManager& manager =
+      app::FirmwareUpdateManager::Instance();
   const app::FirmwareUpdateSnapshot snapshot =
-      app::GetFirmwareUpdateSnapshot();
+      GetFirmwareUpdateSnapshot();
   if (state->firmware_update_page_index == 0) {
     if (snapshot.busy || !snapshot.device_supported ||
         snapshot.stage == app::FirmwareUpdateStage::kReadyToInstall) {
       return;
     }
     state->firmware_update_auto_show_new_page =
-        app::RequestFirmwareUpdateCheck();
+        manager.RequestCheck();
     RefreshFirmwareUpdateView(state);
     return;
   }
@@ -824,11 +835,11 @@ void FirmwareUpdateDownloadClickedEventCallback(lv_event_t* event) {
     return;
   }
   if (snapshot.stage == app::FirmwareUpdateStage::kReadyToInstall) {
-    app::InstallFirmwareUpdateAndRestart();
+    manager.InstallAndRestart();
   } else if (snapshot.manifest_available && snapshot.update_available) {
-    app::StartFirmwareUpdate();
+    manager.StartUpdate();
   } else {
-    app::RequestFirmwareUpdateCheck();
+    manager.RequestCheck();
   }
   RefreshFirmwareUpdateView(state);
 }
@@ -839,12 +850,14 @@ void FirmwareUpdatePauseClickedEventCallback(lv_event_t* event) {
   }
   auto* state = static_cast<SettingsViewState*>(
       lv_event_get_user_data(event));
+  app::FirmwareUpdateManager& manager =
+      app::FirmwareUpdateManager::Instance();
   const app::FirmwareUpdateSnapshot snapshot =
-      app::GetFirmwareUpdateSnapshot();
+      GetFirmwareUpdateSnapshot();
   if (snapshot.stage == app::FirmwareUpdateStage::kPaused) {
-    app::ResumeFirmwareUpdate();
+    manager.Resume();
   } else {
-    app::PauseFirmwareUpdate();
+    manager.Pause();
   }
   RefreshFirmwareUpdateView(state);
 }
@@ -855,7 +868,7 @@ void FirmwareUpdateCancelClickedEventCallback(lv_event_t* event) {
   }
   auto* state = static_cast<SettingsViewState*>(
       lv_event_get_user_data(event));
-  app::CancelFirmwareUpdate();
+  app::FirmwareUpdateManager::Instance().Cancel();
   RefreshFirmwareUpdateView(state);
 }
 
@@ -1664,7 +1677,7 @@ bool CreateFirmwareUpdateLogBody(lv_obj_t* page, SettingsViewState* state,
   AddEdgeBackSwipeEvents(body, FirmwareUpdateLogEdgeBackEventCallback, state);
 
   const app::FirmwareUpdateSnapshot snapshot =
-      app::GetFirmwareUpdateSnapshot();
+      GetFirmwareUpdateSnapshot();
   const int content_width = FirmwareUpdateContentWidth(width);
   const int content_left = (width - content_width) / 2;
   lv_obj_t* current_card = CreateCurrentFirmwareLogCard(
@@ -1950,7 +1963,7 @@ bool ShowFirmwareUpdatePage(SettingsViewState* state) {
     return false;
   }
   state->firmware_update_auto_show_new_page =
-      app::RequestFirmwareUpdateCheck();
+      app::FirmwareUpdateManager::Instance().RequestCheck();
   RefreshFirmwareUpdateView(state);
   return true;
 }

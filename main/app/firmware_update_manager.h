@@ -8,6 +8,11 @@
 #pragma once
 
 #include <cstddef>
+#include <memory>
+
+namespace lilygo_box {
+class Application;
+}  // namespace lilygo_box
 
 namespace lilygo_box::hal {
 class WifiProvider;
@@ -64,53 +69,82 @@ struct FirmwareUpdateSnapshot {
   char message[128] = {};
 };
 
-/**
- * @brief 初始化组合固件更新管理器并恢复未完成的更新
- * @param wifi 当前设备已经拥有的 WLAN 服务
- * @return 初始化成功返回 true，否则返回 false
- */
-bool InitFirmwareUpdateManager(hal::WifiProvider* wifi);
+// 管理固件检查、下载、暂存、安装和恢复流程。
+class FirmwareUpdateManager final {
+ public:
+  /**
+   * @brief 获取应用内部唯一的固件更新管理器
+   * @return 固件更新管理器
+   */
+  static FirmwareUpdateManager& Instance();
 
-/**
- * @brief 异步检查 GitHub Releases 中的最新固件清单
- * @return 检查任务启动成功返回 true，否则返回 false
- */
-bool RequestFirmwareUpdateCheck();
+  /**
+   * @brief 初始化固件更新管理器并恢复未完成的更新
+   * @param wifi 当前设备已经拥有的 WLAN 服务
+   * @param application 唯一的应用实例，用于熄屏后重启
+   * @return 初始化成功返回 true，否则返回 false
+   */
+  bool Initialize(hal::WifiProvider* wifi,
+      ::lilygo_box::Application& application);
 
-/**
- * @brief 异步开始先准备无线固件、再更新主固件、最后切换无线固件的组合更新
- * @return 更新任务启动成功返回 true，否则返回 false
- */
-bool StartFirmwareUpdate();
+  /**
+   * @brief 异步检查最新固件清单
+   * @return 检查任务启动成功返回 true，否则返回 false
+   */
+  bool RequestCheck();
 
-/**
- * @brief 暂停当前固件下载任务
- * @return 暂停请求被接受返回 true，否则返回 false
- */
-bool PauseFirmwareUpdate();
+  /**
+   * @brief 异步下载并暂存可用的新固件
+   * @return 下载任务启动成功返回 true，否则返回 false
+   */
+  bool StartUpdate();
 
-/**
- * @brief 从当前固件组件继续已暂停的下载任务
- * @return 下载任务重新启动返回 true，否则返回 false
- */
-bool ResumeFirmwareUpdate();
+  /**
+   * @brief 暂停当前固件下载任务
+   * @return 暂停请求被接受返回 true，否则返回 false
+   */
+  bool Pause();
 
-/**
- * @brief 取消下载中或已准备的更新并保留当前固件
- * @return 取消请求被接受返回 true，否则返回 false
- */
-bool CancelFirmwareUpdate();
+  /**
+   * @brief 继续已暂停的固件下载任务
+   * @return 下载任务重新启动返回 true，否则返回 false
+   */
+  bool Resume();
 
-/**
- * @brief 安装已经准备好的固件并重启设备
- * @return 安装任务启动成功返回 true，否则返回 false
- */
-bool InstallFirmwareUpdateAndRestart();
+  /**
+   * @brief 取消下载中或已准备的更新并保留当前固件
+   * @return 取消请求被接受返回 true，否则返回 false
+   */
+  bool Cancel();
 
-/**
- * @brief 读取可供界面显示的固件更新状态快照
- * @return 固件更新状态快照
- */
-FirmwareUpdateSnapshot GetFirmwareUpdateSnapshot();
+  /**
+   * @brief 安装已经准备好的固件并重启设备
+   * @return 安装任务启动成功返回 true，否则返回 false
+   */
+  bool InstallAndRestart();
+
+  /**
+   * @brief 读取可供界面显示的固件更新状态快照
+   * @return 固件更新状态快照
+   */
+  FirmwareUpdateSnapshot GetSnapshot() const;
+
+ private:
+  /**
+   * @brief 创建尚未初始化的应用内部固件更新管理器
+   */
+  FirmwareUpdateManager();
+
+  /**
+   * @brief 释放固件更新管理器持有的内部状态
+   */
+  ~FirmwareUpdateManager();
+
+  FirmwareUpdateManager(const FirmwareUpdateManager&) = delete;
+  FirmwareUpdateManager& operator=(const FirmwareUpdateManager&) = delete;
+
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+};
 
 }  // namespace lilygo_box::app
