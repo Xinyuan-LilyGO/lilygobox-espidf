@@ -616,14 +616,31 @@ bool EnsureLittleFsDirectory(const char* path) {
 }
 
 /**
- * @brief 确保 LilygoBox OTA、暂存和缓存目录均已创建
- * @return 全部目录可用返回 true，否则返回 false
+ * @brief 确保固件清单和更新状态使用的 OTA 目录存在
+ * @return 目录可用返回 true，否则返回 false
  */
-bool EnsureOtaDirectories() {
+bool EnsureOtaMetadataDirectory() {
   return IsLittleFsStorageMounted() &&
          EnsureLittleFsDirectory(kApplicationDirectory) &&
-         EnsureLittleFsDirectory(kOtaDirectory) &&
-         EnsureLittleFsDirectory(kOtaStagingDirectory) &&
+         EnsureLittleFsDirectory(kOtaDirectory);
+}
+
+/**
+ * @brief 确保无线固件暂存目录存在
+ * @return 目录可用返回 true，否则返回 false
+ */
+bool EnsureOtaStagingDirectory() {
+  return EnsureOtaMetadataDirectory() &&
+         EnsureLittleFsDirectory(kOtaStagingDirectory);
+}
+
+/**
+ * @brief 确保固件下载缓存目录存在
+ * @return 目录可用返回 true，否则返回 false
+ */
+bool EnsureOtaDownloadCacheDirectory() {
+  return IsLittleFsStorageMounted() &&
+         EnsureLittleFsDirectory(kApplicationDirectory) &&
          EnsureLittleFsDirectory(kCacheDirectory) &&
          EnsureLittleFsDirectory(kOtaCacheDirectory);
 }
@@ -678,17 +695,18 @@ bool RemoveOtaCacheEntry(const char* path, size_t depth) {
 }
 
 /**
- * @brief 清空 OTA 下载缓存目录中的全部临时文件
+ * @brief 清空已经存在的 OTA 下载缓存目录中的全部临时文件
  * @return 缓存为空或清理成功返回 true，否则返回 false
  */
 bool ClearOtaDownloadCache() {
-  if (!EnsureOtaDirectories()) {
+  if (!IsLittleFsStorageMounted()) {
     return false;
   }
+  errno = 0;
   std::unique_ptr<DIR, decltype(&closedir)> directory(
       opendir(kOtaCacheDirectory), &closedir);
   if (directory == nullptr) {
-    return false;
+    return errno == ENOENT;
   }
   bool success = true;
   while (dirent* entry = readdir(directory.get())) {
@@ -1229,7 +1247,7 @@ ManifestParseResult ParseManifest(
  * @return 保存成功返回 true，否则返回 false
  */
 bool SaveManifest(const char* json_text) {
-  if (!EnsureOtaDirectories() || json_text == nullptr) {
+  if (json_text == nullptr || !EnsureOtaMetadataDirectory()) {
     return false;
   }
   std::remove(kSavedManifestTempPath);
@@ -1307,7 +1325,7 @@ bool LoadInstalledManifest(FirmwareReleaseManifest* manifest) {
  * @return 原子复制成功返回 true，否则返回 false
  */
 bool SaveInstalledManifest() {
-  if (!EnsureOtaDirectories()) {
+  if (!EnsureOtaMetadataDirectory()) {
     return false;
   }
   std::unique_ptr<FILE, decltype(&std::fclose)> source(
@@ -2114,7 +2132,8 @@ esp_err_t WirelessDownloadEventHandler(esp_http_client_event_t* event) {
  */
 FirmwareDownloadResult DownloadWirelessFirmware(
     const FirmwareReleaseManifest& manifest) {
-  if (!ClearOtaDownloadCache()) {
+  if (!EnsureOtaStagingDirectory() ||
+      !EnsureOtaDownloadCacheDirectory() || !ClearOtaDownloadCache()) {
     SetFailure("Cannot prepare OTA download storage");
     return FirmwareDownloadResult::kFailed;
   }
@@ -2272,7 +2291,7 @@ bool SetPendingUpdate() {
   if (HasPendingUpdate()) {
     return true;
   }
-  if (!EnsureOtaDirectories()) {
+  if (!EnsureOtaMetadataDirectory()) {
     return false;
   }
   std::unique_ptr<FILE, decltype(&std::fclose)> marker(
@@ -2312,10 +2331,10 @@ void CleanupWirelessFiles() {
 }
 
 /**
- * @brief 启动时清理不再需要的 OTA 临时文件
- * @return OTA 存储目录可用且缓存清理成功返回 true，否则返回 false
+ * @brief 启动时按需清理已经存在的 OTA 临时文件
+ * @return 不存在临时文件或清理成功返回 true，否则返回 false
  */
-bool PrepareOtaStorageOnStartup() {
+bool CleanupOtaStorageOnStartup() {
   if (!ClearOtaDownloadCache()) {
     return false;
   }
@@ -3400,9 +3419,9 @@ bool FirmwareUpdateManager::Initialize(hal::WifiProvider* wifi,
     ConfirmRunningMainFirmware();
     return true;
   }
-  if (!PrepareOtaStorageOnStartup()) {
+  if (!CleanupOtaStorageOnStartup()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Prepare OTA storage directories failed\n");
+        "Clean OTA temporary files on startup failed\n");
   }
   if (!HasPendingUpdate()) {
     ConfirmRunningMainFirmware();
