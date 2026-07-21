@@ -610,6 +610,8 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
   const bool downloading =
       snapshot.stage == app::FirmwareUpdateStage::kDownloadingWireless ||
       snapshot.stage == app::FirmwareUpdateStage::kDownloadingMain;
+  const bool installing_wireless =
+      snapshot.stage == app::FirmwareUpdateStage::kInstallingWireless;
   const bool paused =
       snapshot.stage == app::FirmwareUpdateStage::kPaused;
   const bool ready =
@@ -701,7 +703,7 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
   }
 
   const bool show_progress =
-      !current_page_active && (downloading || paused);
+      !current_page_active && (downloading || installing_wireless || paused);
   SetFirmwareObjectVisible(
       state->firmware_update_progress_fill, show_progress);
   if (show_progress) {
