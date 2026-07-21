@@ -1151,7 +1151,8 @@ ManifestParseResult ParseManifest(
     return ManifestParseResult::kInvalid;
   }
 
-  FirmwareReleaseManifest parsed;
+  *manifest = {};
+  FirmwareReleaseManifest& parsed = *manifest;
   CopyText(parsed.release_channel, sizeof(parsed.release_channel), "stable");
   if (release_channel != nullptr) {
     if (!cJSON_IsString(release_channel) ||
@@ -1219,7 +1220,6 @@ ManifestParseResult ParseManifest(
       ++parsed.note_count;
     }
   }
-  *manifest = parsed;
   return ManifestParseResult::kSuccess;
 }
 
@@ -1553,6 +1553,54 @@ void FormatFirmwareSize(size_t size_bytes, char* destination,
     std::snprintf(destination, destination_size, "%.0f KB",
         static_cast<double>(size_bytes) / bytes_per_kilobyte);
   }
+}
+
+/**
+ * @brief 从已安装清单恢复当前版本页面需要显示的信息
+ * @param main_current 当前主固件版本
+ * @return 清单与当前设备和主固件匹配并恢复成功返回 true，否则返回 false
+ */
+bool RestoreInstalledManifestSnapshot(const char* main_current) {
+  auto installed_manifest = std::make_unique<FirmwareReleaseManifest>();
+  if (main_current == nullptr || main_current[0] == '\0' ||
+      installed_manifest == nullptr ||
+      !LoadInstalledManifest(installed_manifest.get()) ||
+      std::strcmp(installed_manifest->device_id, kCurrentDeviceId) != 0 ||
+      std::strcmp(installed_manifest->main_version, main_current) != 0) {
+    return false;
+  }
+  if (!LockManager()) {
+    return false;
+  }
+  CopyText(State().snapshot.current_release_version,
+      sizeof(State().snapshot.current_release_version),
+      installed_manifest->release_version);
+  CopyText(State().snapshot.current_release_channel,
+      sizeof(State().snapshot.current_release_channel),
+      installed_manifest->release_channel);
+  CopyText(State().snapshot.current_release_time,
+      sizeof(State().snapshot.current_release_time),
+      installed_manifest->release_time);
+  CopyText(State().snapshot.main_current_version,
+      sizeof(State().snapshot.main_current_version),
+      installed_manifest->main_version);
+  CopyText(State().snapshot.wireless_current_version,
+      sizeof(State().snapshot.wireless_current_version),
+      installed_manifest->wireless_version);
+  FormatFirmwareSize(installed_manifest->main_size_bytes,
+      State().snapshot.current_main_size,
+      sizeof(State().snapshot.current_main_size));
+  FormatFirmwareSize(installed_manifest->wireless_size_bytes,
+      State().snapshot.current_wireless_size,
+      sizeof(State().snapshot.current_wireless_size));
+  for (size_t index = 0; index < kFirmwareUpdateNoteCapacity; ++index) {
+    CopyText(State().snapshot.current_notes[index],
+        sizeof(State().snapshot.current_notes[index]),
+        installed_manifest->notes[index]);
+  }
+  State().snapshot.current_note_count = installed_manifest->note_count;
+  UnlockManager();
+  return true;
 }
 
 /**
@@ -3098,12 +3146,14 @@ void InstallTask(void* context) {
       return;
     }
   }
-  if (!ClearPendingUpdate()) {
+  if (!SaveInstalledManifest()) {
+    SetFailure("Cannot save installed update information");
+  } else if (!ClearPendingUpdate()) {
     SetFailure("Cannot clear completed update state");
   } else {
     CleanupWirelessFiles();
     ApplyManifestSnapshot(
-        manifest, main_current, wireless_current, true);
+        manifest, main_current, wireless_current);
   }
   FinishWorker();
   vTaskDelete(nullptr);
@@ -3231,12 +3281,14 @@ void ResumeTask(void* context) {
       return;
     }
   }
-  if (!ClearPendingUpdate()) {
+  if (!SaveInstalledManifest()) {
+    SetFailure("Cannot save installed update information");
+  } else if (!ClearPendingUpdate()) {
     SetFailure("Cannot clear completed update state");
   } else {
     CleanupWirelessFiles();
     ApplyManifestSnapshot(
-        manifest, main_current, wireless_current, true);
+        manifest, main_current, wireless_current);
   }
   FinishWorker();
   vTaskDelete(nullptr);
@@ -3345,6 +3397,11 @@ bool FirmwareUpdateManager::Initialize(hal::WifiProvider* wifi,
   }
   if (!HasPendingUpdate()) {
     ConfirmRunningMainFirmware();
+    if (!RestoreInstalledManifestSnapshot(
+            State().snapshot.main_current_version)) {
+      LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+          "Installed firmware release information is unavailable\n");
+    }
     return true;
   }
   State().worker_running = true;
