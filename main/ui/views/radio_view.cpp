@@ -235,6 +235,12 @@ struct RadioViewState {
   lv_obj_t* profile_name_edit_page = nullptr;
   lv_obj_t* profile_name_edit_text_area = nullptr;
   lv_obj_t* profile_name_edit_keyboard = nullptr;
+  lv_obj_t* auto_send_page = nullptr;
+  lv_obj_t* auto_send_body = nullptr;
+  lv_obj_t* auto_send_switch = nullptr;
+  lv_obj_t* auto_send_text_area = nullptr;
+  lv_obj_t* auto_send_interval_area = nullptr;
+  lv_obj_t* auto_send_keyboard = nullptr;
   lv_obj_t* detail_input = nullptr;
   lv_obj_t* detail_keyboard = nullptr;
   lv_obj_t* detail_composer_background = nullptr;
@@ -281,6 +287,7 @@ struct RadioViewState {
   EdgeBackSwipeState app_settings_edge_swipe = {};
   EdgeBackSwipeState profile_settings_edge_swipe = {};
   EdgeBackSwipeState profile_name_edit_edge_swipe = {};
+  EdgeBackSwipeState auto_send_edge_swipe = {};
   EdgeBackSwipeState add_edge_swipe = {};
   RadioModuleItem modules[kRadioModuleCapacity] = {};
   // 当前聊天页面最多保留 32 条轻量布局记录。
@@ -315,6 +322,9 @@ struct RadioViewState {
   // 单项删除确认期间使用配置 ID，避免列表索引变化后删错配置。
   uint32_t pending_delete_profile_id = 0;
   uint32_t last_activation_retry_tick = 0;
+  // 自动发送计时仅绑定当前启用配置，切换配置后重新开始一个完整周期。
+  uint32_t auto_send_profile_id = 0;
+  uint32_t auto_send_last_tick = 0;
   uint8_t activation_retry_count = 0;
   // 合并后的激活或停用命令类型。
   RadioCommandType pending_control_type = RadioCommandType::kActivate;
@@ -343,6 +353,9 @@ struct RadioViewState {
   bool app_settings_closing = false;
   bool profile_settings_closing = false;
   bool profile_name_edit_closing = false;
+  bool auto_send_closing = false;
+  // 首次有效提交后锁定表单，防止连点重复创建或保存配置。
+  bool add_submitting = false;
   bool add_closing = false;
 };
 
@@ -380,6 +393,18 @@ bool ShowRadioSettingsPage(RadioViewState* state);
 bool ShowProfileSettingsPage(RadioViewState* state, size_t index);
 bool ShowProfileDeleteConfirmation(RadioViewState* state, size_t index);
 bool ShowProfileNameEditPage(RadioViewState* state);
+/**
+ * @brief 显示当前射频配置的自动发送设置页面
+ * @param state Radio 页面状态
+ * @return 显示成功返回 true，否则返回 false
+ */
+bool ShowAutoSendSettingsPage(RadioViewState* state);
+/**
+ * @brief 关闭自动发送设置页面
+ * @param state Radio 页面状态
+ * @param animated 是否播放退出动画
+ */
+void CloseAutoSendSettingsPage(RadioViewState* state, bool animated);
 void RefreshProfileSettingsPage(RadioViewState* state);
 bool SetProfileActiveState(
     RadioViewState* state, size_t index, bool active);
@@ -2054,6 +2079,64 @@ bool TryStartNextPendingMessage(RadioViewState* state) {
 }
 
 /**
+ * @brief 在射频空闲且周期到达时向现有聊天发送队列加入测试字符
+ * @param state Radio 页面状态
+ * @return 成功加入一条自动发送消息时返回 true
+ */
+bool TryQueueAutomaticMessage(RadioViewState* state) {
+  if (state == nullptr || state->config.radio == nullptr ||
+      state->preferences.active_profile_id == 0 ||
+      state->radio_command_job != nullptr ||
+      state->pending_control_command || state->transmit_in_flight ||
+      !state->radio_status_available ||
+      state->radio_status.state != hal::RadioLinkState::kActive ||
+      state->radio_status.transmitting) {
+    return false;
+  }
+  const size_t index = FindProfileIndex(
+      state, state->preferences.active_profile_id);
+  if (index >= state->module_count) {
+    return false;
+  }
+  const app::RadioProfile& profile = state->preferences.profiles[index];
+  if (!profile.auto_send_enabled || profile.auto_send_text[0] == '\0') {
+    state->auto_send_profile_id = 0;
+    return false;
+  }
+  const uint32_t now = lv_tick_get();
+  if (state->auto_send_profile_id != profile.id) {
+    state->auto_send_profile_id = profile.id;
+    state->auto_send_last_tick = now;
+    return false;
+  }
+  if (now - state->auto_send_last_tick < profile.auto_send_interval_ms) {
+    return false;
+  }
+  state->auto_send_last_tick = now;
+
+  RadioChatMessage message;
+  message.profile_id = profile.id;
+  message.delivery = RadioChatDeliveryState::kSending;
+  FormatCurrentTime(state, message.time, sizeof(message.time));
+  CopyBoundedString(
+      message.text, sizeof(message.text), profile.auto_send_text);
+  if (app::GetRadioChatRepository().Append(message) == 0) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Radio automatic message rejected: chat cache is unavailable, "
+        "profile=%lu\n", static_cast<unsigned long>(profile.id));
+    return false;
+  }
+  SyncModuleItems(state);
+  if (state->detail_page != nullptr && state->detail_index == index) {
+    state->chat_follow_latest = true;
+    state->chat_latest_page_pending = false;
+    RenderChatMessages(state);
+  }
+  MarkModuleListDirty(state);
+  return TryStartNextPendingMessage(state);
+}
+
+/**
  * @brief 轮询射频事件并仅在发送空闲时处理聊天存储
  * @param timer Radio 页面定时器
  */
@@ -2117,7 +2200,9 @@ void RadioTimerCallback(lv_timer_t* timer) {
     if (!poll_succeeded || !status_available || status.transmitting) {
       return;
     }
-    TryStartNextPendingMessage(state);
+    if (!TryStartNextPendingMessage(state)) {
+      TryQueueAutomaticMessage(state);
+    }
     return;
   }
   const uint32_t profile_id = event.client_token;
@@ -2192,7 +2277,9 @@ void RadioTimerCallback(lv_timer_t* timer) {
   }
   MarkModuleListDirty(state);
   StartPendingRadioControlCommand(state);
-  TryStartNextPendingMessage(state);
+  if (!TryStartNextPendingMessage(state)) {
+    TryQueueAutomaticMessage(state);
+  }
 }
 
 /**
@@ -4088,6 +4175,7 @@ void CloseProfileSettingsPage(RadioViewState* state) {
       state->profile_settings_closing) {
     return;
   }
+  CloseAutoSendSettingsPage(state, false);
   CloseProfileNameEditPage(state, false);
   state->profile_settings_closing = true;
   if (!StartSlideRightWindowTransition(state->profile_settings_page,
@@ -4158,6 +4246,17 @@ void ProfileRadioSettingsClickedEventCallback(lv_event_t* event) {
   if (state != nullptr &&
       state->profile_settings_index < state->module_count) {
     ShowModuleSettings(state, state->profile_settings_index, true);
+  }
+}
+
+/**
+ * @brief 处理自动发送设置入口点击事件
+ * @param event LVGL 事件对象
+ */
+void ProfileAutoSendClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
+    ShowAutoSendSettingsPage(
+        static_cast<RadioViewState*>(lv_event_get_user_data(event)));
   }
 }
 
@@ -4506,9 +4605,13 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
   lv_obj_t* radio_row = CreateProfileSettingsRow(body, state,
       "Radio settings", "Manage radio parameters and behavior", 332,
       ProfileRadioSettingsClickedEventCallback, true, -2, 136);
+  lv_obj_t* auto_send_row = CreateProfileSettingsRow(body, state,
+      "Automatic send", "Configure repeated test transmissions", 468,
+      ProfileAutoSendClickedEventCallback, true, -2, 136);
   if (active_row == nullptr || radio_row == nullptr ||
-      !CreateProfileActionDivider(body, state, 476) ||
-      !CreateProfileDeleteRow(body, state, 484)) {
+      auto_send_row == nullptr ||
+      !CreateProfileActionDivider(body, state, 612) ||
+      !CreateProfileDeleteRow(body, state, 620)) {
     ResetProfileSettingsReferences(state);
     lv_obj_delete(page);
     return false;
@@ -5090,7 +5193,20 @@ void UpdateAddSubmitButton(RadioViewState* state) {
     return;
   }
   UpdateAddInputErrorStyles(state);
-  const bool enabled = IsAddModuleFormComplete(state);
+  const bool form_complete = IsAddModuleFormComplete(state);
+  if (state->add_submitting) {
+    lv_obj_remove_state(state->add_submit_button, LV_STATE_DISABLED);
+    lv_obj_remove_flag(state->add_submit_button, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(state->add_submit_button,
+        lv_color_hex(kPrimaryColor), LV_PART_MAIN);
+    if (state->add_submit_label != nullptr) {
+      lv_obj_set_style_text_color(state->add_submit_label,
+          lv_color_hex(kOnPrimaryColor), LV_PART_MAIN);
+    }
+    return;
+  }
+  lv_obj_add_flag(state->add_submit_button, LV_OBJ_FLAG_CLICKABLE);
+  const bool enabled = form_complete;
   if (enabled) {
     lv_obj_remove_state(state->add_submit_button, LV_STATE_DISABLED);
   } else {
@@ -5223,6 +5339,7 @@ void AddPageCloseCompletedCallback(lv_anim_t* animation) {
   state->add_submit_label = nullptr;
   state->add_edge_swipe = EdgeBackSwipeState();
   state->editing_index = kRadioModuleCapacity;
+  state->add_submitting = false;
   state->add_closing = false;
   lv_obj_delete(page);
   ApplyPendingChatScroll(state);
@@ -5262,6 +5379,7 @@ void CloseAddModulePage(RadioViewState* state) {
     state->add_submit_label = nullptr;
     state->add_edge_swipe = EdgeBackSwipeState();
     state->editing_index = kRadioModuleCapacity;
+    state->add_submitting = false;
     state->add_closing = false;
     lv_obj_delete(page);
     ApplyPendingChatScroll(state);
@@ -5321,9 +5439,14 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
     return;
   }
   auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
-  if (!IsAddModuleFormComplete(state)) {
+  if (state == nullptr || state->add_submitting ||
+      !IsAddModuleFormComplete(state)) {
     return;
   }
+  state->add_submitting = true;
+  UpdateAddSubmitButton(state);
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
   const uint32_t started_ms = lv_tick_get();
   const bool editing = state->editing_index < state->module_count;
   const size_t index = editing
@@ -5628,6 +5751,502 @@ lv_obj_t* CreateAddSwitchRow(lv_obj_t* parent, RadioViewState* state,
       toggle, AddInputEventCallback, LV_EVENT_VALUE_CHANGED, state);
   AddEdgeBackSwipeEvents(toggle, AddPageEdgeBackEventCallback, state);
   return toggle;
+}
+
+/**
+ * @brief 清空自动发送设置页面保存的控件引用
+ * @param state Radio 页面状态
+ */
+void ResetAutoSendReferences(RadioViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+  state->auto_send_page = nullptr;
+  state->auto_send_body = nullptr;
+  state->auto_send_switch = nullptr;
+  state->auto_send_text_area = nullptr;
+  state->auto_send_interval_area = nullptr;
+  state->auto_send_keyboard = nullptr;
+  state->auto_send_edge_swipe = EdgeBackSwipeState();
+  state->auto_send_closing = false;
+}
+
+/**
+ * @brief 处理自动发送设置页面退出动画完成事件
+ * @param animation LVGL 动画对象
+ */
+void AutoSendCloseCompletedCallback(lv_anim_t* animation) {
+  auto* state = static_cast<RadioViewState*>(
+      lv_anim_get_user_data(animation));
+  if (state == nullptr || state->auto_send_page == nullptr) {
+    return;
+  }
+  lv_obj_t* page = state->auto_send_page;
+  ResetAutoSendReferences(state);
+  lv_obj_delete(page);
+}
+
+/**
+ * @brief 关闭自动发送设置页面
+ * @param state Radio 页面状态
+ * @param animated 是否播放退出动画
+ */
+void CloseAutoSendSettingsPage(RadioViewState* state, bool animated) {
+  if (state == nullptr || state->auto_send_page == nullptr ||
+      state->auto_send_closing) {
+    return;
+  }
+  HideSharedKeyboard(state->auto_send_keyboard);
+  if (animated && StartSlideRightWindowTransition(
+      state->auto_send_page, state->config.width, kAnimationMs,
+      state, AutoSendCloseCompletedCallback)) {
+    state->auto_send_closing = true;
+    return;
+  }
+  lv_obj_t* page = state->auto_send_page;
+  ResetAutoSendReferences(state);
+  lv_obj_delete(page);
+}
+
+/**
+ * @brief 处理自动发送设置页面返回按钮
+ * @param event LVGL 事件对象
+ */
+void AutoSendBackClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
+    CloseAutoSendSettingsPage(
+        static_cast<RadioViewState*>(lv_event_get_user_data(event)), true);
+  }
+}
+
+/**
+ * @brief 处理自动发送设置页面边缘返回手势
+ * @param event LVGL 事件对象
+ */
+void AutoSendEdgeBackEventCallback(lv_event_t* event) {
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->auto_send_page == nullptr ||
+      state->auto_send_closing ||
+      !HandleEdgeBackSwipeEvent(event, state->config.width,
+          &state->auto_send_edge_swipe)) {
+    return;
+  }
+  CloseAutoSendSettingsPage(state, true);
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+}
+
+/**
+ * @brief 调整自动发送页面的键盘和滚动区域
+ * @param state Radio 页面状态
+ * @param input 当前输入框
+ * @param visible 是否显示键盘
+ */
+void SetAutoSendKeyboardVisible(
+    RadioViewState* state, lv_obj_t* input, bool visible) {
+  if (state == nullptr || state->auto_send_body == nullptr) {
+    return;
+  }
+  const int normal_height = state->config.height -
+      kAddPageHeaderHeight - kAddPageActionHeight;
+  if (!visible) {
+    HideSharedKeyboard(state->auto_send_keyboard);
+    lv_obj_set_height(state->auto_send_body, normal_height);
+    return;
+  }
+  const int keyboard_height =
+      state->config.height * kAddKeyboardHeightPercent / 100;
+  const int visible_height = state->config.height - keyboard_height -
+      kAddPageHeaderHeight - kAddKeyboardTopGap;
+  if (input == nullptr || visible_height <= 0) {
+    return;
+  }
+  lv_obj_set_height(state->auto_send_body, visible_height);
+  int32_t scroll_y = static_cast<int32_t>(lv_obj_get_y(input)) - 18;
+  if (scroll_y < 0) {
+    scroll_y = 0;
+  }
+  lv_obj_scroll_to_y(
+      state->auto_send_body, scroll_y, LV_ANIM_ON);
+}
+
+/**
+ * @brief 处理自动发送文本和周期输入事件
+ * @param event LVGL 事件对象
+ */
+void AutoSendInputEventCallback(lv_event_t* event) {
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
+  const lv_event_code_t code = lv_event_get_code(event);
+  if (code == LV_EVENT_FOCUSED) {
+    SetAutoSendKeyboardVisible(
+        state, lv_event_get_target_obj(event), true);
+  } else if (code == LV_EVENT_CLICKED && state != nullptr &&
+             state->auto_send_keyboard != nullptr &&
+             lv_obj_has_flag(
+                 state->auto_send_keyboard, LV_OBJ_FLAG_HIDDEN)) {
+    SetAutoSendKeyboardVisible(
+        state, lv_event_get_target_obj(event), true);
+  } else if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
+    SetAutoSendKeyboardVisible(state, nullptr, false);
+  }
+}
+
+/**
+ * @brief 处理自动发送页面空白区域点击并收起键盘
+ * @param event LVGL 事件对象
+ */
+void AutoSendBackgroundClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED ||
+      lv_event_get_target_obj(event) !=
+          lv_event_get_current_target_obj(event)) {
+    return;
+  }
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
+  SetAutoSendKeyboardVisible(state, nullptr, false);
+}
+
+/**
+ * @brief 创建自动发送页面的单行输入框
+ * @param parent 父对象
+ * @param state Radio 页面状态
+ * @param placeholder 占位文本
+ * @param text 初始文本
+ * @param y 顶部坐标
+ * @param max_length 最大输入长度
+ * @return 创建成功返回输入框，否则返回 nullptr
+ */
+lv_obj_t* CreateAutoSendTextArea(lv_obj_t* parent, RadioViewState* state,
+    const char* placeholder, const char* text, int y, int max_length) {
+  lv_obj_t* input = lv_textarea_create(parent);
+  if (input == nullptr) {
+    return nullptr;
+  }
+  lv_obj_add_flag(input, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_remove_flag(input, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+  lv_textarea_set_one_line(input, true);
+  lv_obj_set_scrollbar_mode(input, LV_SCROLLBAR_MODE_OFF);
+  lv_obj_set_size(input, state->config.width - 56, kAddInputHeight);
+  lv_obj_set_pos(input, 28, y);
+  lv_textarea_set_max_length(input, max_length);
+  lv_textarea_set_placeholder_text(input, placeholder);
+  lv_textarea_set_text(input, text);
+  lv_obj_set_style_text_font(input, Font24(), LV_PART_MAIN);
+  lv_obj_set_style_text_color(
+      input, lv_color_hex(kMainTextColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      input, lv_color_hex(kSurfaceContainerLowColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      input, lv_color_hex(kSurfaceContainerLowColor), LV_STATE_FOCUSED);
+  lv_obj_set_style_bg_opa(input, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(input, 0, LV_PART_MAIN);
+  lv_obj_set_style_border_width(input, 0, LV_STATE_FOCUSED);
+  lv_obj_set_style_outline_width(input, 0, LV_PART_MAIN);
+  lv_obj_set_style_outline_width(input, 0, LV_STATE_FOCUSED);
+  lv_obj_set_style_shadow_width(input, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(input, 22, LV_PART_MAIN);
+  lv_obj_set_style_pad_left(input, 20, LV_PART_MAIN);
+  lv_obj_set_style_pad_right(input, 20, LV_PART_MAIN);
+  const int vertical_padding =
+      (kAddInputHeight - lv_font_get_line_height(Font24())) / 2;
+  lv_obj_set_style_pad_top(input, vertical_padding, LV_PART_MAIN);
+  lv_obj_set_style_pad_bottom(input, vertical_padding, LV_PART_MAIN);
+  lv_obj_t* content_label = lv_textarea_get_label(input);
+  if (content_label != nullptr) {
+    lv_obj_align(content_label, LV_ALIGN_LEFT_MID, 0, 0);
+  }
+  lv_obj_add_event_cb(
+      input, AutoSendInputEventCallback, LV_EVENT_ALL, state);
+  AddEdgeBackSwipeEvents(input, AutoSendEdgeBackEventCallback, state);
+  return input;
+}
+
+/**
+ * @brief 创建自动发送页面的启用开关卡片
+ * @param parent 父对象
+ * @param state Radio 页面状态
+ * @param y 顶部坐标
+ * @param checked 初始开关状态
+ * @return 创建成功返回开关对象，否则返回 nullptr
+ */
+lv_obj_t* CreateAutoSendSwitch(
+    lv_obj_t* parent, RadioViewState* state, int y, bool checked) {
+  lv_obj_t* row = lv_obj_create(parent);
+  if (row == nullptr) {
+    return nullptr;
+  }
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(row, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(row, state->config.width - 56, kAddSwitchRowHeight);
+  lv_obj_set_pos(row, 28, y);
+  lv_obj_set_style_bg_color(
+      row, lv_color_hex(kSurfaceContainerLowColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(row, 22, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
+  lv_obj_t* title = CreateLabel(
+      row, "Automatic send", kMainTextColor, Font24());
+  lv_obj_t* subtitle = CreateLabel(row,
+      "Repeat while this profile is active", kSecondaryTextColor, Font22());
+  lv_obj_t* toggle = lv_switch_create(row);
+  if (title == nullptr || subtitle == nullptr || toggle == nullptr) {
+    lv_obj_delete(row);
+    return nullptr;
+  }
+  constexpr int kTitleHeight = 32;
+  constexpr int kSubtitleHeight = 30;
+  constexpr int kTextGap = 6;
+  const int text_top = (kAddSwitchRowHeight - kTitleHeight -
+      kTextGap - kSubtitleHeight) / 2;
+  lv_obj_set_size(
+      title, state->config.width - 190, kTitleHeight);
+  lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+  lv_obj_set_pos(title, 20, text_top);
+  lv_obj_set_size(
+      subtitle, state->config.width - 190, kSubtitleHeight);
+  lv_label_set_long_mode(subtitle, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  lv_obj_set_pos(
+      subtitle, 20, text_top + kTitleHeight + kTextGap);
+  lv_obj_add_flag(toggle, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(toggle, kProfileSwitchWidth, kProfileSwitchHeight);
+  lv_obj_align(toggle, LV_ALIGN_RIGHT_MID, -18, 0);
+  lv_obj_set_style_anim_duration(
+      toggle, kProfileSwitchAnimationMs, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(toggle, lv_color_hex(kPrimaryColor),
+      kProfileSwitchCheckedIndicatorSelector);
+  lv_obj_set_style_bg_opa(
+      toggle, LV_OPA_COVER, kProfileSwitchCheckedIndicatorSelector);
+  if (checked) {
+    lv_obj_add_state(toggle, LV_STATE_CHECKED);
+  }
+  AddEdgeBackSwipeEvents(toggle, AutoSendEdgeBackEventCallback, state);
+  return toggle;
+}
+
+/**
+ * @brief 保存当前配置的自动发送参数
+ * @param event LVGL 事件对象
+ */
+void AutoSendSaveClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->auto_send_switch == nullptr ||
+      state->auto_send_text_area == nullptr ||
+      state->auto_send_interval_area == nullptr ||
+      state->profile_settings_index >= state->module_count) {
+    return;
+  }
+  const char* text = lv_textarea_get_text(state->auto_send_text_area);
+  const char* interval_text =
+      lv_textarea_get_text(state->auto_send_interval_area);
+  char* interval_end = nullptr;
+  const unsigned long interval = interval_text == nullptr
+      ? 0
+      : std::strtoul(interval_text, &interval_end, 10);
+  const bool enabled = lv_obj_has_state(
+      state->auto_send_switch, LV_STATE_CHECKED);
+  if (text == nullptr || (enabled && text[0] == '\0') ||
+      interval_text == nullptr || interval_text[0] == '\0' ||
+      interval_end == interval_text || *interval_end != '\0' ||
+      interval < app::kRadioAutoSendMinimumIntervalMs ||
+      interval > app::kRadioAutoSendMaximumIntervalMs) {
+    return;
+  }
+  app::RadioProfile& profile =
+      state->preferences.profiles[state->profile_settings_index];
+  profile.auto_send_enabled = enabled;
+  CopyBoundedString(profile.auto_send_text,
+      sizeof(profile.auto_send_text), text);
+  profile.auto_send_interval_ms = static_cast<uint32_t>(interval);
+  app::UpdateRadioPreferences(state->preferences);
+  if (profile.id == state->preferences.active_profile_id) {
+    state->auto_send_profile_id = 0;
+  }
+  AppendSystemMessage(
+      state, state->profile_settings_index, kSettingsChangedMessage);
+  MarkModuleListDirty(state);
+  CloseAutoSendSettingsPage(state, true);
+}
+
+/**
+ * @brief 显示当前射频配置的自动发送设置页面
+ * @param state Radio 页面状态
+ * @return 显示成功返回 true，否则返回 false
+ */
+bool ShowAutoSendSettingsPage(RadioViewState* state) {
+  if (state == nullptr || state->root == nullptr ||
+      state->profile_settings_page == nullptr ||
+      state->profile_settings_index >= state->module_count) {
+    return false;
+  }
+  if (state->auto_send_page != nullptr) {
+    lv_obj_move_to_index(state->auto_send_page, -1);
+    return true;
+  }
+  const app::RadioProfile& profile =
+      state->preferences.profiles[state->profile_settings_index];
+  lv_obj_t* page = lv_obj_create(state->root);
+  if (page == nullptr) {
+    return false;
+  }
+  state->auto_send_page = page;
+  state->auto_send_closing = false;
+  state->auto_send_edge_swipe = EdgeBackSwipeState();
+  lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(page, state->config.width, state->config.height);
+  lv_obj_set_pos(page, 0, 0);
+  lv_obj_set_style_bg_color(
+      page, lv_color_hex(kMainBackgroundColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
+  AddEdgeBackSwipeEvents(page, AutoSendEdgeBackEventCallback, state);
+
+  lv_obj_t* back = lv_button_create(page);
+  if (back == nullptr) {
+    CloseAutoSendSettingsPage(state, false);
+    return false;
+  }
+  lv_obj_remove_style_all(back);
+  lv_obj_add_flag(back, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(back, 62, 62);
+  lv_obj_set_pos(back, 18, 66);
+  lv_obj_add_event_cb(back, AutoSendBackClickedEventCallback,
+      LV_EVENT_CLICKED, state);
+  lv_obj_t* back_icon = CreateLabel(
+      back, icon::kArrowBack, kMainTextColor, OutlineIconFont44());
+  lv_obj_t* title = CreateLabel(
+      page, "Automatic send", kMainTextColor, Font32());
+  if (back_icon == nullptr || title == nullptr) {
+    CloseAutoSendSettingsPage(state, false);
+    return false;
+  }
+  lv_obj_align(back_icon, LV_ALIGN_CENTER, -4, 0);
+  lv_obj_set_width(title, state->config.width);
+  lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, kNavigationTitleTop);
+
+  lv_obj_t* body = lv_obj_create(page);
+  if (body == nullptr) {
+    CloseAutoSendSettingsPage(state, false);
+    return false;
+  }
+  state->auto_send_body = body;
+  lv_obj_set_pos(body, 0, kNavigationBodyTop);
+  lv_obj_set_size(body, state->config.width,
+      state->config.height - kNavigationBodyTop - kAddPageActionHeight);
+  lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_border_width(body, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(body, 0, LV_PART_MAIN);
+  lv_obj_set_scroll_dir(body, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_AUTO);
+  lv_obj_add_flag(body, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(body, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_add_event_cb(body, AutoSendBackgroundClickedEventCallback,
+      LV_EVENT_CLICKED, state);
+  AddEdgeBackSwipeEvents(body, AutoSendEdgeBackEventCallback, state);
+
+  if (!CreateAddParameterTitle(body, "SEND TEXT", 8)) {
+    CloseAutoSendSettingsPage(state, false);
+    return false;
+  }
+  state->auto_send_text_area = CreateAutoSendTextArea(body, state,
+      "Test characters", profile.auto_send_text, 44,
+      app::kRadioAutoSendTextCapacity - 1);
+  if (!CreateAddParameterTitle(body, "CYCLE INTERVAL (MS)", 140)) {
+    CloseAutoSendSettingsPage(state, false);
+    return false;
+  }
+  char interval_text[12] = {};
+  std::snprintf(interval_text, sizeof(interval_text), "%lu",
+      static_cast<unsigned long>(profile.auto_send_interval_ms));
+  state->auto_send_interval_area = CreateAutoSendTextArea(body, state,
+      "100 - 60000", interval_text, 176, 5);
+  state->auto_send_switch = CreateAutoSendSwitch(
+      body, state, 326, profile.auto_send_enabled);
+  if (state->auto_send_switch == nullptr ||
+      state->auto_send_text_area == nullptr ||
+      state->auto_send_interval_area == nullptr) {
+    CloseAutoSendSettingsPage(state, false);
+    return false;
+  }
+  lv_textarea_set_accepted_chars(
+      state->auto_send_interval_area, kIntegerAcceptedChars);
+  lv_obj_t* interval_help = CreateLabel(body,
+      "100-60000 ms; each cycle waits for the previous send to finish.",
+      kSettingsSecondaryTextColor, Font22());
+  if (interval_help == nullptr) {
+    CloseAutoSendSettingsPage(state, false);
+    return false;
+  }
+  lv_obj_set_width(interval_help, state->config.width - 76);
+  lv_label_set_long_mode(interval_help, LV_LABEL_LONG_WRAP);
+  lv_obj_set_pos(interval_help, 38, 258);
+
+  lv_obj_t* action_area = lv_obj_create(page);
+  lv_obj_t* save = action_area == nullptr
+      ? nullptr
+      : lv_button_create(action_area);
+  if (action_area == nullptr || save == nullptr) {
+    CloseAutoSendSettingsPage(state, false);
+    return false;
+  }
+  lv_obj_remove_flag(action_area, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(action_area, state->config.width, kAddPageActionHeight);
+  lv_obj_align(action_area, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_obj_set_style_bg_opa(action_area, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_border_width(action_area, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(action_area, 0, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(action_area, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(action_area, 0, LV_PART_MAIN);
+  lv_obj_set_size(save, state->config.width - 96, 84);
+  lv_obj_align(save, LV_ALIGN_CENTER, 0, 0);
+  lv_obj_set_style_radius(save, 42, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      save, lv_color_hex(kPrimaryColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      save, lv_color_hex(kPrimaryPressedColor), LV_STATE_PRESSED);
+  lv_obj_set_style_border_width(save, 0, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(save, 0, LV_PART_MAIN);
+  lv_obj_add_event_cb(save, AutoSendSaveClickedEventCallback,
+      LV_EVENT_CLICKED, state);
+  lv_obj_t* save_label = CreateLabel(
+      save, "Save settings", kOnPrimaryColor, Font28());
+  if (save_label == nullptr) {
+    CloseAutoSendSettingsPage(state, false);
+    return false;
+  }
+  lv_obj_center(save_label);
+
+  SharedKeyboardConfig keyboard_config;
+  keyboard_config.width = state->config.width;
+  keyboard_config.height =
+      state->config.height * kAddKeyboardHeightPercent / 100;
+  state->auto_send_keyboard =
+      CreateSharedKeyboard(page, keyboard_config);
+  if (state->auto_send_keyboard == nullptr ||
+      !AttachSharedKeyboardToTextArea(state->auto_send_keyboard,
+          state->auto_send_text_area, nullptr) ||
+      !AttachSharedKeyboardToTextArea(state->auto_send_keyboard,
+          state->auto_send_interval_area, kIntegerAcceptedChars)) {
+    CloseAutoSendSettingsPage(state, false);
+    return false;
+  }
+  lv_obj_add_flag(
+      state->auto_send_keyboard, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  AddEdgeBackSwipeEvents(state->auto_send_keyboard,
+      AutoSendEdgeBackEventCallback, state);
+  EnableEdgeBackSwipeEventBubble(page);
+  if (!StartSlideLeftWindowTransition(page, state->config.width,
+      kAnimationMs, state, nullptr)) {
+    CloseAutoSendSettingsPage(state, false);
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -6001,6 +6620,7 @@ bool ShowAddModulePage(RadioViewState* state) {
   }
   state->selected_add_coding_rate = std::clamp(
       static_cast<int>(profile.coding_rate_denominator) - 5, 0, 3);
+  state->add_submitting = false;
   state->add_closing = false;
   state->add_name_input = nullptr;
   state->add_edge_swipe = EdgeBackSwipeState();

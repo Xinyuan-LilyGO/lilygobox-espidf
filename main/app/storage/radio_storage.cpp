@@ -57,6 +57,10 @@ void ResetProfile(RadioProfile* profile) {
   profile->invert_iq = false;
   profile->rx_boosted = true;
   profile->antenna = radio::AntennaType::kInternal;
+  profile->auto_send_enabled = false;
+  std::snprintf(profile->auto_send_text,
+      sizeof(profile->auto_send_text), "%s", "LilygoBox radio test");
+  profile->auto_send_interval_ms = 1000;
 }
 
 void ResetPreferences(RadioPreferences* preferences) {
@@ -116,6 +120,16 @@ void NormalizeProfileName(char* name) {
   std::fill(name + length + 1, name + kRadioProfileNameCapacity, '\0');
 }
 
+void NormalizeAutoSendText(char* text) {
+  text[kRadioAutoSendTextCapacity - 1] = '\0';
+  size_t length = 0;
+  while (length < kRadioAutoSendTextCapacity && text[length] != '\0') {
+    ++length;
+  }
+  std::fill(text + length + 1,
+      text + kRadioAutoSendTextCapacity, '\0');
+}
+
 void NormalizePreferences(RadioPreferences* preferences) {
   if (preferences == nullptr) {
     return;
@@ -126,6 +140,7 @@ void NormalizePreferences(RadioPreferences* preferences) {
   for (size_t index = 0; index < result.profile_count; ++index) {
     RadioProfile& profile = result.profiles[index];
     NormalizeProfileName(profile.name);
+    NormalizeAutoSendText(profile.auto_send_text);
     if (profile.name[0] == '\0') {
       std::snprintf(profile.name, sizeof(profile.name),
           "Radio profile %u", static_cast<unsigned>(index + 1));
@@ -156,6 +171,12 @@ void NormalizePreferences(RadioPreferences* preferences) {
     if (profile.antenna != radio::AntennaType::kInternal &&
         profile.antenna != radio::AntennaType::kExternal) {
       profile.antenna = radio::AntennaType::kInternal;
+    }
+    profile.auto_send_interval_ms = std::clamp(
+        profile.auto_send_interval_ms, kRadioAutoSendMinimumIntervalMs,
+        kRadioAutoSendMaximumIntervalMs);
+    if (profile.auto_send_text[0] == '\0') {
+      profile.auto_send_enabled = false;
     }
     if (profile.id == 0 ||
         HasProfileIdBefore(result, index, profile.id)) {
@@ -191,7 +212,10 @@ bool RadioProfileEqual(const RadioProfile& left, const RadioProfile& right) {
       left.crc_enabled == right.crc_enabled &&
       left.invert_iq == right.invert_iq &&
       left.rx_boosted == right.rx_boosted &&
-      left.antenna == right.antenna;
+      left.antenna == right.antenna &&
+      left.auto_send_enabled == right.auto_send_enabled &&
+      std::strcmp(left.auto_send_text, right.auto_send_text) == 0 &&
+      left.auto_send_interval_ms == right.auto_send_interval_ms;
 }
 
 bool RadioPreferencesEqual(

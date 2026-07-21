@@ -16,6 +16,9 @@ namespace lilygo_box::app {
 
 inline constexpr size_t kRadioProfileCapacity = 8;
 inline constexpr size_t kRadioProfileNameCapacity = 40;
+inline constexpr size_t kRadioAutoSendTextCapacity = 128;
+inline constexpr uint32_t kRadioAutoSendMinimumIntervalMs = 100;
+inline constexpr uint32_t kRadioAutoSendMaximumIntervalMs = 60000;
 
 struct RadioProfile {
   // 配置的稳定唯一标识，用于聊天记录和激活状态关联。
@@ -48,6 +51,12 @@ struct RadioProfile {
   bool rx_boosted = true;
   // 天线路径，默认使用 RF1 板载天线，可切换至 RF2 外置天线。
   radio::AntennaType antenna = radio::AntennaType::kInternal;
+  // 是否按照设定周期自动发送测试字符。
+  bool auto_send_enabled = false;
+  // 自动发送使用的测试字符，长度受射频负载容量限制。
+  char auto_send_text[kRadioAutoSendTextCapacity] = "LilygoBox radio test";
+  // 两次自动发送之间的周期，单位为毫秒。
+  uint32_t auto_send_interval_ms = 1000;
 };
 
 struct RadioPreferences {
