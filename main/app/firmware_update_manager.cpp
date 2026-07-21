@@ -50,6 +50,8 @@ constexpr char kCurrentDeviceId[] = "";
 constexpr char kManifestUrl[] = "";
 #endif
 constexpr int kSupportedManifestVersion = 1;
+constexpr char kBackupDownloadProxyPrefix[] =
+    "https://gh-proxy.com/";
 constexpr char kReleaseDownloadPrefix[] =
     "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/releases/download/";
 constexpr char kMainReleaseAssetName[] =
@@ -71,8 +73,9 @@ constexpr char kWirelessFirmwareTempPath[] =
 constexpr char kPendingUpdatePath[] = "/littlefs/ota/pending-update";
 constexpr char kWirelessFirmwareProjectName[] = "network_adapter";
 constexpr esp_chip_id_t kExpectedWirelessChipId = ESP_CHIP_ID_ESP32C6;
-constexpr int kHttpTimeoutMs = 15000;
+constexpr int kFirmwareHttpTimeoutMs = 15000;
 constexpr int kHttpBufferSize = 4096;
+constexpr size_t kMaximumDownloadUrlLength = 512;
 constexpr size_t kManifestMaximumSize = 8 * 1024;
 constexpr size_t kMaximumFirmwareAssetSize = 64 * 1024 * 1024;
 constexpr size_t kImageSearchAlignment = 0x1000;
@@ -84,7 +87,8 @@ constexpr uint8_t kMaximumImageSegmentCount = 16;
 constexpr uint32_t kRestartDelayMs = 1200;
 constexpr uint32_t kWirelessReadyPollMs = 250;
 constexpr uint32_t kWirelessReadyTimeoutMs = 15 * 1000;
-constexpr uint32_t kManifestDownloadTimeoutMs = 45 * 1000;
+constexpr uint32_t kManifestPrimaryTimeoutMs = 8 * 1000;
+constexpr uint32_t kManifestBackupTimeoutMs = 15 * 1000;
 constexpr uint32_t kFirmwareDownloadTimeoutMs = 10 * 60 * 1000;
 constexpr uint32_t kWorkerTaskStackBytes = 16 * 1024;
 constexpr UBaseType_t kWorkerTaskPriority = 5;
@@ -116,6 +120,7 @@ struct ManifestDownloadContext {
   char* data = nullptr;
   size_t size = 0;
   TickType_t started_tick = 0;
+  uint32_t timeout_ms = 0;
   bool overflow = false;
   bool timed_out = false;
 };
@@ -132,6 +137,19 @@ struct FirmwareDownloadContext {
   bool cancel_requested = false;
 };
 
+// 本次更新优先使用的固件下载源。
+enum class FirmwareDownloadSource {
+  kPrimary,
+  kBackup,
+};
+
+// 按本次首选顺序排列的固件下载地址。
+struct FirmwareDownloadSourceList {
+  const char* urls[2] = {};
+  FirmwareDownloadSource sources[2] = {};
+  size_t count = 0;
+};
+
 struct FirmwareUpdateManagerState {
   SemaphoreHandle_t mutex = nullptr;
   hal::WifiProvider* wifi = nullptr;
@@ -142,6 +160,8 @@ struct FirmwareUpdateManagerState {
   bool worker_running = false;
   bool pause_requested = false;
   bool cancel_requested = false;
+  FirmwareDownloadSource preferred_download_source =
+      FirmwareDownloadSource::kPrimary;
 };
 
 FirmwareUpdateManagerState g_manager;
@@ -237,6 +257,41 @@ void UnlockManager() {
   if (g_manager.mutex != nullptr) {
     xSemaphoreGive(g_manager.mutex);
   }
+}
+
+/**
+ * @brief 获取本次更新优先使用的固件下载源
+ * @return 当前首选下载源
+ */
+FirmwareDownloadSource GetPreferredDownloadSource() {
+  if (!LockManager()) {
+    return FirmwareDownloadSource::kPrimary;
+  }
+  const FirmwareDownloadSource source =
+      g_manager.preferred_download_source;
+  UnlockManager();
+  return source;
+}
+
+/**
+ * @brief 记录本次更新优先使用的固件下载源
+ * @param source 下载源
+ */
+void SetPreferredDownloadSource(FirmwareDownloadSource source) {
+  if (!LockManager()) {
+    return;
+  }
+  g_manager.preferred_download_source = source;
+  UnlockManager();
+}
+
+/**
+ * @brief 获取固件下载源的日志名称
+ * @param source 下载源
+ * @return 日志名称
+ */
+const char* FirmwareDownloadSourceName(FirmwareDownloadSource source) {
+  return source == FirmwareDownloadSource::kBackup ? "backup" : "primary";
 }
 
 TransferRequest ReadTransferRequest() {
@@ -469,6 +524,78 @@ bool EnsureOtaDirectory() {
  */
 bool IsHttpsUrl(const char* url) {
   return url != nullptr && std::strncmp(url, "https://", 8) == 0;
+}
+
+/**
+ * @brief 为 GitHub 下载地址生成备用代理地址
+ * @param source_url GitHub 原始下载地址
+ * @param destination 备用地址输出缓冲区
+ * @param destination_size 输出缓冲区长度
+ * @return 地址生成成功返回 true，否则返回 false
+ */
+bool BuildBackupDownloadUrl(const char* source_url, char* destination,
+    size_t destination_size) {
+  constexpr char kGithubHttpsPrefix[] = "https://github.com/";
+  if (source_url == nullptr || destination == nullptr ||
+      destination_size == 0 ||
+      std::strncmp(source_url, kGithubHttpsPrefix,
+          sizeof(kGithubHttpsPrefix) - 1) != 0) {
+    return false;
+  }
+  const int written = std::snprintf(destination, destination_size, "%s%s",
+      kBackupDownloadProxyPrefix, source_url);
+  return written > 0 && static_cast<size_t>(written) < destination_size;
+}
+
+/**
+ * @brief 按清单成功来源生成固件下载地址尝试顺序
+ * @param primary_url 固件主下载地址
+ * @param backup_url 备用地址输出缓冲区
+ * @param backup_url_size 备用地址输出缓冲区长度
+ * @param list 下载地址顺序输出
+ * @return 至少存在一个有效下载地址返回 true，否则返回 false
+ */
+bool PrepareFirmwareDownloadSources(const char* primary_url,
+    char* backup_url, size_t backup_url_size,
+    FirmwareDownloadSourceList* list) {
+  if (primary_url == nullptr || primary_url[0] == '\0' ||
+      backup_url == nullptr || backup_url_size == 0 || list == nullptr) {
+    return false;
+  }
+  *list = {};
+  const bool backup_available = BuildBackupDownloadUrl(
+      primary_url, backup_url, backup_url_size);
+  if (backup_available &&
+      GetPreferredDownloadSource() == FirmwareDownloadSource::kBackup) {
+    list->urls[0] = backup_url;
+    list->sources[0] = FirmwareDownloadSource::kBackup;
+    list->urls[1] = primary_url;
+    list->sources[1] = FirmwareDownloadSource::kPrimary;
+    list->count = 2;
+    return true;
+  }
+  list->urls[0] = primary_url;
+  list->sources[0] = FirmwareDownloadSource::kPrimary;
+  list->count = 1;
+  if (backup_available) {
+    list->urls[1] = backup_url;
+    list->sources[1] = FirmwareDownloadSource::kBackup;
+    list->count = 2;
+  }
+  return true;
+}
+
+/**
+ * @brief 判断 HTTP 下载失败是否适合切换到另一个下载源重试
+ * @param result HTTP 客户端执行结果
+ * @param status_code HTTP 状态码，未收到响应时为 0
+ * @return 网络、限流或服务端错误返回 true，否则返回 false
+ */
+bool ShouldRetryWithAlternateSource(esp_err_t result, int status_code) {
+  if (status_code == 408 || status_code == 429 || status_code >= 500) {
+    return true;
+  }
+  return result != ESP_OK && (status_code == 0 || status_code == 200);
 }
 
 /**
@@ -1021,7 +1148,7 @@ esp_err_t ManifestDownloadEventHandler(esp_http_client_event_t* event) {
   }
   auto* context = static_cast<ManifestDownloadContext*>(event->user_data);
   if (ElapsedMilliseconds(context->started_tick) >=
-      kManifestDownloadTimeoutMs) {
+      context->timeout_ms) {
     context->timed_out = true;
     return ESP_ERR_TIMEOUT;
   }
@@ -1044,7 +1171,53 @@ esp_err_t ManifestDownloadEventHandler(esp_http_client_event_t* event) {
 }
 
 /**
- * @brief 从 GitHub Releases 下载并解析最新固件清单
+ * @brief 从指定地址执行一次固件清单下载
+ * @param url 固件清单下载地址
+ * @param buffer 清单内容输出缓冲区
+ * @param timeout_ms 本次下载超时时间，单位为毫秒
+ * @param context 本次下载状态
+ * @param result HTTP 客户端执行结果
+ * @param status_code HTTP 状态码
+ * @return 收到完整非空的 HTTP 200 响应返回 true，否则返回 false
+ */
+bool DownloadManifestFromUrl(const char* url, char* buffer,
+    uint32_t timeout_ms, ManifestDownloadContext* context,
+    esp_err_t* result, int* status_code) {
+  if (url == nullptr || buffer == nullptr || context == nullptr ||
+      result == nullptr || status_code == nullptr) {
+    return false;
+  }
+  buffer[0] = '\0';
+  *context = {};
+  context->data = buffer;
+  context->started_tick = xTaskGetTickCount();
+  context->timeout_ms = timeout_ms;
+  *result = ESP_FAIL;
+  *status_code = 0;
+
+  esp_http_client_config_t config = {};
+  config.url = url;
+  config.crt_bundle_attach = esp_crt_bundle_attach;
+  config.timeout_ms = static_cast<int>(timeout_ms);
+  config.buffer_size = kHttpBufferSize;
+  config.buffer_size_tx = kHttpBufferSize;
+  config.event_handler = ManifestDownloadEventHandler;
+  config.user_data = context;
+  config.keep_alive_enable = true;
+  config.max_redirection_count = 5;
+  esp_http_client_handle_t client = esp_http_client_init(&config);
+  if (client == nullptr) {
+    return false;
+  }
+  *result = esp_http_client_perform(client);
+  *status_code = esp_http_client_get_status_code(client);
+  esp_http_client_cleanup(client);
+  return *result == ESP_OK && *status_code == 200 && !context->overflow &&
+         context->size > 0;
+}
+
+/**
+ * @brief 从主下载源或备用源下载并解析最新固件清单
  * @param manifest 清单解析结果
  * @return 下载、解析和持久化均成功返回 true，否则返回 false
  */
@@ -1053,39 +1226,52 @@ bool DownloadManifest(FirmwareReleaseManifest* manifest) {
   if (buffer == nullptr) {
     return false;
   }
-  buffer[0] = '\0';
+  char backup_url[kMaximumDownloadUrlLength] = {};
+  const bool backup_available = BuildBackupDownloadUrl(
+      kManifestUrl, backup_url, sizeof(backup_url));
+  const char* download_urls[] = {kManifestUrl, backup_url};
+  const uint32_t download_timeouts[] = {
+      kManifestPrimaryTimeoutMs, kManifestBackupTimeoutMs};
+  const FirmwareDownloadSource download_sources[] = {
+      FirmwareDownloadSource::kPrimary,
+      FirmwareDownloadSource::kBackup};
   ManifestDownloadContext context;
-  context.data = buffer.get();
-  context.started_tick = xTaskGetTickCount();
-
-  esp_http_client_config_t config = {};
-  config.url = kManifestUrl;
-  config.crt_bundle_attach = esp_crt_bundle_attach;
-  config.timeout_ms = kHttpTimeoutMs;
-  config.buffer_size = kHttpBufferSize;
-  config.buffer_size_tx = kHttpBufferSize;
-  config.event_handler = ManifestDownloadEventHandler;
-  config.user_data = &context;
-  config.keep_alive_enable = true;
-  config.max_redirection_count = 5;
-  esp_http_client_handle_t client = esp_http_client_init(&config);
-  if (client == nullptr) {
-    return false;
-  }
-  const esp_err_t result = esp_http_client_perform(client);
-  const int status_code = esp_http_client_get_status_code(client);
-  esp_http_client_cleanup(client);
-  if (result != ESP_OK || status_code != 200 || context.overflow ||
-      context.size == 0) {
+  esp_err_t result = ESP_FAIL;
+  int status_code = 0;
+  bool downloaded = false;
+  FirmwareDownloadSource successful_source =
+      FirmwareDownloadSource::kPrimary;
+  const size_t source_count = backup_available ? 2 : 1;
+  for (size_t source_index = 0; source_index < source_count;
+       ++source_index) {
+    downloaded = DownloadManifestFromUrl(download_urls[source_index],
+        buffer.get(), download_timeouts[source_index], &context, &result,
+        &status_code);
+    if (downloaded) {
+      successful_source = download_sources[source_index];
+      break;
+    }
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Download firmware manifest failed: result=%s HTTP=%d size=%u\n",
+        "Download firmware manifest failed: source=%s result=%s "
+        "HTTP=%d size=%u\n",
+        FirmwareDownloadSourceName(download_sources[source_index]),
         esp_err_to_name(result), status_code,
         static_cast<unsigned>(context.size));
+    const bool may_retry = source_index == 0 && backup_available &&
+        !context.overflow && IsNetworkReady() &&
+        ShouldRetryWithAlternateSource(result, status_code);
+    if (!may_retry) {
+      break;
+    }
+    LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+        "Retry firmware manifest through backup source\n");
+  }
+  if (!downloaded) {
     if (!IsNetworkReady()) {
       SetFailure("Wi-Fi lost while checking");
     } else if (context.timed_out ||
                ElapsedMilliseconds(context.started_tick) >=
-                   kManifestDownloadTimeoutMs) {
+                   context.timeout_ms) {
       SetFailure("Update check timed out");
     } else {
       SetFailure("Update information unavailable");
@@ -1110,6 +1296,7 @@ bool DownloadManifest(FirmwareReleaseManifest* manifest) {
     SetFailure("Cannot save update information");
     return false;
   }
+  SetPreferredDownloadSource(successful_source);
   return true;
 }
 
@@ -1629,79 +1816,118 @@ FirmwareDownloadResult DownloadWirelessFirmware(
     SetFailure("LittleFS storage unavailable");
     return FirmwareDownloadResult::kFailed;
   }
-  std::remove(kWirelessFirmwareTempPath);
-  std::unique_ptr<FILE, decltype(&std::fclose)> output(
-      std::fopen(kWirelessFirmwareTempPath, "wb"), &std::fclose);
-  if (output == nullptr) {
-    SetFailure("Cannot create C6 firmware file");
+  char backup_url[kMaximumDownloadUrlLength] = {};
+  FirmwareDownloadSourceList download_sources;
+  if (!PrepareFirmwareDownloadSources(manifest.wireless_url, backup_url,
+          sizeof(backup_url), &download_sources)) {
+    SetFailure("C6 firmware download address invalid");
     return FirmwareDownloadResult::kFailed;
   }
-  FirmwareDownloadContext context;
-  context.file = output.get();
-  context.expected_size = manifest.wireless_size_bytes;
-  context.started_tick = xTaskGetTickCount();
-  esp_http_client_config_t config = {};
-  config.url = manifest.wireless_url;
-  config.crt_bundle_attach = esp_crt_bundle_attach;
-  config.timeout_ms = kHttpTimeoutMs;
-  config.buffer_size = kHttpBufferSize;
-  config.buffer_size_tx = kHttpBufferSize;
-  config.event_handler = WirelessDownloadEventHandler;
-  config.user_data = &context;
-  config.keep_alive_enable = true;
-  config.max_redirection_count = 5;
-  esp_http_client_handle_t client = esp_http_client_init(&config);
-  if (client == nullptr) {
-    output.reset();
+  for (size_t source_index = 0; source_index < download_sources.count;
+       ++source_index) {
     std::remove(kWirelessFirmwareTempPath);
-    SetFailure("Cannot start C6 download");
-    return FirmwareDownloadResult::kFailed;
-  }
-  const esp_err_t result = esp_http_client_perform(client);
-  const int status_code = esp_http_client_get_status_code(client);
-  const int64_t content_length = esp_http_client_get_content_length(client);
-  if (std::fflush(output.get()) != 0) {
-    context.write_failed = true;
-  }
-  output.reset();
-  esp_http_client_cleanup(client);
-  const TransferRequest final_request = ReadTransferRequest();
-  if (context.cancel_requested || context.pause_requested ||
-      final_request != TransferRequest::kNone) {
-    std::remove(kWirelessFirmwareTempPath);
-    const bool cancelled = context.cancel_requested ||
-                           final_request == TransferRequest::kCancel;
-    return cancelled ? FirmwareDownloadResult::kCancelled
-                     : FirmwareDownloadResult::kPaused;
-  }
-  const bool complete_length = content_length <= 0 ||
-      context.downloaded_size == static_cast<size_t>(content_length);
-  FirmwareImageInfo image_info;
-  if (result != ESP_OK || status_code != 200 || context.write_failed ||
-      context.overflow ||
-      context.downloaded_size == 0 || !complete_length ||
-      context.downloaded_size != manifest.wireless_size_bytes ||
-      !InspectWirelessFirmware(
-          kWirelessFirmwareTempPath, manifest, &image_info)) {
-    std::remove(kWirelessFirmwareTempPath);
-    if (!IsNetworkReady()) {
-      SetFailure("Wi-Fi lost during C6 download");
-    } else if (context.timed_out ||
-               ElapsedMilliseconds(context.started_tick) >=
-                   kFirmwareDownloadTimeoutMs) {
-      SetFailure("C6 firmware download timed out");
-    } else {
-      SetFailure("Downloaded C6 firmware invalid");
+    std::unique_ptr<FILE, decltype(&std::fclose)> output(
+        std::fopen(kWirelessFirmwareTempPath, "wb"), &std::fclose);
+    if (output == nullptr) {
+      SetFailure("Cannot create C6 firmware file");
+      return FirmwareDownloadResult::kFailed;
     }
-    return FirmwareDownloadResult::kFailed;
+    FirmwareDownloadContext context;
+    context.file = output.get();
+    context.expected_size = manifest.wireless_size_bytes;
+    context.started_tick = xTaskGetTickCount();
+    esp_http_client_config_t config = {};
+    config.url = download_sources.urls[source_index];
+    config.crt_bundle_attach = esp_crt_bundle_attach;
+    config.timeout_ms = kFirmwareHttpTimeoutMs;
+    config.buffer_size = kHttpBufferSize;
+    config.buffer_size_tx = kHttpBufferSize;
+    config.event_handler = WirelessDownloadEventHandler;
+    config.user_data = &context;
+    config.keep_alive_enable = true;
+    config.max_redirection_count = 5;
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (client == nullptr) {
+      output.reset();
+      std::remove(kWirelessFirmwareTempPath);
+      SetFailure("Cannot start C6 download");
+      return FirmwareDownloadResult::kFailed;
+    }
+    SetStage(FirmwareUpdateStage::kDownloadingWireless,
+        "Downloading ESP32-C6 firmware", 0);
+    const esp_err_t result = esp_http_client_perform(client);
+    const int status_code = esp_http_client_get_status_code(client);
+    const int64_t content_length =
+        esp_http_client_get_content_length(client);
+    if (std::fflush(output.get()) != 0) {
+      context.write_failed = true;
+    }
+    output.reset();
+    esp_http_client_cleanup(client);
+    const TransferRequest final_request = ReadTransferRequest();
+    if (context.cancel_requested || context.pause_requested ||
+        final_request != TransferRequest::kNone) {
+      std::remove(kWirelessFirmwareTempPath);
+      const bool cancelled = context.cancel_requested ||
+                             final_request == TransferRequest::kCancel;
+      return cancelled ? FirmwareDownloadResult::kCancelled
+                       : FirmwareDownloadResult::kPaused;
+    }
+    const bool complete_length = content_length <= 0 ||
+        context.downloaded_size == static_cast<size_t>(content_length);
+    const bool transfer_valid = result == ESP_OK && status_code == 200 &&
+        !context.write_failed && !context.overflow &&
+        context.downloaded_size > 0 && complete_length &&
+        context.downloaded_size == manifest.wireless_size_bytes;
+    if (!transfer_valid) {
+      std::remove(kWirelessFirmwareTempPath);
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Download C6 firmware failed: source=%s result=%s HTTP=%d "
+          "size=%u\n",
+          FirmwareDownloadSourceName(
+              download_sources.sources[source_index]),
+          esp_err_to_name(result), status_code,
+          static_cast<unsigned>(context.downloaded_size));
+      const bool may_retry = source_index == 0 &&
+          download_sources.count > 1 &&
+          !context.write_failed && !context.overflow && !context.timed_out &&
+          IsNetworkReady() &&
+          ShouldRetryWithAlternateSource(result, status_code);
+      if (may_retry) {
+        LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+            "Retry C6 firmware through alternate source\n");
+        continue;
+      }
+      if (!IsNetworkReady()) {
+        SetFailure("Wi-Fi lost during C6 download");
+      } else if (context.timed_out ||
+                 ElapsedMilliseconds(context.started_tick) >=
+                     kFirmwareDownloadTimeoutMs) {
+        SetFailure("C6 firmware download timed out");
+      } else {
+        SetFailure("Downloaded C6 firmware invalid");
+      }
+      return FirmwareDownloadResult::kFailed;
+    }
+    FirmwareImageInfo image_info;
+    if (!InspectWirelessFirmware(
+            kWirelessFirmwareTempPath, manifest, &image_info)) {
+      std::remove(kWirelessFirmwareTempPath);
+      SetFailure("Downloaded C6 firmware invalid");
+      return FirmwareDownloadResult::kFailed;
+    }
+    std::remove(kWirelessFirmwarePath);
+    if (std::rename(kWirelessFirmwareTempPath, kWirelessFirmwarePath) != 0) {
+      std::remove(kWirelessFirmwareTempPath);
+      SetFailure("Cannot save C6 firmware file");
+      return FirmwareDownloadResult::kFailed;
+    }
+    SetPreferredDownloadSource(
+        download_sources.sources[source_index]);
+    return FirmwareDownloadResult::kCompleted;
   }
-  std::remove(kWirelessFirmwarePath);
-  if (std::rename(kWirelessFirmwareTempPath, kWirelessFirmwarePath) != 0) {
-    std::remove(kWirelessFirmwareTempPath);
-    SetFailure("Cannot save C6 firmware file");
-    return FirmwareDownloadResult::kFailed;
-  }
-  return FirmwareDownloadResult::kCompleted;
+  SetFailure("C6 firmware download failed");
+  return FirmwareDownloadResult::kFailed;
 }
 
 /**
@@ -2035,97 +2261,164 @@ MainUpdateResult UpdateMainFirmware(
     SetFailure("P4 firmware does not fit OTA partition");
     return MainUpdateResult::kFailed;
   }
-  esp_http_client_config_t http_config = {};
-  http_config.url = manifest.main_url;
-  http_config.crt_bundle_attach = esp_crt_bundle_attach;
-  http_config.timeout_ms = kHttpTimeoutMs;
-  http_config.buffer_size = kHttpBufferSize;
-  http_config.buffer_size_tx = kHttpBufferSize;
-  http_config.keep_alive_enable = true;
-  http_config.max_redirection_count = 5;
-  esp_https_ota_config_t ota_config = {};
-  ota_config.http_config = &http_config;
-
-  SetStage(FirmwareUpdateStage::kDownloadingMain,
-      "Downloading ESP32-P4 firmware", 0);
+  char backup_url[kMaximumDownloadUrlLength] = {};
+  FirmwareDownloadSourceList download_sources;
+  if (!PrepareFirmwareDownloadSources(manifest.main_url, backup_url,
+          sizeof(backup_url), &download_sources)) {
+    if (!keep_marker_on_failure) {
+      ClearPendingUpdate();
+    }
+    SetFailure("P4 firmware download address invalid");
+    return MainUpdateResult::kFailed;
+  }
   esp_https_ota_handle_t ota_handle = nullptr;
-  esp_err_t result = esp_https_ota_begin(&ota_config, &ota_handle);
-  if (result != ESP_OK) {
-    if (!keep_marker_on_failure) {
-      ClearPendingUpdate();
-    }
-    SetFailure("Cannot start P4 download");
-    return MainUpdateResult::kFailed;
-  }
-  esp_app_desc_t new_app = {};
-  result = esp_https_ota_get_img_desc(ota_handle, &new_app);
-  if (result != ESP_OK || !ValidateMainFirmwareImage(new_app, manifest)) {
-    esp_https_ota_abort(ota_handle);
-    if (!keep_marker_on_failure) {
-      ClearPendingUpdate();
-    }
-    SetFailure("Downloaded P4 firmware invalid");
-    return MainUpdateResult::kFailed;
-  }
-  const TickType_t download_started_tick = xTaskGetTickCount();
-  bool download_timed_out = false;
+  esp_err_t result = ESP_FAIL;
   TransferRequest interrupted_by = TransferRequest::kNone;
-  do {
-    interrupted_by = ReadTransferRequest();
-    if (interrupted_by != TransferRequest::kNone) {
-      result = ESP_FAIL;
-      break;
-    }
-    if (ElapsedMilliseconds(download_started_tick) >=
-        kFirmwareDownloadTimeoutMs) {
-      download_timed_out = true;
-      result = ESP_ERR_TIMEOUT;
-      break;
-    }
-    result = esp_https_ota_perform(ota_handle);
-    const int image_size = esp_https_ota_get_image_size(ota_handle);
-    const int image_read = esp_https_ota_get_image_len_read(ota_handle);
-    if (image_read >= 0 &&
-        static_cast<size_t>(image_read) > manifest.main_size_bytes) {
-      result = ESP_ERR_INVALID_SIZE;
-      break;
-    }
-    const int progress = image_size > 0 && image_read >= 0
-        ? image_read * 100 / image_size
-        : 0;
+  bool download_completed = false;
+  for (size_t source_index = 0; source_index < download_sources.count;
+       ++source_index) {
+    esp_http_client_config_t http_config = {};
+    http_config.url = download_sources.urls[source_index];
+    http_config.crt_bundle_attach = esp_crt_bundle_attach;
+    http_config.timeout_ms = kFirmwareHttpTimeoutMs;
+    http_config.buffer_size = kHttpBufferSize;
+    http_config.buffer_size_tx = kHttpBufferSize;
+    http_config.keep_alive_enable = true;
+    http_config.max_redirection_count = 5;
+    esp_https_ota_config_t ota_config = {};
+    ota_config.http_config = &http_config;
+
     SetStage(FirmwareUpdateStage::kDownloadingMain,
-        "Downloading ESP32-P4 firmware", progress);
-  } while (result == ESP_ERR_HTTPS_OTA_IN_PROGRESS);
-  if (interrupted_by != TransferRequest::kNone) {
-    esp_https_ota_abort(ota_handle);
-    ClearPendingUpdate();
-    return interrupted_by == TransferRequest::kCancel
-        ? MainUpdateResult::kCancelled
-        : MainUpdateResult::kPaused;
+        "Downloading ESP32-P4 firmware", 0);
+    ota_handle = nullptr;
+    result = esp_https_ota_begin(&ota_config, &ota_handle);
+    if (result != ESP_OK) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Start P4 firmware download failed: source=%s result=%s\n",
+          FirmwareDownloadSourceName(
+              download_sources.sources[source_index]),
+          esp_err_to_name(result));
+      if (source_index == 0 && download_sources.count > 1 &&
+          IsNetworkReady()) {
+        LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+            "Retry P4 firmware through alternate source\n");
+        continue;
+      }
+      if (!keep_marker_on_failure) {
+        ClearPendingUpdate();
+      }
+      SetFailure("Cannot start P4 download");
+      return MainUpdateResult::kFailed;
+    }
+    esp_app_desc_t new_app = {};
+    result = esp_https_ota_get_img_desc(ota_handle, &new_app);
+    const bool image_description_valid = result == ESP_OK &&
+        ValidateMainFirmwareImage(new_app, manifest);
+    if (!image_description_valid) {
+      esp_https_ota_abort(ota_handle);
+      ota_handle = nullptr;
+      const bool may_retry = result != ESP_OK && source_index == 0 &&
+          download_sources.count > 1 && IsNetworkReady();
+      if (may_retry) {
+        LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+            "Retry P4 image header through alternate source\n");
+        continue;
+      }
+      if (!keep_marker_on_failure) {
+        ClearPendingUpdate();
+      }
+      SetFailure("Downloaded P4 firmware invalid");
+      return MainUpdateResult::kFailed;
+    }
+    const TickType_t download_started_tick = xTaskGetTickCount();
+    bool download_timed_out = false;
+    bool download_size_invalid = false;
+    interrupted_by = TransferRequest::kNone;
+    do {
+      interrupted_by = ReadTransferRequest();
+      if (interrupted_by != TransferRequest::kNone) {
+        result = ESP_FAIL;
+        break;
+      }
+      if (ElapsedMilliseconds(download_started_tick) >=
+          kFirmwareDownloadTimeoutMs) {
+        download_timed_out = true;
+        result = ESP_ERR_TIMEOUT;
+        break;
+      }
+      result = esp_https_ota_perform(ota_handle);
+      const int image_size = esp_https_ota_get_image_size(ota_handle);
+      const int image_read = esp_https_ota_get_image_len_read(ota_handle);
+      if (image_read >= 0 &&
+          static_cast<size_t>(image_read) > manifest.main_size_bytes) {
+        download_size_invalid = true;
+        result = ESP_ERR_INVALID_SIZE;
+        break;
+      }
+      const int progress = image_size > 0 && image_read >= 0
+          ? image_read * 100 / image_size
+          : 0;
+      SetStage(FirmwareUpdateStage::kDownloadingMain,
+          "Downloading ESP32-P4 firmware", progress);
+    } while (result == ESP_ERR_HTTPS_OTA_IN_PROGRESS);
+    if (interrupted_by != TransferRequest::kNone) {
+      esp_https_ota_abort(ota_handle);
+      ClearPendingUpdate();
+      return interrupted_by == TransferRequest::kCancel
+          ? MainUpdateResult::kCancelled
+          : MainUpdateResult::kPaused;
+    }
+    const bool complete_data = result == ESP_OK &&
+        esp_https_ota_is_complete_data_received(ota_handle);
+    if (!complete_data) {
+      esp_https_ota_abort(ota_handle);
+      ota_handle = nullptr;
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Download P4 firmware failed: source=%s result=%s\n",
+          FirmwareDownloadSourceName(
+              download_sources.sources[source_index]),
+          esp_err_to_name(result));
+      const bool may_retry = source_index == 0 &&
+          download_sources.count > 1 && !download_timed_out &&
+          !download_size_invalid && IsNetworkReady();
+      if (may_retry) {
+        LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+            "Retry P4 firmware through alternate source\n");
+        continue;
+      }
+      if (!keep_marker_on_failure) {
+        ClearPendingUpdate();
+      }
+      if (!IsNetworkReady()) {
+        SetFailure("Wi-Fi lost during P4 download");
+      } else if (download_timed_out) {
+        SetFailure("P4 firmware download timed out");
+      } else {
+        SetFailure("P4 firmware download failed");
+      }
+      return MainUpdateResult::kFailed;
+    }
+    const int downloaded_size = esp_https_ota_get_image_len_read(ota_handle);
+    if (downloaded_size < 0 ||
+        static_cast<size_t>(downloaded_size) != manifest.main_size_bytes) {
+      esp_https_ota_abort(ota_handle);
+      ota_handle = nullptr;
+      if (!keep_marker_on_failure) {
+        ClearPendingUpdate();
+      }
+      SetFailure("Downloaded P4 firmware size mismatch");
+      return MainUpdateResult::kFailed;
+    }
+    SetPreferredDownloadSource(
+        download_sources.sources[source_index]);
+    download_completed = true;
+    break;
   }
-  if (result != ESP_OK ||
-      !esp_https_ota_is_complete_data_received(ota_handle)) {
-    esp_https_ota_abort(ota_handle);
+  if (!download_completed || ota_handle == nullptr) {
     if (!keep_marker_on_failure) {
       ClearPendingUpdate();
     }
-    if (!IsNetworkReady()) {
-      SetFailure("Wi-Fi lost during P4 download");
-    } else if (download_timed_out) {
-      SetFailure("P4 firmware download timed out");
-    } else {
-      SetFailure("P4 firmware download failed");
-    }
-    return MainUpdateResult::kFailed;
-  }
-  const int downloaded_size = esp_https_ota_get_image_len_read(ota_handle);
-  if (downloaded_size < 0 ||
-      static_cast<size_t>(downloaded_size) != manifest.main_size_bytes) {
-    esp_https_ota_abort(ota_handle);
-    if (!keep_marker_on_failure) {
-      ClearPendingUpdate();
-    }
-    SetFailure("Downloaded P4 firmware size mismatch");
+    SetFailure("P4 firmware download failed");
     return MainUpdateResult::kFailed;
   }
   interrupted_by = ReadTransferRequest();
@@ -2605,6 +2898,8 @@ bool RequestFirmwareUpdateCheck() {
   g_manager.manifest_valid = false;
   g_manager.pause_requested = false;
   g_manager.cancel_requested = false;
+  g_manager.preferred_download_source =
+      FirmwareDownloadSource::kPrimary;
   CopyText(g_manager.snapshot.message, sizeof(g_manager.snapshot.message),
       "Checking for updates");
   UnlockManager();

@@ -650,7 +650,8 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
         break;
       case app::FirmwareUpdateStage::kDownloadingWireless:
         std::snprintf(button_text, sizeof(button_text),
-            "Download progress  %d%%", snapshot.progress_percent);
+            "Downloading Wireless firmware  %d%%",
+            snapshot.progress_percent);
         break;
       case app::FirmwareUpdateStage::kInstallingWireless:
         std::snprintf(button_text, sizeof(button_text),
@@ -658,7 +659,8 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
         break;
       case app::FirmwareUpdateStage::kDownloadingMain:
         std::snprintf(button_text, sizeof(button_text),
-            "Download progress  %d%%", snapshot.progress_percent);
+            "Downloading Main firmware  %d%%",
+            snapshot.progress_percent);
         break;
       case app::FirmwareUpdateStage::kPaused:
         std::snprintf(button_text, sizeof(button_text),
@@ -709,9 +711,7 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
       LV_PART_MAIN);
   lv_obj_set_style_text_color(
       state->firmware_update_download_button_label,
-      lv_color_hex(show_progress
-              ? theme::LightNeutralTheme().on_surface
-              : theme::LightNeutralTheme().on_action),
+      lv_color_hex(theme::LightNeutralTheme().on_action),
       LV_PART_MAIN);
   lv_obj_move_to_index(state->firmware_update_download_button_label, -1);
 
@@ -1784,6 +1784,9 @@ bool CreateDownloadUpdateButton(
       lv_color_hex(theme::LightNeutralTheme().outline), LV_STATE_DISABLED);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
+  lv_obj_set_style_opa(button, LV_OPA_COVER,
+      static_cast<lv_style_selector_t>(LV_PART_MAIN) |
+          static_cast<lv_style_selector_t>(LV_STATE_DISABLED));
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(button, kUpdateButtonHeight / 3, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
