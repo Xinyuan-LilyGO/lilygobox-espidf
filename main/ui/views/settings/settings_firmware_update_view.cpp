@@ -660,7 +660,8 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
         break;
       case app::FirmwareUpdateStage::kInstallingWireless:
         std::snprintf(button_text, sizeof(button_text),
-            "Installing C6  %d%%", snapshot.progress_percent);
+            "Installing Wireless firmware  %d%%",
+            snapshot.progress_percent);
         break;
       case app::FirmwareUpdateStage::kDownloadingMain:
         std::snprintf(button_text, sizeof(button_text),

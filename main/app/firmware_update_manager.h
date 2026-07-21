@@ -78,7 +78,7 @@ bool InitFirmwareUpdateManager(hal::WifiProvider* wifi);
 bool RequestFirmwareUpdateCheck();
 
 /**
- * @brief 异步开始先准备 C6、再更新 P4、最后切换 C6 的组合固件更新
+ * @brief 异步开始先准备无线固件、再更新主固件、最后切换无线固件的组合更新
  * @return 更新任务启动成功返回 true，否则返回 false
  */
 bool StartFirmwareUpdate();

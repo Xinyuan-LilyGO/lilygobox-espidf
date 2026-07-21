@@ -1,5 +1,5 @@
 /*
- * @Description: LilygoBox ESP32-C6 与 ESP32-P4 组合固件 OTA 更新实现
+ * @Description: LilygoBox 主固件与无线固件组合 OTA 更新实现
  * @Author: LILYGO_L
  * @Date: 2026-07-20 00:00:00
  * @LastEditTime: 2026-07-20 00:00:00
@@ -425,7 +425,7 @@ void SetFailure(const char* message, bool manual_update_required = false) {
 }
 
 /**
- * @brief 读取当前 ESP32-P4 应用版本
+ * @brief 读取当前主固件应用版本
  * @param version 版本字符串输出缓冲区
  * @param version_size 输出缓冲区长度
  * @return 读取成功返回 true，否则返回 false
@@ -440,7 +440,7 @@ bool ReadCurrentMainVersion(char* version, size_t version_size) {
 }
 
 /**
- * @brief 读取当前 ESP32-C6 ESP-Hosted 固件版本
+ * @brief 读取当前无线固件的 ESP-Hosted 版本
  * @param version 版本字符串输出缓冲区
  * @param version_size 输出缓冲区长度
  * @return 读取成功返回 true，否则返回 false
@@ -451,7 +451,7 @@ bool ReadCurrentWirelessVersion(char* version, size_t version_size) {
       esp_hosted_get_coprocessor_fwversion(&hosted_version);
   if (result != ESP_OK) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Read ESP32-C6 firmware version failed: %s\n",
+        "Read Wireless firmware version failed: %s\n",
         esp_err_to_name(result));
     return false;
   }
@@ -498,7 +498,7 @@ uint32_t ElapsedMilliseconds(TickType_t started_tick) {
 }
 
 /**
- * @brief 在限定时间内等待 ESP32-C6 控制通道可读取固件版本
+ * @brief 在限定时间内等待无线协处理器控制通道可读取固件版本
  * @param version 版本字符串输出缓冲区
  * @param version_size 输出缓冲区长度
  * @param timeout_ms 最长等待时间，单位为毫秒
@@ -528,12 +528,12 @@ bool WaitForCurrentWirelessVersion(
     vTaskDelay(pdMS_TO_TICKS(kWirelessReadyPollMs));
   } while (ElapsedMilliseconds(started_tick) < timeout_ms);
   LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-      "Wait for ESP32-C6 firmware version timed out\n");
+      "Wait for Wireless firmware version timed out\n");
   return false;
 }
 
 /**
- * @brief 确认 OTA 启动的新 P4 应用有效并取消回滚
+ * @brief 确认 OTA 启动的新主固件有效并取消回滚
  */
 void ConfirmRunningMainFirmware() {
 #if defined(CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE)
@@ -547,7 +547,7 @@ void ConfirmRunningMainFirmware() {
   const esp_err_t result = esp_ota_mark_app_valid_cancel_rollback();
   if (result != ESP_OK) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Mark running P4 firmware valid failed: %s\n",
+        "Mark running Main firmware valid failed: %s\n",
         esp_err_to_name(result));
   }
 #endif
@@ -1377,8 +1377,8 @@ void FormatFirmwareSize(size_t size_bytes, char* destination,
 /**
  * @brief 使用清单和当前版本刷新界面状态
  * @param manifest 已验证的固件清单
- * @param main_current 当前 P4 版本
- * @param wireless_current 当前 C6 版本
+ * @param main_current 当前主固件版本
+ * @param wireless_current 当前无线固件版本
  * @return 当前版本可比较并成功刷新状态返回 true，否则返回 false
  */
 bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
@@ -1651,8 +1651,8 @@ bool VerifyFileIntegrity(FILE* file, size_t file_size, size_t expected_size,
 }
 
 /**
- * @brief 校验 P4 OTA 分区中已写入镜像的精确长度范围和 SHA-256
- * @param partition P4 目标 OTA 分区
+ * @brief 校验主固件 OTA 分区中已写入镜像的精确长度范围和 SHA-256
+ * @param partition 主固件目标 OTA 分区
  * @param image_size 清单要求的镜像长度
  * @param expected_sha256 清单要求的 SHA-256
  * @param interrupted_by 校验期间收到的传输控制请求输出地址
@@ -1743,7 +1743,7 @@ bool CalculateImageSize(FILE* file, size_t file_size, size_t image_offset,
 }
 
 /**
- * @brief 在独立或合并固件中查找 ESP32-C6 network_adapter 镜像
+ * @brief 在独立或合并固件中查找无线协处理器的 network_adapter 镜像
  * @param file 已打开的固件文件
  * @param file_size 文件总长度
  * @param image_info 镜像信息输出地址
@@ -1790,7 +1790,7 @@ bool FindWirelessFirmwareImage(
 }
 
 /**
- * @brief 检查 LittleFS 中的 ESP32-C6 固件文件
+ * @brief 检查 LittleFS 中的无线固件文件
  * @param path 固件文件路径
  * @param manifest 已验证的固件清单
  * @param image_info 镜像信息输出地址
@@ -1818,7 +1818,7 @@ bool InspectWirelessFirmware(const char* path,
 }
 
 /**
- * @brief 将 ESP32-C6 固件 HTTP 数据写入 LittleFS 临时文件
+ * @brief 将无线固件 HTTP 数据写入 LittleFS 临时文件
  * @param event HTTP 客户端事件
  * @return 写入成功返回 ESP_OK，否则返回 ESP_FAIL
  */
@@ -1865,12 +1865,12 @@ esp_err_t WirelessDownloadEventHandler(esp_http_client_event_t* event) {
             context->expected_size)
       : 0;
   SetStage(FirmwareUpdateStage::kDownloadingWireless,
-      "Downloading ESP32-C6 firmware", progress);
+      "Downloading Wireless firmware", progress);
   return ESP_OK;
 }
 
 /**
- * @brief 下载并验证 ESP32-C6 固件到 LittleFS 的 OTA 专用目录
+ * @brief 下载并验证无线固件到 LittleFS 的 OTA 专用目录
  * @param manifest 已验证的固件清单
  * @return 下载文件有效并安装成功返回 true，否则返回 false
  */
@@ -1884,7 +1884,7 @@ FirmwareDownloadResult DownloadWirelessFirmware(
   FirmwareDownloadSourceList download_sources;
   if (!PrepareFirmwareDownloadSources(manifest.wireless_url, backup_url,
           sizeof(backup_url), &download_sources)) {
-    SetFailure("C6 firmware download address invalid");
+    SetFailure("Wireless firmware download address invalid");
     return FirmwareDownloadResult::kFailed;
   }
   for (size_t source_index = 0; source_index < download_sources.count;
@@ -1900,7 +1900,7 @@ FirmwareDownloadResult DownloadWirelessFirmware(
     std::unique_ptr<FILE, decltype(&std::fclose)> output(
         std::fopen(kWirelessFirmwareTempPath, "wb"), &std::fclose);
     if (output == nullptr) {
-      SetFailure("Cannot create C6 firmware file");
+      SetFailure("Cannot create Wireless firmware file");
       return FirmwareDownloadResult::kFailed;
     }
     FirmwareDownloadContext context;
@@ -1921,12 +1921,12 @@ FirmwareDownloadResult DownloadWirelessFirmware(
     if (client == nullptr) {
       output.reset();
       std::remove(kWirelessFirmwareTempPath);
-      SetFailure("Cannot start C6 download");
+      SetFailure("Cannot start Wireless firmware download");
       return FirmwareDownloadResult::kFailed;
     }
     SetActiveHttpClient(client);
     SetStage(FirmwareUpdateStage::kDownloadingWireless,
-        "Downloading ESP32-C6 firmware", 0);
+        "Downloading Wireless firmware", 0);
     const esp_err_t result = esp_http_client_perform(client);
     ClearActiveHttpClient();
     const int status_code = esp_http_client_get_status_code(client);
@@ -1955,7 +1955,7 @@ FirmwareDownloadResult DownloadWirelessFirmware(
     if (!transfer_valid) {
       std::remove(kWirelessFirmwareTempPath);
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Download C6 firmware failed: source=%s result=%s HTTP=%d "
+          "Download Wireless firmware failed: source=%s result=%s HTTP=%d "
           "size=%u\n",
           FirmwareDownloadSourceName(
               download_sources.sources[source_index]),
@@ -1968,17 +1968,17 @@ FirmwareDownloadResult DownloadWirelessFirmware(
           ShouldRetryWithAlternateSource(result, status_code);
       if (may_retry) {
         LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-            "Retry C6 firmware through alternate source\n");
+            "Retry Wireless firmware through alternate source\n");
         continue;
       }
       if (!IsNetworkReady()) {
-        SetFailure("Wi-Fi lost during C6 download");
+        SetFailure("Wi-Fi lost during Wireless firmware download");
       } else if (context.timed_out ||
                  ElapsedMilliseconds(context.started_tick) >=
                      kFirmwareDownloadTimeoutMs) {
-        SetFailure("C6 firmware download timed out");
+        SetFailure("Wireless firmware download timed out");
       } else {
-        SetFailure("Downloaded C6 firmware invalid");
+        SetFailure("Downloaded Wireless firmware invalid");
       }
       return FirmwareDownloadResult::kFailed;
     }
@@ -1994,25 +1994,25 @@ FirmwareDownloadResult DownloadWirelessFirmware(
     }
     if (!image_valid) {
       std::remove(kWirelessFirmwareTempPath);
-      SetFailure("Downloaded C6 firmware invalid");
+      SetFailure("Downloaded Wireless firmware invalid");
       return FirmwareDownloadResult::kFailed;
     }
     std::remove(kWirelessFirmwarePath);
     if (std::rename(kWirelessFirmwareTempPath, kWirelessFirmwarePath) != 0) {
       std::remove(kWirelessFirmwareTempPath);
-      SetFailure("Cannot save C6 firmware file");
+      SetFailure("Cannot save Wireless firmware file");
       return FirmwareDownloadResult::kFailed;
     }
     SetPreferredDownloadSource(
         download_sources.sources[source_index]);
     return FirmwareDownloadResult::kCompleted;
   }
-  SetFailure("C6 firmware download failed");
+  SetFailure("Wireless firmware download failed");
   return FirmwareDownloadResult::kFailed;
 }
 
 /**
- * @brief 检查是否存在重启后继续更新 P4 的标记
+ * @brief 检查是否存在重启后继续更新主固件的标记
  * @return 标记存在返回 true，否则返回 false
  */
 bool HasPendingUpdate() {
@@ -2061,7 +2061,7 @@ bool ClearPendingUpdate() {
 }
 
 /**
- * @brief 清理 OTA 产生的 C6 临时固件文件
+ * @brief 清理 OTA 产生的无线固件临时文件
  */
 void CleanupWirelessFiles() {
   std::remove(kWirelessFirmwareTempPath);
@@ -2200,8 +2200,8 @@ void FinishPreparedDownload() {
 }
 
 /**
- * @brief 判断当前 C6 固件是否支持显式激活 OTA 镜像
- * @param version 当前 C6 ESP-Hosted 版本
+ * @brief 判断当前无线固件是否支持显式激活 OTA 镜像
+ * @param version 当前无线固件的 ESP-Hosted 版本
  * @return 版本不低于 2.6.0 返回 true，否则返回 false
  */
 bool SupportsWirelessOtaActivate(
@@ -2211,7 +2211,7 @@ bool SupportsWirelessOtaActivate(
 }
 
 /**
- * @brief 将 LittleFS 中的目标固件写入 ESP32-C6
+ * @brief 将 LittleFS 中的目标固件写入无线协处理器
  * @param manifest 已验证的固件清单
  * @param keep_marker_on_failure 失败时是否保留续跑标记
  * @return 更新结果
@@ -2221,14 +2221,14 @@ WirelessUpdateResult UpdateWirelessFirmware(
   char current_version[32] = {};
   if (!ReadCurrentWirelessVersion(
           current_version, sizeof(current_version))) {
-    SetFailure("Cannot read C6 firmware version");
+    SetFailure("Cannot read Wireless firmware version");
     return WirelessUpdateResult::kFailed;
   }
   bool version_valid = false;
   const bool update_required = IsVersionUpgrade(current_version,
       manifest.wireless_version, &version_valid);
   if (!version_valid) {
-    SetFailure("C6 firmware version invalid");
+    SetFailure("Wireless firmware version invalid");
     return WirelessUpdateResult::kFailed;
   }
   if (!update_required) {
@@ -2237,7 +2237,7 @@ WirelessUpdateResult UpdateWirelessFirmware(
   FirmwareImageInfo image_info;
   if (!InspectWirelessFirmware(
           kWirelessFirmwarePath, manifest, &image_info)) {
-    SetFailure("Stored C6 firmware invalid");
+    SetFailure("Stored Wireless firmware invalid");
     return WirelessUpdateResult::kFailed;
   }
   std::unique_ptr<FILE, decltype(&std::fclose)> file(
@@ -2245,7 +2245,7 @@ WirelessUpdateResult UpdateWirelessFirmware(
   size_t file_size = 0;
   if (file == nullptr || !GetFirmwareFileSize(file.get(), &file_size) ||
       !SetPendingUpdate()) {
-    SetFailure("Cannot prepare C6 update");
+    SetFailure("Cannot prepare Wireless firmware update");
     return WirelessUpdateResult::kFailed;
   }
   auto chunk = std::make_unique<uint8_t[]>(kWirelessFirmwareChunkSize);
@@ -2253,7 +2253,7 @@ WirelessUpdateResult UpdateWirelessFirmware(
     if (!keep_marker_on_failure) {
       ClearPendingUpdate();
     }
-    SetFailure("Not enough memory for C6 update");
+    SetFailure("Not enough memory for Wireless firmware update");
     return WirelessUpdateResult::kFailed;
   }
 
@@ -2262,17 +2262,17 @@ WirelessUpdateResult UpdateWirelessFirmware(
     if (!keep_marker_on_failure) {
       ClearPendingUpdate();
     }
-    SetFailure("Cannot read C6 OTA capability");
+    SetFailure("Cannot read Wireless firmware OTA capability");
     return WirelessUpdateResult::kFailed;
   }
   SetStage(FirmwareUpdateStage::kInstallingWireless,
-      "Installing ESP32-C6 firmware", 0);
+      "Installing Wireless firmware", 0);
   esp_err_t result = esp_hosted_slave_ota_begin();
   if (result != ESP_OK) {
     if (!keep_marker_on_failure) {
       ClearPendingUpdate();
     }
-    SetFailure("Cannot start C6 update");
+    SetFailure("Cannot start Wireless firmware update");
     return WirelessUpdateResult::kFailed;
   }
   size_t sent_size = 0;
@@ -2287,12 +2287,12 @@ WirelessUpdateResult UpdateWirelessFirmware(
       if (!keep_marker_on_failure) {
         ClearPendingUpdate();
       }
-      SetFailure("Writing C6 firmware failed");
+      SetFailure("Writing Wireless firmware failed");
       return WirelessUpdateResult::kFailed;
     }
     sent_size += chunk_size;
     SetStage(FirmwareUpdateStage::kInstallingWireless,
-        "Installing ESP32-C6 firmware",
+        "Installing Wireless firmware",
         static_cast<int>(sent_size * 100 / image_info.size));
   }
   result = esp_hosted_slave_ota_end();
@@ -2302,7 +2302,7 @@ WirelessUpdateResult UpdateWirelessFirmware(
     if (!keep_marker_on_failure) {
       ClearPendingUpdate();
     }
-    SetFailure("C6 firmware verification failed");
+    SetFailure("Wireless firmware verification failed");
     return WirelessUpdateResult::kFailed;
   }
   SetStage(FirmwareUpdateStage::kRestarting,
@@ -2313,7 +2313,7 @@ WirelessUpdateResult UpdateWirelessFirmware(
 }
 
 /**
- * @brief 检查下载到 P4 OTA 分区中的应用描述信息
+ * @brief 检查下载到主固件 OTA 分区中的应用描述信息
  * @param new_app 新应用描述信息
  * @param manifest 已验证的固件清单
  * @return 项目名和版本均符合清单返回 true，否则返回 false
@@ -2329,7 +2329,7 @@ bool ValidateMainFirmwareImage(const esp_app_desc_t& new_app,
 }
 
 /**
- * @brief 通过 HTTPS 将主固件写入 ESP32-P4 备用 OTA 分区
+ * @brief 通过 HTTPS 将主固件写入备用 OTA 分区
  * @param manifest 已验证的固件清单
  * @param keep_marker_on_failure 失败时是否保留续跑标记
  * @return 更新结果
@@ -2339,21 +2339,21 @@ MainUpdateResult UpdateMainFirmware(
     bool activate_when_ready) {
   char current_version[32] = {};
   if (!ReadCurrentMainVersion(current_version, sizeof(current_version))) {
-    SetFailure("Cannot read P4 firmware version");
+    SetFailure("Cannot read Main firmware version");
     return MainUpdateResult::kFailed;
   }
   bool version_valid = false;
   const bool update_required = IsVersionUpgrade(
       current_version, manifest.main_version, &version_valid);
   if (!version_valid) {
-    SetFailure("P4 firmware version invalid");
+    SetFailure("Main firmware version invalid");
     return MainUpdateResult::kFailed;
   }
   if (!update_required) {
     return MainUpdateResult::kNotRequired;
   }
   if (activate_when_ready && !SetPendingUpdate()) {
-    SetFailure("Cannot save P4 update state");
+    SetFailure("Cannot save Main firmware update state");
     return MainUpdateResult::kFailed;
   }
   const esp_partition_t* update_partition =
@@ -2363,7 +2363,7 @@ MainUpdateResult UpdateMainFirmware(
     if (!keep_marker_on_failure) {
       ClearPendingUpdate();
     }
-    SetFailure("P4 firmware does not fit OTA partition");
+    SetFailure("Main firmware does not fit OTA partition");
     return MainUpdateResult::kFailed;
   }
   char backup_url[kMaximumDownloadUrlLength] = {};
@@ -2373,7 +2373,7 @@ MainUpdateResult UpdateMainFirmware(
     if (!keep_marker_on_failure) {
       ClearPendingUpdate();
     }
-    SetFailure("P4 firmware download address invalid");
+    SetFailure("Main firmware download address invalid");
     return MainUpdateResult::kFailed;
   }
   esp_https_ota_handle_t ota_handle = nullptr;
@@ -2402,13 +2402,13 @@ MainUpdateResult UpdateMainFirmware(
     ota_config.http_client_init_cb = FirmwareOtaHttpClientInitialized;
 
     SetStage(FirmwareUpdateStage::kDownloadingMain,
-        "Downloading ESP32-P4 firmware", 0);
+        "Downloading Main firmware", 0);
     ota_handle = nullptr;
     result = esp_https_ota_begin(&ota_config, &ota_handle);
     if (result != ESP_OK) {
       ClearActiveHttpClient();
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Start P4 firmware download failed: source=%s result=%s\n",
+          "Start Main firmware download failed: source=%s result=%s\n",
           FirmwareDownloadSourceName(
               download_sources.sources[source_index]),
           esp_err_to_name(result));
@@ -2422,13 +2422,13 @@ MainUpdateResult UpdateMainFirmware(
       if (source_index == 0 && download_sources.count > 1 &&
           IsNetworkReady()) {
         LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-            "Retry P4 firmware through alternate source\n");
+            "Retry Main firmware through alternate source\n");
         continue;
       }
       if (!keep_marker_on_failure) {
         ClearPendingUpdate();
       }
-      SetFailure("Cannot start P4 download");
+      SetFailure("Cannot start Main firmware download");
       return MainUpdateResult::kFailed;
     }
     interrupted_by = ReadTransferRequest();
@@ -2470,13 +2470,13 @@ MainUpdateResult UpdateMainFirmware(
           download_sources.count > 1 && IsNetworkReady();
       if (may_retry) {
         LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-            "Retry P4 image header through alternate source\n");
+            "Retry Main firmware image header through alternate source\n");
         continue;
       }
       if (!keep_marker_on_failure) {
         ClearPendingUpdate();
       }
-      SetFailure("Downloaded P4 firmware invalid");
+      SetFailure("Downloaded Main firmware invalid");
       return MainUpdateResult::kFailed;
     }
     const TickType_t download_started_tick = xTaskGetTickCount();
@@ -2515,7 +2515,7 @@ MainUpdateResult UpdateMainFirmware(
           ? image_read * 100 / image_size
           : 0;
       SetStage(FirmwareUpdateStage::kDownloadingMain,
-          "Downloading ESP32-P4 firmware", progress);
+          "Downloading Main firmware", progress);
     } while (result == ESP_ERR_HTTPS_OTA_IN_PROGRESS);
     if (interrupted_by != TransferRequest::kNone) {
       ClearActiveHttpClient();
@@ -2532,7 +2532,7 @@ MainUpdateResult UpdateMainFirmware(
       esp_https_ota_abort(ota_handle);
       ota_handle = nullptr;
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Download P4 firmware failed: source=%s result=%s\n",
+          "Download Main firmware failed: source=%s result=%s\n",
           FirmwareDownloadSourceName(
               download_sources.sources[source_index]),
           esp_err_to_name(result));
@@ -2541,18 +2541,18 @@ MainUpdateResult UpdateMainFirmware(
           !download_size_invalid && IsNetworkReady();
       if (may_retry) {
         LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-            "Retry P4 firmware through alternate source\n");
+            "Retry Main firmware through alternate source\n");
         continue;
       }
       if (!keep_marker_on_failure) {
         ClearPendingUpdate();
       }
       if (!IsNetworkReady()) {
-        SetFailure("Wi-Fi lost during P4 download");
+        SetFailure("Wi-Fi lost during Main firmware download");
       } else if (download_timed_out) {
-        SetFailure("P4 firmware download timed out");
+        SetFailure("Main firmware download timed out");
       } else {
-        SetFailure("P4 firmware download failed");
+        SetFailure("Main firmware download failed");
       }
       return MainUpdateResult::kFailed;
     }
@@ -2565,7 +2565,7 @@ MainUpdateResult UpdateMainFirmware(
       if (!keep_marker_on_failure) {
         ClearPendingUpdate();
       }
-      SetFailure("Downloaded P4 firmware size mismatch");
+      SetFailure("Downloaded Main firmware size mismatch");
       return MainUpdateResult::kFailed;
     }
     SetPreferredDownloadSource(
@@ -2578,7 +2578,7 @@ MainUpdateResult UpdateMainFirmware(
     if (!keep_marker_on_failure) {
       ClearPendingUpdate();
     }
-    SetFailure("P4 firmware download failed");
+    SetFailure("Main firmware download failed");
     return MainUpdateResult::kFailed;
   }
   interrupted_by = ReadTransferRequest();
@@ -2596,7 +2596,7 @@ MainUpdateResult UpdateMainFirmware(
     if (!keep_marker_on_failure) {
       ClearPendingUpdate();
     }
-    SetFailure("P4 firmware verification failed");
+    SetFailure("Main firmware verification failed");
     return MainUpdateResult::kFailed;
   }
   interrupted_by = ReadTransferRequest();
@@ -2604,7 +2604,7 @@ MainUpdateResult UpdateMainFirmware(
     if (interrupted_by == TransferRequest::kPause &&
         !RestoreRunningBootPartition()) {
       ClearPendingUpdate();
-      SetFailure("Cannot restore P4 boot partition");
+      SetFailure("Cannot restore Main firmware boot partition");
       return MainUpdateResult::kFailed;
     }
     ClearPendingUpdate();
@@ -2623,7 +2623,7 @@ MainUpdateResult UpdateMainFirmware(
     if (interrupted_by == TransferRequest::kPause &&
         !RestoreRunningBootPartition()) {
       ClearPendingUpdate();
-      SetFailure("Cannot restore P4 boot partition");
+      SetFailure("Cannot restore Main firmware boot partition");
       return MainUpdateResult::kFailed;
     }
     ClearPendingUpdate();
@@ -2638,8 +2638,8 @@ MainUpdateResult UpdateMainFirmware(
     if (!keep_marker_on_failure) {
       ClearPendingUpdate();
     }
-    SetFailure(boot_restored ? "P4 firmware SHA-256 mismatch"
-                             : "Cannot restore P4 boot partition");
+    SetFailure(boot_restored ? "Main firmware SHA-256 mismatch"
+                             : "Cannot restore Main firmware boot partition");
     return MainUpdateResult::kFailed;
   }
   if (!activate_when_ready) {
@@ -2647,7 +2647,7 @@ MainUpdateResult UpdateMainFirmware(
         esp_ota_get_running_partition();
     if (running_partition == nullptr ||
         esp_ota_set_boot_partition(running_partition) != ESP_OK) {
-      SetFailure("Cannot defer P4 firmware installation");
+      SetFailure("Cannot defer Main firmware installation");
       return MainUpdateResult::kFailed;
     }
     ClearPendingUpdate();
@@ -2711,7 +2711,7 @@ void CheckTask(void* context) {
 }
 
 /**
- * @brief 执行用户确认的 P4 与 C6 组合更新任务
+ * @brief 执行用户确认的主固件与无线固件组合更新任务
  * @param context FreeRTOS 任务参数，本任务未使用
  */
 void UpdateTask(void* context) {
@@ -2750,7 +2750,7 @@ void UpdateTask(void* context) {
     return;
   }
 
-  // C6 镜像先完整落盘；暂停后恢复时可以直接复用已验证的文件。
+  // 无线固件镜像先完整落盘；暂停后恢复时可以直接复用已验证的文件。
   if (wireless_update_required &&
       !InspectWirelessFirmware(kWirelessFirmwarePath, manifest, nullptr)) {
     const FirmwareDownloadResult wireless_result =
@@ -2771,7 +2771,7 @@ void UpdateTask(void* context) {
     vTaskDelete(nullptr);
     return;
   }
-  // P4 镜像写入备用分区并校验，但确认安装前恢复当前启动分区。
+  // 主固件镜像写入备用分区并校验，但确认安装前恢复当前启动分区。
   if (main_update_required) {
     const MainUpdateResult main_result =
         UpdateMainFirmware(manifest, false, false);
@@ -2825,7 +2825,7 @@ void InstallTask(void* context) {
   }
   if (wireless_update_required &&
       !InspectWirelessFirmware(kWirelessFirmwarePath, manifest, nullptr)) {
-    SetFailure("Prepared C6 firmware is unavailable");
+    SetFailure("Prepared Wireless firmware is unavailable");
     FinishWorker();
     vTaskDelete(nullptr);
     return;
@@ -2844,7 +2844,7 @@ void InstallTask(void* context) {
         esp_ota_set_boot_partition(update_partition) != ESP_OK) {
       ClearPendingUpdate();
       RestoreRunningBootPartition();
-      SetFailure("Cannot activate prepared P4 firmware");
+      SetFailure("Cannot activate prepared Main firmware");
       FinishWorker();
       vTaskDelete(nullptr);
       return;
@@ -2901,14 +2901,14 @@ void ResumeTask(void* context) {
   char wireless_current[32] = {};
   if (!WaitForCurrentWirelessVersion(wireless_current,
           sizeof(wireless_current), kWirelessReadyTimeoutMs)) {
-    SetFailure("Cannot verify C6 after restart");
+    SetFailure("Cannot verify Wireless firmware after restart");
     FinishWorker();
     vTaskDelete(nullptr);
     return;
   }
   char main_current[32] = {};
   if (!ReadCurrentMainVersion(main_current, sizeof(main_current))) {
-    SetFailure("Cannot verify P4 after restart");
+    SetFailure("Cannot verify Main firmware after restart");
     FinishWorker();
     vTaskDelete(nullptr);
     return;
@@ -2934,7 +2934,7 @@ void ResumeTask(void* context) {
     UnlockManager();
   }
 
-  // 如果 C6 仍需更新，必须先确认本地镜像可用，再考虑重启进入新的 P4。
+  // 如果无线固件仍需更新，必须先确认本地镜像可用，再考虑重启进入新的主固件。
   if (wireless_update_required &&
       !InspectWirelessFirmware(kWirelessFirmwarePath, manifest, nullptr)) {
     if (!IsNetworkReady()) {
@@ -2984,7 +2984,7 @@ void ResumeTask(void* context) {
       return;
     }
   }
-  // 新 P4 只有在 C6 本地镜像已经可恢复时才取消 bootloader 回滚保护。
+  // 新主固件只有在无线固件本地镜像可恢复时才取消 bootloader 回滚保护。
   ConfirmRunningMainFirmware();
   if (wireless_update_required) {
     const WirelessUpdateResult wireless_result =
