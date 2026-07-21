@@ -2,7 +2,7 @@
  * @Description: 音乐源文件夹偏好存储实现
  * @Author: LILYGO_L
  * @Date: 2026-07-14 23:25:00
- * @LastEditTime: 2026-07-16 22:38:14
+ * @LastEditTime: 2026-07-22 00:00:00
  * @License: GPL 3.0
  */
 #include "app/storage/music_storage.h"
@@ -14,6 +14,7 @@
 #include <new>
 
 #include "app/storage/storage_internal.h"
+#include "app/storage/tlv_storage.h"
 #include "base/logger.h"
 #include "esp_err.h"
 #include "nvs.h"
@@ -23,18 +24,12 @@ namespace {
 
 constexpr const char* kMusicSourcesNvsNamespace = "settings";
 constexpr const char* kMusicSourcesNvsKey = "music_sources";
-constexpr uint32_t kMusicSourcesMagic = 0x4D555343;
-constexpr uint16_t kMusicSourcesSchemaVersion = 1;
+constexpr size_t kMusicSourcesTlvCapacity = 3200;
 
-struct MusicSourcesBlob {
-  // 校验当前 NVS 数据是否属于音乐源偏好。
-  uint32_t magic = kMusicSourcesMagic;
-  // 当前音乐源偏好存储结构版本。
-  uint16_t schema_version = kMusicSourcesSchemaVersion;
-  // 写入 NVS 的完整结构大小。
-  uint16_t struct_size = sizeof(MusicSourcesBlob);
-  // 用户配置的音乐源目录快照。
-  MusicSourcePreferences preferences;
+// 已分配字段编号只允许保留，禁止改号或复用。
+enum class MusicSourcesField : uint16_t {
+  // 每个目录槽位使用一个重复字段，空字符串也保留槽位顺序。
+  kPath = 1,
 };
 
 void ResetMusicSourcePreferences(MusicSourcePreferences* preferences) {
@@ -47,16 +42,6 @@ void ResetMusicSourcePreferences(MusicSourcePreferences* preferences) {
   }
 }
 
-void ResetMusicSourcesBlob(MusicSourcesBlob* blob) {
-  if (blob == nullptr) {
-    return;
-  }
-  blob->magic = kMusicSourcesMagic;
-  blob->schema_version = kMusicSourcesSchemaVersion;
-  blob->struct_size = sizeof(MusicSourcesBlob);
-  ResetMusicSourcePreferences(&blob->preferences);
-}
-
 void NormalizePath(char* path) {
   path[kMusicSourcePathCapacity - 1] = '\0';
   size_t length = 0;
@@ -67,38 +52,78 @@ void NormalizePath(char* path) {
       path + kMusicSourcePathCapacity, '\0');
 }
 
-void NormalizeMusicSourcesBlob(MusicSourcesBlob* blob) {
-  if (blob == nullptr) {
+void NormalizeMusicSourcePreferences(
+    MusicSourcePreferences* preferences) {
+  if (preferences == nullptr) {
     return;
   }
-  blob->magic = kMusicSourcesMagic;
-  blob->schema_version = kMusicSourcesSchemaVersion;
-  blob->struct_size = sizeof(MusicSourcesBlob);
   for (size_t index = 0; index < kMusicSourceCapacity; ++index) {
-    NormalizePath(blob->preferences.paths[index]);
+    NormalizePath(preferences->paths[index]);
   }
 }
 
-bool AreMusicSourcesBlobsEqual(
-    const MusicSourcesBlob& left, const MusicSourcesBlob& right) {
-  if (left.magic != right.magic) {
-    return false;
-  }
-  if (left.schema_version != right.schema_version ||
-      left.struct_size != right.struct_size) {
-    return false;
-  }
+bool AreMusicSourcePreferencesEqual(
+    const MusicSourcePreferences& left,
+    const MusicSourcePreferences& right) {
   for (size_t index = 0; index < kMusicSourceCapacity; ++index) {
-    if (std::strcmp(left.preferences.paths[index],
-            right.preferences.paths[index]) != 0) {
+    if (std::strcmp(left.paths[index], right.paths[index]) != 0) {
       return false;
     }
   }
   return true;
 }
 
-DeferredStorageCache<MusicSourcesBlob> g_music_sources_cache(
-    StorageDomain::kMusicSources, AreMusicSourcesBlobsEqual);
+bool DecodeMusicSourcePreferences(const storage::TlvBuffer& buffer,
+    MusicSourcePreferences* preferences) {
+  if (preferences == nullptr) {
+    return false;
+  }
+  ResetMusicSourcePreferences(preferences);
+  size_t path_count = 0;
+  storage::TlvReader reader(storage::TlvDomain::kMusicSources,
+      buffer.data.get(), buffer.size);
+  storage::TlvField field;
+  while (true) {
+    const storage::TlvReadResult result = reader.Next(&field);
+    if (result == storage::TlvReadResult::kEnd) {
+      NormalizeMusicSourcePreferences(preferences);
+      return true;
+    }
+    if (result == storage::TlvReadResult::kInvalid) {
+      return false;
+    }
+    if (static_cast<MusicSourcesField>(field.tag()) !=
+        MusicSourcesField::kPath) {
+      continue;
+    }
+    if (path_count >= kMusicSourceCapacity) {
+      continue;
+    }
+    if (!field.CopyString(
+            preferences->paths[path_count], kMusicSourcePathCapacity)) {
+      return false;
+    }
+    ++path_count;
+  }
+}
+
+bool EncodeMusicSourcePreferences(
+    const MusicSourcePreferences& preferences, uint8_t* output,
+    size_t capacity, size_t* encoded_size) {
+  storage::TlvWriter writer(
+      storage::TlvDomain::kMusicSources, output, capacity);
+  for (size_t index = 0; index < kMusicSourceCapacity; ++index) {
+    if (!writer.WriteString(
+            static_cast<uint16_t>(MusicSourcesField::kPath),
+            preferences.paths[index], kMusicSourcePathCapacity)) {
+      return false;
+    }
+  }
+  return writer.Finalize(encoded_size);
+}
+
+DeferredStorageCache<MusicSourcePreferences> g_music_sources_cache(
+    StorageDomain::kMusicSources, AreMusicSourcePreferencesEqual);
 
 void LogMusicStorageError(const char* operation, esp_err_t error) {
   LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
@@ -109,41 +134,39 @@ void LogMusicStorageError(const char* operation, esp_err_t error) {
 }  // namespace
 
 void InitMusicCache() {
-  auto blob = std::unique_ptr<MusicSourcesBlob>(
-      new (std::nothrow) MusicSourcesBlob());
-  if (blob == nullptr) {
+  auto loaded = std::unique_ptr<MusicSourcePreferences>(
+      new (std::nothrow) MusicSourcePreferences());
+  if (loaded == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Allocate music source initialization buffer failed\n");
     return;
   }
-
   nvs_handle_t handle = 0;
-  esp_err_t result = nvs_open(
+  const esp_err_t open_result = nvs_open(
       kMusicSourcesNvsNamespace, NVS_READONLY, &handle);
-  if (result == ESP_OK) {
-    size_t size = sizeof(*blob);
-    result = nvs_get_blob(
-        handle, kMusicSourcesNvsKey, blob.get(), &size);
+  if (open_result == ESP_OK) {
+    storage::TlvBuffer buffer;
+    esp_err_t error = ESP_OK;
+    const storage::TlvLoadResult result = storage::LoadTlvBuffer(handle,
+        kMusicSourcesNvsKey, storage::TlvDomain::kMusicSources,
+        kMusicSourcesTlvCapacity, &buffer, &error);
     nvs_close(handle);
-    const bool valid = result == ESP_OK && size == sizeof(*blob) &&
-        blob->magic == kMusicSourcesMagic &&
-        blob->schema_version == kMusicSourcesSchemaVersion &&
-        blob->struct_size == sizeof(MusicSourcesBlob);
-    if (!valid) {
-      if (result == ESP_OK) {
-        LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-            "Music source NVS blob is incompatible\n");
-      } else if (result != ESP_ERR_NVS_NOT_FOUND) {
-        LogMusicStorageError("load", result);
-      }
-      ResetMusicSourcesBlob(blob.get());
+    if (result == storage::TlvLoadResult::kLoaded &&
+        !DecodeMusicSourcePreferences(buffer, loaded.get())) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Music source TLV payload is invalid\n");
+      ResetMusicSourcePreferences(loaded.get());
+    } else if (result == storage::TlvLoadResult::kInvalid) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Music source TLV container is invalid\n");
+    } else if (result == storage::TlvLoadResult::kError) {
+      LogMusicStorageError("load", error);
     }
-  } else if (result != ESP_ERR_NVS_NOT_FOUND) {
-    LogMusicStorageError("open", result);
+  } else if (open_result != ESP_ERR_NVS_NOT_FOUND) {
+    LogMusicStorageError("open", open_result);
   }
-
-  NormalizeMusicSourcesBlob(blob.get());
-  if (!g_music_sources_cache.Initialize(*blob)) {
+  NormalizeMusicSourcePreferences(loaded.get());
+  if (!g_music_sources_cache.Initialize(*loaded)) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize music source cache failed\n");
   }
@@ -153,37 +176,41 @@ bool GetMusicSourcePreferences(MusicSourcePreferences* preferences) {
   if (preferences == nullptr) {
     return false;
   }
-
-  auto blob = std::unique_ptr<MusicSourcesBlob>(
-      new (std::nothrow) MusicSourcesBlob());
-  if (blob == nullptr || !g_music_sources_cache.Read(blob.get())) {
+  if (!g_music_sources_cache.Read(preferences)) {
     ResetMusicSourcePreferences(preferences);
     return false;
   }
-  *preferences = blob->preferences;
   return true;
 }
 
 bool UpdateMusicSourcePreferences(
     const MusicSourcePreferences& preferences) {
-  auto blob = std::unique_ptr<MusicSourcesBlob>(
-      new (std::nothrow) MusicSourcesBlob());
-  if (blob == nullptr) {
+  auto normalized = std::unique_ptr<MusicSourcePreferences>(
+      new (std::nothrow) MusicSourcePreferences(preferences));
+  if (normalized == nullptr) {
     return false;
   }
-  blob->preferences = preferences;
-  NormalizeMusicSourcesBlob(blob.get());
-  return g_music_sources_cache.Update(*blob);
+  NormalizeMusicSourcePreferences(normalized.get());
+  return g_music_sources_cache.Update(*normalized);
 }
 
 StorageStageResult StageMusicStorage(nvs_handle_t handle) {
-  const MusicSourcesBlob* blob = nullptr;
-  if (!g_music_sources_cache.BeginFlush(&blob)) {
+  const MusicSourcePreferences* preferences = nullptr;
+  if (!g_music_sources_cache.BeginFlush(&preferences)) {
     return StorageStageResult::kClean;
   }
-
+  auto buffer = std::unique_ptr<uint8_t[]>(
+      new (std::nothrow) uint8_t[kMusicSourcesTlvCapacity]);
+  if (buffer == nullptr) {
+    return StorageStageResult::kFailed;
+  }
+  size_t encoded_size = 0;
+  if (!EncodeMusicSourcePreferences(*preferences, buffer.get(),
+          kMusicSourcesTlvCapacity, &encoded_size)) {
+    return StorageStageResult::kFailed;
+  }
   const esp_err_t result = nvs_set_blob(
-      handle, kMusicSourcesNvsKey, blob, sizeof(*blob));
+      handle, kMusicSourcesNvsKey, buffer.get(), encoded_size);
   if (result != ESP_OK) {
     LogMusicStorageError("stage", result);
     return StorageStageResult::kFailed;

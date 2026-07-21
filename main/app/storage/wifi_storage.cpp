@@ -2,12 +2,13 @@
  * @Description: WLAN 偏好存储实现
  * @Author: LILYGO_L
  * @Date: 2026-06-23 00:00:00
- * @LastEditTime: 2026-07-16 22:36:38
+ * @LastEditTime: 2026-07-22 00:00:00
  * @License: GPL 3.0
  */
 #include "app/storage/wifi_storage.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <cstring>
@@ -15,6 +16,7 @@
 #include <new>
 
 #include "app/storage/storage_internal.h"
+#include "app/storage/tlv_storage.h"
 #include "base/logger.h"
 #include "esp_err.h"
 #include "nvs.h"
@@ -25,35 +27,37 @@ namespace {
 constexpr const char* kWifiNvsNamespace = "settings";
 constexpr const char* kWifiSavedNetworksNvsKey = "wifi_saved";
 constexpr const char* kWifiPreferencesNvsKey = "wifi_config";
-constexpr uint32_t kWifiSavedNetworksMagic = 0x57494649;
-constexpr uint32_t kWifiPreferencesMagic = 0x57465052;
-constexpr uint16_t kWifiSavedNetworksSchemaVersion = 1;
-constexpr uint16_t kWifiPreferencesSchemaVersion = 1;
+constexpr size_t kWifiPreferencesTlvCapacity = 128;
+constexpr size_t kWifiSavedNetworkTlvCapacity = 256;
+constexpr size_t kWifiSavedNetworksTlvCapacity = 3072;
 
-struct WifiSavedNetworksBlob {
-  // 校验当前 NVS 数据是否属于已保存 WLAN 凭据。
-  uint32_t magic = kWifiSavedNetworksMagic;
-  // 当前已保存 WLAN 凭据存储结构版本。
-  uint16_t schema_version = kWifiSavedNetworksSchemaVersion;
-  // 写入 NVS 的完整结构大小。
-  uint16_t struct_size = sizeof(WifiSavedNetworksBlob);
-  // networks 数组中的有效条目数量。
-  uint32_t count = 0;
-  // 用户确认连接后保存的 WLAN 凭据列表。
-  WifiSavedNetwork networks[kWifiSavedNetworkCapacity] = {};
+// 已分配字段编号只允许保留，禁止改号或复用。
+enum class WifiPreferencesField : uint16_t {
+  kEnabledRequested = 1,
+  kAutoConnectSsid = 2,
 };
 
-struct WifiPreferencesBlob {
-  // 校验当前 NVS 数据是否属于 WLAN 用户偏好。
-  uint32_t magic = kWifiPreferencesMagic;
-  // 当前 WLAN 用户偏好存储结构版本。
-  uint16_t schema_version = kWifiPreferencesSchemaVersion;
-  // 写入 NVS 的完整结构大小。
-  uint16_t struct_size = sizeof(WifiPreferencesBlob);
-  // 用户是否期望启用 WLAN。
-  uint8_t enabled_requested = 0;
-  // 自动连接目标 SSID，空字符串表示未启用自动连接。
-  char auto_connect_ssid[hal::kWifiSsidMaxLength + 1] = {};
+enum class WifiSavedNetworksField : uint16_t {
+  kNetwork = 1,
+};
+
+enum class WifiSavedNetworkField : uint16_t {
+  kSsid = 1,
+  kPassword = 2,
+  kSecure = 3,
+  kIs5g = 4,
+  kRssi = 5,
+};
+
+struct WifiSavedNetworks {
+  WifiSavedNetwork networks[kWifiSavedNetworkCapacity] = {};
+  size_t count = 0;
+};
+
+struct WifiPreferencesState {
+  WifiPreferences preferences;
+  // 区分“从未保存”与“用户明确保存了默认值”。
+  bool has_value = false;
 };
 
 template <size_t Capacity>
@@ -64,20 +68,58 @@ void CopyBoundedString(char (&destination)[Capacity], const char* source) {
     ++length;
   }
   destination[length] = '\0';
-  for (size_t index = length + 1; index < Capacity; ++index) {
-    destination[index] = '\0';
+  std::fill(destination + length + 1, destination + Capacity, '\0');
+}
+
+WifiPreferences NormalizeWifiPreferences(
+    const WifiPreferences& source) {
+  WifiPreferences normalized;
+  normalized.enabled_requested = source.enabled_requested;
+  CopyBoundedString(
+      normalized.auto_connect_ssid, source.auto_connect_ssid);
+  return normalized;
+}
+
+WifiSavedNetwork NormalizeSavedNetwork(const WifiSavedNetwork& source) {
+  WifiSavedNetwork normalized;
+  CopyBoundedString(normalized.ssid, source.ssid);
+  CopyBoundedString(normalized.password, source.password);
+  normalized.secure = source.secure;
+  normalized.is_5g = source.is_5g;
+  normalized.rssi = source.rssi;
+  return normalized;
+}
+
+void MakeWifiSavedNetworks(const WifiSavedNetwork* networks, size_t count,
+    WifiSavedNetworks* result) {
+  if (result == nullptr) {
+    return;
+  }
+  *result = WifiSavedNetworks{};
+  const size_t bounded_count =
+      std::min(count, kWifiSavedNetworkCapacity);
+  for (size_t index = 0; index < bounded_count; ++index) {
+    const WifiSavedNetwork network = NormalizeSavedNetwork(networks[index]);
+    if (network.ssid[0] == '\0') {
+      continue;
+    }
+    result->networks[result->count] = network;
+    ++result->count;
   }
 }
 
-bool AreWifiPreferencesBlobsEqual(
-    const WifiPreferencesBlob& left,
-    const WifiPreferencesBlob& right) {
-  return left.magic == right.magic &&
-      left.schema_version == right.schema_version &&
-      left.struct_size == right.struct_size &&
-      left.enabled_requested == right.enabled_requested &&
+bool AreWifiPreferencesEqual(
+    const WifiPreferences& left, const WifiPreferences& right) {
+  return left.enabled_requested == right.enabled_requested &&
       std::strcmp(left.auto_connect_ssid,
           right.auto_connect_ssid) == 0;
+}
+
+bool AreWifiPreferenceStatesEqual(
+    const WifiPreferencesState& left,
+    const WifiPreferencesState& right) {
+  return left.has_value == right.has_value &&
+      AreWifiPreferencesEqual(left.preferences, right.preferences);
 }
 
 bool AreWifiSavedNetworksEqual(
@@ -88,13 +130,9 @@ bool AreWifiSavedNetworksEqual(
       left.rssi == right.rssi;
 }
 
-bool AreWifiSavedNetworksBlobsEqual(
-    const WifiSavedNetworksBlob& left,
-    const WifiSavedNetworksBlob& right) {
-  if (left.magic != right.magic ||
-      left.schema_version != right.schema_version ||
-      left.struct_size != right.struct_size ||
-      left.count != right.count) {
+bool AreWifiSavedNetworkListsEqual(
+    const WifiSavedNetworks& left, const WifiSavedNetworks& right) {
+  if (left.count != right.count) {
     return false;
   }
   for (size_t index = 0; index < left.count; ++index) {
@@ -106,153 +144,197 @@ bool AreWifiSavedNetworksBlobsEqual(
   return true;
 }
 
-WifiPreferencesBlob NormalizeWifiPreferencesBlob(
-    const WifiPreferencesBlob& source) {
-  WifiPreferencesBlob normalized = {};
-  normalized.enabled_requested = source.enabled_requested == 0 ? 0 : 1;
-  CopyBoundedString(
-      normalized.auto_connect_ssid, source.auto_connect_ssid);
-  return normalized;
+bool EncodeWifiPreferences(const WifiPreferences& preferences,
+    uint8_t* output, size_t capacity, size_t* encoded_size) {
+  const WifiPreferences normalized = NormalizeWifiPreferences(preferences);
+  storage::TlvWriter writer(
+      storage::TlvDomain::kWifiPreferences, output, capacity);
+  return writer.WriteBool(
+             static_cast<uint16_t>(
+                 WifiPreferencesField::kEnabledRequested),
+             normalized.enabled_requested) &&
+      writer.WriteString(
+          static_cast<uint16_t>(WifiPreferencesField::kAutoConnectSsid),
+          normalized.auto_connect_ssid,
+          sizeof(normalized.auto_connect_ssid)) &&
+      writer.Finalize(encoded_size);
 }
 
-WifiPreferencesBlob MakeWifiPreferencesBlob(
-    const WifiPreferences& preferences) {
-  WifiPreferencesBlob blob = {};
-  blob.enabled_requested = preferences.enabled_requested ? 1 : 0;
-  CopyBoundedString(
-      blob.auto_connect_ssid, preferences.auto_connect_ssid);
-  return blob;
-}
-
-WifiSavedNetwork NormalizeSavedNetwork(const WifiSavedNetwork& source) {
-  WifiSavedNetwork normalized = {};
-  CopyBoundedString(normalized.ssid, source.ssid);
-  CopyBoundedString(normalized.password, source.password);
-  normalized.secure = source.secure;
-  normalized.is_5g = source.is_5g;
-  normalized.rssi = source.rssi;
-  return normalized;
-}
-
-void MakeWifiSavedNetworksBlob(const WifiSavedNetwork* networks, size_t count,
-    WifiSavedNetworksBlob* blob) {
-  if (blob == nullptr) {
-    return;
+bool DecodeWifiPreferences(const storage::TlvBuffer& buffer,
+    WifiPreferences* preferences) {
+  if (preferences == nullptr) {
+    return false;
   }
-  blob->magic = kWifiSavedNetworksMagic;
-  blob->schema_version = kWifiSavedNetworksSchemaVersion;
-  blob->struct_size = sizeof(WifiSavedNetworksBlob);
-  blob->count = 0;
-  const size_t bounded_count =
-      std::min(count, kWifiSavedNetworkCapacity);
-  for (size_t index = 0; index < bounded_count; ++index) {
-    const WifiSavedNetwork network = NormalizeSavedNetwork(networks[index]);
+  WifiPreferences decoded;
+  storage::TlvReader reader(storage::TlvDomain::kWifiPreferences,
+      buffer.data.get(), buffer.size);
+  storage::TlvField field;
+  while (true) {
+    const storage::TlvReadResult result = reader.Next(&field);
+    if (result == storage::TlvReadResult::kEnd) {
+      *preferences = NormalizeWifiPreferences(decoded);
+      return true;
+    }
+    if (result == storage::TlvReadResult::kInvalid) {
+      return false;
+    }
+    switch (static_cast<WifiPreferencesField>(field.tag())) {
+      case WifiPreferencesField::kEnabledRequested:
+        if (!field.ReadBool(&decoded.enabled_requested)) {
+          return false;
+        }
+        break;
+      case WifiPreferencesField::kAutoConnectSsid:
+        if (!field.CopyString(decoded.auto_connect_ssid,
+                sizeof(decoded.auto_connect_ssid))) {
+          return false;
+        }
+        break;
+      default:
+        break;
+    }
+  }
+}
+
+bool EncodeWifiSavedNetwork(const WifiSavedNetwork& network,
+    uint8_t* output, size_t capacity, size_t* encoded_size) {
+  const WifiSavedNetwork normalized = NormalizeSavedNetwork(network);
+  storage::TlvWriter writer(
+      storage::TlvDomain::kWifiSavedNetwork, output, capacity);
+  return writer.WriteString(
+             static_cast<uint16_t>(WifiSavedNetworkField::kSsid),
+             normalized.ssid, sizeof(normalized.ssid)) &&
+      writer.WriteString(
+          static_cast<uint16_t>(WifiSavedNetworkField::kPassword),
+          normalized.password, sizeof(normalized.password)) &&
+      writer.WriteBool(
+          static_cast<uint16_t>(WifiSavedNetworkField::kSecure),
+          normalized.secure) &&
+      writer.WriteBool(
+          static_cast<uint16_t>(WifiSavedNetworkField::kIs5g),
+          normalized.is_5g) &&
+      writer.WriteInt32(
+          static_cast<uint16_t>(WifiSavedNetworkField::kRssi),
+          static_cast<int32_t>(normalized.rssi)) &&
+      writer.Finalize(encoded_size);
+}
+
+bool DecodeWifiSavedNetwork(
+    const uint8_t* data, size_t size, WifiSavedNetwork* network) {
+  if (network == nullptr) {
+    return false;
+  }
+  WifiSavedNetwork decoded;
+  storage::TlvReader reader(
+      storage::TlvDomain::kWifiSavedNetwork, data, size);
+  storage::TlvField field;
+  while (true) {
+    const storage::TlvReadResult result = reader.Next(&field);
+    if (result == storage::TlvReadResult::kEnd) {
+      *network = NormalizeSavedNetwork(decoded);
+      return true;
+    }
+    if (result == storage::TlvReadResult::kInvalid) {
+      return false;
+    }
+    switch (static_cast<WifiSavedNetworkField>(field.tag())) {
+      case WifiSavedNetworkField::kSsid:
+        if (!field.CopyString(decoded.ssid, sizeof(decoded.ssid))) {
+          return false;
+        }
+        break;
+      case WifiSavedNetworkField::kPassword:
+        if (!field.CopyString(
+                decoded.password, sizeof(decoded.password))) {
+          return false;
+        }
+        break;
+      case WifiSavedNetworkField::kSecure:
+        if (!field.ReadBool(&decoded.secure)) {
+          return false;
+        }
+        break;
+      case WifiSavedNetworkField::kIs5g:
+        if (!field.ReadBool(&decoded.is_5g)) {
+          return false;
+        }
+        break;
+      case WifiSavedNetworkField::kRssi: {
+        int32_t value = 0;
+        if (!field.ReadInt32(&value)) {
+          return false;
+        }
+        decoded.rssi = static_cast<int>(value);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+}
+
+bool EncodeWifiSavedNetworks(const WifiSavedNetworks& networks,
+    uint8_t* output, size_t capacity, size_t* encoded_size) {
+  storage::TlvWriter writer(
+      storage::TlvDomain::kWifiSavedNetworks, output, capacity);
+  std::array<uint8_t, kWifiSavedNetworkTlvCapacity> network_buffer = {};
+  for (size_t index = 0; index < networks.count; ++index) {
+    size_t network_size = 0;
+    if (!EncodeWifiSavedNetwork(networks.networks[index],
+            network_buffer.data(), network_buffer.size(), &network_size) ||
+        !writer.WriteBytes(
+            static_cast<uint16_t>(WifiSavedNetworksField::kNetwork),
+            network_buffer.data(), network_size)) {
+      return false;
+    }
+  }
+  return writer.Finalize(encoded_size);
+}
+
+bool DecodeWifiSavedNetworks(const storage::TlvBuffer& buffer,
+    WifiSavedNetworks* networks) {
+  if (networks == nullptr) {
+    return false;
+  }
+  *networks = WifiSavedNetworks{};
+  storage::TlvReader reader(storage::TlvDomain::kWifiSavedNetworks,
+      buffer.data.get(), buffer.size);
+  storage::TlvField field;
+  while (true) {
+    const storage::TlvReadResult result = reader.Next(&field);
+    if (result == storage::TlvReadResult::kEnd) {
+      return true;
+    }
+    if (result == storage::TlvReadResult::kInvalid) {
+      return false;
+    }
+    if (static_cast<WifiSavedNetworksField>(field.tag()) !=
+        WifiSavedNetworksField::kNetwork ||
+        networks->count >= kWifiSavedNetworkCapacity) {
+      continue;
+    }
+    WifiSavedNetwork network;
+    if (!DecodeWifiSavedNetwork(field.data(), field.size(), &network)) {
+      return false;
+    }
     if (network.ssid[0] == '\0') {
       continue;
     }
-    blob->networks[blob->count] = network;
-    ++blob->count;
-  }
-  for (size_t index = blob->count;
-       index < kWifiSavedNetworkCapacity; ++index) {
-    blob->networks[index] = WifiSavedNetwork();
+    networks->networks[networks->count] = network;
+    ++networks->count;
   }
 }
 
-void NormalizeWifiSavedNetworksBlob(WifiSavedNetworksBlob* blob) {
-  if (blob == nullptr) {
-    return;
-  }
-  const size_t input_count =
-      std::min<size_t>(blob->count, kWifiSavedNetworkCapacity);
-  size_t output_count = 0;
-  for (size_t index = 0; index < input_count; ++index) {
-    const WifiSavedNetwork network =
-        NormalizeSavedNetwork(blob->networks[index]);
-    if (network.ssid[0] == '\0') {
-      continue;
-    }
-    blob->networks[output_count] = network;
-    ++output_count;
-  }
-  for (size_t index = output_count;
-       index < kWifiSavedNetworkCapacity; ++index) {
-    blob->networks[index] = WifiSavedNetwork();
-  }
-  blob->magic = kWifiSavedNetworksMagic;
-  blob->schema_version = kWifiSavedNetworksSchemaVersion;
-  blob->struct_size = sizeof(WifiSavedNetworksBlob);
-  blob->count = static_cast<uint32_t>(output_count);
-}
-
-DeferredStorageCache<WifiPreferencesBlob> g_wifi_preferences_cache(
-    StorageDomain::kWifiPreferences, AreWifiPreferencesBlobsEqual);
-DeferredStorageCache<WifiSavedNetworksBlob> g_wifi_saved_networks_cache(
-    StorageDomain::kWifiSavedNetworks, AreWifiSavedNetworksBlobsEqual);
+DeferredStorageCache<WifiPreferencesState> g_wifi_preferences_cache(
+    StorageDomain::kWifiPreferences, AreWifiPreferenceStatesEqual);
+DeferredStorageCache<WifiSavedNetworks> g_wifi_saved_networks_cache(
+    StorageDomain::kWifiSavedNetworks, AreWifiSavedNetworkListsEqual);
 std::atomic<bool> g_wifi_preferences_loaded{false};
 
 void LogWifiStorageError(const char* operation, esp_err_t error) {
   LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
       "WLAN NVS %s failed, error=%s\n", operation,
       esp_err_to_name(error));
-}
-
-void LoadWifiPreferencesBlob(nvs_handle_t handle,
-    WifiPreferencesBlob* preferences,
-    bool* loaded) {
-  if (preferences == nullptr || loaded == nullptr) {
-    return;
-  }
-  WifiPreferencesBlob stored = {};
-  size_t size = sizeof(stored);
-  const esp_err_t result =
-      nvs_get_blob(handle, kWifiPreferencesNvsKey, &stored, &size);
-  if (result == ESP_OK && size == sizeof(stored) &&
-      stored.magic == kWifiPreferencesMagic &&
-      stored.schema_version == kWifiPreferencesSchemaVersion &&
-      stored.struct_size == sizeof(WifiPreferencesBlob)) {
-    *preferences = NormalizeWifiPreferencesBlob(stored);
-    *loaded = true;
-    return;
-  }
-  if (result == ESP_ERR_NVS_NOT_FOUND) {
-    return;
-  }
-  if (result != ESP_OK) {
-    LogWifiStorageError("load preferences", result);
-  } else {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "WLAN preferences blob is invalid\n");
-  }
-}
-
-void LoadWifiSavedNetworksBlob(
-    nvs_handle_t handle, WifiSavedNetworksBlob* saved_networks) {
-  if (saved_networks == nullptr) {
-    return;
-  }
-  MakeWifiSavedNetworksBlob(nullptr, 0, saved_networks);
-  size_t size = sizeof(*saved_networks);
-  const esp_err_t result =
-      nvs_get_blob(
-          handle, kWifiSavedNetworksNvsKey, saved_networks, &size);
-  if (result == ESP_OK && size == sizeof(*saved_networks) &&
-      saved_networks->magic == kWifiSavedNetworksMagic &&
-      saved_networks->schema_version == kWifiSavedNetworksSchemaVersion &&
-      saved_networks->struct_size == sizeof(WifiSavedNetworksBlob)) {
-    NormalizeWifiSavedNetworksBlob(saved_networks);
-    return;
-  }
-  MakeWifiSavedNetworksBlob(nullptr, 0, saved_networks);
-  if (result == ESP_ERR_NVS_NOT_FOUND) {
-    return;
-  }
-  if (result != ESP_OK) {
-    LogWifiStorageError("load saved networks", result);
-  } else {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "WLAN saved network blob is invalid\n");
-  }
 }
 
 }  // namespace
@@ -262,13 +344,13 @@ bool UpdateWifiSavedNetworks(
   if (networks == nullptr && count > 0) {
     return false;
   }
-  auto blob = std::unique_ptr<WifiSavedNetworksBlob>(
-      new (std::nothrow) WifiSavedNetworksBlob());
-  if (blob == nullptr) {
+  auto normalized = std::unique_ptr<WifiSavedNetworks>(
+      new (std::nothrow) WifiSavedNetworks());
+  if (normalized == nullptr) {
     return false;
   }
-  MakeWifiSavedNetworksBlob(networks, count, blob.get());
-  return g_wifi_saved_networks_cache.Update(*blob);
+  MakeWifiSavedNetworks(networks, count, normalized.get());
+  return g_wifi_saved_networks_cache.Update(*normalized);
 }
 
 bool GetWifiSavedNetworks(
@@ -277,25 +359,23 @@ bool GetWifiSavedNetworks(
     return false;
   }
   *count = 0;
-
-  auto blob = std::unique_ptr<WifiSavedNetworksBlob>(
-      new (std::nothrow) WifiSavedNetworksBlob());
-  if (blob == nullptr || !g_wifi_saved_networks_cache.Read(blob.get())) {
+  auto stored = std::unique_ptr<WifiSavedNetworks>(
+      new (std::nothrow) WifiSavedNetworks());
+  if (stored == nullptr || !g_wifi_saved_networks_cache.Read(stored.get())) {
     return false;
   }
-  const size_t output_count =
-      std::min<size_t>(blob->count, capacity);
+  const size_t output_count = std::min(stored->count, capacity);
   for (size_t index = 0; index < output_count; ++index) {
-    networks[index] = blob->networks[index];
+    networks[index] = stored->networks[index];
   }
   *count = output_count;
   return true;
 }
 
 void InitWifiCache() {
-  WifiPreferencesBlob preferences = {};
-  auto saved_networks = std::unique_ptr<WifiSavedNetworksBlob>(
-      new (std::nothrow) WifiSavedNetworksBlob());
+  WifiPreferences preferences;
+  auto saved_networks = std::unique_ptr<WifiSavedNetworks>(
+      new (std::nothrow) WifiSavedNetworks());
   if (saved_networks == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Allocate WLAN saved network initialization buffer failed\n");
@@ -306,21 +386,57 @@ void InitWifiCache() {
   const esp_err_t open_result =
       nvs_open(kWifiNvsNamespace, NVS_READONLY, &handle);
   if (open_result == ESP_OK) {
-    LoadWifiPreferencesBlob(handle, &preferences, &preferences_loaded);
+    storage::TlvBuffer preferences_buffer;
+    esp_err_t preferences_error = ESP_OK;
+    const storage::TlvLoadResult preferences_result =
+        storage::LoadTlvBuffer(handle, kWifiPreferencesNvsKey,
+            storage::TlvDomain::kWifiPreferences,
+            kWifiPreferencesTlvCapacity, &preferences_buffer,
+            &preferences_error);
+    if (preferences_result == storage::TlvLoadResult::kLoaded) {
+      preferences_loaded =
+          DecodeWifiPreferences(preferences_buffer, &preferences);
+      if (!preferences_loaded) {
+        LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+            "WLAN preferences TLV payload is invalid\n");
+      }
+    } else if (preferences_result == storage::TlvLoadResult::kInvalid) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "WLAN preferences TLV container is invalid\n");
+    } else if (preferences_result == storage::TlvLoadResult::kError) {
+      LogWifiStorageError("load preferences", preferences_error);
+    }
+
     if (saved_networks != nullptr) {
-      LoadWifiSavedNetworksBlob(handle, saved_networks.get());
+      storage::TlvBuffer networks_buffer;
+      esp_err_t networks_error = ESP_OK;
+      const storage::TlvLoadResult networks_result =
+          storage::LoadTlvBuffer(handle, kWifiSavedNetworksNvsKey,
+              storage::TlvDomain::kWifiSavedNetworks,
+              kWifiSavedNetworksTlvCapacity, &networks_buffer,
+              &networks_error);
+      if (networks_result == storage::TlvLoadResult::kLoaded &&
+          !DecodeWifiSavedNetworks(networks_buffer,
+              saved_networks.get())) {
+        LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+            "WLAN saved networks TLV payload is invalid\n");
+        *saved_networks = WifiSavedNetworks{};
+      } else if (networks_result == storage::TlvLoadResult::kInvalid) {
+        LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+            "WLAN saved networks TLV container is invalid\n");
+      } else if (networks_result == storage::TlvLoadResult::kError) {
+        LogWifiStorageError("load saved networks", networks_error);
+      }
     }
     nvs_close(handle);
   } else if (open_result != ESP_ERR_NVS_NOT_FOUND) {
     LogWifiStorageError("open cache", open_result);
   }
 
-  if (!preferences_loaded) {
-    preferences.magic = 0;
-  }
-  const bool preferences_initialized =
-      g_wifi_preferences_cache.Initialize(preferences);
-  if (!preferences_initialized) {
+  WifiPreferencesState preferences_state;
+  preferences_state.preferences = NormalizeWifiPreferences(preferences);
+  preferences_state.has_value = preferences_loaded;
+  if (!g_wifi_preferences_cache.Initialize(preferences_state)) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Initialize WLAN preferences cache failed\n");
   }
@@ -333,15 +449,11 @@ void InitWifiCache() {
 }
 
 WifiPreferences GetWifiPreferences() {
-  WifiPreferencesBlob blob = {};
-  if (!g_wifi_preferences_cache.Read(&blob)) {
+  WifiPreferencesState state;
+  if (!g_wifi_preferences_cache.Read(&state)) {
     return WifiPreferences{};
   }
-  WifiPreferences preferences;
-  preferences.enabled_requested = blob.enabled_requested != 0;
-  CopyBoundedString(
-      preferences.auto_connect_ssid, blob.auto_connect_ssid);
-  return preferences;
+  return state.preferences;
 }
 
 bool HasWifiPreferences() {
@@ -349,8 +461,10 @@ bool HasWifiPreferences() {
 }
 
 bool UpdateWifiPreferences(const WifiPreferences& preferences) {
-  if (!g_wifi_preferences_cache.Update(
-          MakeWifiPreferencesBlob(preferences))) {
+  WifiPreferencesState state;
+  state.preferences = NormalizeWifiPreferences(preferences);
+  state.has_value = true;
+  if (!g_wifi_preferences_cache.Update(state)) {
     return false;
   }
   g_wifi_preferences_loaded.store(true);
@@ -358,12 +472,18 @@ bool UpdateWifiPreferences(const WifiPreferences& preferences) {
 }
 
 StorageStageResult StageWifiPreferencesStorage(nvs_handle_t handle) {
-  const WifiPreferencesBlob* blob = nullptr;
-  if (!g_wifi_preferences_cache.BeginFlush(&blob)) {
+  const WifiPreferencesState* state = nullptr;
+  if (!g_wifi_preferences_cache.BeginFlush(&state)) {
     return StorageStageResult::kClean;
   }
-  const esp_err_t result =
-      nvs_set_blob(handle, kWifiPreferencesNvsKey, blob, sizeof(*blob));
+  std::array<uint8_t, kWifiPreferencesTlvCapacity> buffer = {};
+  size_t encoded_size = 0;
+  if (!EncodeWifiPreferences(state->preferences, buffer.data(),
+          buffer.size(), &encoded_size)) {
+    return StorageStageResult::kFailed;
+  }
+  const esp_err_t result = nvs_set_blob(handle,
+      kWifiPreferencesNvsKey, buffer.data(), encoded_size);
   if (result == ESP_OK) {
     return StorageStageResult::kStaged;
   }
@@ -376,13 +496,22 @@ void FinishWifiPreferencesStorage(bool committed) {
 }
 
 StorageStageResult StageWifiSavedNetworksStorage(nvs_handle_t handle) {
-  const WifiSavedNetworksBlob* blob = nullptr;
-  if (!g_wifi_saved_networks_cache.BeginFlush(&blob)) {
+  const WifiSavedNetworks* networks = nullptr;
+  if (!g_wifi_saved_networks_cache.BeginFlush(&networks)) {
     return StorageStageResult::kClean;
   }
-  const esp_err_t result =
-      nvs_set_blob(
-          handle, kWifiSavedNetworksNvsKey, blob, sizeof(*blob));
+  auto buffer = std::unique_ptr<uint8_t[]>(
+      new (std::nothrow) uint8_t[kWifiSavedNetworksTlvCapacity]);
+  if (buffer == nullptr) {
+    return StorageStageResult::kFailed;
+  }
+  size_t encoded_size = 0;
+  if (!EncodeWifiSavedNetworks(*networks, buffer.get(),
+          kWifiSavedNetworksTlvCapacity, &encoded_size)) {
+    return StorageStageResult::kFailed;
+  }
+  const esp_err_t result = nvs_set_blob(
+      handle, kWifiSavedNetworksNvsKey, buffer.get(), encoded_size);
   if (result == ESP_OK) {
     return StorageStageResult::kStaged;
   }

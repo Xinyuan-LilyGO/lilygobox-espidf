@@ -2,16 +2,18 @@
  * @Description: 声音偏好存储实现
  * @Author: LILYGO_L
  * @Date: 2026-06-25 00:00:00
- * @LastEditTime: 2026-07-16 22:35:14
+ * @LastEditTime: 2026-07-22 00:00:00
  * @License: GPL 3.0
  */
 #include "app/storage/sound_storage.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
 #include "app/storage/storage_internal.h"
+#include "app/storage/tlv_storage.h"
 #include "base/logger.h"
 #include "esp_err.h"
 #include "nvs.h"
@@ -21,79 +23,121 @@ namespace {
 
 constexpr const char* kSoundNvsNamespace = "settings";
 constexpr const char* kSoundNvsKey = "audio_config";
-constexpr uint32_t kSoundMagic = 0x41554450;
-constexpr uint16_t kSoundSchemaVersion = 1;
+constexpr size_t kSoundTlvCapacity = 48;
 
-struct SoundBlob {
-  // 校验当前 NVS 数据是否属于声音偏好。
-  uint32_t magic = kSoundMagic;
-  // 当前声音偏好存储结构版本。
-  uint16_t schema_version = kSoundSchemaVersion;
-  // 写入 NVS 的完整结构大小。
-  uint16_t struct_size = sizeof(SoundBlob);
-  // 系统输出音量百分比。
-  uint8_t volume_percent = 90;
+// 已分配字段编号只允许保留，禁止改号或复用。
+enum class SoundField : uint16_t {
+  kVolumePercent = 1,
 };
 
-SoundBlob NormalizeSoundBlob(const SoundBlob& source) {
-  SoundBlob result;
-  result.volume_percent = static_cast<uint8_t>(
-      std::clamp<int>(source.volume_percent, 0, 100));
+SoundPreferences NormalizeSoundPreferences(
+    const SoundPreferences& source) {
+  SoundPreferences result;
+  result.volume_percent = std::clamp(source.volume_percent, 0, 100);
   return result;
 }
 
-bool AreSoundBlobsEqual(
-    const SoundBlob& left, const SoundBlob& right) {
-  return left.magic == right.magic &&
-      left.schema_version == right.schema_version &&
-      left.struct_size == right.struct_size &&
-      left.volume_percent == right.volume_percent;
+bool AreSoundPreferencesEqual(
+    const SoundPreferences& left, const SoundPreferences& right) {
+  return left.volume_percent == right.volume_percent;
 }
 
-DeferredStorageCache<SoundBlob> g_sound_cache(
-    StorageDomain::kSound, AreSoundBlobsEqual);
+bool DecodeSoundPreferences(const storage::TlvBuffer& buffer,
+    SoundPreferences* preferences) {
+  if (preferences == nullptr) {
+    return false;
+  }
+  SoundPreferences decoded;
+  storage::TlvReader reader(
+      storage::TlvDomain::kSound, buffer.data.get(), buffer.size);
+  storage::TlvField field;
+  while (true) {
+    const storage::TlvReadResult result = reader.Next(&field);
+    if (result == storage::TlvReadResult::kEnd) {
+      *preferences = NormalizeSoundPreferences(decoded);
+      return true;
+    }
+    if (result == storage::TlvReadResult::kInvalid) {
+      return false;
+    }
+    if (static_cast<SoundField>(field.tag()) ==
+        SoundField::kVolumePercent) {
+      uint8_t value = 0;
+      if (!field.ReadUint8(&value)) {
+        return false;
+      }
+      decoded.volume_percent = value;
+    }
+  }
+}
+
+bool EncodeSoundPreferences(const SoundPreferences& preferences,
+    uint8_t* output, size_t capacity, size_t* encoded_size) {
+  const SoundPreferences normalized =
+      NormalizeSoundPreferences(preferences);
+  storage::TlvWriter writer(
+      storage::TlvDomain::kSound, output, capacity);
+  return writer.WriteUint8(
+             static_cast<uint16_t>(SoundField::kVolumePercent),
+             static_cast<uint8_t>(normalized.volume_percent)) &&
+      writer.Finalize(encoded_size);
+}
+
+DeferredStorageCache<SoundPreferences> g_sound_cache(
+    StorageDomain::kSound, AreSoundPreferencesEqual);
 
 }  // namespace
 
 void InitSoundCache() {
-  SoundBlob loaded;
+  SoundPreferences loaded;
   nvs_handle_t handle = 0;
   if (nvs_open(kSoundNvsNamespace, NVS_READONLY, &handle) == ESP_OK) {
-    SoundBlob stored;
-    size_t size = sizeof(stored);
-    if (nvs_get_blob(handle, kSoundNvsKey, &stored, &size) == ESP_OK &&
-        size == sizeof(stored) && stored.magic == kSoundMagic &&
-        stored.schema_version == kSoundSchemaVersion &&
-        stored.struct_size == sizeof(SoundBlob)) {
-      loaded = NormalizeSoundBlob(stored);
+    storage::TlvBuffer buffer;
+    esp_err_t error = ESP_OK;
+    const storage::TlvLoadResult result = storage::LoadTlvBuffer(handle,
+        kSoundNvsKey, storage::TlvDomain::kSound,
+        kSoundTlvCapacity, &buffer, &error);
+    if (result == storage::TlvLoadResult::kLoaded &&
+        !DecodeSoundPreferences(buffer, &loaded)) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Sound TLV payload is invalid\n");
+    } else if (result == storage::TlvLoadResult::kInvalid) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Sound TLV container is invalid\n");
+    } else if (result == storage::TlvLoadResult::kError) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Load sound TLV failed: %s\n", esp_err_to_name(error));
     }
     nvs_close(handle);
   }
-  if (!g_sound_cache.Initialize(loaded)) {
+  if (!g_sound_cache.Initialize(NormalizeSoundPreferences(loaded))) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize sound storage cache failed\n");
   }
 }
 
 SoundPreferences GetSoundPreferences() {
-  SoundBlob blob;
-  g_sound_cache.Read(&blob);
-  return {blob.volume_percent};
+  SoundPreferences preferences;
+  g_sound_cache.Read(&preferences);
+  return preferences;
 }
 
-bool UpdateSoundPreferences(const SoundPreferences& prefs) {
-  SoundBlob blob;
-  blob.volume_percent = static_cast<uint8_t>(
-      std::clamp(prefs.volume_percent, 0, 100));
-  return g_sound_cache.Update(blob);
+bool UpdateSoundPreferences(const SoundPreferences& preferences) {
+  return g_sound_cache.Update(
+      NormalizeSoundPreferences(preferences));
 }
 
 StorageStageResult StageSoundStorage(nvs_handle_t handle) {
-  const SoundBlob* blob = nullptr;
-  if (!g_sound_cache.BeginFlush(&blob)) {
+  const SoundPreferences* preferences = nullptr;
+  if (!g_sound_cache.BeginFlush(&preferences)) {
     return StorageStageResult::kClean;
   }
-  if (nvs_set_blob(handle, kSoundNvsKey, blob, sizeof(*blob)) != ESP_OK) {
+  std::array<uint8_t, kSoundTlvCapacity> buffer = {};
+  size_t encoded_size = 0;
+  if (!EncodeSoundPreferences(*preferences, buffer.data(),
+          buffer.size(), &encoded_size) ||
+      nvs_set_blob(handle, kSoundNvsKey,
+          buffer.data(), encoded_size) != ESP_OK) {
     return StorageStageResult::kFailed;
   }
   return StorageStageResult::kStaged;
