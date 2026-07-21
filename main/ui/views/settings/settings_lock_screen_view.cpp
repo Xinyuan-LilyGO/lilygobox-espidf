@@ -24,6 +24,7 @@ constexpr PromptSelectSheetOption kAutoLockOptions[] = {
     {2 * 60, "2 minutes"},
     {5 * 60, "5 minutes"},
     {10 * 60, "10 minutes"},
+    {app::kDisplayLockTimeoutDisabledSeconds, "Never"},
 };
 constexpr size_t kAutoLockOptionCount =
     sizeof(kAutoLockOptions) / sizeof(kAutoLockOptions[0]);
@@ -45,6 +46,10 @@ constexpr uint32_t kAutoLockSelectedColor =
  */
 void FormatAutoLockValue(int seconds, char* buffer, size_t size) {
   if (buffer == nullptr || size == 0) {
+    return;
+  }
+  if (seconds == app::kDisplayLockTimeoutDisabledSeconds) {
+    std::snprintf(buffer, size, "Never");
     return;
   }
   if (seconds < 60) {

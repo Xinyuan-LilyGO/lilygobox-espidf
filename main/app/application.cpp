@@ -599,7 +599,9 @@ void Application::RunScreenLockTask() {
         std::min(lock_timeout_ms, kScreenLockSleepConfirmMs);
     const uint32_t dim_start_ms = lock_timeout_ms - sleep_confirm_ms;
     const uint32_t idle_ms = now_ms - last_touch_ms;
-    if (preferences.lock_timeout_seconds <= 0 || idle_ms < dim_start_ms) {
+    if (preferences.lock_timeout_seconds ==
+            app::kDisplayLockTimeoutDisabledSeconds ||
+        idle_ms < dim_start_ms) {
       vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
       continue;
     }

@@ -52,7 +52,8 @@ DisplayPreferences NormalizeDisplayPreferences(
       kUserDisplayBrightnessMinPercent,
       kUserDisplayBrightnessMaxPercent);
   result.lock_timeout_seconds = std::clamp(
-      source.lock_timeout_seconds, 0, kMaximumLockTimeoutSeconds);
+      source.lock_timeout_seconds, kDisplayLockTimeoutDisabledSeconds,
+      kMaximumLockTimeoutSeconds);
   result.screen_rotation_angle =
       NormalizeScreenRotationAngle(source.screen_rotation_angle);
   return result;

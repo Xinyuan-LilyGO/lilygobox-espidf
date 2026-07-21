@@ -11,6 +11,8 @@ namespace lilygo_box::app {
 
 inline constexpr int kUserDisplayBrightnessMinPercent = 10;
 inline constexpr int kUserDisplayBrightnessMaxPercent = 100;
+// 自动锁屏等待时间使用该值时，屏幕不会因空闲超时而锁定。
+inline constexpr int kDisplayLockTimeoutDisabledSeconds = 0;
 
 // 显示设置用户偏好。
 struct DisplayPreferences {
