@@ -2446,7 +2446,7 @@ WirelessUpdateResult UpdateWirelessFirmware(
     return WirelessUpdateResult::kFailed;
   }
   SetStage(FirmwareUpdateStage::kInstallingWireless,
-      "Installing Wireless firmware", 0);
+      "Writing Wireless firmware", 0);
   esp_err_t result = esp_hosted_slave_ota_begin();
   if (result != ESP_OK) {
     if (!keep_marker_on_failure) {
@@ -2472,7 +2472,7 @@ WirelessUpdateResult UpdateWirelessFirmware(
     }
     sent_size += chunk_size;
     SetStage(FirmwareUpdateStage::kInstallingWireless,
-        "Installing Wireless firmware",
+        "Writing Wireless firmware",
         static_cast<int>(sent_size * 100 / image_info.size));
   }
   result = esp_hosted_slave_ota_end();
