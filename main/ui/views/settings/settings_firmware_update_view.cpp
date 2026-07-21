@@ -614,6 +614,8 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
       snapshot.stage == app::FirmwareUpdateStage::kPaused;
   const bool ready =
       snapshot.stage == app::FirmwareUpdateStage::kReadyToInstall;
+  const bool cancelling =
+      std::strcmp(snapshot.message, "Cancelling update") == 0;
   const bool current_page_active =
       state->firmware_update_page_index == 0;
   SetFirmwareObjectVisible(
@@ -638,7 +640,10 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
     }
   } else {
     button_enabled = !snapshot.busy && snapshot.device_supported && !paused;
-    switch (snapshot.stage) {
+    if (cancelling) {
+      std::snprintf(button_text, sizeof(button_text), "Cancelling...");
+    } else {
+      switch (snapshot.stage) {
       case app::FirmwareUpdateStage::kWaitingForNetwork:
         std::snprintf(button_text, sizeof(button_text), "Waiting for Wi-Fi");
         break;
@@ -681,6 +686,7 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
       default:
         std::snprintf(button_text, sizeof(button_text), "Download firmware");
         break;
+      }
     }
   }
   lv_label_set_text(
@@ -722,7 +728,15 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
   SetFirmwareObjectVisible(
       state->firmware_update_cancel_button, show_cancel);
   lv_label_set_text(state->firmware_update_cancel_button_label,
-      ready ? "Cancel current update" : "Cancel download");
+      ready ? "Cancel current update"
+            : cancelling ? "Cancelling..." : "Cancel download");
+  if (cancelling) {
+    lv_obj_add_state(
+        state->firmware_update_cancel_button, LV_STATE_DISABLED);
+  } else {
+    lv_obj_remove_state(
+        state->firmware_update_cancel_button, LV_STATE_DISABLED);
+  }
   const int primary_width =
       lv_obj_get_width(state->firmware_update_download_button);
   if (show_cancel) {

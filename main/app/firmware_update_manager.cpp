@@ -152,7 +152,9 @@ struct FirmwareDownloadSourceList {
 
 struct FirmwareUpdateManagerState {
   SemaphoreHandle_t mutex = nullptr;
+  SemaphoreHandle_t http_client_mutex = nullptr;
   hal::WifiProvider* wifi = nullptr;
+  esp_http_client_handle_t active_http_client = nullptr;
   FirmwareUpdateSnapshot snapshot;
   FirmwareReleaseManifest manifest;
   bool initialized = false;
@@ -257,6 +259,56 @@ void UnlockManager() {
   if (g_manager.mutex != nullptr) {
     xSemaphoreGive(g_manager.mutex);
   }
+}
+
+/**
+ * @brief 记录当前正在执行传输的 HTTP 客户端
+ * @param client HTTP 客户端
+ */
+void SetActiveHttpClient(esp_http_client_handle_t client) {
+  if (g_manager.http_client_mutex == nullptr ||
+      xSemaphoreTake(g_manager.http_client_mutex, portMAX_DELAY) != pdTRUE) {
+    return;
+  }
+  g_manager.active_http_client = client;
+  xSemaphoreGive(g_manager.http_client_mutex);
+}
+
+/**
+ * @brief 清除当前正在执行传输的 HTTP 客户端
+ */
+void ClearActiveHttpClient() {
+  if (g_manager.http_client_mutex == nullptr ||
+      xSemaphoreTake(g_manager.http_client_mutex, portMAX_DELAY) != pdTRUE) {
+    return;
+  }
+  g_manager.active_http_client = nullptr;
+  xSemaphoreGive(g_manager.http_client_mutex);
+}
+
+/**
+ * @brief 关闭当前 HTTP 连接以唤醒阻塞中的固件下载
+ */
+void CloseActiveHttpClient() {
+  if (g_manager.http_client_mutex == nullptr ||
+      xSemaphoreTake(g_manager.http_client_mutex, portMAX_DELAY) != pdTRUE) {
+    return;
+  }
+  if (g_manager.active_http_client != nullptr) {
+    esp_http_client_close(g_manager.active_http_client);
+  }
+  xSemaphoreGive(g_manager.http_client_mutex);
+}
+
+/**
+ * @brief 记录 ESP HTTPS OTA 内部创建的 HTTP 客户端
+ * @param client HTTP 客户端
+ * @return 始终返回 ESP_OK
+ */
+esp_err_t FirmwareOtaHttpClientInitialized(
+    esp_http_client_handle_t client) {
+  SetActiveHttpClient(client);
+  return ESP_OK;
 }
 
 /**
@@ -1603,10 +1655,15 @@ bool VerifyFileIntegrity(FILE* file, size_t file_size, size_t expected_size,
  * @param partition P4 目标 OTA 分区
  * @param image_size 清单要求的镜像长度
  * @param expected_sha256 清单要求的 SHA-256
+ * @param interrupted_by 校验期间收到的传输控制请求输出地址
  * @return 指定镜像范围摘要一致返回 true，否则返回 false
  */
 bool VerifyPartitionIntegrity(const esp_partition_t* partition,
-    size_t image_size, const char* expected_sha256) {
+    size_t image_size, const char* expected_sha256,
+    TransferRequest* interrupted_by = nullptr) {
+  if (interrupted_by != nullptr) {
+    *interrupted_by = TransferRequest::kNone;
+  }
   if (partition == nullptr || image_size == 0 ||
       image_size > partition->size || !IsSha256Text(expected_sha256)) {
     return false;
@@ -1620,6 +1677,13 @@ bool VerifyPartitionIntegrity(const esp_partition_t* partition,
   bool success = mbedtls_sha256_starts(&sha256_context, 0) == 0;
   size_t hashed_size = 0;
   while (success && hashed_size < image_size) {
+    if (interrupted_by != nullptr) {
+      *interrupted_by = ReadTransferRequest();
+      if (*interrupted_by != TransferRequest::kNone) {
+        success = false;
+        break;
+      }
+    }
     const size_t chunk_size =
         std::min(kHashReadChunkSize, image_size - hashed_size);
     success = esp_partition_read(
@@ -1825,6 +1889,13 @@ FirmwareDownloadResult DownloadWirelessFirmware(
   }
   for (size_t source_index = 0; source_index < download_sources.count;
        ++source_index) {
+    const TransferRequest request_before_download = ReadTransferRequest();
+    if (request_before_download != TransferRequest::kNone) {
+      std::remove(kWirelessFirmwareTempPath);
+      return request_before_download == TransferRequest::kCancel
+          ? FirmwareDownloadResult::kCancelled
+          : FirmwareDownloadResult::kPaused;
+    }
     std::remove(kWirelessFirmwareTempPath);
     std::unique_ptr<FILE, decltype(&std::fclose)> output(
         std::fopen(kWirelessFirmwareTempPath, "wb"), &std::fclose);
@@ -1853,9 +1924,11 @@ FirmwareDownloadResult DownloadWirelessFirmware(
       SetFailure("Cannot start C6 download");
       return FirmwareDownloadResult::kFailed;
     }
+    SetActiveHttpClient(client);
     SetStage(FirmwareUpdateStage::kDownloadingWireless,
         "Downloading ESP32-C6 firmware", 0);
     const esp_err_t result = esp_http_client_perform(client);
+    ClearActiveHttpClient();
     const int status_code = esp_http_client_get_status_code(client);
     const int64_t content_length =
         esp_http_client_get_content_length(client);
@@ -1864,7 +1937,7 @@ FirmwareDownloadResult DownloadWirelessFirmware(
     }
     output.reset();
     esp_http_client_cleanup(client);
-    const TransferRequest final_request = ReadTransferRequest();
+    TransferRequest final_request = ReadTransferRequest();
     if (context.cancel_requested || context.pause_requested ||
         final_request != TransferRequest::kNone) {
       std::remove(kWirelessFirmwareTempPath);
@@ -1910,8 +1983,16 @@ FirmwareDownloadResult DownloadWirelessFirmware(
       return FirmwareDownloadResult::kFailed;
     }
     FirmwareImageInfo image_info;
-    if (!InspectWirelessFirmware(
-            kWirelessFirmwareTempPath, manifest, &image_info)) {
+    const bool image_valid = InspectWirelessFirmware(
+        kWirelessFirmwareTempPath, manifest, &image_info);
+    final_request = ReadTransferRequest();
+    if (final_request != TransferRequest::kNone) {
+      std::remove(kWirelessFirmwareTempPath);
+      return final_request == TransferRequest::kCancel
+          ? FirmwareDownloadResult::kCancelled
+          : FirmwareDownloadResult::kPaused;
+    }
+    if (!image_valid) {
       std::remove(kWirelessFirmwareTempPath);
       SetFailure("Downloaded C6 firmware invalid");
       return FirmwareDownloadResult::kFailed;
@@ -1990,8 +2071,15 @@ void CleanupWirelessFiles() {
 bool RestoreRunningBootPartition() {
   const esp_partition_t* running_partition =
       esp_ota_get_running_partition();
-  return running_partition != nullptr &&
-         esp_ota_set_boot_partition(running_partition) == ESP_OK;
+  if (running_partition == nullptr) {
+    return false;
+  }
+  const esp_partition_t* boot_partition = esp_ota_get_boot_partition();
+  if (boot_partition != nullptr &&
+      boot_partition->address == running_partition->address) {
+    return true;
+  }
+  return esp_ota_set_boot_partition(running_partition) == ESP_OK;
 }
 
 bool CancelPreparedFirmware(bool finish_worker = false);
@@ -2050,6 +2138,23 @@ bool CancelPreparedFirmware(bool finish_worker) {
         "Firmware update cancellation cleanup failed\n");
   }
   return cancelled;
+}
+
+/**
+ * @brief 在两个固件处理阶段之间立即响应暂停或取消请求
+ * @return 已处理传输控制请求返回 true，否则返回 false
+ */
+bool HandlePendingDownloadInterruption() {
+  const TransferRequest request = ReadTransferRequest();
+  if (request == TransferRequest::kCancel) {
+    CancelPreparedFirmware(true);
+    return true;
+  }
+  if (request == TransferRequest::kPause) {
+    SetDownloadPaused();
+    return true;
+  }
+  return false;
 }
 
 void FinishPreparedDownload() {
@@ -2277,6 +2382,13 @@ MainUpdateResult UpdateMainFirmware(
   bool download_completed = false;
   for (size_t source_index = 0; source_index < download_sources.count;
        ++source_index) {
+    interrupted_by = ReadTransferRequest();
+    if (interrupted_by != TransferRequest::kNone) {
+      ClearPendingUpdate();
+      return interrupted_by == TransferRequest::kCancel
+          ? MainUpdateResult::kCancelled
+          : MainUpdateResult::kPaused;
+    }
     esp_http_client_config_t http_config = {};
     http_config.url = download_sources.urls[source_index];
     http_config.crt_bundle_attach = esp_crt_bundle_attach;
@@ -2287,17 +2399,26 @@ MainUpdateResult UpdateMainFirmware(
     http_config.max_redirection_count = 5;
     esp_https_ota_config_t ota_config = {};
     ota_config.http_config = &http_config;
+    ota_config.http_client_init_cb = FirmwareOtaHttpClientInitialized;
 
     SetStage(FirmwareUpdateStage::kDownloadingMain,
         "Downloading ESP32-P4 firmware", 0);
     ota_handle = nullptr;
     result = esp_https_ota_begin(&ota_config, &ota_handle);
     if (result != ESP_OK) {
+      ClearActiveHttpClient();
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Start P4 firmware download failed: source=%s result=%s\n",
           FirmwareDownloadSourceName(
               download_sources.sources[source_index]),
           esp_err_to_name(result));
+      interrupted_by = ReadTransferRequest();
+      if (interrupted_by != TransferRequest::kNone) {
+        ClearPendingUpdate();
+        return interrupted_by == TransferRequest::kCancel
+            ? MainUpdateResult::kCancelled
+            : MainUpdateResult::kPaused;
+      }
       if (source_index == 0 && download_sources.count > 1 &&
           IsNetworkReady()) {
         LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
@@ -2310,13 +2431,41 @@ MainUpdateResult UpdateMainFirmware(
       SetFailure("Cannot start P4 download");
       return MainUpdateResult::kFailed;
     }
+    interrupted_by = ReadTransferRequest();
+    if (interrupted_by != TransferRequest::kNone) {
+      ClearActiveHttpClient();
+      esp_https_ota_abort(ota_handle);
+      ota_handle = nullptr;
+      ClearPendingUpdate();
+      return interrupted_by == TransferRequest::kCancel
+          ? MainUpdateResult::kCancelled
+          : MainUpdateResult::kPaused;
+    }
     esp_app_desc_t new_app = {};
     result = esp_https_ota_get_img_desc(ota_handle, &new_app);
+    interrupted_by = ReadTransferRequest();
+    if (interrupted_by != TransferRequest::kNone) {
+      ClearActiveHttpClient();
+      esp_https_ota_abort(ota_handle);
+      ota_handle = nullptr;
+      ClearPendingUpdate();
+      return interrupted_by == TransferRequest::kCancel
+          ? MainUpdateResult::kCancelled
+          : MainUpdateResult::kPaused;
+    }
     const bool image_description_valid = result == ESP_OK &&
         ValidateMainFirmwareImage(new_app, manifest);
     if (!image_description_valid) {
+      ClearActiveHttpClient();
       esp_https_ota_abort(ota_handle);
       ota_handle = nullptr;
+      interrupted_by = ReadTransferRequest();
+      if (interrupted_by != TransferRequest::kNone) {
+        ClearPendingUpdate();
+        return interrupted_by == TransferRequest::kCancel
+            ? MainUpdateResult::kCancelled
+            : MainUpdateResult::kPaused;
+      }
       const bool may_retry = result != ESP_OK && source_index == 0 &&
           download_sources.count > 1 && IsNetworkReady();
       if (may_retry) {
@@ -2347,6 +2496,13 @@ MainUpdateResult UpdateMainFirmware(
         break;
       }
       result = esp_https_ota_perform(ota_handle);
+      if (interrupted_by == TransferRequest::kNone) {
+        interrupted_by = ReadTransferRequest();
+      }
+      if (interrupted_by != TransferRequest::kNone) {
+        result = ESP_FAIL;
+        break;
+      }
       const int image_size = esp_https_ota_get_image_size(ota_handle);
       const int image_read = esp_https_ota_get_image_len_read(ota_handle);
       if (image_read >= 0 &&
@@ -2362,6 +2518,7 @@ MainUpdateResult UpdateMainFirmware(
           "Downloading ESP32-P4 firmware", progress);
     } while (result == ESP_ERR_HTTPS_OTA_IN_PROGRESS);
     if (interrupted_by != TransferRequest::kNone) {
+      ClearActiveHttpClient();
       esp_https_ota_abort(ota_handle);
       ClearPendingUpdate();
       return interrupted_by == TransferRequest::kCancel
@@ -2371,6 +2528,7 @@ MainUpdateResult UpdateMainFirmware(
     const bool complete_data = result == ESP_OK &&
         esp_https_ota_is_complete_data_received(ota_handle);
     if (!complete_data) {
+      ClearActiveHttpClient();
       esp_https_ota_abort(ota_handle);
       ota_handle = nullptr;
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
@@ -2401,6 +2559,7 @@ MainUpdateResult UpdateMainFirmware(
     const int downloaded_size = esp_https_ota_get_image_len_read(ota_handle);
     if (downloaded_size < 0 ||
         static_cast<size_t>(downloaded_size) != manifest.main_size_bytes) {
+      ClearActiveHttpClient();
       esp_https_ota_abort(ota_handle);
       ota_handle = nullptr;
       if (!keep_marker_on_failure) {
@@ -2415,6 +2574,7 @@ MainUpdateResult UpdateMainFirmware(
     break;
   }
   if (!download_completed || ota_handle == nullptr) {
+    ClearActiveHttpClient();
     if (!keep_marker_on_failure) {
       ClearPendingUpdate();
     }
@@ -2423,12 +2583,14 @@ MainUpdateResult UpdateMainFirmware(
   }
   interrupted_by = ReadTransferRequest();
   if (interrupted_by != TransferRequest::kNone) {
+    ClearActiveHttpClient();
     esp_https_ota_abort(ota_handle);
     ClearPendingUpdate();
     return interrupted_by == TransferRequest::kCancel
         ? MainUpdateResult::kCancelled
         : MainUpdateResult::kPaused;
   }
+  ClearActiveHttpClient();
   result = esp_https_ota_finish(ota_handle);
   if (result != ESP_OK) {
     if (!keep_marker_on_failure) {
@@ -2437,11 +2599,39 @@ MainUpdateResult UpdateMainFirmware(
     SetFailure("P4 firmware verification failed");
     return MainUpdateResult::kFailed;
   }
+  interrupted_by = ReadTransferRequest();
+  if (interrupted_by != TransferRequest::kNone) {
+    if (interrupted_by == TransferRequest::kPause &&
+        !RestoreRunningBootPartition()) {
+      ClearPendingUpdate();
+      SetFailure("Cannot restore P4 boot partition");
+      return MainUpdateResult::kFailed;
+    }
+    ClearPendingUpdate();
+    return interrupted_by == TransferRequest::kCancel
+        ? MainUpdateResult::kCancelled
+        : MainUpdateResult::kPaused;
+  }
   const esp_partition_t* boot_partition = esp_ota_get_boot_partition();
-  if (boot_partition == nullptr ||
-      boot_partition->address != update_partition->address ||
-      !VerifyPartitionIntegrity(boot_partition, manifest.main_size_bytes,
-          manifest.main_sha256)) {
+  bool partition_valid = boot_partition != nullptr &&
+      boot_partition->address == update_partition->address;
+  if (partition_valid) {
+    partition_valid = VerifyPartitionIntegrity(boot_partition,
+        manifest.main_size_bytes, manifest.main_sha256, &interrupted_by);
+  }
+  if (interrupted_by != TransferRequest::kNone) {
+    if (interrupted_by == TransferRequest::kPause &&
+        !RestoreRunningBootPartition()) {
+      ClearPendingUpdate();
+      SetFailure("Cannot restore P4 boot partition");
+      return MainUpdateResult::kFailed;
+    }
+    ClearPendingUpdate();
+    return interrupted_by == TransferRequest::kCancel
+        ? MainUpdateResult::kCancelled
+        : MainUpdateResult::kPaused;
+  }
+  if (!partition_valid) {
     const esp_partition_t* running_partition = esp_ota_get_running_partition();
     const bool boot_restored = running_partition != nullptr &&
         esp_ota_set_boot_partition(running_partition) == ESP_OK;
@@ -2576,6 +2766,10 @@ void UpdateTask(void* context) {
       vTaskDelete(nullptr);
       return;
     }
+  }
+  if (HandlePendingDownloadInterruption()) {
+    vTaskDelete(nullptr);
+    return;
   }
   // P4 镜像写入备用分区并校验，但确认安装前恢复当前启动分区。
   if (main_update_required) {
@@ -2763,6 +2957,10 @@ void ResumeTask(void* context) {
       return;
     }
   }
+  if (HandlePendingDownloadInterruption()) {
+    vTaskDelete(nullptr);
+    return;
+  }
   if (main_update_required) {
     if (!IsNetworkReady()) {
       SetFailure("Update paused: no Wi-Fi");
@@ -2840,6 +3038,12 @@ bool InitFirmwareUpdateManager(hal::WifiProvider* wifi) {
   }
   g_manager.mutex = xSemaphoreCreateMutex();
   if (g_manager.mutex == nullptr) {
+    return false;
+  }
+  g_manager.http_client_mutex = xSemaphoreCreateMutex();
+  if (g_manager.http_client_mutex == nullptr) {
+    vSemaphoreDelete(g_manager.mutex);
+    g_manager.mutex = nullptr;
     return false;
   }
   g_manager.wifi = wifi;
@@ -2984,6 +3188,9 @@ bool CancelFirmwareUpdate() {
         "Cancelling update");
   }
   UnlockManager();
+  if (downloading) {
+    CloseActiveHttpClient();
+  }
   if (prepared) {
     return CancelPreparedFirmware();
   }
