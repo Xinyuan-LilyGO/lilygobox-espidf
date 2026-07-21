@@ -142,7 +142,8 @@ DeferredStorageCache<DisplayPreferences> g_display_cache(
 void InitDisplayCache() {
   DisplayPreferences loaded;
   nvs_handle_t handle = 0;
-  if (nvs_open(kDisplayNvsNamespace, NVS_READONLY, &handle) == ESP_OK) {
+  if (OpenApplicationNvs(
+          kDisplayNvsNamespace, NVS_READONLY, &handle) == ESP_OK) {
     storage::TlvBuffer buffer;
     esp_err_t error = ESP_OK;
     const storage::TlvLoadResult result = storage::LoadTlvBuffer(handle,

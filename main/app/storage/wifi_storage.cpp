@@ -383,8 +383,8 @@ void InitWifiCache() {
   bool preferences_loaded = false;
 
   nvs_handle_t handle = 0;
-  const esp_err_t open_result =
-      nvs_open(kWifiNvsNamespace, NVS_READONLY, &handle);
+  const esp_err_t open_result = OpenApplicationNvs(
+      kWifiNvsNamespace, NVS_READONLY, &handle);
   if (open_result == ESP_OK) {
     storage::TlvBuffer preferences_buffer;
     esp_err_t preferences_error = ESP_OK;

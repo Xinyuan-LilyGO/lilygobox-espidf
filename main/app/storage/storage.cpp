@@ -74,6 +74,54 @@ uint32_t g_dirty_domains = 0;
 // 重启或关机最终检查期间拒绝新的 RAM 偏好更新。
 bool g_updates_frozen = false;
 
+/**
+ * @brief 初始化独立应用 NVS 分区，并在格式不兼容时清空重建
+ * @return 初始化成功返回 true
+ */
+bool InitializeApplicationNvs() {
+  esp_err_t result =
+      nvs_flash_init_partition(kApplicationNvsPartitionName);
+  const char* recovery_reason = nullptr;
+  if (result == ESP_ERR_NVS_NO_FREE_PAGES ||
+      result == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    recovery_reason = result == ESP_ERR_NVS_NO_FREE_PAGES
+                          ? "no free pages"
+                          : "new version found";
+    result = nvs_flash_erase_partition(kApplicationNvsPartitionName);
+    if (result == ESP_OK) {
+      result = nvs_flash_init_partition(kApplicationNvsPartitionName);
+    }
+  }
+  if (result != ESP_OK) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Initialize application NVS partition failed: %s\n",
+        esp_err_to_name(result));
+    return false;
+  }
+
+  if (recovery_reason != nullptr) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Application NVS recovered: reason=%s\n", recovery_reason);
+  }
+  nvs_stats_t statistics = {};
+  result = nvs_get_stats(kApplicationNvsPartitionName, &statistics);
+  if (result == ESP_OK) {
+    LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+        "Application NVS initialized: used=%u, free=%u, "
+        "available=%u, total=%u, namespaces=%u\n",
+        static_cast<unsigned>(statistics.used_entries),
+        static_cast<unsigned>(statistics.free_entries),
+        static_cast<unsigned>(statistics.available_entries),
+        static_cast<unsigned>(statistics.total_entries),
+        static_cast<unsigned>(statistics.namespace_count));
+  } else {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Read application NVS statistics failed: %s\n",
+        esp_err_to_name(result));
+  }
+  return true;
+}
+
 uint32_t DomainBit(StorageDomain domain) {
   const auto index = static_cast<uint8_t>(domain);
   if (index >= static_cast<uint8_t>(StorageDomain::kCount)) {
@@ -127,7 +175,8 @@ void FinishStorageBackends(
 
 bool FlushStoragePass() {
   nvs_handle_t handle = 0;
-  esp_err_t result = nvs_open(kNvsNamespace, NVS_READWRITE, &handle);
+  esp_err_t result =
+      OpenApplicationNvs(kNvsNamespace, NVS_READWRITE, &handle);
   if (result != ESP_OK) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Open NVS for deferred flush failed: %s\n",
@@ -226,6 +275,12 @@ bool EraseAllNvsPartitions() {
 
 }  // namespace
 
+esp_err_t OpenApplicationNvs(const char* namespace_name,
+    nvs_open_mode_t open_mode, nvs_handle_t* handle) {
+  return nvs_open_from_partition(kApplicationNvsPartitionName,
+      namespace_name, open_mode, handle);
+}
+
 StorageCacheLock::StorageCacheLock() {
   if (g_cache_mutex != nullptr) {
     locked_ = xSemaphoreTake(g_cache_mutex, portMAX_DELAY) == pdTRUE;
@@ -258,6 +313,10 @@ bool AreStorageUpdatesFrozenLocked() {
 void InitStorage() {
   if (!InitializeStorageCoordinator()) {
     return;
+  }
+  if (!InitializeApplicationNvs()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Application settings will use defaults until NVS is available\n");
   }
   InitDisplayCache();
   InitFirstBootCache();
@@ -344,6 +403,7 @@ bool FactoryResetAfterScreenOff() {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Factory reset could not erase all NVS partitions\n");
     nvs_flash_init();
+    InitializeApplicationNvs();
     InitLittleFsStorage();
     xSemaphoreGive(g_storage_io_mutex);
     return false;

@@ -32,7 +32,8 @@ DeferredStorageCache<bool> g_cache(
 void InitFirstBootCache() {
   bool completed = false;
   nvs_handle_t handle = 0;
-  if (nvs_open(kNvsNamespace, NVS_READONLY, &handle) == ESP_OK) {
+  if (OpenApplicationNvs(
+          kNvsNamespace, NVS_READONLY, &handle) == ESP_OK) {
     uint8_t stored = 0;
     if (nvs_get_u8(handle, kNvsKey, &stored) == ESP_OK) {
       completed = stored != 0;

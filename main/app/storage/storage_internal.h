@@ -13,6 +13,8 @@
 
 namespace lilygo_box::app {
 
+inline constexpr char kApplicationNvsPartitionName[] = "app_nvs";
+
 enum class StorageDomain : uint8_t {
   kDisplay,
   kFirstBoot,
@@ -72,6 +74,16 @@ bool IsStorageDomainDirtyLocked(StorageDomain domain);
  * @return 已冻结返回 true
  */
 bool AreStorageUpdatesFrozenLocked();
+
+/**
+ * @brief 从 LilyGoBox 独立应用 NVS 分区打开命名空间
+ * @param namespace_name NVS 命名空间名称
+ * @param open_mode 只读或读写打开模式
+ * @param handle 成功时接收 NVS 句柄
+ * @return ESP-IDF NVS 打开结果
+ */
+esp_err_t OpenApplicationNvs(const char* namespace_name,
+    nvs_open_mode_t open_mode, nvs_handle_t* handle);
 
 /**
  * @brief 保存当前值、已落盘值和写入快照的长期 RAM 缓存

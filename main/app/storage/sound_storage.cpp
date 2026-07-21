@@ -91,7 +91,8 @@ DeferredStorageCache<SoundPreferences> g_sound_cache(
 void InitSoundCache() {
   SoundPreferences loaded;
   nvs_handle_t handle = 0;
-  if (nvs_open(kSoundNvsNamespace, NVS_READONLY, &handle) == ESP_OK) {
+  if (OpenApplicationNvs(
+          kSoundNvsNamespace, NVS_READONLY, &handle) == ESP_OK) {
     storage::TlvBuffer buffer;
     esp_err_t error = ESP_OK;
     const storage::TlvLoadResult result = storage::LoadTlvBuffer(handle,

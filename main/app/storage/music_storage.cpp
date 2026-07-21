@@ -142,7 +142,7 @@ void InitMusicCache() {
     return;
   }
   nvs_handle_t handle = 0;
-  const esp_err_t open_result = nvs_open(
+  const esp_err_t open_result = OpenApplicationNvs(
       kMusicSourcesNvsNamespace, NVS_READONLY, &handle);
   if (open_result == ESP_OK) {
     storage::TlvBuffer buffer;
