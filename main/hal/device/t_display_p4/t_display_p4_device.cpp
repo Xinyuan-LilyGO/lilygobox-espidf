@@ -1029,31 +1029,41 @@ const char* TDisplayP4Device::SdCardBasePath() const {
   return device::sd::kBasePath;
 }
 
-bool TDisplayP4Device::RegisterScreenFlushReadyCallback(
-    ScreenProviderFlushReadyCallback callback, void* callback_context) {
+bool TDisplayP4Device::RegisterScreenDisplayCallbacks(
+    const ScreenProviderDisplayCallbacks& callbacks) {
   if (!driver_.IsScreenReady()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Screen is not ready for flush callback registration\n");
+        "Screen is not ready for display callback registration\n");
     return false;
   }
 
-  flush_ready_handler_.callback = callback;
-  flush_ready_handler_.context = callback_context;
+  display_callbacks_ = callbacks;
 
   esp_lcd_dpi_panel_event_callbacks_t panel_callbacks = {
       .on_color_trans_done = [](esp_lcd_panel_handle_t,
                                  esp_lcd_dpi_panel_event_data_t*,
                                  void* user_context) -> bool {
-        auto* handler =
-            static_cast<ScreenProviderFlushReadyHandler*>(user_context);
-        if (handler != nullptr && handler->callback != nullptr) {
-          handler->callback(handler->context);
+        const auto* display_callbacks =
+            static_cast<const ScreenProviderDisplayCallbacks*>(user_context);
+        if (display_callbacks != nullptr &&
+            display_callbacks->flush_ready_callback != nullptr) {
+          display_callbacks->flush_ready_callback(
+              display_callbacks->callback_context);
         }
         return false;
       },
       .on_refresh_done = [](esp_lcd_panel_handle_t,
                              esp_lcd_dpi_panel_event_data_t*,
-                             void*) -> bool { return false; },
+                             void* user_context) -> bool {
+        const auto* display_callbacks =
+            static_cast<const ScreenProviderDisplayCallbacks*>(user_context);
+        if (display_callbacks != nullptr &&
+            display_callbacks->refresh_done_callback != nullptr) {
+          display_callbacks->refresh_done_callback(
+              display_callbacks->callback_context);
+        }
+        return false;
+      },
   };
 
   const auto screen_bus = driver_.bus().screen_mipi_bus;
@@ -1071,7 +1081,7 @@ bool TDisplayP4Device::RegisterScreenFlushReadyCallback(
   }
 
   const int result = esp_lcd_dpi_panel_register_event_callbacks(
-      panel, &panel_callbacks, &flush_ready_handler_);
+      panel, &panel_callbacks, &display_callbacks_);
   if (result != 0) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "esp_lcd_dpi_panel_register_event_callbacks failed: %s (%#X)\n",

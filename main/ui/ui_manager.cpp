@@ -76,7 +76,7 @@ constexpr uint32_t kStartupBackgroundColor = 0xFFFFFF;
 constexpr uint32_t kStartupTextColor = 0x111111;
 constexpr uint32_t kStartupProgressTrackColor = 0xE8E8E8;
 constexpr uint32_t kStartupProgressFillColor = 0x1C1C1C;
-constexpr uint32_t kLowBatteryStartupBackgroundColor = 0x000000;
+constexpr uint32_t kStartupBlackBackgroundColor = 0x000000;
 constexpr uint32_t kLowBatteryStartupTextColor = 0xFFFFFF;
 constexpr uint32_t kStatusBarLightTextColor = 0xFFFFFF;
 constexpr int kStartupProgressMaxWidth = 360;
@@ -909,8 +909,8 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   }
   RefreshSystemStatus();
 
-  startup_screen_ = CreateStartupScreen(root_screen_);
-  if (startup_screen_ == nullptr) {
+  startup_background_ = CreateStartupBackground(root_screen_);
+  if (startup_background_ == nullptr) {
     return false;
   }
 
@@ -919,10 +919,20 @@ bool UiManager::Init(hal::ScreenProvider* screen,
 }
 
 bool UiManager::StartStartupScreenAnimation() {
+  if (root_screen_ == nullptr) {
+    return false;
+  }
+  if (startup_screen_ == nullptr) {
+    startup_screen_ = CreateStartupScreen(root_screen_);
+  }
   if (startup_screen_ == nullptr || startup_progress_fill_ == nullptr) {
     return false;
   }
 
+  if (startup_background_ != nullptr) {
+    lv_obj_delete(startup_background_);
+    startup_background_ = nullptr;
+  }
   lv_obj_clear_flag(startup_screen_, LV_OBJ_FLAG_HIDDEN);
   lv_obj_move_to_index(startup_screen_, -1);
   lv_obj_set_style_opa(startup_screen_, LV_OPA_COVER, LV_PART_MAIN);
@@ -942,10 +952,6 @@ bool UiManager::ShowBatteryStartupWarning(
     return false;
   }
 
-  if (startup_screen_ != nullptr) {
-    lv_obj_add_flag(startup_screen_, LV_OBJ_FLAG_HIDDEN);
-  }
-
   lv_obj_t* warning = lv_obj_create(root_screen_);
   if (warning == nullptr) {
     return false;
@@ -955,7 +961,7 @@ bool UiManager::ShowBatteryStartupWarning(
   lv_obj_set_size(warning, LayoutWidth(), LayoutHeight());
   lv_obj_set_pos(warning, 0, 0);
   lv_obj_set_style_bg_color(
-      warning, lv_color_hex(kLowBatteryStartupBackgroundColor), LV_PART_MAIN);
+      warning, lv_color_hex(kStartupBlackBackgroundColor), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(warning, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(warning, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(warning, 0, LV_PART_MAIN);
@@ -980,6 +986,10 @@ bool UiManager::ShowBatteryStartupWarning(
   lv_obj_align_to(label, icon, LV_ALIGN_OUT_BOTTOM_MID, 0,
       kLowBatteryStartupPercentGap);
 
+  if (startup_background_ != nullptr) {
+    lv_obj_delete(startup_background_);
+    startup_background_ = nullptr;
+  }
   lv_obj_move_to_index(warning, -1);
   lv_obj_invalidate(warning);
   return true;
@@ -1334,6 +1344,7 @@ void UiManager::RelayoutForScreenSize() {
   layout_height_ = new_height;
   const app::AppEntry* reopen_app = active_app_entry_;
   active_app_entry_ = nullptr;
+  const bool startup_background_active = startup_background_ != nullptr;
   const bool startup_active = startup_screen_ != nullptr;
   const bool first_boot_welcome_visible =
       first_boot_welcome_screen_ != nullptr;
@@ -1358,6 +1369,10 @@ void UiManager::RelayoutForScreenSize() {
     lv_obj_delete(startup_screen_);
     startup_screen_ = nullptr;
     startup_progress_fill_ = nullptr;
+  }
+  if (startup_background_ != nullptr) {
+    lv_obj_delete(startup_background_);
+    startup_background_ = nullptr;
   }
   if (launcher_container_ != nullptr) {
     lv_obj_delete(launcher_container_);
@@ -1419,6 +1434,11 @@ void UiManager::RelayoutForScreenSize() {
                   std::clamp(startup_percent, 0, 100) / 100);
         }
       }
+    }
+  } else if (startup_background_active) {
+    startup_background_ = CreateStartupBackground(root_screen_);
+    if (startup_background_ != nullptr) {
+      lv_obj_move_to_index(startup_background_, -1);
     }
   }
 
@@ -2000,6 +2020,29 @@ lv_obj_t* UiManager::CreatePageIndicator(lv_obj_t* parent) {
   return indicator;
 }
 
+lv_obj_t* UiManager::CreateStartupBackground(lv_obj_t* parent) {
+  if (parent == nullptr) {
+    return nullptr;
+  }
+
+  lv_obj_t* background = lv_obj_create(parent);
+  if (background == nullptr) {
+    return nullptr;
+  }
+  lv_obj_remove_flag(background, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(background, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(background, LayoutWidth(), LayoutHeight());
+  lv_obj_set_pos(background, 0, 0);
+  lv_obj_set_style_bg_color(background,
+      lv_color_hex(kStartupBlackBackgroundColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(background, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(background, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(background, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(background, 0, LV_PART_MAIN);
+  lv_obj_move_to_index(background, -1);
+  return background;
+}
+
 lv_obj_t* UiManager::CreateStartupScreen(lv_obj_t* parent) {
   if (parent == nullptr) {
     return nullptr;
@@ -2245,6 +2288,10 @@ void UiManager::DestroyStartupScreen() {
   if (startup_screen_ != nullptr) {
     lv_obj_delete(startup_screen_);
     startup_screen_ = nullptr;
+  }
+  if (startup_background_ != nullptr) {
+    lv_obj_delete(startup_background_);
+    startup_background_ = nullptr;
   }
   startup_progress_fill_ = nullptr;
   startup_progress_percent_ = 0;

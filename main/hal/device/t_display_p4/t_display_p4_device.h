@@ -234,14 +234,12 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ReadGpsStatus(GpsStatus* status) override;
 
   /**
-   * @brief 注册屏幕 flush 完成回调
-   * @param callback flush 完成时调用的回调函数
-   * @param callback_context 回调上下文
+   * @brief 注册像素传输完成和物理画面刷新完成回调
+   * @param callbacks 屏幕显示回调集合
    * @return 注册成功返回 true，否则返回 false
    */
-  bool RegisterScreenFlushReadyCallback(
-      ScreenProviderFlushReadyCallback callback,
-      void* callback_context) override;
+  bool RegisterScreenDisplayCallbacks(
+      const ScreenProviderDisplayCallbacks& callbacks) override;
 
   /**
    * @brief 写入屏幕像素区域
@@ -991,7 +989,7 @@ class TDisplayP4Device final : public ScreenProvider,
 
   lilygo_device_driver::TDisplayP4Driver& driver_;
   std::unique_ptr<cpp_bus_driver::Tool> tool_;
-  ScreenProviderFlushReadyHandler flush_ready_handler_;
+  ScreenProviderDisplayCallbacks display_callbacks_;
   // 扬声器播放状态，供 UI 和后台播放任务共享
   SpeakerState speaker_;
   // 振动播放状态，供 UI 和后台播放任务共享

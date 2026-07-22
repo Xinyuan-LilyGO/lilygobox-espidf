@@ -294,6 +294,13 @@ class UiManager final {
   void RelayoutForScreenSize();
 
   /**
+   * @brief 创建不包含任何启动内容的纯黑背景
+   * @param parent 父对象
+   * @return 创建成功返回背景对象，否则返回 nullptr
+   */
+  lv_obj_t* CreateStartupBackground(lv_obj_t* parent);
+
+  /**
    * @brief 创建系统启动界面
    * @param parent 父对象
    * @return 创建成功返回启动界面对象，否则返回 nullptr
@@ -475,6 +482,7 @@ class UiManager final {
   hal::StorageProvider* storage_provider_ = nullptr;
   lv_obj_t* root_screen_ = nullptr;
   StatusBar status_bar_;
+  lv_obj_t* startup_background_ = nullptr;
   lv_obj_t* startup_screen_ = nullptr;
   lv_obj_t* startup_progress_fill_ = nullptr;
   lv_obj_t* first_boot_welcome_screen_ = nullptr;

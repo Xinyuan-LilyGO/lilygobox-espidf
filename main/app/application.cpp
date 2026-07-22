@@ -214,11 +214,9 @@ bool Application::Init() {
       device_provider_context_.bmu->ReadBmuStatus(&startup_bmu_status) &&
       startup_bmu_status.ready && startup_bmu_status.pack_present;
   if (!startup_bmu_ready) {
-    lvgl_port_.Lock();
-    const bool shown = ui_manager_.ShowBatteryStartupWarning(
+    const bool shown = ShowBatteryStartupWarning(
         ui::icon::kBatteryAndroidQuestion, kBatteryFaultStartupIconColor,
         "BMU fault");
-    lvgl_port_.Unlock();
     if (!shown) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "ShowBatteryStartupWarning failed\n");
@@ -232,10 +230,8 @@ bool Application::Init() {
     char percent_text[16] = {};
     std::snprintf(percent_text, sizeof(percent_text), "%d%%",
         std::clamp(startup_bmu_status.charge_percent, 0, 100));
-    lvgl_port_.Lock();
-    const bool shown = ui_manager_.ShowBatteryStartupWarning(
+    const bool shown = ShowBatteryStartupWarning(
         ui::icon::kBatteryAndroid0, kLowBatteryStartupIconColor, percent_text);
-    lvgl_port_.Unlock();
     if (!shown) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "ShowBatteryStartupWarning failed\n");
@@ -246,15 +242,12 @@ bool Application::Init() {
     return false;
   }
 
-  screen->StartScreenBacklight(current_screen_brightness_percent_.load());
-
-  lvgl_port_.Lock();
-  const bool startup_result = ui_manager_.StartStartupScreenAnimation();
-  lvgl_port_.Unlock();
+  const bool startup_result = StartStartupScreen();
   if (!startup_result) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "StartStartupScreenAnimation failed\n");
+        "StartStartupScreen failed\n");
   }
+  screen->StartScreenBacklight(current_screen_brightness_percent_.load());
 
   if (!app::IsFirstBootCompleted()) {
     lvgl_port_.Lock();
@@ -310,6 +303,44 @@ bool Application::Init() {
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
       "LilygoBox initialized on %s\n", device_model_name);
   return true;
+}
+
+bool Application::ShowBatteryStartupWarning(
+    const char* icon, uint32_t icon_color, const char* message) {
+  const bool flush_paused = lvgl_port_.PauseDisplayFlush();
+  if (!flush_paused) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Pause display refresh before battery warning failed\n");
+  }
+
+  lvgl_port_.Lock();
+  const bool shown =
+      ui_manager_.ShowBatteryStartupWarning(icon, icon_color, message);
+  lvgl_port_.Unlock();
+
+  if (flush_paused && !lvgl_port_.ResumeDisplayFlushAndWaitForRefresh()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Refresh battery startup warning failed\n");
+  }
+  return shown;
+}
+
+bool Application::StartStartupScreen() {
+  const bool flush_paused = lvgl_port_.PauseDisplayFlush();
+  if (!flush_paused) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Pause display refresh before startup screen failed\n");
+  }
+
+  lvgl_port_.Lock();
+  const bool started = ui_manager_.StartStartupScreenAnimation();
+  lvgl_port_.Unlock();
+
+  if (flush_paused && !lvgl_port_.ResumeDisplayFlushAndWaitForRefresh()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Refresh startup screen failed\n");
+  }
+  return started;
 }
 
 void Application::Run() {

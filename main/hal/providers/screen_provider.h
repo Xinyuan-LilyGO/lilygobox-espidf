@@ -20,11 +20,12 @@ struct TouchPoint {
   bool edge_touch_flag = false;
 };
 
-using ScreenProviderFlushReadyCallback = void (*)(void* context);
+using ScreenProviderDisplayCallback = void (*)(void*);
 
-struct ScreenProviderFlushReadyHandler {
-  ScreenProviderFlushReadyCallback callback = nullptr;
-  void* context = nullptr;
+struct ScreenProviderDisplayCallbacks {
+  ScreenProviderDisplayCallback flush_ready_callback = nullptr;
+  ScreenProviderDisplayCallback refresh_done_callback = nullptr;
+  void* callback_context = nullptr;
 };
 
 class ScreenProvider {
@@ -50,13 +51,12 @@ class ScreenProvider {
   virtual int ScreenBitsPerPixel() const = 0;
 
   /**
-   * @brief 注册屏幕 flush 完成回调
-   * @param callback flush 完成时调用的回调函数
-   * @param callback_context 回调上下文
+   * @brief 注册像素传输完成和物理画面刷新完成回调
+   * @param callbacks 屏幕显示回调集合
    * @return 注册成功返回 true，否则返回 false
    */
-  virtual bool RegisterScreenFlushReadyCallback(
-      ScreenProviderFlushReadyCallback callback, void* callback_context) = 0;
+  virtual bool RegisterScreenDisplayCallbacks(
+      const ScreenProviderDisplayCallbacks& callbacks) = 0;
 
   /**
    * @brief 写入指定屏幕区域的像素数据

@@ -133,8 +133,8 @@ class LvglPort final {
   void ResumeDisplayFlush();
 
   /**
-   * @brief 恢复硬件刷新并等待专用 LVGL 任务完成首个完整帧
-   * @return 最后一个异步 flush 已完成返回 true，超时返回 false
+   * @brief 恢复硬件刷新并等待首个完整画面刷新到物理屏幕
+   * @return 物理画面刷新完成返回 true，超时返回 false
    */
   bool ResumeDisplayFlushAndWaitForRefresh();
 
@@ -183,6 +183,12 @@ class LvglPort final {
    * @param context 回调上下文
    */
   static void FlushReadyCallback(void* context);
+
+  /**
+   * @brief 处理物理屏幕完整画面刷新完成回调
+   * @param context 回调上下文
+   */
+  static void RefreshDoneCallback(void* context);
 
   /**
    * @brief 读取 LVGL 指针输入状态
@@ -283,8 +289,10 @@ class LvglPort final {
   std::atomic<uint32_t> display_refresh_request_generation_{0};
   // 当前由 LVGL 任务绘制并等待异步传输结束的首帧代次。
   std::atomic<uint32_t> display_refresh_rendering_generation_{0};
-  // FlushReadyCallback 已确认完整传输结束的首帧代次。
+  // RefreshDoneCallback 已确认物理屏幕刷新完成的首帧代次。
   std::atomic<uint32_t> display_refresh_completed_generation_{0};
+  // 最后一个像素区域传输完成后，等待下一次物理画面刷新完成。
+  std::atomic<bool> display_refresh_scanout_pending_{false};
   // 当前首帧的任一刷新区域是否未能提交到物理面板。
   std::atomic<bool> display_refresh_failed_{false};
   std::atomic<bool> active_edge_touch_flag_{false};

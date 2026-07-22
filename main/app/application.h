@@ -39,6 +39,22 @@ class Application final {
 
  private:
   /**
+   * @brief 显示电池启动提示并等待完整画面传输到屏幕
+   * @param icon 图标文本
+   * @param icon_color 图标颜色
+   * @param message 提示文本
+   * @return 页面创建成功返回 true，否则返回 false
+   */
+  bool ShowBatteryStartupWarning(
+      const char* icon, uint32_t icon_color, const char* message);
+
+  /**
+   * @brief 创建正常启动页并等待完整画面刷新到屏幕
+   * @return 页面创建和刷新成功返回 true，否则返回 false
+   */
+  bool StartStartupScreen();
+
+  /**
    * @brief 启动后自动连接 WLAN 的后台任务入口
    * @param context Application 实例
    */

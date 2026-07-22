@@ -107,9 +107,14 @@ bool LvglPort::Init(ScreenProvider* screen) {
   lv_indev_set_read_cb(input_device_, TouchReadCallback);
   lv_indev_set_display(input_device_, lvgl_display_);
 
-  if (!screen_->RegisterScreenFlushReadyCallback(FlushReadyCallback, this)) {
+  const ScreenProviderDisplayCallbacks display_callbacks = {
+      .flush_ready_callback = FlushReadyCallback,
+      .refresh_done_callback = RefreshDoneCallback,
+      .callback_context = this,
+  };
+  if (!screen_->RegisterScreenDisplayCallbacks(display_callbacks)) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "RegisterScreenFlushReadyCallback failed\n");
+        "RegisterScreenDisplayCallbacks failed\n");
     return false;
   }
 
@@ -363,6 +368,8 @@ uint32_t LvglPort::ResumeDisplayFlushInternal() {
                 1, std::memory_order_acq_rel) + 1;
         display_refresh_rendering_generation_.store(
             0, std::memory_order_release);
+        display_refresh_scanout_pending_.store(
+            false, std::memory_order_release);
         display_refresh_failed_.store(false, std::memory_order_release);
         display_refresh_requested_.store(true, std::memory_order_release);
         if (task_handle_ != nullptr) {
@@ -462,19 +469,37 @@ void LvglPort::FlushReadyCallback(void* context) {
   if (self != nullptr && self->lvgl_display_ != nullptr) {
     const bool is_last_flush =
         lv_display_flush_is_last(self->lvgl_display_);
+    if (is_last_flush &&
+        !self->display_refresh_failed_.load(std::memory_order_acquire) &&
+        self->display_refresh_rendering_generation_.load(
+            std::memory_order_acquire) != 0) {
+      self->display_refresh_scanout_pending_.store(
+          true, std::memory_order_release);
+    }
     self->display_flush_in_progress_.store(
         false, std::memory_order_seq_cst);
     lv_display_flush_ready(self->lvgl_display_);
-    if (is_last_flush && !self->display_refresh_failed_.load(
-            std::memory_order_acquire)) {
-      const uint32_t generation =
-          self->display_refresh_rendering_generation_.load(
-              std::memory_order_acquire);
-      if (generation != 0) {
-        self->display_refresh_completed_generation_.store(
-            generation, std::memory_order_release);
-      }
-    }
+  }
+}
+
+void LvglPort::RefreshDoneCallback(void* context) {
+  auto* self = static_cast<LvglPort*>(context);
+  if (self == nullptr ||
+      self->display_refresh_failed_.load(std::memory_order_acquire)) {
+    return;
+  }
+
+  if (!self->display_refresh_scanout_pending_.exchange(
+          false, std::memory_order_acq_rel)) {
+    return;
+  }
+
+  const uint32_t generation =
+      self->display_refresh_rendering_generation_.exchange(
+          0, std::memory_order_acq_rel);
+  if (generation != 0) {
+    self->display_refresh_completed_generation_.store(
+        generation, std::memory_order_release);
   }
 }
 
@@ -763,13 +788,6 @@ void LvglPort::TaskLoop() {
     }
     uint32_t delay_ms = lv_timer_handler();
     Unlock();
-
-    if (refresh_generation != 0 &&
-        !display_flush_in_progress_.load(std::memory_order_acquire) &&
-        !display_refresh_failed_.load(std::memory_order_acquire)) {
-      display_refresh_completed_generation_.store(
-          refresh_generation, std::memory_order_release);
-    }
 
     delay_ms = std::max(delay_ms, kMinimumHandlerDelayMs);
     ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(delay_ms));
