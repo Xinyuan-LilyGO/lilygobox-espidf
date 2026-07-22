@@ -1,5 +1,5 @@
 /**
- * @Description: 显示偏好存储，运行期只访问长期 RAM 缓存
+ * @Description: 显示偏好缓存与实时 NVS 持久化
  * @Author: LILYGO_L
  * @Date: 2026-06-25 00:00:00
  * @LastEditTime: 2026-07-16 22:35:14
@@ -36,9 +36,9 @@ void InitDisplayCache();
 DisplayPreferences GetDisplayPreferences();
 
 /**
- * @brief 仅更新 RAM 缓存，屏幕完全关闭后统一写入 NVS
+ * @brief 比较并更新显示偏好，存在变化时立即写入 NVS
  * @param preferences 新的显示偏好
- * @return RAM 缓存接收成功返回 true
+ * @return 无变化或 NVS 提交成功返回 true，否则返回 false
  */
 bool UpdateDisplayPreferences(const DisplayPreferences& preferences);
 

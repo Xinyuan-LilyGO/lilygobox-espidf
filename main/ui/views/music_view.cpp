@@ -2497,9 +2497,9 @@ void LoadStoredMusicSources(MusicViewState* state) {
 }
 
 /**
- * @brief 将视图状态中的音乐源文件夹更新到长期 RAM 缓存
+ * @brief 将视图状态中的音乐源文件夹保存到 NVS
  * @param state 音乐视图状态
- * @return RAM 缓存更新成功返回 true，否则返回 false
+ * @return 无变化或 NVS 提交成功返回 true，否则返回 false
  */
 bool UpdateStoredMusicSources(const MusicViewState* state) {
   if (state == nullptr) {

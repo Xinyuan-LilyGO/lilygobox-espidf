@@ -83,7 +83,7 @@ bool EncodeSoundPreferences(const SoundPreferences& preferences,
       writer.Finalize(encoded_size);
 }
 
-DeferredStorageCache<SoundPreferences> g_sound_cache(
+NvsStorageCache<SoundPreferences> g_sound_cache(
     StorageDomain::kSound, AreSoundPreferencesEqual);
 
 }  // namespace
@@ -124,7 +124,7 @@ SoundPreferences GetSoundPreferences() {
 }
 
 bool UpdateSoundPreferences(const SoundPreferences& preferences) {
-  return g_sound_cache.Update(
+  return g_sound_cache.UpdateAndPersist(
       NormalizeSoundPreferences(preferences));
 }
 

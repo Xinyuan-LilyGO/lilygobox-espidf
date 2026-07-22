@@ -24,7 +24,7 @@ bool AreValuesEqual(const bool& left, const bool& right) {
   return left == right;
 }
 
-DeferredStorageCache<bool> g_cache(
+NvsStorageCache<bool> g_cache(
     StorageDomain::kFirstBoot, AreValuesEqual);
 
 }  // namespace
@@ -53,7 +53,7 @@ bool IsFirstBootCompleted() {
 }
 
 bool MarkFirstBootCompleted() {
-  return g_cache.Update(true);
+  return g_cache.UpdateAndPersist(true);
 }
 
 StorageStageResult StageFirstBootStorage(nvs_handle_t handle) {

@@ -21,8 +21,8 @@ void InitFirstBootCache();
 bool IsFirstBootCompleted();
 
 /**
- * @brief 仅更新 RAM 完成标记，屏幕完全关闭后统一写入 NVS
- * @return RAM 缓存接收成功返回 true
+ * @brief 标记首次开机流程完成并立即写入 NVS
+ * @return 已完成或 NVS 提交成功返回 true，否则返回 false
  */
 bool MarkFirstBootCompleted();
 

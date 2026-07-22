@@ -83,11 +83,9 @@ void InitRadioCache();
 bool GetRadioPreferences(RadioPreferences* preferences);
 
 /**
- * @brief 更新 Radio 配置长期 RAM 缓存并标记延迟落盘
- *
- * 本函数不会立即访问 NVS，数据将在屏幕完全关闭后统一持久化。
+ * @brief 比较并更新 Radio 配置，存在变化时立即写入 NVS
  * @param preferences 新的 Radio 配置
- * @return 缓存更新成功返回 true，否则返回 false
+ * @return 无变化或 NVS 提交成功返回 true，否则返回 false
  */
 bool UpdateRadioPreferences(const RadioPreferences& preferences);
 

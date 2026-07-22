@@ -123,10 +123,10 @@ void SaveWifiNetworkCredential(
     const WifiNetworkAction& action, const char* password);
 
 /**
- * @brief 将 WLAN 开关和自动连接偏好更新到长期 RAM 缓存
+ * @brief 保存 WLAN 开关和自动连接偏好
  * @param state 设置页状态
  */
-void CacheWifiPreferences(const SettingsViewState* state);
+void SaveWifiPreferences(const SettingsViewState* state);
 
 /**
  * @brief 判断 SSID 是否已经在运行期保存过
@@ -617,7 +617,7 @@ void WifiSwitchValueChangedEventCallback(lv_event_t* event) {
     state->wifi_scan_request_generation = 0;
     state->config.wifi->StopWifi();
   }
-  CacheWifiPreferences(state);
+  SaveWifiPreferences(state);
   UpdateSettingsWifiValue(state);
   state->wifi_refresh_force = true;
 }
@@ -661,7 +661,7 @@ bool StartWifiConnection(SettingsViewState* state, const char* password) {
   }
 
   state->wifi_enabled_requested = true;
-  CacheWifiPreferences(state);
+  SaveWifiPreferences(state);
   UpdateSettingsWifiValue(state);
   state->wifi_scan_on_ready = false;
   state->wifi_auto_connect_on_ready = false;
@@ -707,7 +707,7 @@ bool TryStartWifiAutoConnect(SettingsViewState* state) {
   if (!status.driver_initialized || status.init_task_running) {
     state->wifi_auto_connect_on_ready = true;
     state->wifi_enabled_requested = true;
-    CacheWifiPreferences(state);
+    SaveWifiPreferences(state);
     UpdateSettingsWifiValue(state);
     if (state->config.wifi->StartWifi()) {
       return true;
@@ -995,7 +995,7 @@ void WifiAutoConnectChangedEventCallback(lv_event_t* event) {
     state->wifi_auto_connect_ssid[0] = '\0';
     state->wifi_auto_connect_on_ready = false;
   }
-  CacheWifiPreferences(state);
+  SaveWifiPreferences(state);
   lv_event_stop_bubbling(event);
   lv_event_stop_processing(event);
 }
@@ -1159,14 +1159,14 @@ void ReadWifiPageSsid(const hal::WifiStatus& status, char* buffer,
 }
 
 /**
- * @brief 将运行期 WLAN 凭据更新到长期 RAM 缓存
+ * @brief 保存运行期 WLAN 凭据
  */
-void CacheSavedWifiNetworks() {
+void SaveWifiNetworks() {
   app::UpdateWifiSavedNetworks(
       g_wifi_saved_networks, g_wifi_saved_network_count);
 }
 
-void CacheWifiPreferences(const SettingsViewState* state) {
+void SaveWifiPreferences(const SettingsViewState* state) {
   if (state == nullptr) {
     return;
   }
@@ -1257,7 +1257,7 @@ void SaveWifiNetworkCredential(
   saved->secure = action.secure;
   saved->is_5g = action.is_5g;
   saved->rssi = action.rssi;
-  CacheSavedWifiNetworks();
+  SaveWifiNetworks();
 }
 
 void RemoveSavedWifiNetwork(const char* ssid) {
@@ -1274,7 +1274,7 @@ void RemoveSavedWifiNetwork(const char* ssid) {
     --g_wifi_saved_network_count;
     g_wifi_saved_networks[g_wifi_saved_network_count] =
         app::WifiSavedNetwork();
-    CacheSavedWifiNetworks();
+    SaveWifiNetworks();
     return;
   }
 }
@@ -1286,7 +1286,7 @@ void ForgetSavedWifiNetwork(SettingsViewState* state, const char* ssid) {
 
   if (std::strcmp(state->wifi_auto_connect_ssid, ssid) == 0) {
     state->wifi_auto_connect_ssid[0] = '\0';
-    CacheWifiPreferences(state);
+    SaveWifiPreferences(state);
   }
 
   hal::WifiStatus status;
@@ -3092,6 +3092,7 @@ bool CreateWifiPageContent(lv_obj_t* parent, SettingsViewState* state,
   const bool scan_pending = state != nullptr && state->wifi_scan_on_ready;
   const bool connection_waiting =
       state != nullptr && state->wifi_connect_waiting;
+  const bool connected = status.connected || status.got_ip;
   const bool refreshing = IsWifiRefreshActive(state, status, scan_status);
   const bool show_scan_results =
       scan_status.network_count > 0 && (!scan_status.scan_failed ||
@@ -3121,7 +3122,7 @@ bool CreateWifiPageContent(lv_obj_t* parent, SettingsViewState* state,
 
   char ssid[33] = {};
   ReadWifiPageSsid(status, ssid, sizeof(ssid));
-  if (!status.connected && !status.got_ip && state != nullptr &&
+  if (!connected && state != nullptr &&
       state->wifi_pending_action.ssid[0] != '\0' &&
       (connection_waiting || status.start_failed ||
           status.disconnect_reason != 0)) {
@@ -3162,8 +3163,12 @@ bool CreateWifiPageContent(lv_obj_t* parent, SettingsViewState* state,
     card_is_5g = card_network.is_5g;
     card_secure = card_network.secure;
   }
+  if (connected) {
+    card_rssi = status.rssi;
+    card_is_5g = status.channel > 14;
+  }
 
-  if (ssid[0] != '\0' && (status.connected || status.got_ip)) {
+  if (ssid[0] != '\0' && connected) {
     y += 10;
     if (!CreateWifiConnectedCard(parent, state, ssid, "Connected",
             kWifiBlueColor, card_rssi, card_is_5g, card_secure,

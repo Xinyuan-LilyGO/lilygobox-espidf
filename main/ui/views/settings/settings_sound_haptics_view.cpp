@@ -35,10 +35,10 @@ SoundHapticsRefreshRequest g_sound_haptics_refresh_request = {};
 bool BuildSoundHapticsContent(lv_obj_t* body, SettingsViewState* state);
 
 /**
- * @brief 将音频设置更新到长期 RAM 缓存
+ * @brief 保存最终音量设置
  * @param state 设置页状态
  */
-void CacheSoundPreferences(SettingsViewState* state) {
+void SaveSoundPreferences(SettingsViewState* state) {
   if (state == nullptr) {
     return;
   }
@@ -48,10 +48,10 @@ void CacheSoundPreferences(SettingsViewState* state) {
 }
 
 /**
- * @brief 将振动设置更新到长期 RAM 缓存
+ * @brief 保存最终振动设置
  * @param state 设置页状态
  */
-void CacheHapticPreferences(SettingsViewState* state) {
+void SaveHapticPreferences(SettingsViewState* state) {
   if (state == nullptr) {
     return;
   }
@@ -95,7 +95,7 @@ void HapticsSwitchChangedEventCallback(lv_event_t* event) {
   lv_obj_t* target = lv_event_get_target_obj(event);
   if (state != nullptr && target != nullptr) {
     state->haptics_enabled = lv_obj_has_state(target, LV_STATE_CHECKED);
-    CacheHapticPreferences(state);
+    SaveHapticPreferences(state);
     PlaySettingsHapticPreview(state);
     lv_obj_t* row = lv_obj_get_parent(target);
     lv_obj_t* body = row == nullptr ? nullptr : lv_obj_get_parent(row);
@@ -147,7 +147,7 @@ void VolumeSliderReleasedEventCallback(lv_event_t* event) {
     if (state->config.audio != nullptr) {
       state->config.audio->StopSpeakerToneLoop();
     }
-    CacheSoundPreferences(state);
+    SaveSoundPreferences(state);
   }
 }
 
@@ -156,7 +156,7 @@ void VolumeSliderReleasedEventCallback(lv_event_t* event) {
  * @param event LVGL 事件对象
  */
 void SettingsSliderReleasedEventCallback(lv_event_t* event) {
-  CacheHapticPreferences(
+  SaveHapticPreferences(
       static_cast<SettingsViewState*>(lv_event_get_user_data(event)));
 }
 

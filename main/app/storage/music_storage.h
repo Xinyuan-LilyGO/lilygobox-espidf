@@ -32,9 +32,9 @@ void InitMusicCache();
 bool GetMusicSourcePreferences(MusicSourcePreferences* preferences);
 
 /**
- * @brief 更新音乐源文件夹 RAM 缓存并标记延迟落盘
+ * @brief 比较并更新音乐源配置，存在变化时立即写入 NVS
  * @param preferences 音乐源配置
- * @return 缓存更新成功返回 true，否则返回 false
+ * @return 无变化或 NVS 提交成功返回 true，否则返回 false
  */
 bool UpdateMusicSourcePreferences(
     const MusicSourcePreferences& preferences);

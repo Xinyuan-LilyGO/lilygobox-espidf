@@ -1,5 +1,5 @@
 /*
- * @Description: 偏好存储统一管理实现
+ * @Description: NVS 与 LittleFS 即时持久化统一管理实现
  * @Author: LILYGO_L
  * @Date: 2026-07-03 00:00:00
  * @LastEditTime: 2026-07-18 00:00:00
@@ -8,6 +8,7 @@
 #include "app/storage/storage.h"
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -29,12 +30,17 @@
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "nvs_flash.h"
 
 namespace lilygo_box::app {
 namespace {
 
-constexpr size_t kMaximumFlushPasses = 3;
+constexpr size_t kMaximumShutdownFlushPasses = 3;
+constexpr uint32_t kLittleFsFlushMergeDelayMs = 400;
+constexpr uint32_t kLittleFsFlushRetryDelayMs = 2 * 1000;
+constexpr uint32_t kLittleFsStorageTaskStackBytes = 8 * 1024;
+constexpr UBaseType_t kLittleFsStorageTaskPriority = 1;
 constexpr const char* kNvsNamespace = "settings";
 
 struct StorageBackend {
@@ -70,8 +76,10 @@ StaticSemaphore_t g_cache_mutex_buffer;
 StaticSemaphore_t g_storage_io_mutex_buffer;
 SemaphoreHandle_t g_cache_mutex = nullptr;
 SemaphoreHandle_t g_storage_io_mutex = nullptr;
+std::atomic<TaskHandle_t> g_littlefs_storage_task{nullptr};
+std::atomic<bool> g_littlefs_flush_urgent{false};
 uint32_t g_dirty_domains = 0;
-// 重启或关机最终检查期间拒绝新的 RAM 偏好更新。
+// 重启或关机最终检查期间拒绝新的 RAM 存储更新。
 bool g_updates_frozen = false;
 
 /**
@@ -179,7 +187,7 @@ bool FlushStoragePass() {
       OpenApplicationNvs(kNvsNamespace, NVS_READWRITE, &handle);
   if (result != ESP_OK) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Open NVS for deferred flush failed: %s\n",
+        "Open NVS for storage flush failed: %s\n",
         esp_err_to_name(result));
     return false;
   }
@@ -198,13 +206,94 @@ bool FlushStoragePass() {
   FinishStorageBackends(stages, transaction_committed);
   if (!transaction_committed) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Deferred NVS flush failed: %s\n", esp_err_to_name(result));
+        "NVS storage flush failed: %s\n", esp_err_to_name(result));
   }
   if (has_failed) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "One or more deferred NVS domains could not be staged\n");
+        "One or more NVS storage domains could not be staged\n");
   }
   return transaction_committed && !has_failed;
+}
+
+/**
+ * @brief 查询是否仍有配置域需要写入 NVS
+ * @return 存在待写配置返回 true
+ */
+bool HasPendingNvsStorageWrites() {
+  StorageCacheLock lock;
+  return lock.IsLocked() && g_dirty_domains != 0;
+}
+
+/**
+ * @brief 后台写入一批 Radio 聊天 LittleFS 数据
+ * @return 本批写入成功或当前无待写数据返回 true
+ */
+bool FlushLittleFsStorageBatch() {
+  if (g_storage_io_mutex == nullptr ||
+      xSemaphoreTake(g_storage_io_mutex, portMAX_DELAY) != pdTRUE) {
+    return false;
+  }
+  const bool success = GetRadioChatRepository().FlushPending(
+      kRadioChatPendingCapacity);
+  xSemaphoreGive(g_storage_io_mutex);
+  return success;
+}
+
+/**
+ * @brief 执行 LittleFS 合并写入后台任务
+ * @param context 未使用的任务上下文
+ */
+void LittleFsStorageTaskEntry(void* context) {
+  static_cast<void>(context);
+  g_littlefs_storage_task.store(xTaskGetCurrentTaskHandle());
+  while (true) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    if (!g_littlefs_flush_urgent.exchange(false)) {
+      const TickType_t merge_start = xTaskGetTickCount();
+      const TickType_t merge_ticks =
+          pdMS_TO_TICKS(kLittleFsFlushMergeDelayMs);
+      TickType_t elapsed = 0;
+      while (!g_littlefs_flush_urgent.exchange(false) &&
+             elapsed < merge_ticks) {
+        ulTaskNotifyTake(pdTRUE, merge_ticks - elapsed);
+        elapsed = xTaskGetTickCount() - merge_start;
+      }
+    }
+
+    const bool success = FlushLittleFsStorageBatch();
+    RadioChatRepository& repository = GetRadioChatRepository();
+    if (!success) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Background LittleFS flush failed, retry scheduled\n");
+    }
+    if (repository.HasPendingWrites()) {
+      if (!success) {
+        vTaskDelay(pdMS_TO_TICKS(kLittleFsFlushRetryDelayMs));
+      }
+      RequestLittleFsStorageFlush(true);
+    }
+  }
+}
+
+/**
+ * @brief 启动 LittleFS 合并写入后台任务
+ * @return 任务已经运行或创建成功返回 true
+ */
+bool StartLittleFsStorageTask() {
+  if (g_littlefs_storage_task.load() != nullptr) {
+    return true;
+  }
+  TaskHandle_t task = nullptr;
+  const BaseType_t result = xTaskCreate(LittleFsStorageTaskEntry,
+      "littlefs_save", kLittleFsStorageTaskStackBytes, nullptr,
+      kLittleFsStorageTaskPriority, &task);
+  if (result != pdPASS || task == nullptr) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Create LittleFS storage task failed\n");
+    return false;
+  }
+  g_littlefs_storage_task.store(task);
+  return true;
 }
 
 /**
@@ -310,6 +399,16 @@ bool AreStorageUpdatesFrozenLocked() {
   return g_updates_frozen;
 }
 
+void RequestLittleFsStorageFlush(bool urgent) {
+  if (urgent) {
+    g_littlefs_flush_urgent.store(true);
+  }
+  const TaskHandle_t task = g_littlefs_storage_task.load();
+  if (task != nullptr) {
+    xTaskNotifyGive(task);
+  }
+}
+
 void InitStorage() {
   if (!InitializeStorageCoordinator()) {
     return;
@@ -329,31 +428,46 @@ void InitStorage() {
       "NVS caches loaded: domains=%u, status=ready\n",
       static_cast<unsigned>(kStorageDomainCount));
   InitRadioChatCache();
+  if (StartLittleFsStorageTask() &&
+      GetRadioChatRepository().HasPendingWrites()) {
+    RequestLittleFsStorageFlush(true);
+  }
 }
 
 bool HasPendingStorageWrites() {
-  bool nvs_dirty = false;
-  {
-    StorageCacheLock lock;
-    nvs_dirty = lock.IsLocked() && g_dirty_domains != 0;
-  }
-  return nvs_dirty || GetRadioChatRepository().HasPendingWrites();
+  return HasPendingNvsStorageWrites() ||
+      GetRadioChatRepository().HasPendingWrites();
 }
 
-bool FlushPendingStorageAfterScreenOff() {
+bool FlushPendingNvsStorage() {
+  if (g_storage_io_mutex == nullptr ||
+      xSemaphoreTake(g_storage_io_mutex, portMAX_DELAY) != pdTRUE) {
+    return false;
+  }
+
+  if (HasPendingNvsStorageWrites()) {
+    FlushStoragePass();
+  }
+  const bool complete = !HasPendingNvsStorageWrites();
+  xSemaphoreGive(g_storage_io_mutex);
+
+  if (!complete) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "NVS storage data remains dirty after immediate flush\n");
+  }
+  return complete;
+}
+
+bool FlushPendingStorageBeforeShutdown() {
   if (g_storage_io_mutex == nullptr ||
       xSemaphoreTake(g_storage_io_mutex, portMAX_DELAY) != pdTRUE) {
     return false;
   }
 
   for (size_t pass = 0;
-       pass < kMaximumFlushPasses && HasPendingStorageWrites(); ++pass) {
-    bool nvs_dirty = false;
-    {
-      StorageCacheLock lock;
-      nvs_dirty = lock.IsLocked() && g_dirty_domains != 0;
-    }
-    if (nvs_dirty) {
+       pass < kMaximumShutdownFlushPasses &&
+       HasPendingStorageWrites(); ++pass) {
+    if (HasPendingNvsStorageWrites()) {
       FlushStoragePass();
     }
     GetRadioChatRepository().FlushPending(kRadioChatGlobalCapacity);
@@ -363,8 +477,8 @@ bool FlushPendingStorageAfterScreenOff() {
 
   if (!complete) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Deferred storage data remains dirty after %u attempts\n",
-        static_cast<unsigned>(kMaximumFlushPasses));
+        "Pending storage data remains dirty after %u attempts\n",
+        static_cast<unsigned>(kMaximumShutdownFlushPasses));
   }
   return complete;
 }

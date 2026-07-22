@@ -1,5 +1,5 @@
 /*
- * @Description: NVS 与 LittleFS 持久化统一管理，提供 RAM 缓存和熄屏落盘
+ * @Description: NVS 与 LittleFS 即时持久化统一管理
  * @Author: LILYGO_L
  * @Date: 2026-07-03 00:00:00
  * @LastEditTime: 2026-07-18 00:00:00
@@ -21,15 +21,14 @@ void InitStorage();
 bool HasPendingStorageWrites();
 
 /**
- * @brief 在物理屏幕完全关闭后同步提交全部 RAM 修改
+ * @brief 在关机或重启前最终提交全部待处理数据
  *
- * 调用方必须先暂停 LVGL 硬件刷新，并确认 EnterDeviceSleep() 返回成功；
- * 本函数返回前不得唤醒屏幕。失败项目保留在 RAM，
- * 等待熄屏重试。
+ * 调用方必须先冻结新的存储更新并关闭物理屏幕。NVS 设置与 LittleFS
+ * 聊天记录均已即时保存，此函数只负责对失败的数据执行最终重试。
  *
- * @return 所有待处理修改均已持久化返回 true
+ * @return 所有待处理数据均已持久化返回 true
  */
-bool FlushPendingStorageAfterScreenOff();
+bool FlushPendingStorageBeforeShutdown();
 
 /**
  * @brief 在重启或关机前冻结新的 RAM 缓存更新

@@ -99,7 +99,7 @@ bool EncodeHapticPreferences(const HapticPreferences& preferences,
       writer.Finalize(encoded_size);
 }
 
-DeferredStorageCache<HapticPreferences> g_haptic_cache(
+NvsStorageCache<HapticPreferences> g_haptic_cache(
     StorageDomain::kHaptic, AreHapticPreferencesEqual);
 
 }  // namespace
@@ -141,7 +141,7 @@ HapticPreferences GetHapticPreferences() {
 }
 
 bool UpdateHapticPreferences(const HapticPreferences& preferences) {
-  return g_haptic_cache.Update(
+  return g_haptic_cache.UpdateAndPersist(
       NormalizeHapticPreferences(preferences));
 }
 

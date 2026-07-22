@@ -475,7 +475,7 @@ bool DecodeRadioPreferences(const storage::TlvBuffer& buffer,
   }
 }
 
-DeferredStorageCache<RadioPreferences> g_radio_profiles_cache(
+NvsStorageCache<RadioPreferences> g_radio_profiles_cache(
     StorageDomain::kRadioProfiles, RadioPreferencesEqual);
 
 void LogRadioStorageError(const char* operation, esp_err_t error) {
@@ -543,7 +543,7 @@ bool UpdateRadioPreferences(const RadioPreferences& preferences) {
     return false;
   }
   NormalizePreferences(normalized.get());
-  return g_radio_profiles_cache.Update(*normalized);
+  return g_radio_profiles_cache.UpdateAndPersist(*normalized);
 }
 
 StorageStageResult StageRadioStorage(nvs_handle_t handle) {

@@ -47,7 +47,6 @@ constexpr uint32_t kAwakeLockScreenSleepTimeoutMs = 10 * 1000;
 constexpr uint32_t kLowBatteryStartupWarningMs = 10 * 1000;
 constexpr uint32_t kScreenLockFadeMs = 300;
 constexpr uint32_t kScreenBrightnessTransitionWaitMs = 10;
-constexpr uint32_t kLockedStorageFlushRetryMs = 5 * 1000;
 constexpr int kScreenLockFadeStepCount = 12;
 constexpr int kScreenUnlockSwipeMinDistance = 120;
 constexpr uint32_t kScreenUnlockAnimationWaitMs = 240;
@@ -373,7 +372,6 @@ void Application::RunScreenLockTask() {
   uint32_t lock_screen_last_interaction_ms = last_touch_ms;
   bool unlock_touch_active = false;
   bool unlock_drag_ready = false;
-  uint32_t last_storage_flush_attempt_ms = last_touch_ms;
   hal::TouchPoint unlock_touch_start = {};
   while (true) {
     const uint32_t now_ms = static_cast<uint32_t>(xTaskGetTickCount() *
@@ -549,20 +547,6 @@ void Application::RunScreenLockTask() {
           }
         }
       }
-      if (!lock_screen_awake_.load() &&
-          screen_off_confirmed_.load() &&
-          app::HasPendingStorageWrites() &&
-          now_ms - last_storage_flush_attempt_ms >=
-              kLockedStorageFlushRetryMs) {
-        last_storage_flush_attempt_ms = now_ms;
-        if (lvgl_port_.BeginScreenTransition()) {
-          if (screen_locked_.load() && !lock_screen_awake_.load() &&
-              screen_off_confirmed_.load()) {
-            app::FlushPendingStorageAfterScreenOff();
-          }
-          lvgl_port_.EndScreenTransition();
-        }
-      }
       vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
       continue;
     }
@@ -698,7 +682,7 @@ bool Application::EnterScreenLockSleep() {
   if (screen == nullptr) {
     return false;
   }
-  return EnterScreenSleepAndFlushStorage();
+  return EnterScreenSleep();
 }
 
 void Application::WakeScreenFromLock() {
@@ -842,7 +826,7 @@ bool Application::SleepAwakeLockScreenNow() {
     return false;
   }
 
-  if (!EnterScreenSleepAndFlushStorage()) {
+  if (!EnterScreenSleep()) {
     return false;
   }
   lvgl_port_.SetInputBlocked(true);
@@ -912,7 +896,7 @@ bool Application::SleepAwakeLockScreenWithTimeout() {
     vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
   }
 
-  if (!EnterScreenSleepAndFlushStorage()) {
+  if (!EnterScreenSleep()) {
     lock_screen_awake_.store(true);
     return false;
   }
@@ -922,7 +906,7 @@ bool Application::SleepAwakeLockScreenWithTimeout() {
   return true;
 }
 
-bool Application::EnterScreenSleepAndFlushStorage() {
+bool Application::EnterScreenSleep() {
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
   if (screen == nullptr) {
     return false;
@@ -956,7 +940,6 @@ bool Application::EnterScreenSleepAndFlushStorage() {
   screen_off_confirmed_.store(true);
 
   current_screen_brightness_percent_.store(0);
-  app::FlushPendingStorageAfterScreenOff();
   lvgl_port_.EndScreenTransition();
   return true;
 }
@@ -1013,14 +996,14 @@ bool Application::PreparePowerActionStorage() {
   }
 
   // 冻结更新后执行最终落盘，并再次确认没有任何待保存数据。
-  const bool flush_complete = app::FlushPendingStorageAfterScreenOff();
+  const bool flush_complete = app::FlushPendingStorageBeforeShutdown();
   const bool storage_clean = !app::HasPendingStorageWrites();
   if (flush_complete && storage_clean) {
     // 成功后保持转换锁、输入屏蔽与刷屏暂停，直到处理器终止。
     return true;
   }
   LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-      "Cancel power action because deferred storage data is still dirty\n");
+      "Cancel power action because pending storage data is still dirty\n");
   app::ResumeStorageUpdatesAfterShutdownFailure();
   const bool screen_restored = RestoreScreenAfterSleep();
   lvgl_port_.EndScreenTransition();

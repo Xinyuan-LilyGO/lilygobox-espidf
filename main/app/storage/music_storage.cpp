@@ -122,7 +122,7 @@ bool EncodeMusicSourcePreferences(
   return writer.Finalize(encoded_size);
 }
 
-DeferredStorageCache<MusicSourcePreferences> g_music_sources_cache(
+NvsStorageCache<MusicSourcePreferences> g_music_sources_cache(
     StorageDomain::kMusicSources, AreMusicSourcePreferencesEqual);
 
 void LogMusicStorageError(const char* operation, esp_err_t error) {
@@ -191,7 +191,7 @@ bool UpdateMusicSourcePreferences(
     return false;
   }
   NormalizeMusicSourcePreferences(normalized.get());
-  return g_music_sources_cache.Update(*normalized);
+  return g_music_sources_cache.UpdateAndPersist(*normalized);
 }
 
 StorageStageResult StageMusicStorage(nvs_handle_t handle) {

@@ -135,7 +135,7 @@ bool EncodeDisplayPreferences(const DisplayPreferences& preferences,
       writer.Finalize(encoded_size);
 }
 
-DeferredStorageCache<DisplayPreferences> g_display_cache(
+NvsStorageCache<DisplayPreferences> g_display_cache(
     StorageDomain::kDisplay, AreDisplayPreferencesEqual);
 
 }  // namespace
@@ -177,7 +177,7 @@ DisplayPreferences GetDisplayPreferences() {
 }
 
 bool UpdateDisplayPreferences(const DisplayPreferences& preferences) {
-  return g_display_cache.Update(
+  return g_display_cache.UpdateAndPersist(
       NormalizeDisplayPreferences(preferences));
 }
 

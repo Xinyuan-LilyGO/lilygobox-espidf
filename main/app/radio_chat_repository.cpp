@@ -19,6 +19,7 @@
 #include <new>
 
 #include "app/storage/littlefs_storage.h"
+#include "app/storage/storage_internal.h"
 #include "base/logger.h"
 #include "esp_heap_caps.h"
 #include "esp_random.h"
@@ -28,6 +29,9 @@ namespace {
 
 // PSRAM 分配失败时使用的内部 RAM 消息容量。
 constexpr size_t kFallbackGlobalCapacity = 32;
+// 待写队列达到该数量时跳过合并等待，避免队列被突发消息占满。
+constexpr size_t kUrgentFlushPendingCount =
+    kRadioChatPendingCapacity * 3 / 4;
 // 日志达到容量上限后单次压缩保留的记录数量。
 constexpr size_t kCompactionTarget =
     kRadioChatStorageCapacity - kRadioChatStorageCapacity / 8;
@@ -589,7 +593,10 @@ void RadioChatRepository::RebuildPendingQueue() {
 
 uint64_t RadioChatRepository::Append(RadioChatMessage message) {
   ScopedLock lock(this);
-  if (!lock.locked() || !InitializeCache() || message.profile_id == 0) {
+  StorageCacheLock storage_lock;
+  if (!lock.locked() || !storage_lock.IsLocked() ||
+      AreStorageUpdatesFrozenLocked() || !InitializeCache() ||
+      message.profile_id == 0) {
     return 0;
   }
   TouchProfile(message.profile_id);
@@ -610,30 +617,46 @@ uint64_t RadioChatRepository::Append(RadioChatMessage message) {
     RefreshProfileSummary(replaced_profile_id);
   }
   RefreshProfileSummary(message.profile_id);
+  if (IsFinalDelivery(entry->message.delivery)) {
+    RequestLittleFsStorageFlush(
+        pending_count_ >= kUrgentFlushPendingCount);
+  }
   return message.sequence;
 }
 
 bool RadioChatRepository::UpdateDelivery(
     uint64_t sequence, RadioChatDeliveryState delivery) {
   ScopedLock lock(this);
-  if (!lock.locked()) {
+  StorageCacheLock storage_lock;
+  if (!lock.locked() || !storage_lock.IsLocked() ||
+      AreStorageUpdatesFrozenLocked()) {
     return false;
   }
   Entry* entry = FindEntry(sequence);
   if (entry == nullptr) {
     return false;
   }
+  if (entry->message.delivery == delivery) {
+    return true;
+  }
   entry->message.delivery = delivery;
   entry->dirty = true;
   QueueEntry(entry);
+  if (IsFinalDelivery(delivery)) {
+    RequestLittleFsStorageFlush(
+        pending_count_ >= kUrgentFlushPendingCount);
+  }
   return true;
 }
 
 void RadioChatRepository::FailPending(uint32_t profile_id) {
   ScopedLock lock(this);
-  if (!lock.locked()) {
+  StorageCacheLock storage_lock;
+  if (!lock.locked() || !storage_lock.IsLocked() ||
+      AreStorageUpdatesFrozenLocked()) {
     return;
   }
+  bool flush_requested = false;
   for (size_t index = 0; index < capacity_; ++index) {
     Entry& entry = entries_[index];
     if (entry.used && entry.message.profile_id == profile_id &&
@@ -641,7 +664,12 @@ void RadioChatRepository::FailPending(uint32_t profile_id) {
       entry.message.delivery = RadioChatDeliveryState::kFailed;
       entry.dirty = true;
       QueueEntry(&entry);
+      flush_requested = true;
     }
+  }
+  if (flush_requested) {
+    RequestLittleFsStorageFlush(
+        pending_count_ >= kUrgentFlushPendingCount);
   }
 }
 
@@ -788,7 +816,9 @@ void RadioChatRepository::MarkRead(uint32_t profile_id) {
 
 void RadioChatRepository::RemoveProfile(uint32_t profile_id) {
   ScopedLock lock(this);
-  if (!lock.locked() || profile_id == 0) {
+  StorageCacheLock storage_lock;
+  if (!lock.locked() || !storage_lock.IsLocked() ||
+      AreStorageUpdatesFrozenLocked() || profile_id == 0) {
     return;
   }
   for (size_t index = 0; index < capacity_; ++index) {
@@ -807,6 +837,7 @@ void RadioChatRepository::RemoveProfile(uint32_t profile_id) {
           profile_id) != pending_delete_profile_ids_ + pending_delete_count_;
   if (!already_pending && pending_delete_count_ < kRadioProfileCapacity) {
     pending_delete_profile_ids_[pending_delete_count_++] = profile_id;
+    RequestLittleFsStorageFlush(false);
   }
   RebuildPendingQueue();
 }

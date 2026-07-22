@@ -1,5 +1,5 @@
 /*
- * @Description: 延迟 NVS 持久化内部协调接口
+ * @Description: NVS 缓存与持久化内部协调接口
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
  * @LastEditTime: 2026-07-18 00:00:00
@@ -34,7 +34,7 @@ enum class StorageStageResult : uint8_t {
 };
 
 /**
- * @brief 统一保护全部长期 RAM 偏好缓存的作用域锁
+ * @brief 统一保护全部 NVS RAM 缓存与存储冻结状态的作用域锁
  */
 class StorageCacheLock final {
  public:
@@ -86,22 +86,37 @@ esp_err_t OpenApplicationNvs(const char* namespace_name,
     nvs_open_mode_t open_mode, nvs_handle_t* handle);
 
 /**
- * @brief 保存当前值、已落盘值和写入快照的长期 RAM 缓存
+ * @brief 尝试一次立即提交全部待写入的 NVS 配置域
+ * @return 没有待写数据或全部提交成功返回 true，否则返回 false
  *
- * Update() 只修改 RAM；BeginFlush() 固定本次实际写入的快照；
- * FinishFlush() 只在提交成功后推进已落盘快照。写入失败会保留强制
- * 重试状态，即使当前值恰好又等于上一次已落盘值也不会误清除。
+ * 调用方不得持有 StorageCacheLock。提交失败时脏数据仍保留在 RAM，
+ * 后续设置操作或关机前最终落盘会再次尝试提交。
+ */
+bool FlushPendingNvsStorage();
+
+/**
+ * @brief 请求后台任务尽快写入待处理的 LittleFS 数据
+ * @param urgent 队列接近容量时是否跳过合并等待
+ */
+void RequestLittleFsStorageFlush(bool urgent);
+
+/**
+ * @brief 保存当前值、已落盘值和事务快照的 NVS 配置缓存
+ *
+ * UpdateAndPersist() 先比较 RAM 当前值与新值，仅在存在变化或需要重试时
+ * 发起 NVS 事务；BeginFlush() 固定本次实际写入的快照；FinishFlush()
+ * 只在提交成功后推进已落盘快照。写入失败会保留强制重试状态。
  */
 template <typename T>
-class DeferredStorageCache final {
+class NvsStorageCache final {
  public:
   using EqualFunction = bool (*)(const T&, const T&);
 
-  DeferredStorageCache(StorageDomain domain, EqualFunction equal)
+  NvsStorageCache(StorageDomain domain, EqualFunction equal)
       : domain_(domain), equal_(equal) {}
 
-  DeferredStorageCache(const DeferredStorageCache&) = delete;
-  DeferredStorageCache& operator=(const DeferredStorageCache&) = delete;
+  NvsStorageCache(const NvsStorageCache&) = delete;
+  NvsStorageCache& operator=(const NvsStorageCache&) = delete;
 
   bool Initialize(const T& value) {
     StorageCacheLock lock;
@@ -130,17 +145,26 @@ class DeferredStorageCache final {
     return true;
   }
 
-  bool Update(const T& value) {
-    StorageCacheLock lock;
-    if (!lock.IsLocked() || !initialized_ || equal_ == nullptr ||
-        AreStorageUpdatesFrozenLocked()) {
-      return false;
+  /**
+   * @brief 接收新配置，并在需要时立即提交全部 NVS 脏缓存
+   * @param value 新配置快照
+   * @return 无变化或 NVS 提交成功返回 true，否则返回 false
+   */
+  bool UpdateAndPersist(const T& value) {
+    bool flush_required = false;
+    {
+      StorageCacheLock lock;
+      if (!lock.IsLocked() || !initialized_ || equal_ == nullptr ||
+          AreStorageUpdatesFrozenLocked()) {
+        return false;
+      }
+      if (!equal_(current_, value)) {
+        current_ = value;
+      }
+      UpdateDirtyStateLocked();
+      flush_required = IsStorageDomainDirtyLocked(domain_);
     }
-    if (!equal_(current_, value)) {
-      current_ = value;
-    }
-    UpdateDirtyStateLocked();
-    return true;
+    return !flush_required || FlushPendingNvsStorage();
   }
 
   bool BeginFlush(const T** value) {

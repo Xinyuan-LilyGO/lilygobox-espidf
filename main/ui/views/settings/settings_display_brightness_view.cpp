@@ -89,10 +89,10 @@ void PlaySettingsHapticPreview(SettingsViewState* state) {
 }
 
 /**
- * @brief 将显示亮度设置更新到长期 RAM 缓存
+ * @brief 保存最终显示亮度设置
  * @param state 设置页状态
  */
-void CacheBrightnessPreferences(SettingsViewState* state) {
+void SaveBrightnessPreferences(SettingsViewState* state) {
   if (state == nullptr) {
     return;
   }
@@ -129,7 +129,7 @@ void BrightnessSliderChangedEventCallback(lv_event_t* event) {
  * @param event LVGL 事件对象
  */
 void BrightnessSliderReleasedEventCallback(lv_event_t* event) {
-  CacheBrightnessPreferences(
+  SaveBrightnessPreferences(
       static_cast<SettingsViewState*>(lv_event_get_user_data(event)));
 }
 

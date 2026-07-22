@@ -106,13 +106,13 @@ class Application final {
   bool SleepAwakeLockScreenWithTimeout();
 
   /**
-   * @brief 完成轻度熄屏后提交 RAM 偏好缓存
+   * @brief 让物理屏幕进入轻度休眠
    * @return 屏幕进入休眠返回 true，否则恢复屏幕并返回 false
    */
-  bool EnterScreenSleepAndFlushStorage();
+  bool EnterScreenSleep();
 
   /**
-   * @brief 为重启或关机冻结更新并完成最终偏好落盘
+   * @brief 为重启或关机冻结更新并完成最终存储落盘
    * @return 屏幕已关闭且缓存已全部持久化返回 true
    */
   bool PreparePowerActionStorage();

@@ -29,9 +29,9 @@ void InitHapticCache();
 HapticPreferences GetHapticPreferences();
 
 /**
- * @brief 仅更新 RAM 缓存，屏幕完全关闭后统一写入 NVS
+ * @brief 比较并更新振动偏好，存在变化时立即写入 NVS
  * @param preferences 新的振动偏好
- * @return RAM 缓存接收成功返回 true
+ * @return 无变化或 NVS 提交成功返回 true，否则返回 false
  */
 bool UpdateHapticPreferences(const HapticPreferences& preferences);
 

@@ -1,5 +1,5 @@
 /**
- * @Description: WLAN 偏好存储，运行期只读写长期 RAM 缓存
+ * @Description: WLAN 偏好缓存与实时 NVS 持久化
  * @Author: LILYGO_L
  * @Date: 2026-06-23 00:00:00
  * @LastEditTime: 2026-07-16 22:36:38
@@ -14,6 +14,8 @@
 namespace lilygo_box::app {
 
 constexpr size_t kWifiSavedNetworkCapacity = 10;
+// 未获得扫描或连接结果时使用的未知信号强度。
+inline constexpr int kWifiUnknownRssi = -100;
 
 // WLAN 已保存网络凭据，保存用户确认连接后的 SSID 与连接元数据。
 struct WifiSavedNetwork {
@@ -25,8 +27,8 @@ struct WifiSavedNetwork {
   bool secure = false;
   // 热点是否位于 5 GHz 频段，只使用扫描结果或连接状态更新。
   bool is_5g = false;
-  // 最近一次已知 RSSI，用于 Saved WLAN 行和详情页展示。
-  int rssi = 0;
+  // 最近一次扫描得到的 RSSI，仅用于运行期展示，不写入 NVS。
+  int rssi = kWifiUnknownRssi;
 };
 
 // WLAN 用户偏好，保存开关状态和自动连接目标。
@@ -38,10 +40,10 @@ struct WifiPreferences {
 };
 
 /**
- * @brief 更新已保存 WLAN 凭据的长期 RAM 缓存
+ * @brief 比较并更新已保存 WLAN 凭据，存在变化时立即写入 NVS
  * @param networks 已保存 WLAN 凭据数组
  * @param count 已保存 WLAN 凭据数量
- * @return 快照已接收返回 true，否则返回 false
+ * @return 无变化或 NVS 提交成功返回 true，否则返回 false
  */
 bool UpdateWifiSavedNetworks(
     const WifiSavedNetwork* networks, size_t count);
@@ -74,11 +76,9 @@ WifiPreferences GetWifiPreferences();
 bool HasWifiPreferences();
 
 /**
- * @brief 更新 WLAN 偏好长期 RAM 缓存
- *
- * 本函数不会立即访问 NVS，数据将在屏幕完全关闭后统一持久化。
+ * @brief 比较并更新 WLAN 偏好，存在变化时立即写入 NVS
  * @param preferences 新的 WLAN 偏好
- * @return 缓存更新成功返回 true，否则返回 false
+ * @return 无变化或 NVS 提交成功返回 true，否则返回 false
  */
 bool UpdateWifiPreferences(const WifiPreferences& preferences);
 
