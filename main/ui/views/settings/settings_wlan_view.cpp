@@ -1355,7 +1355,8 @@ void MarkShownWifiSsid(char shown_ssids[][hal::kWifiSsidMaxLength + 1],
     return;
   }
   std::snprintf(shown_ssids[*shown_count],
-      hal::kWifiSsidMaxLength + 1, "%s", ssid);
+      hal::kWifiSsidMaxLength + 1, "%.*s",
+      static_cast<int>(hal::kWifiSsidMaxLength), ssid);
   ++(*shown_count);
 }
 
@@ -1638,7 +1639,8 @@ WifiNetworkAction* ReserveWifiNetworkAction(SettingsViewState* state,
   WifiNetworkAction* action = &state->wifi_actions[state->wifi_action_count++];
   *action = WifiNetworkAction();
   action->state = state;
-  std::snprintf(action->ssid, sizeof(action->ssid), "%s", ssid);
+  std::snprintf(action->ssid, sizeof(action->ssid), "%.*s",
+      static_cast<int>(hal::kWifiSsidMaxLength), ssid);
   if (password != nullptr) {
     std::snprintf(action->password, sizeof(action->password), "%s", password);
   }
@@ -1668,7 +1670,8 @@ WifiNetworkAction* ReserveWifiSavedDeleteAction(
           state->wifi_saved_delete_action_count++];
   *action = WifiNetworkAction();
   action->state = state;
-  std::snprintf(action->ssid, sizeof(action->ssid), "%s", ssid);
+  std::snprintf(action->ssid, sizeof(action->ssid), "%.*s",
+      static_cast<int>(hal::kWifiSsidMaxLength), ssid);
   action->saved = true;
   return action;
 }

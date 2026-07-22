@@ -1118,10 +1118,10 @@ void FormatWifiChinaTime(int64_t unix_time, char* buffer, size_t size) {
   const std::time_t adjusted_time =
       static_cast<std::time_t>(unix_time + 8 * 60 * 60);
   std::tm time_info = {};
-  gmtime_r(&adjusted_time, &time_info);
-  std::snprintf(buffer, size, "%04d-%02d-%02d %02d:%02d:%02d",
-      time_info.tm_year + 1900, time_info.tm_mon + 1, time_info.tm_mday,
-      time_info.tm_hour, time_info.tm_min, time_info.tm_sec);
+  if (gmtime_r(&adjusted_time, &time_info) == nullptr ||
+      std::strftime(buffer, size, "%Y-%m-%d %H:%M:%S", &time_info) == 0) {
+    std::snprintf(buffer, size, "--");
+  }
 }
 
 /**
