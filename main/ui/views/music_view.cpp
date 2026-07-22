@@ -2,7 +2,7 @@
  * @Description: 音乐应用视图
  * @Author: LILYGO_L
  * @Date: 2026-07-08 00:00:00
- * @LastEditTime: 2026-07-19 11:17:26
+ * @LastEditTime: 2026-07-22 20:04:14
  * @License: GPL 3.0
  */
 #include "ui/views/music_view.h"
@@ -88,6 +88,8 @@ constexpr uint32_t kPlaybackStatusIntervalMs = 250;
 constexpr uint32_t kMusicScanStartDelayMs = 850;
 constexpr uint32_t kMusicScanTaskStackBytes = 8 * 1024;
 constexpr UBaseType_t kMusicScanTaskPriority = 2;
+constexpr int kMusicEmptyGroupOffsetY = -100;
+constexpr int kMusicScanningGroupOffsetY = -48;
 constexpr int kMusicStatusGroupTopGap = 24;
 constexpr int kMusicStatusIconSize = 96;
 
@@ -1584,14 +1586,20 @@ void MusicViewDeleteEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 将音乐状态提示放到歌曲标签控件下方
+ * @brief 根据屏幕方向定位音乐状态提示
  * @param group 状态提示容器
  * @param state 音乐页面状态
+ * @param portrait_offset_y 竖屏时相对内容中心的纵向偏移
  */
-void PositionMusicStatusGroupBelowControls(
-    lv_obj_t* group, MusicViewState* state) {
+void PositionMusicStatusGroup(lv_obj_t* group, MusicViewState* state,
+    int portrait_offset_y) {
   if (group == nullptr || state == nullptr ||
       state->library_content == nullptr) {
+    return;
+  }
+
+  if (state->config.height > state->config.width) {
+    lv_obj_align(group, LV_ALIGN_CENTER, 0, portrait_offset_y);
     return;
   }
 
@@ -1626,7 +1634,7 @@ bool CreateEmptyMusicContent(lv_obj_t* parent, MusicViewState* state) {
   MakeTransparent(group);
   lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(group, state->config.width, 280);
-  PositionMusicStatusGroupBelowControls(group, state);
+  PositionMusicStatusGroup(group, state, kMusicEmptyGroupOffsetY);
 
   const bool storage_available =
       state->session != nullptr && state->session->storage_was_mounted;
@@ -1788,7 +1796,7 @@ bool RenderMusicScanningContent(MusicViewState* state) {
   MakeTransparent(group);
   lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(group, state->config.width, 250);
-  PositionMusicStatusGroupBelowControls(group, state);
+  PositionMusicStatusGroup(group, state, kMusicScanningGroupOffsetY);
 
   lv_obj_t* spinner = lv_spinner_create(group);
   if (spinner != nullptr) {

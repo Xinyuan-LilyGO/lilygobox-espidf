@@ -59,6 +59,8 @@ constexpr int kStorageRowHeight = 88;
 constexpr int kStorageRowTextX = 94;
 constexpr int kStorageNameHeight = 36;
 constexpr int kStorageDescriptionHeight = 28;
+constexpr int kNoStorageGroupOffsetY = -100;
+constexpr int kScanningGroupOffsetY = 26;
 constexpr int kStatusGroupTopGap = 24;
 constexpr int kStorageRetryPeriodMs = 850;
 constexpr int kStorageMonitorPeriodMs = 1000;
@@ -1015,13 +1017,19 @@ lv_obj_t* CreatePrimaryActionButton(lv_obj_t* parent, const char* text,
 }
 
 /**
- * @brief 将文件状态提示放到顶部副标题下方
+ * @brief 根据屏幕方向定位文件状态提示
  * @param group 状态提示容器
  * @param state 文件管理页面状态
+ * @param portrait_offset_y 竖屏时相对内容中心的纵向偏移
  */
-void PositionFilesStatusGroupBelowHeader(
-    lv_obj_t* group, FilesViewState* state) {
+void PositionFilesStatusGroup(lv_obj_t* group, FilesViewState* state,
+    int portrait_offset_y) {
   if (group == nullptr || state == nullptr || state->content == nullptr) {
+    return;
+  }
+
+  if (state->config.height > state->config.width) {
+    lv_obj_align(group, LV_ALIGN_CENTER, 0, portrait_offset_y);
     return;
   }
 
@@ -1068,7 +1076,7 @@ void RenderScanningContent(FilesViewState* state) {
   MakeTransparent(group);
   lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(group, state->config.width, 180);
-  PositionFilesStatusGroupBelowHeader(group, state);
+  PositionFilesStatusGroup(group, state, kScanningGroupOffsetY);
 
   lv_obj_t* spinner = lv_spinner_create(group);
   if (spinner != nullptr) {
@@ -1117,7 +1125,7 @@ void RenderNoStorageContent(FilesViewState* state) {
   MakeTransparent(group);
   lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(group, state->config.width, 280);
-  PositionFilesStatusGroupBelowHeader(group, state);
+  PositionFilesStatusGroup(group, state, kNoStorageGroupOffsetY);
 
   lv_obj_t* icon_background = lv_obj_create(group);
   if (icon_background != nullptr) {
