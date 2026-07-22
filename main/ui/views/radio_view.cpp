@@ -340,6 +340,8 @@ struct RadioViewState {
   bool chat_scroll_pending = false;
   // 当前视口是否继续自动跟随最新消息。
   bool chat_follow_latest = true;
+  // 聊天输入键盘当前是否已经占用页面底部空间。
+  bool detail_keyboard_visible = false;
   // 固定渲染页已满时是否有尚未装入时间线的新消息。
   bool chat_latest_page_pending = false;
   // 屏蔽程序滚动产生的 LVGL 滚动事件，避免误判为用户操作。
@@ -817,6 +819,7 @@ void DetailCloseCompletedCallback(lv_anim_t* animation) {
     state->detail_page = nullptr;
     state->detail_input = nullptr;
     state->detail_keyboard = nullptr;
+    state->detail_keyboard_visible = false;
     state->detail_composer_background = nullptr;
     state->detail_divider = nullptr;
     state->detail_send_button = nullptr;
@@ -854,6 +857,7 @@ void CloseModuleDetail(RadioViewState* state) {
     state->detail_page = nullptr;
     state->detail_input = nullptr;
     state->detail_keyboard = nullptr;
+    state->detail_keyboard_visible = false;
     state->detail_composer_background = nullptr;
     state->detail_divider = nullptr;
     state->detail_send_button = nullptr;
@@ -2393,9 +2397,20 @@ void SetDetailKeyboardVisible(RadioViewState* state, bool visible) {
       state->detail_chat_body == nullptr) {
     return;
   }
+  if (state->detail_keyboard_visible == visible) {
+    if (!visible) {
+      HideSharedKeyboard(state->detail_keyboard);
+    }
+    return;
+  }
   const bool follow_latest =
       state->chat_follow_latest && IsChatAtBottom(state);
-  state->chat_follow_latest = follow_latest;
+  state->detail_keyboard_visible = visible;
+  // 视口改高会让 LVGL 在布局阶段自动校正滚动位置，整个过程必须视为
+  // 程序滚动，否则校正事件会被误判为用户离开了最新消息。
+  const bool programmatic_scroll_was_active =
+      state->chat_programmatic_scroll;
+  state->chat_programmatic_scroll = true;
   const int keyboard_height = state->config.height *
       kAddKeyboardHeightPercent / 100;
   const int offset = visible ? keyboard_height : 0;
@@ -2416,9 +2431,24 @@ void SetDetailKeyboardVisible(RadioViewState* state, bool visible) {
       0, static_cast<int32_t>(composer_top) -
              lv_obj_get_y(state->detail_chat_body));
   lv_obj_set_height(state->detail_chat_body, chat_height);
+  lv_obj_update_layout(state->detail_chat_body);
+  if (follow_latest) {
+    // 布局完成后以 LVGL 的真实内容边界为准，避免手工高度公式与
+    // 内边距或坐标边界存在少量误差，导致键盘关闭后消息轻微上移。
+    const int32_t current =
+        lv_obj_get_scroll_y(state->detail_chat_body);
+    const int32_t bottom =
+        lv_obj_get_scroll_bottom(state->detail_chat_body);
+    lv_obj_scroll_to_y(
+        state->detail_chat_body, current + bottom, LV_ANIM_OFF);
+  }
+  state->chat_programmatic_scroll = programmatic_scroll_was_active;
+  state->chat_last_scroll_y =
+      lv_obj_get_scroll_y(state->detail_chat_body);
+  state->chat_follow_latest = follow_latest;
   PositionChatJumpButton(state);
   if (follow_latest) {
-    RequestChatScrollToBottom(state, chat_height);
+    SetChatJumpButtonVisible(state, false);
   }
   if (!visible) {
     HideSharedKeyboard(state->detail_keyboard);
@@ -2787,6 +2817,7 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
   MarkModuleListDirty(state);
   state->detail_input = nullptr;
   state->detail_keyboard = nullptr;
+  state->detail_keyboard_visible = false;
   state->detail_composer_background = nullptr;
   state->detail_divider = nullptr;
   state->detail_send_button = nullptr;
@@ -2916,6 +2947,7 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
     state->detail_page = nullptr;
     state->detail_input = nullptr;
     state->detail_keyboard = nullptr;
+    state->detail_keyboard_visible = false;
     state->detail_composer_background = nullptr;
     state->detail_divider = nullptr;
     state->detail_send_button = nullptr;
