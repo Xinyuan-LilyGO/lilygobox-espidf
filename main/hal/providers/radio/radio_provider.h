@@ -10,7 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "base/radio_types.h"
+#include "hal/providers/radio/radio_types.h"
 
 namespace lilygo_box::hal {
 

@@ -292,6 +292,13 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ReadRtcStatus(RtcStatus* status) override;
 
   /**
+   * @brief 将 UTC Unix 时间转换为当前本地时区并写入 PCF8563
+   * @param unix_time UTC Unix 时间戳
+   * @return 写入成功返回 true，否则返回 false
+   */
+  bool WriteRtcUnixTime(int64_t unix_time) override;
+
+  /**
    * @brief 读取板载 SX1262 支持的射频协议和负载能力
    * @param capabilities 射频能力输出地址
    * @return 能力信息读取成功时返回 true
@@ -692,6 +699,18 @@ class TDisplayP4Device final : public ScreenProvider,
   int StartWifiSntp();
 
   /**
+   * @brief 将最近一次有效网络时间异步写入外部 RTC
+   * @param unix_time UTC Unix 时间戳
+   */
+  void ScheduleRtcSync(int64_t unix_time);
+
+  /**
+   * @brief 外部 RTC 网络校时任务入口
+   * @param argument 设备对象指针
+   */
+  static void RtcSyncTaskEntry(void* argument);
+
+  /**
    * @brief 记录 hosted WiFi 初始化或连接失败状态
    * @param error 错误码
    */
@@ -954,6 +973,10 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<int64_t> sntp_unix_time{0};
     // SNTP 最新一次同步完成时的单调时间，单位为毫秒
     std::atomic<int64_t> sntp_sync_monotonic_ms{0};
+    // 外部 RTC 网络校时任务是否正在运行
+    std::atomic<bool> rtc_sync_task_running{false};
+    // 最近一次写入外部 RTC 的 UTC Unix 时间戳
+    std::atomic<int64_t> rtc_sync_unix_time{0};
     // 进入测试前驱动是否已启动
     bool previous_running = false;
     // 进入测试前 STA 是否已连接

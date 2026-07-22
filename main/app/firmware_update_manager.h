@@ -80,6 +80,12 @@ class FirmwareUpdateManager final {
   static FirmwareUpdateManager& Instance();
 
   /**
+   * @brief 获取当前设备使用的固件清单地址
+   * @return 固件清单 URL，不支持当前设备时返回空字符串
+   */
+  static const char* ManifestUrl();
+
+  /**
    * @brief 初始化固件更新管理器并恢复未完成的更新
    * @param wifi 当前设备已经拥有的 WLAN 服务
    * @param application 唯一的应用实例，用于熄屏后重启

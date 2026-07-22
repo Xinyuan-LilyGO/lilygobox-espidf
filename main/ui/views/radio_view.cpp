@@ -24,7 +24,7 @@
 #include "base/logger.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "hal/providers/radio_provider.h"
+#include "hal/providers/radio/radio_provider.h"
 #include "hal/providers/rtc_provider.h"
 #include "ui/animation/transition_animation.h"
 #include "ui/input/edge_back_gesture.h"

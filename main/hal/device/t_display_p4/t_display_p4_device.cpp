@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <memory>
 #include <new>
 #include <string>
@@ -109,7 +110,10 @@ constexpr const char* kFactoryWifiPassword = "xinyuandianzi";
 constexpr const char* kWifiSntpServer = "pool.ntp.org";
 constexpr int kWifiMaxReconnectCount = 8;
 constexpr int64_t kWifiValidUnixTimeThreshold = 1700000000LL;
-constexpr uint32_t kWifiSntpSyncIntervalMs = 20 * 1000;
+constexpr uint32_t kWifiSntpSyncIntervalMs = 60 * 60 * 1000;
+constexpr uint32_t kRtcSyncTaskStackBytes = 4 * 1024;
+constexpr UBaseType_t kRtcSyncTaskPriority = 3;
+constexpr int64_t kRtcResyncIntervalSeconds = 24 * 60 * 60;
 constexpr size_t kRadioIrqTextCapacity = 160;
 
 // SX1262 IRQ 位与日志名称映射。
@@ -3270,6 +3274,7 @@ int TDisplayP4Device::StartWifiSntp() {
     owner->wifi_time_test_.sntp_sync_monotonic_ms.store(
         esp_timer_get_time() / 1000);
     owner->wifi_time_test_.synced.store(true);
+    owner->ScheduleRtcSync(unix_time);
   });
   esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
   esp_sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
@@ -3278,6 +3283,44 @@ int TDisplayP4Device::StartWifiSntp() {
   esp_sntp_init();
   wifi_time_test_.sync_started.store(true);
   return ESP_OK;
+}
+
+void TDisplayP4Device::ScheduleRtcSync(int64_t unix_time) {
+  const int64_t previous_sync = wifi_time_test_.rtc_sync_unix_time.load();
+  if (previous_sync > 0 && unix_time >= previous_sync &&
+      unix_time - previous_sync < kRtcResyncIntervalSeconds) {
+    return;
+  }
+
+  bool expected = false;
+  if (!wifi_time_test_.rtc_sync_task_running.compare_exchange_strong(
+          expected, true)) {
+    return;
+  }
+  wifi_time_test_.rtc_sync_unix_time.store(unix_time);
+  const BaseType_t result = xTaskCreate(RtcSyncTaskEntry, "rtc_sync",
+      kRtcSyncTaskStackBytes, this, kRtcSyncTaskPriority, nullptr);
+  if (result != pdPASS) {
+    wifi_time_test_.rtc_sync_task_running.store(false);
+    wifi_time_test_.rtc_sync_unix_time.store(previous_sync);
+  }
+}
+
+void TDisplayP4Device::RtcSyncTaskEntry(void* argument) {
+  auto* self = static_cast<TDisplayP4Device*>(argument);
+  if (self == nullptr) {
+    vTaskDelete(nullptr);
+    return;
+  }
+
+  const int64_t unix_time = self->wifi_time_test_.rtc_sync_unix_time.load();
+  if (!self->WriteRtcUnixTime(unix_time)) {
+    self->wifi_time_test_.rtc_sync_unix_time.store(0);
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Write network time to PCF8563 failed\n");
+  }
+  self->wifi_time_test_.rtc_sync_task_running.store(false);
+  vTaskDelete(nullptr);
 }
 
 void TDisplayP4Device::SetWifiFailure(int error) {
@@ -3347,8 +3390,7 @@ void TDisplayP4Device::WifiEventHandler(
       self->wifi_.ip_address.store(0);
       self->wifi_.netmask.store(0);
       self->wifi_.gateway.store(0);
-      if (self->wifi_time_test_.active.load() &&
-          self->wifi_time_test_.sync_started.exchange(false)) {
+      if (self->wifi_time_test_.sync_started.exchange(false)) {
         esp_sntp_set_time_sync_notification_cb(nullptr);
         TDisplayP4Device* owner = self;
         g_wifi_time_sync_owner.compare_exchange_strong(owner, nullptr);
@@ -3384,8 +3426,7 @@ void TDisplayP4Device::WifiEventHandler(
       self->wifi_.ip_address.store(0);
       self->wifi_.netmask.store(0);
       self->wifi_.gateway.store(0);
-      if (self->wifi_time_test_.active.load() &&
-          self->wifi_time_test_.sync_started.exchange(false)) {
+      if (self->wifi_time_test_.sync_started.exchange(false)) {
         esp_sntp_set_time_sync_notification_cb(nullptr);
         TDisplayP4Device* owner = self;
         g_wifi_time_sync_owner.compare_exchange_strong(owner, nullptr);
@@ -3414,11 +3455,9 @@ void TDisplayP4Device::WifiGotIpEventHandler(
   self->wifi_.ip_address.store(event->ip_info.ip.addr);
   self->wifi_.netmask.store(event->ip_info.netmask.addr);
   self->wifi_.gateway.store(event->ip_info.gw.addr);
-  if (self->wifi_time_test_.active.load()) {
-    const int result = self->StartWifiSntp();
-    if (result != ESP_OK) {
-      self->SetWifiFailure(result);
-    }
+  const int result = self->StartWifiSntp();
+  if (result != ESP_OK) {
+    self->SetWifiFailure(result);
   }
 }
 
@@ -3512,6 +3551,33 @@ bool TDisplayP4Device::ReadRtcStatus(RtcStatus* status) {
   status->minute = time.minute;
   status->second = time.second;
   return true;
+}
+
+bool TDisplayP4Device::WriteRtcUnixTime(int64_t unix_time) {
+  if (unix_time <= kWifiValidUnixTimeThreshold ||
+      (!driver_.IsPcf8563Ready() && !driver_.InitPcf8563())) {
+    return false;
+  }
+
+  const std::time_t time_value = static_cast<std::time_t>(unix_time);
+  std::tm local_time = {};
+  if (localtime_r(&time_value, &local_time) == nullptr ||
+      local_time.tm_year + 1900 < 2000 ||
+      local_time.tm_year + 1900 > 2099) {
+    return false;
+  }
+
+  cpp_bus_driver::Pcf8563x::Time rtc_time;
+  rtc_time.year = static_cast<uint8_t>(local_time.tm_year + 1900 - 2000);
+  rtc_time.month = static_cast<uint8_t>(local_time.tm_mon + 1);
+  rtc_time.day = static_cast<uint8_t>(local_time.tm_mday);
+  rtc_time.week = static_cast<cpp_bus_driver::Pcf8563x::Week>(
+      local_time.tm_wday);
+  rtc_time.hour = static_cast<uint8_t>(local_time.tm_hour);
+  rtc_time.minute = static_cast<uint8_t>(local_time.tm_min);
+  rtc_time.second = static_cast<uint8_t>(local_time.tm_sec);
+  return driver_.chip().pcf8563->SetTime(rtc_time) &&
+      driver_.chip().pcf8563->ClearClockIntegrityFlag();
 }
 
 bool TDisplayP4Device::ReadRadioCapabilities(RadioCapabilities* capabilities) {

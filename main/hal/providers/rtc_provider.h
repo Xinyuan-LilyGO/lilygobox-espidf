@@ -42,6 +42,13 @@ class RtcProvider {
    * @return 读取到有效 RTC 数据返回 true，否则返回 false
    */
   virtual bool ReadRtcStatus(RtcStatus* status) = 0;
+
+  /**
+   * @brief 将 UTC Unix 时间转换为当前本地时区并写入外部 RTC
+   * @param unix_time UTC Unix 时间戳
+   * @return 写入成功返回 true，否则返回 false
+   */
+  virtual bool WriteRtcUnixTime(int64_t unix_time) = 0;
 };
 
 }  // namespace lilygo_box::hal

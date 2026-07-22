@@ -11,8 +11,10 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstdlib>
+#include <ctime>
 
 #include "app/firmware_update_manager.h"
+#include "app/network_monitor.h"
 #include "app/storage/display_storage.h"
 #include "app/storage/first_boot_storage.h"
 #include "app/storage/littlefs_storage.h"
@@ -57,6 +59,19 @@ constexpr int kLowBatteryStartupThresholdPercent = 10;
 constexpr uint32_t kLowBatteryStartupIconColor = 0xFF3B30;
 constexpr uint32_t kBatteryFaultStartupIconColor = 0xFF9500;
 constexpr char kNvsPartitionName[] = "nvs";
+constexpr char kChinaTimeZone[] = "CST-8";
+
+/**
+ * @brief 将系统本地时区设置为中国标准时间 UTC+8
+ * @return 时区环境设置成功返回 true，否则返回 false
+ */
+bool ConfigureChinaTimeZone() {
+  if (setenv("TZ", kChinaTimeZone, 1) != 0) {
+    return false;
+  }
+  tzset();
+  return true;
+}
 
 /**
  * @brief 输出默认 NVS 分区的容量与命名空间统计信息
@@ -120,6 +135,11 @@ Application::Application()
     : device_provider_context_(hal::CreateDeviceProviderContext()) {}
 
 bool Application::Init() {
+  if (!ConfigureChinaTimeZone()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Configure China time zone failed\n");
+  }
+
   esp_err_t nvs_result = nvs_flash_init();
   const char* nvs_recovery_reason = nullptr;
   if (nvs_result == ESP_ERR_NVS_NO_FREE_PAGES ||
@@ -196,6 +216,11 @@ bool Application::Init() {
           device_provider_context_.wifi, *this)) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize firmware update manager failed\n");
+  }
+  if (!app::NetworkMonitor::Instance().Initialize(
+          device_provider_context_.wifi)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Initialize network monitor failed\n");
   }
   lilygo_box::ui::SetLvglPortForRotation(&lvgl_port_);
   app::DisplayPreferences display_preferences = app::GetDisplayPreferences();

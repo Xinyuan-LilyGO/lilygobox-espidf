@@ -3359,6 +3359,10 @@ FirmwareUpdateManager& FirmwareUpdateManager::Instance() {
   return manager;
 }
 
+const char* FirmwareUpdateManager::ManifestUrl() {
+  return kManifestUrl;
+}
+
 FirmwareUpdateManager::~FirmwareUpdateManager() {
   if (impl_ != nullptr && g_active_firmware_update_state == &impl_->state) {
     g_active_firmware_update_state = nullptr;

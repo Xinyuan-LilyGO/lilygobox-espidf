@@ -15,6 +15,7 @@ namespace {
 
 constexpr uint32_t kBatteryRefreshIntervalTicks = 2;
 constexpr uint32_t kWifiRefreshIntervalTicks = 3;
+constexpr std::time_t kValidNetworkUnixTime = 1700000000;
 
 /**
  * @brief 检查 RTC 日期时间是否可以安全写入系统时钟
@@ -114,8 +115,14 @@ void SystemStatusCache::Init(
 
 bool SystemStatusCache::RefreshClock() {
   if (!system_clock_initialized_) {
-    rtc_status_valid_ = false;
-    return false;
+    const std::time_t unix_time = std::time(nullptr);
+    if (unix_time < kValidNetworkUnixTime) {
+      rtc_status_valid_ = false;
+      return false;
+    }
+    // RTC 启动时间无效时，允许 SNTP 后续恢复本地系统时钟显示。
+    system_clock_initialized_ = true;
+    rtc_clock_integrity_ = true;
   }
 
   hal::RtcStatus status;
