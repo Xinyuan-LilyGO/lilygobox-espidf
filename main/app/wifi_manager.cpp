@@ -140,9 +140,9 @@ WifiAutoConnectResult TryStartWifiAutoConnect(
 
   if (!status.driver_initialized || status.init_task_running) {
     if (options.start_driver_if_needed && !status.driver_initialized &&
-        !wifi->StartWifi()) {
+        !wifi->SetWifiEnabled(true)) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "StartWifi failed before auto connect\n");
+          "Enable WiFi failed before auto connect\n");
       return WifiAutoConnectResult::kFailed;
     }
     if (!WaitForWifiDriverReady(wifi, options)) {

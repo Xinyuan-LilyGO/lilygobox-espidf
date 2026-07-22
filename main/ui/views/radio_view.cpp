@@ -120,6 +120,7 @@ constexpr uint32_t kActivationRetrySlowPeriodMs = 10000;
 constexpr uint8_t kActivationFastRetryCount = 5;
 constexpr uint32_t kRadioCommandTaskStackBytes = 8 * 1024;
 constexpr UBaseType_t kRadioCommandTaskPriority = tskIDLE_PRIORITY;
+constexpr uint32_t kRadioShutdownPollMs = 20;
 // UI 回调超过该时间才记录回归日志，正常路径只读取 LVGL 毫秒 tick。
 constexpr uint32_t kSlowRadioUiThresholdMs = 80;
 constexpr char kFrequencyAcceptedChars[] = "0123456789.";
@@ -218,6 +219,11 @@ struct RadioCommandJob {
   RadioCommandType type = RadioCommandType::kActivate;
   // 硬件命令的最终执行结果。
   bool success = false;
+};
+
+struct RadioShutdownJob {
+  hal::RadioProvider* provider = nullptr;
+  std::shared_ptr<RadioCommandJob> pending_command;
 };
 
 struct RadioViewState {
@@ -782,7 +788,27 @@ void SyncModuleItems(RadioViewState* state) {
 }
 
 /**
- * @brief 释放射频页面状态
+ * @brief 等待正在执行的射频命令退出，然后让芯片进入休眠状态
+ * @param context 射频关闭任务上下文
+ */
+void RadioShutdownTaskEntry(void* context) {
+  std::unique_ptr<RadioShutdownJob> job(
+      static_cast<RadioShutdownJob*>(context));
+  if (job != nullptr) {
+    while (job->pending_command != nullptr &&
+           !job->pending_command->completed.load(std::memory_order_acquire)) {
+      vTaskDelay(pdMS_TO_TICKS(kRadioShutdownPollMs));
+    }
+    if (job->provider != nullptr && !job->provider->DeactivateRadio()) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Radio power down on view close failed\n");
+    }
+  }
+  vTaskDelete(nullptr);
+}
+
+/**
+ * @brief 释放射频页面状态，并在后台关闭射频芯片
  * @param event LVGL 事件对象
  */
 void RadioViewDeleteEventCallback(lv_event_t* event) {
@@ -793,6 +819,19 @@ void RadioViewDeleteEventCallback(lv_event_t* event) {
   if (state != nullptr && state->radio_timer != nullptr) {
     lv_timer_delete(state->radio_timer);
     state->radio_timer = nullptr;
+  }
+  if (state != nullptr && state->config.radio != nullptr) {
+    auto* shutdown_job = new (std::nothrow) RadioShutdownJob{
+        .provider = state->config.radio,
+        .pending_command = state->radio_command_job,
+    };
+    if (shutdown_job == nullptr ||
+        xTaskCreate(RadioShutdownTaskEntry, "radio_shutdown",
+            kRadioCommandTaskStackBytes, shutdown_job,
+            kRadioCommandTaskPriority, nullptr) != pdPASS) {
+      delete shutdown_job;
+      state->config.radio->DeactivateRadio();
+    }
   }
   delete state;
 }

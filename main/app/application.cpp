@@ -286,11 +286,6 @@ bool Application::Init() {
   ui_manager_.SetStartupScreenProgress(66);
   lvgl_port_.Unlock();
 
-  if (device_provider_context_.ethernet != nullptr &&
-      !device_provider_context_.ethernet->StartEthernet()) {
-    LogMessage(
-        LogLevel::kWarning, __FILE__, __LINE__, "StartEthernet failed\n");
-  }
   lvgl_port_.Lock();
   ui_manager_.SetStartupScreenProgress(100);
   lvgl_port_.Unlock();

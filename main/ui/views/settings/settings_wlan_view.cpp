@@ -615,7 +615,7 @@ void WifiSwitchValueChangedEventCallback(lv_event_t* event) {
     ResetWifiConnectionState(state);
     state->wifi_scan_on_ready = false;
     state->wifi_scan_request_generation = 0;
-    state->config.wifi->StopWifi();
+    state->config.wifi->SetWifiEnabled(false);
   }
   SaveWifiPreferences(state);
   UpdateSettingsWifiValue(state);
@@ -709,7 +709,7 @@ bool TryStartWifiAutoConnect(SettingsViewState* state) {
     state->wifi_enabled_requested = true;
     SaveWifiPreferences(state);
     UpdateSettingsWifiValue(state);
-    if (state->config.wifi->StartWifi()) {
+    if (state->config.wifi->SetWifiEnabled(true)) {
       return true;
     }
     state->wifi_auto_connect_on_ready = false;

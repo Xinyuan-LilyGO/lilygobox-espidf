@@ -44,10 +44,11 @@ class EthernetProvider {
   virtual ~EthernetProvider() = default;
 
   /**
-   * @brief 异步启动以太网检测
-   * @return 启动命令发送成功返回 true，否则返回 false
+   * @brief 启用或停止以太网驱动
+   * @param enabled true 异步启用，false 立即请求停止
+   * @return 状态切换请求成功返回 true，否则返回 false
    */
-  virtual bool StartEthernet() = 0;
+  virtual bool SetEthernetEnabled(bool enabled) = 0;
 
   /**
    * @brief 读取以太网链路和 DHCP 状态

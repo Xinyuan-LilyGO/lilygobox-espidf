@@ -550,7 +550,7 @@ bool WaitForCurrentWirelessVersion(
     UnlockManager();
   }
   // 这里只启动 ESP-Hosted/WLAN 驱动，不要求设备已经连接到无线路由器。
-  if (wifi == nullptr || !wifi->StartWifi()) {
+  if (wifi == nullptr || !wifi->SetWifiEnabled(true)) {
     return false;
   }
   const TickType_t started_tick = xTaskGetTickCount();

@@ -321,7 +321,14 @@ void StopActiveTestHardware(CitViewState* state) {
     state->audio->StopMicrophone();
   }
   if (entry != nullptr && IsEntryId(*entry, "gps") && state->gps != nullptr) {
-    state->gps->StopGps();
+    state->gps->SetGpsEnabled(false);
+  }
+  if (entry != nullptr && IsEntryId(*entry, "imu") && state->imu != nullptr) {
+    state->imu->SetImuEnabled(false);
+  }
+  if (entry != nullptr && IsEntryId(*entry, "ethernet") &&
+      state->ethernet != nullptr) {
+    state->ethernet->SetEthernetEnabled(false);
   }
   if (entry != nullptr && IsEntryId(*entry, "wifi") && state->wifi != nullptr) {
     state->wifi->StopWifiTimeTest();
@@ -2594,6 +2601,12 @@ bool AddDiagnosticsContent(
   if (state->test_data_label == nullptr) {
     return false;
   }
+  if (IsEntryId(entry, "imu") &&
+      (state->imu == nullptr || !state->imu->SetImuEnabled(true))) {
+    lv_label_set_text(state->test_data_label,
+        "imu data:\nstatus: start failed");
+    return true;
+  }
   RefreshActiveTestData(state);
   return true;
 }
@@ -2620,7 +2633,7 @@ bool AddGpsContent(lv_obj_t* content, CitViewState* state) {
     return false;
   }
 
-  if (state->gps == nullptr || !state->gps->StartGps()) {
+  if (state->gps == nullptr || !state->gps->SetGpsEnabled(true)) {
     lv_label_set_text(
         state->test_data_label, "GPS data:\nstatus: start failed");
     return true;
@@ -2646,7 +2659,8 @@ bool AddEthernetContent(lv_obj_t* content, CitViewState* state) {
     return false;
   }
 
-  if (state->ethernet == nullptr || !state->ethernet->StartEthernet()) {
+  if (state->ethernet == nullptr ||
+      !state->ethernet->SetEthernetEnabled(true)) {
     lv_label_set_text(
         state->test_data_label, "Ethernet data:\nstatus: start failed");
     return true;

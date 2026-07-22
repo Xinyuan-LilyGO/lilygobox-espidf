@@ -224,17 +224,7 @@ class TDisplayP4Device final : public ScreenProvider,
   bool CopyCameraPreviewFrame(uint8_t* buffer, size_t buffer_size,
       CameraPreviewFrameInfo* info) override;
 
-  /**
-   * @brief 启动 L76K GPS 测试并唤醒模块
-   * @return 启动成功返回 true，否则返回 false
-   */
-  bool StartGps() override;
-
-  /**
-   * @brief 停止 L76K GPS 测试并让模块进入睡眠
-   * @return 停止成功返回 true，否则返回 false
-   */
-  bool StopGps() override;
+  bool SetGpsEnabled(bool enabled) override;
 
   /**
    * @brief 读取 L76K GPS 测试状态和最新 GNSS 解析数据
@@ -347,18 +337,10 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   bool ReadRadioStatus(RadioStatus* status) override;
 
-  /**
-   * @brief 读取 ICM20948 IMU 运动状态
-   * @param status IMU 状态输出地址
-   * @return 读取到有效 IMU 状态返回 true，否则返回 false
-   */
+  bool SetImuEnabled(bool enabled) override;
   bool ReadImuStatus(ImuStatus* status) override;
 
-  /**
-   * @brief 异步启动 IP101 以太网链路检测
-   * @return 启动命令发送成功返回 true，否则返回 false
-   */
-  bool StartEthernet() override;
+  bool SetEthernetEnabled(bool enabled) override;
 
   /**
    * @brief 读取 IP101 以太网链路和 DHCP 状态
@@ -367,17 +349,7 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   bool ReadEthernetStatus(EthernetStatus* status) override;
 
-  /**
-   * @brief 异步初始化并启动 hosted WiFi STA
-   * @return 启动命令发送成功返回 true，否则返回 false
-  */
-  bool StartWifi() override;
-
-  /**
-   * @brief 停止 hosted WiFi STA 并清理连接和扫描状态
-   * @return 停止成功或已经处于关闭状态返回 true，否则返回 false
-   */
-  bool StopWifi() override;
+  bool SetWifiEnabled(bool enabled) override;
 
   /**
    * @brief 异步扫描附近的 hosted WiFi 热点
@@ -485,12 +457,26 @@ class TDisplayP4Device final : public ScreenProvider,
  private:
   static constexpr int kScreenReadyTimeoutMs = 5000;
   static constexpr int kScreenReadyPollMs = 20;
+  static constexpr int kPowerOffTaskTimeoutMs = 5000;
+  static constexpr int kPowerOffTaskPollMs = 20;
 
   /**
    * @brief 等待异步屏幕初始化进入可用状态
    * @return 屏幕可用返回 true，否则返回 false
    */
   bool WaitForScreenReady();
+
+  /**
+   * @brief 停止仍可能访问外设的后台任务和网络协议栈
+   * @return 所有停止请求完成且任务退出返回 true，否则返回 false
+   */
+  bool PrepareForPowerOff();
+
+  /**
+   * @brief 等待关机相关异步任务退出
+   * @return 在超时前全部退出返回 true，否则返回 false
+   */
+  bool WaitForPowerOffTasks();
 
   /**
    * @brief 扬声器播放任务入口
@@ -502,6 +488,9 @@ class TDisplayP4Device final : public ScreenProvider,
    * @brief 执行后台扬声器播放
    */
   void RunSpeakerPlaybackTask();
+
+  // 根据扬声器和麦克风的实际占用情况选择 ES8311 电源状态。
+  bool UpdateAudioCodecPowerState();
 
   /**
    * @brief 根据 MP3 流参数配置 ES8311 PCM 输出
@@ -863,6 +852,8 @@ class TDisplayP4Device final : public ScreenProvider,
   };
 
   struct EthernetState {
+    // 用户是否已经请求停止以太网。
+    std::atomic<bool> stop_requested{false};
     // 初始化任务是否正在运行
     std::atomic<bool> init_task_running{false};
     // 驱动是否已经初始化完成
@@ -1017,6 +1008,7 @@ class TDisplayP4Device final : public ScreenProvider,
   WifiTimeTestState wifi_time_test_;
   // Radio 会话状态，单芯片只允许一个活动配置。
   RadioState radio_;
+  std::atomic<bool> imu_enabled_{false};
   bool gps_running_ = false;
   GpsStatus gps_status_;
 };

@@ -20,6 +20,8 @@ class ImuProvider {
  public:
   virtual ~ImuProvider() = default;
 
+  virtual bool SetImuEnabled(bool enabled) = 0;
+
   /**
    * @brief 读取 IMU 运动状态
    * @param status IMU 状态输出地址

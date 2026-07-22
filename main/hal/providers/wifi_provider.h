@@ -94,16 +94,11 @@ class WifiProvider {
   virtual ~WifiProvider() = default;
 
   /**
-   * @brief 异步初始化并启动 hosted WiFi STA
-   * @return 启动命令发送成功返回 true，否则返回 false
+   * @brief 启用或停止 hosted WiFi STA
+   * @param enabled true 异步启用，false 立即请求停止
+   * @return 状态切换请求成功返回 true，否则返回 false
    */
-  virtual bool StartWifi() = 0;
-
-  /**
-   * @brief 关闭 hosted WiFi 驱动运行状态，清除连接与扫描中的状态
-   * @return 关闭命令执行成功返回 true，否则返回 false
-   */
-  virtual bool StopWifi() = 0;
+  virtual bool SetWifiEnabled(bool enabled) = 0;
 
   /**
    * @brief 启动 hosted WiFi STA 并异步扫描附近热点

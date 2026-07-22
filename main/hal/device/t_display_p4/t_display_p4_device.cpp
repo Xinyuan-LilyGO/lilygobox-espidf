@@ -526,13 +526,44 @@ bool TDisplayP4Device::ReadDeviceInfo(DeviceInfo* info) {
   return true;
 }
 
-bool TDisplayP4Device::StartEthernet() {
+bool TDisplayP4Device::SetEthernetEnabled(bool enabled) {
+  ethernet_.stop_requested.store(!enabled);
+  if (!enabled) {
+    if (ethernet_.init_task_running.load()) {
+      return true;
+    }
+    if (ethernet_.handle != nullptr && ethernet_.running.load()) {
+      const esp_err_t result =
+          esp_eth_stop(reinterpret_cast<esp_eth_handle_t>(ethernet_.handle));
+      if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
+        SetEthernetFailure(result);
+        driver_.SetEthernetPowerEnabled(false);
+        return false;
+      }
+    }
+    ethernet_.running.store(false);
+    ethernet_.link_up.store(false);
+    ethernet_.got_ip.store(false);
+    ethernet_.start_failed.store(false);
+    ethernet_.last_error.store(ESP_OK);
+    ethernet_.ip_address.store(0);
+    ethernet_.netmask.store(0);
+    ethernet_.gateway.store(0);
+    return driver_.SetEthernetPowerEnabled(false);
+  }
+
+  if (!driver_.SetEthernetPowerEnabled(true)) {
+    SetEthernetFailure(ESP_FAIL);
+    return false;
+  }
+
   if (ethernet_.driver_initialized.load()) {
     if (!ethernet_.running.load() && ethernet_.handle != nullptr) {
       const esp_err_t result =
           esp_eth_start(reinterpret_cast<esp_eth_handle_t>(ethernet_.handle));
       if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
         SetEthernetFailure(result);
+        driver_.SetEthernetPowerEnabled(false);
         return false;
       }
       ethernet_.running.store(true);
@@ -553,6 +584,7 @@ bool TDisplayP4Device::StartEthernet() {
       kEthernetInitTaskStackBytes, this, kEthernetInitTaskPriority, nullptr);
   if (result != pdPASS) {
     SetEthernetFailure(ESP_ERR_NO_MEM);
+    driver_.SetEthernetPowerEnabled(false);
     return false;
   }
   return true;
@@ -578,10 +610,117 @@ bool TDisplayP4Device::ReadEthernetStatus(EthernetStatus* status) {
   return true;
 }
 
-bool TDisplayP4Device::StartWifi() {
+bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
+  if (!enabled) {
+    wifi_time_test_.requested.store(false);
+    wifi_.connect_cancel_requested.store(true);
+    wifi_.stop_requested.store(true);
+    if (wifi_time_test_.active.load()) {
+      StopWifiTimeTest();
+    }
+
+    if (!wifi_.driver_initialized.load()) {
+      if (wifi_.init_task_running.load()) {
+        return true;
+      }
+      esp_event_handler_unregister(
+          WIFI_EVENT, ESP_EVENT_ANY_ID, WifiEventHandler);
+      esp_event_handler_unregister(
+          IP_EVENT, IP_EVENT_STA_GOT_IP, WifiGotIpEventHandler);
+      esp_wifi_deinit();
+      if (wifi_.netif != nullptr) {
+        esp_netif_destroy_default_wifi(wifi_.netif);
+        wifi_.netif = nullptr;
+      }
+      if (wifi_.hosted_bridge_initialized.exchange(false)) {
+        esp_hosted_deinit();
+      }
+      wifi_.scan_running.store(false);
+      wifi_.scan_task_running.store(false);
+      wifi_.connect_task_running.store(false);
+      wifi_.running.store(false);
+      wifi_.connected.store(false);
+      wifi_.got_ip.store(false);
+      return driver_.SetEsp32c6PowerEnabled(false);
+    }
+
+    if (wifi_.scan_running.load() || wifi_.scan_task_running.load()) {
+      const esp_err_t scan_result = esp_wifi_scan_stop();
+      if (scan_result != ESP_OK && scan_result != ESP_ERR_WIFI_NOT_STARTED &&
+          scan_result != ESP_ERR_INVALID_STATE &&
+          scan_result != ESP_ERR_WIFI_STATE) {
+        SetWifiFailure(scan_result);
+        driver_.SetEsp32c6PowerEnabled(false);
+        return false;
+      }
+    }
+    esp_wifi_disconnect();
+    wifi_config_t empty_config = {};
+    esp_wifi_set_config(WIFI_IF_STA, &empty_config);
+    esp_err_t result = esp_wifi_stop();
+    if (result != ESP_OK && result != ESP_ERR_WIFI_NOT_STARTED) {
+      SetWifiFailure(result);
+      driver_.SetEsp32c6PowerEnabled(false);
+      return false;
+    }
+
+    result = esp_wifi_set_mode(WIFI_MODE_NULL);
+    if (result != ESP_OK) {
+      SetWifiFailure(result);
+      driver_.SetEsp32c6PowerEnabled(false);
+      return false;
+    }
+
+    esp_event_handler_unregister(
+        WIFI_EVENT, ESP_EVENT_ANY_ID, WifiEventHandler);
+    esp_event_handler_unregister(
+        IP_EVENT, IP_EVENT_STA_GOT_IP, WifiGotIpEventHandler);
+    result = esp_wifi_deinit();
+    if (result != ESP_OK && result != ESP_ERR_WIFI_NOT_INIT) {
+      SetWifiFailure(result);
+      driver_.SetEsp32c6PowerEnabled(false);
+      return false;
+    }
+    wifi_.driver_initialized.store(false);
+    if (wifi_.netif != nullptr) {
+      esp_netif_destroy_default_wifi(wifi_.netif);
+      wifi_.netif = nullptr;
+    }
+    if (wifi_.hosted_bridge_initialized.exchange(false)) {
+      result = static_cast<esp_err_t>(esp_hosted_deinit());
+      if (result != ESP_OK) {
+        SetWifiFailure(result);
+        driver_.SetEsp32c6PowerEnabled(false);
+        return false;
+      }
+    }
+
+    wifi_.running.store(false);
+    wifi_.connected.store(false);
+    wifi_.got_ip.store(false);
+    wifi_.start_failed.store(false);
+    wifi_.last_error.store(ESP_OK);
+    wifi_.disconnect_reason.store(0);
+    wifi_.retry_count.store(0);
+    wifi_.scan_running.store(false);
+    wifi_.scan_task_running.store(false);
+    wifi_.scan_failed.store(false);
+    wifi_.scan_network_count.store(0);
+    wifi_.scan_generation.fetch_add(1);
+    wifi_.ip_address.store(0);
+    wifi_.netmask.store(0);
+    wifi_.gateway.store(0);
+    return driver_.SetEsp32c6PowerEnabled(false);
+  }
+
   wifi_.stop_requested.store(false);
   if (wifi_.driver_initialized.load() && wifi_.running.load()) {
     return true;
+  }
+
+  if (!driver_.SetEsp32c6PowerEnabled(true)) {
+    SetWifiFailure(ESP_FAIL);
+    return false;
   }
 
   bool expected = false;
@@ -595,75 +734,16 @@ bool TDisplayP4Device::StartWifi() {
       kWifiInitTaskStackBytes, this, kWifiInitTaskPriority, nullptr);
   if (result != pdPASS) {
     SetWifiFailure(ESP_ERR_NO_MEM);
+    driver_.SetEsp32c6PowerEnabled(false);
     return false;
   }
-  return true;
-}
-
-bool TDisplayP4Device::StopWifi() {
-  wifi_time_test_.requested.store(false);
-  wifi_.connect_cancel_requested.store(true);
-  wifi_.stop_requested.store(true);
-  if (wifi_time_test_.active.load()) {
-    StopWifiTimeTest();
-  }
-
-  if (!wifi_.driver_initialized.load()) {
-    wifi_.scan_running.store(false);
-    wifi_.scan_task_running.store(false);
-    wifi_.connect_task_running.store(false);
-    wifi_.running.store(false);
-    wifi_.connected.store(false);
-    wifi_.got_ip.store(false);
-    return true;
-  }
-
-  if (wifi_.scan_running.load() || wifi_.scan_task_running.load()) {
-    const esp_err_t scan_result = esp_wifi_scan_stop();
-    if (scan_result != ESP_OK && scan_result != ESP_ERR_WIFI_NOT_STARTED &&
-        scan_result != ESP_ERR_INVALID_STATE &&
-        scan_result != ESP_ERR_WIFI_STATE) {
-      SetWifiFailure(scan_result);
-      return false;
-    }
-  }
-  esp_wifi_disconnect();
-  wifi_config_t empty_config = {};
-  esp_wifi_set_config(WIFI_IF_STA, &empty_config);
-  esp_err_t result = esp_wifi_stop();
-  if (result != ESP_OK && result != ESP_ERR_WIFI_NOT_STARTED) {
-    SetWifiFailure(result);
-    return false;
-  }
-
-  result = esp_wifi_set_mode(WIFI_MODE_NULL);
-  if (result != ESP_OK) {
-    SetWifiFailure(result);
-    return false;
-  }
-
-  wifi_.running.store(false);
-  wifi_.connected.store(false);
-  wifi_.got_ip.store(false);
-  wifi_.start_failed.store(false);
-  wifi_.last_error.store(ESP_OK);
-  wifi_.disconnect_reason.store(0);
-  wifi_.retry_count.store(0);
-  wifi_.scan_running.store(false);
-  wifi_.scan_task_running.store(false);
-  wifi_.scan_failed.store(false);
-  wifi_.scan_network_count.store(0);
-  wifi_.scan_generation.fetch_add(1);
-  wifi_.ip_address.store(0);
-  wifi_.netmask.store(0);
-  wifi_.gateway.store(0);
   return true;
 }
 
 bool TDisplayP4Device::StartWifiScan() {
   wifi_.stop_requested.store(false);
   if (!wifi_.driver_initialized.load()) {
-    return StartWifi();
+    return SetWifiEnabled(true);
   }
 
   bool expected = false;
@@ -718,7 +798,7 @@ bool TDisplayP4Device::ConnectWifi(
   }
 
   if (!wifi_.driver_initialized.load()) {
-    if (!StartWifi()) {
+    if (!SetWifiEnabled(true)) {
       return false;
     }
     return false;
@@ -776,7 +856,7 @@ bool TDisplayP4Device::StartWifiTimeTest() {
   wifi_.stop_requested.store(false);
   wifi_time_test_.requested.store(true);
   if (!wifi_.driver_initialized.load()) {
-    return StartWifi();
+    return SetWifiEnabled(true);
   }
 
   const int result = StartWifiTimeTestInternal();
@@ -1323,17 +1403,17 @@ bool TDisplayP4Device::StopSpeakerToneLoop() {
 }
 
 bool TDisplayP4Device::SetSpeakerVolumePercent(int percent) {
-  if (!driver_.IsEs8311Ready() && !driver_.InitEs8311()) {
+  if (!driver_.IsEs8311Ready() &&
+      (!driver_.InitEs8311() || !driver_.ConfigEs8311())) {
     LogMessage(
-        LogLevel::kWarning, __FILE__, __LINE__, "Es8311 init retry failed\n");
-    return false;
-  }
-  if (!driver_.IsEs8311Ready()) {
+        LogLevel::kWarning, __FILE__, __LINE__, "Es8311 init failed\n");
     return false;
   }
 
   const uint8_t volume = PercentToUint8Value(percent, kAudioVolumeMax);
-  return driver_.chip().es8311->SetDacVolume(volume);
+  const bool result = driver_.chip().es8311->SetDacVolume(volume);
+  UpdateAudioCodecPowerState();
+  return result;
 }
 
 bool TDisplayP4Device::ReadSpeakerToneStatus(SpeakerStatus* status) {
@@ -1484,6 +1564,7 @@ void TDisplayP4Device::RunSpeakerPlaybackTask() {
                                             : AudioFilePlaybackState::kError));
     speaker_.playback_kind.store(SpeakerState::PlaybackKind::kNone);
     speaker_.running.store(false);
+    UpdateAudioCodecPowerState();
     return;
   }
 
@@ -1502,6 +1583,25 @@ void TDisplayP4Device::RunSpeakerPlaybackTask() {
   speaker_.stop_requested.store(false);
   speaker_.playback_kind.store(SpeakerState::PlaybackKind::kNone);
   speaker_.running.store(false);
+  UpdateAudioCodecPowerState();
+}
+
+bool TDisplayP4Device::UpdateAudioCodecPowerState() {
+  using AudioPowerState =
+      lilygo_device_driver::TDisplayP4Driver::Es8311PowerState;
+  const bool playback_active = speaker_.running.load();
+  const bool capture_active = microphone_.running.load();
+  AudioPowerState state = AudioPowerState::kSleep;
+  if (playback_active && capture_active) {
+    state = AudioPowerState::kDuplex;
+  } else if (playback_active) {
+    state = AudioPowerState::kPlayback;
+  } else if (capture_active) {
+    state = microphone_.adc_to_dac_enabled.load()
+                ? AudioPowerState::kDuplex
+                : AudioPowerState::kCapture;
+  }
+  return driver_.SetEs8311PowerState(state);
 }
 
 bool TDisplayP4Device::Configure(uint32_t sample_rate_hz,
@@ -1511,10 +1611,8 @@ bool TDisplayP4Device::Configure(uint32_t sample_rate_hz,
     return false;
   }
   const bool codec_was_ready = driver_.IsEs8311Ready();
-  if (!codec_was_ready) {
-    if (!driver_.InitEs8311() || !driver_.ConfigEs8311()) {
-      return false;
-    }
+  if (!UpdateAudioCodecPowerState()) {
+    return false;
   }
   if (codec_was_ready && speaker_.sample_rate_hz.load() == sample_rate_hz) {
     return true;
@@ -1656,12 +1754,6 @@ void TDisplayP4Device::RunHapticPlaybackTask() {
 }
 
 bool TDisplayP4Device::StartMicrophone() {
-  if (!driver_.IsEs8311Ready() && !driver_.InitEs8311()) {
-    LogMessage(
-        LogLevel::kWarning, __FILE__, __LINE__, "Es8311 init retry failed\n");
-    return false;
-  }
-
   bool expected = false;
   if (!microphone_.running.compare_exchange_strong(expected, true)) {
     return !microphone_.stop_requested.load();
@@ -1673,6 +1765,7 @@ bool TDisplayP4Device::StartMicrophone() {
   microphone_.bytes_read.store(0);
   if (!SetAudioAdcToDac(false)) {
     microphone_.running.store(false);
+    UpdateAudioCodecPowerState();
     return false;
   }
 
@@ -1682,6 +1775,7 @@ bool TDisplayP4Device::StartMicrophone() {
   if (result != pdPASS) {
     microphone_.running.store(false);
     microphone_.stop_requested.store(true);
+    UpdateAudioCodecPowerState();
     return false;
   }
 
@@ -1700,17 +1794,21 @@ bool TDisplayP4Device::StopMicrophone() {
 }
 
 bool TDisplayP4Device::SetAudioAdcToDac(bool enable) {
-  if (!driver_.IsEs8311Ready()) {
+  const bool previous_enabled = microphone_.adc_to_dac_enabled.exchange(enable);
+  if (!UpdateAudioCodecPowerState() || !driver_.IsEs8311Ready()) {
+    microphone_.adc_to_dac_enabled.store(previous_enabled);
+    UpdateAudioCodecPowerState();
     return false;
   }
 
   if (!driver_.chip().es8311->SetAdcDataToDac(enable)) {
+    microphone_.adc_to_dac_enabled.store(previous_enabled);
+    UpdateAudioCodecPowerState();
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Es8311 SetAdcDataToDac failed\n");
     return false;
   }
 
-  microphone_.adc_to_dac_enabled.store(enable);
   return true;
 }
 
@@ -1846,6 +1944,11 @@ bool TDisplayP4Device::InitializeCameraPreview() {
   if (!driver_.IsScreenReady()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Camera preview start failed: screen is not ready\n");
+    return false;
+  }
+  if (!driver_.SetCameraPowerEnabled(true)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Camera preview start failed: power enable failed\n");
     return false;
   }
 
@@ -2031,6 +2134,10 @@ void TDisplayP4Device::DeinitializeCameraPreview() {
         "esp_video_deinit failed: %s (%#X)\n", esp_err_to_name(result),
         static_cast<unsigned>(result));
   }
+  if (!driver_.SetCameraPowerEnabled(false)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Camera power disable failed\n");
+  }
 }
 
 bool TDisplayP4Device::RenderCameraFrame(
@@ -2118,14 +2225,22 @@ bool TDisplayP4Device::RenderCameraFrame(
   return transformed;
 }
 
-bool TDisplayP4Device::StartGps() {
-  if (!driver_.IsL76kReady() && !driver_.InitL76k()) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "InitL76k failed\n");
-    return false;
+bool TDisplayP4Device::SetGpsEnabled(bool enabled) {
+  if (!enabled) {
+    gps_running_ = false;
+    gps_status_.running = false;
+    const bool result = driver_.SetL76kSleep(true);
+    if (!result) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Disable GPS failed\n");
+    }
+    return result;
   }
-  if (!driver_.IsL76kReady()) {
+
+  if (!driver_.SetL76kSleep(false) || !driver_.IsL76kReady()) {
+    driver_.SetL76kSleep(true);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "L76k is not ready for GPS test\n");
+        "Enable GPS failed\n");
     return false;
   }
 
@@ -2133,30 +2248,13 @@ bool TDisplayP4Device::StartGps() {
   gps_running_ = true;
   gps_status_.running = true;
   gps_status_.update_interval_ms = driver_.chip().l76k->update_interval_ms();
-
-  bool result = driver_.chip().l76k->ClearRxBufferData();
-  result &= driver_.chip().l76k->Sleep(false);
-  if (!result) {
+  if (!driver_.chip().l76k->ClearRxBufferData()) {
     gps_running_ = false;
     gps_status_.running = false;
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "StartGps failed\n");
+    driver_.SetL76kSleep(true);
     return false;
   }
   return true;
-}
-
-bool TDisplayP4Device::StopGps() {
-  gps_running_ = false;
-  gps_status_.running = false;
-  if (!driver_.IsL76kReady()) {
-    return true;
-  }
-
-  const bool result = driver_.chip().l76k->Sleep(true);
-  if (!result) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "StopGps failed\n");
-  }
-  return result;
 }
 
 bool TDisplayP4Device::ReadGpsStatus(GpsStatus* status) {
@@ -2415,6 +2513,7 @@ void TDisplayP4Device::RunMicrophoneCaptureTask() {
   microphone_.level_percent.store(0);
   microphone_.peak_sample.store(0);
   microphone_.running.store(false);
+  UpdateAudioCodecPowerState();
 }
 
 void TDisplayP4Device::EthernetInitTaskEntry(void* context) {
@@ -2429,12 +2528,16 @@ void TDisplayP4Device::RunEthernetInitTask() {
   const int result = InitializeEthernetStack();
   if (result != ESP_OK) {
     SetEthernetFailure(result);
+    driver_.SetEthernetPowerEnabled(false);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Ethernet init failed: %s (%#X)\n",
         esp_err_to_name(static_cast<esp_err_t>(result)),
         static_cast<unsigned>(result));
   }
   ethernet_.init_task_running.store(false);
+  if (ethernet_.stop_requested.load()) {
+    SetEthernetEnabled(false);
+  }
 }
 
 int TDisplayP4Device::InitializeEthernetStack() {
@@ -2649,26 +2752,29 @@ void TDisplayP4Device::WifiInitTaskEntry(void* context) {
 
 void TDisplayP4Device::RunWifiInitTask() {
   if (!WaitForWifiHardwareReady()) {
-    SetWifiFailure(ESP_ERR_TIMEOUT);
     LogMessage(
         LogLevel::kWarning, __FILE__, __LINE__, "WiFi hardware is not ready\n");
+    wifi_.init_task_running.store(false);
+    SetWifiEnabled(false);
+    SetWifiFailure(ESP_ERR_TIMEOUT);
     return;
   }
 
   const int result = InitializeWifiStack();
   if (result != ESP_OK) {
-    SetWifiFailure(result);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "WiFi init failed: %s (%#X)\n",
         esp_err_to_name(static_cast<esp_err_t>(result)),
         static_cast<unsigned>(result));
     wifi_.init_task_running.store(false);
+    SetWifiEnabled(false);
+    SetWifiFailure(result);
     return;
   }
 
   wifi_.init_task_running.store(false);
   if (wifi_.stop_requested.load()) {
-    StopWifi();
+    SetWifiEnabled(false);
     return;
   }
   if (wifi_time_test_.requested.load()) {
@@ -3436,12 +3542,18 @@ bool TDisplayP4Device::ActivateRadio(const RadioConfig& config) {
              antenna_switch->GpioWrite(
                  gpio::xl9535::kSky13453Vctl, antenna_level);
   }
-  if (result && driver_.IsSx1262Ready()) {
+  if (result && driver_.SetSx1262PowerState(
+                    lilygo_device_driver::TDisplayP4Driver::
+                        Sx1262PowerState::kStandby)) {
     auto* radio = driver_.chip().sx1262.get();
     result = radio != nullptr && radio->Configure(driver_config) &&
              radio->StartReceive();
   } else {
     result = false;
+  }
+  if (!result) {
+    driver_.SetSx1262PowerState(
+        lilygo_device_driver::TDisplayP4Driver::Sx1262PowerState::kSleep);
   }
   radio_.active = result;
   radio_.transmitting = false;
@@ -3473,10 +3585,15 @@ bool TDisplayP4Device::DeactivateRadio() {
   bool result = true;
   if (driver_.IsSx1262Ready()) {
     auto* radio = driver_.chip().sx1262.get();
-    result = radio != nullptr &&
-             radio->Invoke(sx126x_set_standby, SX126X_STANDBY_CFG_RC) ==
-                 SX126X_STATUS_OK &&
-             radio->ClearIrqStatus(SX126X_IRQ_ALL);
+    if (radio_.active) {
+      result = radio != nullptr &&
+               radio->Invoke(sx126x_set_standby, SX126X_STANDBY_CFG_RC) ==
+                   SX126X_STATUS_OK &&
+               radio->ClearIrqStatus(SX126X_IRQ_ALL);
+    }
+    result &= driver_.SetSx1262PowerState(
+        lilygo_device_driver::TDisplayP4Driver::
+            Sx1262PowerState::kSleep);
   }
   radio_.active = false;
   radio_.transmitting = false;
@@ -3783,6 +3900,12 @@ bool TDisplayP4Device::ReadRadioStatus(RadioStatus* status) {
   return true;
 }
 
+bool TDisplayP4Device::SetImuEnabled(bool enabled) {
+  const bool result = driver_.SetIcm20948Sleep(!enabled);
+  imu_enabled_.store(enabled && result);
+  return result;
+}
+
 bool TDisplayP4Device::ReadImuStatus(ImuStatus* status) {
   if (status == nullptr) {
     return false;
@@ -3790,7 +3913,7 @@ bool TDisplayP4Device::ReadImuStatus(ImuStatus* status) {
 
   *status = ImuStatus();
 
-  if (driver_.IsIcm20948Ready()) {
+  if (imu_enabled_.load() && driver_.IsIcm20948Ready()) {
     xyzFloat acceleration;
     xyzFloat angle;
     xyzFloat magnetic;
@@ -3873,25 +3996,83 @@ bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
   if (!deep_sleep && !WaitForScreenReady()) {
     return false;
   }
-  const lilygo_device_driver::TDisplayP4Driver::SleepLevel sleep_level =
-      deep_sleep
-          ? lilygo_device_driver::TDisplayP4Driver::SleepLevel::kDeep
-          : lilygo_device_driver::TDisplayP4Driver::SleepLevel::kLight;
-  return driver_.SetSleep(sleep_level, true);
+  bool prepared = true;
+  if (deep_sleep) {
+    prepared = PrepareForPowerOff();
+  }
+  if (!prepared) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Prepare device for power off failed\n");
+  }
+  const auto state = deep_sleep
+                         ? lilygo_device_driver::TDisplayP4Driver::
+                               PowerState::kOff
+                         : lilygo_device_driver::TDisplayP4Driver::
+                               PowerState::kSleep;
+  return driver_.SetPowerState(state) && prepared;
 }
 
 bool TDisplayP4Device::ExitDeviceSleep(bool deep_sleep) {
-  const lilygo_device_driver::TDisplayP4Driver::SleepLevel sleep_level =
-      deep_sleep
-          ? lilygo_device_driver::TDisplayP4Driver::SleepLevel::kDeep
-          : lilygo_device_driver::TDisplayP4Driver::SleepLevel::kLight;
-  const bool result = driver_.SetSleep(sleep_level, false);
+  if (deep_sleep) {
+    return false;
+  }
+  const bool result = driver_.SetPowerState(
+      lilygo_device_driver::TDisplayP4Driver::PowerState::kActive);
   if (!result) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Wake device from chip sleep failed\n");
     return false;
   }
   return WaitForScreenReady();
+}
+
+bool TDisplayP4Device::PrepareForPowerOff() {
+  bool result = true;
+
+  if (speaker_.running.load()) {
+    if (speaker_.playback_kind.load() ==
+        SpeakerState::PlaybackKind::kAudioFile) {
+      result &= StopAudioFile();
+    } else {
+      speaker_.stop_requested.store(true);
+      speaker_.loop_enabled.store(false);
+    }
+  }
+  if (microphone_.running.load() ||
+      microphone_.adc_to_dac_enabled.load()) {
+    result &= StopMicrophone();
+  }
+  if (camera_preview_.running.load()) {
+    result &= StopCameraPreview();
+  }
+  if (radio_.active || radio_.transmitting) {
+    result &= DeactivateRadio();
+  }
+  result &= SetGpsEnabled(false);
+  result &= SetImuEnabled(false);
+  result &= SetEthernetEnabled(false);
+  result &= SetWifiEnabled(false);
+  result &= WaitForPowerOffTasks();
+  return result;
+}
+
+bool TDisplayP4Device::WaitForPowerOffTasks() {
+  for (int elapsed_ms = 0; elapsed_ms < kPowerOffTaskTimeoutMs;
+      elapsed_ms += kPowerOffTaskPollMs) {
+    const bool tasks_running = speaker_.running.load() ||
+                               haptic_.running.load() ||
+                               microphone_.running.load() ||
+                               camera_preview_.running.load() ||
+                               ethernet_.init_task_running.load() ||
+                               wifi_.init_task_running.load() ||
+                               wifi_.scan_task_running.load() ||
+                               wifi_.connect_task_running.load();
+    if (!tasks_running) {
+      return true;
+    }
+    vTaskDelay(pdMS_TO_TICKS(kPowerOffTaskPollMs));
+  }
+  return false;
 }
 
 bool TDisplayP4Device::IsLockWakeButtonPressed() {

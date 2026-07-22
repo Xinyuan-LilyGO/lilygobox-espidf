@@ -136,17 +136,7 @@ class GpsProvider {
  public:
   virtual ~GpsProvider() = default;
 
-  /**
-   * @brief 启动 GPS 并唤醒定位模块
-   * @return 启动成功返回 true，否则返回 false
-   */
-  virtual bool StartGps() = 0;
-
-  /**
-   * @brief 停止 GPS 并让定位模块进入睡眠
-   * @return 停止成功返回 true，否则返回 false
-   */
-  virtual bool StopGps() = 0;
+  virtual bool SetGpsEnabled(bool enabled) = 0;
 
   /**
    * @brief 读取 GPS 状态和最新 GNSS 解析数据
