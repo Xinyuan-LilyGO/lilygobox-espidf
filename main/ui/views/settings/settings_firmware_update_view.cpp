@@ -1215,17 +1215,18 @@ bool CreateFirmwareUpdateBody(
   state->firmware_update_new_page = new_page;
   MakeTransparent(current_page);
   MakeTransparent(new_page);
-  lv_obj_remove_flag(current_page, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_flag(new_page, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_flag(new_page, LV_OBJ_FLAG_SCROLL_CHAIN_HOR);
-  lv_obj_set_scroll_dir(new_page, LV_DIR_VER);
-  lv_obj_set_scrollbar_mode(new_page, LV_SCROLLBAR_MODE_OFF);
-  lv_obj_remove_flag(new_page, LV_OBJ_FLAG_SCROLL_ELASTIC);
-  lv_obj_remove_flag(new_page, LV_OBJ_FLAG_SCROLL_MOMENTUM);
-  lv_obj_add_flag(current_page, LV_OBJ_FLAG_SNAPPABLE);
-  lv_obj_add_flag(new_page, LV_OBJ_FLAG_SNAPPABLE);
-  lv_obj_add_flag(current_page, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_add_flag(new_page, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_t* firmware_pages[] = {current_page, new_page};
+  for (lv_obj_t* firmware_page : firmware_pages) {
+    // 子页面负责纵向浏览，横向手势继续交给外层容器完成分页。
+    lv_obj_add_flag(firmware_page, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(firmware_page, LV_OBJ_FLAG_SCROLL_CHAIN_HOR);
+    lv_obj_add_flag(firmware_page, LV_OBJ_FLAG_SNAPPABLE);
+    lv_obj_add_flag(firmware_page, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_set_scroll_dir(firmware_page, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(firmware_page, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(firmware_page, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_remove_flag(firmware_page, LV_OBJ_FLAG_SCROLL_MOMENTUM);
+  }
   lv_obj_set_size(current_page, width, body_height);
   lv_obj_set_size(new_page, width, body_height);
   lv_obj_set_pos(current_page, 0, 0);

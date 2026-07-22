@@ -88,8 +88,7 @@ constexpr uint32_t kPlaybackStatusIntervalMs = 250;
 constexpr uint32_t kMusicScanStartDelayMs = 850;
 constexpr uint32_t kMusicScanTaskStackBytes = 8 * 1024;
 constexpr UBaseType_t kMusicScanTaskPriority = 2;
-constexpr int kMusicEmptyGroupOffsetY = -100;
-constexpr int kMusicScanningGroupOffsetY = -48;
+constexpr int kMusicStatusGroupTopGap = 24;
 constexpr int kMusicStatusIconSize = 96;
 
 constexpr int kMusicFolderOptionCount = 8;
@@ -162,6 +161,7 @@ struct MusicViewState {
   lv_obj_t* current_time_label = nullptr;
   lv_obj_t* total_time_label = nullptr;
   lv_obj_t* library_content = nullptr;
+  lv_obj_t* library_status_anchor = nullptr;
   lv_obj_t* settings_page = nullptr;
   lv_obj_t* sources_page = nullptr;
   lv_obj_t* sources_body = nullptr;
@@ -1584,6 +1584,32 @@ void MusicViewDeleteEventCallback(lv_event_t* event) {
 }
 
 /**
+ * @brief 将音乐状态提示放到歌曲标签控件下方
+ * @param group 状态提示容器
+ * @param state 音乐页面状态
+ */
+void PositionMusicStatusGroupBelowControls(
+    lv_obj_t* group, MusicViewState* state) {
+  if (group == nullptr || state == nullptr ||
+      state->library_content == nullptr) {
+    return;
+  }
+
+  int group_top = kMusicStatusGroupTopGap;
+  if (state->root != nullptr && state->library_status_anchor != nullptr) {
+    lv_obj_update_layout(state->root);
+    lv_area_t anchor_area = {};
+    lv_area_t content_area = {};
+    lv_obj_get_coords(state->library_status_anchor, &anchor_area);
+    lv_obj_get_coords(state->library_content, &content_area);
+    group_top = static_cast<int>(anchor_area.y2) -
+                static_cast<int>(content_area.y1) + 1 +
+                kMusicStatusGroupTopGap;
+  }
+  lv_obj_set_pos(group, 0, std::max(0, group_top));
+}
+
+/**
  * @brief 创建主界面的空音乐提示
  * @param parent 父对象
  * @param state 音乐视图状态
@@ -1600,7 +1626,7 @@ bool CreateEmptyMusicContent(lv_obj_t* parent, MusicViewState* state) {
   MakeTransparent(group);
   lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(group, state->config.width, 280);
-  lv_obj_align(group, LV_ALIGN_CENTER, 0, kMusicEmptyGroupOffsetY);
+  PositionMusicStatusGroupBelowControls(group, state);
 
   const bool storage_available =
       state->session != nullptr && state->session->storage_was_mounted;
@@ -1752,6 +1778,7 @@ bool RenderMusicScanningContent(MusicViewState* state) {
     return false;
   }
   lv_obj_clean(state->library_content);
+  lv_obj_scroll_to_y(state->library_content, 0, LV_ANIM_OFF);
   state->track_actions.clear();
 
   lv_obj_t* group = lv_obj_create(state->library_content);
@@ -1761,7 +1788,7 @@ bool RenderMusicScanningContent(MusicViewState* state) {
   MakeTransparent(group);
   lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(group, state->config.width, 250);
-  lv_obj_align(group, LV_ALIGN_CENTER, 0, kMusicScanningGroupOffsetY);
+  PositionMusicStatusGroupBelowControls(group, state);
 
   lv_obj_t* spinner = lv_spinner_create(group);
   if (spinner != nullptr) {
@@ -2944,6 +2971,7 @@ bool RenderMusicLibrary(MusicViewState* state) {
     return false;
   }
   lv_obj_clean(state->library_content);
+  lv_obj_scroll_to_y(state->library_content, 0, LV_ANIM_OFF);
   state->track_actions.clear();
   if (state->session->tracks.empty()) {
     return CreateEmptyMusicContent(state->library_content, state);
@@ -3526,6 +3554,7 @@ lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry& app_entry,
     lv_obj_set_style_border_width(underline, 0, LV_PART_MAIN);
     lv_obj_align_to(underline, tab, LV_ALIGN_OUT_BOTTOM_MID, 0, 18);
   }
+  state->library_status_anchor = underline != nullptr ? underline : tab;
 
   state->library_content = lv_obj_create(container);
   if (state->library_content == nullptr) {

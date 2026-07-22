@@ -59,6 +59,7 @@ constexpr int kStorageRowHeight = 88;
 constexpr int kStorageRowTextX = 94;
 constexpr int kStorageNameHeight = 36;
 constexpr int kStorageDescriptionHeight = 28;
+constexpr int kStatusGroupTopGap = 24;
 constexpr int kStorageRetryPeriodMs = 850;
 constexpr int kStorageMonitorPeriodMs = 1000;
 constexpr int kStorageMissingCheckCount = 2;
@@ -1014,6 +1015,31 @@ lv_obj_t* CreatePrimaryActionButton(lv_obj_t* parent, const char* text,
 }
 
 /**
+ * @brief 将文件状态提示放到顶部副标题下方
+ * @param group 状态提示容器
+ * @param state 文件管理页面状态
+ */
+void PositionFilesStatusGroupBelowHeader(
+    lv_obj_t* group, FilesViewState* state) {
+  if (group == nullptr || state == nullptr || state->content == nullptr) {
+    return;
+  }
+
+  int group_top = kBreadcrumbTop;
+  if (state->root != nullptr && state->subtitle_label != nullptr) {
+    lv_obj_update_layout(state->root);
+    lv_area_t subtitle_area = {};
+    lv_area_t content_area = {};
+    lv_obj_get_coords(state->subtitle_label, &subtitle_area);
+    lv_obj_get_coords(state->content, &content_area);
+    group_top = static_cast<int>(subtitle_area.y2) -
+                static_cast<int>(content_area.y1) + 1 +
+                kStatusGroupTopGap;
+  }
+  lv_obj_set_pos(group, 0, std::max(0, group_top));
+}
+
+/**
  * @brief 处理无存储页面的重新扫描按钮点击事件
  * @param event LVGL 事件对象
  */
@@ -1042,7 +1068,7 @@ void RenderScanningContent(FilesViewState* state) {
   MakeTransparent(group);
   lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(group, state->config.width, 180);
-  lv_obj_align(group, LV_ALIGN_CENTER, 0, 26);
+  PositionFilesStatusGroupBelowHeader(group, state);
 
   lv_obj_t* spinner = lv_spinner_create(group);
   if (spinner != nullptr) {
@@ -1091,7 +1117,7 @@ void RenderNoStorageContent(FilesViewState* state) {
   MakeTransparent(group);
   lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(group, state->config.width, 280);
-  lv_obj_align(group, LV_ALIGN_CENTER, 0, -100);
+  PositionFilesStatusGroupBelowHeader(group, state);
 
   lv_obj_t* icon_background = lv_obj_create(group);
   if (icon_background != nullptr) {

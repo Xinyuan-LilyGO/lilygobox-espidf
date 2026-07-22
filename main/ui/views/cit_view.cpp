@@ -2185,6 +2185,27 @@ lv_obj_t* CreateDataLabel(lv_obj_t* parent, const char* text) {
 }
 
 /**
+ * @brief 设置 CIT 测试正文是否允许纵向滚动
+ * @param content 测试正文容器
+ * @param enabled 是否启用纵向滚动
+ */
+void SetTestContentVerticalScrollEnabled(lv_obj_t* content, bool enabled) {
+  if (content == nullptr) {
+    return;
+  }
+
+  if (!enabled) {
+    lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_OFF);
+    return;
+  }
+
+  lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(content, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_ACTIVE);
+}
+
+/**
  * @brief 创建多点触摸位置标记
  * @param state CIT 页面状态
  * @return 成功返回 true，否则返回 false
@@ -2345,9 +2366,6 @@ bool AddVersionContent(lv_obj_t* content, CitViewState* state) {
       info.camera.bits_per_pixel, info.camera.buffer_count, info.lvgl.major,
       info.lvgl.minor, info.lvgl.patch, info.lvgl.extra_info);
 
-  lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_scroll_dir(content, LV_DIR_VER);
-  lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_ACTIVE);
   return CreateDataLabel(content, text) != nullptr;
 }
 
@@ -2361,6 +2379,9 @@ bool AddTouchContent(lv_obj_t* content, CitViewState* state) {
   if (state == nullptr || state->test_page == nullptr) {
     return false;
   }
+
+  // 触摸轨迹测试需要接收完整的拖动手势，不能让正文容器参与滚动。
+  SetTestContentVerticalScrollEnabled(content, false);
 
   state->touch_trace_point_count = 0;
   state->touch_trace_surface = nullptr;
@@ -2567,9 +2588,6 @@ bool AddDiagnosticsContent(
     initial_text = "imu data:";
   } else if (IsEntryId(entry, "bmu")) {
     initial_text = "BMU data:";
-    lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scroll_dir(content, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_ACTIVE);
   }
 
   state->test_data_label = CreateDataLabel(content, initial_text);
@@ -2590,10 +2608,6 @@ bool AddGpsContent(lv_obj_t* content, CitViewState* state) {
   if (state == nullptr) {
     return false;
   }
-
-  lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_scroll_dir(content, LV_DIR_VER);
-  lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_ACTIVE);
 
   state->gps_elapsed_ms = 0;
   state->gps_read_elapsed_ms = 0;
@@ -2652,10 +2666,6 @@ bool AddWifiContent(lv_obj_t* content, CitViewState* state) {
   if (state == nullptr) {
     return false;
   }
-
-  lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_scroll_dir(content, LV_DIR_VER);
-  lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_ACTIVE);
 
   state->test_data_label =
       CreateDataLabel(content, "WIFI time data:\nstatus: starting");
@@ -2831,7 +2841,7 @@ bool ShowCitTest(CitViewState* state, size_t index) {
     return false;
   }
   state->test_content = content;
-  lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+  SetTestContentVerticalScrollEnabled(content, true);
   AddEdgeBackSwipeEvents(content, TestPageEdgeBackEventCallback, state);
   lv_obj_set_size(
       content, LV_PCT(100), state->height - kListTop - kTestButtonBarHeight);
