@@ -63,7 +63,7 @@ constexpr int kUpdateStatusLogButtonPaddingX = 12;
 constexpr int kUpdateStatusLogButtonContentGap = 4;
 constexpr int kUpdateStatusSpinnerTop = 166;
 constexpr int kUpdateStatusPrimaryTop = kUpdateStatusSpinnerTop + 96;
-constexpr int kUpdateStatusHintTop = kUpdateStatusSpinnerTop + 138;
+constexpr int kUpdateStatusTextGap = 8;
 constexpr int kUpdatePageIndicatorWidth = 48;
 constexpr int kUpdatePageIndicatorHeight = 18;
 constexpr int kUpdatePageIndicatorBottom = 116;
@@ -611,17 +611,25 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
             : snapshot.message);
     const bool network_error =
         std::strstr(snapshot.message, "Wi-Fi") != nullptr;
-    const char* failure_hint = "Check the release package and try again";
+    const bool update_information_unavailable =
+        std::strcmp(snapshot.message, "Update information unavailable") == 0;
+    const char* failure_hint = "Please try again later";
     if (!snapshot.device_supported) {
       failure_hint = "This device has no matching firmware package";
     } else if (network_error) {
       failure_hint = "Connect to Wi-Fi and try again";
+    } else if (update_information_unavailable) {
+      failure_hint = "Check your internet connection and try again";
     } else if (manual_update_required) {
       failure_hint = "This updater does not support the manifest format";
     }
     lv_label_set_text(
         state->firmware_update_scan_hint_label, failure_hint);
   }
+  lv_obj_update_layout(state->firmware_update_scan_group);
+  lv_obj_align_to(state->firmware_update_scan_hint_label,
+      state->firmware_update_scan_message_label, LV_ALIGN_OUT_BOTTOM_MID,
+      0, kUpdateStatusTextGap);
 
   const bool downloading =
       snapshot.stage == app::FirmwareUpdateStage::kDownloadingWireless ||
@@ -1315,10 +1323,14 @@ bool CreateFirmwareUpdateBody(
   }
   lv_obj_set_width(message, content_width);
   lv_obj_set_width(hint, content_width);
+  lv_label_set_long_mode(message, LV_LABEL_LONG_WRAP);
+  lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
   lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_align(message, LV_ALIGN_TOP_MID, 0, kUpdateStatusPrimaryTop);
-  lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, kUpdateStatusHintTop);
+  lv_obj_update_layout(scan_group);
+  lv_obj_align_to(hint, message, LV_ALIGN_OUT_BOTTOM_MID,
+      0, kUpdateStatusTextGap);
   state->firmware_update_scan_message_label = message;
   state->firmware_update_scan_hint_label = hint;
 

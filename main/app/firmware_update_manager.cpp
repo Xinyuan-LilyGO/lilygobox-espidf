@@ -3092,7 +3092,7 @@ void CheckTask(void* context) {
     }
     if (!manual_update_required) {
       ApplyInstalledManifestFallback(
-          "Unable to check updates; showing installed version");
+          "Update information unavailable");
     }
     FinishWorker();
     vTaskDelete(nullptr);
