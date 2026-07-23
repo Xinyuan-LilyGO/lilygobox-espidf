@@ -1,13 +1,21 @@
 {
   "device_id": "t-display-p4",
+  "schema_version": 1,
   "repository": "Xinyuan-LilyGO/lilygobox-espidf",
-  "manifest_asset_name": "lilygobox-t-display-p4-ota-manifest.json",
-  "components": {
-    "esp32p4": {
-      "asset_name": "lilygobox-t-display-p4-esp32p4.bin"
-    },
-    "esp32c6": {
-      "asset_name": "lilygobox-t-display-p4-esp32c6.bin"
+  "device_versions": {
+    "v1.0": {
+      "main": {
+        "chip": "esp32p4",
+        "project_name": "lilygobox-espidf"
+      },
+      "wireless": {
+        "chip": "esp32c6",
+        "project_name": "network_adapter"
+      }
     }
-  }
+  },
+  "download_url_templates": [
+    "https://github.com/{repository}/releases/download/{release}/{asset_name}",
+    "https://gh-proxy.com/https://github.com/{repository}/releases/download/{release}/{asset_name}"
+  ]
 }

@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstring>
 #include <dirent.h>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <sys/stat.h>
@@ -41,27 +42,22 @@
 #include "hal/providers/wifi_provider.h"
 #include "mbedtls/sha256.h"
 
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
+#include "t_display_p4_driver.h"
+#endif
+
 namespace lilygo_box::app {
 namespace {
 
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
 constexpr char kCurrentDeviceId[] = "t-display-p4";
-constexpr char kManifestUrl[] =
-    "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/releases/"
-    "latest/download/lilygobox-t-display-p4-ota-manifest.json";
+constexpr const char* kCurrentDeviceVersion =
+    lilygo_device_driver::t_display_p4::device::kDeviceModelInfo.version;
 #else
 constexpr char kCurrentDeviceId[] = "";
-constexpr char kManifestUrl[] = "";
+constexpr char kCurrentDeviceVersion[] = "";
 #endif
-constexpr int kSupportedManifestVersion = 1;
-constexpr char kBackupDownloadProxyPrefix[] =
-    "https://gh-proxy.com/";
-constexpr char kReleaseDownloadPrefix[] =
-    "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/releases/download/";
-constexpr char kMainReleaseAssetName[] =
-    "lilygobox-t-display-p4-esp32p4.bin";
-constexpr char kWirelessReleaseAssetName[] =
-    "lilygobox-t-display-p4-esp32c6.bin";
+constexpr int kSupportedSchemaVersion = 1;
 constexpr char kApplicationDirectory[] = "/littlefs/lilygobox";
 constexpr char kOtaDirectory[] = "/littlefs/lilygobox/ota";
 constexpr char kOtaStagingDirectory[] =
@@ -86,7 +82,8 @@ constexpr char kWirelessFirmwareProjectName[] = "network_adapter";
 constexpr esp_chip_id_t kExpectedWirelessChipId = ESP_CHIP_ID_ESP32C6;
 constexpr int kFirmwareHttpTimeoutMs = 15000;
 constexpr int kHttpBufferSize = 4096;
-constexpr size_t kMaximumDownloadUrlLength = 512;
+constexpr size_t kMaximumFirmwareDownloadSourceCount = 4;
+constexpr size_t kMaximumFirmwareDownloadUrlLength = 384;
 constexpr size_t kManifestMaximumSize = 8 * 1024;
 constexpr size_t kMaximumFirmwareAssetSize = 64 * 1024 * 1024;
 constexpr size_t kMinimumLittleFsFreeReserve = 256 * 1024;
@@ -99,12 +96,40 @@ constexpr uint8_t kMaximumImageSegmentCount = 16;
 constexpr uint32_t kRestartDelayMs = 1200;
 constexpr uint32_t kWirelessReadyPollMs = 250;
 constexpr uint32_t kWirelessReadyTimeoutMs = 15 * 1000;
-constexpr uint32_t kManifestPrimaryTimeoutMs = 8 * 1000;
-constexpr uint32_t kManifestBackupTimeoutMs = 15 * 1000;
 constexpr uint32_t kFirmwareDownloadTimeoutMs = 10 * 60 * 1000;
 constexpr uint32_t kInternetValidationTimeoutMs = 32 * 1000;
 constexpr uint32_t kWorkerTaskStackBytes = 16 * 1024;
 constexpr UBaseType_t kWorkerTaskPriority = 5;
+
+struct ManifestDownloadSourceConfig {
+  const char* name;
+  const char* url;
+  uint32_t timeout_ms;
+};
+
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
+constexpr ManifestDownloadSourceConfig kManifestDownloadSources[] = {
+    {
+        "GitHub",
+        "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/releases/"
+        "latest/download/lilygobox-t-display-p4-ota-manifest-v1.json",
+        8 * 1000,
+    },
+    {
+        "gh-proxy",
+        "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
+        "lilygobox-espidf/releases/latest/download/"
+        "lilygobox-t-display-p4-ota-manifest-v1.json",
+        15 * 1000,
+    },
+};
+#else
+constexpr ManifestDownloadSourceConfig kManifestDownloadSources[] = {
+    {"", "", 0},
+};
+#endif
+constexpr size_t kManifestDownloadSourceCount =
+    std::size(kManifestDownloadSources);
 
 struct FirmwareReleaseManifest {
   char device_id[32] = {};
@@ -112,11 +137,15 @@ struct FirmwareReleaseManifest {
   char release_channel[16] = {};
   char release_time[32] = {};
   char main_version[32] = {};
-  char main_url[384] = {};
+  char main_urls[kMaximumFirmwareDownloadSourceCount]
+                [kMaximumFirmwareDownloadUrlLength] = {};
+  size_t main_url_count = 0;
   size_t main_size_bytes = 0;
   char main_sha256[kSha256TextLength + 1] = {};
   char wireless_version[32] = {};
-  char wireless_url[384] = {};
+  char wireless_urls[kMaximumFirmwareDownloadSourceCount]
+                    [kMaximumFirmwareDownloadUrlLength] = {};
+  size_t wireless_url_count = 0;
   size_t wireless_size_bytes = 0;
   char wireless_sha256[kSha256TextLength + 1] = {};
   char notes[kFirmwareUpdateNoteCapacity][128] = {};
@@ -154,19 +183,6 @@ struct FirmwareDownloadContext {
   bool cancel_requested = false;
 };
 
-// 本次更新优先使用的固件下载源。
-enum class FirmwareDownloadSource {
-  kPrimary,
-  kBackup,
-};
-
-// 按本次首选顺序排列的固件下载地址。
-struct FirmwareDownloadSourceList {
-  const char* urls[2] = {};
-  FirmwareDownloadSource sources[2] = {};
-  size_t count = 0;
-};
-
 struct FirmwareConnectivityContext {
   bool server_connected = false;
   bool request_sent = false;
@@ -185,8 +201,6 @@ struct FirmwareUpdateManagerState {
   bool worker_running = false;
   bool pause_requested = false;
   bool cancel_requested = false;
-  FirmwareDownloadSource preferred_download_source =
-      FirmwareDownloadSource::kPrimary;
 };
 
 // 指向 Application 当前持有的唯一固件更新状态，不拥有该对象。
@@ -229,11 +243,12 @@ enum class TransferRequest {
   kCancel,
 };
 
-// 固件清单解析结果，用于区分格式错误和不兼容版本。
+// 固件清单解析结果，用于区分格式错误、格式版本和设备版本。
 enum class ManifestParseResult {
   kSuccess,
   kInvalid,
   kUnsupportedVersion,
+  kUnsupportedDeviceVersion,
 };
 
 /**
@@ -342,41 +357,6 @@ esp_err_t FirmwareOtaHttpClientInitialized(
     esp_http_client_handle_t client) {
   SetActiveHttpClient(client);
   return ESP_OK;
-}
-
-/**
- * @brief 获取本次更新优先使用的固件下载源
- * @return 当前首选下载源
- */
-FirmwareDownloadSource GetPreferredDownloadSource() {
-  if (!LockManager()) {
-    return FirmwareDownloadSource::kPrimary;
-  }
-  const FirmwareDownloadSource source =
-      State().preferred_download_source;
-  UnlockManager();
-  return source;
-}
-
-/**
- * @brief 记录本次更新优先使用的固件下载源
- * @param source 下载源
- */
-void SetPreferredDownloadSource(FirmwareDownloadSource source) {
-  if (!LockManager()) {
-    return;
-  }
-  State().preferred_download_source = source;
-  UnlockManager();
-}
-
-/**
- * @brief 获取固件下载源的日志名称
- * @param source 下载源
- * @return 日志名称
- */
-const char* FirmwareDownloadSourceName(FirmwareDownloadSource source) {
-  return source == FirmwareDownloadSource::kBackup ? "backup" : "primary";
 }
 
 TransferRequest ReadTransferRequest() {
@@ -593,7 +573,8 @@ esp_err_t FirmwareConnectivityEventHandler(
  * @return 已配置受支持设备返回 true，否则返回 false
  */
 bool IsFirmwareUpdateDeviceSupported() {
-  return kCurrentDeviceId[0] != '\0' && kManifestUrl[0] != '\0';
+  return kCurrentDeviceId[0] != '\0' &&
+         kManifestDownloadSources[0].url[0] != '\0';
 }
 
 /**
@@ -848,64 +829,16 @@ bool HasWirelessFirmwareDownloadSpace(size_t firmware_size) {
  * @return 地址有效返回 true，否则返回 false
  */
 bool IsHttpsUrl(const char* url) {
-  return url != nullptr && std::strncmp(url, "https://", 8) == 0;
-}
-
-/**
- * @brief 为 GitHub 下载地址生成备用代理地址
- * @param source_url GitHub 原始下载地址
- * @param destination 备用地址输出缓冲区
- * @param destination_size 输出缓冲区长度
- * @return 地址生成成功返回 true，否则返回 false
- */
-bool BuildBackupDownloadUrl(const char* source_url, char* destination,
-    size_t destination_size) {
-  constexpr char kGithubHttpsPrefix[] = "https://github.com/";
-  if (source_url == nullptr || destination == nullptr ||
-      destination_size == 0 ||
-      std::strncmp(source_url, kGithubHttpsPrefix,
-          sizeof(kGithubHttpsPrefix) - 1) != 0) {
+  if (url == nullptr || std::strncmp(url, "https://", 8) != 0 ||
+      url[8] == '\0') {
     return false;
   }
-  const int written = std::snprintf(destination, destination_size, "%s%s",
-      kBackupDownloadProxyPrefix, source_url);
-  return written > 0 && static_cast<size_t>(written) < destination_size;
-}
-
-/**
- * @brief 按清单成功来源生成固件下载地址尝试顺序
- * @param primary_url 固件主下载地址
- * @param backup_url 备用地址输出缓冲区
- * @param backup_url_size 备用地址输出缓冲区长度
- * @param list 下载地址顺序输出
- * @return 至少存在一个有效下载地址返回 true，否则返回 false
- */
-bool PrepareFirmwareDownloadSources(const char* primary_url,
-    char* backup_url, size_t backup_url_size,
-    FirmwareDownloadSourceList* list) {
-  if (primary_url == nullptr || primary_url[0] == '\0' ||
-      backup_url == nullptr || backup_url_size == 0 || list == nullptr) {
-    return false;
-  }
-  *list = {};
-  const bool backup_available = BuildBackupDownloadUrl(
-      primary_url, backup_url, backup_url_size);
-  if (backup_available &&
-      GetPreferredDownloadSource() == FirmwareDownloadSource::kBackup) {
-    list->urls[0] = backup_url;
-    list->sources[0] = FirmwareDownloadSource::kBackup;
-    list->urls[1] = primary_url;
-    list->sources[1] = FirmwareDownloadSource::kPrimary;
-    list->count = 2;
-    return true;
-  }
-  list->urls[0] = primary_url;
-  list->sources[0] = FirmwareDownloadSource::kPrimary;
-  list->count = 1;
-  if (backup_available) {
-    list->urls[1] = backup_url;
-    list->sources[1] = FirmwareDownloadSource::kBackup;
-    list->count = 2;
+  for (const unsigned char* character =
+           reinterpret_cast<const unsigned char*>(url);
+       *character != '\0'; ++character) {
+    if (*character < 0x21 || *character > 0x7E) {
+      return false;
+    }
   }
   return true;
 }
@@ -1072,36 +1005,6 @@ bool MatchesSha256(
 }
 
 /**
- * @brief 检查组件地址是否属于指定仓库的一个正式 Release
- * @param url 清单组件地址
- * @param asset_name 固定资源文件名
- * @return 仓库、三段式 tag 和文件名均有效返回 true，否则返回 false
- */
-bool IsExpectedReleaseAssetUrl(const char* url, const char* asset_name) {
-  if (!IsHttpsUrl(url) || asset_name == nullptr ||
-      std::strncmp(url, kReleaseDownloadPrefix,
-          sizeof(kReleaseDownloadPrefix) - 1) != 0) {
-    return false;
-  }
-  const char* tag = url + sizeof(kReleaseDownloadPrefix) - 1;
-  const char* separator = std::strchr(tag, '/');
-  if (separator == nullptr || separator == tag || separator[1] == '\0' ||
-      std::strchr(separator + 1, '/') != nullptr ||
-      std::strcmp(separator + 1, asset_name) != 0) {
-    return false;
-  }
-  const size_t tag_length = static_cast<size_t>(separator - tag);
-  char release_tag[32] = {};
-  if (tag_length >= sizeof(release_tag)) {
-    return false;
-  }
-  std::memcpy(release_tag, tag, tag_length);
-  release_tag[tag_length] = '\0';
-  return release_tag[0] == 'v' &&
-         ParseSemanticVersion(release_tag + 1, nullptr);
-}
-
-/**
  * @brief 从 JSON 对象读取必需的字符串字段
  * @param object JSON 对象
  * @param name 字段名
@@ -1118,6 +1021,53 @@ bool ReadRequiredJsonString(const cJSON* object, const char* name,
   }
   CopyText(destination, destination_size, item->valuestring);
   return std::strlen(item->valuestring) < destination_size;
+}
+
+/**
+ * @brief 从 JSON 对象读取按优先级排列的 HTTPS 固件下载地址
+ * @param object JSON 对象
+ * @param name 字段名
+ * @param destinations 下载地址输出缓冲区
+ * @param count 实际下载地址数量
+ * @return 地址数组非空、数量受限且没有重复项返回 true
+ */
+bool ReadRequiredFirmwareUrls(const cJSON* object, const char* name,
+    char destinations[kMaximumFirmwareDownloadSourceCount]
+                     [kMaximumFirmwareDownloadUrlLength],
+    size_t* count) {
+  if (object == nullptr || name == nullptr || destinations == nullptr ||
+      count == nullptr) {
+    return false;
+  }
+  const cJSON* urls = cJSON_GetObjectItemCaseSensitive(object, name);
+  if (!cJSON_IsArray(urls)) {
+    return false;
+  }
+  const int url_count = cJSON_GetArraySize(urls);
+  if (url_count <= 0 ||
+      url_count >
+          static_cast<int>(kMaximumFirmwareDownloadSourceCount)) {
+    return false;
+  }
+  for (int index = 0; index < url_count; ++index) {
+    const cJSON* item = cJSON_GetArrayItem(urls, index);
+    if (!cJSON_IsString(item) || item->valuestring == nullptr ||
+        !IsHttpsUrl(item->valuestring) ||
+        std::strlen(item->valuestring) >=
+            kMaximumFirmwareDownloadUrlLength) {
+      return false;
+    }
+    for (int previous = 0; previous < index; ++previous) {
+      if (std::strcmp(
+              destinations[previous], item->valuestring) == 0) {
+        return false;
+      }
+    }
+    CopyText(destinations[index], kMaximumFirmwareDownloadUrlLength,
+        item->valuestring);
+  }
+  *count = static_cast<size_t>(url_count);
+  return true;
 }
 
 /**
@@ -1203,7 +1153,7 @@ bool ReadRequiredJsonSize(
  * @brief 解析 GitHub Release 中的组合固件清单
  * @param json_text 清单 JSON 文本
  * @param manifest 清单解析结果
- * @return 成功、清单无效或清单版本不受支持
+ * @return 成功、清单无效、格式版本不受支持或不包含当前硬件
  */
 ManifestParseResult ParseManifest(
     const char* json_text, FirmwareReleaseManifest* manifest) {
@@ -1215,24 +1165,37 @@ ManifestParseResult ParseManifest(
   if (root == nullptr || !cJSON_IsObject(root.get())) {
     return ManifestParseResult::kInvalid;
   }
-  const cJSON* manifest_version =
-      cJSON_GetObjectItemCaseSensitive(root.get(), "manifest_version");
+  const cJSON* schema_version =
+      cJSON_GetObjectItemCaseSensitive(root.get(), "schema_version");
   const cJSON* release_time =
       cJSON_GetObjectItemCaseSensitive(root.get(), "release_time");
   const cJSON* release_channel =
       cJSON_GetObjectItemCaseSensitive(root.get(), "channel");
-  const cJSON* main =
-      cJSON_GetObjectItemCaseSensitive(root.get(), "esp32p4");
-  const cJSON* wireless =
-      cJSON_GetObjectItemCaseSensitive(root.get(), "esp32c6");
-  // 当前固定清单文件名永久属于版本 1；附加字段应被旧程序安全忽略。
-  // 如果新字段会改变安装语义，必须启用新的清单文件名。
-  if (!cJSON_IsNumber(manifest_version) ||
-      manifest_version->valuedouble != manifest_version->valueint) {
+  const cJSON* device_versions =
+      cJSON_GetObjectItemCaseSensitive(root.get(), "device_versions");
+  const cJSON* current_device = cJSON_IsObject(device_versions)
+      ? cJSON_GetObjectItemCaseSensitive(
+            device_versions, kCurrentDeviceVersion)
+      : nullptr;
+  const cJSON* main = cJSON_IsObject(current_device)
+      ? cJSON_GetObjectItemCaseSensitive(current_device, "main")
+      : nullptr;
+  const cJSON* wireless = cJSON_IsObject(current_device)
+      ? cJSON_GetObjectItemCaseSensitive(current_device, "wireless")
+      : nullptr;
+  // 格式版本 1 按设备版本保存完整的主固件和无线固件信息。
+  if (!cJSON_IsNumber(schema_version) ||
+      schema_version->valuedouble != schema_version->valueint) {
     return ManifestParseResult::kInvalid;
   }
-  if (manifest_version->valueint != kSupportedManifestVersion) {
+  if (schema_version->valueint != kSupportedSchemaVersion) {
     return ManifestParseResult::kUnsupportedVersion;
+  }
+  if (!cJSON_IsObject(device_versions)) {
+    return ManifestParseResult::kInvalid;
+  }
+  if (!cJSON_IsObject(current_device)) {
+    return ManifestParseResult::kUnsupportedDeviceVersion;
   }
   if (!cJSON_IsObject(main) || !cJSON_IsObject(wireless)) {
     return ManifestParseResult::kInvalid;
@@ -1263,16 +1226,16 @@ ManifestParseResult ParseManifest(
           parsed.release_version, sizeof(parsed.release_version)) ||
       !ReadRequiredJsonString(main, "version", parsed.main_version,
           sizeof(parsed.main_version)) ||
-      !ReadRequiredJsonString(
-          main, "url", parsed.main_url, sizeof(parsed.main_url)) ||
+      !ReadRequiredFirmwareUrls(
+          main, "urls", parsed.main_urls, &parsed.main_url_count) ||
       !ReadRequiredJsonSize(
           main, "size_bytes", &parsed.main_size_bytes) ||
       !ReadRequiredJsonString(main, "sha256", parsed.main_sha256,
           sizeof(parsed.main_sha256)) ||
       !ReadRequiredJsonString(wireless, "version",
           parsed.wireless_version, sizeof(parsed.wireless_version)) ||
-      !ReadRequiredJsonString(wireless, "url", parsed.wireless_url,
-          sizeof(parsed.wireless_url)) ||
+      !ReadRequiredFirmwareUrls(wireless, "urls",
+          parsed.wireless_urls, &parsed.wireless_url_count) ||
       !ReadRequiredJsonSize(
           wireless, "size_bytes", &parsed.wireless_size_bytes) ||
       !ReadRequiredJsonString(wireless, "sha256", parsed.wireless_sha256,
@@ -1282,11 +1245,7 @@ ManifestParseResult ParseManifest(
       !ParseSemanticVersion(parsed.main_version, nullptr) ||
       !ParseSemanticVersion(parsed.wireless_version, nullptr) ||
       !IsSha256Text(parsed.main_sha256) ||
-      !IsSha256Text(parsed.wireless_sha256) ||
-      !IsExpectedReleaseAssetUrl(
-          parsed.main_url, kMainReleaseAssetName) ||
-      !IsExpectedReleaseAssetUrl(
-          parsed.wireless_url, kWirelessReleaseAssetName)) {
+      !IsSha256Text(parsed.wireless_sha256)) {
     return ManifestParseResult::kInvalid;
   }
   if (release_time != nullptr) {
@@ -1313,6 +1272,12 @@ ManifestParseResult ParseManifest(
     }
   }
   return ManifestParseResult::kSuccess;
+}
+
+// 判断清单是否属于当前设备系列；设备版本已在解析时完成选择。
+bool IsManifestCompatibleWithCurrentDevice(
+    const FirmwareReleaseManifest& manifest) {
+  return std::strcmp(manifest.device_id, kCurrentDeviceId) == 0;
 }
 
 /**
@@ -1373,7 +1338,8 @@ bool LoadManifestFile(
   }
   text[static_cast<size_t>(file_size)] = '\0';
   return ParseManifest(text.get(), manifest) ==
-      ManifestParseResult::kSuccess;
+             ManifestParseResult::kSuccess &&
+         IsManifestCompatibleWithCurrentDevice(*manifest);
 }
 
 /**
@@ -1544,7 +1510,7 @@ bool DownloadManifestFromUrl(const char* url, char* buffer,
 }
 
 /**
- * @brief 从主下载源或备用源下载并解析最新固件清单
+ * @brief 按配置顺序尝试下载并解析最新固件清单
  * @param manifest 清单解析结果
  * @return 下载、解析和持久化均成功返回 true，否则返回 false
  */
@@ -1553,45 +1519,37 @@ bool DownloadManifest(FirmwareReleaseManifest* manifest) {
   if (buffer == nullptr) {
     return false;
   }
-  char backup_url[kMaximumDownloadUrlLength] = {};
-  const bool backup_available = BuildBackupDownloadUrl(
-      kManifestUrl, backup_url, sizeof(backup_url));
-  const char* download_urls[] = {kManifestUrl, backup_url};
-  const uint32_t download_timeouts[] = {
-      kManifestPrimaryTimeoutMs, kManifestBackupTimeoutMs};
-  const FirmwareDownloadSource download_sources[] = {
-      FirmwareDownloadSource::kPrimary,
-      FirmwareDownloadSource::kBackup};
   ManifestDownloadContext context;
   esp_err_t result = ESP_FAIL;
   int status_code = 0;
   bool downloaded = false;
-  FirmwareDownloadSource successful_source =
-      FirmwareDownloadSource::kPrimary;
-  const size_t source_count = backup_available ? 2 : 1;
-  for (size_t source_index = 0; source_index < source_count;
-       ++source_index) {
-    downloaded = DownloadManifestFromUrl(download_urls[source_index],
-        buffer.get(), download_timeouts[source_index], &context, &result,
-        &status_code);
+  for (size_t source_index = 0;
+       source_index < kManifestDownloadSourceCount; ++source_index) {
+    const ManifestDownloadSourceConfig& source =
+        kManifestDownloadSources[source_index];
+    if (source.url[0] == '\0') {
+      continue;
+    }
+    downloaded = DownloadManifestFromUrl(source.url, buffer.get(),
+        source.timeout_ms, &context, &result, &status_code);
     if (downloaded) {
-      successful_source = download_sources[source_index];
       break;
     }
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Download firmware manifest failed: source=%s result=%s "
         "HTTP=%d size=%u\n",
-        FirmwareDownloadSourceName(download_sources[source_index]),
-        esp_err_to_name(result), status_code,
+        source.name, esp_err_to_name(result), status_code,
         static_cast<unsigned>(context.size));
-    const bool may_retry = source_index == 0 && backup_available &&
+    const bool may_retry =
+        source_index + 1 < kManifestDownloadSourceCount &&
         !context.overflow && IsNetworkReady() &&
         ShouldRetryWithAlternateSource(result, status_code);
     if (!may_retry) {
       break;
     }
     LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-        "Retry firmware manifest through backup source\n");
+        "Retry firmware manifest through source=%s\n",
+        kManifestDownloadSources[source_index + 1].name);
   }
   if (!downloaded) {
     const bool needs_internet_recheck = !context.server_connected ||
@@ -1616,20 +1574,22 @@ bool DownloadManifest(FirmwareReleaseManifest* manifest) {
   if (parse_result != ManifestParseResult::kSuccess) {
     if (parse_result == ManifestParseResult::kUnsupportedVersion) {
       SetFailure("Manual firmware update required", true);
+    } else if (
+        parse_result == ManifestParseResult::kUnsupportedDeviceVersion) {
+      SetFailure("Update package is incompatible");
     } else {
       SetFailure("Update information invalid");
     }
     return false;
   }
-  if (std::strcmp(manifest->device_id, kCurrentDeviceId) != 0) {
-    SetFailure("Update package is for another device");
+  if (!IsManifestCompatibleWithCurrentDevice(*manifest)) {
+    SetFailure("Update package is incompatible");
     return false;
   }
   if (!SaveManifest(buffer.get())) {
     SetFailure("Cannot save update information");
     return false;
   }
-  SetPreferredDownloadSource(successful_source);
   return true;
 }
 
@@ -1665,7 +1625,6 @@ bool RestoreInstalledManifestSnapshot(const char* main_current) {
   if (main_current == nullptr || main_current[0] == '\0' ||
       installed_manifest == nullptr ||
       !LoadInstalledManifest(installed_manifest.get()) ||
-      std::strcmp(installed_manifest->device_id, kCurrentDeviceId) != 0 ||
       std::strcmp(installed_manifest->main_version, main_current) != 0) {
     return false;
   }
@@ -2226,14 +2185,14 @@ FirmwareDownloadResult DownloadWirelessFirmware(
     SetFailure("Not enough storage for Wireless firmware");
     return FirmwareDownloadResult::kFailed;
   }
-  char backup_url[kMaximumDownloadUrlLength] = {};
-  FirmwareDownloadSourceList download_sources;
-  if (!PrepareFirmwareDownloadSources(manifest.wireless_url, backup_url,
-          sizeof(backup_url), &download_sources)) {
+  if (manifest.wireless_url_count == 0 ||
+      manifest.wireless_url_count >
+          kMaximumFirmwareDownloadSourceCount) {
     SetFailure("Wireless firmware download address invalid");
     return FirmwareDownloadResult::kFailed;
   }
-  for (size_t source_index = 0; source_index < download_sources.count;
+  for (size_t source_index = 0;
+       source_index < manifest.wireless_url_count;
        ++source_index) {
     const TransferRequest request_before_download = ReadTransferRequest();
     if (request_before_download != TransferRequest::kNone) {
@@ -2254,7 +2213,7 @@ FirmwareDownloadResult DownloadWirelessFirmware(
     context.expected_size = manifest.wireless_size_bytes;
     context.started_tick = xTaskGetTickCount();
     esp_http_client_config_t config = {};
-    config.url = download_sources.urls[source_index];
+    config.url = manifest.wireless_urls[source_index];
     config.crt_bundle_attach = esp_crt_bundle_attach;
     config.timeout_ms = kFirmwareHttpTimeoutMs;
     config.buffer_size = kHttpBufferSize;
@@ -2301,17 +2260,14 @@ FirmwareDownloadResult DownloadWirelessFirmware(
     if (!transfer_valid) {
       std::remove(kWirelessFirmwareTempPath);
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Download Wireless firmware failed: source=%s result=%s HTTP=%d "
+          "Download Wireless firmware failed: source=%u result=%s HTTP=%d "
           "size=%u\n",
-          FirmwareDownloadSourceName(
-              download_sources.sources[source_index]),
+          static_cast<unsigned>(source_index + 1),
           esp_err_to_name(result), status_code,
           static_cast<unsigned>(context.downloaded_size));
-      const bool may_retry = source_index == 0 &&
-          download_sources.count > 1 &&
-          !context.write_failed && !context.overflow && !context.timed_out &&
-          IsNetworkReady() &&
-          ShouldRetryWithAlternateSource(result, status_code);
+      const bool may_retry =
+          source_index + 1 < manifest.wireless_url_count &&
+          !context.write_failed && IsNetworkReady();
       if (may_retry) {
         LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
             "Retry Wireless firmware through alternate source\n");
@@ -2346,6 +2302,12 @@ FirmwareDownloadResult DownloadWirelessFirmware(
     }
     if (!image_valid) {
       std::remove(kWirelessFirmwareTempPath);
+      if (source_index + 1 < manifest.wireless_url_count &&
+          IsNetworkReady()) {
+        LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+            "Retry invalid Wireless firmware through next source\n");
+        continue;
+      }
       SetFailure("Downloaded Wireless firmware invalid");
       return FirmwareDownloadResult::kFailed;
     }
@@ -2355,8 +2317,6 @@ FirmwareDownloadResult DownloadWirelessFirmware(
       SetFailure("Cannot save Wireless firmware file");
       return FirmwareDownloadResult::kFailed;
     }
-    SetPreferredDownloadSource(
-        download_sources.sources[source_index]);
     return FirmwareDownloadResult::kCompleted;
   }
   SetFailure("Wireless firmware download failed");
@@ -2745,10 +2705,8 @@ MainUpdateResult UpdateMainFirmware(
     SetFailure("Main firmware does not fit OTA partition");
     return MainUpdateResult::kFailed;
   }
-  char backup_url[kMaximumDownloadUrlLength] = {};
-  FirmwareDownloadSourceList download_sources;
-  if (!PrepareFirmwareDownloadSources(manifest.main_url, backup_url,
-          sizeof(backup_url), &download_sources)) {
+  if (manifest.main_url_count == 0 ||
+      manifest.main_url_count > kMaximumFirmwareDownloadSourceCount) {
     if (!keep_marker_on_failure) {
       ClearPendingUpdate();
     }
@@ -2759,7 +2717,7 @@ MainUpdateResult UpdateMainFirmware(
   esp_err_t result = ESP_FAIL;
   TransferRequest interrupted_by = TransferRequest::kNone;
   bool download_completed = false;
-  for (size_t source_index = 0; source_index < download_sources.count;
+  for (size_t source_index = 0; source_index < manifest.main_url_count;
        ++source_index) {
     interrupted_by = ReadTransferRequest();
     if (interrupted_by != TransferRequest::kNone) {
@@ -2769,7 +2727,7 @@ MainUpdateResult UpdateMainFirmware(
           : MainUpdateResult::kPaused;
     }
     esp_http_client_config_t http_config = {};
-    http_config.url = download_sources.urls[source_index];
+    http_config.url = manifest.main_urls[source_index];
     http_config.crt_bundle_attach = esp_crt_bundle_attach;
     http_config.timeout_ms = kFirmwareHttpTimeoutMs;
     http_config.buffer_size = kHttpBufferSize;
@@ -2790,9 +2748,8 @@ MainUpdateResult UpdateMainFirmware(
     if (result != ESP_OK) {
       ClearActiveHttpClient();
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Start Main firmware download failed: source=%s result=%s\n",
-          FirmwareDownloadSourceName(
-              download_sources.sources[source_index]),
+          "Start Main firmware download failed: source=%u result=%s\n",
+          static_cast<unsigned>(source_index + 1),
           esp_err_to_name(result));
       interrupted_by = ReadTransferRequest();
       if (interrupted_by != TransferRequest::kNone) {
@@ -2801,7 +2758,7 @@ MainUpdateResult UpdateMainFirmware(
             ? MainUpdateResult::kCancelled
             : MainUpdateResult::kPaused;
       }
-      if (source_index == 0 && download_sources.count > 1 &&
+      if (source_index + 1 < manifest.main_url_count &&
           IsNetworkReady()) {
         LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
             "Retry Main firmware through alternate source\n");
@@ -2851,8 +2808,9 @@ MainUpdateResult UpdateMainFirmware(
             ? MainUpdateResult::kCancelled
             : MainUpdateResult::kPaused;
       }
-      const bool may_retry = result != ESP_OK && source_index == 0 &&
-          download_sources.count > 1 && IsNetworkReady();
+      const bool may_retry =
+          source_index + 1 < manifest.main_url_count &&
+          IsNetworkReady();
       if (may_retry) {
         LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
             "Retry Main firmware image header through alternate source\n");
@@ -2920,13 +2878,12 @@ MainUpdateResult UpdateMainFirmware(
       esp_https_ota_abort(ota_handle);
       ota_handle = nullptr;
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Download Main firmware failed: source=%s result=%s\n",
-          FirmwareDownloadSourceName(
-              download_sources.sources[source_index]),
+          "Download Main firmware failed: source=%u result=%s\n",
+          static_cast<unsigned>(source_index + 1),
           esp_err_to_name(result));
-      const bool may_retry = source_index == 0 &&
-          download_sources.count > 1 && !download_timed_out &&
-          !download_size_invalid && IsNetworkReady();
+      const bool may_retry =
+          source_index + 1 < manifest.main_url_count &&
+          IsNetworkReady();
       if (may_retry) {
         LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
             "Retry Main firmware through alternate source\n");
@@ -2953,14 +2910,18 @@ MainUpdateResult UpdateMainFirmware(
       ClearActiveHttpClient();
       esp_https_ota_abort(ota_handle);
       ota_handle = nullptr;
+      if (source_index + 1 < manifest.main_url_count &&
+          IsNetworkReady()) {
+        LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+            "Retry Main firmware size mismatch through next source\n");
+        continue;
+      }
       if (!keep_marker_on_failure) {
         ClearPendingUpdate();
       }
       SetFailure("Downloaded Main firmware size mismatch");
       return MainUpdateResult::kFailed;
     }
-    SetPreferredDownloadSource(
-        download_sources.sources[source_index]);
     download_completed = true;
     break;
   }
@@ -3319,14 +3280,6 @@ void ResumeTask(void* context) {
     vTaskDelete(nullptr);
     return;
   }
-  if (std::strcmp(manifest.device_id, kCurrentDeviceId) != 0) {
-    ClearPendingUpdate();
-    CleanupWirelessFiles();
-    SetFailure("Saved update is for another device");
-    FinishWorker();
-    vTaskDelete(nullptr);
-    return;
-  }
   ApplyPendingManifestSnapshot(manifest);
   char wireless_current[32] = {};
   if (!WaitForCurrentWirelessVersion(wireless_current,
@@ -3489,7 +3442,7 @@ FirmwareUpdateManager& FirmwareUpdateManager::Instance() {
 }
 
 const char* FirmwareUpdateManager::ManifestUrl() {
-  return kManifestUrl;
+  return kManifestDownloadSources[0].url;
 }
 
 FirmwareUpdateManager::~FirmwareUpdateManager() {
@@ -3595,8 +3548,6 @@ bool FirmwareUpdateManager::RequestCheck() {
   State().manifest_valid = false;
   State().pause_requested = false;
   State().cancel_requested = false;
-  State().preferred_download_source =
-      FirmwareDownloadSource::kPrimary;
   CopyText(State().snapshot.message, sizeof(State().snapshot.message),
       "Checking for updates");
   UnlockManager();
