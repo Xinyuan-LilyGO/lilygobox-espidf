@@ -109,7 +109,7 @@ constexpr lv_style_selector_t kWifiSwitchCheckedIndicatorSelector =
     static_cast<lv_style_selector_t>(LV_PART_INDICATOR) |
     static_cast<lv_style_selector_t>(LV_STATE_CHECKED);
 constexpr uint32_t kWifiRefreshPeriodMs = 1000;
-constexpr uint32_t kWifiConnectTimeoutMs = 5 * 1000;
+constexpr uint32_t kWifiConnectTimeoutMs = 15 * 1000;
 constexpr int kWifiConnectSheetRadius = 48;
 constexpr int kWifiConnectSheetSideMargin = 34;
 constexpr int kWifiConnectSheetBottomMargin = 32;
@@ -221,6 +221,7 @@ struct SettingsViewState {
   lv_obj_t* wifi_modal_overlay = nullptr;
   lv_obj_t* wifi_modal_sheet = nullptr;
   lv_obj_t* wifi_password_text_area = nullptr;
+  lv_obj_t* wifi_password_error_label = nullptr;
   lv_obj_t* wifi_password_keyboard = nullptr;
   lv_obj_t* wifi_connect_button = nullptr;
   lv_obj_t* wifi_connect_button_label = nullptr;
@@ -293,7 +294,6 @@ struct SettingsViewState {
   // 本次自动扫描请求发起前的扫描结果版本号。
   uint32_t wifi_scan_request_generation = 0;
   // 驱动初始化完成后补发一次自动连接请求。
-  bool wifi_auto_connect_on_ready = false;
   // 标记下一次定时刷新必须重建 WLAN 页面。
   bool wifi_refresh_force = false;
   // WLAN 页面发起连接后等待连接结果。
@@ -314,7 +314,6 @@ struct SettingsViewState {
   int auto_lock_seconds = 5 * 60;
   int screen_rotation_angle = 0;
   int factory_reset_seconds_remaining = 0;
-  char wifi_auto_connect_ssid[hal::kWifiSsidMaxLength + 1] = {};
 };
 
 /**

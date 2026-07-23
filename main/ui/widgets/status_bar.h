@@ -37,11 +37,12 @@ class StatusBar final {
   void SetBatteryStatus(int percent, bool charging);
 
   /**
-   * @brief 设置状态栏 WiFi 连接状态和信号强度
+   * @brief 设置状态栏 WiFi 连接、互联网访问和信号强度状态
    * @param connected 是否已经连接 WiFi
    * @param rssi WiFi 信号强度，单位为 dBm
+   * @param internet_unavailable 已连接局域网但不能访问互联网
    */
-  void SetWifiStatus(bool connected, int rssi);
+  void SetWifiStatus(bool connected, int rssi, bool internet_unavailable);
 
   /**
    * @brief 获取状态栏对象
@@ -81,6 +82,7 @@ class StatusBar final {
   char bmu_percent_text_[8] = "--%";
   bool bmu_charging_ = false;
   bool wifi_connected_ = false;
+  bool wifi_internet_unavailable_ = false;
 };
 
 }  // namespace lilygo_box::ui

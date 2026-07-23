@@ -33,7 +33,8 @@ constexpr size_t kWifiSavedNetworksTlvCapacity = 3072;
 // 已分配字段编号只允许保留，禁止改号或复用。
 enum class WifiPreferencesField : uint16_t {
   kEnabledRequested = 1,
-  kAutoConnectSsid = 2,
+  // 旧版只允许一个自动连接目标，仅用于迁移已有数据。
+  kLegacyAutoConnectSsid = 2,
 };
 
 enum class WifiSavedNetworksField : uint16_t {
@@ -45,6 +46,7 @@ enum class WifiSavedNetworkField : uint16_t {
   kPassword = 2,
   kSecure = 3,
   kIs5g = 4,
+  kAutoConnect = 5,
 };
 
 struct WifiSavedNetworks {
@@ -72,6 +74,7 @@ void ResetWifiSavedNetworks(WifiSavedNetworks* networks) {
         network.password + sizeof(network.password), '\0');
     network.secure = false;
     network.is_5g = false;
+    network.auto_connect = true;
     network.rssi = kWifiUnknownRssi;
   }
   networks->count = 0;
@@ -92,8 +95,6 @@ WifiPreferences NormalizeWifiPreferences(
     const WifiPreferences& source) {
   WifiPreferences normalized;
   normalized.enabled_requested = source.enabled_requested;
-  CopyBoundedString(
-      normalized.auto_connect_ssid, source.auto_connect_ssid);
   return normalized;
 }
 
@@ -103,6 +104,7 @@ WifiSavedNetwork NormalizeSavedNetwork(const WifiSavedNetwork& source) {
   CopyBoundedString(normalized.password, source.password);
   normalized.secure = source.secure;
   normalized.is_5g = source.is_5g;
+  normalized.auto_connect = source.auto_connect;
   normalized.rssi = source.rssi;
   return normalized;
 }
@@ -127,9 +129,7 @@ void MakeWifiSavedNetworks(const WifiSavedNetwork* networks, size_t count,
 
 bool AreWifiPreferencesEqual(
     const WifiPreferences& left, const WifiPreferences& right) {
-  return left.enabled_requested == right.enabled_requested &&
-      std::strcmp(left.auto_connect_ssid,
-          right.auto_connect_ssid) == 0;
+  return left.enabled_requested == right.enabled_requested;
 }
 
 bool AreWifiPreferenceStatesEqual(
@@ -143,7 +143,8 @@ bool AreWifiSavedNetworksEqual(
     const WifiSavedNetwork& left, const WifiSavedNetwork& right) {
   return std::strcmp(left.ssid, right.ssid) == 0 &&
       std::strcmp(left.password, right.password) == 0 &&
-      left.secure == right.secure && left.is_5g == right.is_5g;
+      left.secure == right.secure && left.is_5g == right.is_5g &&
+      left.auto_connect == right.auto_connect;
 }
 
 bool AreWifiSavedNetworkListsEqual(
@@ -169,18 +170,17 @@ bool EncodeWifiPreferences(const WifiPreferences& preferences,
              static_cast<uint16_t>(
                  WifiPreferencesField::kEnabledRequested),
              normalized.enabled_requested) &&
-      writer.WriteString(
-          static_cast<uint16_t>(WifiPreferencesField::kAutoConnectSsid),
-          normalized.auto_connect_ssid,
-          sizeof(normalized.auto_connect_ssid)) &&
       writer.Finalize(encoded_size);
 }
 
 bool DecodeWifiPreferences(const storage::TlvBuffer& buffer,
-    WifiPreferences* preferences) {
-  if (preferences == nullptr) {
+    WifiPreferences* preferences, char* legacy_auto_connect_ssid,
+    size_t legacy_auto_connect_ssid_size) {
+  if (preferences == nullptr || legacy_auto_connect_ssid == nullptr ||
+      legacy_auto_connect_ssid_size == 0) {
     return false;
   }
+  legacy_auto_connect_ssid[0] = '\0';
   WifiPreferences decoded;
   storage::TlvReader reader(storage::TlvDomain::kWifiPreferences,
       buffer.data.get(), buffer.size);
@@ -200,9 +200,9 @@ bool DecodeWifiPreferences(const storage::TlvBuffer& buffer,
           return false;
         }
         break;
-      case WifiPreferencesField::kAutoConnectSsid:
-        if (!field.CopyString(decoded.auto_connect_ssid,
-                sizeof(decoded.auto_connect_ssid))) {
+      case WifiPreferencesField::kLegacyAutoConnectSsid:
+        if (!field.CopyString(legacy_auto_connect_ssid,
+                legacy_auto_connect_ssid_size)) {
           return false;
         }
         break;
@@ -229,22 +229,30 @@ bool EncodeWifiSavedNetwork(const WifiSavedNetwork& network,
       writer.WriteBool(
           static_cast<uint16_t>(WifiSavedNetworkField::kIs5g),
           normalized.is_5g) &&
+      writer.WriteBool(
+          static_cast<uint16_t>(WifiSavedNetworkField::kAutoConnect),
+          normalized.auto_connect) &&
       writer.Finalize(encoded_size);
 }
 
-bool DecodeWifiSavedNetwork(
-    const uint8_t* data, size_t size, WifiSavedNetwork* network) {
-  if (network == nullptr) {
+bool DecodeWifiSavedNetwork(const uint8_t* data, size_t size,
+    WifiSavedNetwork* network, bool* auto_connect_field_present) {
+  if (network == nullptr || auto_connect_field_present == nullptr) {
     return false;
   }
   WifiSavedNetwork decoded;
+  bool has_auto_connect = false;
   storage::TlvReader reader(
       storage::TlvDomain::kWifiSavedNetwork, data, size);
   storage::TlvField field;
   while (true) {
     const storage::TlvReadResult result = reader.Next(&field);
     if (result == storage::TlvReadResult::kEnd) {
+      if (!has_auto_connect) {
+        decoded.auto_connect = false;
+      }
       *network = NormalizeSavedNetwork(decoded);
+      *auto_connect_field_present = has_auto_connect;
       return true;
     }
     if (result == storage::TlvReadResult::kInvalid) {
@@ -272,6 +280,12 @@ bool DecodeWifiSavedNetwork(
           return false;
         }
         break;
+      case WifiSavedNetworkField::kAutoConnect:
+        if (!field.ReadBool(&decoded.auto_connect)) {
+          return false;
+        }
+        has_auto_connect = true;
+        break;
       default:
         break;
     }
@@ -297,10 +311,11 @@ bool EncodeWifiSavedNetworks(const WifiSavedNetworks& networks,
 }
 
 bool DecodeWifiSavedNetworks(const storage::TlvBuffer& buffer,
-    WifiSavedNetworks* networks) {
-  if (networks == nullptr) {
+    WifiSavedNetworks* networks, bool* auto_connect_migration_required) {
+  if (networks == nullptr || auto_connect_migration_required == nullptr) {
     return false;
   }
+  *auto_connect_migration_required = false;
   ResetWifiSavedNetworks(networks);
   storage::TlvReader reader(storage::TlvDomain::kWifiSavedNetworks,
       buffer.data.get(), buffer.size);
@@ -319,8 +334,13 @@ bool DecodeWifiSavedNetworks(const storage::TlvBuffer& buffer,
       continue;
     }
     WifiSavedNetwork network;
-    if (!DecodeWifiSavedNetwork(field.data(), field.size(), &network)) {
+    bool auto_connect_field_present = false;
+    if (!DecodeWifiSavedNetwork(field.data(), field.size(), &network,
+            &auto_connect_field_present)) {
       return false;
+    }
+    if (!auto_connect_field_present) {
+      *auto_connect_migration_required = true;
     }
     if (network.ssid[0] == '\0') {
       continue;
@@ -378,6 +398,8 @@ bool GetWifiSavedNetworks(
 
 void InitWifiCache() {
   WifiPreferences preferences;
+  char legacy_auto_connect_ssid[hal::kWifiSsidMaxLength + 1] = {};
+  bool auto_connect_migration_required = false;
   auto saved_networks = std::unique_ptr<WifiSavedNetworks>(
       new (std::nothrow) WifiSavedNetworks());
   if (saved_networks == nullptr) {
@@ -398,8 +420,9 @@ void InitWifiCache() {
             kWifiPreferencesTlvCapacity, &preferences_buffer,
             &preferences_error);
     if (preferences_result == storage::TlvLoadResult::kLoaded) {
-      preferences_loaded =
-          DecodeWifiPreferences(preferences_buffer, &preferences);
+      preferences_loaded = DecodeWifiPreferences(preferences_buffer,
+          &preferences, legacy_auto_connect_ssid,
+          sizeof(legacy_auto_connect_ssid));
       if (!preferences_loaded) {
         LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
             "WLAN preferences TLV payload is invalid\n");
@@ -421,7 +444,8 @@ void InitWifiCache() {
               &networks_error);
       if (networks_result == storage::TlvLoadResult::kLoaded &&
           !DecodeWifiSavedNetworks(networks_buffer,
-              saved_networks.get())) {
+              saved_networks.get(),
+              &auto_connect_migration_required)) {
         LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
             "WLAN saved networks TLV payload is invalid\n");
         ResetWifiSavedNetworks(saved_networks.get());
@@ -444,10 +468,23 @@ void InitWifiCache() {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Initialize WLAN preferences cache failed\n");
   }
-  if (saved_networks != nullptr &&
-      !g_wifi_saved_networks_cache.Initialize(*saved_networks)) {
-    LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Initialize WLAN saved network cache failed\n");
+  if (saved_networks != nullptr) {
+    const bool cache_initialized =
+        g_wifi_saved_networks_cache.Initialize(*saved_networks);
+    if (!cache_initialized) {
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "Initialize WLAN saved network cache failed\n");
+    } else if (auto_connect_migration_required) {
+      for (size_t index = 0; index < saved_networks->count; ++index) {
+        WifiSavedNetwork& network = saved_networks->networks[index];
+        network.auto_connect = legacy_auto_connect_ssid[0] != '\0' &&
+            std::strcmp(network.ssid, legacy_auto_connect_ssid) == 0;
+      }
+      if (!g_wifi_saved_networks_cache.UpdateAndPersist(*saved_networks)) {
+        LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+            "Migrate WLAN auto-connect settings failed\n");
+      }
+    }
   }
 }
 

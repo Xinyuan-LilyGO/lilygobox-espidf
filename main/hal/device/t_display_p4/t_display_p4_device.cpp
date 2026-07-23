@@ -105,15 +105,19 @@ constexpr uint32_t kWifiHardwareReadyTimeoutMs = 8000;
 constexpr uint32_t kWifiHardwareReadyPollMs = 50;
 constexpr uint32_t kWifiEsp32c6BootDelayMs = 500;
 constexpr uint32_t kWifiScanTimeoutMs = 8000;
+constexpr uint32_t kWifiScanStateRetryIntervalMs = 500;
 constexpr const char* kFactoryWifiSsid = "LilyGo-AABB";
 constexpr const char* kFactoryWifiPassword = "xinyuandianzi";
 constexpr const char* kWifiSntpServer = "pool.ntp.org";
+constexpr int kWifiSntpMaxAttemptCount = 3;
+constexpr uint32_t kWifiSntpAttemptIntervalMs =
+    kWifiInternetCheckTimeoutMs / kWifiSntpMaxAttemptCount;
+static_assert(kWifiSntpAttemptIntervalMs * kWifiSntpMaxAttemptCount ==
+    kWifiInternetCheckTimeoutMs);
 constexpr int kWifiMaxReconnectCount = 8;
 constexpr int64_t kWifiValidUnixTimeThreshold = 1700000000LL;
-constexpr uint32_t kWifiSntpSyncIntervalMs = 60 * 60 * 1000;
 constexpr uint32_t kRtcSyncTaskStackBytes = 4 * 1024;
 constexpr UBaseType_t kRtcSyncTaskPriority = 3;
-constexpr int64_t kRtcResyncIntervalSeconds = 24 * 60 * 60;
 constexpr size_t kRadioIrqTextCapacity = 160;
 
 // SX1262 IRQ 位与日志名称映射。
@@ -621,6 +625,8 @@ bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
     wifi_.stop_requested.store(true);
     if (wifi_time_test_.active.load()) {
       StopWifiTimeTest();
+    } else {
+      StopWifiInternetCheck();
     }
 
     if (!wifi_.driver_initialized.load()) {
@@ -700,6 +706,7 @@ bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
     }
 
     wifi_.running.store(false);
+    wifi_.connect_task_running.store(false);
     wifi_.connected.store(false);
     wifi_.got_ip.store(false);
     wifi_.start_failed.store(false);
@@ -829,6 +836,8 @@ bool TDisplayP4Device::ConnectWifi(
 
 bool TDisplayP4Device::CancelWifiConnection() {
   wifi_.connect_cancel_requested.store(true);
+  wifi_.connect_task_running.store(false);
+  StopWifiInternetCheck();
   if (!wifi_.driver_initialized.load()) {
     wifi_.connected.store(false);
     wifi_.got_ip.store(false);
@@ -854,6 +863,40 @@ bool TDisplayP4Device::CancelWifiConnection() {
   wifi_time_test_.sntp_unix_time.store(0);
   wifi_time_test_.sntp_sync_monotonic_ms.store(0);
   return true;
+}
+
+bool TDisplayP4Device::RequestWifiInternetCheck() {
+  if (!wifi_.driver_initialized.load() || !wifi_.got_ip.load() ||
+      wifi_time_test_.active.load()) {
+    return false;
+  }
+
+  wifi_time_test_.synced.store(false);
+  wifi_time_test_.sntp_unix_time.store(0);
+  wifi_time_test_.sntp_sync_monotonic_ms.store(0);
+  if (!wifi_time_test_.sync_started.load() || !esp_sntp_enabled()) {
+    return StartWifiSntp() == ESP_OK;
+  }
+  if (StartWifiSntpAttemptTimer() != ESP_OK || !esp_sntp_restart()) {
+    StopWifiInternetCheck();
+    return false;
+  }
+  return true;
+}
+
+void TDisplayP4Device::StopWifiInternetCheck() {
+  wifi_time_test_.sync_started.store(false);
+  wifi_time_test_.sntp_attempt_count.store(0);
+  if (wifi_time_test_.sntp_attempt_timer != nullptr &&
+      esp_timer_is_active(wifi_time_test_.sntp_attempt_timer)) {
+    esp_timer_stop(wifi_time_test_.sntp_attempt_timer);
+  }
+  esp_sntp_set_time_sync_notification_cb(nullptr);
+  TDisplayP4Device* owner = this;
+  g_wifi_time_sync_owner.compare_exchange_strong(owner, nullptr);
+  if (esp_sntp_enabled()) {
+    esp_sntp_stop();
+  }
 }
 
 bool TDisplayP4Device::StartWifiTimeTest() {
@@ -885,22 +928,21 @@ bool TDisplayP4Device::StopWifiTimeTest() {
     return true;
   }
 
-  if (wifi_time_test_.sync_started.exchange(false)) {
-    esp_sntp_set_time_sync_notification_cb(nullptr);
-    TDisplayP4Device* owner = this;
-    g_wifi_time_sync_owner.compare_exchange_strong(owner, nullptr);
-    if (esp_sntp_enabled()) {
-      esp_sntp_stop();
-    }
-  }
+  StopWifiInternetCheck();
   wifi_time_test_.synced.store(false);
   wifi_time_test_.sntp_unix_time.store(0);
   wifi_time_test_.sntp_sync_monotonic_ms.store(0);
   wifi_.start_failed.store(false);
   wifi_.last_error.store(ESP_OK);
+  wifi_.disconnect_reason.store(0);
   wifi_.retry_count.store(0);
 
   esp_wifi_disconnect();
+  wifi_.connected.store(false);
+  wifi_.got_ip.store(false);
+  wifi_.ip_address.store(0);
+  wifi_.netmask.store(0);
+  wifi_.gateway.store(0);
 
   wifi_config_t empty_config = {};
   esp_wifi_set_storage(WIFI_STORAGE_RAM);
@@ -926,7 +968,13 @@ bool TDisplayP4Device::StopWifiTimeTest() {
     }
     wifi_.running.store(true);
     if (wifi_time_test_.previous_connected) {
-      esp_wifi_connect();
+      wifi_.connect_task_running.store(true);
+      const esp_err_t connect_result = esp_wifi_connect();
+      if (connect_result != ESP_OK) {
+        wifi_.connect_task_running.store(false);
+        SetWifiFailure(connect_result);
+        return false;
+      }
     }
   } else {
     const esp_err_t stop_result = esp_wifi_stop();
@@ -958,6 +1006,7 @@ bool TDisplayP4Device::ReadWifiStatus(WifiStatus* status) {
 
   *status = WifiStatus();
   status->init_task_running = wifi_.init_task_running.load();
+  status->connect_task_running = wifi_.connect_task_running.load();
   status->driver_initialized = wifi_.driver_initialized.load();
   status->running = wifi_.running.load();
   status->connected = wifi_.connected.load();
@@ -974,6 +1023,7 @@ bool TDisplayP4Device::ReadWifiStatus(WifiStatus* status) {
   status->ip_address = wifi_.ip_address.load();
   status->netmask = wifi_.netmask.load();
   status->gateway = wifi_.gateway.load();
+  status->connection_generation = wifi_.connection_generation.load();
 
   if (status->time_test_running) {
     std::strncpy(status->ssid, kFactoryWifiSsid, sizeof(status->ssid) - 1);
@@ -2841,9 +2891,27 @@ void TDisplayP4Device::RunWifiScanTask() {
     return;
   }
 
-  // STA 先启动完成，再发起非阻塞扫描；结果在 WIFI_EVENT_SCAN_DONE 中读取。
-  const esp_err_t scan_result = esp_wifi_scan_start(nullptr, false);
-  if (scan_result == ESP_OK) {
+  // hosted STA 在关联热点期间可能暂时拒绝扫描，等待连接状态稳定后重试。
+  esp_err_t scan_result = ESP_ERR_WIFI_STATE;
+  uint32_t retry_elapsed_ms = 0;
+  while (!wifi_.stop_requested.load()) {
+    scan_result = esp_wifi_scan_start(nullptr, false);
+    if (scan_result == ESP_OK) {
+      return;
+    }
+    if (scan_result != ESP_ERR_WIFI_STATE ||
+        retry_elapsed_ms >= kWifiScanTimeoutMs) {
+      break;
+    }
+    vTaskDelay(pdMS_TO_TICKS(kWifiScanStateRetryIntervalMs));
+    retry_elapsed_ms += kWifiScanStateRetryIntervalMs;
+  }
+
+  if (wifi_.stop_requested.load()) {
+    wifi_.scan_running.store(false);
+    wifi_.scan_task_running.store(false);
+    wifi_.scan_network_count.store(0);
+    wifi_.scan_generation.fetch_add(1);
     return;
   }
 
@@ -2951,7 +3019,7 @@ void TDisplayP4Device::RunWifiConnectTask() {
     finish(connect_result);
     return;
   }
-  wifi_.connect_task_running.store(false);
+  // 保持连接进行中状态，直到取得 DHCP 地址或收到断开事件。
 }
 
 bool TDisplayP4Device::WaitForWifiHardwareReady() {
@@ -3175,6 +3243,9 @@ int TDisplayP4Device::StartWifiTimeTestInternal() {
     return ESP_OK;
   }
 
+  wifi_.connect_cancel_requested.store(true);
+  wifi_.connect_task_running.store(false);
+
   wifi_time_test_.previous_running = wifi_.running.load();
   wifi_time_test_.previous_connected = wifi_.connected.load();
   wifi_time_test_.previous_mode_valid =
@@ -3191,6 +3262,7 @@ int TDisplayP4Device::StartWifiTimeTestInternal() {
       return stop_result;
     }
   }
+  StopWifiInternetCheck();
 
   wifi_.start_failed.store(false);
   wifi_.last_error.store(ESP_OK);
@@ -3239,8 +3311,10 @@ int TDisplayP4Device::StartWifiTimeTestInternal() {
   }
   wifi_.running.store(true);
 
+  wifi_.connect_task_running.store(true);
   result = esp_wifi_connect();
   if (result != ESP_OK) {
+    wifi_.connect_task_running.store(false);
     StopWifiTimeTest();
     return result;
   }
@@ -3252,9 +3326,7 @@ int TDisplayP4Device::StartWifiSntp() {
     return ESP_OK;
   }
 
-  if (esp_sntp_enabled()) {
-    esp_sntp_stop();
-  }
+  StopWifiInternetCheck();
   wifi_time_test_.sntp_unix_time.store(0);
   wifi_time_test_.sntp_sync_monotonic_ms.store(0);
   wifi_time_test_.synced.store(false);
@@ -3274,24 +3346,71 @@ int TDisplayP4Device::StartWifiSntp() {
     owner->wifi_time_test_.sntp_sync_monotonic_ms.store(
         esp_timer_get_time() / 1000);
     owner->wifi_time_test_.synced.store(true);
+    owner->StopWifiInternetCheck();
     owner->ScheduleRtcSync(unix_time);
   });
+  // 客户端取时使用轮询模式；成功回调或第三次检测结束后停止客户端。
   esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
   esp_sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
-  esp_sntp_set_sync_interval(kWifiSntpSyncIntervalMs);
   esp_sntp_setservername(0, kWifiSntpServer);
-  esp_sntp_init();
+  const int timer_result = StartWifiSntpAttemptTimer();
+  if (timer_result != ESP_OK) {
+    StopWifiInternetCheck();
+    return timer_result;
+  }
   wifi_time_test_.sync_started.store(true);
+  esp_sntp_init();
   return ESP_OK;
+}
+
+int TDisplayP4Device::StartWifiSntpAttemptTimer() {
+  if (wifi_time_test_.sntp_attempt_timer == nullptr) {
+    esp_timer_create_args_t timer_config = {};
+    timer_config.callback = WifiSntpAttemptTimerCallback;
+    timer_config.arg = this;
+    timer_config.dispatch_method = ESP_TIMER_TASK;
+    timer_config.name = "sntp_attempt";
+    const esp_err_t create_result = esp_timer_create(
+        &timer_config, &wifi_time_test_.sntp_attempt_timer);
+    if (create_result != ESP_OK) {
+      return create_result;
+    }
+  }
+
+  constexpr uint64_t kMicrosecondsPerMillisecond = 1000;
+  const uint64_t interval_us =
+      static_cast<uint64_t>(kWifiSntpAttemptIntervalMs) *
+      kMicrosecondsPerMillisecond;
+  wifi_time_test_.sntp_attempt_count.store(1);
+  return esp_timer_is_active(wifi_time_test_.sntp_attempt_timer)
+      ? esp_timer_restart(wifi_time_test_.sntp_attempt_timer, interval_us)
+      : esp_timer_start_periodic(
+            wifi_time_test_.sntp_attempt_timer, interval_us);
+}
+
+void TDisplayP4Device::WifiSntpAttemptTimerCallback(void* argument) {
+  auto* self = static_cast<TDisplayP4Device*>(argument);
+  if (self == nullptr) {
+    return;
+  }
+
+  const int attempt_count =
+      self->wifi_time_test_.sntp_attempt_count.load();
+  if (self->wifi_time_test_.synced.load() ||
+      !self->wifi_.got_ip.load() ||
+      attempt_count >= kWifiSntpMaxAttemptCount) {
+    self->StopWifiInternetCheck();
+    return;
+  }
+
+  self->wifi_time_test_.sntp_attempt_count.store(attempt_count + 1);
+  if (!esp_sntp_enabled() || !esp_sntp_restart()) {
+    self->StopWifiInternetCheck();
+  }
 }
 
 void TDisplayP4Device::ScheduleRtcSync(int64_t unix_time) {
   const int64_t previous_sync = wifi_time_test_.rtc_sync_unix_time.load();
-  if (previous_sync > 0 && unix_time >= previous_sync &&
-      unix_time - previous_sync < kRtcResyncIntervalSeconds) {
-    return;
-  }
-
   bool expected = false;
   if (!wifi_time_test_.rtc_sync_task_running.compare_exchange_strong(
           expected, true)) {
@@ -3324,7 +3443,9 @@ void TDisplayP4Device::RtcSyncTaskEntry(void* argument) {
 }
 
 void TDisplayP4Device::SetWifiFailure(int error) {
+  StopWifiInternetCheck();
   wifi_.init_task_running.store(false);
+  wifi_.connect_task_running.store(false);
   wifi_.start_failed.store(true);
   wifi_.last_error.store(error);
   wifi_.connected.store(false);
@@ -3382,6 +3503,7 @@ void TDisplayP4Device::WifiEventHandler(
       break;
     }
     case WIFI_EVENT_STA_DISCONNECTED: {
+      self->wifi_.connect_task_running.store(false);
       self->wifi_.connected.store(false);
       self->wifi_.got_ip.store(false);
       self->wifi_time_test_.synced.store(false);
@@ -3390,14 +3512,7 @@ void TDisplayP4Device::WifiEventHandler(
       self->wifi_.ip_address.store(0);
       self->wifi_.netmask.store(0);
       self->wifi_.gateway.store(0);
-      if (self->wifi_time_test_.sync_started.exchange(false)) {
-        esp_sntp_set_time_sync_notification_cb(nullptr);
-        TDisplayP4Device* owner = self;
-        g_wifi_time_sync_owner.compare_exchange_strong(owner, nullptr);
-        if (esp_sntp_enabled()) {
-          esp_sntp_stop();
-        }
-      }
+      self->StopWifiInternetCheck();
       if (event_data != nullptr) {
         const auto* disconnected =
             static_cast<wifi_event_sta_disconnected_t*>(event_data);
@@ -3407,7 +3522,11 @@ void TDisplayP4Device::WifiEventHandler(
       if (self->wifi_time_test_.active.load()) {
         const int retry_count = self->wifi_.retry_count.fetch_add(1) + 1;
         if (retry_count <= kWifiMaxReconnectCount) {
-          esp_wifi_connect();
+          self->wifi_.connect_task_running.store(true);
+          const esp_err_t connect_result = esp_wifi_connect();
+          if (connect_result != ESP_OK) {
+            self->SetWifiFailure(connect_result);
+          }
         } else {
           self->wifi_.start_failed.store(true);
           self->wifi_.last_error.store(ESP_ERR_WIFI_CONN);
@@ -3416,6 +3535,7 @@ void TDisplayP4Device::WifiEventHandler(
       break;
     }
     case WIFI_EVENT_STA_STOP:
+      self->wifi_.connect_task_running.store(false);
       self->wifi_.running.store(false);
       self->wifi_.connected.store(false);
       self->wifi_.got_ip.store(false);
@@ -3426,14 +3546,7 @@ void TDisplayP4Device::WifiEventHandler(
       self->wifi_.ip_address.store(0);
       self->wifi_.netmask.store(0);
       self->wifi_.gateway.store(0);
-      if (self->wifi_time_test_.sync_started.exchange(false)) {
-        esp_sntp_set_time_sync_notification_cb(nullptr);
-        TDisplayP4Device* owner = self;
-        g_wifi_time_sync_owner.compare_exchange_strong(owner, nullptr);
-        if (esp_sntp_enabled()) {
-          esp_sntp_stop();
-        }
-      }
+      self->StopWifiInternetCheck();
       break;
     default:
       break;
@@ -3451,10 +3564,12 @@ void TDisplayP4Device::WifiGotIpEventHandler(
   }
 
   self->wifi_.connected.store(true);
-  self->wifi_.got_ip.store(true);
+  self->wifi_.connect_task_running.store(false);
   self->wifi_.ip_address.store(event->ip_info.ip.addr);
   self->wifi_.netmask.store(event->ip_info.netmask.addr);
   self->wifi_.gateway.store(event->ip_info.gw.addr);
+  self->wifi_.connection_generation.fetch_add(1);
+  self->wifi_.got_ip.store(true);
   const int result = self->StartWifiSntp();
   if (result != ESP_OK) {
     self->SetWifiFailure(result);

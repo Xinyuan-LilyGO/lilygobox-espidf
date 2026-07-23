@@ -17,11 +17,11 @@ namespace lilygo_box::app {
 enum class InternetAccessState : uint8_t {
   // 尚未进行互联网可用性检测
   kUnknown,
-  // 正在验证固件服务是否可达
+  // 已取得局域网地址，正在等待首次或按需 SNTP 复检结果
   kChecking,
-  // 已取得局域网地址，但固件服务不可达
+  // 已取得局域网地址，但 SNTP 未能在限定时间内返回网络时间
   kLocalOnly,
-  // 已确认固件服务可以访问
+  // SNTP 已经成功获取有效网络时间
   kAvailable,
 };
 
@@ -41,7 +41,7 @@ class NetworkMonitor final {
   static NetworkMonitor& Instance();
 
   /**
-   * @brief 启动产品网络服务可用性后台监控
+   * @brief 启动首次 SNTP 与业务触发复检相结合的网络监控
    * @param wifi WiFi 状态提供者
    * @return 监控已启动或已经运行返回 true，否则返回 false
    */
@@ -53,6 +53,20 @@ class NetworkMonitor final {
    */
   NetworkMonitorStatus GetStatus() const;
 
+  /**
+   * @brief 在互联网业务开始前等待当前连接完成一次按需入网验证
+   * @param timeout_ms 最长等待时间，单位为毫秒
+   * @return 已确认可以入网返回 true，否则返回 false
+   *
+   * 该接口会阻塞调用任务，不允许从 LVGL 或网络监控任务中调用。
+   */
+  bool EnsureInternetAccess(uint32_t timeout_ms);
+
+  /**
+   * @brief 请求使用 SNTP 对当前 WiFi 执行一次异步入网复检
+   */
+  void RequestInternetAccessRecheck();
+
  private:
   NetworkMonitor() = default;
 
@@ -63,21 +77,17 @@ class NetworkMonitor final {
   static void TaskEntry(void* argument);
 
   /**
-   * @brief 持续检查 WiFi 和产品网络服务可用性
+   * @brief 处理 WiFi 状态和按需 SNTP 复检
    */
   void RunTask();
-
-  /**
-   * @brief 验证固件服务是否可以通过当前网络访问
-   * @return 服务可访问返回 true，否则返回 false
-   */
-  bool CheckInternetAccess() const;
 
   hal::WifiProvider* wifi_ = nullptr;
   std::atomic<bool> initialized_{false};
   std::atomic<InternetAccessState> internet_state_{
       InternetAccessState::kUnknown};
   std::atomic<int64_t> check_monotonic_ms_{0};
+  std::atomic<uint32_t> check_generation_{0};
+  std::atomic<bool> recheck_requested_{false};
 };
 
 }  // namespace lilygo_box::app

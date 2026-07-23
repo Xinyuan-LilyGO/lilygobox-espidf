@@ -39,6 +39,8 @@ namespace {
 
 constexpr uint32_t kStartupWifiAutoConnectWaitMs = 15 * 1000;
 constexpr uint32_t kStartupWifiAutoConnectPollMs = 200;
+constexpr uint32_t kWifiAutoConnectIdleMs = 2 * 1000;
+constexpr uint32_t kWifiAutoConnectFailureRetryMs = 30 * 1000;
 constexpr uint32_t kStartupWifiAutoConnectTaskStackBytes = 8 * 1024;
 constexpr UBaseType_t kStartupWifiAutoConnectTaskPriority = 3;
 constexpr uint32_t kScreenLockTaskStackBytes = 6 * 1024;
@@ -212,15 +214,15 @@ bool Application::Init() {
     return false;
   }
   app::InitStorage();
-  if (!app::FirmwareUpdateManager::Instance().Initialize(
-          device_provider_context_.wifi, *this)) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Initialize firmware update manager failed\n");
-  }
   if (!app::NetworkMonitor::Instance().Initialize(
           device_provider_context_.wifi)) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize network monitor failed\n");
+  }
+  if (!app::FirmwareUpdateManager::Instance().Initialize(
+          device_provider_context_.wifi, *this)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Initialize firmware update manager failed\n");
   }
   lilygo_box::ui::SetLvglPortForRotation(&lvgl_port_);
   app::DisplayPreferences display_preferences = app::GetDisplayPreferences();
@@ -395,13 +397,21 @@ void Application::RunStartupWifiAutoConnectTask() {
   options.start_driver_if_needed = true;
   options.wait_for_driver = true;
   options.wait_timeout_ms = kStartupWifiAutoConnectWaitMs;
+  options.connection_timeout_ms = kStartupWifiAutoConnectWaitMs;
   options.poll_interval_ms = kStartupWifiAutoConnectPollMs;
-  options.scan_timeout_ms = kStartupWifiAutoConnectWaitMs;
-  const app::WifiAutoConnectResult result =
-      app::TryStartWifiAutoConnect(device_provider_context_.wifi, options);
-  if (result == app::WifiAutoConnectResult::kFailed) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Startup WiFi auto connect failed to start\n");
+  while (true) {
+    const app::WifiAutoConnectResult result =
+        app::TryStartWifiAutoConnect(device_provider_context_.wifi, options);
+    const bool failed = result == app::WifiAutoConnectResult::kFailed;
+    const bool retry_later = failed ||
+        result == app::WifiAutoConnectResult::kNoVisibleTarget;
+    if (failed) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Background WiFi auto connect failed\n");
+    }
+    vTaskDelay(pdMS_TO_TICKS(retry_later
+        ? kWifiAutoConnectFailureRetryMs
+        : kWifiAutoConnectIdleMs));
   }
 }
 

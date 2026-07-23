@@ -20,6 +20,7 @@
 #include "app/cit_catalog.h"
 #include "app/device_info_snapshot.h"
 #include "app/system_status_cache.h"
+#include "app/wifi_manager.h"
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -332,6 +333,7 @@ void StopActiveTestHardware(CitViewState* state) {
   }
   if (entry != nullptr && IsEntryId(*entry, "wifi") && state->wifi != nullptr) {
     state->wifi->StopWifiTimeTest();
+    app::SetWifiAutoConnectPaused(false);
   }
 }
 
@@ -2687,7 +2689,14 @@ bool AddWifiContent(lv_obj_t* content, CitViewState* state) {
     return false;
   }
 
-  if (state->wifi == nullptr || !state->wifi->StartWifiTimeTest()) {
+  if (state->wifi == nullptr) {
+    lv_label_set_text(
+        state->test_data_label, "WIFI time data:\nstatus: start failed");
+    return true;
+  }
+  app::SetWifiAutoConnectPaused(true);
+  if (!state->wifi->StartWifiTimeTest()) {
+    app::SetWifiAutoConnectPaused(false);
     lv_label_set_text(
         state->test_data_label, "WIFI time data:\nstatus: start failed");
     return true;

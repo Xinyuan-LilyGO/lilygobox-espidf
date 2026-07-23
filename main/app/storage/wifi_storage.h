@@ -27,16 +27,16 @@ struct WifiSavedNetwork {
   bool secure = false;
   // 热点是否位于 5 GHz 频段，只使用扫描结果或连接状态更新。
   bool is_5g = false;
+  // 是否允许系统在后台自动连接此网络。
+  bool auto_connect = true;
   // 最近一次扫描得到的 RSSI，仅用于运行期展示，不写入 NVS。
   int rssi = kWifiUnknownRssi;
 };
 
-// WLAN 用户偏好，保存开关状态和自动连接目标。
+// WLAN 用户偏好仅保存全局开关，自动连接由每个保存网络独立控制。
 struct WifiPreferences {
   // 用户期望的 WLAN 开关状态。
   bool enabled_requested = false;
-  // 自动连接的 SSID，空字符串表示关闭自动连接。
-  char auto_connect_ssid[hal::kWifiSsidMaxLength + 1] = {};
 };
 
 /**

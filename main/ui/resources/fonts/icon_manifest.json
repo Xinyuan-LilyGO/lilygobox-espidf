@@ -111,7 +111,8 @@
         "BatteryAndroid0",
         "Music",
         "SdStorage",
-        "SettingsInputAntenna"
+        "SettingsInputAntenna",
+        "SignalWifiStatusbarNotConnected"
       ]
     }
   ],
@@ -195,6 +196,10 @@
     "SignalWifi4Bar": {
       "cpp_name": "kSignalWifi4Bar",
       "codepoint": 61541
+    },
+    "SignalWifiStatusbarNotConnected": {
+      "cpp_name": "kSignalWifiStatusbarNotConnected",
+      "codepoint": 61679
     },
     "Shuffle": {"cpp_name": "kShuffle", "codepoint": 57411},
     "Sunny": {"cpp_name": "kSunny", "codepoint": 59418},

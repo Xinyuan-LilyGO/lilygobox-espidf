@@ -11,7 +11,10 @@
 #include <cstdio>
 #include <cstring>
 
+#include "app/network_monitor.h"
 #include "app/storage/wifi_storage.h"
+#include "app/wifi_manager.h"
+#include "esp_wifi.h"
 #include "hal/providers/screen_provider.h"
 #include "ui/animation/transition_animation.h"
 #include "ui/resources/fonts/icon_assets.h"
@@ -98,13 +101,6 @@ void ResetWifiConnectionState(SettingsViewState* state);
 void RequestWifiScan(SettingsViewState* state, bool force = false);
 
 /**
- * @brief 尝试连接当前设置为自动连接的 WLAN
- * @param state 设置页状态
- * @return 已发起或已安排自动连接返回 true，否则返回 false
- */
-bool TryStartWifiAutoConnect(SettingsViewState* state);
-
-/**
  * @brief 从扫描结果里查找指定 SSID 的最新网络信息
  * @param scan_status 扫描状态
  * @param ssid 待查找 SSID
@@ -115,12 +111,17 @@ bool FindScannedWifiNetwork(const hal::WifiScanStatus& scan_status,
                             const char* ssid, hal::WifiNetworkInfo* output);
 
 /**
- * @brief 保存或更新已经连接成功的 WLAN 凭据
+ * @brief 保存或更新用户确认使用的 WLAN 凭据
  * @param action 当前连接动作
  * @param password 用户确认使用的密码，开放网络可为空
  */
 void SaveWifiNetworkCredential(
     const WifiNetworkAction& action, const char* password);
+
+/**
+ * @brief 将运行期已保存 WLAN 列表写入长期缓存
+ */
+void SaveWifiNetworks();
 
 /**
  * @brief 保存 WLAN 开关和自动连接偏好
@@ -234,7 +235,8 @@ bool ShowWifiSavedNetworksPage(SettingsViewState* state);
  * @return 打开成功返回 true，否则返回 false
  */
 bool ShowWifiConnectSheet(
-    SettingsViewState* state, const WifiNetworkAction& action);
+    SettingsViewState* state, const WifiNetworkAction& action,
+    const char* error_text = nullptr, bool edit_mode = false);
 
 /**
  * @brief 打开 WLAN 删除网络确认底部弹窗
@@ -300,6 +302,7 @@ void WifiCloseCompletedCallback(lv_anim_t* animation) {
   state->wifi_modal_overlay = nullptr;
   state->wifi_modal_sheet = nullptr;
   state->wifi_password_text_area = nullptr;
+  state->wifi_password_error_label = nullptr;
   state->wifi_password_keyboard = nullptr;
   state->wifi_connect_button = nullptr;
   state->wifi_connect_button_label = nullptr;
@@ -327,6 +330,7 @@ void CloseWifiPage(SettingsViewState* state, bool animated) {
     state->wifi_refresh_timer = nullptr;
   }
   CloseWifiModalImmediately(state);
+  app::SetWifiAutoConnectPaused(false);
   CloseAllWifiSubPages(state);
 
   if (animated &&
@@ -345,6 +349,7 @@ void CloseWifiPage(SettingsViewState* state, bool animated) {
   state->wifi_modal_overlay = nullptr;
   state->wifi_modal_sheet = nullptr;
   state->wifi_password_text_area = nullptr;
+  state->wifi_password_error_label = nullptr;
   state->wifi_password_keyboard = nullptr;
   state->wifi_connect_button = nullptr;
   state->wifi_connect_button_label = nullptr;
@@ -494,6 +499,7 @@ void ResetWifiModalState(SettingsViewState* state) {
   state->wifi_modal_overlay = nullptr;
   state->wifi_modal_sheet = nullptr;
   state->wifi_password_text_area = nullptr;
+  state->wifi_password_error_label = nullptr;
   state->wifi_password_keyboard = nullptr;
   state->wifi_connect_button = nullptr;
   state->wifi_connect_button_label = nullptr;
@@ -509,6 +515,9 @@ void CloseWifiModalImmediately(SettingsViewState* state) {
   lv_obj_t* overlay = state->wifi_modal_overlay;
   ResetWifiModalState(state);
   lv_obj_delete(overlay);
+  if (!state->wifi_connect_waiting) {
+    app::SetWifiAutoConnectPaused(false);
+  }
 }
 
 void CloseWifiModal(SettingsViewState* state) {
@@ -524,6 +533,9 @@ void CloseWifiModal(SettingsViewState* state) {
   ResetWifiModalState(state);
   if (!AnimatePromptSheetOut(overlay, sheet, kDetailSlideAnimationMs)) {
     lv_obj_delete(overlay);
+  }
+  if (!state->wifi_connect_waiting) {
+    app::SetWifiAutoConnectPaused(false);
   }
 }
 
@@ -605,13 +617,10 @@ void WifiSwitchValueChangedEventCallback(lv_event_t* event) {
 
   if (lv_obj_has_state(target, LV_STATE_CHECKED)) {
     state->wifi_enabled_requested = true;
-    if (state->wifi_auto_connect_ssid[0] != '\0') {
-      state->wifi_auto_connect_on_ready = true;
-    }
     RequestWifiScan(state);
   } else {
     state->wifi_enabled_requested = false;
-    state->wifi_auto_connect_on_ready = false;
+    app::SetWifiAutoConnectPaused(false);
     ResetWifiConnectionState(state);
     state->wifi_scan_on_ready = false;
     state->wifi_scan_request_generation = 0;
@@ -639,7 +648,7 @@ void WifiRefreshButtonClickedEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 发起 WLAN 连接并记录 5 秒超时所需状态
+ * @brief 保存用户确认的凭据并发起 WLAN 连接
  * @param state 设置页状态
  * @param password 本次连接密码，开放网络可为空字符串
  * @return 连接命令发送成功返回 true，否则返回 false
@@ -661,10 +670,14 @@ bool StartWifiConnection(SettingsViewState* state, const char* password) {
   }
 
   state->wifi_enabled_requested = true;
+  if (state->wifi_pending_action.saved) {
+    SaveWifiNetworkCredential(
+        state->wifi_pending_action, connect_password);
+  }
   SaveWifiPreferences(state);
   UpdateSettingsWifiValue(state);
   state->wifi_scan_on_ready = false;
-  state->wifi_auto_connect_on_ready = false;
+  app::SetWifiAutoConnectPaused(true);
   if (state->config.wifi->ConnectWifi(
           state->wifi_pending_action.ssid, connect_password)) {
     state->wifi_connect_waiting = true;
@@ -674,86 +687,13 @@ bool StartWifiConnection(SettingsViewState* state, const char* password) {
     state->wifi_connect_waiting = false;
     state->wifi_connection_retry_ready = CanRetryPendingWifiConnection(state);
     state->wifi_connect_started_ms = 0;
+    app::SetWifiAutoConnectPaused(false);
   }
   state->wifi_refresh_force = true;
   if (state->wifi_refresh_timer != nullptr) {
     lv_timer_ready(state->wifi_refresh_timer);
   }
   return state->wifi_connect_waiting;
-}
-
-bool TryStartWifiAutoConnect(SettingsViewState* state) {
-  if (state == nullptr || state->config.wifi == nullptr ||
-      state->wifi_auto_connect_ssid[0] == '\0') {
-    return false;
-  }
-
-  const app::WifiSavedNetwork* target =
-      FindSavedWifiNetworkConst(state->wifi_auto_connect_ssid);
-  if (target == nullptr ||
-      (target->secure && target->password[0] == '\0')) {
-    state->wifi_auto_connect_on_ready = false;
-    return false;
-  }
-
-  hal::WifiStatus status;
-  hal::WifiScanStatus scan_status;
-  ReadWifiSnapshots(state->config, &status, &scan_status);
-  if (state->wifi_scan_on_ready || scan_status.scan_running ||
-      state->wifi_connect_waiting) {
-    state->wifi_auto_connect_on_ready = true;
-    return true;
-  }
-  if (!status.driver_initialized || status.init_task_running) {
-    state->wifi_auto_connect_on_ready = true;
-    state->wifi_enabled_requested = true;
-    SaveWifiPreferences(state);
-    UpdateSettingsWifiValue(state);
-    if (state->config.wifi->SetWifiEnabled(true)) {
-      return true;
-    }
-    state->wifi_auto_connect_on_ready = false;
-    return false;
-  }
-  if (status.connected || status.got_ip) {
-    if (state->wifi_pending_action.saved) {
-      SaveWifiNetworkCredential(state->wifi_pending_action,
-                                state->wifi_pending_action.password);
-    }
-    // 当前已经连接任意 WLAN 时不切换到自动连接
-    // SSID，避免进入页面时断开用户手动连接。
-    state->wifi_auto_connect_on_ready = false;
-    return true;
-  }
-  if (!status.running) {
-    state->wifi_auto_connect_on_ready = true;
-    RequestWifiScan(state);
-    return true;
-  }
-
-  hal::WifiNetworkInfo scanned_target = {};
-  const bool scan_completed =
-      scan_status.generation != state->wifi_scan_request_generation;
-  if (!scan_completed || scan_status.scan_failed ||
-      !FindScannedWifiNetwork(scan_status, target->ssid, &scanned_target)) {
-    // 自动连接只使用本次扫描实际发现的热点，避免连接当前环境中不存在的已保存
-    // WLAN。
-    state->wifi_auto_connect_on_ready = false;
-    return false;
-  }
-
-  WifiNetworkAction action;
-  action.state = state;
-  std::snprintf(action.ssid, sizeof(action.ssid), "%s", target->ssid);
-  std::snprintf(action.password, sizeof(action.password), "%s",
-                target->password);
-  action.secure = scanned_target.secure;
-  action.is_5g = scanned_target.is_5g;
-  action.rssi = scanned_target.rssi;
-  action.saved = true;
-  state->wifi_pending_action = action;
-  state->wifi_auto_connect_on_ready = false;
-  return StartWifiConnection(state, state->wifi_pending_action.password);
 }
 
 /**
@@ -790,6 +730,13 @@ void WifiNetworkClickedEventCallback(lv_event_t* event) {
       std::snprintf(action->state->wifi_pending_action.password,
           sizeof(action->state->wifi_pending_action.password), "%s",
           saved->password);
+      if (saved->secure && saved->password[0] == '\0') {
+        ShowWifiConnectSheet(action->state,
+            action->state->wifi_pending_action, nullptr, true);
+        lv_event_stop_bubbling(event);
+        lv_event_stop_processing(event);
+        return;
+      }
     }
     StartWifiConnection(
         action->state, action->state->wifi_pending_action.password);
@@ -982,20 +929,12 @@ void WifiAutoConnectChangedEventCallback(lv_event_t* event) {
     return;
   }
 
-  if (lv_obj_has_state(target, LV_STATE_CHECKED)) {
-    std::snprintf(state->wifi_auto_connect_ssid,
-        sizeof(state->wifi_auto_connect_ssid), "%s",
-        state->wifi_pending_action.ssid);
-    if (state->wifi_enabled_requested) {
-      state->wifi_auto_connect_on_ready = true;
-      RequestWifiScan(state);
-    }
-  } else if (std::strcmp(state->wifi_auto_connect_ssid,
-                 state->wifi_pending_action.ssid) == 0) {
-    state->wifi_auto_connect_ssid[0] = '\0';
-    state->wifi_auto_connect_on_ready = false;
+  app::WifiSavedNetwork* saved =
+      FindSavedWifiNetwork(state->wifi_pending_action.ssid);
+  if (saved != nullptr) {
+    saved->auto_connect = lv_obj_has_state(target, LV_STATE_CHECKED);
+    SaveWifiNetworks();
   }
-  SaveWifiPreferences(state);
   lv_event_stop_bubbling(event);
   lv_event_stop_processing(event);
 }
@@ -1016,6 +955,33 @@ void WifiDeleteNetworkClickedEventCallback(lv_event_t* event) {
 
   ShowWifiDeleteNetworkSheet(
       state, state->wifi_pending_action.ssid, true, nullptr);
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+}
+
+/**
+ * @brief 打开已保存 WLAN 的密码修改弹窗
+ * @param event LVGL 事件对象
+ */
+void WifiModifyNetworkClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->wifi_pending_action.ssid[0] == '\0') {
+    return;
+  }
+  const app::WifiSavedNetwork* saved =
+      FindSavedWifiNetworkConst(state->wifi_pending_action.ssid);
+  if (saved == nullptr || !saved->secure) {
+    return;
+  }
+
+  WifiNetworkAction action = state->wifi_pending_action;
+  action.saved = true;
+  action.password[0] = '\0';
+  ShowWifiConnectSheet(state, action, nullptr, true);
   lv_event_stop_bubbling(event);
   lv_event_stop_processing(event);
 }
@@ -1116,11 +1082,6 @@ void WifiRefreshTimerCallback(lv_timer_t* timer) {
       }
     }
 
-    if (state->wifi_auto_connect_on_ready && !state->wifi_connect_waiting &&
-        !state->wifi_scan_on_ready && !scan_status.scan_running &&
-        !status.init_task_running) {
-      TryStartWifiAutoConnect(state);
-    }
   }
   RefreshWifiPage(state, false);
   UpdateWifiRefreshAnimation(state);
@@ -1173,9 +1134,6 @@ void SaveWifiPreferences(const SettingsViewState* state) {
 
   app::WifiPreferences preferences;
   preferences.enabled_requested = state->wifi_enabled_requested;
-  std::snprintf(preferences.auto_connect_ssid,
-      sizeof(preferences.auto_connect_ssid), "%s",
-      state->wifi_auto_connect_ssid);
   app::UpdateWifiPreferences(preferences);
 }
 
@@ -1207,13 +1165,6 @@ void LoadWifiPreferencesFromCache(
   state->wifi_enabled_requested = app::HasWifiPreferences()
                                       ? preferences.enabled_requested
                                       : fallback_enabled;
-  std::snprintf(state->wifi_auto_connect_ssid,
-      sizeof(state->wifi_auto_connect_ssid), "%s",
-      preferences.auto_connect_ssid);
-  if (g_wifi_saved_networks_loaded &&
-      FindSavedWifiNetworkConst(state->wifi_auto_connect_ssid) == nullptr) {
-    state->wifi_auto_connect_ssid[0] = '\0';
-  }
 }
 
 app::WifiSavedNetwork* FindSavedWifiNetwork(const char* ssid) {
@@ -1284,11 +1235,6 @@ void ForgetSavedWifiNetwork(SettingsViewState* state, const char* ssid) {
     return;
   }
 
-  if (std::strcmp(state->wifi_auto_connect_ssid, ssid) == 0) {
-    state->wifi_auto_connect_ssid[0] = '\0';
-    SaveWifiPreferences(state);
-  }
-
   hal::WifiStatus status;
   ReadWifiSnapshots(state->config, &status, nullptr);
   const bool deleted_current_connection =
@@ -1299,7 +1245,6 @@ void ForgetSavedWifiNetwork(SettingsViewState* state, const char* ssid) {
   if (std::strcmp(state->wifi_pending_action.ssid, ssid) == 0) {
     state->wifi_pending_action = WifiNetworkAction();
   }
-  state->wifi_auto_connect_on_ready = false;
   ResetWifiConnectionState(state);
   state->wifi_scan_on_ready = false;
   if (deleted_current_connection && state->config.wifi != nullptr) {
@@ -1390,6 +1335,17 @@ bool CanRetryPendingWifiConnection(const SettingsViewState* state) {
 }
 
 /**
+ * @brief 判断断开原因是否表示密码或认证失败
+ * @param reason ESP WiFi 断开原因
+ * @return 密码或认证失败返回 true
+ */
+bool IsWifiAuthenticationFailure(int reason) {
+  return reason == WIFI_REASON_AUTH_FAIL ||
+      reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
+      reason == WIFI_REASON_HANDSHAKE_TIMEOUT;
+}
+
+/**
  * @brief 根据 RSSI 计算 WiFi 信号等级
  * @param rssi 信号强度，单位为 dBm
  * @return 1 到 5 的信号等级
@@ -1434,10 +1390,12 @@ const char* WifiSignalIconForRssi(int rssi) {
  * @brief 生成用于判断 WLAN 页面可见状态是否变化的摘要
  * @param status 当前 WiFi 连接状态
  * @param scan_status 当前 WiFi 扫描状态
+ * @param internet_state 当前互联网可用性状态
  * @return 当前可见状态摘要
  */
 uint32_t MakeWifiRefreshKey(
-    const hal::WifiStatus& status, const hal::WifiScanStatus& scan_status) {
+    const hal::WifiStatus& status, const hal::WifiScanStatus& scan_status,
+    app::InternetAccessState internet_state) {
   uint32_t key = scan_status.generation * 131U;
   key ^= static_cast<uint32_t>(scan_status.network_count) << 16;
   key ^= scan_status.scan_failed ? 0x0002U : 0U;
@@ -1447,6 +1405,7 @@ uint32_t MakeWifiRefreshKey(
   key ^= status.got_ip ? 0x0020U : 0U;
   key ^= status.start_failed ? 0x0040U : 0U;
   key ^= static_cast<uint32_t>(status.disconnect_reason & 0xFF) << 8;
+  key ^= static_cast<uint32_t>(internet_state) << 24;
   return key;
 }
 
@@ -1476,24 +1435,36 @@ void UpdateWifiConnectTimeout(SettingsViewState* state) {
   if (state->config.wifi == nullptr) {
     state->wifi_connect_waiting = false;
     state->wifi_connect_started_ms = 0;
+    app::SetWifiAutoConnectPaused(false);
     return;
   }
 
   hal::WifiStatus status;
   ReadWifiSnapshots(state->config, &status, nullptr);
   const bool pending_network_connected =
-      (status.connected || status.got_ip) &&
+      status.got_ip &&
       std::strcmp(status.ssid, state->wifi_pending_action.ssid) == 0;
   if (pending_network_connected) {
-    if (state->wifi_pending_action.saved &&
-        state->wifi_pending_action.ssid[0] != '\0') {
-      SaveWifiNetworkCredential(state->wifi_pending_action,
-                                state->wifi_pending_action.password);
-    }
     state->wifi_connect_waiting = false;
     state->wifi_connection_retry_ready = false;
     state->wifi_connect_started_ms = 0;
     state->wifi_refresh_force = true;
+    app::SetWifiAutoConnectPaused(false);
+    return;
+  }
+
+  if (IsWifiAuthenticationFailure(status.disconnect_reason)) {
+    WifiNetworkAction retry_action = state->wifi_pending_action;
+    state->config.wifi->CancelWifiConnection();
+    state->wifi_connect_waiting = false;
+    state->wifi_connection_retry_ready = false;
+    state->wifi_connect_started_ms = 0;
+    state->wifi_refresh_force = true;
+    retry_action.password[0] = '\0';
+    if (!ShowWifiConnectSheet(
+            state, retry_action, "Incorrect password. Try again.", true)) {
+      app::SetWifiAutoConnectPaused(false);
+    }
     return;
   }
 
@@ -1508,6 +1479,7 @@ void UpdateWifiConnectTimeout(SettingsViewState* state) {
   state->wifi_connection_retry_ready = CanRetryPendingWifiConnection(state);
   state->wifi_connect_started_ms = 0;
   state->wifi_refresh_force = true;
+  app::SetWifiAutoConnectPaused(false);
 }
 
 /**
@@ -1919,6 +1891,9 @@ bool CreateWifiOptionRow(lv_obj_t* parent, SettingsViewState* state,
         LV_EVENT_CLICKED, state);
   } else if (std::strcmp(text, "Manage saved networks") == 0) {
     lv_obj_add_event_cb(row, WifiSavedNetworksClickedEventCallback,
+        LV_EVENT_CLICKED, state);
+  } else if (std::strcmp(text, "Modify network") == 0) {
+    lv_obj_add_event_cb(row, WifiModifyNetworkClickedEventCallback,
         LV_EVENT_CLICKED, state);
   } else if (std::strcmp(text, "Delete network") == 0) {
     lv_obj_add_event_cb(row, WifiDeleteNetworkClickedEventCallback,
@@ -2570,8 +2545,9 @@ bool CreateWifiAutoConnectRow(
       kWifiSwitchCheckedIndicatorSelector);
   lv_obj_set_style_bg_opa(switch_object, LV_OPA_COVER,
       kWifiSwitchCheckedIndicatorSelector);
-  if (std::strcmp(state->wifi_auto_connect_ssid,
-          state->wifi_pending_action.ssid) == 0) {
+  const app::WifiSavedNetwork* saved =
+      FindSavedWifiNetworkConst(state->wifi_pending_action.ssid);
+  if (saved != nullptr && saved->auto_connect) {
     lv_obj_add_state(switch_object, LV_STATE_CHECKED);
   }
   lv_obj_add_event_cb(switch_object, WifiAutoConnectChangedEventCallback,
@@ -2628,6 +2604,13 @@ bool BuildWifiNetworkDetailContent(
     return false;
   }
   y += 18;
+  if (state->wifi_pending_action.secure) {
+    if (!CreateWifiOptionRow(parent, state, "Modify network", y,
+            state->config.width)) {
+      return false;
+    }
+    y += kWifiRowHeight;
+  }
   return CreateWifiOptionRow(parent, state, "Delete network", y,
       state->config.width);
 }
@@ -2829,6 +2812,10 @@ void WifiPasswordTextAreaEventCallback(lv_event_t* event) {
 
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (code == LV_EVENT_VALUE_CHANGED) {
+    if (state != nullptr && state->wifi_password_error_label != nullptr) {
+      lv_obj_add_flag(
+          state->wifi_password_error_label, LV_OBJ_FLAG_HIDDEN);
+    }
     UpdateWifiConnectButtonState(state);
     return;
   }
@@ -2842,17 +2829,20 @@ void WifiPasswordTextAreaEventCallback(lv_event_t* event) {
   }
 }
 
-bool ShowWifiConnectSheet(
-    SettingsViewState* state, const WifiNetworkAction& action) {
+bool ShowWifiConnectSheet(SettingsViewState* state,
+    const WifiNetworkAction& action, const char* error_text,
+    bool edit_mode) {
   if (state == nullptr || state->root == nullptr ||
       state->wifi_page == nullptr || state->wifi_closing ||
       action.ssid[0] == '\0') {
     return false;
   }
   CloseWifiModalImmediately(state);
+  app::SetWifiAutoConnectPaused(true);
   state->wifi_pending_action = action;
   state->wifi_connection_retry_ready = false;
 
+  const bool has_error = error_text != nullptr && error_text[0] != '\0';
   const int sheet_height = action.secure ? 350 : 292;
   const int sheet_width =
       state->config.width - 2 * kWifiConnectSheetSideMargin;
@@ -2867,6 +2857,7 @@ bool ShowWifiConnectSheet(
 
   lv_obj_t* overlay = CreatePromptSheetOverlay(state->root, sheet_config);
   if (overlay == nullptr) {
+    app::SetWifiAutoConnectPaused(false);
     return false;
   }
   state->wifi_modal_overlay = overlay;
@@ -2892,14 +2883,20 @@ bool ShowWifiConnectSheet(
   }
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 34);
 
-  lv_obj_t* ssid_label = CreateLabel(sheet,
-      action.secure ? "Password required" : "Connect to this open network?",
-      lv_color_hex(kSecondaryTextColor), Font24());
-  if (ssid_label == nullptr) {
-    CloseWifiModalImmediately(state);
-    return false;
+  const char* subtitle = action.secure
+      ? (has_error ? error_text : (edit_mode ? "" : "Password required"))
+      : "Connect to this open network?";
+  if (subtitle[0] != '\0') {
+    lv_obj_t* subtitle_label = CreateLabel(sheet, subtitle,
+        lv_color_hex(has_error ? 0xE53935 : kSecondaryTextColor), Font24());
+    if (subtitle_label == nullptr) {
+      CloseWifiModalImmediately(state);
+      return false;
+    }
+    state->wifi_password_error_label =
+        has_error ? subtitle_label : nullptr;
+    lv_obj_align(subtitle_label, LV_ALIGN_TOP_MID, 0, 78);
   }
-  lv_obj_align(ssid_label, LV_ALIGN_TOP_MID, 0, 78);
 
   const int button_y =
       sheet_height - kWifiConnectSheetInnerPadding - kWifiConnectButtonHeight;
@@ -2968,7 +2965,8 @@ bool ShowWifiConnectSheet(
   if (!CreateWifiSheetButton(sheet, "Cancel", left_button_x, button_y,
           button_width, WifiModalCancelClickedEventCallback, state, false,
           true) ||
-      !CreateWifiSheetButton(sheet, "Connect", right_button_x, button_y,
+      !CreateWifiSheetButton(sheet, edit_mode ? "Save" : "Connect",
+          right_button_x, button_y,
           button_width, WifiModalConnectClickedEventCallback, state, true,
           connect_enabled)) {
     CloseWifiModalImmediately(state);
@@ -3093,6 +3091,8 @@ bool CreateWifiPageContent(lv_obj_t* parent, SettingsViewState* state,
   const bool connection_waiting =
       state != nullptr && state->wifi_connect_waiting;
   const bool connected = status.connected || status.got_ip;
+  const app::InternetAccessState internet_state =
+      app::NetworkMonitor::Instance().GetStatus().internet_state;
   const bool refreshing = IsWifiRefreshActive(state, status, scan_status);
   const bool show_scan_results =
       scan_status.network_count > 0 && (!scan_status.scan_failed ||
@@ -3170,7 +3170,16 @@ bool CreateWifiPageContent(lv_obj_t* parent, SettingsViewState* state,
 
   if (ssid[0] != '\0' && connected) {
     y += 10;
-    if (!CreateWifiConnectedCard(parent, state, ssid, "Connected",
+    const char* connection_text = "Connected";
+    if (status.got_ip &&
+        internet_state != app::InternetAccessState::kAvailable &&
+        internet_state != app::InternetAccessState::kLocalOnly) {
+      connection_text = "Checking internet access...";
+    } else if (status.got_ip &&
+               internet_state == app::InternetAccessState::kLocalOnly) {
+      connection_text = "Connected, no internet";
+    }
+    if (!CreateWifiConnectedCard(parent, state, ssid, connection_text,
             kWifiBlueColor, card_rssi, card_is_5g, card_secure,
             card_password, y, config.width, false)) {
       return false;
@@ -3300,7 +3309,10 @@ void RefreshWifiPage(SettingsViewState* state, bool force) {
   hal::WifiStatus status;
   hal::WifiScanStatus scan_status;
   ReadWifiSnapshots(state->config, &status, &scan_status);
-  const uint32_t refresh_key = MakeWifiRefreshKey(status, scan_status);
+  const app::InternetAccessState internet_state =
+      app::NetworkMonitor::Instance().GetStatus().internet_state;
+  const uint32_t refresh_key =
+      MakeWifiRefreshKey(status, scan_status, internet_state);
   if (!force && !state->wifi_refresh_force &&
       state->wifi_refresh_key == refresh_key) {
     return;
@@ -3376,12 +3388,8 @@ bool ShowWifiPageInternal(SettingsViewState* state) {
   state->wifi_refresh_force = true;
   state->wifi_scan_on_ready = false;
   state->wifi_scan_request_generation = 0;
-  state->wifi_auto_connect_on_ready = false;
   UpdateSettingsWifiValue(state);
   if (state->wifi_enabled_requested) {
-    if (state->wifi_auto_connect_ssid[0] != '\0') {
-      state->wifi_auto_connect_on_ready = true;
-    }
     RequestWifiScan(state, true);
   }
   lv_obj_add_flag(state->root, kBlockLauncherGestureFlag);

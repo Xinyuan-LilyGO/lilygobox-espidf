@@ -19,6 +19,7 @@
 #include <unistd.h>
 
 #include "app/application.h"
+#include "app/network_monitor.h"
 #include "app/storage/littlefs_storage.h"
 #include "base/logger.h"
 #include "cJSON.h"
@@ -101,6 +102,7 @@ constexpr uint32_t kWirelessReadyTimeoutMs = 15 * 1000;
 constexpr uint32_t kManifestPrimaryTimeoutMs = 8 * 1000;
 constexpr uint32_t kManifestBackupTimeoutMs = 15 * 1000;
 constexpr uint32_t kFirmwareDownloadTimeoutMs = 10 * 60 * 1000;
+constexpr uint32_t kInternetValidationTimeoutMs = 32 * 1000;
 constexpr uint32_t kWorkerTaskStackBytes = 16 * 1024;
 constexpr UBaseType_t kWorkerTaskPriority = 5;
 
@@ -132,6 +134,8 @@ struct ManifestDownloadContext {
   size_t size = 0;
   TickType_t started_tick = 0;
   uint32_t timeout_ms = 0;
+  bool server_connected = false;
+  bool request_sent = false;
   bool overflow = false;
   bool timed_out = false;
 };
@@ -141,6 +145,8 @@ struct FirmwareDownloadContext {
   size_t downloaded_size = 0;
   size_t expected_size = 0;
   TickType_t started_tick = 0;
+  bool server_connected = false;
+  bool request_sent = false;
   bool write_failed = false;
   bool overflow = false;
   bool timed_out = false;
@@ -159,6 +165,11 @@ struct FirmwareDownloadSourceList {
   const char* urls[2] = {};
   FirmwareDownloadSource sources[2] = {};
   size_t count = 0;
+};
+
+struct FirmwareConnectivityContext {
+  bool server_connected = false;
+  bool request_sent = false;
 };
 
 struct FirmwareUpdateManagerState {
@@ -512,6 +523,69 @@ bool IsNetworkReady() {
   }
   hal::WifiStatus status;
   return wifi != nullptr && wifi->ReadWifiStatus(&status) && status.got_ip;
+}
+
+/**
+ * @brief 在固件联网业务开始前按当前状态完成一次必要的入网验证
+ * @return 已确认可以访问互联网返回 true，否则返回 false
+ */
+bool EnsureFirmwareInternetAccess() {
+  if (!IsNetworkReady()) {
+    return false;
+  }
+  if (NetworkMonitor::Instance().GetStatus().internet_state ==
+      InternetAccessState::kAvailable) {
+    return true;
+  }
+  SetStage(FirmwareUpdateStage::kWaitingForNetwork,
+      "Checking internet access");
+  return NetworkMonitor::Instance().EnsureInternetAccess(
+      kInternetValidationTimeoutMs);
+}
+
+/**
+ * @brief 在固件传输未收到服务器响应时请求一次入网复检
+ */
+void RequestFirmwareInternetRecheck() {
+  if (IsNetworkReady()) {
+    NetworkMonitor::Instance().RequestInternetAccessRecheck();
+  }
+}
+
+/**
+ * @brief 记录固件 HTTP 连接阶段
+ * @param event HTTP 客户端事件
+ * @param server_connected 是否已经连接服务器
+ * @param request_sent 是否已经发出 HTTP 请求
+ */
+void RecordFirmwareHttpConnectivity(esp_http_client_event_t* event,
+    bool* server_connected, bool* request_sent) {
+  if (event == nullptr || server_connected == nullptr ||
+      request_sent == nullptr) {
+    return;
+  }
+  if (event->event_id == HTTP_EVENT_ON_CONNECTED) {
+    *server_connected = true;
+  } else if (event->event_id == HTTP_EVENT_HEADERS_SENT) {
+    *request_sent = true;
+  }
+}
+
+/**
+ * @brief 记录主固件 OTA 使用的 HTTP 连接阶段
+ * @param event HTTP 客户端事件
+ * @return 事件处理成功返回 ESP_OK
+ */
+esp_err_t FirmwareConnectivityEventHandler(
+    esp_http_client_event_t* event) {
+  if (event == nullptr || event->user_data == nullptr) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  auto* context =
+      static_cast<FirmwareConnectivityContext*>(event->user_data);
+  RecordFirmwareHttpConnectivity(event, &context->server_connected,
+      &context->request_sent);
+  return ESP_OK;
 }
 
 /**
@@ -1398,6 +1472,8 @@ esp_err_t ManifestDownloadEventHandler(esp_http_client_event_t* event) {
     return ESP_ERR_INVALID_ARG;
   }
   auto* context = static_cast<ManifestDownloadContext*>(event->user_data);
+  RecordFirmwareHttpConnectivity(event, &context->server_connected,
+      &context->request_sent);
   if (ElapsedMilliseconds(context->started_tick) >=
       context->timeout_ms) {
     context->timed_out = true;
@@ -1518,6 +1594,12 @@ bool DownloadManifest(FirmwareReleaseManifest* manifest) {
         "Retry firmware manifest through backup source\n");
   }
   if (!downloaded) {
+    const bool needs_internet_recheck = !context.server_connected ||
+        context.request_sent;
+    if (status_code == 0 && !context.overflow &&
+        needs_internet_recheck) {
+      RequestFirmwareInternetRecheck();
+    }
     if (!IsNetworkReady()) {
       SetFailure("Wi-Fi lost while checking");
     } else if (context.timed_out ||
@@ -2083,6 +2165,8 @@ esp_err_t WirelessDownloadEventHandler(esp_http_client_event_t* event) {
     return ESP_ERR_INVALID_ARG;
   }
   auto* context = static_cast<FirmwareDownloadContext*>(event->user_data);
+  RecordFirmwareHttpConnectivity(event, &context->server_connected,
+      &context->request_sent);
   const TransferRequest request = ReadTransferRequest();
   if (request == TransferRequest::kCancel) {
     context->cancel_requested = true;
@@ -2232,6 +2316,12 @@ FirmwareDownloadResult DownloadWirelessFirmware(
         LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
             "Retry Wireless firmware through alternate source\n");
         continue;
+      }
+      const bool needs_internet_recheck = !context.server_connected ||
+          context.request_sent;
+      if (status_code == 0 && !context.write_failed &&
+          !context.overflow && needs_internet_recheck) {
+        RequestFirmwareInternetRecheck();
       }
       if (!IsNetworkReady()) {
         SetFailure("Wi-Fi lost during Wireless firmware download");
@@ -2686,6 +2776,9 @@ MainUpdateResult UpdateMainFirmware(
     http_config.buffer_size_tx = kHttpBufferSize;
     http_config.keep_alive_enable = true;
     http_config.max_redirection_count = 5;
+    FirmwareConnectivityContext connectivity;
+    http_config.event_handler = FirmwareConnectivityEventHandler;
+    http_config.user_data = &connectivity;
     esp_https_ota_config_t ota_config = {};
     ota_config.http_config = &http_config;
     ota_config.http_client_init_cb = FirmwareOtaHttpClientInitialized;
@@ -2716,6 +2809,9 @@ MainUpdateResult UpdateMainFirmware(
       }
       if (!keep_marker_on_failure) {
         ClearPendingUpdate();
+      }
+      if (!connectivity.server_connected || connectivity.request_sent) {
+        RequestFirmwareInternetRecheck();
       }
       SetFailure("Cannot start Main firmware download");
       return MainUpdateResult::kFailed;
@@ -2764,6 +2860,9 @@ MainUpdateResult UpdateMainFirmware(
       }
       if (!keep_marker_on_failure) {
         ClearPendingUpdate();
+      }
+      if (result != ESP_OK) {
+        RequestFirmwareInternetRecheck();
       }
       SetFailure("Downloaded Main firmware invalid");
       return MainUpdateResult::kFailed;
@@ -2835,6 +2934,9 @@ MainUpdateResult UpdateMainFirmware(
       }
       if (!keep_marker_on_failure) {
         ClearPendingUpdate();
+      }
+      if (!download_size_invalid) {
+        RequestFirmwareInternetRecheck();
       }
       if (!IsNetworkReady()) {
         SetFailure("Wi-Fi lost during Main firmware download");
@@ -2967,6 +3069,15 @@ void CheckTask(void* context) {
     vTaskDelete(nullptr);
     return;
   }
+  if (!EnsureFirmwareInternetAccess()) {
+    if (!ApplyInstalledManifestFallback(
+            "Current Wi-Fi cannot access internet")) {
+      SetFailure("Current Wi-Fi cannot access internet");
+    }
+    FinishWorker();
+    vTaskDelete(nullptr);
+    return;
+  }
   SetStage(FirmwareUpdateStage::kChecking,
       "Loading update information");
   FirmwareReleaseManifest manifest;
@@ -3012,6 +3123,12 @@ void UpdateTask(void* context) {
   }
   if (!IsNetworkReady()) {
     SetFailure("Wi-Fi is not connected");
+    FinishWorker();
+    vTaskDelete(nullptr);
+    return;
+  }
+  if (!EnsureFirmwareInternetAccess()) {
+    SetFailure("Current Wi-Fi cannot access internet");
     FinishWorker();
     vTaskDelete(nullptr);
     return;
@@ -3257,6 +3374,12 @@ void ResumeTask(void* context) {
       vTaskDelete(nullptr);
       return;
     }
+    if (!EnsureFirmwareInternetAccess()) {
+      SetFailure("Current Wi-Fi cannot access internet");
+      FinishWorker();
+      vTaskDelete(nullptr);
+      return;
+    }
     const FirmwareDownloadResult wireless_result =
         DownloadWirelessFirmware(manifest);
     if (wireless_result != FirmwareDownloadResult::kCompleted) {
@@ -3278,6 +3401,12 @@ void ResumeTask(void* context) {
   if (main_update_required) {
     if (!IsNetworkReady()) {
       SetFailure("Wi-Fi is not connected");
+      FinishWorker();
+      vTaskDelete(nullptr);
+      return;
+    }
+    if (!EnsureFirmwareInternetAccess()) {
+      SetFailure("Current Wi-Fi cannot access internet");
       FinishWorker();
       vTaskDelete(nullptr);
       return;

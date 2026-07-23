@@ -14,6 +14,7 @@
 #include <utility>
 
 #include "app/app_catalog.h"
+#include "app/network_monitor.h"
 #include "ui/app_view_factory.h"
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
@@ -1680,7 +1681,10 @@ void UiManager::UpdateBatteryStatus(const hal::BmuStatus& status) {
 }
 
 void UiManager::UpdateWifiStatus(const hal::WifiStatus& status) {
-  status_bar_.SetWifiStatus(status.connected, status.rssi);
+  const app::InternetAccessState internet_state =
+      app::NetworkMonitor::Instance().GetStatus().internet_state;
+  status_bar_.SetWifiStatus(status.connected, status.rssi,
+      internet_state != app::InternetAccessState::kAvailable);
 }
 
 lv_obj_t* UiManager::CreateAppGrid(lv_obj_t* parent) {

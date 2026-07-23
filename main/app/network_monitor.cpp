@@ -5,9 +5,6 @@
  */
 #include "app/network_monitor.h"
 
-#include "app/firmware_update_manager.h"
-#include "esp_crt_bundle.h"
-#include "esp_http_client.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -18,10 +15,8 @@ namespace {
 
 constexpr uint32_t kTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kTaskPriority = 3;
-constexpr uint32_t kCheckTimeoutMs = 10 * 1000;
-constexpr uint32_t kRetryIntervalMs = 30 * 1000;
-constexpr uint32_t kRecheckIntervalMs = 10 * 60 * 1000;
 constexpr uint32_t kPollIntervalMs = 1000;
+constexpr uint32_t kWaitPollIntervalMs = 100;
 
 }  // namespace
 
@@ -66,6 +61,64 @@ NetworkMonitorStatus NetworkMonitor::GetStatus() const {
   return status;
 }
 
+bool NetworkMonitor::EnsureInternetAccess(uint32_t timeout_ms) {
+  if (!initialized_.load() || wifi_ == nullptr) {
+    return false;
+  }
+
+  hal::WifiStatus wifi_status;
+  if (!wifi_->ReadWifiStatus(&wifi_status) || !wifi_status.got_ip ||
+      wifi_status.time_test_running) {
+    return false;
+  }
+
+  InternetAccessState state = internet_state_.load();
+  if (state == InternetAccessState::kAvailable) {
+    return true;
+  }
+
+  const int64_t now_ms = esp_timer_get_time() / 1000;
+  const uint32_t initial_generation = check_generation_.load();
+  if (state != InternetAccessState::kChecking) {
+    RequestInternetAccessRecheck();
+  }
+
+  const int64_t deadline_ms = now_ms + timeout_ms;
+  while (esp_timer_get_time() / 1000 < deadline_ms) {
+    if (!wifi_->ReadWifiStatus(&wifi_status) || !wifi_status.got_ip ||
+        wifi_status.time_test_running) {
+      return false;
+    }
+
+    state = internet_state_.load();
+    if (state == InternetAccessState::kAvailable) {
+      return true;
+    }
+    if (state == InternetAccessState::kLocalOnly &&
+        check_generation_.load() != initial_generation) {
+      return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(kWaitPollIntervalMs));
+  }
+  return internet_state_.load() == InternetAccessState::kAvailable;
+}
+
+void NetworkMonitor::RequestInternetAccessRecheck() {
+  if (!initialized_.load() || wifi_ == nullptr ||
+      internet_state_.load() == InternetAccessState::kChecking) {
+    return;
+  }
+
+  bool expected = false;
+  if (recheck_requested_.compare_exchange_strong(expected, true)) {
+    InternetAccessState available = InternetAccessState::kAvailable;
+    if (internet_state_.compare_exchange_strong(
+            available, InternetAccessState::kLocalOnly)) {
+      check_monotonic_ms_.store(esp_timer_get_time() / 1000);
+    }
+  }
+}
+
 void NetworkMonitor::TaskEntry(void* argument) {
   auto* monitor = static_cast<NetworkMonitor*>(argument);
   if (monitor != nullptr) {
@@ -75,65 +128,80 @@ void NetworkMonitor::TaskEntry(void* argument) {
 }
 
 void NetworkMonitor::RunTask() {
-  int64_t next_check_ms = 0;
+  bool had_ip = false;
+  uint32_t connection_generation = 0;
+  bool verification_active = false;
+  int64_t verification_started_ms = 0;
   while (true) {
     hal::WifiStatus wifi_status;
     if (wifi_ == nullptr || !wifi_->ReadWifiStatus(&wifi_status) ||
         !wifi_status.got_ip || wifi_status.time_test_running) {
       internet_state_.store(InternetAccessState::kUnknown);
-      next_check_ms = 0;
+      check_monotonic_ms_.store(0);
+      recheck_requested_.store(false);
+      had_ip = false;
+      connection_generation = 0;
+      verification_active = false;
+      verification_started_ms = 0;
       vTaskDelay(pdMS_TO_TICKS(kPollIntervalMs));
       continue;
     }
 
     const int64_t now_ms = esp_timer_get_time() / 1000;
-    if (next_check_ms != 0 && now_ms < next_check_ms) {
-      vTaskDelay(pdMS_TO_TICKS(kPollIntervalMs));
-      continue;
+    if (!had_ip ||
+        connection_generation != wifi_status.connection_generation) {
+      had_ip = true;
+      connection_generation = wifi_status.connection_generation;
+      recheck_requested_.store(false);
+      verification_active = true;
+      verification_started_ms = now_ms;
+      internet_state_.store(InternetAccessState::kChecking);
+      check_monotonic_ms_.store(0);
     }
 
-    internet_state_.store(InternetAccessState::kChecking);
-    const bool available = CheckInternetAccess();
-    if (!wifi_->ReadWifiStatus(&wifi_status) || !wifi_status.got_ip ||
-        wifi_status.time_test_running) {
-      internet_state_.store(InternetAccessState::kUnknown);
-      next_check_ms = 0;
-      continue;
+    if (recheck_requested_.exchange(false)) {
+      // 首次连接验证已经在进行时合并业务请求，不能重新计算超时时间。
+      if (!verification_active) {
+        const InternetAccessState previous_state = internet_state_.load();
+        verification_active = wifi_->RequestWifiInternetCheck();
+        wifi_status.time_synced = false;
+        verification_started_ms = now_ms;
+        if (verification_active &&
+            previous_state != InternetAccessState::kLocalOnly &&
+            previous_state != InternetAccessState::kAvailable) {
+          internet_state_.store(InternetAccessState::kChecking);
+          check_monotonic_ms_.store(0);
+        } else {
+          internet_state_.store(InternetAccessState::kLocalOnly);
+          if (previous_state != InternetAccessState::kLocalOnly) {
+            check_monotonic_ms_.store(now_ms);
+          }
+        }
+        if (!verification_active) {
+          check_generation_.fetch_add(1);
+        }
+      }
     }
 
-    internet_state_.store(available ? InternetAccessState::kAvailable
-                                    : InternetAccessState::kLocalOnly);
-    check_monotonic_ms_.store(esp_timer_get_time() / 1000);
-    next_check_ms = now_ms +
-        (available ? kRecheckIntervalMs : kRetryIntervalMs);
+    if (verification_active) {
+      if (wifi_status.time_synced) {
+        internet_state_.store(InternetAccessState::kAvailable);
+        check_monotonic_ms_.store(now_ms);
+        check_generation_.fetch_add(1);
+        verification_active = false;
+        verification_started_ms = 0;
+      } else if (now_ms - verification_started_ms >=
+                 static_cast<int64_t>(
+                     hal::kWifiInternetCheckTimeoutMs)) {
+        internet_state_.store(InternetAccessState::kLocalOnly);
+        check_monotonic_ms_.store(now_ms);
+        check_generation_.fetch_add(1);
+        verification_active = false;
+        verification_started_ms = 0;
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(kPollIntervalMs));
   }
-}
-
-bool NetworkMonitor::CheckInternetAccess() const {
-  const char* url = FirmwareUpdateManager::ManifestUrl();
-  if (url == nullptr || url[0] == '\0') {
-    return false;
-  }
-
-  esp_http_client_config_t config = {};
-  config.url = url;
-  config.crt_bundle_attach = esp_crt_bundle_attach;
-  config.timeout_ms = kCheckTimeoutMs;
-  config.disable_auto_redirect = false;
-  config.max_redirection_count = 5;
-  config.buffer_size = 512;
-  config.buffer_size_tx = 512;
-
-  esp_http_client_handle_t client = esp_http_client_init(&config);
-  if (client == nullptr) {
-    return false;
-  }
-
-  esp_http_client_set_method(client, HTTP_METHOD_HEAD);
-  const esp_err_t result = esp_http_client_perform(client);
-  const int status_code = esp_http_client_get_status_code(client);
-  esp_http_client_cleanup(client);
-  return result == ESP_OK && status_code >= 200 && status_code < 400;
 }
 
 }  // namespace lilygo_box::app

@@ -53,6 +53,8 @@ inline constexpr char kShuffle[] = "\xEE\x81\x83";
 inline constexpr char kVolumeUp[] = "\xEE\x81\x90";
 inline constexpr char kWarning[] = "\xEF\x82\x83";
 inline constexpr char kSignalWifi4Bar[] = "\xEF\x81\xA5";
+inline constexpr char kSignalWifiStatusbarNotConnected[] =
+    "\xEF\x83\xAF";
 inline constexpr char kNetworkWifi[] = "\xEE\x86\xBA";
 inline constexpr char kNetworkWifi3Bar[] = "\xEE\xAF\xA1";
 inline constexpr char kNetworkWifi2Bar[] = "\xEE\xAF\x96";

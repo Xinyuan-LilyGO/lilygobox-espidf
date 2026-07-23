@@ -393,26 +393,32 @@ void StatusBar::MoveToTop() {
   }
 }
 
-void StatusBar::SetWifiStatus(bool connected, int rssi) {
+void StatusBar::SetWifiStatus(
+    bool connected, int rssi, bool internet_unavailable) {
   if (wifi_label_ == nullptr) {
     return;
   }
 
   if (!connected) {
     wifi_connected_ = false;
+    wifi_internet_unavailable_ = false;
     wifi_signal_level_ = -1;
     lv_obj_add_flag(wifi_label_, LV_OBJ_FLAG_HIDDEN);
     return;
   }
 
   const int signal_level = WifiSignalLevelForRssi(rssi);
-  if (wifi_connected_ && wifi_signal_level_ == signal_level) {
+  if (wifi_connected_ && wifi_signal_level_ == signal_level &&
+      wifi_internet_unavailable_ == internet_unavailable) {
     return;
   }
 
   wifi_connected_ = true;
+  wifi_internet_unavailable_ = internet_unavailable;
   wifi_signal_level_ = signal_level;
-  lv_label_set_text(wifi_label_, WifiIconForSignalLevel(signal_level));
+  lv_label_set_text(wifi_label_, internet_unavailable
+      ? icon::kSignalWifiStatusbarNotConnected
+      : WifiIconForSignalLevel(signal_level));
   lv_obj_remove_flag(wifi_label_, LV_OBJ_FLAG_HIDDEN);
   lv_obj_align_to(
       wifi_label_, bmu_label_, LV_ALIGN_OUT_LEFT_MID, kStatusBarIconGap, 0);

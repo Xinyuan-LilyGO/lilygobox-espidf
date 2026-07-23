@@ -15,6 +15,8 @@ namespace lilygo_box::hal {
 inline constexpr size_t kWifiSsidMaxLength = 32;
 inline constexpr size_t kWifiPasswordMaxLength = 64;
 inline constexpr size_t kMaxWifiScanNetworkCount = 16;
+// 单次 SNTP 入网检测允许包含随机启动延时和网络重试的最长时间。
+inline constexpr uint32_t kWifiInternetCheckTimeoutMs = 30 * 1000;
 
 struct WifiNetworkInfo {
   // 热点 SSID，末尾保留字符串终止符。
@@ -47,6 +49,8 @@ struct WifiScanStatus {
 struct WifiStatus {
   // WiFi 初始化任务是否正在运行
   bool init_task_running = false;
+  // WiFi 连接命令、热点关联或 DHCP 获取是否仍在进行。
+  bool connect_task_running = false;
   // WiFi 驱动是否已经初始化完成
   bool driver_initialized = false;
   // WiFi 驱动是否已经启动
@@ -81,6 +85,8 @@ struct WifiStatus {
   uint32_t netmask = 0;
   // DHCP 网关
   uint32_t gateway = 0;
+  // 每次取得 DHCP 地址后递增，用于识别快速重连产生的新连接。
+  uint32_t connection_generation = 0;
   // SNTP 获取到的 UTC Unix 时间戳
   int64_t unix_time = 0;
   // SNTP 最新一次网络同步距当前的秒数
@@ -126,6 +132,12 @@ class WifiProvider {
    * @return 取消成功或当前无需取消返回 true，否则返回 false
    */
   virtual bool CancelWifiConnection() = 0;
+
+  /**
+   * @brief 对当前已连接 WLAN 主动发起一次 SNTP 入网复检
+   * @return 复检请求发送成功返回 true，否则返回 false
+   */
+  virtual bool RequestWifiInternetCheck() = 0;
 
   /**
    * @brief 临时打开 WiFi 并连接工厂测试热点获取网络时间

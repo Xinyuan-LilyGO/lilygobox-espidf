@@ -13,6 +13,7 @@
 #include <memory>
 
 #include "audio/mp3_decoder.h"
+#include "esp_timer.h"
 #include "esp_wifi_types.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -384,6 +385,12 @@ class TDisplayP4Device final : public ScreenProvider,
   bool CancelWifiConnection() override;
 
   /**
+   * @brief 对当前普通 WiFi 连接主动发起一次 SNTP 入网复检
+   * @return 复检请求发送成功返回 true，否则返回 false
+   */
+  bool RequestWifiInternetCheck() override;
+
+  /**
    * @brief 启动 WiFi 获取时间测试并连接工厂测试热点
    * @return 启动命令发送成功返回 true，否则返回 false
    */
@@ -699,6 +706,23 @@ class TDisplayP4Device final : public ScreenProvider,
   int StartWifiSntp();
 
   /**
+   * @brief 停止当前一次 SNTP 入网检测并保留同步结果
+   */
+  void StopWifiInternetCheck();
+
+  /**
+   * @brief 启动 SNTP 三次检测调度定时器
+   * @return 启动成功返回 ESP_OK，否则返回 ESP-IDF 错误码
+   */
+  int StartWifiSntpAttemptTimer();
+
+  /**
+   * @brief 触发下一次 SNTP 检测或在第三次检测结束后停止客户端
+   * @param argument 设备对象指针
+   */
+  static void WifiSntpAttemptTimerCallback(void* argument);
+
+  /**
    * @brief 将最近一次有效网络时间异步写入外部 RTC
    * @param unix_time UTC Unix 时间戳
    */
@@ -932,6 +956,8 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<uint32_t> netmask{0};
     // WiFi DHCP 网关
     std::atomic<uint32_t> gateway{0};
+    // 每次取得 DHCP 地址后递增的连接版本号
+    std::atomic<uint32_t> connection_generation{0};
     // ESP-IDF WiFi netif 指针
     void* netif = nullptr;
     // 是否正在执行异步 WiFi 扫描。
@@ -973,6 +999,10 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<int64_t> sntp_unix_time{0};
     // SNTP 最新一次同步完成时的单调时间，单位为毫秒
     std::atomic<int64_t> sntp_sync_monotonic_ms{0};
+    // 当前一轮入网检测已经启动的 SNTP 尝试次数
+    std::atomic<int> sntp_attempt_count{0};
+    // 每 10 秒触发下一次尝试，并在 30 秒时结束检测
+    esp_timer_handle_t sntp_attempt_timer = nullptr;
     // 外部 RTC 网络校时任务是否正在运行
     std::atomic<bool> rtc_sync_task_running{false};
     // 最近一次写入外部 RTC 的 UTC Unix 时间戳
