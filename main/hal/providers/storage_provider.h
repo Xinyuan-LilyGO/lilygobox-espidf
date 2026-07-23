@@ -7,7 +7,29 @@
  */
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+
 namespace lilygo_box::hal {
+
+inline constexpr size_t kMaxUsbStorageDeviceCount = 9;
+inline constexpr size_t kUsbStorageNameSize = 32;
+inline constexpr size_t kUsbStorageBasePathSize = 16;
+
+struct UsbStorageDeviceInfo {
+  uint32_t id = 0;
+  uint8_t usb_address = 0;
+  char name[kUsbStorageNameSize] = {};
+  char base_path[kUsbStorageBasePathSize] = {};
+};
+
+struct UsbStorageSnapshot {
+  uint32_t generation = 0;
+  size_t device_count = 0;
+  bool monitor_running = false;
+  bool start_failed = false;
+  UsbStorageDeviceInfo devices[kMaxUsbStorageDeviceCount] = {};
+};
 
 class StorageProvider {
  public:
@@ -36,6 +58,26 @@ class StorageProvider {
    * @return SD 卡挂载路径字符串
    */
   virtual const char* SdCardBasePath() const = 0;
+
+  /**
+   * @brief 启动 USB Host MSC 监控，自动挂载后续接入的 U 盘
+   * @return 监控已经运行或启动任务创建成功返回 true，否则返回 false
+   */
+  virtual bool StartUsbStorage() = 0;
+
+  /**
+   * @brief 停止 USB Host MSC 监控并卸载全部 U 盘
+   * @return USB 资源全部释放返回 true，否则返回 false
+   */
+  virtual bool StopUsbStorage() = 0;
+
+  /**
+   * @brief 读取当前已经挂载的 USB 存储设备快照
+   * @param snapshot 快照输出地址
+   * @return 读取成功返回 true，否则返回 false
+   */
+  virtual bool ReadUsbStorageSnapshot(
+      UsbStorageSnapshot* snapshot) const = 0;
 };
 
 }  // namespace lilygo_box::hal

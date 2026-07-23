@@ -479,7 +479,10 @@ bool CalculateLoraTransmitTiming(const LoraRadioConfig& config,
 
 TDisplayP4Device::TDisplayP4Device()
     : driver_(lilygo_device_driver::TDisplayP4Driver::GetInstance()),
-      tool_(std::make_unique<cpp_bus_driver::Tool>()) {
+      tool_(std::make_unique<cpp_bus_driver::Tool>()),
+      usb_storage_manager_([this]() {
+        driver_.SetUsbHostPowerEnabled(false);
+      }) {
   wifi_.scan_results_mutex = xSemaphoreCreateMutex();
   radio_.mutex = xSemaphoreCreateMutex();
 }
@@ -1081,6 +1084,28 @@ bool TDisplayP4Device::IsSdCardMounted() const {
 
 const char* TDisplayP4Device::SdCardBasePath() const {
   return device::sd::kBasePath;
+}
+
+bool TDisplayP4Device::StartUsbStorage() {
+  if (!driver_.SetUsbHostPowerEnabled(true)) {
+    return false;
+  }
+  if (usb_storage_manager_.Start()) {
+    return true;
+  }
+  driver_.SetUsbHostPowerEnabled(false);
+  return false;
+}
+
+bool TDisplayP4Device::StopUsbStorage() {
+  const bool stopped = usb_storage_manager_.Stop();
+  const bool powered_off = driver_.SetUsbHostPowerEnabled(false);
+  return stopped && powered_off;
+}
+
+bool TDisplayP4Device::ReadUsbStorageSnapshot(
+    UsbStorageSnapshot* snapshot) const {
+  return usb_storage_manager_.ReadSnapshot(snapshot);
 }
 
 bool TDisplayP4Device::RegisterScreenDisplayCallbacks(
@@ -4243,6 +4268,7 @@ bool TDisplayP4Device::PrepareForPowerOff() {
   result &= SetImuEnabled(false);
   result &= SetEthernetEnabled(false);
   result &= SetWifiEnabled(false);
+  result &= StopUsbStorage();
   result &= WaitForPowerOffTasks();
   return result;
 }

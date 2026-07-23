@@ -20,7 +20,9 @@ set(src_dirs
     "ui/widgets/prompt")
 
 if(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
-    list(APPEND src_dirs "hal/device/t_display_p4")
+    list(APPEND src_dirs
+        "hal/device/t_display_p4"
+        "hal/usb")
 endif()
 
 idf_component_register(
@@ -56,4 +58,6 @@ idf_component_register(
         lwip
         mbedtls
         json
-        spi_flash)
+        spi_flash
+        usb
+        usb_host_msc)

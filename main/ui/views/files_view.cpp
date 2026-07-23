@@ -1,5 +1,5 @@
 /*
- * @Description: LittleFS 与 SD 卡只读文件浏览页面
+ * @Description: LittleFS、SD 卡与 USB 存储只读文件浏览页面
  * @Author: LILYGO_L
  * @Date: 2026-07-09 00:00:00
  * @LastEditTime: 2026-07-18 00:00:00
@@ -72,6 +72,7 @@ constexpr size_t kMaxDirectoryEntryCount = 256;
 enum class FilesStorageKind : uint8_t {
   kInternal,
   kSdCard,
+  kUsb,
 };
 
 struct FilesViewState {
@@ -88,6 +89,8 @@ struct FilesViewState {
   FolderPickerViewConfig picker_config;
   // 当前文件列表正在浏览的存储设备。
   FilesStorageKind selected_storage = FilesStorageKind::kInternal;
+  uint32_t selected_usb_storage_id = 0;
+  hal::UsbStorageSnapshot usb_storage_snapshot;
   int storage_missing_checks = 0;
   bool storage_was_mounted = false;
   bool folder_picker_mode = false;
@@ -103,6 +106,11 @@ struct FileEntry {
 struct PathClickContext {
   FilesViewState* state = nullptr;
   std::string path;
+};
+
+struct UsbStorageClickContext {
+  FilesViewState* state = nullptr;
+  uint32_t device_id = 0;
 };
 
 /**
@@ -126,7 +134,7 @@ void CloseFolderPicker(FilesViewState* state);
 bool RenderDirectoryContent(FilesViewState* state, const std::string& path);
 
 /**
- * @brief 启动 SD 卡发现和目录加载流程
+ * @brief 刷新存储设备状态并加载当前目录
  * @param state 文件管理页面状态
  */
 void StartStorageDiscovery(FilesViewState* state);
@@ -136,6 +144,10 @@ void StartStorageDiscovery(FilesViewState* state);
  * @param state 文件管理页面状态
  */
 void HandleStorageRemoval(FilesViewState* state);
+
+void HandleUsbStorageRemoval(FilesViewState* state);
+
+void RebuildStorageDrawerContent(FilesViewState* state);
 
 /**
  * @brief 获取当前文件页面显示的标题
@@ -160,6 +172,27 @@ bool IsSdCardSelected(const FilesViewState* state) {
       state->selected_storage == FilesStorageKind::kSdCard;
 }
 
+bool IsUsbStorageSelected(const FilesViewState* state) {
+  return state != nullptr &&
+      state->selected_storage == FilesStorageKind::kUsb;
+}
+
+const hal::UsbStorageDeviceInfo* FindUsbStorageDevice(
+    const FilesViewState* state, uint32_t device_id) {
+  if (state == nullptr || device_id == 0) {
+    return nullptr;
+  }
+  for (size_t index = 0;
+      index < state->usb_storage_snapshot.device_count; ++index) {
+    const hal::UsbStorageDeviceInfo& device =
+        state->usb_storage_snapshot.devices[index];
+    if (device.id == device_id) {
+      return &device;
+    }
+  }
+  return nullptr;
+}
+
 /**
  * @brief 获取当前文件列表对应的存储根路径
  * @param state 文件管理页面状态
@@ -174,6 +207,11 @@ const char* CurrentStorageBasePath(const FilesViewState* state) {
                ? app::LittleFsStorageBasePath()
                : nullptr;
   }
+  if (IsUsbStorageSelected(state)) {
+    const hal::UsbStorageDeviceInfo* device =
+        FindUsbStorageDevice(state, state->selected_usb_storage_id);
+    return device == nullptr ? nullptr : device->base_path;
+  }
   if (state->config.storage == nullptr ||
       !state->config.storage->IsSdCardMounted()) {
     return nullptr;
@@ -187,7 +225,15 @@ const char* CurrentStorageBasePath(const FilesViewState* state) {
  * @return 当前存储设备名称
  */
 const char* CurrentStorageName(const FilesViewState* state) {
-  return IsSdCardSelected(state) ? "SD Card" : "Internal storage";
+  if (IsSdCardSelected(state)) {
+    return "SD Card";
+  }
+  if (IsUsbStorageSelected(state)) {
+    const hal::UsbStorageDeviceInfo* device =
+        FindUsbStorageDevice(state, state->selected_usb_storage_id);
+    return device == nullptr ? "USB Drive" : device->name;
+  }
+  return "Internal storage";
 }
 
 /**
@@ -1224,13 +1270,16 @@ void HandleStorageRemoval(FilesViewState* state) {
   if (state == nullptr || state->config.storage == nullptr) {
     return;
   }
+  const bool drawer_open = IsNavigationDrawerOpen(&state->drawer);
   const bool sd_card_selected = IsSdCardSelected(state);
   StopStorageDiscovery(state);
   state->storage_was_mounted = false;
   state->storage_missing_checks = 0;
   state->config.storage->UnmountSdCard();
-  CloseDrawer(state);
   if (!sd_card_selected) {
+    if (drawer_open) {
+      RebuildStorageDrawerContent(state);
+    }
     return;
   }
   state->current_path.clear();
@@ -1239,16 +1288,87 @@ void HandleStorageRemoval(FilesViewState* state) {
     RenderDirectoryContent(state, app::LittleFsStorageBasePath());
   }
   StartStorageDiscovery(state);
+  if (drawer_open && IsNavigationDrawerOpen(&state->drawer)) {
+    RebuildStorageDrawerContent(state);
+  }
+}
+
+void HandleUsbStorageRemoval(FilesViewState* state) {
+  if (state == nullptr || !IsUsbStorageSelected(state)) {
+    return;
+  }
+  const bool drawer_open = IsNavigationDrawerOpen(&state->drawer);
+  state->selected_usb_storage_id = 0;
+  state->current_path.clear();
+
+  if (!state->folder_picker_mode && app::IsLittleFsStorageMounted()) {
+    state->selected_storage = FilesStorageKind::kInternal;
+    RenderDirectoryContent(state, app::LittleFsStorageBasePath());
+    if (drawer_open) {
+      RebuildStorageDrawerContent(state);
+    }
+    return;
+  }
+  state->selected_storage = FilesStorageKind::kSdCard;
+  state->selected_usb_storage_id = 0;
+  if (state->config.storage != nullptr &&
+      state->config.storage->IsSdCardMounted()) {
+    const char* base_path = state->config.storage->SdCardBasePath();
+    if (base_path != nullptr && base_path[0] != '\0' &&
+        RenderDirectoryContent(state, base_path)) {
+      if (drawer_open) {
+        RebuildStorageDrawerContent(state);
+      }
+      return;
+    }
+  }
+  StartStorageDiscovery(state);
+  if (drawer_open && IsNavigationDrawerOpen(&state->drawer)) {
+    RebuildStorageDrawerContent(state);
+  }
+}
+
+bool RefreshUsbStorageSnapshot(FilesViewState* state) {
+  if (state == nullptr || state->config.storage == nullptr) {
+    return false;
+  }
+  hal::UsbStorageSnapshot snapshot;
+  if (!state->config.storage->ReadUsbStorageSnapshot(&snapshot)) {
+    return false;
+  }
+
+  const bool changed =
+      snapshot.generation != state->usb_storage_snapshot.generation;
+  if (!changed) {
+    state->usb_storage_snapshot.monitor_running =
+        snapshot.monitor_running;
+    state->usb_storage_snapshot.start_failed = snapshot.start_failed;
+    return false;
+  }
+
+  const uint32_t selected_device_id =
+      state->selected_usb_storage_id;
+  state->usb_storage_snapshot = snapshot;
+  if (IsUsbStorageSelected(state) &&
+      FindUsbStorageDevice(state, selected_device_id) == nullptr) {
+    HandleUsbStorageRemoval(state);
+  } else if (IsNavigationDrawerOpen(&state->drawer)) {
+    RebuildStorageDrawerContent(state);
+  }
+  return true;
 }
 
 /**
- * @brief 处理 SD 卡在线状态监控计时器事件
+ * @brief 处理 SD 卡与 USB 存储在线状态监控计时器事件
  * @param timer LVGL 计时器
  */
 void StorageMonitorTimerCallback(lv_timer_t* timer) {
   auto* state = static_cast<FilesViewState*>(lv_timer_get_user_data(timer));
-  if (state == nullptr || state->storage_monitor_timer != timer ||
-      state->config.storage == nullptr) {
+  if (state == nullptr || state->storage_monitor_timer != timer) {
+    return;
+  }
+  RefreshUsbStorageSnapshot(state);
+  if (state->config.storage == nullptr) {
     return;
   }
 
@@ -1268,7 +1388,7 @@ void StorageMonitorTimerCallback(lv_timer_t* timer) {
 }
 
 /**
- * @brief 启动 SD 卡在线状态监控计时器
+ * @brief 启动 SD 卡与 USB 存储在线状态监控计时器
  * @param state 文件管理页面状态
  */
 void StartStorageMonitor(FilesViewState* state) {
@@ -1298,14 +1418,22 @@ void StorageRetryTimerCallback(lv_timer_t* timer) {
         base_path[0] != '\0' &&
         RenderDirectoryContent(state, base_path)) {
       StopStorageDiscovery(state);
-      CloseDrawer(state);
+      if (IsNavigationDrawerOpen(&state->drawer)) {
+        RebuildStorageDrawerContent(state);
+      }
       return;
     }
     StopStorageDiscovery(state);
+    if (IsNavigationDrawerOpen(&state->drawer)) {
+      RebuildStorageDrawerContent(state);
+    }
     return;
   }
 
   StopStorageDiscovery(state);
+  if (IsNavigationDrawerOpen(&state->drawer)) {
+    RebuildStorageDrawerContent(state);
+  }
   if (IsSdCardSelected(state)) {
     RenderNoStorageContent(state);
   }
@@ -1317,11 +1445,24 @@ void StartStorageDiscovery(FilesViewState* state) {
   }
   StopStorageDiscovery(state);
 
-  if (!state->folder_picker_mode && !IsSdCardSelected(state) &&
+  RefreshUsbStorageSnapshot(state);
+  if (IsUsbStorageSelected(state)) {
+    const char* base_path = CurrentStorageBasePath(state);
+    if (base_path != nullptr && base_path[0] != '\0') {
+      RenderDirectoryContent(state, base_path);
+    } else {
+      HandleUsbStorageRemoval(state);
+    }
+    return;
+  }
+
+  if (!state->folder_picker_mode &&
+      state->selected_storage == FilesStorageKind::kInternal &&
       !app::IsLittleFsStorageMounted()) {
     state->selected_storage = FilesStorageKind::kSdCard;
   }
-  if (!state->folder_picker_mode && !IsSdCardSelected(state) &&
+  if (!state->folder_picker_mode &&
+      state->selected_storage == FilesStorageKind::kInternal &&
       app::IsLittleFsStorageMounted()) {
     RenderDirectoryContent(state, app::LittleFsStorageBasePath());
   }
@@ -1420,7 +1561,7 @@ void DrawerRefreshClickedEventCallback(lv_event_t* event) {
   }
   auto* state = static_cast<FilesViewState*>(lv_event_get_user_data(event));
   StartStorageDiscovery(state);
-  CloseDrawer(state);
+  // 扫描完成回调会原地刷新抽屉，避免在当前点击事件中删除按钮自身。
 }
 
 /**
@@ -1436,6 +1577,7 @@ void DrawerSdCardClickedEventCallback(lv_event_t* event) {
     return;
   }
   state->selected_storage = FilesStorageKind::kSdCard;
+  state->selected_usb_storage_id = 0;
   StopStorageDiscovery(state);
   CloseDrawer(state);
   if (state->config.storage != nullptr &&
@@ -1451,6 +1593,43 @@ void DrawerSdCardClickedEventCallback(lv_event_t* event) {
   RenderNoStorageContent(state);
 }
 
+void UsbStorageClickContextDeletedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) == LV_EVENT_DELETE) {
+    delete static_cast<UsbStorageClickContext*>(
+        lv_event_get_user_data(event));
+  }
+}
+
+void DrawerUsbStorageClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  const auto* context = static_cast<const UsbStorageClickContext*>(
+      lv_event_get_user_data(event));
+  if (context == nullptr || context->state == nullptr) {
+    return;
+  }
+
+  FilesViewState* state = context->state;
+  const uint32_t device_id = context->device_id;
+  RefreshUsbStorageSnapshot(state);
+  const hal::UsbStorageDeviceInfo* device =
+      FindUsbStorageDevice(state, device_id);
+  if (device == nullptr) {
+    CloseDrawer(state);
+    return;
+  }
+
+  state->selected_storage = FilesStorageKind::kUsb;
+  state->selected_usb_storage_id = device_id;
+  StopStorageDiscovery(state);
+  const std::string base_path(device->base_path);
+  CloseDrawer(state);
+  if (!RenderDirectoryContent(state, base_path)) {
+    HandleUsbStorageRemoval(state);
+  }
+}
+
 /**
  * @brief 处理抽屉内部存储入口点击事件
  * @param event LVGL 事件对象
@@ -1464,6 +1643,7 @@ void DrawerInternalStorageClickedEventCallback(lv_event_t* event) {
     return;
   }
   state->selected_storage = FilesStorageKind::kInternal;
+  state->selected_usb_storage_id = 0;
   RenderDirectoryContent(state, app::LittleFsStorageBasePath());
   CloseDrawer(state);
 }
@@ -1485,7 +1665,7 @@ lv_obj_t* CreateStorageDrawerItem(lv_obj_t* parent, int drawer_width,
                                   const char* title, const char* subtitle,
                                   const char* symbol, int y, bool selected,
                                   lv_event_cb_t callback,
-                                  FilesViewState* state) {
+                                  void* callback_context) {
   lv_obj_t* row = lv_button_create(parent);
   if (row == nullptr) {
     return nullptr;
@@ -1511,7 +1691,8 @@ lv_obj_t* CreateStorageDrawerItem(lv_obj_t* parent, int drawer_width,
     lv_obj_delete(row);
     return nullptr;
   }
-  lv_obj_add_event_cb(row, callback, LV_EVENT_CLICKED, state);
+  lv_obj_add_event_cb(
+      row, callback, LV_EVENT_CLICKED, callback_context);
 
   lv_obj_t* left_cap = lv_obj_create(row);
   if (left_cap != nullptr) {
@@ -1605,6 +1786,106 @@ lv_obj_t* CreateStorageStateDrawerItem(lv_obj_t* parent, int drawer_width,
 }
 
 /**
+ * @brief 原地重建已打开抽屉中的存储设备列表
+ * @param state 文件管理页面状态
+ */
+void RebuildStorageDrawerContent(FilesViewState* state) {
+  if (state == nullptr || state->drawer.panel == nullptr) {
+    return;
+  }
+
+  lv_obj_t* drawer = state->drawer.panel;
+  const int scroll_y = lv_obj_get_scroll_y(drawer);
+  while (lv_obj_get_child_count(drawer) > 1) {
+    lv_obj_delete(lv_obj_get_child(drawer, 1));
+  }
+
+  const int drawer_width = NavigationDrawerWidth(&state->drawer);
+  int drawer_y = kNavigationDrawerContentTop;
+  if (app::IsLittleFsStorageMounted()) {
+    char internal_summary[64] = {};
+    if (!ReadInternalStorageSummary(
+            internal_summary, sizeof(internal_summary))) {
+      std::snprintf(internal_summary, sizeof(internal_summary),
+          "Internal storage");
+    }
+    CreateStorageDrawerItem(drawer, drawer_width, "Internal storage",
+        internal_summary, icon::kStorage, drawer_y,
+        state->selected_storage == FilesStorageKind::kInternal,
+        DrawerInternalStorageClickedEventCallback, state);
+  } else {
+    CreateStorageStateDrawerItem(drawer, drawer_width, "Internal storage",
+        "Unavailable", icon::kStorage, drawer_y);
+  }
+  drawer_y += 116;
+
+  const bool mounted = state->config.storage != nullptr &&
+                       state->config.storage->IsSdCardMounted();
+  if (mounted) {
+    char storage_summary[64] = {};
+    const char* base_path = state->config.storage->SdCardBasePath();
+    if (base_path == nullptr ||
+        !ReadStorageSummary(
+            base_path, storage_summary, sizeof(storage_summary))) {
+      std::snprintf(storage_summary, sizeof(storage_summary), "SD card");
+    }
+    CreateStorageDrawerItem(drawer, drawer_width, "SD Card",
+        storage_summary, icon::kSdStorage, drawer_y,
+        IsSdCardSelected(state), DrawerSdCardClickedEventCallback, state);
+  } else {
+    const char* storage_state =
+        state->storage_retry_timer != nullptr
+            ? "Scanning..."
+            : "Not connected";
+    CreateStorageDrawerItem(drawer, drawer_width, "SD Card",
+        storage_state, icon::kSdStorage, drawer_y,
+        IsSdCardSelected(state), DrawerSdCardClickedEventCallback, state);
+  }
+  drawer_y += 116;
+
+  for (size_t index = 0;
+      index < state->usb_storage_snapshot.device_count; ++index) {
+    const hal::UsbStorageDeviceInfo& device =
+        state->usb_storage_snapshot.devices[index];
+    char storage_summary[64] = {};
+    if (!ReadStorageSummary(
+            device.base_path, storage_summary, sizeof(storage_summary))) {
+      std::snprintf(
+          storage_summary, sizeof(storage_summary), "USB storage");
+    }
+
+    auto* click_context = new UsbStorageClickContext{
+        .state = state,
+        .device_id = device.id,
+    };
+    lv_obj_t* row = CreateStorageDrawerItem(drawer, drawer_width,
+        device.name, storage_summary, icon::kStorage, drawer_y,
+        IsUsbStorageSelected(state) &&
+            state->selected_usb_storage_id == device.id,
+        DrawerUsbStorageClickedEventCallback, click_context);
+    if (row == nullptr) {
+      delete click_context;
+    } else {
+      lv_obj_add_event_cb(row,
+          UsbStorageClickContextDeletedEventCallback,
+          LV_EVENT_DELETE, click_context);
+    }
+    drawer_y += 116;
+  }
+
+  CreateNavigationDrawerItem(&state->drawer, icon::kRefresh,
+      "Refresh storage", drawer_y, DrawerRefreshClickedEventCallback, state);
+  drawer_y += kNavigationDrawerItemHeight + 12;
+  CreateNavigationDrawerDivider(&state->drawer, drawer_y);
+  drawer_y += 18;
+  CreateNavigationDrawerItem(&state->drawer, icon::kSettings, "Settings",
+      drawer_y, nullptr, state);
+
+  lv_obj_update_layout(drawer);
+  lv_obj_scroll_to_y(drawer, scroll_y, LV_ANIM_OFF);
+}
+
+/**
  * @brief 显示文件管理导航抽屉
  * @param state 文件管理页面状态
  */
@@ -1613,6 +1894,7 @@ void ShowDrawer(FilesViewState* state) {
       IsNavigationDrawerOpen(&state->drawer)) {
     return;
   }
+  RefreshUsbStorageSnapshot(state);
 
   NavigationDrawerConfig drawer_config;
   drawer_config.screen_width = state->config.width;
@@ -1631,54 +1913,7 @@ void ShowDrawer(FilesViewState* state) {
   if (drawer == nullptr) {
     return;
   }
-  const int drawer_width = NavigationDrawerWidth(&state->drawer);
-
-  int drawer_y = kNavigationDrawerContentTop;
-  if (app::IsLittleFsStorageMounted()) {
-    char internal_summary[64] = {};
-    if (!ReadInternalStorageSummary(
-            internal_summary, sizeof(internal_summary))) {
-      std::snprintf(internal_summary, sizeof(internal_summary),
-          "Internal storage");
-    }
-    CreateStorageDrawerItem(drawer, drawer_width, "Internal storage",
-        internal_summary, icon::kStorage, drawer_y,
-        !IsSdCardSelected(state),
-        DrawerInternalStorageClickedEventCallback, state);
-  } else {
-    CreateStorageStateDrawerItem(drawer, drawer_width, "Internal storage",
-        "Unavailable", icon::kStorage, drawer_y);
-  }
-  drawer_y += 116;
-
-  const bool mounted = state->config.storage != nullptr &&
-                       state->config.storage->IsSdCardMounted();
-  if (mounted) {
-    char storage_summary[64] = {};
-    const char* base_path = state->config.storage->SdCardBasePath();
-    if (base_path == nullptr || !ReadStorageSummary(base_path, storage_summary,
-                                                    sizeof(storage_summary))) {
-      std::snprintf(storage_summary, sizeof(storage_summary), "SD card");
-    }
-    CreateStorageDrawerItem(drawer, drawer_width, "SD Card", storage_summary,
-        icon::kSdStorage, drawer_y, IsSdCardSelected(state),
-        DrawerSdCardClickedEventCallback, state);
-  } else {
-    const char* storage_state =
-        state->storage_retry_timer != nullptr ? "Scanning..." : "Not connected";
-    CreateStorageDrawerItem(drawer, drawer_width, "SD Card", storage_state,
-        icon::kSdStorage, drawer_y, IsSdCardSelected(state),
-        DrawerSdCardClickedEventCallback, state);
-  }
-  drawer_y += 116;
-
-  CreateNavigationDrawerItem(&state->drawer, icon::kRefresh,
-      "Refresh storage", drawer_y, DrawerRefreshClickedEventCallback, state);
-  drawer_y += kNavigationDrawerItemHeight + 12;
-  CreateNavigationDrawerDivider(&state->drawer, drawer_y);
-  drawer_y += 18;
-  CreateNavigationDrawerItem(&state->drawer, icon::kSettings, "Settings",
-      drawer_y, nullptr, state);
+  RebuildStorageDrawerContent(state);
   PresentNavigationDrawer(&state->drawer);
 }
 
@@ -1954,6 +2189,11 @@ lv_obj_t* CreateFilesViewInternal(lv_obj_t* parent,
     return nullptr;
   }
 
+  if (config.storage != nullptr && !state->folder_picker_mode) {
+    config.storage->StartUsbStorage();
+    config.storage->ReadUsbStorageSnapshot(
+        &state->usb_storage_snapshot);
+  }
   StartStorageDiscovery(state);
   StartStorageMonitor(state);
   return root;

@@ -20,6 +20,7 @@
 #include "freertos/task.h"
 #include "hal/ppa/ppa_srm_helper.h"
 #include "hal/providers/providers.h"
+#include "hal/usb/usb_storage_manager.h"
 #include "t_display_p4_driver.h"
 
 namespace lilygo_box::hal {
@@ -432,6 +433,26 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return SD 卡挂载路径
    */
   const char* SdCardBasePath() const override;
+
+  /**
+   * @brief 启动 USB Host MSC 监控并自动挂载接入的 U 盘
+   * @return 监控已经运行或启动任务创建成功返回 true，否则返回 false
+   */
+  bool StartUsbStorage() override;
+
+  /**
+   * @brief 停止 USB Host MSC 监控并关闭 USB Host 供电
+   * @return USB 资源和供电均成功释放返回 true，否则返回 false
+   */
+  bool StopUsbStorage() override;
+
+  /**
+   * @brief 读取当前已经挂载的 USB 存储设备快照
+   * @param snapshot 快照输出地址
+   * @return 读取成功返回 true，否则返回 false
+   */
+  bool ReadUsbStorageSnapshot(
+      UsbStorageSnapshot* snapshot) const override;
 
   /**
    * @brief 启动屏幕背光
@@ -1042,6 +1063,7 @@ class TDisplayP4Device final : public ScreenProvider,
 
   lilygo_device_driver::TDisplayP4Driver& driver_;
   std::unique_ptr<cpp_bus_driver::Tool> tool_;
+  UsbStorageManager usb_storage_manager_;
   ScreenProviderDisplayCallbacks display_callbacks_;
   // 扬声器播放状态，供 UI 和后台播放任务共享
   SpeakerState speaker_;
