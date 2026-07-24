@@ -500,7 +500,8 @@ bool CreateActionRow(lv_obj_t* parent, const char* title, int y, int width,
 }
 
 bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,
-    bool checked, lv_event_cb_t callback, SettingsViewState* state) {
+    bool checked, lv_event_cb_t callback, SettingsViewState* state,
+    bool wrap_title) {
   lv_obj_t* row = lv_obj_create(parent);
   if (row == nullptr) {
     return false;
@@ -519,6 +520,12 @@ bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,
       CreateLabel(row, title, lv_color_hex(kPrimaryTextColor), Font28());
   if (label == nullptr) {
     return false;
+  }
+  if (wrap_title) {
+    constexpr int kSwitchTitleGap = 24;
+    lv_obj_set_width(label, width - 2 * kBasicSidePadding -
+        kBasicSwitchWidth - kSwitchTitleGap);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
   }
   lv_obj_align(label, LV_ALIGN_LEFT_MID, kBasicSidePadding, 0);
 

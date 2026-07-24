@@ -150,10 +150,11 @@ void AutoLockRowClickedEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 保存锁屏页面双击亮屏或熄屏开关状态
+ * @brief 保存锁屏页面双击亮屏和熄屏开关状态
  * @param event LVGL 事件对象
  */
-void DoubleTapToWakeSwitchChangedEventCallback(lv_event_t* event) {
+void LockScreenDoubleTapToTurnScreenOnAndOffSwitchChangedEventCallback(
+    lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(
       lv_event_get_user_data(event));
   lv_obj_t* target = lv_event_get_target_obj(event);
@@ -161,10 +162,11 @@ void DoubleTapToWakeSwitchChangedEventCallback(lv_event_t* event) {
     return;
   }
 
-  state->double_tap_to_wake =
+  state->lock_screen_double_tap_to_turn_screen_on_and_off =
       lv_obj_has_state(target, LV_STATE_CHECKED);
   app::DisplayPreferences preferences = app::GetDisplayPreferences();
-  preferences.double_tap_to_wake = state->double_tap_to_wake;
+  preferences.lock_screen_double_tap_to_turn_screen_on_and_off =
+      state->lock_screen_double_tap_to_turn_screen_on_and_off;
   app::UpdateDisplayPreferences(preferences);
 }
 
@@ -248,9 +250,11 @@ bool BuildLockScreenContent(lv_obj_t* body, SettingsViewState* state) {
     return false;
   }
   y += kBasicRowHeight;
-  return CreateSwitchRow(body, "Double-tap to wake", y, width,
-      state->double_tap_to_wake,
-      DoubleTapToWakeSwitchChangedEventCallback, state);
+  return CreateSwitchRow(body,
+      "Lock screen double-tap to\nturn screen on or off", y, width,
+      state->lock_screen_double_tap_to_turn_screen_on_and_off,
+      LockScreenDoubleTapToTurnScreenOnAndOffSwitchChangedEventCallback,
+      state, true);
 }
 
 }  // namespace

@@ -491,7 +491,8 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
   state->display_brightness_percent = display_preferences.brightness_percent;
   state->auto_lock_seconds = display_preferences.lock_timeout_seconds;
   state->screen_rotation_angle = display_preferences.screen_rotation_angle;
-  state->double_tap_to_wake = display_preferences.double_tap_to_wake;
+  state->lock_screen_double_tap_to_turn_screen_on_and_off =
+      display_preferences.lock_screen_double_tap_to_turn_screen_on_and_off;
   app::SoundPreferences sound_preferences = app::GetSoundPreferences();
   state->audio_volume_percent = sound_preferences.volume_percent;
   app::HapticPreferences haptic_preferences = app::GetHapticPreferences();

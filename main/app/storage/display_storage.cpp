@@ -31,7 +31,7 @@ enum class DisplayField : uint16_t {
   kBrightnessPercent = 1,
   kLockTimeoutSeconds = 2,
   kScreenRotationAngle = 3,
-  kDoubleTapToWake = 4,
+  kLockScreenDoubleTapToTurnScreenOnAndOff = 4,
 };
 
 int NormalizeScreenRotationAngle(int angle) {
@@ -57,7 +57,8 @@ DisplayPreferences NormalizeDisplayPreferences(
       kMaximumLockTimeoutSeconds);
   result.screen_rotation_angle =
       NormalizeScreenRotationAngle(source.screen_rotation_angle);
-  result.double_tap_to_wake = source.double_tap_to_wake;
+  result.lock_screen_double_tap_to_turn_screen_on_and_off =
+      source.lock_screen_double_tap_to_turn_screen_on_and_off;
   return result;
 }
 
@@ -66,7 +67,8 @@ bool AreDisplayPreferencesEqual(
   return left.brightness_percent == right.brightness_percent &&
       left.lock_timeout_seconds == right.lock_timeout_seconds &&
       left.screen_rotation_angle == right.screen_rotation_angle &&
-      left.double_tap_to_wake == right.double_tap_to_wake;
+      left.lock_screen_double_tap_to_turn_screen_on_and_off ==
+          right.lock_screen_double_tap_to_turn_screen_on_and_off;
 }
 
 bool DecodeDisplayPreferences(const storage::TlvBuffer& buffer,
@@ -113,8 +115,9 @@ bool DecodeDisplayPreferences(const storage::TlvBuffer& buffer,
         decoded.screen_rotation_angle = static_cast<int>(value);
         break;
       }
-      case DisplayField::kDoubleTapToWake: {
-        if (!field.ReadBool(&decoded.double_tap_to_wake)) {
+      case DisplayField::kLockScreenDoubleTapToTurnScreenOnAndOff: {
+        if (!field.ReadBool(
+                &decoded.lock_screen_double_tap_to_turn_screen_on_and_off)) {
           return false;
         }
         break;
@@ -142,8 +145,9 @@ bool EncodeDisplayPreferences(const DisplayPreferences& preferences,
           static_cast<uint16_t>(DisplayField::kScreenRotationAngle),
           static_cast<int32_t>(normalized.screen_rotation_angle)) &&
       writer.WriteBool(
-          static_cast<uint16_t>(DisplayField::kDoubleTapToWake),
-          normalized.double_tap_to_wake) &&
+          static_cast<uint16_t>(
+              DisplayField::kLockScreenDoubleTapToTurnScreenOnAndOff),
+          normalized.lock_screen_double_tap_to_turn_screen_on_and_off) &&
       writer.Finalize(encoded_size);
 }
 

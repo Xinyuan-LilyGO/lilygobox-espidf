@@ -227,7 +227,7 @@ struct SettingsViewState {
   lv_obj_t* wifi_connect_button_label = nullptr;
   lv_obj_t* auto_lock_value_label = nullptr;
   PromptSelectSheetState auto_lock_select_sheet = {};
-  bool double_tap_to_wake = true;
+  bool lock_screen_double_tap_to_turn_screen_on_and_off = true;
   lv_obj_t* screen_rotation_value_label = nullptr;
   PromptSelectSheetState screen_rotation_select_sheet = {};
   // 管理已保存网络页中等待确认删除的行对象。

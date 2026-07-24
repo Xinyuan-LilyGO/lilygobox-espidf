@@ -535,7 +535,7 @@ void Application::RunScreenLockTask() {
         lock_screen_first_tap_pending = false;
         const app::DisplayPreferences preferences =
             LoadDisplayPreferencesOrDefault();
-        if (!preferences.double_tap_to_wake) {
+        if (!preferences.lock_screen_double_tap_to_turn_screen_on_and_off) {
           screen_off_touch_active = false;
           first_tap_pending = false;
           vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
@@ -587,7 +587,7 @@ void Application::RunScreenLockTask() {
       first_tap_pending = false;
       const app::DisplayPreferences preferences =
           LoadDisplayPreferencesOrDefault();
-      if (!preferences.double_tap_to_wake ||
+      if (!preferences.lock_screen_double_tap_to_turn_screen_on_and_off ||
           (lock_screen_first_tap_pending &&
               now_ms - lock_screen_first_tap_ms >
                   kDoubleTapMaximumIntervalMs)) {
@@ -625,8 +625,9 @@ void Application::RunScreenLockTask() {
           const bool short_tap = !unlock_drag_ready &&
               now_ms - unlock_touch_start_ms <= kDoubleTapMaximumTapMs &&
               AreTouchPointsNearby(unlock_touch_start, unlock_touch_last);
-          const bool double_tap_to_sleep =
-              preferences.double_tap_to_wake && short_tap &&
+          const bool lock_screen_double_tap_to_turn_screen_off =
+              preferences.lock_screen_double_tap_to_turn_screen_on_and_off &&
+              short_tap &&
               lock_screen_first_tap_pending &&
               now_ms - lock_screen_first_tap_ms <=
                   kDoubleTapMaximumIntervalMs &&
@@ -647,13 +648,13 @@ void Application::RunScreenLockTask() {
             continue;
           } else {
             lvgl_port_.Lock();
-            if (double_tap_to_sleep) {
+            if (lock_screen_double_tap_to_turn_screen_off) {
               ui_manager_.SetLockScreenDragOffset(0);
             } else {
               ui_manager_.ResetLockScreenDrag();
             }
             lvgl_port_.Unlock();
-            if (double_tap_to_sleep) {
+            if (lock_screen_double_tap_to_turn_screen_off) {
               lock_screen_first_tap_pending = false;
               ui::PlayUiHapticFeedback();
               unlock_touch_active = false;
@@ -663,7 +664,9 @@ void Application::RunScreenLockTask() {
                 continue;
               }
               lock_screen_last_interaction_ms = now_ms;
-            } else if (preferences.double_tap_to_wake && short_tap) {
+            } else if (
+                preferences.lock_screen_double_tap_to_turn_screen_on_and_off &&
+                short_tap) {
               lock_screen_first_tap_pending = true;
               lock_screen_first_tap_ms = now_ms;
               lock_screen_first_tap_point = unlock_touch_start;

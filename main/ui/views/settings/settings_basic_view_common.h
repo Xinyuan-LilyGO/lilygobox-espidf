@@ -111,10 +111,12 @@ bool CreateActionRow(lv_obj_t* parent, const char* title, int y, int width,
  * @param checked 当前是否选中
  * @param callback 开关变化回调
  * @param state 设置页状态
+ * @param wrap_title 标题是否在开关左侧的可用宽度内换行
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,
-    bool checked, lv_event_cb_t callback, SettingsViewState* state);
+    bool checked, lv_event_cb_t callback, SettingsViewState* state,
+    bool wrap_title = false);
 
 /**
  * @brief 创建带图标的滑动条设置行
