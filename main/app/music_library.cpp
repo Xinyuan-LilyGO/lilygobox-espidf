@@ -100,48 +100,60 @@ void AddMp3Track(const std::string& path,
   tracks->push_back(std::move(track));
 }
 
+struct PendingDirectory {
+  std::string path;
+  int depth = 0;
+};
+
 /**
- * @brief 递归扫描一个音乐源目录
- * @param directory 当前目录
- * @param depth 当前递归深度
+ * @brief 使用堆内存中的待处理列表迭代扫描音乐源目录
+ * @param root_directory 音乐源根目录
  * @param known_paths 已加入路径集合
  * @param tracks 曲库输出列表
- * @return 当前目录读取成功返回 true，否则返回 false
+ * @return 所有可访问目录读取成功返回 true，否则返回 false
  */
-bool ScanDirectory(const std::string& directory, int depth,
+bool ScanDirectory(const std::string& root_directory,
     std::unordered_set<std::string>* known_paths,
     std::vector<MusicTrack>* tracks) {
-  if (depth > kMaximumDirectoryDepth ||
-      tracks->size() >= kMaximumTrackCount) {
-    return true;
-  }
-  DIR* handle = opendir(directory.c_str());
-  if (handle == nullptr) {
-    return false;
-  }
-
+  std::vector<PendingDirectory> pending_directories;
+  pending_directories.push_back({root_directory, 0});
   bool success = true;
-  while (dirent* entry = readdir(handle)) {
-    if (std::string(entry->d_name) == "." ||
-        std::string(entry->d_name) == "..") {
-      continue;
-    }
-    const std::string path = JoinPath(directory, entry->d_name);
-    struct stat information {};
-    if (stat(path.c_str(), &information) != 0) {
+  while (!pending_directories.empty() &&
+         tracks->size() < kMaximumTrackCount) {
+    PendingDirectory directory =
+        std::move(pending_directories.back());
+    pending_directories.pop_back();
+
+    DIR* handle = opendir(directory.path.c_str());
+    if (handle == nullptr) {
       success = false;
       continue;
     }
-    if (S_ISDIR(information.st_mode)) {
-      success = ScanDirectory(path, depth + 1, known_paths, tracks) && success;
-    } else if (S_ISREG(information.st_mode) && IsMp3Path(path)) {
-      AddMp3Track(path, known_paths, tracks);
+
+    while (dirent* entry = readdir(handle)) {
+      if (std::string(entry->d_name) == "." ||
+          std::string(entry->d_name) == "..") {
+        continue;
+      }
+      std::string path = JoinPath(directory.path, entry->d_name);
+      struct stat information {};
+      if (stat(path.c_str(), &information) != 0) {
+        success = false;
+        continue;
+      }
+      if (S_ISDIR(information.st_mode) &&
+          directory.depth < kMaximumDirectoryDepth) {
+        pending_directories.push_back(
+            {std::move(path), directory.depth + 1});
+      } else if (S_ISREG(information.st_mode) && IsMp3Path(path)) {
+        AddMp3Track(path, known_paths, tracks);
+      }
+      if (tracks->size() >= kMaximumTrackCount) {
+        break;
+      }
     }
-    if (tracks->size() >= kMaximumTrackCount) {
-      break;
-    }
+    closedir(handle);
   }
-  closedir(handle);
   return success;
 }
 
@@ -159,7 +171,7 @@ bool ScanMusicLibrary(const std::vector<std::string>& source_paths,
     if (source_path.empty()) {
       continue;
     }
-    success = ScanDirectory(source_path, 0, &known_paths, tracks) && success;
+    success = ScanDirectory(source_path, &known_paths, tracks) && success;
   }
   std::sort(tracks->begin(), tracks->end(),
       [](const MusicTrack& left, const MusicTrack& right) {

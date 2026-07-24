@@ -12,6 +12,8 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <memory>
+#include <new>
 
 namespace lilygo_box::audio {
 namespace {
@@ -270,25 +272,29 @@ uint32_t ReadVbrDurationMs(
     return 0;
   }
 
-  std::array<uint8_t, kVbrHeaderSearchSize> frame{};
+  std::unique_ptr<uint8_t[]> frame(
+      new (std::nothrow) uint8_t[kVbrHeaderSearchSize]);
+  if (frame == nullptr) {
+    return 0;
+  }
   const size_t bytes_to_read =
-      std::min<size_t>(info.frame_size_bytes, frame.size());
-  const size_t bytes_read = fread(frame.data(), 1, bytes_to_read, file);
+      std::min<size_t>(info.frame_size_bytes, kVbrHeaderSearchSize);
+  const size_t bytes_read = fread(frame.get(), 1, bytes_to_read, file);
   for (size_t position = 0; position + 4 <= bytes_read; ++position) {
     const bool has_xing =
-        std::memcmp(frame.data() + position, "Xing", 4) == 0 ||
-        std::memcmp(frame.data() + position, "Info", 4) == 0;
+        std::memcmp(frame.get() + position, "Xing", 4) == 0 ||
+        std::memcmp(frame.get() + position, "Info", 4) == 0;
     if (has_xing && position + 12 <= bytes_read) {
-      const uint32_t flags = DecodeBigEndian(frame.data() + position + 4);
+      const uint32_t flags = DecodeBigEndian(frame.get() + position + 4);
       if ((flags & 0x00000001U) != 0) {
         return CalculateFrameDurationMs(
-            DecodeBigEndian(frame.data() + position + 8), info);
+            DecodeBigEndian(frame.get() + position + 8), info);
       }
     }
-    if (std::memcmp(frame.data() + position, "VBRI", 4) == 0 &&
+    if (std::memcmp(frame.get() + position, "VBRI", 4) == 0 &&
         position + 18 <= bytes_read) {
       return CalculateFrameDurationMs(
-          DecodeBigEndian(frame.data() + position + 14), info);
+          DecodeBigEndian(frame.get() + position + 14), info);
     }
   }
   return 0;
