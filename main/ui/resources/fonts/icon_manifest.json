@@ -112,7 +112,8 @@
         "Music",
         "SdStorage",
         "SettingsInputAntenna",
-        "SignalWifiStatusbarNotConnected"
+        "SignalWifiStatusbarNotConnected",
+        "Usb"
       ]
     }
   ],
@@ -204,6 +205,7 @@
     "Shuffle": {"cpp_name": "kShuffle", "codepoint": 57411},
     "Sunny": {"cpp_name": "kSunny", "codepoint": 59418},
     "TouchApp": {"cpp_name": "kTouchApp", "codepoint": 59667},
+    "Usb": {"cpp_name": "kUsb", "codepoint": 57824},
     "VolumeUp": {"cpp_name": "kVolumeUp", "codepoint": 57424},
     "Warning": {"cpp_name": "kWarning", "codepoint": 61571}
   }

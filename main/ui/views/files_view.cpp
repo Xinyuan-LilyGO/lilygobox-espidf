@@ -1846,7 +1846,7 @@ void RebuildStorageDrawerContent(FilesViewState* state) {
         .device_id = device.id,
     };
     lv_obj_t* row = CreateStorageDrawerItem(drawer, drawer_width,
-        device.name, storage_summary, icon::kStorage, drawer_y,
+        device.name, storage_summary, icon::kUsb, drawer_y,
         IsUsbStorageSelected(state) &&
             state->selected_usb_storage_id == device.id,
         DrawerUsbStorageClickedEventCallback, click_context);
