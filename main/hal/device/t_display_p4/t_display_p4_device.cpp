@@ -544,24 +544,7 @@ bool TDisplayP4Device::SetEthernetEnabled(bool enabled) {
     return driver_.SetEthernetPowerEnabled(false);
   }
 
-  if (!driver_.SetEthernetPowerEnabled(true)) {
-    SetEthernetFailure(ESP_FAIL);
-    return false;
-  }
-
-  if (ethernet_.driver_initialized.load()) {
-    if (!ethernet_.running.load() && ethernet_.handle != nullptr) {
-      const esp_err_t result =
-          esp_eth_start(reinterpret_cast<esp_eth_handle_t>(ethernet_.handle));
-      if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
-        SetEthernetFailure(result);
-        driver_.SetEthernetPowerEnabled(false);
-        return false;
-      }
-      ethernet_.running.store(true);
-      ethernet_.start_failed.store(false);
-      ethernet_.last_error.store(ESP_OK);
-    }
+  if (ethernet_.driver_initialized.load() && ethernet_.running.load()) {
     return true;
   }
 
@@ -2595,7 +2578,23 @@ void TDisplayP4Device::EthernetInitTaskEntry(void* context) {
 }
 
 void TDisplayP4Device::RunEthernetInitTask() {
-  const int result = InitializeEthernetStack();
+  if (ethernet_.stop_requested.load()) {
+    ethernet_.init_task_running.store(false);
+    SetEthernetEnabled(false);
+    return;
+  }
+
+  int result = ESP_OK;
+  if (!driver_.SetEthernetPowerEnabled(true)) {
+    result = ESP_FAIL;
+  } else if (ethernet_.stop_requested.load()) {
+    driver_.SetEthernetPowerEnabled(false);
+    ethernet_.init_task_running.store(false);
+    SetEthernetEnabled(false);
+    return;
+  } else {
+    result = InitializeEthernetStack();
+  }
   if (result != ESP_OK) {
     SetEthernetFailure(result);
     driver_.SetEthernetPowerEnabled(false);

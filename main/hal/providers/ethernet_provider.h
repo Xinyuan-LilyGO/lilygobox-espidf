@@ -13,7 +13,7 @@ namespace lilygo_box::hal {
 
 // 以太网驱动、链路和 DHCP 状态快照。
 struct EthernetStatus {
-  // 异步初始化任务是否正在运行。
+  // 异步初始化或重新启动任务是否正在运行。
   bool init_task_running = false;
   // ESP-IDF 以太网驱动是否已经初始化。
   bool driver_initialized = false;
@@ -45,7 +45,7 @@ class EthernetProvider {
 
   /**
    * @brief 启用或停止以太网驱动
-   * @param enabled true 异步启用，false 立即请求停止
+   * @param enabled true 异步启用或重新启动，false 立即请求停止
    * @return 状态切换请求成功返回 true，否则返回 false
    */
   virtual bool SetEthernetEnabled(bool enabled) = 0;

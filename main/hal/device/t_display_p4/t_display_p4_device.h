@@ -623,7 +623,7 @@ class TDisplayP4Device final : public ScreenProvider,
   static void EthernetInitTaskEntry(void* context);
 
   /**
-   * @brief 执行 IP101 以太网异步初始化
+   * @brief 执行 IP101 以太网异步初始化或重新启动
    */
   void RunEthernetInitTask();
 
