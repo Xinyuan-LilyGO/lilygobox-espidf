@@ -1552,19 +1552,6 @@ void CloseDrawer(FilesViewState* state) {
 }
 
 /**
- * @brief 处理抽屉刷新存储按钮点击事件
- * @param event LVGL 事件对象
- */
-void DrawerRefreshClickedEventCallback(lv_event_t* event) {
-  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
-    return;
-  }
-  auto* state = static_cast<FilesViewState*>(lv_event_get_user_data(event));
-  StartStorageDiscovery(state);
-  // 扫描完成回调会原地刷新抽屉，避免在当前点击事件中删除按钮自身。
-}
-
-/**
  * @brief 处理抽屉 SD 卡入口点击事件
  * @param event LVGL 事件对象
  */
@@ -1873,9 +1860,6 @@ void RebuildStorageDrawerContent(FilesViewState* state) {
     drawer_y += 116;
   }
 
-  CreateNavigationDrawerItem(&state->drawer, icon::kRefresh,
-      "Refresh storage", drawer_y, DrawerRefreshClickedEventCallback, state);
-  drawer_y += kNavigationDrawerItemHeight + 12;
   CreateNavigationDrawerDivider(&state->drawer, drawer_y);
   drawer_y += 18;
   CreateNavigationDrawerItem(&state->drawer, icon::kSettings, "Settings",
