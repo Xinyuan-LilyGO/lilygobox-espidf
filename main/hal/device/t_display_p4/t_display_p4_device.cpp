@@ -2,7 +2,7 @@
  * @Description: T-Display-P4 设备初始化与硬件 Provider 适配实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-19 01:30:46
+ * @LastEditTime: 2026-07-24 14:54:36
  * @License: GPL 3.0
  */
 #include "hal/device/t_display_p4/t_display_p4_device.h"
@@ -76,8 +76,9 @@ constexpr uint8_t kSpeakerPlaybackBitsPerSample = 16;
 constexpr uint32_t kMicrophoneCaptureTaskStackBytes = 4 * 1024;
 constexpr UBaseType_t kMicrophoneCaptureTaskPriority = 3;
 constexpr size_t kMicrophoneReadSampleCount = 128;
-constexpr uint32_t kMicrophoneReadDelayMs = 40;
-constexpr int kMicrophoneLevelFullScale = 1000;
+constexpr uint32_t kMicrophoneReadRetryDelayMs = 10;
+constexpr int kMicrophoneAverageFullScale = 1000;
+constexpr int kMicrophonePeakFullScale = 4000;
 constexpr int kMicrophoneLevelRiseDivisor = 4;
 constexpr int kMicrophoneLevelFallDivisor = 8;
 constexpr uint32_t kCameraPreviewTaskStackBytes = 6 * 1024;
@@ -86,7 +87,7 @@ constexpr uint32_t kCameraBufferCount = 2;
 constexpr uint32_t kCameraFrameIntervalMs = 10;
 constexpr uint32_t kCameraStopWaitTimeoutMs = 5000;
 constexpr uint32_t kCameraOutputClearFrameCount = 3;
-// LoRa 发送硬件超时的最小值和额外保护时间。
+// Radio 发送硬件超时的最小值和额外保护时间。
 constexpr uint32_t kMinimumRadioTransmitTimeoutMs = 1000;
 constexpr uint32_t kRadioTransmitTimeoutMarginMs = 500;
 constexpr uint32_t kRadioTransmitWatchdogGraceMs = 1000;
@@ -1817,6 +1818,8 @@ bool TDisplayP4Device::StartMicrophone() {
   microphone_.peak_sample.store(0);
   microphone_.bytes_read.store(0);
   if (!SetAudioAdcToDac(false)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Failed to power the ES8311 microphone capture path\n");
     microphone_.running.store(false);
     UpdateAudioCodecPowerState();
     return false;
@@ -1847,18 +1850,15 @@ bool TDisplayP4Device::StopMicrophone() {
 }
 
 bool TDisplayP4Device::SetAudioAdcToDac(bool enable) {
+  if (enable &&
+      (!microphone_.running.load() || speaker_.running.load())) {
+    return false;
+  }
+
   const bool previous_enabled = microphone_.adc_to_dac_enabled.exchange(enable);
   if (!UpdateAudioCodecPowerState() || !driver_.IsEs8311Ready()) {
     microphone_.adc_to_dac_enabled.store(previous_enabled);
     UpdateAudioCodecPowerState();
-    return false;
-  }
-
-  if (!driver_.chip().es8311->SetAdcDataToDac(enable)) {
-    microphone_.adc_to_dac_enabled.store(previous_enabled);
-    UpdateAudioCodecPowerState();
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Es8311 SetAdcDataToDac failed\n");
     return false;
   }
 
@@ -2542,8 +2542,12 @@ void TDisplayP4Device::RunMicrophoneCaptureTask() {
 
       const int average_sample =
           sample_count == 0 ? 0 : absolute_sum / static_cast<int>(sample_count);
+      const int average_level_percent = std::min(
+          100, (average_sample * 100) / kMicrophoneAverageFullScale);
+      const int peak_level_percent =
+          std::min(100, (peak_sample * 100) / kMicrophonePeakFullScale);
       const int target_level_percent =
-          std::min(100, (average_sample * 100) / kMicrophoneLevelFullScale);
+          std::max(average_level_percent, peak_level_percent);
       const int current_level_percent = microphone_.level_percent.load();
       const int difference = target_level_percent - current_level_percent;
       const int divisor = difference > 0 ? kMicrophoneLevelRiseDivisor
@@ -2554,15 +2558,32 @@ void TDisplayP4Device::RunMicrophoneCaptureTask() {
       }
       microphone_.peak_sample.store(peak_sample);
       microphone_.level_percent.store(level_percent);
+
+      if (microphone_.adc_to_dac_enabled.load()) {
+        const auto* pcm_data =
+            reinterpret_cast<const uint8_t*>(samples.data());
+        size_t written_bytes = 0;
+        while (written_bytes < read_bytes &&
+               microphone_.adc_to_dac_enabled.load() &&
+               !microphone_.stop_requested.load()) {
+          const size_t written = driver_.chip().es8311->WriteI2s(
+              pcm_data + written_bytes, read_bytes - written_bytes);
+          if (written == 0) {
+            LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+                "ES8311 microphone PCM loopback write failed\n");
+            microphone_.adc_to_dac_enabled.store(false);
+            UpdateAudioCodecPowerState();
+            break;
+          }
+          written_bytes += written;
+        }
+      }
+    } else {
+      vTaskDelay(pdMS_TO_TICKS(kMicrophoneReadRetryDelayMs));
     }
-
-    vTaskDelay(pdMS_TO_TICKS(kMicrophoneReadDelayMs));
   }
 
-  if (microphone_.adc_to_dac_enabled.load()) {
-    driver_.chip().es8311->SetAdcDataToDac(false);
-    microphone_.adc_to_dac_enabled.store(false);
-  }
+  microphone_.adc_to_dac_enabled.store(false);
   microphone_.level_percent.store(0);
   microphone_.peak_sample.store(0);
   microphone_.running.store(false);

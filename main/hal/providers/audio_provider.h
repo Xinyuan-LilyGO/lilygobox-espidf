@@ -135,14 +135,14 @@ class AudioProvider {
   virtual bool StartMicrophone() = 0;
 
   /**
-   * @brief 停止麦克风采样并关闭 ADC 到 DAC 直通
+   * @brief 停止麦克风采样并关闭 ADC PCM 到 DAC 的实时转送
    * @return 停止命令发送成功返回 true，否则返回 false
    */
   virtual bool StopMicrophone() = 0;
 
   /**
-   * @brief 设置麦克风 ADC 数据是否直通到 DAC
-   * @param enable true 表示打开直通，false 表示关闭直通
+   * @brief 设置是否将麦克风 ADC PCM 数据实时转送到 DAC
+   * @param enable true 表示打开实时转送，false 表示关闭实时转送
    * @return 设置成功返回 true，否则返回 false
    */
   virtual bool SetAudioAdcToDac(bool enable) = 0;
