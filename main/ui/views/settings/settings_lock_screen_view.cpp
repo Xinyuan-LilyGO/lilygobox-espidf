@@ -150,6 +150,25 @@ void AutoLockRowClickedEventCallback(lv_event_t* event) {
 }
 
 /**
+ * @brief 保存锁屏页面双击亮屏或熄屏开关状态
+ * @param event LVGL 事件对象
+ */
+void DoubleTapToWakeSwitchChangedEventCallback(lv_event_t* event) {
+  auto* state = static_cast<SettingsViewState*>(
+      lv_event_get_user_data(event));
+  lv_obj_t* target = lv_event_get_target_obj(event);
+  if (state == nullptr || target == nullptr) {
+    return;
+  }
+
+  state->double_tap_to_wake =
+      lv_obj_has_state(target, LV_STATE_CHECKED);
+  app::DisplayPreferences preferences = app::GetDisplayPreferences();
+  preferences.double_tap_to_wake = state->double_tap_to_wake;
+  app::UpdateDisplayPreferences(preferences);
+}
+
+/**
  * @brief 创建自动锁屏设置行
  * @param parent 父对象
  * @param state 设置页状态
@@ -224,7 +243,14 @@ bool BuildLockScreenContent(lv_obj_t* body, SettingsViewState* state) {
   if (!CreateSectionLabel(body, "Lock screen settings", 0, width)) {
     return false;
   }
-  return CreateAutoLockRow(body, state, kBasicSectionHeight, width);
+  int y = kBasicSectionHeight;
+  if (!CreateAutoLockRow(body, state, y, width)) {
+    return false;
+  }
+  y += kBasicRowHeight;
+  return CreateSwitchRow(body, "Double-tap to wake", y, width,
+      state->double_tap_to_wake,
+      DoubleTapToWakeSwitchChangedEventCallback, state);
 }
 
 }  // namespace

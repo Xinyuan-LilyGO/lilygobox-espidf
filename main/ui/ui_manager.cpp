@@ -1094,6 +1094,17 @@ bool UiManager::ShowPowerMenu(std::function<void()> restart_callback,
   return true;
 }
 
+void UiManager::SetSystemPowerCallbacks(
+    std::function<void()> restart_callback,
+    std::function<void()> power_off_callback) {
+  restart_device_callback_ = std::move(restart_callback);
+  power_off_device_callback_ = std::move(power_off_callback);
+}
+
+void UiManager::SetScreenLockCallback(std::function<void()> callback) {
+  screen_lock_callback_ = std::move(callback);
+}
+
 void UiManager::HidePowerMenu() {
   if (power_menu_ == nullptr) {
     return;
@@ -2424,6 +2435,11 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   config.set_lock_screen_visibility_callback = [this](
       std::function<void(bool visible)> callback) {
     active_view_lock_screen_callback_ = std::move(callback);
+  };
+  config.request_screen_lock = screen_lock_callback_;
+  config.show_power_options = [this]() {
+    return ShowPowerMenu(restart_device_callback_,
+        power_off_device_callback_, std::function<void()>());
   };
 
   SetStatusBarVisible(true);

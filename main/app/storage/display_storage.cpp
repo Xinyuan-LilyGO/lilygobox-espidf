@@ -31,6 +31,7 @@ enum class DisplayField : uint16_t {
   kBrightnessPercent = 1,
   kLockTimeoutSeconds = 2,
   kScreenRotationAngle = 3,
+  kDoubleTapToWake = 4,
 };
 
 int NormalizeScreenRotationAngle(int angle) {
@@ -56,6 +57,7 @@ DisplayPreferences NormalizeDisplayPreferences(
       kMaximumLockTimeoutSeconds);
   result.screen_rotation_angle =
       NormalizeScreenRotationAngle(source.screen_rotation_angle);
+  result.double_tap_to_wake = source.double_tap_to_wake;
   return result;
 }
 
@@ -63,7 +65,8 @@ bool AreDisplayPreferencesEqual(
     const DisplayPreferences& left, const DisplayPreferences& right) {
   return left.brightness_percent == right.brightness_percent &&
       left.lock_timeout_seconds == right.lock_timeout_seconds &&
-      left.screen_rotation_angle == right.screen_rotation_angle;
+      left.screen_rotation_angle == right.screen_rotation_angle &&
+      left.double_tap_to_wake == right.double_tap_to_wake;
 }
 
 bool DecodeDisplayPreferences(const storage::TlvBuffer& buffer,
@@ -110,6 +113,12 @@ bool DecodeDisplayPreferences(const storage::TlvBuffer& buffer,
         decoded.screen_rotation_angle = static_cast<int>(value);
         break;
       }
+      case DisplayField::kDoubleTapToWake: {
+        if (!field.ReadBool(&decoded.double_tap_to_wake)) {
+          return false;
+        }
+        break;
+      }
       default:
         // 未知字段由旧固件跳过，新增参数不需要提升容器版本。
         break;
@@ -132,6 +141,9 @@ bool EncodeDisplayPreferences(const DisplayPreferences& preferences,
       writer.WriteInt32(
           static_cast<uint16_t>(DisplayField::kScreenRotationAngle),
           static_cast<int32_t>(normalized.screen_rotation_angle)) &&
+      writer.WriteBool(
+          static_cast<uint16_t>(DisplayField::kDoubleTapToWake),
+          normalized.double_tap_to_wake) &&
       writer.Finalize(encoded_size);
 }
 

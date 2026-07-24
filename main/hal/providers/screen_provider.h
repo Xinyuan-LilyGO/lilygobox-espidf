@@ -114,11 +114,6 @@ class ScreenProvider {
    */
   virtual bool ExitDeviceSleep(bool deep_sleep = false) = 0;
 
-  /**
-   * @brief 读取锁屏唤醒物理按键按下状态
-   * @return 按键按下返回 true，否则返回 false
-   */
-  virtual bool IsLockWakeButtonPressed() = 0;
 };
 
 }  // namespace lilygo_box::hal

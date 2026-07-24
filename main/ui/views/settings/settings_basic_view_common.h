@@ -90,6 +90,19 @@ bool CreateArrowRow(lv_obj_t* parent, const char* title, const char* value,
     int y, int width, lv_event_cb_t callback, SettingsViewState* state);
 
 /**
+ * @brief 创建不带右箭头的立即操作设置行
+ * @param parent 父对象
+ * @param title 标题文本
+ * @param y 顶部坐标
+ * @param width 页面宽度
+ * @param callback 点击回调
+ * @param state 设置页状态
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateActionRow(lv_obj_t* parent, const char* title, int y, int width,
+    lv_event_cb_t callback, SettingsViewState* state);
+
+/**
  * @brief 创建普通设置开关行
  * @param parent 父对象
  * @param title 标题文本

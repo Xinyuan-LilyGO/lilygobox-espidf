@@ -47,6 +47,7 @@ constexpr UBaseType_t kStartupWifiAutoConnectTaskPriority = 3;
 constexpr uint32_t kScreenLockTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kScreenLockTaskPriority = 3;
 constexpr uint32_t kScreenLockPollMs = 100;
+constexpr uint32_t kScreenOffTouchPollMs = 30;
 constexpr uint32_t kScreenLockSleepConfirmMs = 3 * 1000;
 constexpr uint32_t kAwakeLockScreenSleepTimeoutMs = 10 * 1000;
 constexpr uint32_t kLowBatteryStartupWarningMs = 10 * 1000;
@@ -56,13 +57,29 @@ constexpr int kScreenLockFadeStepCount = 12;
 constexpr int kScreenUnlockSwipeMinDistance = 120;
 constexpr uint32_t kScreenUnlockAnimationWaitMs = 240;
 constexpr int kScreenUnlockSwipeMaxHorizontalDrift = 90;
-constexpr uint32_t kPowerMenuLongPressMs = 1200;
+constexpr uint32_t kDoubleTapMaximumTapMs = 300;
+constexpr uint32_t kDoubleTapMaximumIntervalMs = 450;
+constexpr int kDoubleTapMaximumDistance = 80;
 constexpr uint32_t kPowerActionPreSleepSettleMs = 30;
 constexpr int kLowBatteryStartupThresholdPercent = 10;
 constexpr uint32_t kLowBatteryStartupIconColor = 0xFF3B30;
 constexpr uint32_t kBatteryFaultStartupIconColor = 0xFF9500;
 constexpr char kNvsPartitionName[] = "nvs";
 constexpr char kChinaTimeZone[] = "CST-8";
+
+/**
+ * @brief 判断两个触摸点是否属于同一次双击区域
+ * @param left 第一个触摸点
+ * @param right 第二个触摸点
+ * @return 两个触摸点距离在允许范围内返回 true
+ */
+bool AreTouchPointsNearby(
+    const hal::TouchPoint& left, const hal::TouchPoint& right) {
+  const int x_distance = left.x - right.x;
+  const int y_distance = left.y - right.y;
+  return x_distance * x_distance + y_distance * y_distance <=
+      kDoubleTapMaximumDistance * kDoubleTapMaximumDistance;
+}
 
 /**
  * @brief 将系统本地时区设置为中国标准时间 UTC+8
@@ -208,6 +225,9 @@ bool Application::Init() {
     LogMessage(LogLevel::kError, __FILE__, __LINE__, "Init failed\n");
     return false;
   }
+  ui_manager_.SetScreenLockCallback([this]() { RequestScreenLock(); });
+  ui_manager_.SetSystemPowerCallbacks(
+      [this]() { RestartDevice(); }, [this]() { PowerOffDevice(); });
 
   result = lvgl_port_.Start();
   if (!result) {
@@ -439,13 +459,21 @@ void Application::RunScreenLockTask() {
 
   uint32_t last_touch_ms = static_cast<uint32_t>(xTaskGetTickCount() *
       portTICK_PERIOD_MS);
-  bool was_wake_button_pressed = screen->IsLockWakeButtonPressed();
-  uint32_t wake_button_press_start_ms = last_touch_ms;
-  bool wake_button_long_press_handled = was_wake_button_pressed;
   uint32_t lock_screen_last_interaction_ms = last_touch_ms;
   bool unlock_touch_active = false;
   bool unlock_drag_ready = false;
+  uint32_t unlock_touch_start_ms = 0;
   hal::TouchPoint unlock_touch_start = {};
+  hal::TouchPoint unlock_touch_last = {};
+  bool screen_off_touch_active = false;
+  uint32_t screen_off_touch_start_ms = 0;
+  hal::TouchPoint screen_off_touch_start = {};
+  bool first_tap_pending = false;
+  uint32_t first_tap_ms = 0;
+  hal::TouchPoint first_tap_point = {};
+  bool lock_screen_first_tap_pending = false;
+  uint32_t lock_screen_first_tap_ms = 0;
+  hal::TouchPoint lock_screen_first_tap_point = {};
   while (true) {
     const uint32_t now_ms = static_cast<uint32_t>(xTaskGetTickCount() *
         portTICK_PERIOD_MS);
@@ -480,163 +508,185 @@ void Application::RunScreenLockTask() {
       }
       last_touch_ms = now_ms;
       lock_screen_last_interaction_ms = now_ms;
+      screen_off_touch_active = false;
+      first_tap_pending = false;
     }
     hal::TouchPoint point;
-    const bool wake_button_pressed = screen->IsLockWakeButtonPressed();
-    const bool wake_button_pressed_edge =
-        wake_button_pressed && !was_wake_button_pressed;
-    const bool wake_button_released =
-        !wake_button_pressed && was_wake_button_pressed;
-    if (wake_button_pressed_edge) {
-      wake_button_press_start_ms = now_ms;
-      wake_button_long_press_handled = false;
-    }
-    if (wake_button_pressed && !wake_button_long_press_handled &&
-        now_ms - wake_button_press_start_ms >= kPowerMenuLongPressMs) {
-      ui::PlayUiHapticFeedback();
-      if (ShowPowerMenuFromLockButton()) {
-        lock_screen_last_interaction_ms = now_ms;
-      }
-      wake_button_long_press_handled = true;
-      unlock_touch_active = false;
-      unlock_drag_ready = false;
-    }
-    const bool wake_button_clicked =
-        wake_button_released && !wake_button_long_press_handled;
-    was_wake_button_pressed = wake_button_pressed;
     if (ui_manager_.IsFirstBootWelcomeActive()) {
-      if (wake_button_clicked) {
-        HidePowerMenuFromLockButton();
-      }
       last_touch_ms = now_ms;
       lock_screen_last_interaction_ms = now_ms;
       unlock_touch_active = false;
       unlock_drag_ready = false;
+      screen_off_touch_active = false;
+      first_tap_pending = false;
+      lock_screen_first_tap_pending = false;
+      vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
+      continue;
+    }
+    if (screen_lock_requested_.exchange(false)) {
+      if (!screen_locked_.load() && !LockScreenNow()) {
+        last_touch_ms = now_ms;
+      }
       vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
       continue;
     }
     if (screen_locked_.load()) {
-      if (wake_button_clicked) {
-        const bool power_menu_hidden = HidePowerMenuFromLockButton();
-        if (power_menu_hidden) {
-          lock_screen_last_interaction_ms = now_ms;
-          unlock_touch_active = false;
-          unlock_drag_ready = false;
+      if (!lock_screen_awake_.load()) {
+        lock_screen_first_tap_pending = false;
+        const app::DisplayPreferences preferences =
+            LoadDisplayPreferencesOrDefault();
+        if (!preferences.double_tap_to_wake) {
+          screen_off_touch_active = false;
+          first_tap_pending = false;
+          vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
+          continue;
         }
-        if (lock_screen_awake_.load()) {
-          SleepAwakeLockScreenNow();
-          unlock_touch_active = false;
-          unlock_drag_ready = false;
-        } else {
-          WakeScreenFromLock();
-          last_touch_ms = now_ms;
-          lock_screen_last_interaction_ms = now_ms;
-          unlock_touch_active = false;
-          unlock_drag_ready = false;
+
+        if (first_tap_pending &&
+            now_ms - first_tap_ms > kDoubleTapMaximumIntervalMs) {
+          first_tap_pending = false;
         }
+        hal::TouchPoint screen_off_point;
+        const bool screen_off_touched =
+            ReadScreenTouchWhileSleeping(&screen_off_point) &&
+            screen_off_point.x >= 0 && screen_off_point.y >= 0;
+        if (screen_off_touched) {
+          if (!screen_off_touch_active) {
+            screen_off_touch_active = true;
+            screen_off_touch_start_ms = now_ms;
+            screen_off_touch_start = screen_off_point;
+          }
+        } else if (screen_off_touch_active) {
+          screen_off_touch_active = false;
+          if (now_ms - screen_off_touch_start_ms <= kDoubleTapMaximumTapMs) {
+            const bool double_tap =
+                first_tap_pending &&
+                now_ms - first_tap_ms <= kDoubleTapMaximumIntervalMs &&
+                AreTouchPointsNearby(
+                    first_tap_point, screen_off_touch_start);
+            if (double_tap) {
+              first_tap_pending = false;
+              WakeScreenFromLock();
+              if (lock_screen_awake_.load()) {
+                ui::PlayUiHapticFeedback();
+                last_touch_ms = now_ms;
+                lock_screen_last_interaction_ms = now_ms;
+              }
+            } else {
+              first_tap_pending = true;
+              first_tap_ms = now_ms;
+              first_tap_point = screen_off_touch_start;
+            }
+          }
+        }
+        vTaskDelay(pdMS_TO_TICKS(kScreenOffTouchPollMs));
+        continue;
       }
 
-      if (lock_screen_awake_.load()) {
-        if (power_menu_visible_.load()) {
-          unlock_touch_active = false;
+      screen_off_touch_active = false;
+      first_tap_pending = false;
+      const app::DisplayPreferences preferences =
+          LoadDisplayPreferencesOrDefault();
+      if (!preferences.double_tap_to_wake ||
+          (lock_screen_first_tap_pending &&
+              now_ms - lock_screen_first_tap_ms >
+                  kDoubleTapMaximumIntervalMs)) {
+        lock_screen_first_tap_pending = false;
+      }
+      if (ReadScreenTouchWhileAwake(&point)) {
+        lock_screen_last_interaction_ms = now_ms;
+        if (!unlock_touch_active) {
+          unlock_touch_start_ms = now_ms;
+          unlock_touch_start = point;
+          unlock_touch_last = point;
+          unlock_touch_active = true;
           unlock_drag_ready = false;
-          const bool lock_wake_input_active =
-              ReadScreenTouchWhileAwake(&point) || wake_button_pressed;
-          if (lock_wake_input_active) {
-            lock_screen_last_interaction_ms = now_ms;
-          } else {
-            lvgl_port_.SetInputBlocked(false);
-            const uint32_t lock_screen_idle_ms =
-                now_ms - lock_screen_last_interaction_ms;
-            const uint32_t lock_screen_dim_start_ms =
-                kAwakeLockScreenSleepTimeoutMs - kScreenLockSleepConfirmMs;
-            if (lock_screen_idle_ms >= lock_screen_dim_start_ms) {
-              lvgl_port_.SetInputBlocked(true);
-              if (!SleepAwakeLockScreenWithTimeout()) {
-                lock_screen_last_interaction_ms = static_cast<uint32_t>(
-                    xTaskGetTickCount() * portTICK_PERIOD_MS);
-              }
-            }
-          }
-        } else if (ReadScreenTouchWhileAwake(&point)) {
-          lock_screen_last_interaction_ms = now_ms;
-          if (!unlock_touch_active) {
-            unlock_touch_start = point;
-            unlock_touch_active = true;
-            unlock_drag_ready = false;
-          } else {
-            const app::DisplayPreferences preferences =
-                LoadDisplayPreferencesOrDefault();
-            const hal::TouchPoint visual_start = RotateTouchPointToDisplay(
-                unlock_touch_start, preferences.screen_rotation_angle,
-                screen->ScreenWidth(), screen->ScreenHeight());
-            const hal::TouchPoint visual_current = RotateTouchPointToDisplay(
-                point, preferences.screen_rotation_angle, screen->ScreenWidth(),
-                screen->ScreenHeight());
-            const int drag_distance =
-                std::max(0, visual_start.y - visual_current.y);
-            const int drag_limit = RotatedScreenHeight(
-                preferences.screen_rotation_angle, screen->ScreenWidth(),
-                screen->ScreenHeight());
-            const int drag_offset = -std::min(drag_distance, drag_limit);
-            lvgl_port_.Lock();
-            ui_manager_.SetLockScreenDragOffset(drag_offset);
-            lvgl_port_.Unlock();
-            unlock_drag_ready = IsUnlockSwipe(unlock_touch_start, point);
-          }
         } else {
-          if (unlock_touch_active) {
-            if (unlock_drag_ready) {
-              lvgl_port_.Lock();
-              ui_manager_.PlayLockScreenUnlockAnimation();
-              lvgl_port_.Unlock();
-              vTaskDelay(pdMS_TO_TICKS(kScreenUnlockAnimationWaitMs));
-              UnlockScreen();
-              last_touch_ms = static_cast<uint32_t>(xTaskGetTickCount() *
-                  portTICK_PERIOD_MS);
-              unlock_touch_active = false;
-              unlock_drag_ready = false;
-              vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
-              continue;
-            } else {
-              lvgl_port_.Lock();
-              ui_manager_.ResetLockScreenDrag();
-              lvgl_port_.Unlock();
-            }
-          }
-          unlock_touch_active = false;
-          unlock_drag_ready = false;
-          const uint32_t lock_screen_idle_ms =
-              now_ms - lock_screen_last_interaction_ms;
-          const uint32_t lock_screen_dim_start_ms =
-              kAwakeLockScreenSleepTimeoutMs - kScreenLockSleepConfirmMs;
-          if (lock_screen_idle_ms >= lock_screen_dim_start_ms) {
-            if (!SleepAwakeLockScreenWithTimeout()) {
-              lock_screen_last_interaction_ms = static_cast<uint32_t>(
-                  xTaskGetTickCount() * portTICK_PERIOD_MS);
-            }
+          unlock_touch_last = point;
+          const hal::TouchPoint visual_start = RotateTouchPointToDisplay(
+              unlock_touch_start, preferences.screen_rotation_angle,
+              screen->ScreenWidth(), screen->ScreenHeight());
+          const hal::TouchPoint visual_current = RotateTouchPointToDisplay(
+              point, preferences.screen_rotation_angle, screen->ScreenWidth(),
+              screen->ScreenHeight());
+          const int drag_distance =
+              std::max(0, visual_start.y - visual_current.y);
+          const int drag_limit = RotatedScreenHeight(
+              preferences.screen_rotation_angle, screen->ScreenWidth(),
+              screen->ScreenHeight());
+          const int drag_offset = -std::min(drag_distance, drag_limit);
+          lvgl_port_.Lock();
+          ui_manager_.SetLockScreenDragOffset(drag_offset);
+          lvgl_port_.Unlock();
+          unlock_drag_ready = IsUnlockSwipe(unlock_touch_start, point);
+        }
+      } else {
+        if (unlock_touch_active) {
+          const bool short_tap = !unlock_drag_ready &&
+              now_ms - unlock_touch_start_ms <= kDoubleTapMaximumTapMs &&
+              AreTouchPointsNearby(unlock_touch_start, unlock_touch_last);
+          const bool double_tap_to_sleep =
+              preferences.double_tap_to_wake && short_tap &&
+              lock_screen_first_tap_pending &&
+              now_ms - lock_screen_first_tap_ms <=
+                  kDoubleTapMaximumIntervalMs &&
+              AreTouchPointsNearby(
+                  lock_screen_first_tap_point, unlock_touch_start);
+          if (unlock_drag_ready) {
+            lock_screen_first_tap_pending = false;
+            lvgl_port_.Lock();
+            ui_manager_.PlayLockScreenUnlockAnimation();
+            lvgl_port_.Unlock();
+            vTaskDelay(pdMS_TO_TICKS(kScreenUnlockAnimationWaitMs));
+            UnlockScreen();
+            last_touch_ms = static_cast<uint32_t>(xTaskGetTickCount() *
+                portTICK_PERIOD_MS);
             unlock_touch_active = false;
             unlock_drag_ready = false;
+            vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
+            continue;
+          } else {
+            lvgl_port_.Lock();
+            if (double_tap_to_sleep) {
+              ui_manager_.SetLockScreenDragOffset(0);
+            } else {
+              ui_manager_.ResetLockScreenDrag();
+            }
+            lvgl_port_.Unlock();
+            if (double_tap_to_sleep) {
+              lock_screen_first_tap_pending = false;
+              ui::PlayUiHapticFeedback();
+              unlock_touch_active = false;
+              unlock_drag_ready = false;
+              if (SleepLockScreenNow()) {
+                vTaskDelay(pdMS_TO_TICKS(kScreenOffTouchPollMs));
+                continue;
+              }
+              lock_screen_last_interaction_ms = now_ms;
+            } else if (preferences.double_tap_to_wake && short_tap) {
+              lock_screen_first_tap_pending = true;
+              lock_screen_first_tap_ms = now_ms;
+              lock_screen_first_tap_point = unlock_touch_start;
+            } else {
+              lock_screen_first_tap_pending = false;
+            }
           }
         }
-      }
-      vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
-      continue;
-    }
-
-    if (wake_button_clicked) {
-      HidePowerMenuFromLockButton();
-      ui::PlayUiHapticFeedback();
-      lvgl_port_.SetInputBlocked(true);
-      if (EnterScreenLockSleep()) {
-        screen_locked_.store(true);
-        lock_screen_awake_.store(false);
-      } else {
-        lvgl_port_.Lock();
-        ui_manager_.HideLockScreen();
-        lvgl_port_.Unlock();
-        lvgl_port_.SetInputBlocked(false);
-        last_touch_ms = now_ms;
+        unlock_touch_active = false;
+        unlock_drag_ready = false;
+        const uint32_t lock_screen_idle_ms =
+            now_ms - lock_screen_last_interaction_ms;
+        const uint32_t lock_screen_dim_start_ms =
+            kAwakeLockScreenSleepTimeoutMs - kScreenLockSleepConfirmMs;
+        if (lock_screen_idle_ms >= lock_screen_dim_start_ms) {
+          if (!SleepAwakeLockScreenWithTimeout()) {
+            lock_screen_last_interaction_ms = static_cast<uint32_t>(
+                xTaskGetTickCount() * portTICK_PERIOD_MS);
+          }
+          lock_screen_first_tap_pending = false;
+          unlock_touch_active = false;
+          unlock_drag_ready = false;
+        }
       }
       vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
       continue;
@@ -750,11 +800,25 @@ void Application::RunScreenLockTask() {
   }
 }
 
-bool Application::EnterScreenLockSleep() {
-  hal::ScreenProvider* screen = device_provider_context_.screen.get();
-  if (screen == nullptr) {
+void Application::RequestScreenLock() {
+  screen_lock_requested_.store(true);
+}
+
+bool Application::LockScreenNow() {
+  if (screen_locked_.load()) {
+    return true;
+  }
+  lvgl_port_.SetInputBlocked(true);
+  if (!EnterScreenLockSleep()) {
+    lvgl_port_.SetInputBlocked(false);
     return false;
   }
+  screen_locked_.store(true);
+  lock_screen_awake_.store(false);
+  return true;
+}
+
+bool Application::EnterScreenLockSleep() {
   return EnterScreenSleep();
 }
 
@@ -780,74 +844,6 @@ void Application::WakeScreenFromLock() {
     return;
   }
   lock_screen_awake_.store(true);
-}
-
-bool Application::ShowPowerMenuFromLockButton() {
-  hal::ScreenProvider* screen = device_provider_context_.screen.get();
-  if (screen == nullptr) {
-    return false;
-  }
-
-  const bool locked = screen_locked_.load();
-  const bool lock_screen_was_sleeping =
-      locked && !lock_screen_awake_.load();
-  if (lock_screen_was_sleeping) {
-    if (!lvgl_port_.BeginScreenTransition()) {
-      return false;
-    }
-    lvgl_port_.Lock();
-    const bool lock_screen_prepared = ui_manager_.ShowLockScreen();
-    lvgl_port_.Unlock();
-    if (!lock_screen_prepared) {
-      lvgl_port_.EndScreenTransition();
-      return false;
-    }
-    const bool screen_restored = RestoreScreenAfterSleep();
-    lvgl_port_.EndScreenTransition();
-    if (!screen_restored) {
-      return false;
-    }
-  }
-
-  lvgl_port_.SetInputBlocked(false);
-  lvgl_port_.Lock();
-  bool lock_screen_ready = true;
-  if (locked) {
-    lock_screen_ready = ui_manager_.ShowLockScreen();
-  }
-  const bool power_menu_shown =
-      lock_screen_ready &&
-      ui_manager_.ShowPowerMenu([this]() { RestartDevice(); },
-          [this]() { PowerOffDevice(); },
-          [this]() { HandlePowerMenuDismissed(); });
-  lvgl_port_.Unlock();
-
-  if (locked && lock_screen_ready) {
-    lock_screen_awake_.store(true);
-  }
-  power_menu_visible_.store(power_menu_shown);
-  if (!power_menu_shown && locked && !lock_screen_awake_.load()) {
-    lvgl_port_.SetInputBlocked(true);
-  }
-  if (!lock_screen_ready && lock_screen_was_sleeping) {
-    UnlockScreen();
-  }
-  return power_menu_shown;
-}
-
-bool Application::HidePowerMenuFromLockButton() {
-  if (!power_menu_visible_.load()) {
-    return false;
-  }
-
-  lvgl_port_.Lock();
-  ui_manager_.HidePowerMenu();
-  lvgl_port_.Unlock();
-  power_menu_visible_.store(false);
-  if (screen_locked_.load() && !lock_screen_awake_.load()) {
-    lvgl_port_.SetInputBlocked(true);
-  }
-  return true;
 }
 
 void Application::RestartDevice() {
@@ -886,27 +882,6 @@ void Application::PowerOffDevice() {
   esp_deep_sleep_start();
 }
 
-void Application::HandlePowerMenuDismissed() {
-  power_menu_visible_.store(false);
-  if (screen_locked_.load() && !lock_screen_awake_.load()) {
-    lvgl_port_.SetInputBlocked(true);
-  }
-}
-
-bool Application::SleepAwakeLockScreenNow() {
-  hal::ScreenProvider* screen = device_provider_context_.screen.get();
-  if (screen == nullptr) {
-    return false;
-  }
-
-  if (!EnterScreenSleep()) {
-    return false;
-  }
-  lvgl_port_.SetInputBlocked(true);
-  lock_screen_awake_.store(false);
-  return true;
-}
-
 bool Application::SleepAwakeLockScreenWithTimeout() {
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
   if (screen == nullptr) {
@@ -937,7 +912,7 @@ bool Application::SleepAwakeLockScreenWithTimeout() {
       lock_screen_awake_.store(true);
       return false;
     }
-    if (touched || screen->IsLockWakeButtonPressed()) {
+    if (touched) {
       FadeScreenBrightnessTo(preferences.brightness_percent);
       fade_canceled = true;
       break;
@@ -961,7 +936,7 @@ bool Application::SleepAwakeLockScreenWithTimeout() {
       lock_screen_awake_.store(true);
       return false;
     }
-    if (touched || screen->IsLockWakeButtonPressed()) {
+    if (touched) {
       FadeScreenBrightnessTo(preferences.brightness_percent);
       lock_screen_awake_.store(true);
       return false;
@@ -974,6 +949,16 @@ bool Application::SleepAwakeLockScreenWithTimeout() {
     return false;
   }
 
+  lvgl_port_.SetInputBlocked(true);
+  lock_screen_awake_.store(false);
+  return true;
+}
+
+bool Application::SleepLockScreenNow() {
+  if (!screen_locked_.load() || !lock_screen_awake_.load() ||
+      !EnterScreenSleep()) {
+    return false;
+  }
   lvgl_port_.SetInputBlocked(true);
   lock_screen_awake_.store(false);
   return true;
@@ -1172,6 +1157,23 @@ bool Application::ReadScreenTouchWhileAwake(
   if (access_available != nullptr) {
     *access_available = can_access && touch_access_available;
   }
+  return touched;
+}
+
+bool Application::ReadScreenTouchWhileSleeping(hal::TouchPoint* point) {
+  hal::ScreenProvider* screen = device_provider_context_.screen.get();
+  if (point == nullptr || screen == nullptr ||
+      power_action_in_progress_.load() ||
+      !screen_off_confirmed_.load() ||
+      !lvgl_port_.IsDisplayFlushPaused() ||
+      !lvgl_port_.TryBeginScreenTransition()) {
+    return false;
+  }
+
+  const bool can_access = screen_off_confirmed_.load() &&
+      lvgl_port_.IsDisplayFlushPaused();
+  const bool touched = can_access && screen->ReadScreenTouch(point);
+  lvgl_port_.EndScreenTransition();
   return touched;
 }
 

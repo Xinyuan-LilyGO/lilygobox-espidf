@@ -78,6 +78,20 @@ class UiManager final {
       hal::StorageProvider* storage);
 
   /**
+   * @brief 设置系统重启和关机操作回调
+   * @param restart_callback 重启设备回调
+   * @param power_off_callback 关闭设备回调
+   */
+  void SetSystemPowerCallbacks(std::function<void()> restart_callback,
+      std::function<void()> power_off_callback);
+
+  /**
+   * @brief 设置立即锁屏请求回调
+   * @param callback 由应用层处理的锁屏请求回调
+   */
+  void SetScreenLockCallback(std::function<void()> callback);
+
+  /**
    * @brief 启动系统启动界面动画
    * @return 启动成功返回 true，否则返回 false
    */
@@ -165,7 +179,7 @@ class UiManager final {
   void PlayLockScreenUnlockAnimation();
 
   /**
-   * @brief 显示长按锁屏键后的关机菜单覆盖层
+   * @brief 显示系统电源菜单覆盖层
    * @param restart_callback 点击重启按钮时调用的回调
    * @param power_off_callback 点击关机按钮时调用的回调
    * @param dismiss_callback 点击遮罩或滑动退出时调用的回调
@@ -508,6 +522,9 @@ class UiManager final {
   lv_obj_t* reserved_page_ = nullptr;
   lv_obj_t* active_view_container_ = nullptr;
   std::function<void(bool visible)> active_view_lock_screen_callback_;
+  std::function<void()> screen_lock_callback_;
+  std::function<void()> restart_device_callback_;
+  std::function<void()> power_off_device_callback_;
   EdgeBackSwipeState app_back_swipe_ = {};
   lv_timer_t* system_status_refresh_timer_ = nullptr;
   app::SystemStatusCache system_status_cache_;

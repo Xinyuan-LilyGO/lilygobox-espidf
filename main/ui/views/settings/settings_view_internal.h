@@ -227,6 +227,7 @@ struct SettingsViewState {
   lv_obj_t* wifi_connect_button_label = nullptr;
   lv_obj_t* auto_lock_value_label = nullptr;
   PromptSelectSheetState auto_lock_select_sheet = {};
+  bool double_tap_to_wake = true;
   lv_obj_t* screen_rotation_value_label = nullptr;
   PromptSelectSheetState screen_rotation_select_sheet = {};
   // 管理已保存网络页中等待确认删除的行对象。
@@ -520,6 +521,13 @@ bool ShowPersonalHotspotPage(SettingsViewState* state);
  * @return 打开成功返回 true，否则返回 false
  */
 bool ShowLockScreenPage(SettingsViewState* state);
+
+/**
+ * @brief 从设置主页打开更多设置详情页
+ * @param state 设置页状态
+ * @return 打开成功返回 true，否则返回 false
+ */
+bool ShowMoreSettingsPage(SettingsViewState* state);
 
 /**
  * @brief 设置旋转后自动恢复的子页面 ID

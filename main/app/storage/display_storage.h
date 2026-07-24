@@ -22,6 +22,8 @@ struct DisplayPreferences {
   int lock_timeout_seconds = 5 * 60;
   // 屏幕旋转角度，仅允许 0、90、180 或 270。
   int screen_rotation_angle = 0;
+  // 锁屏页面是否允许双击触摸屏亮屏或熄屏。
+  bool double_tap_to_wake = true;
 };
 
 /**

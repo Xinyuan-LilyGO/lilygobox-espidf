@@ -488,12 +488,6 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   bool ExitDeviceSleep(bool deep_sleep = false) override;
 
-  /**
-   * @brief 读取 BOOT 物理按键按下状态
-   * @return BOOT 键按下返回 true，否则返回 false
-   */
-  bool IsLockWakeButtonPressed() override;
-
  private:
   static constexpr int kScreenReadyTimeoutMs = 5000;
   static constexpr int kScreenReadyPollMs = 20;

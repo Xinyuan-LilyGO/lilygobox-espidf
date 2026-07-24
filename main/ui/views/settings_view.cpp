@@ -268,6 +268,19 @@ void PowerBatteryRowClickedEventCallback(lv_event_t* event) {
 }
 
 /**
+ * @brief 从设置主页打开更多设置详情页
+ * @param event LVGL 事件对象
+ */
+void MoreSettingsRowClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+
+  ShowMoreSettingsPage(
+      static_cast<SettingsViewState*>(lv_event_get_user_data(event)));
+}
+
+/**
  * @brief 创建单个设置项
  * @param parent 父对象
  * @param item 设置项
@@ -435,6 +448,9 @@ bool CreateSettingsList(
     } else if (IsId(item.id, "power_battery")) {
       lv_obj_add_event_cb(
           row, PowerBatteryRowClickedEventCallback, LV_EVENT_CLICKED, state);
+    } else if (IsId(item.id, "more_settings")) {
+      lv_obj_add_event_cb(
+          row, MoreSettingsRowClickedEventCallback, LV_EVENT_CLICKED, state);
     }
     lv_obj_set_pos(row, 0, y);
     y += kRowHeight;
@@ -475,6 +491,7 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
   state->display_brightness_percent = display_preferences.brightness_percent;
   state->auto_lock_seconds = display_preferences.lock_timeout_seconds;
   state->screen_rotation_angle = display_preferences.screen_rotation_angle;
+  state->double_tap_to_wake = display_preferences.double_tap_to_wake;
   app::SoundPreferences sound_preferences = app::GetSoundPreferences();
   state->audio_volume_percent = sound_preferences.volume_percent;
   app::HapticPreferences haptic_preferences = app::GetHapticPreferences();

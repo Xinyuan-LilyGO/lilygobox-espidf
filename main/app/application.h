@@ -72,9 +72,20 @@ class Application final {
   static void ScreenLockTaskEntry(void* context);
 
   /**
-   * @brief 监控触摸和 BOOT 键并执行锁屏流程
+   * @brief 监控触摸并执行自动锁屏和锁屏页面双击亮屏或熄屏流程
    */
   void RunScreenLockTask();
+
+  /**
+   * @brief 请求锁屏后台任务立即锁定并熄灭屏幕
+   */
+  void RequestScreenLock();
+
+  /**
+   * @brief 立即进入锁屏熄屏状态
+   * @return 锁屏成功返回 true，否则返回 false
+   */
+  bool LockScreenNow();
 
   /**
    * @brief 显示锁屏页面并让设备进入休眠
@@ -88,38 +99,21 @@ class Application final {
   void WakeScreenFromLock();
 
   /**
-   * @brief 长按锁屏键时唤醒锁屏并显示关机菜单
-   * @return 显示成功返回 true，否则返回 false
-   */
-  bool ShowPowerMenuFromLockButton();
-
-  /**
-   * @brief 单击锁屏键前清理已经显示的关机菜单
-   * @return 关闭了关机菜单返回 true，否则返回 false
-   */
-  bool HidePowerMenuFromLockButton();
-
-  /**
    * @brief 让设备进入深度睡眠级关断状态
    */
   void PowerOffDevice();
-
-  /**
-   * @brief 处理关机菜单被遮罩点击或滑动手势关闭后的状态恢复
-   */
-  void HandlePowerMenuDismissed();
-
-  /**
-   * @brief 锁屏页面亮屏态下立即进入休眠
-   * @return 进入休眠成功返回 true，否则返回 false
-   */
-  bool SleepAwakeLockScreenNow();
 
   /**
    * @brief 锁屏页面亮屏态下按超时流程重新进入休眠
    * @return 进入休眠成功返回 true，否则返回 false
    */
   bool SleepAwakeLockScreenWithTimeout();
+
+  /**
+   * @brief 立即熄灭当前亮屏的锁屏页面
+   * @return 进入休眠成功返回 true，否则返回 false
+   */
+  bool SleepLockScreenNow();
 
   /**
    * @brief 让物理屏幕进入轻度休眠
@@ -163,6 +157,13 @@ class Application final {
       hal::TouchPoint* point, bool* access_available = nullptr);
 
   /**
+   * @brief 在面板熄屏且 LVGL 刷新暂停时直接读取触摸控制器
+   * @param point 触摸点输出
+   * @return 检测到有效触摸返回 true
+   */
+  bool ReadScreenTouchWhileSleeping(hal::TouchPoint* point);
+
+  /**
    * @brief 在短屏幕事务内修改亮屏亮度
    * @param percent 目标亮度百分比
    * @return 硬件仍可访问且亮度设置成功时返回 true
@@ -188,9 +189,9 @@ class Application final {
   std::atomic<int> current_screen_brightness_percent_{90};
   std::atomic<bool> screen_locked_{false};
   std::atomic<bool> lock_screen_awake_{false};
+  std::atomic<bool> screen_lock_requested_{false};
   // 仅在驱动确认物理面板已完整熄屏后保持为 true。
   std::atomic<bool> screen_off_confirmed_{false};
-  std::atomic<bool> power_menu_visible_{false};
   // 防止重启与关机流程并发进入最终熄屏和存储事务。
   std::atomic<bool> power_action_in_progress_{false};
 };

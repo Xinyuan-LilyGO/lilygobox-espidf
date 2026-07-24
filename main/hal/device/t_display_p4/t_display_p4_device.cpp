@@ -308,24 +308,6 @@ bool IsFiveGWifiChannel(int channel) {
   return channel > 14;
 }
 
-/**
- * @brief 配置 ESP32-P4 BOOT 按键为输入上拉模式
- * @return 配置成功返回 true，否则返回 false
- */
-bool ConfigureBootButtonInput(cpp_bus_driver::Tool* tool) {
-  if (tool == nullptr) {
-    return false;
-  }
-  const bool result = tool->SetGpioMode(gpio::button::kEsp32p4Boot,
-      cpp_bus_driver::Tool::GpioMode::kInput,
-      cpp_bus_driver::Tool::GpioStatus::kPullup);
-  if (!result) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Configure BOOT button GPIO failed\n");
-  }
-  return result;
-}
-
 bool SelectLoraBandwidth(uint32_t bandwidth_hz,
     sx126x_lora_bw_t* bandwidth) {
   if (bandwidth == nullptr) {
@@ -499,7 +481,6 @@ bool TDisplayP4Device::InitDevice() {
         LogLevel::kError, __FILE__, __LINE__, "WaitForScreenReady failed\n");
     return false;
   }
-  ConfigureBootButtonInput(tool_.get());
   return true;
 }
 
@@ -4311,17 +4292,6 @@ bool TDisplayP4Device::WaitForPowerOffTasks() {
     vTaskDelay(pdMS_TO_TICKS(kPowerOffTaskPollMs));
   }
   return false;
-}
-
-bool TDisplayP4Device::IsLockWakeButtonPressed() {
-  static bool boot_button_configured = ConfigureBootButtonInput(tool_.get());
-  if (!boot_button_configured) {
-    boot_button_configured = ConfigureBootButtonInput(tool_.get());
-    if (!boot_button_configured || tool_ == nullptr) {
-      return false;
-    }
-  }
-  return !tool_->GpioRead(gpio::button::kEsp32p4Boot);
 }
 
 bool TDisplayP4Device::WaitForScreenReady() {

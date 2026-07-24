@@ -418,11 +418,13 @@ bool CreateBasicDivider(lv_obj_t* parent, int y, int width) {
   return true;
 }
 
-bool CreateArrowRow(lv_obj_t* parent, const char* title, const char* value,
-    int y, int width, lv_event_cb_t callback, SettingsViewState* state) {
+namespace {
+
+lv_obj_t* CreateTextRow(lv_obj_t* parent, const char* title, int y, int width,
+    int trailing_width, lv_event_cb_t callback, SettingsViewState* state) {
   lv_obj_t* row = lv_obj_create(parent);
   if (row == nullptr) {
-    return false;
+    return nullptr;
   }
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
@@ -437,7 +439,7 @@ bool CreateArrowRow(lv_obj_t* parent, const char* title, const char* value,
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
   if (!AddPressCancelOnLeave(row)) {
-    return false;
+    return nullptr;
   }
   AddEdgeBackSwipeEvents(row,
       state != nullptr && state->settings_nested_page != nullptr
@@ -451,11 +453,24 @@ bool CreateArrowRow(lv_obj_t* parent, const char* title, const char* value,
   lv_obj_t* title_label =
       CreateLabel(row, title, lv_color_hex(kPrimaryTextColor), Font28());
   if (title_label == nullptr) {
-    return false;
+    return nullptr;
   }
-  lv_obj_set_width(title_label, width - 2 * kBasicSidePadding - 170);
+  lv_obj_set_width(
+      title_label, width - 2 * kBasicSidePadding - trailing_width);
   lv_label_set_long_mode(title_label, LV_LABEL_LONG_DOT);
   lv_obj_align(title_label, LV_ALIGN_LEFT_MID, kBasicSidePadding, 0);
+  return row;
+}
+
+}  // namespace
+
+bool CreateArrowRow(lv_obj_t* parent, const char* title, const char* value,
+    int y, int width, lv_event_cb_t callback, SettingsViewState* state) {
+  lv_obj_t* row =
+      CreateTextRow(parent, title, y, width, 170, callback, state);
+  if (row == nullptr) {
+    return false;
+  }
 
   if (value != nullptr && value[0] != '\0') {
     lv_obj_t* value_label =
@@ -477,6 +492,11 @@ bool CreateArrowRow(lv_obj_t* parent, const char* title, const char* value,
   }
   lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -kBasicSidePadding, 0);
   return true;
+}
+
+bool CreateActionRow(lv_obj_t* parent, const char* title, int y, int width,
+    lv_event_cb_t callback, SettingsViewState* state) {
+  return CreateTextRow(parent, title, y, width, 0, callback, state) != nullptr;
 }
 
 bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,

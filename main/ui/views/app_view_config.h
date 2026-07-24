@@ -90,6 +90,10 @@ struct AppViewConfig {
   // 注册锁屏显示状态变化回调，active app 销毁时传入空回调清除注册。
   std::function<void(std::function<void(bool visible)> callback)>
       set_lock_screen_visibility_callback;
+  // 请求应用层立即进入锁屏状态。
+  std::function<void()> request_screen_lock;
+  // 显示系统重新启动和关机选项。
+  std::function<bool()> show_power_options;
 };
 
 }  // namespace lilygo_box::ui
