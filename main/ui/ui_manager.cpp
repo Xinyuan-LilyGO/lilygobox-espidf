@@ -1694,8 +1694,11 @@ void UiManager::UpdateBatteryStatus(const hal::BmuStatus& status) {
 void UiManager::UpdateWifiStatus(const hal::WifiStatus& status) {
   const app::InternetAccessState internet_state =
       app::NetworkMonitor::Instance().GetStatus().internet_state;
+  const bool internet_unavailable = status.time_test_running
+      ? !status.time_synced
+      : internet_state != app::InternetAccessState::kAvailable;
   status_bar_.SetWifiStatus(status.connected, status.rssi,
-      internet_state != app::InternetAccessState::kAvailable);
+      internet_unavailable);
 }
 
 lv_obj_t* UiManager::CreateAppGrid(lv_obj_t* parent) {
