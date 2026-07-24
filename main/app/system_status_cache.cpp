@@ -7,8 +7,14 @@
  */
 #include "app/system_status_cache.h"
 
+#include <cstdio>
+#include <cstring>
 #include <ctime>
 #include <sys/time.h>
+
+#include "base/logger.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 namespace lilygo_box::app {
 namespace {
@@ -16,6 +22,68 @@ namespace {
 constexpr uint32_t kBatteryRefreshIntervalTicks = 2;
 constexpr uint32_t kWifiRefreshIntervalTicks = 3;
 constexpr std::time_t kValidNetworkUnixTime = 1700000000;
+constexpr int kRtcReadAttempts = 3;
+constexpr uint32_t kRtcReadRetryIntervalMs = 10;
+
+/**
+ * @brief 将日历时间写入 ESP32-P4 系统时钟
+ * @param calendar_time 本地日历时间
+ * @return 系统时钟设置成功返回 true，否则返回 false
+ */
+bool SetSystemClock(std::tm calendar_time) {
+  calendar_time.tm_isdst = -1;
+  const std::time_t unix_time = std::mktime(&calendar_time);
+  if (unix_time == static_cast<std::time_t>(-1)) {
+    return false;
+  }
+
+  timeval system_time = {};
+  system_time.tv_sec = unix_time;
+  return settimeofday(&system_time, nullptr) == 0;
+}
+
+/**
+ * @brief 使用当前固件的编译时间初始化 ESP32-P4 系统时钟
+ * @return 系统时钟初始化成功返回 true，否则返回 false
+ */
+bool InitializeSystemClockFromBuildTime() {
+  char month_name[4] = {};
+  int day = 0;
+  int year = 0;
+  int hour = 0;
+  int minute = 0;
+  int second = 0;
+  if (std::sscanf(__DATE__, "%3s %d %d", month_name, &day, &year) != 3 ||
+      std::sscanf(__TIME__, "%d:%d:%d", &hour, &minute, &second) != 3) {
+    return false;
+  }
+
+  constexpr const char* kMonthNames[] = {
+      "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  };
+  int month = -1;
+  for (int index = 0;
+       index < static_cast<int>(sizeof(kMonthNames) / sizeof(kMonthNames[0]));
+       ++index) {
+    if (std::strcmp(month_name, kMonthNames[index]) == 0) {
+      month = index;
+      break;
+    }
+  }
+  if (month < 0) {
+    return false;
+  }
+
+  std::tm calendar_time = {};
+  calendar_time.tm_year = year - 1900;
+  calendar_time.tm_mon = month;
+  calendar_time.tm_mday = day;
+  calendar_time.tm_hour = hour;
+  calendar_time.tm_min = minute;
+  calendar_time.tm_sec = second;
+  return SetSystemClock(calendar_time);
+}
 
 /**
  * @brief 检查 RTC 日期时间是否可以安全写入系统时钟
@@ -46,15 +114,7 @@ bool InitializeSystemClock(const hal::RtcStatus& status) {
   calendar_time.tm_hour = status.hour;
   calendar_time.tm_min = status.minute;
   calendar_time.tm_sec = status.second;
-  calendar_time.tm_isdst = -1;
-  const std::time_t unix_time = std::mktime(&calendar_time);
-  if (unix_time == static_cast<std::time_t>(-1)) {
-    return false;
-  }
-
-  timeval system_time = {};
-  system_time.tv_sec = unix_time;
-  return settimeofday(&system_time, nullptr) == 0;
+  return SetSystemClock(calendar_time);
 }
 
 /**
@@ -105,12 +165,61 @@ void SystemStatusCache::Init(
   rtc_clock_integrity_ = false;
 
   hal::RtcStatus startup_rtc_status;
-  if (rtc != nullptr && rtc->ReadRtcStatus(&startup_rtc_status) &&
-      InitializeSystemClock(startup_rtc_status)) {
-    system_clock_initialized_ = true;
-    rtc_clock_integrity_ = startup_rtc_status.clock_integrity;
-    RefreshClock();
+  bool rtc_read = false;
+  if (rtc != nullptr) {
+    for (int attempt = 0; attempt < kRtcReadAttempts; ++attempt) {
+      if (rtc->ReadRtcStatus(&startup_rtc_status)) {
+        rtc_read = true;
+        break;
+      }
+      if (attempt + 1 < kRtcReadAttempts) {
+        vTaskDelay(pdMS_TO_TICKS(kRtcReadRetryIntervalMs));
+      }
+    }
   }
+
+  const bool rtc_reliable =
+      rtc_read && startup_rtc_status.clock_integrity &&
+      IsValidRtcTime(startup_rtc_status);
+  if (rtc_reliable && InitializeSystemClock(startup_rtc_status)) {
+    system_clock_initialized_ = true;
+    rtc_clock_integrity_ = true;
+  } else {
+    if (rtc == nullptr) {
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "RTC provider is unavailable; using firmware build time %s %s\n",
+          __DATE__, __TIME__);
+    } else if (!rtc_read) {
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "RTC read failed after %d attempts; using firmware build time "
+          "%s %s\n",
+          kRtcReadAttempts, __DATE__, __TIME__);
+    } else if (!rtc_reliable) {
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "RTC time is unreliable: %04u-%02u-%02u %02u:%02u:%02u, "
+          "integrity=%s; using firmware build time %s %s\n",
+          static_cast<unsigned>(startup_rtc_status.year),
+          static_cast<unsigned>(startup_rtc_status.month),
+          static_cast<unsigned>(startup_rtc_status.day),
+          static_cast<unsigned>(startup_rtc_status.hour),
+          static_cast<unsigned>(startup_rtc_status.minute),
+          static_cast<unsigned>(startup_rtc_status.second),
+          startup_rtc_status.clock_integrity ? "true" : "false", __DATE__,
+          __TIME__);
+    } else {
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "Initialize system clock from RTC failed; using firmware build time "
+          "%s %s\n",
+          __DATE__, __TIME__);
+    }
+
+    system_clock_initialized_ = InitializeSystemClockFromBuildTime();
+    if (!system_clock_initialized_) {
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "Initialize system clock from firmware build time failed\n");
+    }
+  }
+  RefreshClock();
 }
 
 bool SystemStatusCache::RefreshClock() {
