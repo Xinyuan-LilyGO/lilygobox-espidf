@@ -19,21 +19,6 @@
 namespace lilygo_box::ui {
 namespace {
 
-struct SoundHapticsRefreshRequest {
-  lv_obj_t* body = nullptr;
-  SettingsViewState* state = nullptr;
-};
-
-SoundHapticsRefreshRequest g_sound_haptics_refresh_request = {};
-
-/**
- * @brief 构建声音与触感设置内容
- * @param body 内容容器
- * @param state 设置页状态
- * @return 创建成功返回 true，否则返回 false
- */
-bool BuildSoundHapticsContent(lv_obj_t* body, SettingsViewState* state);
-
 /**
  * @brief 保存最终音量设置
  * @param state 设置页状态
@@ -73,20 +58,6 @@ void PlaySettingsHapticPreview(SettingsViewState* state) {
 }
 
 /**
- * @brief 异步重建声音与触感页面内容
- * @param user_data 回调用户数据
- */
-void RebuildSoundHapticsContentAsync(void* user_data) {
-  auto* request = static_cast<SoundHapticsRefreshRequest*>(user_data);
-  if (request == nullptr || request->body == nullptr ||
-      request->state == nullptr) {
-    return;
-  }
-  lv_obj_clean(request->body);
-  BuildSoundHapticsContent(request->body, request->state);
-}
-
-/**
  * @brief 处理系统触感开关状态变化
  * @param event LVGL 事件对象
  */
@@ -97,13 +68,14 @@ void HapticsSwitchChangedEventCallback(lv_event_t* event) {
     state->haptics_enabled = lv_obj_has_state(target, LV_STATE_CHECKED);
     SaveHapticPreferences(state);
     PlaySettingsHapticPreview(state);
-    lv_obj_t* row = lv_obj_get_parent(target);
-    lv_obj_t* body = row == nullptr ? nullptr : lv_obj_get_parent(row);
-    if (body != nullptr) {
-      g_sound_haptics_refresh_request.body = body;
-      g_sound_haptics_refresh_request.state = state;
-      lv_async_call(RebuildSoundHapticsContentAsync,
-          &g_sound_haptics_refresh_request);
+    if (state->haptic_strength_controls != nullptr) {
+      if (state->haptics_enabled) {
+        lv_obj_clear_flag(
+            state->haptic_strength_controls, LV_OBJ_FLAG_HIDDEN);
+      } else {
+        lv_obj_add_flag(
+            state->haptic_strength_controls, LV_OBJ_FLAG_HIDDEN);
+      }
     }
   }
 }
@@ -173,6 +145,7 @@ void HapticSliderChangedEventCallback(lv_event_t* event) {
 }
 
 bool BuildSoundHapticsContent(lv_obj_t* body, SettingsViewState* state) {
+  state->haptic_strength_controls = nullptr;
   int y = 0;
   if (!CreateSectionLabel(body, "Volume adjustment", y,
           state->config.width)) {
@@ -203,22 +176,38 @@ bool BuildSoundHapticsContent(lv_obj_t* body, SettingsViewState* state) {
           state->haptics_enabled, HapticsSwitchChangedEventCallback, state)) {
     return false;
   }
-  if (!state->haptics_enabled) {
-    return true;
-  }
   y += kBasicRowHeight;
-  if (!CreateSliderRow(body, icon::kTouchApp, "Haptics",
-          state->haptic_strength_percent, y, state->config.width,
+
+  lv_obj_t* controls = lv_obj_create(body);
+  if (controls == nullptr) {
+    return false;
+  }
+  state->haptic_strength_controls = controls;
+  lv_obj_remove_flag(controls, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(controls, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_add_flag(controls, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+  lv_obj_set_size(controls, state->config.width, kBasicRowHeight);
+  lv_obj_set_pos(controls, 0, y);
+  lv_obj_set_style_bg_opa(controls, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_border_width(controls, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(controls, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(controls, 0, LV_PART_MAIN);
+
+  if (!CreateSliderRow(controls, icon::kTouchApp, "Haptics",
+          state->haptic_strength_percent, 0, state->config.width,
           HapticSliderChangedEventCallback, state)) {
     return false;
   }
   lv_obj_t* haptic_slider =
-      lv_obj_get_child(body, lv_obj_get_child_count(body) - 1);
+      lv_obj_get_child(controls, lv_obj_get_child_count(controls) - 1);
   if (haptic_slider != nullptr) {
     lv_obj_add_event_cb(haptic_slider, SettingsSliderReleasedEventCallback,
         LV_EVENT_RELEASED, state);
     lv_obj_add_event_cb(haptic_slider, SettingsSliderReleasedEventCallback,
         LV_EVENT_PRESS_LOST, state);
+  }
+  if (!state->haptics_enabled) {
+    lv_obj_add_flag(controls, LV_OBJ_FLAG_HIDDEN);
   }
   return true;
 }

@@ -308,6 +308,8 @@ struct SettingsViewState {
   bool bluetooth_enabled = false;
   bool hotspot_enabled = false;
   bool haptics_enabled = true;
+  // 声音与振动页面中的振动强度控件容器。
+  lv_obj_t* haptic_strength_controls = nullptr;
   bool battery_protection_enabled = true;
   int display_brightness_percent = 90;
   int audio_volume_percent = 90;
