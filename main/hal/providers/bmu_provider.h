@@ -61,6 +61,13 @@ class BmuProvider {
    * @return 读取到有效 BMU 状态返回 true，否则返回 false
    */
   virtual bool ReadBmuStatus(BmuStatus* status) = 0;
+
+  /**
+   * @brief 读取当前有效的电池电量百分比
+   * @param percent 电量百分比输出地址，范围为 0 到 100
+   * @return 检测到电池且电量读取成功返回 true，否则返回 false
+   */
+  virtual bool ReadBatteryLevel(int* percent) = 0;
 };
 
 }  // namespace lilygo_box::hal

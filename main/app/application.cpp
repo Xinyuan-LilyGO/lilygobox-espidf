@@ -41,6 +41,7 @@ constexpr uint32_t kStartupWifiAutoConnectWaitMs = 15 * 1000;
 constexpr uint32_t kStartupWifiAutoConnectPollMs = 200;
 constexpr uint32_t kWifiAutoConnectIdleMs = 2 * 1000;
 constexpr uint32_t kWifiAutoConnectFailureRetryMs = 30 * 1000;
+constexpr uint32_t kBatteryMonitorPeriodMs = 1000;
 constexpr uint32_t kStartupWifiAutoConnectTaskStackBytes = 8 * 1024;
 constexpr UBaseType_t kStartupWifiAutoConnectTaskPriority = 3;
 constexpr uint32_t kScreenLockTaskStackBytes = 6 * 1024;
@@ -236,10 +237,9 @@ bool Application::Init() {
         sound_preferences.volume_percent);
   }
 
-  hal::BmuStatus startup_bmu_status;
+  int startup_battery_level = 0;
   const bool startup_bmu_ready = device_provider_context_.bmu != nullptr &&
-      device_provider_context_.bmu->ReadBmuStatus(&startup_bmu_status) &&
-      startup_bmu_status.ready && startup_bmu_status.pack_present;
+      device_provider_context_.bmu->ReadBatteryLevel(&startup_battery_level);
   if (!startup_bmu_ready) {
     const bool shown = ShowBatteryStartupWarning(
         ui::icon::kBatteryAndroidQuestion, kBatteryFaultStartupIconColor,
@@ -253,10 +253,10 @@ bool Application::Init() {
     PowerOffDevice();
     return false;
   }
-  if (startup_bmu_status.charge_percent < kLowBatteryStartupThresholdPercent) {
+  if (startup_battery_level < kLowBatteryStartupThresholdPercent) {
     char percent_text[16] = {};
     std::snprintf(percent_text, sizeof(percent_text), "%d%%",
-        std::clamp(startup_bmu_status.charge_percent, 0, 100));
+        std::clamp(startup_battery_level, 0, 100));
     const bool shown = ShowBatteryStartupWarning(
         ui::icon::kBatteryAndroid0, kLowBatteryStartupIconColor, percent_text);
     if (!shown) {
@@ -372,7 +372,19 @@ bool Application::StartStartupScreen() {
 
 void Application::Run() {
   while (true) {
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    vTaskDelay(pdMS_TO_TICKS(kBatteryMonitorPeriodMs));
+    if (power_action_in_progress_.load()) {
+      continue;
+    }
+
+    int charge_percent = 0;
+    if (device_provider_context_.bmu != nullptr &&
+        device_provider_context_.bmu->ReadBatteryLevel(&charge_percent) &&
+        charge_percent == 0) {
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "Battery depleted; powering off device\n");
+      PowerOffDevice();
+    }
   }
 }
 

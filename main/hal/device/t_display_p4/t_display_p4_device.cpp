@@ -3663,6 +3663,27 @@ bool TDisplayP4Device::ReadBmuStatus(BmuStatus* status) {
   return false;
 }
 
+bool TDisplayP4Device::ReadBatteryLevel(int* percent) {
+  if (percent == nullptr || !driver_.IsBq27220Ready()) {
+    return false;
+  }
+
+  cpp_bus_driver::Bq27220::BatteryStatus battery_status;
+  if (!driver_.chip().bq27220->GetBatteryStatus(battery_status) ||
+      !battery_status.flag.battery_present) {
+    return false;
+  }
+
+  const uint16_t charge_percent =
+      driver_.chip().bq27220->GetStatusOfCharge();
+  if (charge_percent > 100) {
+    return false;
+  }
+
+  *percent = charge_percent;
+  return true;
+}
+
 bool TDisplayP4Device::ReadRtcStatus(RtcStatus* status) {
   if (status == nullptr) {
     return false;

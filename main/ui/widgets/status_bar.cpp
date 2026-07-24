@@ -29,6 +29,7 @@ constexpr int kStatusBarBatteryFillHeight = 16;
 constexpr int kStatusBarBatteryFillOffsetX = 5;
 constexpr int kStatusBarBatteryFillOffsetY = 0;
 constexpr int kStatusBarBatteryFillRadius = 2;
+constexpr int kStatusBarBatteryLowThresholdPercent = 20;
 constexpr uint32_t kStatusBarBackgroundColor = 0x000000;
 constexpr uint32_t kStatusBarTextColor = 0xFFFFFF;
 constexpr uint32_t kStatusBarBatteryChargingColor = 0x27C769;
@@ -185,7 +186,7 @@ uint32_t BatteryFillColor(int percent, bool charging, uint32_t text_color) {
   if (charging) {
     return kStatusBarBatteryChargingColor;
   }
-  if (percent >= 0 && percent < 10) {
+  if (percent >= 0 && percent < kStatusBarBatteryLowThresholdPercent) {
     return kStatusBarBatteryLowColor;
   }
   return text_color;

@@ -287,6 +287,13 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ReadBmuStatus(BmuStatus* status) override;
 
   /**
+   * @brief 读取当前有效的电池电量百分比
+   * @param percent 电量百分比输出地址，范围为 0 到 100
+   * @return 检测到电池且电量读取成功返回 true，否则返回 false
+   */
+  bool ReadBatteryLevel(int* percent) override;
+
+  /**
    * @brief 读取 PCF8563 RTC 日期时间和时钟完整性状态
    * @param status RTC 状态输出地址
    * @return 读取到有效 RTC 数据返回 true，否则返回 false
