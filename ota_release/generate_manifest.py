@@ -26,7 +26,6 @@ ESP_IMAGE_MAGIC = 0xE9
 ESP_APP_DESCRIPTION_MAGIC = 0xABCD5432
 ESP_IMAGE_HEADER_SIZE = 24
 ESP_IMAGE_SEGMENT_HEADER_SIZE = 8
-ESP_IMAGE_SEARCH_ALIGNMENT = 0x1000
 ESP_APP_DESCRIPTION_TEXT_LENGTH = 32
 MAX_ESP_IMAGE_SEGMENT_COUNT = 16
 SUPPORTED_ESP_CHIP_IDS = {
@@ -53,14 +52,14 @@ def decode_app_description_text(value: bytes) -> Optional[str]:
     return text if text else None
 
 
-def calculate_esp_image_size(data: bytes, image_offset: int) -> Optional[int]:
+def calculate_esp_image_size(data: bytes) -> Optional[int]:
     """校验 ESP 镜像段布局并返回镜像完整长度。"""
-    if image_offset < 0 or image_offset + ESP_IMAGE_HEADER_SIZE > len(data):
+    if ESP_IMAGE_HEADER_SIZE > len(data):
         return None
-    segment_count = data[image_offset + 1]
+    segment_count = data[1]
     if not 1 <= segment_count <= MAX_ESP_IMAGE_SEGMENT_COUNT:
         return None
-    cursor = image_offset + ESP_IMAGE_HEADER_SIZE
+    cursor = ESP_IMAGE_HEADER_SIZE
     total_size = ESP_IMAGE_HEADER_SIZE
     for _ in range(segment_count):
         if cursor + ESP_IMAGE_SEGMENT_HEADER_SIZE > len(data):
@@ -73,66 +72,56 @@ def calculate_esp_image_size(data: bytes, image_offset: int) -> Optional[int]:
         cursor += segment_size
         total_size += segment_size
     total_size += 16 - total_size % 16
-    if data[image_offset + 23] == 1:
+    if data[23] == 1:
         total_size += 32
-    if total_size > len(data) - image_offset:
+    if total_size > len(data):
         return None
     return total_size
 
 
-def find_esp_applications(data: bytes) -> list[dict[str, Any]]:
-    """在独立或合并固件中查找结构完整的 ESP 应用镜像。"""
-    applications: list[dict[str, Any]] = []
+def read_esp_application(data: bytes) -> Optional[dict[str, Any]]:
+    """读取占满整个文件的未合并 ESP 应用镜像。"""
     minimum_size = (
         ESP_IMAGE_HEADER_SIZE
         + ESP_IMAGE_SEGMENT_HEADER_SIZE
         + 16
         + ESP_APP_DESCRIPTION_TEXT_LENGTH * 2
     )
-    for image_offset in range(
-        0, max(0, len(data) - minimum_size + 1), ESP_IMAGE_SEARCH_ALIGNMENT
+    if len(data) < minimum_size or data[0] != ESP_IMAGE_MAGIC:
+        return None
+    description_offset = ESP_IMAGE_HEADER_SIZE + ESP_IMAGE_SEGMENT_HEADER_SIZE
+    if (
+        struct.unpack_from("<I", data, description_offset)[0]
+        != ESP_APP_DESCRIPTION_MAGIC
     ):
-        if data[image_offset] != ESP_IMAGE_MAGIC:
-            continue
-        description_offset = (
-            image_offset + ESP_IMAGE_HEADER_SIZE + ESP_IMAGE_SEGMENT_HEADER_SIZE
-        )
-        if (
-            struct.unpack_from("<I", data, description_offset)[0]
-            != ESP_APP_DESCRIPTION_MAGIC
-        ):
-            continue
-        image_size = calculate_esp_image_size(data, image_offset)
-        if image_size is None:
-            continue
-        version = decode_app_description_text(
-            data[
-                description_offset
-                + 16 : description_offset
-                + 16
-                + ESP_APP_DESCRIPTION_TEXT_LENGTH
-            ]
-        )
-        project_name = decode_app_description_text(
-            data[
-                description_offset
-                + 48 : description_offset
-                + 48
-                + ESP_APP_DESCRIPTION_TEXT_LENGTH
-            ]
-        )
-        if version is None or project_name is None:
-            continue
-        applications.append(
-            {
-                "chip_id": struct.unpack_from("<H", data, image_offset + 12)[0],
-                "image_offset": image_offset,
-                "image_size": image_size,
-                "project_name": project_name,
-                "version": version,
-            }
-        )
-    return applications
+        return None
+    image_size = calculate_esp_image_size(data)
+    if image_size != len(data):
+        return None
+    version = decode_app_description_text(
+        data[
+            description_offset
+            + 16 : description_offset
+            + 16
+            + ESP_APP_DESCRIPTION_TEXT_LENGTH
+        ]
+    )
+    project_name = decode_app_description_text(
+        data[
+            description_offset
+            + 48 : description_offset
+            + 48
+            + ESP_APP_DESCRIPTION_TEXT_LENGTH
+        ]
+    )
+    if version is None or project_name is None:
+        return None
+    return {
+        "chip_id": struct.unpack_from("<H", data, 12)[0],
+        "image_size": image_size,
+        "project_name": project_name,
+        "version": version,
+    }
 
 
 def validate_firmware_application(
@@ -149,27 +138,23 @@ def validate_firmware_application(
     expected_chip = component_config["chip"]
     expected_chip_id = SUPPORTED_ESP_CHIP_IDS[expected_chip]
     expected_project_name = component_config["project_name"]
-    applications = find_esp_applications(data)
-    matching_applications = [
-        application
-        for application in applications
-        if application["chip_id"] == expected_chip_id
-        and application["project_name"] == expected_project_name
-    ]
-    if not matching_applications:
-        found = ", ".join(
-            f"chip_id={application['chip_id']} "
-            f"project_name={application['project_name']}"
-            for application in applications
+    application = read_esp_application(data)
+    if application is None:
+        raise ValueError(
+            f"组件 {selector} 必须是从偏移 0 开始且不包含额外数据的"
+            "未合并 ESP 应用 BIN"
         )
-        detail = found if found else "没有找到 ESP 应用镜像"
+    if (
+        application["chip_id"] != expected_chip_id
+        or application["project_name"] != expected_project_name
+    ):
         raise ValueError(
             f"组件 {selector} 的 BIN 不符合 chip={expected_chip}、"
-            f"project_name={expected_project_name}：{detail}"
+            f"project_name={expected_project_name}："
+            f"chip_id={application['chip_id']} "
+            f"project_name={application['project_name']}"
         )
-    if len(matching_applications) != 1:
-        raise ValueError(f"组件 {selector} 的 BIN 包含多个匹配应用镜像")
-    embedded_version = matching_applications[0]["version"]
+    embedded_version = application["version"]
     if embedded_version != version:
         raise ValueError(
             f"组件 {selector} 声明版本为 {version}，"

@@ -20,10 +20,12 @@ The `ota_release` tool creates validated GitHub Release assets for LilygoBox dev
 
 - Python 3.9 or later
 - No third-party Python packages
-- ESP32-P4 application image placed at `input/lilygobox-espidf.bin`
-- ESP32-C6 image with the embedded project name `network_adapter`
+- Standalone Main firmware image `lilygobox-espidf.bin`
+- Standalone Wireless firmware image `network_adapter.bin`
 
-Do not use a merged or factory image as the ESP32-P4 OTA input. The ESP32-C6 input may be located in any directory.
+Main and Wireless OTA inputs must both start with the application image at
+offset `0` and contain no merged or factory data. Use merged images only for
+initial or full-device flashing, not for GitHub OTA assets.
 
 ## Directory Structure
 
@@ -86,12 +88,13 @@ declares its required components and trusted BIN metadata in
 }
 ```
 
-Before copying a changed BIN, the generator scans standalone and merged ESP
-images and requires the embedded chip, project name, and version to match this
-configuration and the `--component` version. It also copies `chip` and
-`project_name` into the public manifest as descriptive metadata. The current
-device firmware ignores these two manifest fields and continues to validate
-the downloaded binaries independently.
+Before copying a changed BIN, the generator requires the entire file to be one
+standalone ESP application image beginning at offset `0`. The embedded chip,
+project name, and version must match this configuration and the `--component`
+version. Merged and factory images are rejected. The generator also copies
+`chip` and `project_name` into the public manifest as descriptive metadata.
+The current device firmware ignores these two manifest fields and continues
+to validate the downloaded binaries independently.
 
 The component sets may differ between device versions. Adding a component here
 enables manifest generation and validation, but the device firmware must also

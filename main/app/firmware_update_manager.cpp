@@ -87,7 +87,6 @@ constexpr size_t kMaximumFirmwareDownloadUrlLength = 384;
 constexpr size_t kManifestMaximumSize = 8 * 1024;
 constexpr size_t kMaximumFirmwareAssetSize = 64 * 1024 * 1024;
 constexpr size_t kMinimumLittleFsFreeReserve = 256 * 1024;
-constexpr size_t kImageSearchAlignment = 0x1000;
 constexpr size_t kWirelessFirmwareChunkSize = 1500;
 constexpr size_t kHashReadChunkSize = 4096;
 constexpr size_t kSha256ByteCount = 32;
@@ -150,12 +149,6 @@ struct FirmwareReleaseManifest {
   char wireless_sha256[kSha256TextLength + 1] = {};
   char notes[kFirmwareUpdateNoteCapacity][128] = {};
   size_t note_count = 0;
-};
-
-struct FirmwareImageInfo {
-  size_t offset = 0;
-  size_t size = 0;
-  esp_app_desc_t app_desc = {};
 };
 
 struct ManifestDownloadContext {
@@ -2001,18 +1994,17 @@ bool VerifyPartitionIntegrity(const esp_partition_t* partition,
  * @brief 根据 ESP 镜像头计算应用镜像完整长度
  * @param file 已打开的固件文件
  * @param file_size 文件总长度
- * @param image_offset 应用镜像起始偏移
  * @param image_header 应用镜像头
  * @param image_size 应用镜像长度输出地址
  * @return 镜像结构有效返回 true，否则返回 false
  */
-bool CalculateImageSize(FILE* file, size_t file_size, size_t image_offset,
+bool CalculateImageSize(FILE* file, size_t file_size,
     const esp_image_header_t& image_header, size_t* image_size) {
   if (image_size == nullptr || image_header.segment_count == 0 ||
       image_header.segment_count > kMaximumImageSegmentCount) {
     return false;
   }
-  size_t cursor = image_offset + sizeof(esp_image_header_t);
+  size_t cursor = sizeof(esp_image_header_t);
   size_t total_size = sizeof(esp_image_header_t);
   for (uint8_t index = 0; index < image_header.segment_count; ++index) {
     esp_image_segment_header_t segment_header = {};
@@ -2032,7 +2024,7 @@ bool CalculateImageSize(FILE* file, size_t file_size, size_t image_offset,
   if (image_header.hash_appended == 1) {
     total_size += 32;
   }
-  if (image_offset > file_size || total_size > file_size - image_offset) {
+  if (total_size > file_size) {
     return false;
   }
   *image_size = total_size;
@@ -2040,76 +2032,38 @@ bool CalculateImageSize(FILE* file, size_t file_size, size_t image_offset,
 }
 
 /**
- * @brief 在独立或合并固件中查找无线协处理器的 network_adapter 镜像
- * @param file 已打开的固件文件
- * @param file_size 文件总长度
- * @param image_info 镜像信息输出地址
- * @return 找到匹配镜像返回 true，否则返回 false
- */
-bool FindWirelessFirmwareImage(
-    FILE* file, size_t file_size, FirmwareImageInfo* image_info) {
-  if (file == nullptr || image_info == nullptr) {
-    return false;
-  }
-  const size_t minimum_size = sizeof(esp_image_header_t) +
-      sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t);
-  for (size_t offset = 0; offset + minimum_size <= file_size;
-       offset += kImageSearchAlignment) {
-    esp_image_header_t header = {};
-    if (!ReadFirmwareFile(file, file_size, offset, &header, sizeof(header)) ||
-        header.magic != ESP_IMAGE_HEADER_MAGIC ||
-        header.chip_id != kExpectedWirelessChipId ||
-        header.segment_count == 0 ||
-        header.segment_count > kMaximumImageSegmentCount) {
-      continue;
-    }
-    esp_app_desc_t description = {};
-    const size_t description_offset = offset + sizeof(esp_image_header_t) +
-                                      sizeof(esp_image_segment_header_t);
-    if (!ReadFirmwareFile(file, file_size, description_offset, &description,
-            sizeof(description)) ||
-        description.magic_word != ESP_APP_DESC_MAGIC_WORD ||
-        std::strncmp(description.project_name, kWirelessFirmwareProjectName,
-            sizeof(kWirelessFirmwareProjectName)) != 0) {
-      continue;
-    }
-    size_t image_size = 0;
-    if (!CalculateImageSize(
-            file, file_size, offset, header, &image_size)) {
-      continue;
-    }
-    image_info->offset = offset;
-    image_info->size = image_size;
-    image_info->app_desc = description;
-    return true;
-  }
-  return false;
-}
-
-/**
- * @brief 检查 LittleFS 中的无线固件文件
+ * @brief 检查 LittleFS 中未合并的无线应用固件
  * @param path 固件文件路径
  * @param manifest 已验证的固件清单
- * @param image_info 镜像信息输出地址
- * @return 长度、摘要、芯片、项目名和版本均匹配返回 true，否则返回 false
+ * @return 文件是完整的 ESP32-C6 network_adapter 应用且清单匹配时返回 true
  */
 bool InspectWirelessFirmware(const char* path,
-    const FirmwareReleaseManifest& manifest,
-    FirmwareImageInfo* image_info) {
+    const FirmwareReleaseManifest& manifest) {
   std::unique_ptr<FILE, decltype(&std::fclose)> file(
       std::fopen(path, "rb"), &std::fclose);
   size_t file_size = 0;
-  FirmwareImageInfo parsed;
+  esp_image_header_t header = {};
+  esp_app_desc_t description = {};
+  size_t image_size = 0;
+  const size_t description_offset =
+      sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t);
   if (file == nullptr || !GetFirmwareFileSize(file.get(), &file_size) ||
       !VerifyFileIntegrity(file.get(), file_size,
           manifest.wireless_size_bytes, manifest.wireless_sha256) ||
-      !FindWirelessFirmwareImage(file.get(), file_size, &parsed) ||
-      std::strncmp(parsed.app_desc.version, manifest.wireless_version,
-          sizeof(parsed.app_desc.version)) != 0) {
+      !ReadFirmwareFile(
+          file.get(), file_size, 0, &header, sizeof(header)) ||
+      header.magic != ESP_IMAGE_HEADER_MAGIC ||
+      header.chip_id != kExpectedWirelessChipId ||
+      !ReadFirmwareFile(file.get(), file_size, description_offset,
+          &description, sizeof(description)) ||
+      description.magic_word != ESP_APP_DESC_MAGIC_WORD ||
+      std::strncmp(description.project_name, kWirelessFirmwareProjectName,
+          sizeof(kWirelessFirmwareProjectName)) != 0 ||
+      std::strncmp(description.version, manifest.wireless_version,
+          sizeof(description.version)) != 0 ||
+      !CalculateImageSize(file.get(), file_size, header, &image_size) ||
+      image_size != file_size) {
     return false;
-  }
-  if (image_info != nullptr) {
-    *image_info = parsed;
   }
   return true;
 }
@@ -2290,9 +2244,8 @@ FirmwareDownloadResult DownloadWirelessFirmware(
       }
       return FirmwareDownloadResult::kFailed;
     }
-    FirmwareImageInfo image_info;
-    const bool image_valid = InspectWirelessFirmware(
-        kWirelessFirmwareTempPath, manifest, &image_info);
+    const bool image_valid =
+        InspectWirelessFirmware(kWirelessFirmwareTempPath, manifest);
     final_request = ReadTransferRequest();
     if (final_request != TransferRequest::kNone) {
       std::remove(kWirelessFirmwareTempPath);
@@ -2570,9 +2523,7 @@ WirelessUpdateResult UpdateWirelessFirmware(
   if (!update_required) {
     return WirelessUpdateResult::kNotRequired;
   }
-  FirmwareImageInfo image_info;
-  if (!InspectWirelessFirmware(
-          kWirelessFirmwarePath, manifest, &image_info)) {
+  if (!InspectWirelessFirmware(kWirelessFirmwarePath, manifest)) {
     SetFailure("Stored Wireless firmware invalid");
     return WirelessUpdateResult::kFailed;
   }
@@ -2612,11 +2563,11 @@ WirelessUpdateResult UpdateWirelessFirmware(
     return WirelessUpdateResult::kFailed;
   }
   size_t sent_size = 0;
-  while (sent_size < image_info.size) {
+  while (sent_size < file_size) {
     const size_t chunk_size = std::min(
-        kWirelessFirmwareChunkSize, image_info.size - sent_size);
-    if (!ReadFirmwareFile(file.get(), file_size,
-            image_info.offset + sent_size, chunk.get(), chunk_size) ||
+        kWirelessFirmwareChunkSize, file_size - sent_size);
+    if (!ReadFirmwareFile(
+            file.get(), file_size, sent_size, chunk.get(), chunk_size) ||
         esp_hosted_slave_ota_write(
             chunk.get(), static_cast<uint32_t>(chunk_size)) != ESP_OK) {
       esp_hosted_slave_ota_end();
@@ -2629,7 +2580,7 @@ WirelessUpdateResult UpdateWirelessFirmware(
     sent_size += chunk_size;
     SetStage(FirmwareUpdateStage::kInstallingWireless,
         "Writing Wireless firmware",
-        static_cast<int>(sent_size * 100 / image_info.size));
+        static_cast<int>(sent_size * 100 / file_size));
   }
   result = esp_hosted_slave_ota_end();
   if (result != ESP_OK ||
@@ -3119,7 +3070,7 @@ void UpdateTask(void* context) {
 
   // 无线固件镜像先完整落盘；暂停后恢复时可以直接复用已验证的文件。
   if (wireless_update_required &&
-      !InspectWirelessFirmware(kWirelessFirmwarePath, manifest, nullptr)) {
+      !InspectWirelessFirmware(kWirelessFirmwarePath, manifest)) {
     const FirmwareDownloadResult wireless_result =
         DownloadWirelessFirmware(manifest);
     if (wireless_result != FirmwareDownloadResult::kCompleted) {
@@ -3191,7 +3142,7 @@ void InstallTask(void* context) {
     return;
   }
   if (wireless_update_required &&
-      !InspectWirelessFirmware(kWirelessFirmwarePath, manifest, nullptr)) {
+      !InspectWirelessFirmware(kWirelessFirmwarePath, manifest)) {
     std::remove(kWirelessFirmwarePath);
     SetFailure("Prepared Wireless firmware is unavailable");
     FinishWorker();
@@ -3319,7 +3270,7 @@ void ResumeTask(void* context) {
 
   // 如果无线固件仍需更新，必须先确认本地镜像可用，再考虑重启进入新的主固件。
   if (wireless_update_required &&
-      !InspectWirelessFirmware(kWirelessFirmwarePath, manifest, nullptr)) {
+      !InspectWirelessFirmware(kWirelessFirmwarePath, manifest)) {
     std::remove(kWirelessFirmwarePath);
     if (!IsNetworkReady()) {
       SetFailure("Wi-Fi is not connected");

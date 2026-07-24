@@ -20,10 +20,11 @@
 
 - Python 3.9 或更高版本
 - 不需要安装第三方 Python 包
-- 放入 `input/lilygobox-espidf.bin` 的 ESP32-P4 应用镜像
-- 镜像内项目名为 `network_adapter` 的 ESP32-C6 固件
+- 未合并的主固件镜像 `lilygobox-espidf.bin`
+- 未合并的无线固件镜像 `network_adapter.bin`
 
-ESP32-P4 OTA 不能使用 merged 或 factory 镜像。ESP32-C6 固件可以位于任意目录。
+Main 和 Wireless OTA 输入都必须从偏移 `0` 开始，并且整个文件只能包含应用
+镜像。merged 和 factory 镜像仅用于首次或完整烧录，不能作为 GitHub OTA 资产。
 
 ## 目录结构
 
@@ -85,10 +86,11 @@ ota_release/
 }
 ```
 
-复制本次更新的 BIN 前，生成器会扫描独立或合并 ESP 镜像，要求 BIN 内嵌的
-芯片、项目名和版本分别与该配置及 `--component` 版本完全一致。生成器还会把
-`chip` 和 `project_name` 复制到公开 Manifest 中作为描述信息。当前设备端固件
-不会解析这两个 Manifest 字段，仍会独立校验下载后的固件二进制。
+复制本次更新的 BIN 前，生成器要求整个文件是从偏移 `0` 开始的单个未合并
+ESP 应用镜像，并要求内嵌的芯片、项目名和版本分别与该配置及 `--component`
+版本完全一致。merged 和 factory 镜像会被拒绝。生成器还会把 `chip` 和
+`project_name` 复制到公开 Manifest 中作为描述信息。当前设备端固件不会解析
+这两个 Manifest 字段，仍会独立校验下载后的固件二进制。
 
 不同设备版本可以使用不同的组件集合。在这里增加组件后，生成器会负责生成
 和校验对应信息，但设备端程序还必须实现该组件的下载和安装逻辑。
