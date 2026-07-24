@@ -2,7 +2,7 @@
  * @Description: 整机测试列表、测试流程与结果交互页面实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-17 17:57:58
+ * @LastEditTime: 2026-07-24 10:38:22
  * @License: GPL 3.0
  */
 #include "ui/views/cit_view.h"
@@ -56,6 +56,7 @@ constexpr int kTouchMarkerSize = 42;
 constexpr int kCitRefreshPeriodMs = 200;
 constexpr int kMicrophoneRefreshPeriodMs = 500;
 constexpr int kDiagnosticsRefreshPeriodMs = 1000;
+constexpr uint32_t kRtcRefreshPeriodMs = 1000;
 constexpr lv_style_selector_t kSwitchCheckedIndicatorSelector =
     static_cast<lv_style_selector_t>(LV_PART_INDICATOR) |
     static_cast<lv_style_selector_t>(LV_STATE_CHECKED);
@@ -136,6 +137,10 @@ struct CitViewState {
   bool diagnostics_read = false;
   hal::GpsStatus gps_status;
   bool gps_status_valid = false;
+  hal::RtcStatus rtc_status;
+  uint32_t rtc_last_read_ms = 0;
+  bool rtc_read_attempted = false;
+  bool rtc_status_valid = false;
   std::array<CitStatusRow, app::kMaxCitTestEntryCount> rows;
   std::array<app::CitTestStatus, app::kMaxCitTestEntryCount> test_statuses;
   size_t row_count = 0;
@@ -956,17 +961,30 @@ void RefreshRtcTestData(CitViewState* state) {
     return;
   }
 
-  if (state->system_status == nullptr) {
+  if (state->rtc == nullptr) {
     lv_label_set_text(state->test_data_label, "RTC data:\nstatus: unsupported");
     return;
   }
 
-  if (!state->system_status->rtc_status_valid()) {
-    lv_label_set_text(state->test_data_label, "RTC data:\nstatus: not ready");
+  const uint32_t now_ms = static_cast<uint32_t>(
+      xTaskGetTickCount() * portTICK_PERIOD_MS);
+  if (!state->rtc_read_attempted ||
+      now_ms - state->rtc_last_read_ms >= kRtcRefreshPeriodMs) {
+    hal::RtcStatus status;
+    state->rtc_status_valid = state->rtc->ReadRtcStatus(&status);
+    state->rtc_read_attempted = true;
+    state->rtc_last_read_ms = now_ms;
+    if (state->rtc_status_valid) {
+      state->rtc_status = status;
+    }
+  }
+
+  if (!state->rtc_status_valid) {
+    lv_label_set_text(state->test_data_label, "RTC data:\nstatus: read failed");
     return;
   }
 
-  const hal::RtcStatus& status = state->system_status->rtc_status();
+  const hal::RtcStatus& status = state->rtc_status;
   char text[320] = {};
   std::snprintf(text, sizeof(text),
       "RTC data:\n"
