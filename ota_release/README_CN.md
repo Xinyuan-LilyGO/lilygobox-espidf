@@ -56,6 +56,8 @@ ota_release/
 | `device_versions` | 按设备版本组织的固件对象，例如 `v1.0`、`v2.0` |
 | `main` | 当前设备版本使用的主固件 |
 | `wireless` | 当前设备版本使用的无线固件 |
+| `chip` | 从可信设备配置复制的目标芯片名称，仅用于显示 |
+| `project_name` | 从可信设备配置复制的 ESP-IDF 项目名称，仅用于显示 |
 | `release` | GitHub Release tag，例如 `v1.0.1` |
 | `channel` | 发布频道：`stable`、`beta` 或 `dev`，默认 `stable` |
 | `release_time` | Python 自动生成的发布时间，包含时区并精确到分钟 |
@@ -84,8 +86,9 @@ ota_release/
 ```
 
 复制本次更新的 BIN 前，生成器会扫描独立或合并 ESP 镜像，要求 BIN 内嵌的
-芯片、项目名和版本分别与该配置及 `--component` 版本完全一致。`chip` 和
-`project_name` 只属于生成器的可信配置，不会写入公开 Manifest。
+芯片、项目名和版本分别与该配置及 `--component` 版本完全一致。生成器还会把
+`chip` 和 `project_name` 复制到公开 Manifest 中作为描述信息。当前设备端固件
+不会解析这两个 Manifest 字段，仍会独立校验下载后的固件二进制。
 
 不同设备版本可以使用不同的组件集合。在这里增加组件后，生成器会负责生成
 和校验对应信息，但设备端程序还必须实现该组件的下载和安装逻辑。

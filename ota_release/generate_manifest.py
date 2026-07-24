@@ -787,7 +787,7 @@ def main() -> int:
                 if component_key in component_updates:
                     version, source = component_updates[component_key]
                     destination = output_directory / asset_name
-                    device[component_name] = copy_and_describe_component(
+                    component = copy_and_describe_component(
                         source,
                         destination,
                         version,
@@ -800,7 +800,17 @@ def main() -> int:
                     )
                     upload_files.append(destination)
                 else:
-                    device[component_name] = inherited[component_key]
+                    component = inherited[component_key]
+                component = {
+                    key: value
+                    for key, value in component.items()
+                    if key not in ("chip", "project_name")
+                }
+                device[component_name] = {
+                    "chip": component_config["chip"],
+                    "project_name": component_config["project_name"],
+                    **component,
+                }
             manifest["device_versions"][device_version] = device
 
         manifest["whats_new"] = validate_notes(args.note)
