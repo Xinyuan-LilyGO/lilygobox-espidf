@@ -819,7 +819,32 @@ bool Application::LockScreenNow() {
 }
 
 bool Application::EnterScreenLockSleep() {
-  return EnterScreenSleep();
+  if (!SetScreenBrightnessWhileAwake(0)) {
+    return false;
+  }
+
+  lvgl_port_.Lock();
+  const bool lock_screen_shown = ui_manager_.ShowLockScreen();
+  lvgl_port_.Unlock();
+  if (!lock_screen_shown) {
+    return false;
+  }
+
+  // 背光关闭后先把锁屏页面完整写入显示缓冲区，避免面板唤醒时短暂显示
+  // 进入休眠前的应用页面。
+  const bool flush_paused = lvgl_port_.PauseDisplayFlush();
+  const bool lock_screen_refreshed =
+      flush_paused && lvgl_port_.ResumeDisplayFlushAndWaitForRefresh();
+  if (!lock_screen_refreshed || !EnterScreenSleep()) {
+    if (flush_paused && lvgl_port_.IsDisplayFlushPaused()) {
+      lvgl_port_.ResumeDisplayFlush();
+    }
+    lvgl_port_.Lock();
+    ui_manager_.HideLockScreen();
+    lvgl_port_.Unlock();
+    return false;
+  }
+  return true;
 }
 
 void Application::WakeScreenFromLock() {
