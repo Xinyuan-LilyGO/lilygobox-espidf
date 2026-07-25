@@ -14,8 +14,8 @@
 - 时间字段使用 `...Time`，因此发布时间使用 `publishTime`。
 - 数量字段直接使用单位后缀，因此文件大小使用 `sizeBytes`。
 - `name` 只保留给完整资源名；设备标识使用 `deviceId`。
-- `deviceId` 标识设备型号，`deviceVersion` 标识该型号的设备版本；
-  固件版本仍使用 `release.version`。
+- `deviceId` 标识设备型号；`deviceVersion` 标识该型号的 OTA 硬件兼容
+  版本，不等同于 PCB 印刷版本；固件版本仍使用 `release.version`。
 - Python 遵循 PEP 8，C++ 遵循 Google C++ Style Guide。
 - JSON 内的版本不带 `v`；Git tag 和固件文件名使用 `v` 前缀。
 - 固件版本使用受约束的 SemVer：Alpha 为 `X.Y.Z-alpha.N`，
@@ -32,9 +32,27 @@
 
 ## 兼容模型
 
-`manifestVersion` 只表示 JSON 协议格式。设备版本、芯片型号和芯片完整
+`manifestVersion` 只表示 JSON 协议格式。`deviceVersion`、芯片型号和芯片完整
 修订号属于 `targets.compatibility`，新增这些目标不需要修改
 `manifestVersion`。
+
+`deviceVersion` 表示 OTA 硬件兼容版本，而不是必须跟随每次 PCB 修订递增的
+版本号。如果 PCB v1.0、v1.1 和 v1.2 只修复硬件问题，且引脚、外设、分区表、
+驱动和固件 BIN 完全兼容，它们可以共同使用 `deviceVersion: "1.0"`。只有硬件
+变化导致需要不同固件时，才应创建新的 `deviceVersion`。如果必须区分不同硬件
+兼容版本，设备必须从 eFuse、工厂 NVS、EEPROM、GPIO/ADC 识别等不会随 OTA
+固件改变的来源读取该版本；当前 T-Display-P4 安装器使用编译期
+`kDeviceModelInfo.version`，无法在同一固件 BIN 中区分多个 PCB 版本。
+
+各版本字段含义不同：
+
+| 字段 | 示例 | 含义 |
+| --- | --- | --- |
+| `manifestVersion` | `1.0` | Manifest JSON 协议版本 |
+| `deviceVersion` | `1.0` | OTA 硬件兼容版本 |
+| `chips.main.revision` | `1.1` | 主芯片的 silicon revision |
+| `release.version` | `1.2.0` | LilygoBox 软件发布版本 |
+| `files.*.version` | `2.12.3` | 对应组件的固件版本 |
 
 设备只接受唯一匹配的目标：
 
@@ -44,8 +62,20 @@
 4. 主芯片和无线芯片的 `model`、`revision` 必须完全相同。
 5. `components` 必须同时提供设备安装器支持的 `main` 和 `wireless`。
 
-例如 ESP32-P4 `1.0` 与 `1.1` 是两个独立目标。没有匹配或出现多个匹配
-时，设备都会拒绝更新，避免把不兼容固件写入错误硬件。
+例如同一型号芯片的 silicon revision `1.0` 与 `1.1` 是两个不同的芯片兼容
+条件，与 `deviceVersion`、`release.version` 和 `manifestVersion` 无关。没有
+匹配或出现多个匹配时，设备都会拒绝更新，避免把不兼容固件写入错误硬件。
+
+### 无线协处理器 revision 限制
+
+当前无线协处理器接口可以读取固件版本，但没有提供 silicon revision 的运行时
+读取能力。因此安装器当前使用设备配置中固定的无线芯片 revision；Manifest 中的
+`chips.wireless.revision` 表示硬件配置假设，不是设备运行时检测到的真实值。
+
+在增加使用其他无线芯片型号或 silicon revision 的硬件批次前，必须先让无线
+协处理器接口返回真实的芯片型号和 revision，再让 OTA target 使用这些值。读取
+失败时应拒绝更新，不能回退到固定值。在完成该能力前，不应依赖
+`chips.wireless.revision` 区分不同无线芯片 silicon revision 的固件。
 
 ## Manifest v1
 

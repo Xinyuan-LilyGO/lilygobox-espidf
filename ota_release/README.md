@@ -16,8 +16,9 @@ GitHub Releases.
 - Quantity fields use a direct unit suffix, so file size uses `sizeBytes`.
 - `name` is reserved for full resource names; device identity uses
   `deviceId`.
-- `deviceId` identifies the device model, while `deviceVersion` identifies
-  that model's device version; firmware uses `release.version`.
+- `deviceId` identifies the device model. `deviceVersion` identifies its OTA
+  hardware compatibility version, not necessarily the printed PCB revision;
+  firmware uses `release.version`.
 - Python follows PEP 8 and C++ follows the Google C++ Style Guide.
 - JSON versions omit `v`; Git tags and firmware filenames include `v`.
 - Firmware versions use constrained SemVer: Alpha uses `X.Y.Z-alpha.N`,
@@ -33,14 +34,52 @@ Field names and semantics follow Google
 
 ## Compatibility Model
 
-`manifestVersion` identifies only the JSON contract. Board versions, chip
+`manifestVersion` identifies only the JSON contract. `deviceVersion`, chip
 models, and complete chip revisions are data in `targets.compatibility`.
 Adding those targets does not change `manifestVersion`.
 
+`deviceVersion` is the OTA hardware compatibility version, not a value that
+must increase for every PCB revision. If PCB v1.0, v1.1, and v1.2 only contain
+hardware fixes and remain identical in pins, peripherals, partition table,
+drivers, and firmware BIN compatibility, they may all use
+`deviceVersion: "1.0"`. Create a new `deviceVersion` only when a hardware
+change requires different firmware. Distinct compatibility versions must be
+read from a source that OTA cannot overwrite, such as eFuse, factory NVS,
+EEPROM, or GPIO/ADC identification. The current T-Display-P4 installer uses
+the compiled `kDeviceModelInfo.version`, so one firmware BIN cannot reliably
+distinguish multiple PCB revisions.
+
+The version fields have distinct meanings:
+
+| Field | Example | Meaning |
+| --- | --- | --- |
+| `manifestVersion` | `1.0` | Manifest JSON contract version |
+| `deviceVersion` | `1.0` | OTA hardware compatibility version |
+| `chips.main.revision` | `1.1` | Main chip silicon revision |
+| `release.version` | `1.2.0` | LilygoBox software release version |
+| `files.*.version` | `2.12.3` | Component firmware version |
+
 A device accepts exactly one target matching the product identity, compiled
 release channel, `deviceVersion`, and the complete `model` plus `revision`
-of every chip. For example, ESP32-P4 revisions `1.0` and `1.1` are separate
-targets. No match or multiple matches reject the update.
+of every chip. For example, silicon revisions `1.0` and `1.1` of the same chip
+model are distinct compatibility conditions; they are unrelated to
+`deviceVersion`, `release.version`, or `manifestVersion`. No match or multiple
+matches reject the update.
+
+### Wireless coprocessor revision limitation
+
+The current Wireless coprocessor interface can read the firmware version, but
+it does not expose the silicon revision at runtime. The installer therefore
+uses the fixed Wireless chip revision from the device configuration. In the
+current manifest, `chips.wireless.revision` is a hardware configuration
+assumption, not a value detected from the running coprocessor.
+
+Before adding hardware batches with another Wireless chip model or silicon
+revision, make the coprocessor interface return the real chip model and
+revision, then use those values for OTA target matching. A read failure must
+reject the update instead of falling back to a fixed value. Until then, do not
+rely on `chips.wireless.revision` to select firmware for different Wireless
+chip silicon revisions.
 
 The complete format is defined by
 [ota_manifest_v1.schema.json](./ota_manifest_v1.schema.json), and the
