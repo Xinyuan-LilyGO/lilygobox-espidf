@@ -32,8 +32,8 @@ constexpr int kUpdateBrandTop = 34;
 constexpr int kUpdateBrandIconSize = 58;
 constexpr int kUpdateBrandGap = 14;
 constexpr int kUpdateVersionTop = 112;
-constexpr int kUpdateReleaseTimeTop = kUpdateVersionTop + 2;
-constexpr int kUpdateChannelTop = kUpdateReleaseTimeTop - 28;
+constexpr int kUpdatePublishTimeTop = kUpdateVersionTop + 2;
+constexpr int kUpdateChannelTop = kUpdatePublishTimeTop - 28;
 constexpr int kUpdateReleaseMetadataWidth = 190;
 constexpr int kUpdateReleaseMetadataGap = 12;
 constexpr int kUpdateDividerTop = 170;
@@ -78,7 +78,7 @@ constexpr uint32_t kUpdateFeatureColor =
 constexpr uint32_t kUpdateStableChannelColor =
     theme::LightNeutralTheme().action;
 constexpr uint32_t kUpdateBetaChannelColor = 0xF5A623;
-constexpr uint32_t kUpdateDevChannelColor = 0xBA1A1A;
+constexpr uint32_t kUpdateAlphaChannelColor = 0xBA1A1A;
 constexpr uint32_t kUpdateCancelButtonColor = kDetailOptionPressedColor;
 constexpr uint32_t kUpdateCancelButtonPressedColor =
     theme::LightNeutralTheme().button_secondary_pressed;
@@ -159,7 +159,7 @@ void ClearFirmwareUpdateReferences(SettingsViewState* state) {
   state->firmware_update_card = nullptr;
   state->firmware_update_release_label = nullptr;
   state->firmware_update_channel_label = nullptr;
-  state->firmware_update_release_time_label = nullptr;
+  state->firmware_update_publish_time_label = nullptr;
   state->firmware_update_components_title = nullptr;
   state->firmware_update_main_row = nullptr;
   state->firmware_update_main_chip_label = nullptr;
@@ -271,22 +271,22 @@ void FormatFirmwareVersion(const char* current_version,
 
 /**
  * @brief 将清单发布时间格式化为卡片显示文本
- * @param release_time 带时区的 ISO 8601 发布时间
+ * @param publish_time 带时区的 ISO 8601 发布时间
  * @param output 输出缓冲区
  * @param output_size 输出缓冲区长度
  */
-void FormatReleaseTimeForDisplay(
-    const char* release_time, char* output, size_t output_size) {
+void FormatPublishTimeForDisplay(
+    const char* publish_time, char* output, size_t output_size) {
   if (output == nullptr || output_size == 0) {
     return;
   }
-  if (release_time == nullptr || std::strlen(release_time) < 16 ||
-      release_time[10] != 'T') {
+  if (publish_time == nullptr || std::strlen(publish_time) < 16 ||
+      publish_time[10] != 'T') {
     std::snprintf(output, output_size, "Unavailable");
     return;
   }
   std::snprintf(output, output_size, "%.10s %.5s",
-      release_time, release_time + 11);
+      publish_time, publish_time + 11);
 }
 
 /**
@@ -303,9 +303,9 @@ void SetReleaseChannelLabel(lv_obj_t* label, const char* channel) {
   if (channel != nullptr && std::strcmp(channel, "beta") == 0) {
     channel_text = "Beta";
     channel_color = kUpdateBetaChannelColor;
-  } else if (channel != nullptr && std::strcmp(channel, "dev") == 0) {
-    channel_text = "Development";
-    channel_color = kUpdateDevChannelColor;
+  } else if (channel != nullptr && std::strcmp(channel, "alpha") == 0) {
+    channel_text = "Alpha";
+    channel_color = kUpdateAlphaChannelColor;
   }
   lv_label_set_text(label, channel_text);
   lv_obj_set_style_text_color(
@@ -497,7 +497,7 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
   card_ready = card_ready && state->firmware_update_card != nullptr &&
       state->firmware_update_release_label != nullptr &&
       state->firmware_update_channel_label != nullptr &&
-      state->firmware_update_release_time_label != nullptr &&
+      state->firmware_update_publish_time_label != nullptr &&
       state->firmware_update_main_chip_label != nullptr &&
       state->firmware_update_main_version_label != nullptr &&
       state->firmware_update_wireless_chip_label != nullptr &&
@@ -518,11 +518,11 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
     lv_label_set_text(state->firmware_update_release_label, release_text);
     SetReleaseChannelLabel(state->firmware_update_channel_label,
         snapshot.release_channel);
-    char release_time_text[48] = {};
-    FormatReleaseTimeForDisplay(snapshot.release_time,
-        release_time_text, sizeof(release_time_text));
+    char publish_time_text[48] = {};
+    FormatPublishTimeForDisplay(snapshot.publish_time,
+        publish_time_text, sizeof(publish_time_text));
     lv_label_set_text(
-        state->firmware_update_release_time_label, release_time_text);
+        state->firmware_update_publish_time_label, publish_time_text);
 
     char version_text[80] = {};
     FormatFirmwareVersion(snapshot.main_current_version,
@@ -1056,7 +1056,7 @@ bool CreateFirmwareUpdateCard(
     state->firmware_update_card = nullptr;
     state->firmware_update_release_label = nullptr;
     state->firmware_update_channel_label = nullptr;
-    state->firmware_update_release_time_label = nullptr;
+    state->firmware_update_publish_time_label = nullptr;
     state->firmware_update_components_title = nullptr;
     state->firmware_update_main_row = nullptr;
     state->firmware_update_main_chip_label = nullptr;
@@ -1093,23 +1093,23 @@ bool CreateFirmwareUpdateCard(
 
   lv_obj_t* channel_label = CreateLabel(card, "Stable",
       lv_color_hex(kUpdateStableChannelColor), Font22());
-  lv_obj_t* release_time = CreateLabel(card, "Unavailable",
+  lv_obj_t* publish_time = CreateLabel(card, "Unavailable",
       lv_color_hex(kSecondaryTextColor), Font22());
-  if (channel_label == nullptr || release_time == nullptr) {
+  if (channel_label == nullptr || publish_time == nullptr) {
     return discard_card();
   }
   state->firmware_update_channel_label = channel_label;
-  state->firmware_update_release_time_label = release_time;
+  state->firmware_update_publish_time_label = publish_time;
   lv_obj_set_width(channel_label, kUpdateReleaseMetadataWidth);
-  lv_obj_set_width(release_time, kUpdateReleaseMetadataWidth);
+  lv_obj_set_width(publish_time, kUpdateReleaseMetadataWidth);
   lv_obj_set_style_text_align(
       channel_label, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
   lv_obj_set_style_text_align(
-      release_time, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+      publish_time, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
   lv_obj_align(channel_label, LV_ALIGN_TOP_RIGHT, -kUpdateCardPadding,
       kUpdateChannelTop);
-  lv_obj_align(release_time, LV_ALIGN_TOP_RIGHT, -kUpdateCardPadding,
-      kUpdateReleaseTimeTop);
+  lv_obj_align(publish_time, LV_ALIGN_TOP_RIGHT, -kUpdateCardPadding,
+      kUpdatePublishTimeTop);
 
   lv_obj_t* divider =
       CreateDivider(card, card_width - 2 * kUpdateCardPadding);
@@ -1556,27 +1556,27 @@ lv_obj_t* CreateCurrentFirmwareLogCard(lv_obj_t* body, int x, int y,
   lv_label_set_long_mode(version, LV_LABEL_LONG_DOT);
   lv_obj_set_pos(version, kUpdateCardPadding, kUpdateVersionTop);
 
-  char release_time_text[48] = {};
-  FormatReleaseTimeForDisplay(snapshot.current_release_time,
-      release_time_text, sizeof(release_time_text));
+  char publish_time_text[48] = {};
+  FormatPublishTimeForDisplay(snapshot.current_publish_time,
+      publish_time_text, sizeof(publish_time_text));
   lv_obj_t* channel_label = CreateLabel(card, "Stable",
       lv_color_hex(kUpdateStableChannelColor), Font22());
-  lv_obj_t* release_time = CreateLabel(card, release_time_text,
+  lv_obj_t* publish_time = CreateLabel(card, publish_time_text,
       lv_color_hex(kSecondaryTextColor), Font22());
-  if (channel_label == nullptr || release_time == nullptr) {
+  if (channel_label == nullptr || publish_time == nullptr) {
     return discard_card();
   }
   SetReleaseChannelLabel(channel_label, snapshot.current_release_channel);
   lv_obj_set_width(channel_label, kUpdateReleaseMetadataWidth);
-  lv_obj_set_width(release_time, kUpdateReleaseMetadataWidth);
+  lv_obj_set_width(publish_time, kUpdateReleaseMetadataWidth);
   lv_obj_set_style_text_align(
       channel_label, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
   lv_obj_set_style_text_align(
-      release_time, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+      publish_time, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
   lv_obj_align(channel_label, LV_ALIGN_TOP_RIGHT, -kUpdateCardPadding,
       kUpdateChannelTop);
-  lv_obj_align(release_time, LV_ALIGN_TOP_RIGHT, -kUpdateCardPadding,
-      kUpdateReleaseTimeTop);
+  lv_obj_align(publish_time, LV_ALIGN_TOP_RIGHT, -kUpdateCardPadding,
+      kUpdatePublishTimeTop);
 
   lv_obj_t* divider =
       CreateDivider(card, width - 2 * kUpdateCardPadding);

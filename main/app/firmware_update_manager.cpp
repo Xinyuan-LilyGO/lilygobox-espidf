@@ -21,11 +21,13 @@
 
 #include "app/application.h"
 #include "app/network_monitor.h"
+#include "app/release_channel.h"
 #include "app/storage/littlefs_storage.h"
 #include "base/logger.h"
 #include "cJSON.h"
 #include "esp_app_desc.h"
 #include "esp_app_format.h"
+#include "esp_chip_info.h"
 #include "esp_crt_bundle.h"
 #include "esp_err.h"
 #include "esp_hosted.h"
@@ -52,12 +54,18 @@ namespace {
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
 constexpr char kCurrentDeviceId[] = "t-display-p4";
 constexpr const char* kCurrentDeviceVersion =
-    lilygo_device_driver::t_display_p4::device::kDeviceModelInfo.version;
+    lilygo_device_driver::t_display_p4::device::kDeviceModelInfo.version[0] ==
+            'v'
+        ? lilygo_device_driver::t_display_p4::device::kDeviceModelInfo.version +
+              1
+        : lilygo_device_driver::t_display_p4::device::kDeviceModelInfo.version;
 #else
 constexpr char kCurrentDeviceId[] = "";
 constexpr char kCurrentDeviceVersion[] = "";
 #endif
-constexpr int kSupportedSchemaVersion = 1;
+constexpr char kManifestKind[] = "lilygobox#otaManifest";
+constexpr char kSupportedManifestVersion[] = "1.0";
+constexpr char kUpdatePublisherId[] = "lilygo";
 constexpr char kApplicationDirectory[] = "/littlefs/lilygobox";
 constexpr char kOtaDirectory[] = "/littlefs/lilygobox/ota";
 constexpr char kOtaStagingDirectory[] =
@@ -78,13 +86,22 @@ constexpr char kWirelessFirmwareTempPath[] =
     "/littlefs/lilygobox/cache/ota/wireless-firmware.bin.part";
 constexpr char kPendingUpdatePath[] =
     "/littlefs/lilygobox/ota/pending-update";
+constexpr char kMainFirmwareProjectName[] = "lilygobox-espidf";
 constexpr char kWirelessFirmwareProjectName[] = "network_adapter";
 constexpr esp_chip_id_t kExpectedWirelessChipId = ESP_CHIP_ID_ESP32C6;
+constexpr char kCurrentMainChipModel[] = "esp32p4";
+constexpr char kCurrentWirelessChipModel[] = "esp32c6";
+// 当前 ESP-Hosted 接口不提供协处理器芯片修订号，V1 硬件配置固定为 C6 rev0。
+constexpr char kCurrentWirelessChipRevision[] = "0.0";
 constexpr int kFirmwareHttpTimeoutMs = 15000;
 constexpr int kHttpBufferSize = 4096;
 constexpr size_t kMaximumFirmwareDownloadSourceCount = 4;
 constexpr size_t kMaximumFirmwareDownloadUrlLength = 384;
-constexpr size_t kManifestMaximumSize = 8 * 1024;
+constexpr size_t kMaximumFirmwareTargetCount = 32;
+constexpr size_t kMaximumFirmwareFileCount = 64;
+constexpr size_t kMaximumFirmwareFileIdLength = 96;
+constexpr size_t kMaximumFirmwareFilenameLength = 160;
+constexpr size_t kManifestMaximumSize = 32 * 1024;
 constexpr size_t kMaximumFirmwareAssetSize = 64 * 1024 * 1024;
 constexpr size_t kMinimumLittleFsFreeReserve = 256 * 1024;
 constexpr size_t kWirelessFirmwareChunkSize = 1500;
@@ -106,19 +123,65 @@ struct ManifestDownloadSourceConfig {
   uint32_t timeout_ms;
 };
 
+constexpr const char* kCurrentReleaseChannel =
+    ReleaseChannelName(kReleaseChannel);
+
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
+/**
+ * @brief 获取指定发布频道的 GitHub Manifest 地址
+ * @param channel 发布频道
+ * @return 对应频道的固定 Manifest 地址
+ */
+constexpr const char* ManifestGithubUrl(ReleaseChannel channel) {
+  switch (channel) {
+    case ReleaseChannel::kAlpha:
+      return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
+             "releases/download/ota-alpha/"
+             "lilygobox-t-display-p4-ota-manifest-alpha-v1.json";
+    case ReleaseChannel::kBeta:
+      return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
+             "releases/download/ota-beta/"
+             "lilygobox-t-display-p4-ota-manifest-beta-v1.json";
+    case ReleaseChannel::kStable:
+      return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
+             "releases/download/ota-stable/"
+             "lilygobox-t-display-p4-ota-manifest-stable-v1.json";
+  }
+  return "";
+}
+
+/**
+ * @brief 获取指定发布频道的代理 Manifest 地址
+ * @param channel 发布频道
+ * @return 对应频道的固定代理 Manifest 地址
+ */
+constexpr const char* ManifestProxyUrl(ReleaseChannel channel) {
+  switch (channel) {
+    case ReleaseChannel::kAlpha:
+      return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
+             "lilygobox-espidf/releases/download/ota-alpha/"
+             "lilygobox-t-display-p4-ota-manifest-alpha-v1.json";
+    case ReleaseChannel::kBeta:
+      return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
+             "lilygobox-espidf/releases/download/ota-beta/"
+             "lilygobox-t-display-p4-ota-manifest-beta-v1.json";
+    case ReleaseChannel::kStable:
+      return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
+             "lilygobox-espidf/releases/download/ota-stable/"
+             "lilygobox-t-display-p4-ota-manifest-stable-v1.json";
+  }
+  return "";
+}
+
 constexpr ManifestDownloadSourceConfig kManifestDownloadSources[] = {
     {
         "GitHub",
-        "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/releases/"
-        "latest/download/lilygobox-t-display-p4-ota-manifest-v1.json",
+        ManifestGithubUrl(kReleaseChannel),
         8 * 1000,
     },
     {
         "gh-proxy",
-        "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
-        "lilygobox-espidf/releases/latest/download/"
-        "lilygobox-t-display-p4-ota-manifest-v1.json",
+        ManifestProxyUrl(kReleaseChannel),
         15 * 1000,
     },
 };
@@ -134,7 +197,7 @@ struct FirmwareReleaseManifest {
   char device_id[32] = {};
   char release_version[32] = {};
   char release_channel[16] = {};
-  char release_time[32] = {};
+  char publish_time[32] = {};
   char main_version[32] = {};
   char main_urls[kMaximumFirmwareDownloadSourceCount]
                 [kMaximumFirmwareDownloadUrlLength] = {};
@@ -241,7 +304,13 @@ enum class ManifestParseResult {
   kSuccess,
   kInvalid,
   kUnsupportedVersion,
-  kUnsupportedDeviceVersion,
+  kUnsupportedHardware,
+};
+
+enum class TargetMatchResult {
+  kInvalid,
+  kNoMatch,
+  kMatch,
 };
 
 /**
@@ -849,19 +918,137 @@ bool ShouldRetryWithAlternateSource(esp_err_t result, int status_code) {
   return result != ESP_OK && (status_code == 0 || status_code == 200);
 }
 
+// 数值顺序对应常见发布阶段：Alpha、Beta、正式版。
+enum class SemanticVersionPrerelease {
+  kAlpha = 0,
+  kBeta = 1,
+  kNone = 2,
+};
+
+struct SemanticVersion {
+  uint32_t parts[3] = {};
+  SemanticVersionPrerelease prerelease =
+      SemanticVersionPrerelease::kNone;
+  uint32_t prerelease_number = 0;
+};
+
 /**
- * @brief 解析严格的三段式固件版本号
- * @param text 版本字符串
- * @param parts 三个版本数字的输出缓冲区
- * @return 版本格式为“主版本.次版本.修订版本”返回 true，否则返回 false
+ * @brief 从版本字符串当前位置解析一个无前导零的整数
+ * @param cursor 当前解析位置，成功后移动到数字之后
+ * @param value 解析结果
+ * @return 数字存在、没有前导零且未溢出返回 true
  */
-bool ParseSemanticVersion(const char* text, uint32_t parts[3]) {
+bool ParseSemanticVersionNumber(const char** cursor, uint32_t* value) {
+  if (cursor == nullptr || *cursor == nullptr || value == nullptr ||
+      **cursor < '0' || **cursor > '9') {
+    return false;
+  }
+  const char* current = *cursor;
+  if (*current == '0' && current[1] >= '0' && current[1] <= '9') {
+    return false;
+  }
+  uint64_t parsed = 0;
+  do {
+    parsed = parsed * 10 + static_cast<uint64_t>(*current - '0');
+    if (parsed > std::numeric_limits<uint32_t>::max()) {
+      return false;
+    }
+    ++current;
+  } while (*current >= '0' && *current <= '9');
+  *cursor = current;
+  *value = static_cast<uint32_t>(parsed);
+  return true;
+}
+
+/**
+ * @brief 解析稳定版或受约束的 Alpha、Beta 预发布版本号
+ * @param text 版本字符串
+ * @param version 解析结果，可为空
+ * @return 格式和数值均有效返回 true
+ */
+bool ParseSemanticVersion(const char* text, SemanticVersion* version) {
   if (text == nullptr || text[0] == '\0') {
     return false;
   }
-  uint32_t parsed_parts[3] = {};
+  SemanticVersion parsed;
   const char* cursor = text;
   for (size_t index = 0; index < 3; ++index) {
+    if (!ParseSemanticVersionNumber(&cursor, &parsed.parts[index])) {
+      return false;
+    }
+    if (index < 2) {
+      if (*cursor != '.') {
+        return false;
+      }
+      ++cursor;
+    }
+  }
+  if (*cursor == '\0') {
+    if (version != nullptr) {
+      *version = parsed;
+    }
+    return true;
+  }
+  if (*cursor != '-') {
+    return false;
+  }
+  ++cursor;
+  if (std::strncmp(cursor, "alpha.", 6) == 0) {
+    parsed.prerelease = SemanticVersionPrerelease::kAlpha;
+    cursor += 6;
+  } else if (std::strncmp(cursor, "beta.", 5) == 0) {
+    parsed.prerelease = SemanticVersionPrerelease::kBeta;
+    cursor += 5;
+  } else {
+    return false;
+  }
+  if (!ParseSemanticVersionNumber(
+          &cursor, &parsed.prerelease_number) ||
+      *cursor != '\0') {
+    return false;
+  }
+  if (version != nullptr) {
+    *version = parsed;
+  }
+  return true;
+}
+
+/**
+ * @brief 检查 Release 版本后缀是否匹配固件编译频道
+ * @param text Release 版本
+ * @param channel 固件编译频道
+ * @return 稳定版无后缀且预发布版后缀匹配频道返回 true
+ */
+bool IsSemanticVersionForReleaseChannel(
+    const char* text, ReleaseChannel channel) {
+  SemanticVersion version;
+  if (!ParseSemanticVersion(text, &version)) {
+    return false;
+  }
+  switch (channel) {
+    case ReleaseChannel::kAlpha:
+      return version.prerelease == SemanticVersionPrerelease::kAlpha;
+    case ReleaseChannel::kBeta:
+      return version.prerelease == SemanticVersionPrerelease::kBeta;
+    case ReleaseChannel::kStable:
+      return version.prerelease == SemanticVersionPrerelease::kNone;
+  }
+  return false;
+}
+
+/**
+ * @brief 解析严格的两段式硬件或芯片版本号
+ * @param text 版本字符串
+ * @param parts 两个版本数字的输出缓冲区
+ * @return 版本格式为“主版本.次版本”返回 true，否则返回 false
+ */
+bool ParseMajorMinorVersion(const char* text, uint32_t parts[2] = nullptr) {
+  if (text == nullptr || text[0] == '\0') {
+    return false;
+  }
+  uint32_t parsed_parts[2] = {};
+  const char* cursor = text;
+  for (size_t index = 0; index < 2; ++index) {
     if (*cursor < '0' || *cursor > '9') {
       return false;
     }
@@ -874,7 +1061,7 @@ bool ParseSemanticVersion(const char* text, uint32_t parts[3]) {
       ++cursor;
     } while (*cursor >= '0' && *cursor <= '9');
     parsed_parts[index] = static_cast<uint32_t>(value);
-    if (index < 2) {
+    if (index == 0) {
       if (*cursor != '.') {
         return false;
       }
@@ -885,15 +1072,14 @@ bool ParseSemanticVersion(const char* text, uint32_t parts[3]) {
     return false;
   }
   if (parts != nullptr) {
-    for (size_t index = 0; index < 3; ++index) {
-      parts[index] = parsed_parts[index];
-    }
+    parts[0] = parsed_parts[0];
+    parts[1] = parsed_parts[1];
   }
   return true;
 }
 
 /**
- * @brief 比较两个严格的三段式固件版本号
+ * @brief 按受约束的 SemVer 规则比较两个固件版本号
  * @param left 左侧版本
  * @param right 右侧版本
  * @param valid 比较结果是否有效的输出地址
@@ -901,10 +1087,10 @@ bool ParseSemanticVersion(const char* text, uint32_t parts[3]) {
  */
 int CompareSemanticVersions(
     const char* left, const char* right, bool* valid = nullptr) {
-  uint32_t left_parts[3] = {};
-  uint32_t right_parts[3] = {};
-  const bool parsed = ParseSemanticVersion(left, left_parts) &&
-                      ParseSemanticVersion(right, right_parts);
+  SemanticVersion left_version;
+  SemanticVersion right_version;
+  const bool parsed = ParseSemanticVersion(left, &left_version) &&
+                      ParseSemanticVersion(right, &right_version);
   if (valid != nullptr) {
     *valid = parsed;
   }
@@ -912,9 +1098,26 @@ int CompareSemanticVersions(
     return 0;
   }
   for (size_t index = 0; index < 3; ++index) {
-    if (left_parts[index] != right_parts[index]) {
-      return left_parts[index] > right_parts[index] ? 1 : -1;
+    if (left_version.parts[index] != right_version.parts[index]) {
+      return left_version.parts[index] > right_version.parts[index]
+          ? 1
+          : -1;
     }
+  }
+  if (left_version.prerelease != right_version.prerelease) {
+    const int left_prerelease =
+        static_cast<int>(left_version.prerelease);
+    const int right_prerelease =
+        static_cast<int>(right_version.prerelease);
+    return left_prerelease > right_prerelease ? 1 : -1;
+  }
+  if (left_version.prerelease != SemanticVersionPrerelease::kNone &&
+      left_version.prerelease_number !=
+          right_version.prerelease_number) {
+    return left_version.prerelease_number >
+            right_version.prerelease_number
+        ? 1
+        : -1;
   }
   return 0;
 }
@@ -1064,18 +1267,18 @@ bool ReadRequiredFirmwareUrls(const cJSON* object, const char* name,
 }
 
 /**
- * @brief 校验带时区且精确到分钟的 ISO 8601 发布时间
+ * @brief 校验使用 UTC 和秒精度的 RFC 3339 发布时间
  * @param text 发布时间文本
  * @return 格式和日期范围有效返回 true，否则返回 false
  */
-bool IsReleaseTimeText(const char* text) {
-  if (text == nullptr || std::strlen(text) != 22 || text[4] != '-' ||
+bool IsPublishTimeText(const char* text) {
+  if (text == nullptr || std::strlen(text) != 20 || text[4] != '-' ||
       text[7] != '-' || text[10] != 'T' || text[13] != ':' ||
-      (text[16] != '+' && text[16] != '-') || text[19] != ':') {
+      text[16] != ':' || text[19] != 'Z') {
     return false;
   }
   constexpr int digit_positions[] = {
-      0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18, 20, 21};
+      0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18};
   for (int position : digit_positions) {
     if (text[position] < '0' || text[position] > '9') {
       return false;
@@ -1090,11 +1293,9 @@ bool IsReleaseTimeText(const char* text) {
   const int day = pair_value(8);
   const int hour = pair_value(11);
   const int minute = pair_value(14);
-  const int offset_hour = pair_value(17);
-  const int offset_minute = pair_value(20);
+  const int second = pair_value(17);
   if (year == 0 || month < 1 || month > 12 || hour > 23 || minute > 59 ||
-      offset_hour > 14 || offset_minute > 59 ||
-      (offset_hour == 14 && offset_minute != 0)) {
+      second > 59) {
     return false;
   }
   constexpr int days_per_month[] = {
@@ -1111,13 +1312,13 @@ bool IsReleaseTimeText(const char* text) {
 /**
  * @brief 判断固件发布频道是否受支持
  * @param channel 发布频道文本
- * @return stable、beta 或 dev 返回 true，否则返回 false
+ * @return alpha、beta 或 stable 返回 true，否则返回 false
  */
 bool IsReleaseChannelSupported(const char* channel) {
   return channel != nullptr &&
-         (std::strcmp(channel, "stable") == 0 ||
+         (std::strcmp(channel, "alpha") == 0 ||
              std::strcmp(channel, "beta") == 0 ||
-             std::strcmp(channel, "dev") == 0);
+             std::strcmp(channel, "stable") == 0);
 }
 
 /**
@@ -1142,8 +1343,217 @@ bool ReadRequiredJsonSize(
   return true;
 }
 
+bool IsFirmwareFileId(const char* text) {
+  if (text == nullptr || text[0] == '\0' ||
+      std::strlen(text) >= kMaximumFirmwareFileIdLength) {
+    return false;
+  }
+  const size_t length = std::strlen(text);
+  const auto is_alphanumeric = [](char value) {
+    return (value >= 'a' && value <= 'z') ||
+           (value >= '0' && value <= '9');
+  };
+  if (!is_alphanumeric(text[0]) ||
+      !is_alphanumeric(text[length - 1])) {
+    return false;
+  }
+  for (const char* cursor = text; *cursor != '\0'; ++cursor) {
+    const bool valid =
+        (*cursor >= 'a' && *cursor <= 'z') ||
+        (*cursor >= '0' && *cursor <= '9') || *cursor == '-' ||
+        *cursor == '.';
+    if (!valid) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool IsFirmwareFilename(const char* text) {
+  if (text == nullptr || text[0] == '\0') {
+    return false;
+  }
+  const size_t length = std::strlen(text);
+  if (length < 5 || length >= kMaximumFirmwareFilenameLength ||
+      std::strcmp(text + length - 4, ".bin") != 0) {
+    return false;
+  }
+  for (const char* cursor = text; *cursor != '\0'; ++cursor) {
+    const bool valid =
+        (*cursor >= 'a' && *cursor <= 'z') ||
+        (*cursor >= '0' && *cursor <= '9') || *cursor == '-' ||
+        *cursor == '.';
+    if (!valid) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool UrlEndsWithFilename(const char* url, const char* filename) {
+  if (url == nullptr || filename == nullptr) {
+    return false;
+  }
+  const size_t url_length = std::strlen(url);
+  const size_t filename_length = std::strlen(filename);
+  return filename_length <= url_length &&
+         std::strcmp(url + url_length - filename_length, filename) == 0;
+}
+
 /**
- * @brief 解析 GitHub Release 中的组合固件清单
+ * @brief 校验目标条件并判断是否匹配当前设备
+ * @param target targets 数组中的一个目标
+ * @param main_revision 当前主芯片完整修订版本
+ * @param main_file_id 匹配目标引用的主固件文件 ID
+ * @param wireless_file_id 匹配目标引用的无线固件文件 ID
+ * @return 目标无效、不匹配或匹配
+ */
+TargetMatchResult MatchFirmwareTarget(const cJSON* target,
+    const char* main_revision, const char** main_file_id,
+    const char** wireless_file_id) {
+  if (!cJSON_IsObject(target) || main_revision == nullptr ||
+      main_file_id == nullptr || wireless_file_id == nullptr) {
+    return TargetMatchResult::kInvalid;
+  }
+  const cJSON* compatibility =
+      cJSON_GetObjectItemCaseSensitive(target, "compatibility");
+  const cJSON* components =
+      cJSON_GetObjectItemCaseSensitive(target, "components");
+  const cJSON* device_version = cJSON_IsObject(compatibility)
+      ? cJSON_GetObjectItemCaseSensitive(
+            compatibility, "deviceVersion")
+      : nullptr;
+  const cJSON* chips = cJSON_IsObject(compatibility)
+      ? cJSON_GetObjectItemCaseSensitive(compatibility, "chips")
+      : nullptr;
+  const cJSON* main_chip = cJSON_IsObject(chips)
+      ? cJSON_GetObjectItemCaseSensitive(chips, "main")
+      : nullptr;
+  const cJSON* wireless_chip = cJSON_IsObject(chips)
+      ? cJSON_GetObjectItemCaseSensitive(chips, "wireless")
+      : nullptr;
+  const cJSON* main_model = cJSON_IsObject(main_chip)
+      ? cJSON_GetObjectItemCaseSensitive(main_chip, "model")
+      : nullptr;
+  const cJSON* wireless_model = cJSON_IsObject(wireless_chip)
+      ? cJSON_GetObjectItemCaseSensitive(wireless_chip, "model")
+      : nullptr;
+  const cJSON* main_target_revision = cJSON_IsObject(main_chip)
+      ? cJSON_GetObjectItemCaseSensitive(main_chip, "revision")
+      : nullptr;
+  const cJSON* wireless_target_revision = cJSON_IsObject(wireless_chip)
+      ? cJSON_GetObjectItemCaseSensitive(wireless_chip, "revision")
+      : nullptr;
+  const cJSON* main_component = cJSON_IsObject(components)
+      ? cJSON_GetObjectItemCaseSensitive(components, "main")
+      : nullptr;
+  const cJSON* wireless_component = cJSON_IsObject(components)
+      ? cJSON_GetObjectItemCaseSensitive(components, "wireless")
+      : nullptr;
+  if (!cJSON_IsObject(compatibility) || !cJSON_IsObject(chips) ||
+      !cJSON_IsObject(main_chip) || !cJSON_IsObject(wireless_chip) ||
+      !cJSON_IsObject(components) ||
+      cJSON_GetArraySize(chips) != 2 ||
+      cJSON_GetArraySize(components) != 2 ||
+      !cJSON_IsString(device_version) ||
+      device_version->valuestring == nullptr ||
+      !cJSON_IsString(main_model) || main_model->valuestring == nullptr ||
+      !cJSON_IsString(wireless_model) ||
+      wireless_model->valuestring == nullptr ||
+      !cJSON_IsString(main_target_revision) ||
+      main_target_revision->valuestring == nullptr ||
+      !cJSON_IsString(wireless_target_revision) ||
+      wireless_target_revision->valuestring == nullptr ||
+      !cJSON_IsString(main_component) ||
+      main_component->valuestring == nullptr ||
+      !cJSON_IsString(wireless_component) ||
+      wireless_component->valuestring == nullptr ||
+      !IsFirmwareFileId(main_component->valuestring) ||
+      !IsFirmwareFileId(wireless_component->valuestring) ||
+      !ParseMajorMinorVersion(device_version->valuestring) ||
+      !ParseMajorMinorVersion(main_target_revision->valuestring) ||
+      !ParseMajorMinorVersion(wireless_target_revision->valuestring)) {
+    return TargetMatchResult::kInvalid;
+  }
+  if (std::strcmp(
+          device_version->valuestring, kCurrentDeviceVersion) != 0 ||
+      std::strcmp(main_model->valuestring, kCurrentMainChipModel) != 0 ||
+      std::strcmp(main_target_revision->valuestring, main_revision) != 0 ||
+      std::strcmp(
+          wireless_model->valuestring, kCurrentWirelessChipModel) != 0 ||
+      std::strcmp(wireless_target_revision->valuestring,
+          kCurrentWirelessChipRevision) != 0) {
+    return TargetMatchResult::kNoMatch;
+  }
+  *main_file_id = main_component->valuestring;
+  *wireless_file_id = wireless_component->valuestring;
+  return TargetMatchResult::kMatch;
+}
+
+/**
+ * @brief 解析并校验目标引用的固件文件元数据
+ * @param firmware_files files 映射对象
+ * @param file_id 固件文件 ID
+ * @param expected_chip 目标条件中声明的芯片型号
+ * @param expected_project_name 设备端支持的 ESP-IDF 项目名
+ * @param version 固件版本输出缓冲区
+ * @param version_size 固件版本输出缓冲区长度
+ * @param urls 固件下载地址输出缓冲区
+ * @param url_count 固件下载地址数量
+ * @param size_bytes 固件文件大小
+ * @param sha256 SHA-256 输出缓冲区
+ * @param sha256_size SHA-256 输出缓冲区长度
+ * @return 元数据完整且符合当前安装器要求返回 true
+ */
+bool ReadFirmwareFileMetadata(
+    const cJSON* firmware_files, const char* file_id,
+    const char* expected_chip, const char* expected_project_name,
+    char* version, size_t version_size,
+    char urls[kMaximumFirmwareDownloadSourceCount]
+             [kMaximumFirmwareDownloadUrlLength],
+    size_t* url_count, size_t* size_bytes, char* sha256,
+    size_t sha256_size) {
+  if (!cJSON_IsObject(firmware_files) || !IsFirmwareFileId(file_id) ||
+      expected_chip == nullptr || expected_project_name == nullptr) {
+    return false;
+  }
+  const cJSON* file =
+      cJSON_GetObjectItemCaseSensitive(firmware_files, file_id);
+  const cJSON* hashes = cJSON_IsObject(file)
+      ? cJSON_GetObjectItemCaseSensitive(file, "hashes")
+      : nullptr;
+  char chip[16] = {};
+  char project_name[32] = {};
+  char filename[kMaximumFirmwareFilenameLength] = {};
+  if (!cJSON_IsObject(file) || !cJSON_IsObject(hashes) ||
+      !ReadRequiredJsonString(file, "chip", chip, sizeof(chip)) ||
+      !ReadRequiredJsonString(file, "projectName", project_name,
+          sizeof(project_name)) ||
+      !ReadRequiredJsonString(file, "version", version,
+          version_size) ||
+      !ReadRequiredJsonString(
+          file, "fileName", filename, sizeof(filename)) ||
+      !ReadRequiredFirmwareUrls(
+          file, "downloadUrls", urls, url_count) ||
+      !ReadRequiredJsonSize(file, "sizeBytes", size_bytes) ||
+      !ReadRequiredJsonString(
+          hashes, "sha256", sha256, sha256_size) ||
+      std::strcmp(chip, expected_chip) != 0 ||
+      std::strcmp(project_name, expected_project_name) != 0 ||
+      !ParseSemanticVersion(version, nullptr) ||
+      !IsFirmwareFilename(filename) || !IsSha256Text(sha256)) {
+    return false;
+  }
+  for (size_t index = 0; index < *url_count; ++index) {
+    if (!UrlEndsWithFilename(urls[index], filename)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * @brief 解析基于目标和固件文件引用的组合固件清单
  * @param json_text 清单 JSON 文本
  * @param manifest 清单解析结果
  * @return 成功、清单无效、格式版本不受支持或不包含当前硬件
@@ -1158,119 +1568,152 @@ ManifestParseResult ParseManifest(
   if (root == nullptr || !cJSON_IsObject(root.get())) {
     return ManifestParseResult::kInvalid;
   }
-  const cJSON* schema_version =
-      cJSON_GetObjectItemCaseSensitive(root.get(), "schema_version");
-  const cJSON* release_time =
-      cJSON_GetObjectItemCaseSensitive(root.get(), "release_time");
-  const cJSON* release_channel =
+  const cJSON* kind =
+      cJSON_GetObjectItemCaseSensitive(root.get(), "kind");
+  const cJSON* manifest_version =
+      cJSON_GetObjectItemCaseSensitive(root.get(), "manifestVersion");
+  const cJSON* release =
+      cJSON_GetObjectItemCaseSensitive(root.get(), "release");
+  const cJSON* publish_time =
+      cJSON_GetObjectItemCaseSensitive(root.get(), "publishTime");
+  const cJSON* channel =
       cJSON_GetObjectItemCaseSensitive(root.get(), "channel");
-  const cJSON* device_versions =
-      cJSON_GetObjectItemCaseSensitive(root.get(), "device_versions");
-  const cJSON* current_device = cJSON_IsObject(device_versions)
-      ? cJSON_GetObjectItemCaseSensitive(
-            device_versions, kCurrentDeviceVersion)
-      : nullptr;
-  const cJSON* main = cJSON_IsObject(current_device)
-      ? cJSON_GetObjectItemCaseSensitive(current_device, "main")
-      : nullptr;
-  const cJSON* wireless = cJSON_IsObject(current_device)
-      ? cJSON_GetObjectItemCaseSensitive(current_device, "wireless")
-      : nullptr;
-  // 格式版本 1 按设备版本保存完整的主固件和无线固件信息。
-  if (!cJSON_IsNumber(schema_version) ||
-      schema_version->valuedouble != schema_version->valueint) {
+  const cJSON* targets =
+      cJSON_GetObjectItemCaseSensitive(root.get(), "targets");
+  const cJSON* firmware_files =
+      cJSON_GetObjectItemCaseSensitive(root.get(), "files");
+  if (!cJSON_IsString(kind) || kind->valuestring == nullptr ||
+      std::strcmp(kind->valuestring, kManifestKind) != 0 ||
+      !cJSON_IsString(manifest_version) ||
+      manifest_version->valuestring == nullptr) {
     return ManifestParseResult::kInvalid;
   }
-  if (schema_version->valueint != kSupportedSchemaVersion) {
+  if (std::strcmp(
+          manifest_version->valuestring, kSupportedManifestVersion) != 0) {
     return ManifestParseResult::kUnsupportedVersion;
   }
-  if (!cJSON_IsObject(device_versions)) {
+  if (!cJSON_IsObject(release) || !cJSON_IsArray(targets) ||
+      !cJSON_IsObject(firmware_files) || !cJSON_IsString(channel) ||
+      channel->valuestring == nullptr ||
+      !IsReleaseChannelSupported(channel->valuestring) ||
+      !cJSON_IsString(publish_time) ||
+      publish_time->valuestring == nullptr ||
+      !IsPublishTimeText(publish_time->valuestring)) {
     return ManifestParseResult::kInvalid;
   }
-  if (!cJSON_IsObject(current_device)) {
-    return ManifestParseResult::kUnsupportedDeviceVersion;
-  }
-  if (!cJSON_IsObject(main) || !cJSON_IsObject(wireless)) {
+  if (std::strcmp(channel->valuestring, kCurrentReleaseChannel) != 0) {
     return ManifestParseResult::kInvalid;
   }
-  if (release_time != nullptr &&
-      (!cJSON_IsString(release_time) || release_time->valuestring == nullptr ||
-          !IsReleaseTimeText(release_time->valuestring))) {
+  const int target_count = cJSON_GetArraySize(targets);
+  const int firmware_file_count = cJSON_GetArraySize(firmware_files);
+  if (target_count <= 0 ||
+      target_count > static_cast<int>(kMaximumFirmwareTargetCount) ||
+      firmware_file_count <= 0 ||
+      firmware_file_count >
+          static_cast<int>(kMaximumFirmwareFileCount)) {
     return ManifestParseResult::kInvalid;
+  }
+  char publisher_id[65] = {};
+  char device_id[32] = {};
+  char release_version[32] = {};
+  if (!ReadRequiredJsonString(
+          release, "publisherId", publisher_id, sizeof(publisher_id)) ||
+      !ReadRequiredJsonString(
+          release, "deviceId", device_id, sizeof(device_id)) ||
+      !ReadRequiredJsonString(release, "version", release_version,
+          sizeof(release_version)) ||
+      !IsSemanticVersionForReleaseChannel(
+          release_version, kReleaseChannel)) {
+    return ManifestParseResult::kInvalid;
+  }
+  if (std::strcmp(publisher_id, kUpdatePublisherId) != 0 ||
+      std::strcmp(device_id, kCurrentDeviceId) != 0) {
+    return ManifestParseResult::kUnsupportedHardware;
+  }
+
+  esp_chip_info_t chip_info = {};
+  esp_chip_info(&chip_info);
+  char main_revision[24] = {};
+  const unsigned main_revision_major =
+      static_cast<unsigned>(chip_info.revision / 100);
+  const unsigned main_revision_minor =
+      static_cast<unsigned>(chip_info.revision % 100);
+  std::snprintf(main_revision, sizeof(main_revision), "%u.%u",
+      main_revision_major, main_revision_minor);
+  const char* main_file_id = nullptr;
+  const char* wireless_file_id = nullptr;
+  for (int index = 0; index < target_count; ++index) {
+    const cJSON* target = cJSON_GetArrayItem(targets, index);
+    const char* candidate_main_file_id = nullptr;
+    const char* candidate_wireless_file_id = nullptr;
+    const TargetMatchResult match_result =
+        MatchFirmwareTarget(target, main_revision,
+            &candidate_main_file_id, &candidate_wireless_file_id);
+    if (match_result == TargetMatchResult::kInvalid) {
+      return ManifestParseResult::kInvalid;
+    }
+    if (match_result != TargetMatchResult::kMatch) {
+      continue;
+    }
+    if (main_file_id != nullptr || wireless_file_id != nullptr) {
+      return ManifestParseResult::kInvalid;
+    }
+    main_file_id = candidate_main_file_id;
+    wireless_file_id = candidate_wireless_file_id;
+  }
+  if (main_file_id == nullptr || wireless_file_id == nullptr) {
+    return ManifestParseResult::kUnsupportedHardware;
   }
 
   *manifest = {};
   FirmwareReleaseManifest& parsed = *manifest;
-  CopyText(parsed.release_channel, sizeof(parsed.release_channel), "stable");
-  if (release_channel != nullptr) {
-    if (!cJSON_IsString(release_channel) ||
-        release_channel->valuestring == nullptr ||
-        !IsReleaseChannelSupported(release_channel->valuestring) ||
-        std::strlen(release_channel->valuestring) >=
-            sizeof(parsed.release_channel)) {
-      return ManifestParseResult::kInvalid;
-    }
-    CopyText(parsed.release_channel, sizeof(parsed.release_channel),
-        release_channel->valuestring);
-  }
-  if (!ReadRequiredJsonString(root.get(), "device_id", parsed.device_id,
-          sizeof(parsed.device_id)) ||
-      !ReadRequiredJsonString(root.get(), "release",
-          parsed.release_version, sizeof(parsed.release_version)) ||
-      !ReadRequiredJsonString(main, "version", parsed.main_version,
-          sizeof(parsed.main_version)) ||
-      !ReadRequiredFirmwareUrls(
-          main, "urls", parsed.main_urls, &parsed.main_url_count) ||
-      !ReadRequiredJsonSize(
-          main, "size_bytes", &parsed.main_size_bytes) ||
-      !ReadRequiredJsonString(main, "sha256", parsed.main_sha256,
+  CopyText(parsed.device_id, sizeof(parsed.device_id), device_id);
+  CopyReleaseVersion(parsed.release_version,
+      sizeof(parsed.release_version), release_version);
+  CopyText(parsed.release_channel, sizeof(parsed.release_channel),
+      channel->valuestring);
+  CopyText(parsed.publish_time, sizeof(parsed.publish_time),
+      publish_time->valuestring);
+  if (!ReadFirmwareFileMetadata(firmware_files, main_file_id,
+          kCurrentMainChipModel, kMainFirmwareProjectName,
+          parsed.main_version, sizeof(parsed.main_version),
+          parsed.main_urls, &parsed.main_url_count,
+          &parsed.main_size_bytes, parsed.main_sha256,
           sizeof(parsed.main_sha256)) ||
-      !ReadRequiredJsonString(wireless, "version",
-          parsed.wireless_version, sizeof(parsed.wireless_version)) ||
-      !ReadRequiredFirmwareUrls(wireless, "urls",
-          parsed.wireless_urls, &parsed.wireless_url_count) ||
-      !ReadRequiredJsonSize(
-          wireless, "size_bytes", &parsed.wireless_size_bytes) ||
-      !ReadRequiredJsonString(wireless, "sha256", parsed.wireless_sha256,
-          sizeof(parsed.wireless_sha256)) ||
-      parsed.release_version[0] != 'v' ||
-      !ParseSemanticVersion(parsed.release_version + 1, nullptr) ||
-      !ParseSemanticVersion(parsed.main_version, nullptr) ||
-      !ParseSemanticVersion(parsed.wireless_version, nullptr) ||
-      !IsSha256Text(parsed.main_sha256) ||
-      !IsSha256Text(parsed.wireless_sha256)) {
+      !ReadFirmwareFileMetadata(firmware_files, wireless_file_id,
+          kCurrentWirelessChipModel, kWirelessFirmwareProjectName,
+          parsed.wireless_version, sizeof(parsed.wireless_version),
+          parsed.wireless_urls, &parsed.wireless_url_count,
+          &parsed.wireless_size_bytes, parsed.wireless_sha256,
+          sizeof(parsed.wireless_sha256))) {
     return ManifestParseResult::kInvalid;
   }
-  if (release_time != nullptr) {
-    CopyText(parsed.release_time, sizeof(parsed.release_time),
-        release_time->valuestring);
+  if (!IsSemanticVersionForReleaseChannel(
+          parsed.main_version, kReleaseChannel)) {
+    return ManifestParseResult::kInvalid;
   }
 
   const cJSON* notes =
-      cJSON_GetObjectItemCaseSensitive(root.get(), "whats_new");
-  if (cJSON_IsArray(notes)) {
-    const cJSON* note = nullptr;
-    cJSON_ArrayForEach(note, notes) {
-      if (parsed.note_count >= kFirmwareUpdateNoteCapacity) {
-        break;
-      }
-      if (!cJSON_IsString(note) || note->valuestring == nullptr ||
-          note->valuestring[0] == '\0' ||
-          std::strlen(note->valuestring) >= sizeof(parsed.notes[0])) {
-        return ManifestParseResult::kInvalid;
-      }
-      CopyText(parsed.notes[parsed.note_count], sizeof(parsed.notes[0]),
-          note->valuestring);
-      ++parsed.note_count;
+      cJSON_GetObjectItemCaseSensitive(root.get(), "releaseNotes");
+  if (!cJSON_IsArray(notes)) {
+    return ManifestParseResult::kInvalid;
+  }
+  if (cJSON_GetArraySize(notes) >
+      static_cast<int>(kFirmwareUpdateNoteCapacity)) {
+    return ManifestParseResult::kInvalid;
+  }
+  const cJSON* note = nullptr;
+  cJSON_ArrayForEach(note, notes) {
+    if (!cJSON_IsString(note) || note->valuestring == nullptr ||
+        note->valuestring[0] == '\0' ||
+        std::strlen(note->valuestring) >= sizeof(parsed.notes[0])) {
+      return ManifestParseResult::kInvalid;
     }
+    CopyText(parsed.notes[parsed.note_count], sizeof(parsed.notes[0]),
+        note->valuestring);
+    ++parsed.note_count;
   }
   return ManifestParseResult::kSuccess;
-}
-
-// 判断清单是否属于当前设备系列；设备版本已在解析时完成选择。
-bool IsManifestCompatibleWithCurrentDevice(
-    const FirmwareReleaseManifest& manifest) {
-  return std::strcmp(manifest.device_id, kCurrentDeviceId) == 0;
 }
 
 /**
@@ -1331,8 +1774,7 @@ bool LoadManifestFile(
   }
   text[static_cast<size_t>(file_size)] = '\0';
   return ParseManifest(text.get(), manifest) ==
-             ManifestParseResult::kSuccess &&
-         IsManifestCompatibleWithCurrentDevice(*manifest);
+         ManifestParseResult::kSuccess;
 }
 
 /**
@@ -1568,15 +2010,11 @@ bool DownloadManifest(FirmwareReleaseManifest* manifest) {
     if (parse_result == ManifestParseResult::kUnsupportedVersion) {
       SetFailure("Manual firmware update required", true);
     } else if (
-        parse_result == ManifestParseResult::kUnsupportedDeviceVersion) {
+        parse_result == ManifestParseResult::kUnsupportedHardware) {
       SetFailure("Update package is incompatible");
     } else {
       SetFailure("Update information invalid");
     }
-    return false;
-  }
-  if (!IsManifestCompatibleWithCurrentDevice(*manifest)) {
-    SetFailure("Update package is incompatible");
     return false;
   }
   if (!SaveManifest(buffer.get())) {
@@ -1630,9 +2068,9 @@ bool RestoreInstalledManifestSnapshot(const char* main_current) {
   CopyText(State().snapshot.current_release_channel,
       sizeof(State().snapshot.current_release_channel),
       installed_manifest->release_channel);
-  CopyText(State().snapshot.current_release_time,
-      sizeof(State().snapshot.current_release_time),
-      installed_manifest->release_time);
+  CopyText(State().snapshot.current_publish_time,
+      sizeof(State().snapshot.current_publish_time),
+      installed_manifest->publish_time);
   CopyText(State().snapshot.main_current_version,
       sizeof(State().snapshot.main_current_version),
       installed_manifest->main_version);
@@ -1714,8 +2152,8 @@ bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
       sizeof(State().snapshot.release_version), manifest.release_version);
   CopyText(State().snapshot.release_channel,
       sizeof(State().snapshot.release_channel), manifest.release_channel);
-  CopyText(State().snapshot.release_time,
-      sizeof(State().snapshot.release_time), manifest.release_time);
+  CopyText(State().snapshot.publish_time,
+      sizeof(State().snapshot.publish_time), manifest.publish_time);
   if (installed_manifest_valid) {
     CopyText(State().snapshot.current_release_version,
         sizeof(State().snapshot.current_release_version),
@@ -1723,15 +2161,16 @@ bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
     CopyText(State().snapshot.current_release_channel,
         sizeof(State().snapshot.current_release_channel),
         installed_manifest.release_channel);
-    CopyText(State().snapshot.current_release_time,
-        sizeof(State().snapshot.current_release_time),
-        installed_manifest.release_time);
+    CopyText(State().snapshot.current_publish_time,
+        sizeof(State().snapshot.current_publish_time),
+        installed_manifest.publish_time);
   } else {
     CopyReleaseVersion(State().snapshot.current_release_version,
         sizeof(State().snapshot.current_release_version), main_current);
     CopyText(State().snapshot.current_release_channel,
-        sizeof(State().snapshot.current_release_channel), "stable");
-    State().snapshot.current_release_time[0] = '\0';
+        sizeof(State().snapshot.current_release_channel),
+        kCurrentReleaseChannel);
+    State().snapshot.current_publish_time[0] = '\0';
   }
   FormatFirmwareSize(package_size_bytes, State().snapshot.package_size,
       sizeof(State().snapshot.package_size));
@@ -1829,8 +2268,8 @@ void ApplyPendingManifestSnapshot(
       sizeof(State().snapshot.release_version), manifest.release_version);
   CopyText(State().snapshot.release_channel,
       sizeof(State().snapshot.release_channel), manifest.release_channel);
-  CopyText(State().snapshot.release_time,
-      sizeof(State().snapshot.release_time), manifest.release_time);
+  CopyText(State().snapshot.publish_time,
+      sizeof(State().snapshot.publish_time), manifest.publish_time);
   const size_t maximum_pending_size =
       manifest.main_size_bytes + manifest.wireless_size_bytes;
   FormatFirmwareSize(maximum_pending_size, State().snapshot.package_size,
@@ -1845,8 +2284,9 @@ void ApplyPendingManifestSnapshot(
   CopyReleaseVersion(State().snapshot.current_release_version,
       sizeof(State().snapshot.current_release_version), main_current);
   CopyText(State().snapshot.current_release_channel,
-      sizeof(State().snapshot.current_release_channel), "stable");
-  State().snapshot.current_release_time[0] = '\0';
+      sizeof(State().snapshot.current_release_channel),
+      kCurrentReleaseChannel);
+  State().snapshot.current_publish_time[0] = '\0';
   State().snapshot.current_main_size[0] = '\0';
   State().snapshot.current_wireless_size[0] = '\0';
   CopyText(State().snapshot.main_target_version,

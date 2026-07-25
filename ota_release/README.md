@@ -2,241 +2,218 @@
 
 ## **English | [Chinese](./README_CN.md)**
 
-[![Release](https://img.shields.io/github/v/release/Xinyuan-LilyGO/lilygobox-espidf?style=flat-square)](https://github.com/Xinyuan-LilyGO/lilygobox-espidf/releases)
-[![Python](https://img.shields.io/badge/Python-3.9%2B-3776ab?style=flat-square)](https://www.python.org/)
+`ota_release` generates LilygoBox OTA manifests and firmware assets for
+GitHub Releases.
 
-The `ota_release` tool creates validated GitHub Release assets for LilygoBox devices with multiple device versions and firmware components. It supports combined or independent Main and Wireless firmware updates.
+## Naming
 
-## Table of Contents
+- Public JSON properties follow Google's `lowerCamelCase` convention.
+- Collection fields use plural names such as `targets`, `files`, and
+  `downloadUrls`.
+- Dynamic map keys use stable lowercase identifiers such as
+  `device-v1.0-esp32p4-rev1.0`.
+- Timestamp fields use the `Time` suffix, so publication uses `publishTime`.
+- Quantity fields use a direct unit suffix, so file size uses `sizeBytes`.
+- `name` is reserved for full resource names; device identity uses
+  `deviceId`.
+- `deviceId` identifies the device model, while `deviceVersion` identifies
+  that model's device version; firmware uses `release.version`.
+- Python follows PEP 8 and C++ follows the Google C++ Style Guide.
+- JSON versions omit `v`; Git tags and firmware filenames include `v`.
+- Firmware versions use constrained SemVer: Alpha uses `X.Y.Z-alpha.N`,
+  Beta uses `X.Y.Z-beta.N`, and Stable uses `X.Y.Z`.
+- Timestamps are UTC RFC 3339 with second precision.
 
-- [Requirements](#requirements)
-- [Directory Structure](#directory-structure)
-- [Manifest Fields](#manifest-fields)
-- [Usage](#usage)
-- [Publish to GitHub Releases](#publish-to-github-releases)
-- [Add Another Device](#add-another-device)
+Field names and semantics follow Google
+[AIP-122](https://google.aip.dev/122),
+[AIP-126](https://google.aip.dev/126),
+[AIP-140](https://google.aip.dev/140),
+[AIP-141](https://google.aip.dev/141), and
+[AIP-142](https://google.aip.dev/142).
 
-## Requirements
+## Compatibility Model
 
-- Python 3.9 or later
-- No third-party Python packages
-- Standalone Main firmware image `lilygobox-espidf.bin`
-- Standalone Wireless firmware image `network_adapter.bin`
+`manifestVersion` identifies only the JSON contract. Board versions, chip
+models, and complete chip revisions are data in `targets.compatibility`.
+Adding those targets does not change `manifestVersion`.
 
-Main and Wireless OTA inputs must both start with the application image at
-offset `0` and contain no merged or factory data. Use merged images only for
-initial or full-device flashing, not for GitHub OTA assets.
+A device accepts exactly one target matching the product identity, compiled
+release channel, `deviceVersion`, and the complete `model` plus `revision`
+of every chip. For example, ESP32-P4 revisions `1.0` and `1.1` are separate
+targets. No match or multiple matches reject the update.
 
-## Directory Structure
+The complete format is defined by
+[ota_manifest_v1.schema.json](./ota_manifest_v1.schema.json), and the
+generator configuration by
+[ota_device_config_v1.schema.json](./ota_device_config_v1.schema.json).
+The manifest uses these top-level fields:
 
-Place the P4 and C6 binaries in `input`, then run the script. The script creates the output directory and release files automatically:
+- `kind` and `manifestVersion` identify the contract.
+- `release` identifies the publisher ID, device ID, and release version.
+- `channel` is `alpha`, `beta`, or `stable`.
+- `publishTime` is a UTC RFC 3339 timestamp.
+- `targets` maps exact hardware combinations to installation roles.
+- `files` stores deduplicated firmware assets.
+- `releaseNotes` contains up to three device-displayable notes.
+
+The generator checks the embedded ESP chip ID, ESP-IDF project name, version,
+complete image length, and full minimum/maximum chip revisions, then
+calculates file size and SHA-256. The device independently checks the size,
+SHA-256, and application image metadata.
+
+## Release Channels
+
+The device firmware selects one fixed channel through Kconfig. The release
+lifecycle is Alpha, Beta, then Stable:
+
+- `alpha`: internal Alpha builds.
+- `beta`: public test builds.
+- `stable`: production and the default.
+
+The Release version and embedded Main firmware version must match the
+channel:
+
+```text
+alpha  -> 1.1.0-alpha.1, 1.1.0-alpha.2
+beta   -> 1.1.0-beta.1, 1.1.0-beta.2
+stable -> 1.1.0
+```
+
+The pre-release sequence is a non-negative integer without leading zeroes.
+Wireless firmware keeps its independent version, such as `2.12.3`, and does
+not require a channel suffix. Each channel therefore uses a distinct Git tag
+and Main firmware filename without duplicating device configuration.
+
+Kconfig is converted to the application-wide `ReleaseChannel` enum only in
+`main/app/release_channel.h`. Other C++ code uses `kReleaseChannel` and
+`ReleaseChannelName()` instead of depending directly on
+`CONFIG_LILYGO_BOX_RELEASE_CHANNEL_*` macros.
+
+Each channel has an independent previous manifest and version sequence:
+
+```text
+ota-alpha  -> lilygobox-t-display-p4-ota-manifest-alpha-v1.json
+ota-beta   -> lilygobox-t-display-p4-ota-manifest-beta-v1.json
+ota-stable -> lilygobox-t-display-p4-ota-manifest-stable-v1.json
+```
+
+The left side is the permanent GitHub channel-pointer Release tag. Devices
+fetch the manifest from that tag instead of GitHub `latest`, so Alpha and
+Beta channels remain discoverable.
+
+## Requirements and Layout
+
+- Python 3.9 or later.
+- No third-party Python packages.
+- Standalone ESP application BIN files beginning at offset `0`.
+- Merged, factory, and multi-partition images are rejected.
 
 ```text
 ota_release/
 ├─ devices/
 │  └─ t-display-p4.json
-├─ input/                          User-provided and ignored by Git
-│  ├─ lilygobox-espidf.bin
-│  └─ network_adapter.bin
-├─ output/                         Generated and ignored by Git
-│  └─ t-display-p4/
-│     └─ v1.0.1/
-├─ .gitignore
+├─ input/                           User-provided, ignored by Git
+├─ output/                          Generated, ignored by Git
 ├─ generate_manifest.py
+├─ ota_device_config_v1.schema.json
+├─ ota_manifest_v1.schema.json
 ├─ README.md
 └─ README_CN.md
 ```
 
-Generated files are stored in `output/<device_id>/<Release tag>/`. The included `.gitignore` prevents these temporary release assets from being committed.
+Generated files are stored in:
 
-## Manifest Fields
-
-| Field | Description |
-| --- | --- |
-| `schema_version` | Manifest schema version understood by the device and used in its filename |
-| `device_id` | Target device family identifier |
-| `device_versions` | Firmware objects grouped by device version, such as `v1.0` and `v2.0` |
-| `main` | Main firmware for the selected device version |
-| `wireless` | Wireless firmware for the selected device version |
-| `chip` | Target chip name copied from the trusted device configuration for display |
-| `project_name` | ESP-IDF project name copied from the trusted device configuration for display |
-| `release` | GitHub Release tag, such as `v1.0.1` |
-| `channel` | Release channel: `stable`, `beta`, or `dev`; defaults to `stable` |
-| `release_time` | Release time generated by Python, including timezone and minute precision |
-| `version` | Three-part component firmware version |
-| `urls` | One to four HTTPS component URLs in retry order |
-| `size_bytes` | Exact binary size calculated by Python |
-| `sha256` | SHA-256 calculated from the binary without modifying it |
-| `whats_new` | Up to three short update notes |
-
-Component names are not hard-coded by the generator. Each device version
-declares its required components and trusted BIN metadata in
-`devices/t-display-p4.json`:
-
-```json
-"device_versions": {
-  "v1.0": {
-    "main": {
-      "chip": "esp32p4",
-      "project_name": "lilygobox-espidf"
-    },
-    "wireless": {
-      "chip": "esp32c6",
-      "project_name": "network_adapter"
-    }
-  }
-}
+```text
+output/<deviceId>/<channel>/<Release tag>/
 ```
-
-Before copying a changed BIN, the generator requires the entire file to be one
-standalone ESP application image beginning at offset `0`. The embedded chip,
-project name, and version must match this configuration and the `--component`
-version. Merged and factory images are rejected. The generator also copies
-`chip` and `project_name` into the public manifest as descriptive metadata.
-The current device firmware ignores these two manifest fields and continues
-to validate the downloaded binaries independently.
-
-The component sets may differ between device versions. Adding a component here
-enables manifest generation and validation, but the device firmware must also
-implement how that component is downloaded and installed.
-Component names describe firmware roles rather than chip models, so a V2 board
-that replaces ESP32-C6 with ESP32-C5 can still use the `wireless` role.
-
-Each component uses a `urls` array. The device starts with the first URL and
-tries later entries in order after a connection, rate-limit, or server failure:
-
-```json
-"urls": [
-  "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/releases/download/v1.0.0/lilygobox-t-display-p4-v1.0-main.bin",
-  "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/lilygobox-espidf/releases/download/v1.0.0/lilygobox-t-display-p4-v1.0-main.bin"
-]
-```
-
-A single manifest can contain multiple device versions. The device detects
-its device version and reads only the matching object:
-
-```json
-"device_versions": {
-  "v1.0": {
-    "main": { "...": "..." },
-    "wireless": { "...": "..." }
-  },
-  "v2.0": {
-    "main": { "...": "..." },
-    "wireless": { "...": "..." }
-  }
-}
-```
-
-The `download_url_templates` array in `devices/t-display-p4.json` generates
-these complete URLs. Append a new HTTPS template to add another source. Array
-order is download priority, with a maximum of four sources. When a new
-manifest inherits an unchanged component, the generator also rebuilds its URL
-list from the current templates.
-
-Current devices always read
-`lilygobox-t-display-p4-ota-manifest-v1.json`. If an incompatible
-`schema_version: 2` is introduced later, publish a separate `-v2.json` and
-keep the V1 manifest available as the update path to a transition firmware.
-The generator derives this filename from `device_id` and `schema_version`;
-the asset name is not maintained separately.
 
 ## Usage
 
-Run all commands from the `lilygobox-espidf/ota_release` directory. From the project directory, enter it with:
+Run these single-line commands from `lilygobox-espidf/ota_release`.
+
+The project defaults `PROJECT_VER` to `1.0.0`. Supply the matching embedded
+version through the CMake cache when building a pre-release image:
 
 ```bat
-cd .\ota_release
+idf.py -DPROJECT_VER=1.1.0-beta.1 build
 ```
 
-The examples use one-line commands so they can be pasted directly into either Command Prompt or PowerShell.
-Without `--channel`, the generator creates a stable release. Use
-`--channel beta` or `--channel dev` explicitly for test builds.
+Select the matching Alpha or Beta Kconfig channel as well. The
+generator reads the embedded BIN version again and rejects mismatched
+versions or channels. `PROJECT_VER` remains in the CMake build cache, so use
+separate build directories and `sdkconfig` files for different channels to
+avoid configuration overlap.
 
-### First Release
-
-The first manifest has no previous component information, so both Main and
-Wireless binaries for the current device version are required:
+### First Stable Release
 
 ```bat
-python .\generate_manifest.py --release 1.0.0 --component "v1.0/main=1.0.0=.\input\lilygobox-espidf.bin" --component "v1.0/wireless=2.12.3=.\input\network_adapter.bin" --note "Initial LilygoBox firmware release"
+python .\generate_manifest.py --release 1.0.0 --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=1.0.0=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=2.12.3=.\input\network_adapter.bin" --note "Initial LilygoBox firmware release"
 ```
 
-### Main-Only Release
-
-When Wireless has not changed, provide only the new Main binary and the previous manifest:
+### Update Main Firmware Only
 
 ```bat
-python .\generate_manifest.py --release 1.0.1 --component "v1.0/main=1.0.1=.\input\lilygobox-espidf.bin" --previous-manifest ".\output\t-display-p4\v1.0.0\lilygobox-t-display-p4-ota-manifest-v1.json" --note "Updated main firmware"
+python .\generate_manifest.py --release 1.0.1 --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=1.0.1=.\input\lilygobox-espidf.bin" --previous-manifest ".\output\t-display-p4\stable\v1.0.0\lilygobox-t-display-p4-ota-manifest-stable-v1.json" --note "Updated main firmware"
 ```
 
-The script inherits the Wireless version, historical Release tag, size, and SHA-256,
-then rebuilds its source list from the current device configuration. Upload
-only the manifest and Main binary printed by the script.
-
-### Wireless-Only Release
+### Update Wireless Firmware Only
 
 ```bat
-python .\generate_manifest.py --release 1.0.2 --component "v1.0/wireless=2.12.4=.\input\network_adapter.bin" --previous-manifest ".\output\t-display-p4\v1.0.1\lilygobox-t-display-p4-ota-manifest-v1.json" --note "Updated wireless firmware"
+python .\generate_manifest.py --release 1.0.2 --channel stable --firmware-file "device-v1.0-esp32c6-rev0.0=2.12.4=.\input\network_adapter.bin" --previous-manifest ".\output\t-display-p4\stable\v1.0.1\lilygobox-t-display-p4-ota-manifest-stable-v1.json" --note "Updated wireless firmware"
 ```
 
-The script inherits the Main information. Upload only the manifest and Wireless binary printed by the script.
+Unchanged files are inherited from the previous manifest in the same channel
+and continue to reference the historical Release containing each BIN.
 
-### Add a Device Version
+### Generate Alpha or Beta
 
-Add `v2.0` and its component configuration to `device_versions`, then provide every
-component required by the new device version together with the previous manifest:
+First Alpha example:
 
 ```bat
-python .\generate_manifest.py --release 2.0.0 --component "v2.0/main=1.0.0=.\input\lilygobox-espidf-v2.bin" --component "v2.0/wireless=1.0.0=.\input\network-adapter-v2.bin" --previous-manifest ".\output\t-display-p4\v1.0.2\lilygobox-t-display-p4-ota-manifest-v1.json" --note "Added T-Display-P4 V2.0 support"
+python .\generate_manifest.py --release 1.1.0-alpha.1 --channel alpha --firmware-file "device-v1.0-esp32p4-rev1.0=1.1.0-alpha.1=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=2.12.3=.\input\network_adapter.bin" --note "1.1.0 alpha build"
 ```
 
-The generator inherits both V1.0 components and adds V2.0 to the same
-manifest.
-
-If the previous local output is unavailable, download the manifest asset from the previous GitHub Release and pass its path to `--previous-manifest`.
-
-### Regenerate an Unpublished Release
-
-The script stops when the target output directory is not empty. To intentionally regenerate the same unpublished version, add:
+First Beta example:
 
 ```bat
---force
+python .\generate_manifest.py --release 1.1.0-beta.1 --channel beta --firmware-file "device-v1.0-esp32p4-rev1.0=1.1.0-beta.1=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=2.12.3=.\input\network_adapter.bin" --note "1.1.0 public beta"
 ```
 
-When a previous manifest is used, the new Release version and each changed component version must be higher than their previous values.
+Later Alpha or Beta releases inherit unchanged files from the previous
+Manifest in the same channel. The generator rejects mismatches such as a
+stable channel with `-beta.N` or a Beta channel without a suffix. All three
+channels share the single `devices/t-display-p4.json` file.
 
-## Publish to GitHub Releases
+## Add a Board or Chip Revision
 
-For a V1.0 Main-only `v1.0.1` release, the generated directory looks like this:
+Edit only `devices/t-display-p4.json`:
+
+1. Add a file ID with its trusted `chip` and `projectName`.
+2. Add a target containing the new `deviceVersion` and complete chip
+   `revision` values.
+3. Map installation roles to file IDs through `components`.
+4. Provide new BINs and inherit existing files from the previous manifest in
+   the same channel.
+
+As long as the roles remain the already-supported `main` and `wireless`, no
+manifest format or device parser change is required. A new installation role
+requires corresponding device-side installation logic.
+
+## Publish
+
+The first stable output resembles:
 
 ```text
-ota_release/output/t-display-p4/v1.0.1/
-├─ lilygobox-t-display-p4-ota-manifest-v1.json
-└─ lilygobox-t-display-p4-v1.0-main.bin
+output/t-display-p4/stable/v1.0.0/
+├─ lilygobox-t-display-p4-ota-manifest-stable-v1.json
+├─ lilygobox-t-display-p4-device-v1.0-esp32p4-rev1.0-v1.0.0.bin
+└─ lilygobox-t-display-p4-device-v1.0-esp32c6-rev0.0-v2.12.3.bin
 ```
 
-1. Create a Draft Release in the [lilygobox-espidf Releases page](https://github.com/Xinyuan-LilyGO/lilygobox-espidf/releases).
-2. Use the same tag printed in the output path, such as `v1.0.1`.
-3. Upload exactly the files listed by the script.
-4. Verify the manifest, component versions, and update notes.
-5. Mark the release as Latest and publish it only after every required asset has been uploaded.
+Create a versioned Draft Release with the matching tag and upload the new BIN
+files printed by the generator. After every firmware asset is available,
+upload or replace the manifest in the permanent `ota-alpha`, `ota-beta`, or
+`ota-stable` channel-pointer Release. Channel-pointer Releases contain only
+the current manifest; versioned Releases contain immutable BIN assets.
 
-Do not publish the manifest first and add its changed binary later. Devices may discover the incomplete release immediately.
-
-## Add Another Device
-
-Copy `devices/t-display-p4.json` and change:
-
-- `device_id`
-- `device_versions`
-- Component `chip` and `project_name` trust settings
-- `schema_version`
-- GitHub `repository`
-- `download_url_templates` source templates and their priority
-
-Select the new file with `--config`. The device firmware must also define the
-matching manifest URL and `device_id`, and it must detect a version listed in
-`device_versions`; adding only the generator configuration does not enable
-OTA for a new board. The generator derives component asset names from the
-device, device version, and each configured component name.
+Use `--force` only to replace local output that has not been published.

@@ -49,10 +49,10 @@ struct FirmwareUpdateSnapshot {
   bool wireless_update_available = false;
   char release_version[32] = {};
   char release_channel[16] = {};
-  char release_time[32] = {};
+  char publish_time[32] = {};
   char current_release_version[32] = {};
   char current_release_channel[16] = {};
-  char current_release_time[32] = {};
+  char current_publish_time[32] = {};
   char package_size[24] = {};
   char current_package_size[24] = {};
   char main_size[24] = {};

@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lilygo:lilygobox:ota-device-config:1.0",
+  "title": "LilygoBox OTA Device Configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "manifestVersion",
+    "publisherId",
+    "deviceId",
+    "repository",
+    "targets",
+    "files",
+    "downloadUrlTemplates"
+  ],
+  "properties": {
+    "kind": {
+      "const": "lilygobox#otaDeviceConfig"
+    },
+    "manifestVersion": {
+      "const": "1.0"
+    },
+    "publisherId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "deviceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 31,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "repository": {
+      "type": "string",
+      "minLength": 3,
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "$ref": "#/$defs/target"
+      }
+    },
+    "files": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 64,
+      "propertyNames": {
+        "$ref": "#/$defs/mapKey"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/fileConfiguration"
+      }
+    },
+    "downloadUrlTemplates": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^https://.*\\{release\\}.*\\{filename\\}"
+      }
+    }
+  },
+  "$defs": {
+    "mapKey": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[a-z0-9.-]*[a-z0-9])?$"
+    },
+    "majorMinorVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "chip": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model",
+        "revision"
+      ],
+      "properties": {
+        "model": {
+          "type": "string",
+          "enum": [
+            "esp32c5",
+            "esp32c6",
+            "esp32p4"
+          ]
+        },
+        "revision": {
+          "$ref": "#/$defs/majorMinorVersion"
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "compatibility",
+        "components"
+      ],
+      "properties": {
+        "compatibility": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "deviceVersion",
+            "chips"
+          ],
+          "properties": {
+            "deviceVersion": {
+              "$ref": "#/$defs/majorMinorVersion"
+            },
+            "chips": {
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": {
+                "$ref": "#/$defs/mapKey"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/chip"
+              }
+            }
+          }
+        },
+        "components": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/mapKey"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/mapKey"
+          }
+        }
+      }
+    },
+    "fileConfiguration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "chip",
+        "projectName"
+      ],
+      "properties": {
+        "chip": {
+          "type": "string",
+          "enum": [
+            "esp32c5",
+            "esp32c6",
+            "esp32p4"
+          ]
+        },
+        "projectName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 31
+        }
+      }
+    }
+  }
+}

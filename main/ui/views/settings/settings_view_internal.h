@@ -187,7 +187,7 @@ struct SettingsViewState {
   lv_obj_t* firmware_update_card = nullptr;
   lv_obj_t* firmware_update_release_label = nullptr;
   lv_obj_t* firmware_update_channel_label = nullptr;
-  lv_obj_t* firmware_update_release_time_label = nullptr;
+  lv_obj_t* firmware_update_publish_time_label = nullptr;
   lv_obj_t* firmware_update_components_title = nullptr;
   lv_obj_t* firmware_update_main_row = nullptr;
   lv_obj_t* firmware_update_main_chip_label = nullptr;

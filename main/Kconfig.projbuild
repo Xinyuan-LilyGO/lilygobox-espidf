@@ -14,4 +14,21 @@ menu "LilygoBox Configuration"
             bool "None"
     endchoice
 
+    choice LILYGO_BOX_RELEASE_CHANNEL
+        prompt "Select LilygoBox release channel"
+        default LILYGO_BOX_RELEASE_CHANNEL_STABLE
+        help
+            Selects the fixed application release channel used by this build.
+            OTA manifests follow the same channel.
+            The release lifecycle is Alpha (X.Y.Z-alpha.N), Beta
+            (X.Y.Z-beta.N), and Stable (X.Y.Z).
+            Production builds must use Stable.
+        config LILYGO_BOX_RELEASE_CHANNEL_ALPHA
+            bool "Alpha"
+        config LILYGO_BOX_RELEASE_CHANNEL_BETA
+            bool "Beta"
+        config LILYGO_BOX_RELEASE_CHANNEL_STABLE
+            bool "Stable"
+    endchoice
+
 endmenu
