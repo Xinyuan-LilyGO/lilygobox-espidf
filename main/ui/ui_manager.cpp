@@ -90,6 +90,12 @@ constexpr int kStartupBrandIconSize = 56;
 constexpr int kStartupBrandIconGap = 14;
 constexpr int kLowBatteryStartupIconOffsetY = -36;
 constexpr int kLowBatteryStartupPercentGap = 18;
+constexpr int kStartupBatteryFillMaxWidth = 40;
+constexpr int kStartupBatteryFillMinVisibleWidth = 4;
+constexpr int kStartupBatteryFillHeight = 20;
+constexpr int kStartupBatteryFillOffsetX = 6;
+constexpr int kStartupBatteryFillOffsetY = 0;
+constexpr int kStartupBatteryFillRadius = 2;
 
 struct IconStyle {
   const char* symbol;
@@ -947,8 +953,8 @@ bool UiManager::StartStartupScreenAnimation() {
   return true;
 }
 
-bool UiManager::ShowBatteryStartupWarning(
-    const char* icon_text, uint32_t icon_color, const char* message) {
+bool UiManager::ShowBatteryStartupWarning(const char* icon_text,
+    uint32_t icon_color, const char* message, int battery_percent) {
   if (root_screen_ == nullptr || icon_text == nullptr || message == nullptr) {
     return false;
   }
@@ -974,8 +980,40 @@ bool UiManager::ShowBatteryStartupWarning(
     return false;
   }
   lv_label_set_text(icon, icon_text);
-  SetTextStyle(icon, lv_color_hex(icon_color), MaterialOutlineIconFont56());
+  const uint32_t shell_color =
+      battery_percent >= 0 ? kLowBatteryStartupTextColor : icon_color;
+  SetTextStyle(icon, lv_color_hex(shell_color), MaterialOutlineIconFont56());
   lv_obj_align(icon, LV_ALIGN_CENTER, 0, kLowBatteryStartupIconOffsetY);
+
+  if (battery_percent >= 0) {
+    const int clamped_percent = std::clamp(battery_percent, 0, 100);
+    lv_obj_t* fill = lv_obj_create(warning);
+    if (fill == nullptr) {
+      lv_obj_delete(warning);
+      return false;
+    }
+    lv_obj_remove_flag(fill, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(fill, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(
+        fill, lv_color_hex(icon_color), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(fill, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(fill, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(fill, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(fill, kStartupBatteryFillRadius, LV_PART_MAIN);
+    if (clamped_percent <= 0) {
+      lv_obj_set_size(fill, 1, kStartupBatteryFillHeight);
+      lv_obj_add_flag(fill, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      const int fill_width = std::max(
+          kStartupBatteryFillMinVisibleWidth,
+          kStartupBatteryFillMaxWidth * clamped_percent / 100);
+      lv_obj_set_size(fill, fill_width, kStartupBatteryFillHeight);
+    }
+    lv_obj_align_to(fill, icon, LV_ALIGN_LEFT_MID,
+        kStartupBatteryFillOffsetX, kStartupBatteryFillOffsetY);
+    lv_obj_move_to_index(fill, lv_obj_get_index(icon));
+    lv_obj_move_to_index(icon, -1);
+  }
 
   lv_obj_t* label = lv_label_create(warning);
   if (label == nullptr) {

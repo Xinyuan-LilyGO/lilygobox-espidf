@@ -263,7 +263,7 @@ bool Application::Init() {
   if (!startup_bmu_ready) {
     const bool shown = ShowBatteryStartupWarning(
         ui::icon::kBatteryAndroidQuestion, kBatteryFaultStartupIconColor,
-        "BMU fault");
+        "BMU fault", -1);
     if (!shown) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "ShowBatteryStartupWarning failed\n");
@@ -278,7 +278,8 @@ bool Application::Init() {
     std::snprintf(percent_text, sizeof(percent_text), "%d%%",
         std::clamp(startup_battery_level, 0, 100));
     const bool shown = ShowBatteryStartupWarning(
-        ui::icon::kBatteryAndroid0, kLowBatteryStartupIconColor, percent_text);
+        ui::icon::kBatteryAndroid0, kLowBatteryStartupIconColor, percent_text,
+        startup_battery_level);
     if (!shown) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "ShowBatteryStartupWarning failed\n");
@@ -352,8 +353,8 @@ bool Application::Init() {
   return true;
 }
 
-bool Application::ShowBatteryStartupWarning(
-    const char* icon, uint32_t icon_color, const char* message) {
+bool Application::ShowBatteryStartupWarning(const char* icon,
+    uint32_t icon_color, const char* message, int battery_percent) {
   const bool flush_paused = lvgl_port_.PauseDisplayFlush();
   if (!flush_paused) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
@@ -361,8 +362,8 @@ bool Application::ShowBatteryStartupWarning(
   }
 
   lvgl_port_.Lock();
-  const bool shown =
-      ui_manager_.ShowBatteryStartupWarning(icon, icon_color, message);
+  const bool shown = ui_manager_.ShowBatteryStartupWarning(
+      icon, icon_color, message, battery_percent);
   lvgl_port_.Unlock();
 
   if (flush_paused && !lvgl_port_.ResumeDisplayFlushAndWaitForRefresh()) {

@@ -102,10 +102,11 @@ class UiManager final {
    * @param icon 图标文本
    * @param icon_color 图标颜色
    * @param message 提示文本
+   * @param battery_percent 电池填充百分比，负数表示显示普通图标
    * @return 显示成功返回 true，否则返回 false
    */
-  bool ShowBatteryStartupWarning(
-      const char* icon, uint32_t icon_color, const char* message);
+  bool ShowBatteryStartupWarning(const char* icon, uint32_t icon_color,
+      const char* message, int battery_percent);
 
   /**
    * @brief 设置系统启动界面进度

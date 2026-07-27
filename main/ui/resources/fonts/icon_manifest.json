@@ -108,7 +108,6 @@
       "output": "main/ui/resources/fonts/icons/lvgl_font_material_rounded_outline_56.c",
       "icon_set": "all_used",
       "exclude_icons": [
-        "BatteryAndroid0",
         "Music",
         "SdStorage",
         "SettingsInputAntenna",
