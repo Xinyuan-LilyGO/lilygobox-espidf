@@ -22,17 +22,50 @@ namespace {
 constexpr uint32_t kBatteryRefreshPeriodMs = 1000;
 constexpr int kBatteryCardHeight = 190;
 constexpr int kBatteryCardInnerPadding = 28;
-constexpr int kBatteryFillRadius = 40;
+constexpr int kBatteryCardRadius = 40;
+constexpr int kBatteryFillRadius = 0;
 constexpr int kBatteryMainTextTop = 42;
 constexpr int kBatteryStatusTextTop = 128;
 constexpr int kBatteryStatusIconLeft = kBatteryCardInnerPadding;
 constexpr int kBatteryStatusIconTop = kBatteryStatusTextTop - 2;
 constexpr int kBatteryStatusChargingTextLeft = kBatteryCardInnerPadding + 32;
+constexpr int kBatteryLowThresholdPercent = 20;
 constexpr uint32_t kBatteryNormalColor = 0x35D66B;
-constexpr uint32_t kBatteryLowColor = 0xF44336;
+constexpr uint32_t kBatteryChargingColor = 0x27C769;
+constexpr uint32_t kBatteryLowColor = 0xFF3B30;
 constexpr uint32_t kBatteryRestColor = 0xB8EFC8;
 constexpr uint32_t kBatteryLowRestColor = 0xF6B2AE;
 constexpr uint32_t kBatteryTextColor = 0xFFFFFF;
+
+/**
+ * @brief 获取电池概览卡片的填充颜色
+ * @param percent 电池百分比
+ * @param charging 是否正在充电
+ * @return 填充颜色
+ */
+uint32_t BatteryOverviewFillColor(int percent, bool charging) {
+  if (charging) {
+    return kBatteryChargingColor;
+  }
+  if (percent >= 0 && percent < kBatteryLowThresholdPercent) {
+    return kBatteryLowColor;
+  }
+  return kBatteryNormalColor;
+}
+
+/**
+ * @brief 获取电池概览卡片的剩余区域颜色
+ * @param percent 电池百分比
+ * @param charging 是否正在充电
+ * @return 剩余区域颜色
+ */
+uint32_t BatteryOverviewRestColor(int percent, bool charging) {
+  if (!charging && percent >= 0 &&
+      percent < kBatteryLowThresholdPercent) {
+    return kBatteryLowRestColor;
+  }
+  return kBatteryRestColor;
+}
 
 /**
  * @brief 从系统状态缓存读取 BMU 状态，必要时主动刷新
@@ -133,16 +166,15 @@ void UpdateBatteryOverview(
   const int percent = std::clamp(status.charge_percent, 0, 100);
   const int card_width = state->config.width - 2 * kBasicSidePadding;
   const int fill_width = std::max(1, card_width * percent / 100);
-  const bool low_battery = percent < 10;
   lv_obj_t* card = lv_obj_get_parent(state->battery_overview_fill);
   if (card != nullptr) {
     lv_obj_set_style_bg_color(card,
-        lv_color_hex(low_battery ? kBatteryLowRestColor : kBatteryRestColor),
+        lv_color_hex(BatteryOverviewRestColor(percent, status.charging)),
         LV_PART_MAIN);
   }
   lv_obj_set_width(state->battery_overview_fill, fill_width);
   lv_obj_set_style_bg_color(state->battery_overview_fill,
-      lv_color_hex(low_battery ? kBatteryLowColor : kBatteryNormalColor),
+      lv_color_hex(BatteryOverviewFillColor(percent, status.charging)),
       LV_PART_MAIN);
 
   char time_text[32] = {};
@@ -350,12 +382,13 @@ lv_obj_t* CreateBatteryCardBackground(
     lv_obj_t* body, SettingsViewState* state, int y) {
   const int width = state->config.width - 2 * kBasicSidePadding;
   lv_obj_t* card = CreateBox(body, width, kBatteryCardHeight, kBatteryRestColor,
-      LV_OPA_COVER, kBatteryFillRadius);
+      LV_OPA_COVER, kBatteryCardRadius);
   if (card == nullptr) {
     return nullptr;
   }
   lv_obj_set_pos(card, kBasicSidePadding, y);
   lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_clip_corner(card, true, LV_PART_MAIN);
   return card;
 }
 
@@ -381,13 +414,13 @@ bool CreateBatteryOverviewCard(
   }
 
   const int card_width = state->config.width - 2 * kBasicSidePadding;
-  const bool low_battery = status.charge_percent < 10;
+  const int percent = std::clamp(status.charge_percent, 0, 100);
   lv_obj_set_style_bg_color(card,
-      lv_color_hex(low_battery ? kBatteryLowRestColor : kBatteryRestColor),
+      lv_color_hex(BatteryOverviewRestColor(percent, status.charging)),
       LV_PART_MAIN);
 
   lv_obj_t* fill = CreateBox(card, card_width, kBatteryCardHeight,
-      low_battery ? kBatteryLowColor : kBatteryNormalColor, LV_OPA_COVER,
+      BatteryOverviewFillColor(percent, status.charging), LV_OPA_COVER,
       kBatteryFillRadius);
   if (fill == nullptr) {
     return false;
