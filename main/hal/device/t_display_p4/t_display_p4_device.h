@@ -13,6 +13,7 @@
 #include <memory>
 
 #include "audio/mp3_decoder.h"
+#include "esp_cam_sensor_types.h"
 #include "esp_timer.h"
 #include "esp_wifi_types.h"
 #include "freertos/FreeRTOS.h"
@@ -874,14 +875,18 @@ class TDisplayP4Device final : public ScreenProvider,
   };
 
   struct CameraPreviewState {
+    // ESP Video 的 video0 和 video20 是否已经完成一次性初始化
+    std::atomic<bool> video_system_initialized{false};
+    // 组件会长期保存该地址，用于摄像头重新上电后恢复传感器格式
+    esp_cam_sensor_format_t sensor_format{};
     // 摄像头预览资源是否已经初始化
     std::atomic<bool> initialized{false};
+    // 在创建任务前置位，确保停止预览时也会等待尚未开始运行的任务退出
+    std::atomic<bool> task_active{false};
     // 摄像头预览任务是否正在运行
     std::atomic<bool> running{false};
     // 摄像头预览任务是否请求停止
     std::atomic<bool> stop_requested{false};
-    // 摄像头预览任务句柄
-    TaskHandle_t task_handle = nullptr;
     // video 设备文件描述符
     int video_fd = -1;
     // 摄像头帧宽度
@@ -908,6 +913,8 @@ class TDisplayP4Device final : public ScreenProvider,
     int output_rotation_angle = 0;
     // 启动后需要清空 PPA 输出缓冲区的帧数
     uint32_t clear_output_frames_remaining = 0;
+    // 摄像头上电后需要丢弃的预热帧数
+    uint32_t warmup_frames_remaining = 0;
     // 预览帧序号
     std::atomic<uint32_t> frame_sequence{0};
     // PPA SRM helper

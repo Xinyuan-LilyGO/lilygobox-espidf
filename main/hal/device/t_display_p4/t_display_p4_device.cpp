@@ -43,6 +43,7 @@
 #include "esp_timer.h"
 #include "esp_video_device.h"
 #include "esp_video_init.h"
+#include "esp_video_ioctl.h"
 #include "esp_wifi.h"
 #include "esp_wifi_default.h"
 #include "esp_wifi_remote.h"
@@ -87,6 +88,7 @@ constexpr uint32_t kCameraBufferCount = 2;
 constexpr uint32_t kCameraFrameIntervalMs = 10;
 constexpr uint32_t kCameraStopWaitTimeoutMs = 5000;
 constexpr uint32_t kCameraOutputClearFrameCount = 3;
+constexpr uint32_t kCameraWarmupFrameCount = 5;
 // Radio 发送硬件超时的最小值和额外保护时间。
 constexpr uint32_t kMinimumRadioTransmitTimeoutMs = 1000;
 constexpr uint32_t kRadioTransmitTimeoutMarginMs = 500;
@@ -1886,8 +1888,9 @@ void TDisplayP4Device::HeapCapsBufferDeleter::operator()(uint8_t* pointer)
 }
 
 bool TDisplayP4Device::StartCameraPreview() {
-  if (camera_preview_.running.load() || camera_preview_.initialized.load()) {
-    return true;
+  if (camera_preview_.task_active.load() ||
+      camera_preview_.running.load() || camera_preview_.initialized.load()) {
+    return !camera_preview_.stop_requested.load();
   }
 
   camera_preview_.stop_requested.store(false);
@@ -1897,11 +1900,12 @@ bool TDisplayP4Device::StartCameraPreview() {
     return false;
   }
 
+  camera_preview_.task_active.store(true);
   BaseType_t result = xTaskCreate(CameraPreviewTaskEntry,
       "camera_preview", kCameraPreviewTaskStackBytes, this,
-      kCameraPreviewTaskPriority, &camera_preview_.task_handle);
+      kCameraPreviewTaskPriority, nullptr);
   if (result != pdPASS) {
-    camera_preview_.task_handle = nullptr;
+    camera_preview_.task_active.store(false);
     camera_preview_.stop_requested.store(true);
     DeinitializeCameraPreview();
     return false;
@@ -1915,8 +1919,7 @@ bool TDisplayP4Device::StopCameraPreview() {
   // DeinitializeCameraPreview 统一处理，避免与正在运行的 DQBUF/PPA 产生 I2C 竞态
   const uint32_t start_ms = static_cast<uint32_t>(
       xTaskGetTickCount() * portTICK_PERIOD_MS);
-  TaskHandle_t task_handle = camera_preview_.task_handle;
-  while (task_handle != nullptr && camera_preview_.running.load()) {
+  while (camera_preview_.task_active.load()) {
     if (static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) -
             start_ms >=
         kCameraStopWaitTimeoutMs) {
@@ -1925,7 +1928,9 @@ bool TDisplayP4Device::StopCameraPreview() {
       return false;
     }
     vTaskDelay(pdMS_TO_TICKS(20));
-    task_handle = camera_preview_.task_handle;
+  }
+  if (camera_preview_.initialized.load()) {
+    DeinitializeCameraPreview();
   }
   return true;
 }
@@ -1978,10 +1983,19 @@ void TDisplayP4Device::RunCameraPreviewTask() {
       continue;
     }
 
-    if (buffer.index < kCameraBufferCount) {
-      RenderCameraFrame(
-          static_cast<uint8_t*>(camera_preview_.frame_buffers[buffer.index]),
-          camera_preview_.frame_width, camera_preview_.frame_height);
+    const bool frame_valid =
+        buffer.index < kCameraBufferCount && buffer.bytesused > 0 &&
+        (buffer.flags & V4L2_BUF_FLAG_DONE) != 0 &&
+        (buffer.flags & V4L2_BUF_FLAG_ERROR) == 0;
+    if (frame_valid) {
+      if (camera_preview_.warmup_frames_remaining > 0) {
+        // 传感器刚上电时丢弃少量预热帧，避免未稳定像素短暂显示。
+        --camera_preview_.warmup_frames_remaining;
+      } else {
+        RenderCameraFrame(
+            static_cast<uint8_t*>(camera_preview_.frame_buffers[buffer.index]),
+            camera_preview_.frame_width, camera_preview_.frame_height);
+      }
     }
     ioctl(camera_preview_.video_fd, VIDIOC_QBUF, &buffer);
     vTaskDelay(pdMS_TO_TICKS(kCameraFrameIntervalMs));
@@ -1989,7 +2003,7 @@ void TDisplayP4Device::RunCameraPreviewTask() {
 
   DeinitializeCameraPreview();
   camera_preview_.running.store(false);
-  camera_preview_.task_handle = nullptr;
+  camera_preview_.task_active.store(false);
   vTaskDelete(nullptr);
 }
 
@@ -2005,23 +2019,35 @@ bool TDisplayP4Device::InitializeCameraPreview() {
     return false;
   }
 
-  esp_video_init_csi_config_t csi_config = {};
-  csi_config.sccb_config.init_sccb = false;
-  csi_config.sccb_config.i2c_handle =
-      driver_.bus().sgm38121_i2c_bus->bus_handle();
-  csi_config.sccb_config.freq = static_cast<uint32_t>(100000);
-  csi_config.reset_pin = GPIO_NUM_NC;
-  csi_config.pwdn_pin = GPIO_NUM_NC;
-  csi_config.dont_init_ldo = true;
+  const bool restore_sensor =
+      camera_preview_.video_system_initialized.load();
+  if (!camera_preview_.video_system_initialized.load()) {
+    esp_video_init_csi_config_t csi_config = {};
+    csi_config.sccb_config.init_sccb = false;
+    csi_config.sccb_config.i2c_handle =
+        driver_.bus().sgm38121_i2c_bus->bus_handle();
+    csi_config.sccb_config.freq = static_cast<uint32_t>(100000);
+    csi_config.reset_pin = GPIO_NUM_NC;
+    csi_config.pwdn_pin = GPIO_NUM_NC;
+    csi_config.dont_init_ldo = true;
 
-  esp_video_init_config_t camera_config = {};
-  camera_config.csi = &csi_config;
-  esp_err_t result = esp_video_init(&camera_config);
-  if (result != ESP_OK) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "esp_video_init failed: %s (%#X)\n", esp_err_to_name(result),
-        static_cast<unsigned>(result));
-    return false;
+    esp_video_init_config_t camera_config = {};
+    camera_config.csi = &csi_config;
+    // video0 和 video20 只注册一次，避免组件反初始化后无法重复注册 VFS。
+    const uint32_t init_flags =
+        ESP_VIDEO_INIT_FLAGS_MIPI_CSI | ESP_VIDEO_INIT_FLAGS_ISP;
+    esp_err_t result =
+        esp_video_init_with_flags(&camera_config, init_flags);
+    if (result != ESP_OK) {
+      // 组件初始化失败时会清理当前已经创建的全部视频设备。
+      camera_preview_.video_system_initialized.store(false);
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "esp_video_init_with_flags failed: %s (%#X)\n",
+          esp_err_to_name(result), static_cast<unsigned>(result));
+      driver_.SetCameraPowerEnabled(false);
+      return false;
+    }
+    camera_preview_.video_system_initialized.store(true);
   }
 
   camera_preview_.video_fd = open(kCameraDeviceName, O_RDONLY | O_NONBLOCK);
@@ -2029,6 +2055,19 @@ bool TDisplayP4Device::InitializeCameraPreview() {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Open camera video device failed\n");
     return false;
+  }
+
+  if (restore_sensor) {
+    // 摄像头重新上电后，通过组件公开接口重写传感器的完整寄存器配置。
+    auto& sensor_format = camera_preview_.sensor_format;
+    if (ioctl(camera_preview_.video_fd, VIDIOC_G_SENSOR_FMT,
+            &sensor_format) != 0 ||
+        ioctl(camera_preview_.video_fd, VIDIOC_S_SENSOR_FMT,
+            &sensor_format) != 0) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Restore camera sensor format failed\n");
+      return false;
+    }
   }
 
   v4l2_format format = {};
@@ -2135,6 +2174,7 @@ bool TDisplayP4Device::InitializeCameraPreview() {
   }
   camera_preview_.output_buffer.reset(static_cast<uint8_t*>(output_buffer));
   camera_preview_.clear_output_frames_remaining = kCameraOutputClearFrameCount;
+  camera_preview_.warmup_frames_remaining = kCameraWarmupFrameCount;
 
   int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   if (ioctl(camera_preview_.video_fd, VIDIOC_STREAMON, &type) != 0) {
@@ -2164,6 +2204,15 @@ void TDisplayP4Device::DeinitializeCameraPreview() {
     }
   }
   if (camera_preview_.video_fd >= 0) {
+    // 显式归还驱动缓冲区，避免下次打开预览时残留旧缓冲状态
+    v4l2_requestbuffers request = {};
+    request.count = 0;
+    request.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    request.memory = V4L2_MEMORY_MMAP;
+    if (ioctl(camera_preview_.video_fd, VIDIOC_REQBUFS, &request) != 0) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "VIDIOC_REQBUFS release failed\n");
+    }
     close(camera_preview_.video_fd);
     camera_preview_.video_fd = -1;
   }
@@ -2178,15 +2227,12 @@ void TDisplayP4Device::DeinitializeCameraPreview() {
   camera_preview_.output_stride = 0;
   camera_preview_.output_rotation_angle = 0;
   camera_preview_.clear_output_frames_remaining = 0;
+  camera_preview_.warmup_frames_remaining = 0;
   camera_preview_.frame_sequence.store(0);
   camera_preview_.initialized.store(false);
   camera_preview_.ppa.Deinit();
-  esp_err_t result = esp_video_deinit();
-  if (result != ESP_OK) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "esp_video_deinit failed: %s (%#X)\n", esp_err_to_name(result),
-        static_cast<unsigned>(result));
-  }
+
+  // 保留 video0/video20 的 VFS 节点，只关闭摄像头供电以降低页面退出后的功耗。
   if (!driver_.SetCameraPowerEnabled(false)) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Camera power disable failed\n");
@@ -4280,7 +4326,8 @@ bool TDisplayP4Device::PrepareForPowerOff() {
       microphone_.adc_to_dac_enabled.load()) {
     result &= StopMicrophone();
   }
-  if (camera_preview_.running.load()) {
+  if (camera_preview_.task_active.load() ||
+      camera_preview_.initialized.load()) {
     result &= StopCameraPreview();
   }
   if (radio_.active || radio_.transmitting) {
@@ -4301,7 +4348,7 @@ bool TDisplayP4Device::WaitForPowerOffTasks() {
     const bool tasks_running = speaker_.running.load() ||
                                haptic_.running.load() ||
                                microphone_.running.load() ||
-                               camera_preview_.running.load() ||
+                               camera_preview_.task_active.load() ||
                                ethernet_.init_task_running.load() ||
                                wifi_.init_task_running.load() ||
                                wifi_.scan_task_running.load() ||
