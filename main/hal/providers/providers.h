@@ -8,7 +8,7 @@
 #pragma once
 
 #include "hal/providers/audio_provider.h"
-#include "hal/providers/bmu_provider.h"
+#include "hal/providers/battery_management_provider.h"
 #include "hal/providers/camera_provider.h"
 #include "hal/providers/device_diagnostics.h"
 #include "hal/providers/device_info_provider.h"

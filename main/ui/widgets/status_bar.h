@@ -1,4 +1,4 @@
-﻿/*
+/*
  * @Description: 系统状态栏创建、刷新与外观控制接口
  * @Author: LILYGO_L
  * @Date: 2026-05-12 01:08:42
@@ -71,16 +71,16 @@ class StatusBar final {
   lv_obj_t* object_ = nullptr;
   lv_obj_t* time_label_ = nullptr;
   lv_obj_t* wifi_label_ = nullptr;
-  lv_obj_t* bmu_label_ = nullptr;
-  lv_obj_t* bmu_fill_ = nullptr;
-  lv_obj_t* bmu_bolt_label_ = nullptr;
-  lv_obj_t* bmu_percent_label_ = nullptr;
+  lv_obj_t* battery_management_label_ = nullptr;
+  lv_obj_t* battery_management_fill_ = nullptr;
+  lv_obj_t* battery_management_bolt_label_ = nullptr;
+  lv_obj_t* battery_management_percent_label_ = nullptr;
   uint32_t text_color_hex_ = 0xFFFFFF;
-  int bmu_percent_ = -1;
+  int battery_management_percent_ = -1;
   int wifi_signal_level_ = -1;
   char time_text_[6] = "09:15";
-  char bmu_percent_text_[8] = "--%";
-  bool bmu_charging_ = false;
+  char battery_management_percent_text_[8] = "--%";
+  bool battery_management_charging_ = false;
   bool wifi_connected_ = false;
   bool wifi_internet_unavailable_ = false;
 };

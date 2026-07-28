@@ -21,7 +21,7 @@ class ThemeProvider;
 
 namespace lilygo_box::hal {
 class AudioProvider;
-class BmuProvider;
+class BatteryManagementProvider;
 class CameraProvider;
 class DeviceDiagnosticsProvider;
 class DeviceInfoProvider;
@@ -60,7 +60,7 @@ struct AppViewConfig {
   // 振动反馈提供者。
   hal::HapticProvider* haptic = nullptr;
   // 电池管理状态提供者。
-  hal::BmuProvider* bmu = nullptr;
+  hal::BatteryManagementProvider* battery_management = nullptr;
   // 摄像头预览提供者。
   hal::CameraProvider* camera = nullptr;
   // 实时时钟状态提供者。

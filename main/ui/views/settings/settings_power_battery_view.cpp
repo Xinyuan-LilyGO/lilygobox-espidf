@@ -13,7 +13,7 @@
 #include <cstdio>
 
 #include "app/system_status_cache.h"
-#include "hal/providers/bmu_provider.h"
+#include "hal/providers/battery_management_provider.h"
 #include "ui/resources/fonts/icon_assets.h"
 
 namespace lilygo_box::ui {
@@ -68,23 +68,23 @@ uint32_t BatteryOverviewRestColor(int percent, bool charging) {
 }
 
 /**
- * @brief 从系统状态缓存读取 BMU 状态，必要时主动刷新
+ * @brief 从系统状态缓存读取电池管理状态，必要时主动刷新
  * @param state 设置页状态
- * @param status BMU 状态输出地址
+ * @param status 电池管理状态输出地址
  * @return 读取到有效状态返回 true，否则返回 false
  */
-bool ReadBatteryStatus(SettingsViewState* state, hal::BmuStatus* status) {
+bool ReadBatteryStatus(SettingsViewState* state, hal::BatteryManagementStatus* status) {
   if (state == nullptr || status == nullptr ||
       state->config.system_status == nullptr) {
     return false;
   }
 
   state->config.system_status->RefreshBattery();
-  if (!state->config.system_status->bmu_status_valid()) {
+  if (!state->config.system_status->battery_management_status_valid()) {
     return false;
   }
 
-  *status = state->config.system_status->bmu_status();
+  *status = state->config.system_status->battery_management_status();
   return true;
 }
 
@@ -110,12 +110,12 @@ void FormatDuration(int minutes, char* buffer, size_t buffer_size) {
 
 /**
  * @brief 格式化电池卡片状态说明文本
- * @param status BMU 状态
+ * @param status 电池管理状态
  * @param buffer 输出缓冲区
  * @param buffer_size 输出缓冲区大小
  */
 void FormatBatterySummary(
-    const hal::BmuStatus& status, char* buffer, size_t buffer_size) {
+    const hal::BatteryManagementStatus& status, char* buffer, size_t buffer_size) {
   if (buffer == nullptr || buffer_size == 0) {
     return;
   }
@@ -142,21 +142,21 @@ void FormatBatterySummary(
 }
 
 /**
- * @brief 根据 BMU 状态选择主卡片时间数据
- * @param status BMU 状态
+ * @brief 根据电池管理状态选择主卡片时间数据
+ * @param status 电池管理状态
  * @return 预计剩余时间，单位为分钟
  */
-int BatteryEstimateMinutes(const hal::BmuStatus& status) {
+int BatteryEstimateMinutes(const hal::BatteryManagementStatus& status) {
   return status.charging ? status.time_to_full_min : status.time_to_empty_min;
 }
 
 /**
  * @brief 更新电池概览卡片内容
  * @param state 设置页状态
- * @param status BMU 状态
+ * @param status 电池管理状态
  */
 void UpdateBatteryOverview(
-    SettingsViewState* state, const hal::BmuStatus& status) {
+    SettingsViewState* state, const hal::BatteryManagementStatus& status) {
   if (state == nullptr || state->battery_overview_fill == nullptr ||
       state->battery_overview_time_label == nullptr ||
       state->battery_overview_status_label == nullptr) {
@@ -202,10 +202,10 @@ void UpdateBatteryOverview(
 /**
  * @brief 更新电池保护页面内容
  * @param state 设置页状态
- * @param status BMU 状态
+ * @param status 电池管理状态
  */
 void UpdateBatteryProtection(
-    SettingsViewState* state, const hal::BmuStatus& status) {
+    SettingsViewState* state, const hal::BatteryManagementStatus& status) {
   if (state == nullptr) {
     return;
   }
@@ -227,7 +227,7 @@ void UpdateBatteryProtection(
  * @param state 设置页状态
  */
 void RefreshBatteryPage(SettingsViewState* state) {
-  hal::BmuStatus status;
+  hal::BatteryManagementStatus status;
   if (!ReadBatteryStatus(state, &status)) {
     return;
   }
@@ -333,9 +333,9 @@ bool BuildBatteryProtectionPage(lv_obj_t* body, SettingsViewState* state) {
   lv_obj_add_event_cb(
       body, BatteryProtectionDeleteEventCallback, LV_EVENT_DELETE, state);
 
-  hal::BmuStatus status;
+  hal::BatteryManagementStatus status;
   if (!ReadBatteryStatus(state, &status)) {
-    status = hal::BmuStatus();
+    status = hal::BatteryManagementStatus();
     status.health_percent = 100;
   }
 
@@ -401,9 +401,9 @@ lv_obj_t* CreateBatteryCardBackground(
  */
 bool CreateBatteryOverviewCard(
     lv_obj_t* body, SettingsViewState* state, int y) {
-  hal::BmuStatus status;
+  hal::BatteryManagementStatus status;
   if (!ReadBatteryStatus(state, &status)) {
-    status = hal::BmuStatus();
+    status = hal::BatteryManagementStatus();
     status.pack_present = true;
     status.charge_percent = 47;
   }

@@ -851,7 +851,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
     hal::GpsProvider* gps,
     hal::AudioProvider* audio,
     hal::HapticProvider* haptic,
-    hal::BmuProvider* bmu,
+    hal::BatteryManagementProvider* battery_management,
     hal::CameraProvider* camera,
     hal::RtcProvider* rtc,
     hal::RadioProvider* radio,
@@ -870,7 +870,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   audio_provider_ = audio;
   haptic_provider_ = haptic;
   RegisterUiHapticProvider(haptic_provider_);
-  bmu_provider_ = bmu;
+  battery_management_provider_ = battery_management;
   camera_provider_ = camera;
   rtc_provider_ = rtc;
   radio_provider_ = radio;
@@ -878,7 +878,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   ethernet_provider_ = ethernet;
   wifi_provider_ = wifi;
   storage_provider_ = storage;
-  system_status_cache_.Init(rtc_provider_, bmu_provider_, wifi_provider_);
+  system_status_cache_.Init(rtc_provider_, battery_management_provider_, wifi_provider_);
 
   root_screen_ = lv_obj_create(nullptr);
   if (root_screen_ == nullptr) {
@@ -1454,8 +1454,8 @@ void UiManager::RelayoutForScreenSize() {
     if (system_status_cache_.rtc_status_valid()) {
       UpdateClockLabels(system_status_cache_.rtc_status());
     }
-    if (system_status_cache_.bmu_status_valid()) {
-      UpdateBatteryStatus(system_status_cache_.bmu_status());
+    if (system_status_cache_.battery_management_status_valid()) {
+      UpdateBatteryStatus(system_status_cache_.battery_management_status());
     }
     if (system_status_cache_.wifi_status_valid()) {
       UpdateWifiStatus(system_status_cache_.wifi_status());
@@ -1658,8 +1658,8 @@ void UiManager::RefreshSystemStatus() {
   if (system_status_cache_.rtc_status_valid()) {
     UpdateClockLabels(system_status_cache_.rtc_status());
   }
-  if (system_status_cache_.bmu_status_valid()) {
-    UpdateBatteryStatus(system_status_cache_.bmu_status());
+  if (system_status_cache_.battery_management_status_valid()) {
+    UpdateBatteryStatus(system_status_cache_.battery_management_status());
   }
   if (system_status_cache_.wifi_status_valid()) {
     UpdateWifiStatus(system_status_cache_.wifi_status());
@@ -1672,8 +1672,8 @@ void UiManager::RefreshSystemStatusNow() {
   if (system_status_cache_.rtc_status_valid()) {
     UpdateClockLabels(system_status_cache_.rtc_status());
   }
-  if (system_status_cache_.bmu_status_valid()) {
-    UpdateBatteryStatus(system_status_cache_.bmu_status());
+  if (system_status_cache_.battery_management_status_valid()) {
+    UpdateBatteryStatus(system_status_cache_.battery_management_status());
   }
   system_status_cache_.RefreshWifi();
   if (system_status_cache_.wifi_status_valid()) {
@@ -1725,7 +1725,7 @@ void UiManager::UpdateClockLabels(const hal::RtcStatus& status) {
   }
 }
 
-void UiManager::UpdateBatteryStatus(const hal::BmuStatus& status) {
+void UiManager::UpdateBatteryStatus(const hal::BatteryManagementStatus& status) {
   status_bar_.SetBatteryStatus(status.charge_percent, status.charging);
 }
 
@@ -2455,7 +2455,7 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   config.gps = gps_provider_;
   config.audio = audio_provider_;
   config.haptic = haptic_provider_;
-  config.bmu = bmu_provider_;
+  config.battery_management = battery_management_provider_;
   config.camera = camera_provider_;
   config.rtc = rtc_provider_;
   config.radio = radio_provider_;

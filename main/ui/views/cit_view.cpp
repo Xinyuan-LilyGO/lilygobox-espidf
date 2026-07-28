@@ -125,7 +125,7 @@ struct CitViewState {
   hal::GpsProvider* gps = nullptr;
   hal::AudioProvider* audio = nullptr;
   hal::HapticProvider* haptic = nullptr;
-  hal::BmuProvider* bmu = nullptr;
+  hal::BatteryManagementProvider* battery_management = nullptr;
   hal::RtcProvider* rtc = nullptr;
   hal::ImuProvider* imu = nullptr;
   hal::EthernetProvider* ethernet = nullptr;
@@ -442,8 +442,8 @@ const char* TestTitle(const app::CitTestEntry& entry) {
   if (IsEntryId(entry, "imu")) {
     return "IMU Test";
   }
-  if (IsEntryId(entry, "bmu")) {
-    return "BMU Test";
+  if (IsEntryId(entry, "battery_management")) {
+    return "Battery Management";
   }
   if (IsEntryId(entry, "gps")) {
     return "GPS Test";
@@ -1270,8 +1270,8 @@ void RefreshDiagnosticsState(CitViewState* state) {
   state->diagnostics = hal::DeviceDiagnostics();
   bool result = false;
   if (state->system_status != nullptr &&
-      state->system_status->bmu_status_valid()) {
-    state->diagnostics.bmu = state->system_status->bmu_status();
+      state->system_status->battery_management_status_valid()) {
+    state->diagnostics.battery_management = state->system_status->battery_management_status();
     result = true;
   }
   if (state->imu != nullptr) {
@@ -1400,14 +1400,14 @@ void RefreshActiveTestData(CitViewState* state) {
     return;
   }
 
-  if (IsEntryId(*entry, "bmu")) {
-    const hal::BmuStatus& bmu = state->diagnostics.bmu;
+  if (IsEntryId(*entry, "battery_management")) {
+    const hal::BatteryManagementStatus& battery_management = state->diagnostics.battery_management;
     std::snprintf(text, sizeof(text),
-        "BMU data:\nstatus: %s\npack: %s\ncharging: %s\n"
+        "Battery Management data:\nstatus: %s\npack: %s\ncharging: %s\n"
         "full: %s\nempty: %s\n"
         "\n"
         "voltage: %d mV\ncurrent: %d mA\naverage current: %d mA\n"
-        "average BMU: %d mW\n"
+        "average power: %d mW\n"
         "\n"
         "charge: %d%%\nhealth: %d%%\ncycle count: %d\n"
         "capacity:\n"
@@ -1422,16 +1422,17 @@ void RefreshActiveTestData(CitViewState* state) {
         "temperature:\n"
         "     pack: %.2f C\n"
         "     gauge: %.2f C",
-        bmu.ready ? "ready" : "not ready",
-        bmu.pack_present ? "present" : "none",
-        bmu.charging ? "yes" : "no",
-        bmu.full_charged ? "yes" : "no", bmu.full_discharged ? "yes" : "no",
-        bmu.voltage_mv, bmu.current_ma, bmu.average_current_ma,
-        bmu.average_bmu_mw, bmu.charge_percent, bmu.health_percent,
-        bmu.cycle_count, bmu.remaining_capacity_mah,
-        bmu.full_charge_capacity_mah, bmu.design_capacity_mah,
-        bmu.time_to_empty_min, bmu.time_to_full_min, bmu.pack_temperature_c,
-        bmu.gauge_temperature_c);
+        battery_management.ready ? "ready" : "not ready",
+        battery_management.pack_present ? "present" : "none",
+        battery_management.charging ? "yes" : "no",
+        battery_management.full_charged ? "yes" : "no", battery_management.full_discharged ? "yes" : "no",
+        battery_management.voltage_mv, battery_management.current_ma, battery_management.average_current_ma,
+        battery_management.average_power_mw, battery_management.charge_percent,
+        battery_management.health_percent,
+        battery_management.cycle_count, battery_management.remaining_capacity_mah,
+        battery_management.full_charge_capacity_mah, battery_management.design_capacity_mah,
+        battery_management.time_to_empty_min, battery_management.time_to_full_min, battery_management.pack_temperature_c,
+        battery_management.gauge_temperature_c);
     lv_label_set_text(state->test_data_label, text);
   }
 }
@@ -2174,8 +2175,8 @@ const char* GetTestHint(const app::CitTestEntry& entry) {
   if (IsEntryId(entry, "imu")) {
     return "Move the device and confirm motion data is available.";
   }
-  if (IsEntryId(entry, "bmu")) {
-    return "Confirm BMU diagnostics.";
+  if (IsEntryId(entry, "battery_management")) {
+    return "Confirm battery management diagnostics.";
   }
   if (IsEntryId(entry, "gps")) {
     return "Confirm GPS test requirements.";
@@ -2613,8 +2614,8 @@ bool AddDiagnosticsContent(
   const char* initial_text = "diagnostics data:";
   if (IsEntryId(entry, "imu")) {
     initial_text = "imu data:";
-  } else if (IsEntryId(entry, "bmu")) {
-    initial_text = "BMU data:";
+  } else if (IsEntryId(entry, "battery_management")) {
+    initial_text = "Battery Management data:";
   }
 
   state->test_data_label = CreateDataLabel(content, initial_text);
@@ -2795,7 +2796,7 @@ bool PopulateTestContent(
   if (IsEntryId(entry, "rtc")) {
     return AddRtcContent(content, state);
   }
-  if (IsEntryId(entry, "imu") || IsEntryId(entry, "bmu")) {
+  if (IsEntryId(entry, "imu") || IsEntryId(entry, "battery_management")) {
     return AddDiagnosticsContent(content, state, entry);
   }
   return AddPlainDataContent(content, entry);
@@ -3074,7 +3075,7 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
   state->gps = config.gps;
   state->audio = config.audio;
   state->haptic = config.haptic;
-  state->bmu = config.bmu;
+  state->battery_management = config.battery_management;
   state->rtc = config.rtc;
   state->imu = config.imu;
   state->ethernet = config.ethernet;

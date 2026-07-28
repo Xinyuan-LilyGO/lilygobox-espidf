@@ -10,8 +10,8 @@
 namespace lilygo_box::hal {
 
 // 电池管理芯片读取到的电池包、容量、电流和温度状态。
-struct BmuStatus {
-  // BMU 是否已经初始化并可读取。
+struct BatteryManagementStatus {
+  // 电池管理功能是否已经初始化并可读取。
   bool ready = false;
   // 是否检测到电池包。
   bool pack_present = false;
@@ -28,7 +28,7 @@ struct BmuStatus {
   // 平均电流，单位为 mA。
   int average_current_ma = 0;
   // 平均功率，单位为 mW。
-  int average_bmu_mw = 0;
+  int average_power_mw = 0;
   // 当前电量百分比。
   int charge_percent = 0;
   // 电池健康度百分比。
@@ -51,16 +51,16 @@ struct BmuStatus {
   float gauge_temperature_c = 0.0F;
 };
 
-class BmuProvider {
+class BatteryManagementProvider {
  public:
-  virtual ~BmuProvider() = default;
+  virtual ~BatteryManagementProvider() = default;
 
   /**
-   * @brief 读取 BMU 电池管理状态
-   * @param status BMU 状态输出地址
-   * @return 读取到有效 BMU 状态返回 true，否则返回 false
+   * @brief 读取电池管理状态
+   * @param status 电池管理状态输出地址
+   * @return 读取到有效电池管理状态返回 true，否则返回 false
    */
-  virtual bool ReadBmuStatus(BmuStatus* status) = 0;
+  virtual bool ReadBatteryManagementStatus(BatteryManagementStatus* status) = 0;
 
   /**
    * @brief 读取当前有效的电池电量百分比

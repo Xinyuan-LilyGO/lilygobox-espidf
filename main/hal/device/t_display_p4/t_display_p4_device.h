@@ -34,7 +34,7 @@ class TDisplayP4Device final : public ScreenProvider,
                                public AudioProvider,
                                public HapticProvider,
                                public CameraProvider,
-                               public BmuProvider,
+                               public BatteryManagementProvider,
                                public RtcProvider,
                                public RadioProvider,
                                public EthernetProvider,
@@ -281,11 +281,11 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ReadDeviceDiagnostics(DeviceDiagnostics* diagnostics) override;
 
   /**
-   * @brief 读取 BMU 电池管理状态
-   * @param status BMU 状态输出地址
-   * @return 读取到有效 BMU 状态返回 true，否则返回 false
+   * @brief 读取电池管理状态
+   * @param status 电池管理状态输出地址
+   * @return 读取到有效电池管理状态返回 true，否则返回 false
    */
-  bool ReadBmuStatus(BmuStatus* status) override;
+  bool ReadBatteryManagementStatus(BatteryManagementStatus* status) override;
 
   /**
    * @brief 读取当前有效的电池电量百分比

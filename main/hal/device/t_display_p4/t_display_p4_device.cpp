@@ -3654,22 +3654,22 @@ bool TDisplayP4Device::ReadDeviceDiagnostics(DeviceDiagnostics* diagnostics) {
   }
 
   *diagnostics = DeviceDiagnostics();
-  const bool bmu_result = ReadBmuStatus(&diagnostics->bmu);
+  const bool battery_management_result = ReadBatteryManagementStatus(&diagnostics->battery_management);
   const bool imu_result = ReadImuStatus(&diagnostics->imu);
-  return bmu_result || imu_result;
+  return battery_management_result || imu_result;
 }
 
-bool TDisplayP4Device::ReadBmuStatus(BmuStatus* status) {
+bool TDisplayP4Device::ReadBatteryManagementStatus(BatteryManagementStatus* status) {
   if (status == nullptr) {
     return false;
   }
 
-  *status = BmuStatus();
+  *status = BatteryManagementStatus();
 
   if (driver_.IsBq27220Ready()) {
-    cpp_bus_driver::Bq27220::BatteryStatus bmu_status_flags;
-    const bool bmu_status_ok =
-        driver_.chip().bq27220->GetBatteryStatus(bmu_status_flags);
+    cpp_bus_driver::Bq27220::BatteryStatus battery_management_status_flags;
+    const bool battery_management_status_ok =
+        driver_.chip().bq27220->GetBatteryStatus(battery_management_status_flags);
     const uint16_t voltage_mv = driver_.chip().bq27220->GetVoltage();
     const int16_t current_ma = driver_.chip().bq27220->GetCurrent();
     const uint16_t charge_percent = driver_.chip().bq27220->GetStatusOfCharge();
@@ -3679,7 +3679,7 @@ bool TDisplayP4Device::ReadBmuStatus(BmuStatus* status) {
       status->voltage_mv = voltage_mv;
       status->current_ma = current_ma;
       status->average_current_ma = driver_.chip().bq27220->GetAverageCurrent();
-      status->average_bmu_mw = driver_.chip().bq27220->GetAveragePower();
+      status->average_power_mw = driver_.chip().bq27220->GetAveragePower();
       status->charge_percent =
           charge_percent == UINT16_MAX ? 0 : charge_percent;
       status->health_percent = driver_.chip().bq27220->GetStatusOfHealth();
@@ -3696,13 +3696,13 @@ bool TDisplayP4Device::ReadBmuStatus(BmuStatus* status) {
       status->gauge_temperature_c =
           driver_.chip().bq27220->GetChipTemperatureCelsius();
       status->pack_present =
-          bmu_status_ok && bmu_status_flags.flag.battery_present;
+          battery_management_status_ok && battery_management_status_flags.flag.battery_present;
       status->charging = current_ma > 0 ||
-                         (bmu_status_ok && !bmu_status_flags.flag.discharging);
+                         (battery_management_status_ok && !battery_management_status_flags.flag.discharging);
       status->full_charged =
-          bmu_status_ok && bmu_status_flags.flag.full_charged;
+          battery_management_status_ok && battery_management_status_flags.flag.full_charged;
       status->full_discharged =
-          bmu_status_ok && bmu_status_flags.flag.full_discharged;
+          battery_management_status_ok && battery_management_status_flags.flag.full_discharged;
       return true;
     }
   }

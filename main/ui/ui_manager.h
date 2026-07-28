@@ -23,7 +23,7 @@
 
 namespace lilygo_box::hal {
 class AudioProvider;
-class BmuProvider;
+class BatteryManagementProvider;
 class CameraProvider;
 class DeviceDiagnosticsProvider;
 class DeviceInfoProvider;
@@ -53,7 +53,7 @@ class UiManager final {
    * @param gps GPS 提供者指针
    * @param audio 音频提供者指针
    * @param haptic 振动提供者指针
-   * @param bmu BMU 电池管理提供者指针
+   * @param battery_management 电池管理提供者指针
    * @param camera 摄像头提供者指针
    * @param rtc RTC 提供者指针
    * @param imu IMU 提供者指针
@@ -68,7 +68,7 @@ class UiManager final {
       hal::GpsProvider* gps,
       hal::AudioProvider* audio,
       hal::HapticProvider* haptic,
-      hal::BmuProvider* bmu,
+      hal::BatteryManagementProvider* battery_management,
       hal::CameraProvider* camera,
       hal::RtcProvider* rtc,
       hal::RadioProvider* radio,
@@ -403,10 +403,10 @@ class UiManager final {
   void UpdateClockLabels(const hal::RtcStatus& status);
 
   /**
-   * @brief 根据 BMU 状态刷新状态栏电池显示
-   * @param status BMU 状态
+   * @brief 根据电池管理状态刷新状态栏电池显示
+   * @param status 电池管理状态
    */
-  void UpdateBatteryStatus(const hal::BmuStatus& status);
+  void UpdateBatteryStatus(const hal::BatteryManagementStatus& status);
 
   /**
    * @brief 根据 WiFi 状态刷新状态栏 WiFi 图标显示
@@ -487,7 +487,7 @@ class UiManager final {
   hal::GpsProvider* gps_provider_ = nullptr;
   hal::AudioProvider* audio_provider_ = nullptr;
   hal::HapticProvider* haptic_provider_ = nullptr;
-  hal::BmuProvider* bmu_provider_ = nullptr;
+  hal::BatteryManagementProvider* battery_management_provider_ = nullptr;
   hal::CameraProvider* camera_provider_ = nullptr;
   hal::RtcProvider* rtc_provider_ = nullptr;
   hal::RadioProvider* radio_provider_ = nullptr;

@@ -7,13 +7,13 @@
  */
 #pragma once
 
-#include "hal/providers/bmu_provider.h"
+#include "hal/providers/battery_management_provider.h"
 #include "hal/providers/imu_provider.h"
 
 namespace lilygo_box::hal {
 
 struct DeviceDiagnostics {
-  BmuStatus bmu;
+  BatteryManagementStatus battery_management;
   ImuStatus imu;
 };
 

@@ -216,7 +216,7 @@ bool Application::Init() {
       device_provider_context_.diagnostics,
       device_provider_context_.device_info, device_provider_context_.gps,
       device_provider_context_.audio, device_provider_context_.haptic,
-      device_provider_context_.bmu, device_provider_context_.camera,
+      device_provider_context_.battery_management, device_provider_context_.camera,
       device_provider_context_.rtc, device_provider_context_.radio,
       device_provider_context_.imu,
       device_provider_context_.ethernet, device_provider_context_.wifi,
@@ -258,12 +258,12 @@ bool Application::Init() {
   }
 
   int startup_battery_level = 0;
-  const bool startup_bmu_ready = device_provider_context_.bmu != nullptr &&
-      device_provider_context_.bmu->ReadBatteryLevel(&startup_battery_level);
-  if (!startup_bmu_ready) {
+  const bool startup_battery_management_ready = device_provider_context_.battery_management != nullptr &&
+      device_provider_context_.battery_management->ReadBatteryLevel(&startup_battery_level);
+  if (!startup_battery_management_ready) {
     const bool shown = ShowBatteryStartupWarning(
         ui::icon::kBatteryAndroidQuestion, kBatteryFaultStartupIconColor,
-        "BMU fault", -1);
+        "Battery management fault", -1);
     if (!shown) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "ShowBatteryStartupWarning failed\n");
@@ -399,8 +399,8 @@ void Application::Run() {
     }
 
     int charge_percent = 0;
-    if (device_provider_context_.bmu != nullptr &&
-        device_provider_context_.bmu->ReadBatteryLevel(&charge_percent) &&
+    if (device_provider_context_.battery_management != nullptr &&
+        device_provider_context_.battery_management->ReadBatteryLevel(&charge_percent) &&
         charge_percent == 0) {
       LogMessage(LogLevel::kError, __FILE__, __LINE__,
           "Battery depleted; powering off device\n");

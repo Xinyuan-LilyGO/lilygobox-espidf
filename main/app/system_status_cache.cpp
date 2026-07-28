@@ -151,15 +151,15 @@ bool ReadSystemClock(bool clock_integrity, hal::RtcStatus* status) {
 }  // namespace
 
 void SystemStatusCache::Init(
-    hal::RtcProvider* rtc, hal::BmuProvider* bmu, hal::WifiProvider* wifi) {
-  bmu_ = bmu;
+    hal::RtcProvider* rtc, hal::BatteryManagementProvider* battery_management, hal::WifiProvider* wifi) {
+  battery_management_ = battery_management;
   wifi_ = wifi;
   rtc_status_ = hal::RtcStatus();
-  bmu_status_ = hal::BmuStatus();
+  battery_management_status_ = hal::BatteryManagementStatus();
   wifi_status_ = hal::WifiStatus();
   refresh_count_ = 0;
   rtc_status_valid_ = false;
-  bmu_status_valid_ = false;
+  battery_management_status_valid_ = false;
   wifi_status_valid_ = false;
   system_clock_initialized_ = false;
   rtc_clock_integrity_ = false;
@@ -245,18 +245,18 @@ bool SystemStatusCache::RefreshClock() {
 }
 
 bool SystemStatusCache::RefreshBattery() {
-  if (bmu_ == nullptr) {
-    bmu_status_valid_ = false;
+  if (battery_management_ == nullptr) {
+    battery_management_status_valid_ = false;
     return false;
   }
 
-  hal::BmuStatus status;
-  if (!bmu_->ReadBmuStatus(&status) || !status.ready) {
+  hal::BatteryManagementStatus status;
+  if (!battery_management_->ReadBatteryManagementStatus(&status) || !status.ready) {
     return false;
   }
 
-  bmu_status_ = status;
-  bmu_status_valid_ = true;
+  battery_management_status_ = status;
+  battery_management_status_valid_ = true;
   return true;
 }
 

@@ -9,7 +9,7 @@
 
 #include <cstdint>
 
-#include "hal/providers/bmu_provider.h"
+#include "hal/providers/battery_management_provider.h"
 #include "hal/providers/rtc_provider.h"
 #include "hal/providers/wifi_provider.h"
 
@@ -22,11 +22,11 @@ class SystemStatusCache final {
   /**
    * @brief 初始化系统状态缓存使用的硬件状态提供者
    * @param rtc RTC 状态提供者
-   * @param bmu BMU 电池状态提供者
+   * @param battery_management 电池管理状态提供者
    * @param wifi WIFI 状态提供者
    */
   void Init(
-      hal::RtcProvider* rtc, hal::BmuProvider* bmu, hal::WifiProvider* wifi);
+      hal::RtcProvider* rtc, hal::BatteryManagementProvider* battery_management, hal::WifiProvider* wifi);
 
   /**
    * @brief 使用系统时钟刷新时间缓存，不再访问外部 RTC
@@ -35,7 +35,7 @@ class SystemStatusCache final {
   bool RefreshClock();
 
   /**
-   * @brief 刷新 BMU 电池状态缓存
+   * @brief 刷新电池管理状态缓存
    * @return 刷新成功返回 true，否则返回 false
    */
   bool RefreshBattery();
@@ -58,10 +58,10 @@ class SystemStatusCache final {
   const hal::RtcStatus& rtc_status() const { return rtc_status_; }
 
   /**
-   * @brief 获取 BMU 电池状态缓存
-   * @return BMU 电池状态
+   * @brief 获取电池管理状态缓存
+   * @return 电池管理状态
    */
-  const hal::BmuStatus& bmu_status() const { return bmu_status_; }
+  const hal::BatteryManagementStatus& battery_management_status() const { return battery_management_status_; }
 
   /**
    * @brief 获取 WiFi 连接状态缓存
@@ -76,10 +76,10 @@ class SystemStatusCache final {
   bool rtc_status_valid() const { return rtc_status_valid_; }
 
   /**
-   * @brief 判断 BMU 电池状态缓存是否有效
-   * @return BMU 缓存有效返回 true，否则返回 false
+   * @brief 判断电池管理状态缓存是否有效
+   * @return 电池管理缓存有效返回 true，否则返回 false
    */
-  bool bmu_status_valid() const { return bmu_status_valid_; }
+  bool battery_management_status_valid() const { return battery_management_status_valid_; }
 
   /**
    * @brief 判断 WiFi 连接状态缓存是否有效
@@ -88,14 +88,14 @@ class SystemStatusCache final {
   bool wifi_status_valid() const { return wifi_status_valid_; }
 
  private:
-  hal::BmuProvider* bmu_ = nullptr;
+  hal::BatteryManagementProvider* battery_management_ = nullptr;
   hal::WifiProvider* wifi_ = nullptr;
   hal::RtcStatus rtc_status_ = {};
-  hal::BmuStatus bmu_status_ = {};
+  hal::BatteryManagementStatus battery_management_status_ = {};
   hal::WifiStatus wifi_status_ = {};
   uint32_t refresh_count_ = 0;
   bool rtc_status_valid_ = false;
-  bool bmu_status_valid_ = false;
+  bool battery_management_status_valid_ = false;
   bool wifi_status_valid_ = false;
   // 系统时钟是否已经由开机时读取的外部 RTC 初始化。
   bool system_clock_initialized_ = false;

@@ -26,7 +26,7 @@ DeviceProviderContext CreateDeviceProviderContext() {
   context.imu = device.get();
   context.audio = device.get();
   context.haptic = device.get();
-  context.bmu = device.get();
+  context.battery_management = device.get();
   context.camera = device.get();
   context.rtc = device.get();
   context.radio = device.get();

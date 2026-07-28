@@ -22,7 +22,7 @@ struct DeviceProviderContext {
   ImuProvider* imu = nullptr;
   AudioProvider* audio = nullptr;
   HapticProvider* haptic = nullptr;
-  BmuProvider* bmu = nullptr;
+  BatteryManagementProvider* battery_management = nullptr;
   CameraProvider* camera = nullptr;
   RtcProvider* rtc = nullptr;
   RadioProvider* radio = nullptr;
