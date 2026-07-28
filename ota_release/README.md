@@ -178,27 +178,36 @@ idf.py -DPROJECT_VER=1.1.0-beta.1 build
 ```
 
 Select the matching Alpha or Beta Kconfig channel as well. The
-generator reads the embedded BIN version again and rejects mismatched
+generator automatically reads the embedded BIN version and rejects mismatched
 versions or channels. `PROJECT_VER` remains in the CMake build cache, so use
 separate build directories and `sdkconfig` files for different channels to
 avoid configuration overlap.
 
+The recommended `--firmware-file` format is `FILE_ID=BIN`; there is no need
+to repeat the firmware version. The original `FILE_ID=VERSION=BIN` format
+remains supported and verifies that the declared version matches the embedded
+BIN version. When a main firmware image is supplied, `--release` can also be
+omitted and the generator uses the main BIN's embedded version as the Release
+version. An explicit `--release` is still required when updating only wireless
+firmware or otherwise omitting the main firmware. If supplied alongside a main
+firmware image, `--release` must match the main firmware version.
+
 ### First Stable Release
 
 ```bat
-python .\generate_manifest.py --release 1.0.0 --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=1.0.0=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=2.12.3=.\input\network_adapter.bin" --note "Initial LilygoBox firmware release"
+python .\generate_manifest.py --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\network_adapter.bin" --note "Initial LilygoBox firmware release"
 ```
 
 ### Update Main Firmware Only
 
 ```bat
-python .\generate_manifest.py --release 1.0.1 --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=1.0.1=.\input\lilygobox-espidf.bin" --previous-manifest ".\output\t-display-p4\stable\v1.0.0\lilygobox-t-display-p4-ota-manifest-stable-v1.json" --note "Updated main firmware"
+python .\generate_manifest.py --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\lilygobox-espidf.bin" --previous-manifest ".\output\t-display-p4\stable\v1.0.0\lilygobox-t-display-p4-ota-manifest-stable-v1.json" --note "Updated main firmware"
 ```
 
 ### Update Wireless Firmware Only
 
 ```bat
-python .\generate_manifest.py --release 1.0.2 --channel stable --firmware-file "device-v1.0-esp32c6-rev0.0=2.12.4=.\input\network_adapter.bin" --previous-manifest ".\output\t-display-p4\stable\v1.0.1\lilygobox-t-display-p4-ota-manifest-stable-v1.json" --note "Updated wireless firmware"
+python .\generate_manifest.py --release 1.0.2 --channel stable --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\network_adapter.bin" --previous-manifest ".\output\t-display-p4\stable\v1.0.1\lilygobox-t-display-p4-ota-manifest-stable-v1.json" --note "Updated wireless firmware"
 ```
 
 Unchanged files are inherited from the previous manifest in the same channel
@@ -209,13 +218,13 @@ and continue to reference the historical Release containing each BIN.
 First Alpha example:
 
 ```bat
-python .\generate_manifest.py --release 1.1.0-alpha.1 --channel alpha --firmware-file "device-v1.0-esp32p4-rev1.0=1.1.0-alpha.1=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=2.12.3=.\input\network_adapter.bin" --note "1.1.0 alpha build"
+python .\generate_manifest.py --channel alpha --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\network_adapter.bin" --note "1.1.0 alpha build"
 ```
 
 First Beta example:
 
 ```bat
-python .\generate_manifest.py --release 1.1.0-beta.1 --channel beta --firmware-file "device-v1.0-esp32p4-rev1.0=1.1.0-beta.1=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=2.12.3=.\input\network_adapter.bin" --note "1.1.0 public beta"
+python .\generate_manifest.py --channel beta --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\network_adapter.bin" --note "1.1.0 public beta"
 ```
 
 Later Alpha or Beta releases inherit unchanged files from the previous

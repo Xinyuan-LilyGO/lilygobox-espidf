@@ -218,26 +218,33 @@ idf.py -DPROJECT_VER=1.1.0-beta.1 build
 ```
 
 同时需要在 Kconfig 中选择对应的 Alpha 或 Beta 频道。生成器会
-再次读取 BIN 内嵌版本，版本或频道不一致时拒绝生成发布文件。
+自动读取 BIN 内嵌版本，版本或频道不一致时拒绝生成发布文件。
 `PROJECT_VER` 会保存在 CMake 构建缓存中，不同频道建议使用独立的
 构建目录和 `sdkconfig`，避免配置相互覆盖。
+
+`--firmware-file` 推荐使用 `FILE_ID=BIN` 格式，固件版本无需重复填写。
+原有的 `FILE_ID=VERSION=BIN` 格式仍然兼容，并会校验声明版本与 BIN
+内嵌版本是否一致。传入本次 main 固件时，`--release` 也可以省略，
+生成器会使用 main BIN 的内嵌版本作为 Release 版本。仅更新无线固件等
+未传入 main 固件的情况仍需显式指定 `--release`；如果传入
+`--release`，它必须与本次 main 固件版本一致。
 
 ### 第一次正式发布
 
 ```bat
-python .\generate_manifest.py --release 1.0.0 --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=1.0.0=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=2.12.3=.\input\network_adapter.bin" --note "Initial LilygoBox firmware release"
+python .\generate_manifest.py --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\network_adapter.bin" --note "Initial LilygoBox firmware release"
 ```
 
 ### 只更新主固件
 
 ```bat
-python .\generate_manifest.py --release 1.0.1 --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=1.0.1=.\input\lilygobox-espidf.bin" --previous-manifest ".\output\t-display-p4\stable\v1.0.0\lilygobox-t-display-p4-ota-manifest-stable-v1.json" --note "Updated main firmware"
+python .\generate_manifest.py --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\lilygobox-espidf.bin" --previous-manifest ".\output\t-display-p4\stable\v1.0.0\lilygobox-t-display-p4-ota-manifest-stable-v1.json" --note "Updated main firmware"
 ```
 
 ### 只更新无线固件
 
 ```bat
-python .\generate_manifest.py --release 1.0.2 --channel stable --firmware-file "device-v1.0-esp32c6-rev0.0=2.12.4=.\input\network_adapter.bin" --previous-manifest ".\output\t-display-p4\stable\v1.0.1\lilygobox-t-display-p4-ota-manifest-stable-v1.json" --note "Updated wireless firmware"
+python .\generate_manifest.py --release 1.0.2 --channel stable --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\network_adapter.bin" --previous-manifest ".\output\t-display-p4\stable\v1.0.1\lilygobox-t-display-p4-ota-manifest-stable-v1.json" --note "Updated wireless firmware"
 ```
 
 未更新文件从同频道的上一版 Manifest 继承，下载地址继续指向真正包含
@@ -248,13 +255,13 @@ python .\generate_manifest.py --release 1.0.2 --channel stable --firmware-file "
 Alpha 首次发布示例：
 
 ```bat
-python .\generate_manifest.py --release 1.1.0-alpha.1 --channel alpha --firmware-file "device-v1.0-esp32p4-rev1.0=1.1.0-alpha.1=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=2.12.3=.\input\network_adapter.bin" --note "1.1.0 alpha build"
+python .\generate_manifest.py --channel alpha --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\network_adapter.bin" --note "1.1.0 alpha build"
 ```
 
 Beta 首次发布示例：
 
 ```bat
-python .\generate_manifest.py --release 1.1.0-beta.1 --channel beta --firmware-file "device-v1.0-esp32p4-rev1.0=1.1.0-beta.1=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=2.12.3=.\input\network_adapter.bin" --note "1.1.0 public beta"
+python .\generate_manifest.py --channel beta --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\network_adapter.bin" --note "1.1.0 public beta"
 ```
 
 后续 Alpha 或 Beta 版本使用本频道上一版 Manifest 继承未更新文件。生成器

@@ -363,24 +363,61 @@ def load_json(path: Path) -> dict[str, Any]:
     return value
 
 
-def parse_firmware_file_argument(value: str) -> tuple[str, str, Path]:
-    """解析 FILE_ID=VERSION=PATH 形式的固件文件参数。"""
+def parse_firmware_file_argument(
+    value: str,
+) -> tuple[str, Optional[str], Path]:
+    """解析 FILE_ID=PATH 或兼容的 FILE_ID=VERSION=PATH 参数。"""
     parts = value.split("=", 2)
-    if len(parts) != 3 or not all(parts):
+    if len(parts) not in (2, 3) or not all(parts):
         raise argparse.ArgumentTypeError(
-            "固件文件参数必须是 FILE_ID=VERSION=BIN"
+            "固件文件参数必须是 FILE_ID=BIN 或 FILE_ID=VERSION=BIN"
         )
-    file_id, version, firmware_path = parts
+    file_id = parts[0]
     if (
         not NAME_PATTERN.fullmatch(file_id)
         or len(file_id) > MAX_FIRMWARE_FILE_ID_LENGTH
     ):
         raise argparse.ArgumentTypeError(f"固件文件 ID 无效：{file_id}")
+    if len(parts) == 2:
+        return file_id, None, Path(parts[1])
+    version, firmware_path = parts[1:]
     try:
         normalized_version = normalize_version(version, file_id)
     except ValueError as error:
         raise argparse.ArgumentTypeError(str(error)) from error
     return file_id, normalized_version, Path(firmware_path)
+
+
+def read_embedded_firmware_version(path: Path, file_id: str) -> str:
+    """从未合并 ESP 应用 BIN 的 esp_app_desc_t 中读取版本。"""
+    source = path.expanduser().resolve()
+    if not source.is_file():
+        raise ValueError(f"固件文件不存在：{source}")
+    source_size = source.stat().st_size
+    if source_size <= 0:
+        raise ValueError(f"固件文件为空：{source}")
+    if source_size > MAX_FIRMWARE_ASSET_SIZE:
+        raise ValueError(f"固件文件超过 64 MiB 限制：{source}")
+    try:
+        data = source.read_bytes()
+    except OSError as error:
+        raise ValueError(f"无法读取固件文件：{source}: {error}") from error
+    application = read_esp_application(data)
+    if application is None:
+        raise ValueError(
+            f"固件文件 {file_id} 必须是从偏移 0 开始且不包含额外数据的"
+            "未合并 ESP 应用 BIN"
+        )
+    embedded_version = application["version"]
+    version = normalize_version(
+        embedded_version, f"固件文件 {file_id} 的 BIN 内嵌版本"
+    )
+    if embedded_version != version:
+        raise ValueError(
+            f"固件文件 {file_id} 的 BIN 内嵌版本必须使用不带 v 前缀的"
+            f"规范格式：{version}"
+        )
+    return version
 
 
 def extract_release_tag(
@@ -900,7 +937,8 @@ def build_argument_parser(default_config: Path) -> argparse.ArgumentParser:
         description="生成 LilygoBox OTA Manifest 和待上传固件"
     )
     parser.add_argument(
-        "--release", required=True, help="Release 版本，例如 1.2.0"
+        "--release",
+        help="Release 版本；默认使用本次 main 固件的 BIN 内嵌版本",
     )
     parser.add_argument(
         "--channel",
@@ -913,8 +951,8 @@ def build_argument_parser(default_config: Path) -> argparse.ArgumentParser:
         action="append",
         default=[],
         type=parse_firmware_file_argument,
-        metavar="FILE_ID=VERSION=BIN",
-        help="本次发生变化的固件文件，可重复传入",
+        metavar="FILE_ID=BIN",
+        help="本次发生变化的固件文件，版本自动读取，可重复传入",
     )
     parser.add_argument(
         "--previous-manifest",
@@ -951,22 +989,54 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        release_version = normalize_version(args.release, "release")
-        validate_release_version_channel(
-            release_version, args.channel, "release"
-        )
-        release_tag = f"v{release_version}"
         config = load_json(args.config.expanduser().resolve())
         validate_config(config)
 
         file_updates: dict[str, tuple[str, Path]] = {}
-        for file_id, version, path in args.firmware_file:
+        for file_id, declared_version, path in args.firmware_file:
             if file_id not in config["files"]:
                 raise ValueError(f"不支持固件文件：{file_id}")
             if file_id in file_updates:
                 raise ValueError(f"固件文件重复：{file_id}")
+            version = (
+                declared_version
+                if declared_version is not None
+                else read_embedded_firmware_version(path, file_id)
+            )
             file_updates[file_id] = (version, path)
-        for file_id in main_component_file_ids(config):
+        main_file_ids = main_component_file_ids(config)
+        updated_main_versions = {
+            file_updates[file_id][0]
+            for file_id in main_file_ids
+            if file_id in file_updates
+        }
+        if updated_main_versions:
+            if len(updated_main_versions) != 1:
+                raise ValueError(
+                    "本次 main 固件包含多个不同版本，无法确定 Release 版本"
+                )
+            main_version = next(iter(updated_main_versions))
+            if args.release is None:
+                release_version = main_version
+            else:
+                release_version = normalize_version(args.release, "release")
+                if release_version != main_version:
+                    raise ValueError(
+                        f"Release 版本必须与本次 main 固件版本一致："
+                        f"{main_version}"
+                    )
+        else:
+            if args.release is None:
+                raise ValueError(
+                    "未提供本次 main 固件时必须显式指定 --release"
+                )
+            release_version = normalize_version(args.release, "release")
+        validate_release_version_channel(
+            release_version, args.channel, "release"
+        )
+        release_tag = f"v{release_version}"
+
+        for file_id in main_file_ids:
             if file_id not in file_updates:
                 continue
             validate_release_version_channel(
