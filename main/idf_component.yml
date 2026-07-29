@@ -20,7 +20,7 @@ dependencies:
     override_path: "../libraries/esp-video-components/esp_video"
 
   usp_cpp_bus_driver:
-    override_path: "../libraries/usp_cpp_bus_driver"
+    path: "../libraries/usp_cpp_bus_driver"
 
   lvgl/lvgl:
     version: "9.5.0"
