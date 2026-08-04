@@ -10,6 +10,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "app/diagnostics/camera_error.h"
+
 namespace lilygo_box::hal {
 
 struct CameraPreviewFrameInfo {
@@ -30,6 +32,12 @@ class CameraProvider {
    * @return 启动成功返回 true，否则返回 false
    */
   virtual bool StartCameraPreview() = 0;
+
+  /**
+   * @brief 获取最近一次摄像头预览启动错误
+   * @return 摄像头错误
+   */
+  virtual CameraError GetCameraPreviewError() const = 0;
 
   /**
    * @brief 停止摄像头预览

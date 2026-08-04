@@ -7,9 +7,11 @@
  */
 #include "ui/views/camera_view.h"
 
+#include <cstdio>
+#include <functional>
+
 #include "base/logger.h"
 #include "esp_heap_caps.h"
-#include <functional>
 
 #include "hal/providers/camera_provider.h"
 #include "ui/resources/fonts/font_assets.h"
@@ -23,12 +25,15 @@ struct CameraViewState {
   hal::CameraProvider* camera = nullptr;
   std::function<void(std::function<void(bool visible)> callback)>
       set_lock_screen_visibility_callback;
+  lv_obj_t* container = nullptr;
   lv_obj_t* image = nullptr;
+  lv_obj_t* error_label = nullptr;
   lv_timer_t* refresh_timer = nullptr;
   lv_image_dsc_t image_dsc = {};
   uint8_t* frame_buffer = nullptr;
   size_t frame_buffer_size = 0;
   bool lock_screen_paused = false;
+  bool preview_started = false;
   uint32_t last_sequence = 0;
   uint32_t last_width = 0;
   uint32_t last_height = 0;
@@ -60,6 +65,47 @@ lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color,
   lv_obj_set_style_text_color(label, color, LV_PART_MAIN);
   lv_obj_set_style_text_font(label, font, LV_PART_MAIN);
   return label;
+}
+
+/**
+ * @brief 在摄像头页面显示错误码和文字说明
+ * @param state 摄像头页面状态
+ * @param error 摄像头错误
+ */
+void ShowCameraError(CameraViewState* state, CameraError error) {
+  if (state == nullptr || state->container == nullptr) {
+    return;
+  }
+
+  const DiagnosticError diagnostic_error = GetCameraDiagnosticError(error);
+  char error_message[128] = {};
+  std::snprintf(error_message, sizeof(error_message),
+      "Camera unavailable\n%s: %s", diagnostic_error.code,
+      diagnostic_error.text);
+  LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+      "StartCameraPreview failed: %s: %s\n", diagnostic_error.code,
+      diagnostic_error.text);
+
+  state->preview_started = false;
+  if (state->refresh_timer != nullptr) {
+    lv_timer_delete(state->refresh_timer);
+    state->refresh_timer = nullptr;
+  }
+  if (state->image != nullptr) {
+    lv_obj_add_flag(state->image, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (state->error_label == nullptr) {
+    state->error_label = CreateLabel(state->container, error_message,
+        lv_color_hex(0xFFFFFF), Font24());
+  } else {
+    lv_label_set_text(state->error_label, error_message);
+  }
+  if (state->error_label != nullptr) {
+    lv_obj_set_width(state->error_label, LV_PCT(90));
+    lv_obj_set_style_text_align(
+        state->error_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_center(state->error_label);
+  }
 }
 
 /**
@@ -112,6 +158,9 @@ void SetCameraLockScreenPaused(CameraViewState* state, bool visible) {
   }
 
   state->lock_screen_paused = visible;
+  if (!state->preview_started) {
+    return;
+  }
   if (visible) {
     state->camera->StopCameraPreview();
     return;
@@ -123,7 +172,9 @@ void SetCameraLockScreenPaused(CameraViewState* state, bool visible) {
   state->last_stride = 0;
   state->last_bits_per_pixel = 0;
   state->image_dsc.data = nullptr;
-  state->camera->StartCameraPreview();
+  if (!state->camera->StartCameraPreview()) {
+    ShowCameraError(state, state->camera->GetCameraPreviewError());
+  }
 }
 
 /**
@@ -239,6 +290,7 @@ lv_obj_t* CreateCameraView(lv_obj_t* parent, const app::AppEntry& app_entry,
 
   auto* state = new CameraViewState();
   state->camera = config.camera;
+  state->container = container;
   state->set_lock_screen_visibility_callback =
       config.set_lock_screen_visibility_callback;
   if (state->set_lock_screen_visibility_callback) {
@@ -251,15 +303,13 @@ lv_obj_t* CreateCameraView(lv_obj_t* parent, const app::AppEntry& app_entry,
       container, CameraViewDeleteEventCallback, LV_EVENT_DELETE, state);
 
   if (config.camera == nullptr || !config.camera->StartCameraPreview()) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "StartCameraPreview failed\n");
-    lv_obj_t* label = CreateLabel(container, "Camera unavailable",
-        lv_color_hex(0xFFFFFF), Font24());
-    if (label != nullptr) {
-      lv_obj_center(label);
-    }
+    const CameraError error = config.camera == nullptr
+                                  ? CameraError::kProviderUnavailable
+                                  : config.camera->GetCameraPreviewError();
+    ShowCameraError(state, error);
     return container;
   }
+  state->preview_started = true;
 
   state->image = lv_image_create(container);
   if (state->image == nullptr) {

@@ -1,6 +1,7 @@
 set(src_dirs
     "."
     "app"
+    "app/diagnostics"
     "app/storage"
     "audio"
     "base"
