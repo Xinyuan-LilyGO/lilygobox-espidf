@@ -15,9 +15,15 @@
 
 ## 支持的设备
 
-| 设备 | 芯片 | 状态 | 说明 |
-| --- | --- | --- | --- |
-| T-Display-P4 | ESP32-P4 | 支持 | 当前默认及主要适配目标 |
+| 设备 | 主控 | 无线协处理器 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| T-Display-P4-Air | ESP32-P4 | ESP32-C5 | 支持 | 当前默认配置；使用独立的 Air 硬件驱动 |
+| T-Display-P4 | ESP32-P4 | ESP32-C6 | 支持 | 原版硬件；保留独立的原版驱动 |
+
+T-Display-P4-Air 与 T-Display-P4 是两个不同的设备。两者的硬件驱动分别
+放在独立目录中，不应同时选中：Air 使用
+`main/hal/device/t_display_p4_air`，原版继续使用
+`main/hal/device/t_display_p4`。
 
 ## 快速开始
 
@@ -47,13 +53,19 @@ git submodule update --init --recursive
 idf.py set-target esp32p4
 ```
 
-默认配置已经选择 T-Display-P4。如需检查设备、相机、屏幕色彩格式或日志配置，请执行：
+默认配置已经选择 T-Display-P4-Air 和 ESP32-C5 无线协处理器。如需检查
+设备、相机、屏幕色彩格式、无线协处理器或日志配置，请执行：
 
 ```bash
 idf.py menuconfig
 ```
 
 设备相关选项位于 `lilygo_device_driver configuration`，应用日志选项位于 `LilygoBox Configuration`。
+
+切换到原版 T-Display-P4 时，需要选择其独立设备选项，并把 ESP-Hosted
+从机目标改为 ESP32-C6；切换回 T-Display-P4-Air 时，则需要同时选择 Air
+设备选项和 ESP32-C5。工程会在构建时拒绝不匹配的配置，避免为错误的无线
+协处理器生成固件。
 
 ### 编译
 

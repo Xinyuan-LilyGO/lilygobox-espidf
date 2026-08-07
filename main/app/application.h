@@ -165,6 +165,20 @@ class Application final {
   bool ReadScreenTouchWhileSleeping(hal::TouchPoint* point);
 
   /**
+   * @brief 应用屏幕亮度并同步应用层当前值
+   * @param percent 目标亮度百分比
+   * @return 亮度设置成功返回 true
+   */
+  bool ApplyScreenBrightness(int percent);
+
+  /**
+   * @brief 从熄灭状态渐亮到目标亮度
+   * @param target_percent 目标亮度百分比
+   * @return 渐亮成功返回 true
+   */
+  bool StartScreenBacklight(int target_percent);
+
+  /**
    * @brief 在短屏幕事务内修改亮屏亮度
    * @param percent 目标亮度百分比
    * @return 硬件仍可访问且亮度设置成功时返回 true
@@ -174,9 +188,10 @@ class Application final {
   /**
    * @brief 将屏幕亮度渐变到目标值
    * @param target_percent 目标亮度百分比
+   * @param duration_ms 渐变持续时间
    * @return 全部渐变步骤成功返回 true
    */
-  bool FadeScreenBrightnessTo(int target_percent);
+  bool FadeScreenBrightnessTo(int target_percent, uint32_t duration_ms);
 
   /**
    * @brief 读取当前显示偏好，读取失败时使用默认值

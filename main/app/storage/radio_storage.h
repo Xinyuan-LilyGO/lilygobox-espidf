@@ -2,7 +2,7 @@
  * @Description: Radio 配置列表与唯一激活项持久化接口
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
- * @LastEditTime: 2026-07-19 01:30:46
+ * @LastEditTime: 2026-07-30 18:00:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -30,7 +30,7 @@ struct RadioProfile {
   // 当前配置使用的空中协议。
   radio::ProtocolType protocol = radio::ProtocolType::kLora;
   // LoRa 中心频率，单位为 Hz。
-  uint32_t frequency_hz = 915000000;
+  uint32_t frequency_hz = 868000000;
   // LoRa 信号带宽，单位为 Hz。
   uint32_t bandwidth_hz = 125000;
   // LoRa 前导码符号数量。
@@ -41,15 +41,15 @@ struct RadioProfile {
   uint8_t coding_rate_denominator = 5;
   // LoRa 网络同步字。
   uint8_t sync_word = 0x12;
-  // SX1262 发射功率，单位为 dBm。
+  // 当前射频芯片的发射功率，单位为 dBm。
   int8_t output_power_dbm = 22;
   // 是否启用数据包 CRC 校验。
   bool crc_enabled = true;
   // 是否反转 LoRa IQ 极性。
   bool invert_iq = false;
-  // 是否使用 SX1262 增强接收模式。
+  // 是否使用射频芯片增强接收模式。
   bool rx_boosted = true;
-  // 天线路径，默认使用 RF1 板载天线，可切换至 RF2 外置天线。
+  // 天线路径，默认使用板载天线；是否支持软件切换外置天线由设备能力决定。
   radio::AntennaType antenna = radio::AntennaType::kInternal;
   // 是否按照设定周期自动发送测试字符。
   bool auto_send_enabled = false;

@@ -1,0 +1,42 @@
+{
+  "kind": "lilygobox#otaDeviceConfig",
+  "manifestVersion": "1.0",
+  "publisherId": "lilygo",
+  "deviceId": "t-display-p4-air",
+  "repository": "Xinyuan-LilyGO/lilygobox-espidf",
+  "targets": [
+    {
+      "compatibility": {
+        "deviceVersion": "1.0",
+        "chips": {
+          "main": {
+            "model": "esp32p4",
+            "revision": "1.0"
+          },
+          "wireless": {
+            "model": "esp32c5",
+            "revision": "0.0"
+          }
+        }
+      },
+      "components": {
+        "main": "device-v1.0-esp32p4-rev1.0",
+        "wireless": "device-v1.0-esp32c5-rev0.0"
+      }
+    }
+  ],
+  "files": {
+    "device-v1.0-esp32p4-rev1.0": {
+      "chip": "esp32p4",
+      "projectName": "lilygobox-espidf"
+    },
+    "device-v1.0-esp32c5-rev0.0": {
+      "chip": "esp32c5",
+      "projectName": "network_adapter"
+    }
+  },
+  "downloadUrlTemplates": [
+    "https://github.com/{repository}/releases/download/{release}/{filename}",
+    "https://gh-proxy.com/https://github.com/{repository}/releases/download/{release}/{filename}"
+  ]
+}

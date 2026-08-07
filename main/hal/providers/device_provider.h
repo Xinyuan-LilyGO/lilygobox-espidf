@@ -9,6 +9,12 @@
 
 namespace lilygo_box::hal {
 
+enum class PowerOffAction {
+  kFailed,
+  kEnterDeepSleep,
+  kWaitForPowerCut,
+};
+
 class DeviceProvider {
  public:
   virtual ~DeviceProvider() = default;
@@ -18,6 +24,12 @@ class DeviceProvider {
    * @return 初始化成功返回 true，否则返回 false
    */
   virtual bool InitDevice() = 0;
+
+  /**
+   * @brief 完成设备关机准备并返回最终关机动作。
+   * @return 设备对应的最终关机动作，失败时返回 kFailed。
+   */
+  virtual PowerOffAction RequestPowerOff() = 0;
 };
 
 }  // namespace lilygo_box::hal

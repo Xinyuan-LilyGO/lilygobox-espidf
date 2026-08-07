@@ -2,7 +2,7 @@
  * @Description: Radio 配置列表与唯一激活项持久化实现
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
- * @LastEditTime: 2026-07-22 00:00:00
+ * @LastEditTime: 2026-07-30 18:00:00
  * @License: GPL 3.0
  */
 #include "app/storage/radio_storage.h"
@@ -90,9 +90,58 @@ bool HasProfileIdBefore(
   return false;
 }
 
-bool IsSupportedBandwidth(uint32_t bandwidth_hz) {
-  return bandwidth_hz == 62500 || bandwidth_hz == 125000 ||
+/**
+ * @brief 判断芯片是否支持指定 LoRa 带宽
+ * @param chip 射频芯片类型
+ * @param frequency_hz 工作频率
+ * @param bandwidth_hz LoRa 带宽
+ * @return 带宽有效返回 true
+ */
+
+bool IsSupportedBandwidth(
+    radio::ChipType chip, uint32_t frequency_hz,uint32_t bandwidth_hz) {
+  const bool common_bandwidth = bandwidth_hz == 62500 || bandwidth_hz == 125000 ||
       bandwidth_hz == 250000 || bandwidth_hz == 500000;
+  if (chip == radio::ChipType::kLr1121 && frequency_hz >= 2400000000U) {
+    return bandwidth_hz == 200000 || bandwidth_hz == 400000 ||
+           bandwidth_hz == 800000;
+  }
+  return common_bandwidth;
+}
+
+/**
+ * @brief 判断射频芯片类型是否由当前存储格式支持
+ * @param chip 射频芯片类型
+ * @return 芯片类型有效返回 true
+ */
+bool IsSupportedChip(radio::ChipType chip) {
+  return chip == radio::ChipType::kSx1262 || chip == radio::ChipType::kLr1121;
+}
+
+/**
+ * @brief 判断芯片与 LoRa 工作频率组合是否有效
+ * @param chip 射频芯片类型
+ * @param frequency_hz 工作频率
+ * @return 频率可用返回 true
+ */
+bool IsSupportedFrequency(radio::ChipType chip, uint32_t frequency_hz) {
+  const bool sub_ghz = frequency_hz >= 150000000U && frequency_hz <= 960000000U;
+  const bool lr1121_hf = chip == radio::ChipType::kLr1121 &&
+                         frequency_hz >= 2400000000U &&
+                         frequency_hz <= 2500000000U;
+  return sub_ghz || lr1121_hf;
+}
+
+/**
+ * @brief 获取当前芯片和频段允许的最大输出功率
+ * @param chip 射频芯片类型
+ * @param frequency_hz 工作频率
+ * @return 最大输出功率，单位 dBm
+ */
+int8_t MaximumOutputPowerDbm(radio::ChipType chip, uint32_t frequency_hz) {
+  const bool lr1121_hf =
+      chip == radio::ChipType::kLr1121 && frequency_hz >= 2400000000U;
+  return lr1121_hf ? 13 : 22;
 }
 
 uint32_t NextUnusedProfileId(
@@ -133,14 +182,19 @@ void NormalizePreferences(RadioPreferences* preferences) {
           "Radio profile %u", static_cast<unsigned>(index + 1));
       NormalizeString(profile.name);
     }
+    if (!IsSupportedChip(profile.chip)) {
     profile.chip = radio::ChipType::kSx1262;
-    profile.protocol = radio::ProtocolType::kLora;
-    if (profile.frequency_hz < 150000000 ||
-        profile.frequency_hz > 960000000) {
-      profile.frequency_hz = 915000000;
     }
-    if (!IsSupportedBandwidth(profile.bandwidth_hz)) {
-      profile.bandwidth_hz = 125000;
+    profile.protocol = radio::ProtocolType::kLora;
+    if (!IsSupportedFrequency(profile.chip,profile.frequency_hz)) {
+      profile.frequency_hz = 868000000;
+    }
+    if (!IsSupportedBandwidth(
+            profile.chip, profile.frequency_hz,profile.bandwidth_hz)) {
+      profile.bandwidth_hz = profile.chip == radio::ChipType::kLr1121 &&
+                                     profile.frequency_hz >= 2400000000U
+                                 ? 200000
+                                 : 125000;
     }
     if (profile.preamble_length == 0) {
       profile.preamble_length = 8;
@@ -154,7 +208,8 @@ void NormalizePreferences(RadioPreferences* preferences) {
       profile.coding_rate_denominator = 5;
     }
     profile.output_power_dbm = std::clamp<int8_t>(
-        profile.output_power_dbm, -9, 22);
+        profile.output_power_dbm, -9,
+        MaximumOutputPowerDbm(profile.chip, profile.frequency_hz));
     if (profile.antenna != radio::AntennaType::kInternal &&
         profile.antenna != radio::AntennaType::kExternal) {
       profile.antenna = radio::AntennaType::kInternal;

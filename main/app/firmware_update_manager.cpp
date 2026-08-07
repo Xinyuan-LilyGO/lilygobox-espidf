@@ -2,22 +2,23 @@
  * @Description: LilygoBox 主固件与无线固件组合 OTA 更新实现
  * @Author: LILYGO_L
  * @Date: 2026-07-20 00:00:00
- * @LastEditTime: 2026-07-21 14:51:29
+ * @LastEditTime: 2026-07-30 18:00:00
  * @License: GPL 3.0
  */
 #include "app/firmware_update_manager.h"
+
+#include <dirent.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <dirent.h>
 #include <iterator>
 #include <limits>
 #include <memory>
-#include <sys/stat.h>
-#include <unistd.h>
 
 #include "app/application.h"
 #include "app/network_monitor.h"
@@ -44,21 +45,32 @@
 #include "hal/providers/wifi_provider.h"
 #include "mbedtls/sha256.h"
 
-#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
+#include "t_display_p4_air_driver.h"
+#elif defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
 #include "t_display_p4_driver.h"
 #endif
 
 namespace lilygo_box::app {
 namespace {
 
-#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
+/**
+ * @brief 删除板级版本字符串开头可选的 v 前缀
+ * @param version 原始版本
+ * @return 去除 v 前缀后的版本
+ */
+constexpr const char* NormalizeDeviceVersion(const char* version) {
+  return version != nullptr && version[0] == 'v' ? version + 1 : version;
+}
+
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
+constexpr char kCurrentDeviceId[] = "t-display-p4-air";
+constexpr const char* kCurrentDeviceVersion = NormalizeDeviceVersion(
+    lilygo_device_driver::t_display_p4_air::device::kDeviceModelInfo.version);
+#elif defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
 constexpr char kCurrentDeviceId[] = "t-display-p4";
-constexpr const char* kCurrentDeviceVersion =
-    lilygo_device_driver::t_display_p4::device::kDeviceModelInfo.version[0] ==
-            'v'
-        ? lilygo_device_driver::t_display_p4::device::kDeviceModelInfo.version +
-              1
-        : lilygo_device_driver::t_display_p4::device::kDeviceModelInfo.version;
+constexpr const char* kCurrentDeviceVersion = NormalizeDeviceVersion(
+    lilygo_device_driver::t_display_p4::device::kDeviceModelInfo.version);
 #else
 constexpr char kCurrentDeviceId[] = "";
 constexpr char kCurrentDeviceVersion[] = "";
@@ -88,10 +100,15 @@ constexpr char kPendingUpdatePath[] =
     "/littlefs/lilygobox/ota/pending-update";
 constexpr char kMainFirmwareProjectName[] = "lilygobox-espidf";
 constexpr char kWirelessFirmwareProjectName[] = "network_adapter";
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
+constexpr esp_chip_id_t kExpectedWirelessChipId = ESP_CHIP_ID_ESP32C5;
+constexpr char kCurrentWirelessChipModel[] = "esp32c5";
+#else
 constexpr esp_chip_id_t kExpectedWirelessChipId = ESP_CHIP_ID_ESP32C6;
-constexpr char kCurrentMainChipModel[] = "esp32p4";
 constexpr char kCurrentWirelessChipModel[] = "esp32c6";
-// 当前 ESP-Hosted 接口不提供协处理器芯片修订号，V1 硬件配置固定为 C6 rev0。
+#endif
+constexpr char kCurrentMainChipModel[] = "esp32p4";
+// 当前 ESP-Hosted 接口不提供协处理器芯片修订号，板载 C5/C6 均按 rev0 匹配。
 constexpr char kCurrentWirelessChipRevision[] = "0.0";
 constexpr int kFirmwareHttpTimeoutMs = 15000;
 constexpr int kHttpBufferSize = 4096;
@@ -126,7 +143,8 @@ struct ManifestDownloadSourceConfig {
 constexpr const char* kCurrentReleaseChannel =
     ReleaseChannelName(kReleaseChannel);
 
-#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4) || \
+    defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
 /**
  * @brief 获取指定发布频道的 GitHub Manifest 地址
  * @param channel 发布频道
@@ -135,17 +153,35 @@ constexpr const char* kCurrentReleaseChannel =
 constexpr const char* ManifestGithubUrl(ReleaseChannel channel) {
   switch (channel) {
     case ReleaseChannel::kAlpha:
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
+      return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
+             "releases/download/ota-alpha/"
+             "lilygobox-t-display-p4-air-ota-manifest-alpha-v1.json";
+#else
       return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
              "releases/download/ota-alpha/"
              "lilygobox-t-display-p4-ota-manifest-alpha-v1.json";
+#endif
     case ReleaseChannel::kBeta:
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
+      return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
+             "releases/download/ota-beta/"
+             "lilygobox-t-display-p4-air-ota-manifest-beta-v1.json";
+#else
       return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
              "releases/download/ota-beta/"
              "lilygobox-t-display-p4-ota-manifest-beta-v1.json";
+#endif
     case ReleaseChannel::kStable:
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
+      return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
+             "releases/download/ota-stable/"
+             "lilygobox-t-display-p4-air-ota-manifest-stable-v1.json";
+#else
       return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
              "releases/download/ota-stable/"
              "lilygobox-t-display-p4-ota-manifest-stable-v1.json";
+#endif
   }
   return "";
 }
@@ -158,17 +194,35 @@ constexpr const char* ManifestGithubUrl(ReleaseChannel channel) {
 constexpr const char* ManifestProxyUrl(ReleaseChannel channel) {
   switch (channel) {
     case ReleaseChannel::kAlpha:
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
+      return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
+             "lilygobox-espidf/releases/download/ota-alpha/"
+             "lilygobox-t-display-p4-air-ota-manifest-alpha-v1.json";
+#else
       return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
              "lilygobox-espidf/releases/download/ota-alpha/"
              "lilygobox-t-display-p4-ota-manifest-alpha-v1.json";
+#endif
     case ReleaseChannel::kBeta:
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
+      return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
+             "lilygobox-espidf/releases/download/ota-beta/"
+             "lilygobox-t-display-p4-air-ota-manifest-beta-v1.json";
+#else
       return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
              "lilygobox-espidf/releases/download/ota-beta/"
              "lilygobox-t-display-p4-ota-manifest-beta-v1.json";
+#endif
     case ReleaseChannel::kStable:
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
+      return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
+             "lilygobox-espidf/releases/download/ota-stable/"
+             "lilygobox-t-display-p4-air-ota-manifest-stable-v1.json";
+#else
       return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
              "lilygobox-espidf/releases/download/ota-stable/"
              "lilygobox-t-display-p4-ota-manifest-stable-v1.json";
+#endif
   }
   return "";
 }
@@ -2475,7 +2529,7 @@ bool CalculateImageSize(FILE* file, size_t file_size,
  * @brief 检查 LittleFS 中未合并的无线应用固件
  * @param path 固件文件路径
  * @param manifest 已验证的固件清单
- * @return 文件是完整的 ESP32-C6 network_adapter 应用且清单匹配时返回 true
+ * @return 固件完整且匹配时返回 true
  */
 bool InspectWirelessFirmware(const char* path,
     const FirmwareReleaseManifest& manifest) {

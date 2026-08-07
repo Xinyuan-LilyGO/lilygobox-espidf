@@ -2,20 +2,24 @@
  * @Description: 整机测试列表、测试流程与结果交互页面实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-24 10:38:22
+ * @LastEditTime: 2026-07-30 18:00:00
  * @License: GPL 3.0
  */
 #include "ui/views/cit_view.h"
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdarg>
-#include <cstdio>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <ctime>
 #include <functional>
+#include <memory>
 #include <new>
+#include <type_traits>
+#include <utility>
 
 #include "app/cit_catalog.h"
 #include "app/device_info_snapshot.h"
@@ -23,16 +27,18 @@
 #include "app/wifi_manager.h"
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
+#include "freertos/queue.h"
 #include "freertos/task.h"
 #include "hal/lvgl_port.h"
 #include "hal/providers/providers.h"
+#include "ui/animation/transition_animation.h"
 #include "ui/input/app_view_gesture_flags.h"
 #include "ui/input/edge_back_gesture.h"
+#include "ui/input/press_cancel.h"
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/theme/theme_provider.h"
-#include "ui/input/press_cancel.h"
-#include "ui/animation/transition_animation.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -56,6 +62,18 @@ constexpr int kTouchMarkerSize = 42;
 constexpr int kCitRefreshPeriodMs = 200;
 constexpr int kMicrophoneRefreshPeriodMs = 100;
 constexpr int kDiagnosticsRefreshPeriodMs = 1000;
+constexpr uint32_t kImuWorkerTaskStackBytes = 8 * 1024;
+constexpr UBaseType_t kImuWorkerTaskPriority = tskIDLE_PRIORITY;
+constexpr uint32_t kImuSamplePeriodMs = 1000;
+constexpr UBaseType_t kImuSampleQueueLength = 1;
+constexpr EventBits_t kImuStopRequestedBit = BIT0;
+constexpr EventBits_t kImuCompletedBit = BIT1;
+constexpr uint32_t kGpsWorkerTaskStackBytes = 8 * 1024;
+constexpr UBaseType_t kGpsWorkerTaskPriority = tskIDLE_PRIORITY;
+constexpr uint32_t kGpsDefaultSamplePeriodMs = 1000;
+constexpr UBaseType_t kGpsSampleQueueLength = 1;
+constexpr EventBits_t kGpsStopRequestedBit = BIT0;
+constexpr EventBits_t kGpsCompletedBit = BIT1;
 constexpr uint32_t kRtcRefreshPeriodMs = 1000;
 constexpr lv_style_selector_t kSwitchCheckedIndicatorSelector =
     static_cast<lv_style_selector_t>(LV_PART_INDICATOR) |
@@ -93,6 +111,75 @@ constexpr std::array<uint32_t, 5> kScreenColorTestColors = {
 
 struct CitViewState;
 
+/**
+ * @brief IMU 后台任务发布给 UI 的不可变采样快照
+ */
+struct ImuSample {
+  hal::ImuStatus status;
+  bool valid = false;
+};
+
+static_assert(std::is_trivially_copyable<ImuSample>::value,
+    "FreeRTOS queues require byte-copyable IMU samples");
+
+/**
+ * @brief GPS 后台任务发布给 UI 的不可变状态快照
+ */
+struct GpsSample {
+  hal::GpsStatus status;
+  bool valid = false;
+};
+
+static_assert(std::is_trivially_copyable<GpsSample>::value,
+    "FreeRTOS queues require byte-copyable GPS samples");
+
+/**
+ * @brief 独立于 CIT 页面生命周期的 IMU 采集会话
+ */
+struct ImuSession {
+  ~ImuSession() {
+    if (sample_queue != nullptr) {
+      vQueueDelete(sample_queue);
+    }
+    if (events != nullptr) {
+      vEventGroupDelete(events);
+    }
+  }
+
+  hal::ImuProvider* provider = nullptr;
+  QueueHandle_t sample_queue = nullptr;
+  EventGroupHandle_t events = nullptr;
+  std::shared_ptr<ImuSession> predecessor;
+  std::atomic<bool> stop_requested{false};
+  std::atomic<bool> started{false};
+  std::atomic<bool> start_failed{false};
+  std::atomic<bool> completed{false};
+};
+
+/**
+ * @brief 独立于 CIT 页面生命周期的 GPS 采集会话
+ */
+struct GpsSession {
+  ~GpsSession() {
+    if (sample_queue != nullptr) {
+      vQueueDelete(sample_queue);
+    }
+    if (events != nullptr) {
+      vEventGroupDelete(events);
+    }
+  }
+
+  hal::GpsProvider* provider = nullptr;
+  QueueHandle_t sample_queue = nullptr;
+  EventGroupHandle_t events = nullptr;
+  std::shared_ptr<GpsSession> predecessor;
+  std::atomic<bool> stop_requested{false};
+  std::atomic<bool> started{false};
+  std::atomic<bool> start_failed{false};
+  std::atomic<bool> read_failed{false};
+  std::atomic<bool> completed{false};
+};
+
 struct CitStatusRow {
   const app::CitTestEntry* entry = nullptr;
   CitViewState* state = nullptr;
@@ -126,10 +213,16 @@ struct CitViewState {
   hal::AudioProvider* audio = nullptr;
   hal::HapticProvider* haptic = nullptr;
   hal::BatteryManagementProvider* battery_management = nullptr;
+  hal::CameraProvider* camera = nullptr;
   hal::RtcProvider* rtc = nullptr;
+  hal::RadioProvider* radio = nullptr;
   hal::ImuProvider* imu = nullptr;
   hal::EthernetProvider* ethernet = nullptr;
   hal::WifiProvider* wifi = nullptr;
+  hal::StorageProvider* storage = nullptr;
+  hal::NfcProvider* nfc = nullptr;
+  hal::InfraredProvider* infrared = nullptr;
+  hal::CellularProvider* cellular = nullptr;
   app::SystemStatusCache* system_status = nullptr;
   std::function<void(bool visible)> set_status_bar_visible;
   hal::DeviceDiagnostics diagnostics;
@@ -149,12 +242,17 @@ struct CitViewState {
   size_t screen_color_index = 0;
   bool touch_was_seen = false;
   int gps_elapsed_ms = 0;
-  int gps_read_elapsed_ms = 0;
   uint32_t gps_update_interval_ms = 1000;
   bool gps_positioned = false;
+  bool storage_was_mounted = false;
+  bool storage_mounted_by_test = false;
   int microphone_display_level = 0;
   std::array<lv_point_precise_t, kTouchTraceMaxPointCount> touch_trace_points;
   size_t touch_trace_point_count = 0;
+  std::shared_ptr<ImuSession> imu_session;
+  std::shared_ptr<ImuSession> retiring_imu_session;
+  std::shared_ptr<GpsSession> gps_session;
+  std::shared_ptr<GpsSession> retiring_gps_session;
   EdgeBackSwipeState test_edge_back_swipe = {};
   bool test_page_closing = false;
   lv_timer_t* refresh_timer = nullptr;
@@ -313,6 +411,246 @@ void HideScreenColorOverlay(CitViewState* state) {
 }
 
 /**
+ * @brief 等待上一个 IMU 会话完成，防止快速重入时旧会话关闭新会话
+ * @param session 当前 IMU 会话
+ * @return 当前会话仍应继续启动时返回 true
+ */
+bool WaitForPredecessor(const std::shared_ptr<ImuSession>& session) {
+  if (session->predecessor != nullptr &&
+      !session->predecessor->completed.load(std::memory_order_acquire)) {
+    xEventGroupWaitBits(session->predecessor->events, kImuCompletedBit,
+        pdFALSE, pdFALSE, portMAX_DELAY);
+  }
+  session->predecessor.reset();
+  return !session->stop_requested.load(std::memory_order_acquire);
+}
+
+/**
+ * @brief 在后台维护一次完整的 IMU 启动、采样和关停会话
+ * @param context 指向共享会话对象的堆内存指针
+ */
+void ImuSessionTaskEntry(void* context) {
+  auto* shared_session =
+      static_cast<std::shared_ptr<ImuSession>*>(context);
+  if (shared_session == nullptr) {
+    vTaskDelete(nullptr);
+    return;
+  }
+
+  std::shared_ptr<ImuSession> session = *shared_session;
+  delete shared_session;
+  if (session == nullptr || session->provider == nullptr ||
+      session->sample_queue == nullptr || session->events == nullptr ||
+      !WaitForPredecessor(session)) {
+    if (session != nullptr) {
+      session->completed.store(true, std::memory_order_release);
+      if (session->events != nullptr) {
+        xEventGroupSetBits(session->events, kImuCompletedBit);
+      }
+    }
+    session.reset();
+    vTaskDelete(nullptr);
+    return;
+  }
+
+  const bool started = session->provider->SetImuEnabled(true);
+  session->started.store(started, std::memory_order_release);
+  session->start_failed.store(!started, std::memory_order_release);
+  while (started &&
+         !session->stop_requested.load(std::memory_order_acquire)) {
+    ImuSample sample;
+    sample.valid = session->provider->ReadImuStatus(&sample.status);
+    xQueueOverwrite(session->sample_queue, &sample);
+    xEventGroupWaitBits(session->events, kImuStopRequestedBit, pdFALSE,
+        pdFALSE, pdMS_TO_TICKS(kImuSamplePeriodMs));
+  }
+
+  if (started) {
+    session->provider->SetImuEnabled(false);
+  }
+  session->started.store(false, std::memory_order_release);
+  session->completed.store(true, std::memory_order_release);
+  xEventGroupSetBits(session->events, kImuCompletedBit);
+  session.reset();
+  vTaskDelete(nullptr);
+}
+
+/**
+ * @brief 创建并启动独立的 IMU 采集会话
+ * @param provider IMU Provider
+ * @param predecessor 尚在关停的上一个会话
+ * @return 新会话；Provider 或任务资源不可用时会话发布启动失败状态
+ */
+std::shared_ptr<ImuSession> StartImuSession(hal::ImuProvider* provider,
+    const std::shared_ptr<ImuSession>& predecessor) {
+  auto session = std::make_shared<ImuSession>();
+  session->provider = provider;
+  session->predecessor = predecessor;
+  if (provider == nullptr) {
+    session->start_failed.store(true, std::memory_order_release);
+    session->completed.store(true, std::memory_order_release);
+    return session;
+  }
+
+  session->sample_queue =
+      xQueueCreate(kImuSampleQueueLength, sizeof(ImuSample));
+  session->events = xEventGroupCreate();
+  auto* task_context =
+      new (std::nothrow) std::shared_ptr<ImuSession>(session);
+  if (session->sample_queue != nullptr && session->events != nullptr &&
+      task_context != nullptr &&
+      xTaskCreate(ImuSessionTaskEntry, "cit_imu", kImuWorkerTaskStackBytes,
+          task_context, kImuWorkerTaskPriority, nullptr) == pdPASS) {
+    return session;
+  }
+
+  delete task_context;
+  session->start_failed.store(true, std::memory_order_release);
+  session->completed.store(true, std::memory_order_release);
+  return session;
+}
+
+/**
+ * @brief 等待上一个 GPS 会话完成，防止旧会话关闭新会话
+ * @param session 当前 GPS 会话
+ * @return 当前会话仍应继续启动时返回 true
+ */
+bool WaitForGpsPredecessor(const std::shared_ptr<GpsSession>& session) {
+  if (session->predecessor != nullptr &&
+      !session->predecessor->completed.load(std::memory_order_acquire)) {
+    xEventGroupWaitBits(session->predecessor->events, kGpsCompletedBit,
+        pdFALSE, pdFALSE, portMAX_DELAY);
+  }
+  session->predecessor.reset();
+  return !session->stop_requested.load(std::memory_order_acquire);
+}
+
+/**
+ * @brief 在后台维护一次完整的 GPS 启动、采样和关停会话
+ * @param context 指向共享会话对象的堆内存指针
+ */
+void GpsSessionTaskEntry(void* context) {
+  auto* shared_session =
+      static_cast<std::shared_ptr<GpsSession>*>(context);
+  if (shared_session == nullptr) {
+    vTaskDelete(nullptr);
+    return;
+  }
+
+  std::shared_ptr<GpsSession> session = *shared_session;
+  delete shared_session;
+  if (session == nullptr || session->provider == nullptr ||
+      session->sample_queue == nullptr || session->events == nullptr ||
+      !WaitForGpsPredecessor(session)) {
+    if (session != nullptr) {
+      session->completed.store(true, std::memory_order_release);
+      if (session->events != nullptr) {
+        xEventGroupSetBits(session->events, kGpsCompletedBit);
+      }
+    }
+    session.reset();
+    vTaskDelete(nullptr);
+    return;
+  }
+
+  const bool started = session->provider->SetGpsEnabled(true);
+  session->started.store(started, std::memory_order_release);
+  session->start_failed.store(!started, std::memory_order_release);
+  uint32_t sample_period_ms = kGpsDefaultSamplePeriodMs;
+  while (started &&
+         !session->stop_requested.load(std::memory_order_acquire)) {
+    GpsSample sample;
+    sample.valid = session->provider->ReadGpsStatus(&sample.status);
+    session->read_failed.store(!sample.valid, std::memory_order_release);
+    xQueueOverwrite(session->sample_queue, &sample);
+    if (sample.valid && sample.status.update_interval_ms > 0) {
+      sample_period_ms = std::max<uint32_t>(sample.status.update_interval_ms,
+          static_cast<uint32_t>(kCitRefreshPeriodMs));
+    }
+    xEventGroupWaitBits(session->events, kGpsStopRequestedBit, pdFALSE,
+        pdFALSE, pdMS_TO_TICKS(sample_period_ms));
+  }
+
+  if (started) {
+    session->provider->SetGpsEnabled(false);
+  }
+  session->started.store(false, std::memory_order_release);
+  session->completed.store(true, std::memory_order_release);
+  xEventGroupSetBits(session->events, kGpsCompletedBit);
+  session.reset();
+  vTaskDelete(nullptr);
+}
+
+/**
+ * @brief 创建并启动独立的 GPS 采集会话
+ * @param provider GPS Provider
+ * @param predecessor 尚在关停的上一个会话
+ * @return 新会话；Provider 或任务资源不可用时会话发布启动失败状态
+ */
+std::shared_ptr<GpsSession> StartGpsSession(hal::GpsProvider* provider,
+    const std::shared_ptr<GpsSession>& predecessor) {
+  auto session = std::make_shared<GpsSession>();
+  session->provider = provider;
+  session->predecessor = predecessor;
+  if (provider == nullptr) {
+    session->start_failed.store(true, std::memory_order_release);
+    session->completed.store(true, std::memory_order_release);
+    return session;
+  }
+
+  session->sample_queue =
+      xQueueCreate(kGpsSampleQueueLength, sizeof(GpsSample));
+  session->events = xEventGroupCreate();
+  auto* task_context =
+      new (std::nothrow) std::shared_ptr<GpsSession>(session);
+  if (session->sample_queue != nullptr && session->events != nullptr &&
+      task_context != nullptr &&
+      xTaskCreate(GpsSessionTaskEntry, "cit_gps", kGpsWorkerTaskStackBytes,
+          task_context, kGpsWorkerTaskPriority, nullptr) == pdPASS) {
+    return session;
+  }
+
+  delete task_context;
+  session->start_failed.store(true, std::memory_order_release);
+  session->completed.store(true, std::memory_order_release);
+  return session;
+}
+
+/**
+ * @brief 请求后台 IMU 会话自行关停
+ * @param state CIT 页面状态
+ */
+void StopImuTestHardware(CitViewState* state) {
+  if (state == nullptr || state->imu_session == nullptr) {
+    return;
+  }
+
+  state->imu_session->stop_requested.store(true, std::memory_order_release);
+  if (state->imu_session->events != nullptr) {
+    xEventGroupSetBits(
+        state->imu_session->events, kImuStopRequestedBit);
+  }
+  state->retiring_imu_session = std::move(state->imu_session);
+}
+
+/**
+ * @brief 请求后台 GPS 会话自行关停
+ * @param state CIT 页面状态
+ */
+void StopGpsTestHardware(CitViewState* state) {
+  if (state == nullptr || state->gps_session == nullptr) {
+    return;
+  }
+
+  state->gps_session->stop_requested.store(true, std::memory_order_release);
+  if (state->gps_session->events != nullptr) {
+    xEventGroupSetBits(
+        state->gps_session->events, kGpsStopRequestedBit);
+  }
+  state->retiring_gps_session = std::move(state->gps_session);
+}
+
+/**
  * @brief 停止当前测试页面关联的硬件任务
  * @param state CIT 页面状态
  */
@@ -326,11 +664,11 @@ void StopActiveTestHardware(CitViewState* state) {
       state->audio != nullptr) {
     state->audio->StopMicrophone();
   }
-  if (entry != nullptr && IsEntryId(*entry, "gps") && state->gps != nullptr) {
-    state->gps->SetGpsEnabled(false);
+  if (entry != nullptr && IsEntryId(*entry, "gps")) {
+    StopGpsTestHardware(state);
   }
   if (entry != nullptr && IsEntryId(*entry, "imu") && state->imu != nullptr) {
-    state->imu->SetImuEnabled(false);
+    StopImuTestHardware(state);
   }
   if (entry != nullptr && IsEntryId(*entry, "ethernet") &&
       state->ethernet != nullptr) {
@@ -339,6 +677,25 @@ void StopActiveTestHardware(CitViewState* state) {
   if (entry != nullptr && IsEntryId(*entry, "wifi") && state->wifi != nullptr) {
     state->wifi->StopWifiTimeTest();
     app::SetWifiAutoConnectPaused(false);
+  }
+  if (entry != nullptr && IsEntryId(*entry, "camera") &&
+      state->camera != nullptr) {
+    state->camera->StopCameraPreview();
+  }
+  if (entry != nullptr && IsEntryId(*entry, "storage") &&
+      state->storage != nullptr && state->storage_mounted_by_test) {
+    state->storage->UnmountSdCard();
+  }
+  if (entry != nullptr && IsEntryId(*entry, "nfc") && state->nfc != nullptr) {
+    state->nfc->SetNfcPollingEnabled(false);
+  }
+  if (entry != nullptr && IsEntryId(*entry, "infrared") &&
+      state->infrared != nullptr) {
+    state->infrared->SetInfraredReceiverEnabled(false);
+  }
+  if (entry != nullptr && IsEntryId(*entry, "cellular") &&
+      state->cellular != nullptr) {
+    state->cellular->SetCellularEnabled(false);
   }
 }
 
@@ -368,12 +725,15 @@ void ClearTestPageState(CitViewState* state) {
   state->touch_point_markers.fill(nullptr);
   state->touch_trace_point_count = 0;
   state->gps_elapsed_ms = 0;
-  state->gps_read_elapsed_ms = 0;
   state->gps_update_interval_ms = 1000;
   state->gps_status = hal::GpsStatus();
   state->gps_status_valid = false;
   state->gps_positioned = false;
+  state->storage_was_mounted = false;
+  state->storage_mounted_by_test = false;
   state->microphone_display_level = 0;
+  state->imu_session.reset();
+  state->gps_session.reset();
   state->pending_test_index = app::kMaxCitTestEntryCount;
   state->test_edge_back_swipe = EdgeBackSwipeState();
   state->test_page_closing = false;
@@ -413,51 +773,6 @@ void FinishTestPageClose(CitViewState* state) {
 void TestPageCloseCompletedCallback(lv_anim_t* animation) {
   auto* state = static_cast<CitViewState*>(lv_anim_get_user_data(animation));
   FinishTestPageClose(state);
-}
-
-/**
- * @brief 获取测试项在测试页展示的标题
- * @param entry 测试项
- * @return 字符串指针
- */
-const char* TestTitle(const app::CitTestEntry& entry) {
-  if (IsEntryId(entry, "version")) {
-    return "Version Info Test";
-  }
-  if (IsEntryId(entry, "touch")) {
-    return "Touch Test";
-  }
-  if (IsEntryId(entry, "screen")) {
-    return "Screen Color Test";
-  }
-  if (IsEntryId(entry, "vibration")) {
-    return "Vibration Test";
-  }
-  if (IsEntryId(entry, "speaker")) {
-    return "Speaker Test";
-  }
-  if (IsEntryId(entry, "microphone")) {
-    return "Microphone Test";
-  }
-  if (IsEntryId(entry, "imu")) {
-    return "IMU Test";
-  }
-  if (IsEntryId(entry, "battery_management")) {
-    return "Battery Management";
-  }
-  if (IsEntryId(entry, "gps")) {
-    return "GPS Test";
-  }
-  if (IsEntryId(entry, "ethernet")) {
-    return "Ethernet Test";
-  }
-  if (IsEntryId(entry, "rtc")) {
-    return "RTC Test";
-  }
-  if (IsEntryId(entry, "wifi")) {
-    return "WIFI Get Time Test";
-  }
-  return entry.name;
 }
 
 /**
@@ -750,28 +1065,37 @@ void RefreshGpsTestData(CitViewState* state) {
     return;
   }
 
-  if (state->gps_status_valid) {
-    state->gps_read_elapsed_ms += kCitRefreshPeriodMs;
+  const bool start_failed =
+      state->gps_session == nullptr ||
+      state->gps_session->start_failed.load(std::memory_order_acquire);
+  if (start_failed) {
+    lv_label_set_text(
+        state->test_data_label, "GPS data:\nstatus: start failed");
+    return;
+  }
+  if (!state->gps_session->started.load(std::memory_order_acquire)) {
+    lv_label_set_text(state->test_data_label, "GPS data:\nstatus: starting");
+    return;
   }
 
-  const uint32_t update_interval_ms =
-      std::max<uint32_t>(state->gps_update_interval_ms, kCitRefreshPeriodMs);
-  const bool should_read =
-      !state->gps_status_valid ||
-      state->gps_read_elapsed_ms >= static_cast<int>(update_interval_ms);
-  if (should_read) {
-    hal::GpsStatus status;
-    if (!state->gps->ReadGpsStatus(&status)) {
-      lv_label_set_text(
-          state->test_data_label, "GPS data:\nstatus: read failed");
-      return;
+  GpsSample sample;
+  if (state->gps_session->sample_queue != nullptr &&
+      xQueueReceive(state->gps_session->sample_queue, &sample, 0) == pdTRUE) {
+    state->gps_status_valid = sample.valid;
+    if (sample.valid) {
+      state->gps_status = sample.status;
+      if (sample.status.update_interval_ms > 0) {
+        state->gps_update_interval_ms = sample.status.update_interval_ms;
+      }
     }
-    state->gps_status = status;
-    state->gps_status_valid = true;
-    state->gps_read_elapsed_ms = 0;
-    if (status.update_interval_ms > 0) {
-      state->gps_update_interval_ms = status.update_interval_ms;
-    }
+  }
+  if (!state->gps_status_valid) {
+    const bool read_failed =
+        state->gps_session->read_failed.load(std::memory_order_acquire);
+    lv_label_set_text(state->test_data_label,
+        read_failed ? "GPS data:\nstatus: read failed"
+                    : "GPS data:\nstatus: waiting for module data");
+    return;
   }
 
   const hal::GpsStatus& status = state->gps_status;
@@ -1255,11 +1579,229 @@ void RefreshWifiTestData(CitViewState* state) {
 }
 
 /**
+ * @brief 获取 NFC 技术的测试页面文本
+ * @param technology NFC 技术
+ * @return 静态文本
+ */
+const char* NfcTechnologyText(hal::NfcTechnology technology) {
+  switch (technology) {
+    case hal::NfcTechnology::kTypeA:
+      return "NFC-A";
+    case hal::NfcTechnology::kTypeB:
+      return "NFC-B";
+    case hal::NfcTechnology::kTypeF:
+      return "NFC-F";
+    case hal::NfcTechnology::kTypeV:
+      return "NFC-V";
+    case hal::NfcTechnology::kSt25Tb:
+      return "ST25TB";
+    case hal::NfcTechnology::kUnknown:
+      return "unknown";
+  }
+  return "unknown";
+}
+
+/**
+ * @brief 获取蜂窝注册状态的测试页面文本
+ * @param registration 注册状态
+ * @return 静态文本
+ */
+const char* CellularRegistrationText(
+    hal::CellularRegistrationState registration) {
+  switch (registration) {
+    case hal::CellularRegistrationState::kNotRegistered:
+      return "not registered";
+    case hal::CellularRegistrationState::kRegisteredHome:
+      return "registered home";
+    case hal::CellularRegistrationState::kSearching:
+      return "searching";
+    case hal::CellularRegistrationState::kDenied:
+      return "denied";
+    case hal::CellularRegistrationState::kRegisteredRoaming:
+      return "registered roaming";
+    case hal::CellularRegistrationState::kUnknown:
+      return "unknown";
+  }
+  return "unknown";
+}
+
+/**
+ * @brief 将 NFC 标识符格式化为十六进制文本
+ * @param status NFC 状态
+ * @param output 输出缓冲区
+ * @param output_size 输出缓冲区容量
+ */
+void FormatNfcIdentifier(
+    const hal::NfcStatus& status, char* output, size_t output_size) {
+  if (output == nullptr || output_size == 0) {
+    return;
+  }
+  output[0] = '\0';
+  size_t used = 0;
+  for (size_t index = 0; index < status.identifier_length; ++index) {
+    const int written = std::snprintf(output + used, output_size - used,
+        "%s%02X", index == 0 ? "" : ":", status.identifier[index]);
+    if (written < 0 || static_cast<size_t>(written) >= output_size - used) {
+      output[output_size - 1] = '\0';
+      break;
+    }
+    used += static_cast<size_t>(written);
+  }
+}
+
+/**
+ * @brief 刷新 Air 板扩展外设测试数据
+ * @param state CIT 页面状态
+ * @param entry 当前测试项
+ */
+void RefreshAirPeripheralTestData(
+    CitViewState* state, const app::CitTestEntry& entry) {
+  if (state == nullptr || state->test_data_label == nullptr) {
+    return;
+  }
+  char text[640] = {};
+  if (IsEntryId(entry, "radio")) {
+    hal::RadioStatus radio_status;
+    hal::RadioCapabilities capabilities;
+    const bool status_valid =
+        state->radio != nullptr && state->radio->ReadRadioStatus(&radio_status);
+    const bool capabilities_valid =
+        state->radio != nullptr &&
+        state->radio->ReadRadioCapabilities(&capabilities);
+    const size_t maximum_payload =
+        capabilities_valid && capabilities.count > 0
+            ? capabilities.entries[0].maximum_payload_size
+            : 0;
+    std::snprintf(text, sizeof(text),
+        "LR1121 radio data:\nstatus: %s\nhardware: %s\n"
+        "capabilities: %u\nmaximum payload: %u bytes",
+        status_valid ? "ready" : "read failed",
+        status_valid && radio_status.hardware_ready ? "ready" : "not ready",
+        static_cast<unsigned>(capabilities.count),
+        static_cast<unsigned>(maximum_payload));
+  } else if (IsEntryId(entry, "storage")) {
+    const bool mounted =
+        state->storage != nullptr && state->storage->IsSdCardMounted();
+    const char* base_path =
+        state->storage == nullptr ? "" : state->storage->SdCardBasePath();
+    std::snprintf(text, sizeof(text),
+        "SD card data:\nstatus: %s\nmounted: %s\npath: %s",
+        state->storage == nullptr ? "provider unavailable" : "ready",
+        mounted ? "yes" : "no", base_path == nullptr ? "" : base_path);
+  } else if (IsEntryId(entry, "camera")) {
+    hal::CameraPreviewFrameInfo frame;
+    const bool frame_ready = state->camera != nullptr &&
+                             state->camera->GetCameraPreviewFrameInfo(&frame);
+    std::snprintf(text, sizeof(text),
+        "camera data:\nstatus: %s\nframe: %ux%u\n"
+        "stride: %u\nsequence: %u",
+        frame_ready ? "streaming" : "starting",
+        static_cast<unsigned>(frame.width), static_cast<unsigned>(frame.height),
+        static_cast<unsigned>(frame.stride),
+        static_cast<unsigned>(frame.sequence));
+  } else if (IsEntryId(entry, "nfc")) {
+    hal::NfcStatus nfc_status;
+    const bool status_valid =
+        state->nfc != nullptr && state->nfc->ReadNfcStatus(&nfc_status);
+    char identifier[hal::kNfcIdentifierCapacity * 3] = {};
+    FormatNfcIdentifier(nfc_status, identifier, sizeof(identifier));
+    std::snprintf(text, sizeof(text),
+        "ST25R3916 NFC data:\nstatus: %s\npolling: %s\n"
+        "card: %s\ntechnology: %s\nidentifier: %s\n"
+        "detections: %u\nerror: %d",
+        status_valid ? "ready" : "read failed",
+        nfc_status.polling ? "yes" : "no",
+        nfc_status.card_present ? "present" : "none",
+        NfcTechnologyText(nfc_status.technology),
+        identifier[0] == '\0' ? "-" : identifier,
+        static_cast<unsigned>(nfc_status.detection_count),
+        nfc_status.last_error);
+  } else if (IsEntryId(entry, "infrared")) {
+    hal::InfraredStatus infrared_status;
+    const bool status_valid =
+        state->infrared != nullptr &&
+        state->infrared->ReadInfraredStatus(&infrared_status);
+    std::snprintf(text, sizeof(text),
+        "infrared NEC data:\nstatus: %s\nreceiver: %s\n"
+        "frame: %s\naddress: 0x%02X\ncommand: 0x%02X\n"
+        "repeat: %s\nreceived: %u\ndecode errors: %u",
+        status_valid ? "ready" : "read failed",
+        infrared_status.receiver_enabled ? "enabled" : "disabled",
+        infrared_status.frame_received ? "received" : "waiting",
+        infrared_status.address, infrared_status.command,
+        infrared_status.repeat ? "yes" : "no",
+        static_cast<unsigned>(infrared_status.receive_count),
+        static_cast<unsigned>(infrared_status.decode_error_count));
+  } else if (IsEntryId(entry, "cellular")) {
+    hal::CellularStatus cellular_status;
+    const bool status_valid =
+        state->cellular != nullptr &&
+        state->cellular->ReadCellularStatus(&cellular_status);
+    std::snprintf(text, sizeof(text),
+        "nRF9151 cellular data:\nstatus: %s\npower: %s\n"
+        "network: %s\nsignal: %d dBm (CSQ %d)\n"
+        "operator: %s\nmodel: %s\nIMEI: %s\nfirmware: %s\nerror: %d",
+        status_valid ? "ready" : "read failed",
+        cellular_status.powered ? "on" : "starting",
+        CellularRegistrationText(cellular_status.registration),
+        cellular_status.rssi_dbm, cellular_status.signal_quality,
+        cellular_status.operator_name[0] == '\0'
+            ? "-"
+            : cellular_status.operator_name,
+        cellular_status.model[0] == '\0' ? "-" : cellular_status.model,
+        cellular_status.imei[0] == '\0' ? "-" : cellular_status.imei,
+        cellular_status.firmware[0] == '\0' ? "-" : cellular_status.firmware,
+        cellular_status.last_error);
+  }
+  lv_label_set_text(state->test_data_label, text);
+}
+
+/**
  * @brief 按固定周期刷新诊断数据
  * @param state CIT 页面状态
  */
 void RefreshDiagnosticsState(CitViewState* state) {
   if (state == nullptr) {
+    return;
+  }
+
+  if (state->retiring_imu_session != nullptr &&
+      state->retiring_imu_session->completed.load(
+          std::memory_order_acquire)) {
+    state->retiring_imu_session.reset();
+  }
+  if (state->retiring_gps_session != nullptr &&
+      state->retiring_gps_session->completed.load(
+          std::memory_order_acquire)) {
+    state->retiring_gps_session.reset();
+  }
+
+  if (state->test_page == nullptr || state->test_page_closing ||
+      state->current_test_index >= state->row_count) {
+    return;
+  }
+
+  const app::CitTestEntry* entry =
+      state->rows[state->current_test_index].entry;
+  if (entry == nullptr) {
+    return;
+  }
+
+  if (IsEntryId(*entry, "imu")) {
+    if (state->imu_session == nullptr ||
+        state->imu_session->sample_queue == nullptr) {
+      return;
+    }
+
+    ImuSample sample;
+    if (xQueueReceive(state->imu_session->sample_queue, &sample, 0) == pdTRUE) {
+      state->diagnostics.imu = sample.status;
+      state->diagnostics_read = sample.valid;
+    }
+    return;
+  }
+
+  if (!IsEntryId(*entry, "battery_management")) {
     return;
   }
   if (state->diagnostics_elapsed_ms < kDiagnosticsRefreshPeriodMs) {
@@ -1271,14 +1813,17 @@ void RefreshDiagnosticsState(CitViewState* state) {
   bool result = false;
   if (state->system_status != nullptr &&
       state->system_status->battery_management_status_valid()) {
-    state->diagnostics.battery_management = state->system_status->battery_management_status();
+    state->diagnostics.battery_management =
+        state->system_status->battery_management_status();
     result = true;
   }
-  if (state->imu != nullptr) {
-    result |= state->imu->ReadImuStatus(&state->diagnostics.imu);
+  if (!result && state->battery_management != nullptr) {
+    result = state->battery_management->ReadBatteryManagementStatus(
+        &state->diagnostics.battery_management);
   }
   if (!result && state->diagnostics_provider != nullptr) {
-    result = state->diagnostics_provider->ReadDeviceDiagnostics(&state->diagnostics);
+    result = state->diagnostics_provider->ReadDeviceDiagnostics(
+        &state->diagnostics);
   }
   state->diagnostics_read = result;
   state->diagnostics_elapsed_ms = 0;
@@ -1389,12 +1934,36 @@ void RefreshActiveTestData(CitViewState* state) {
     return;
   }
 
+  if (IsEntryId(*entry, "radio") || IsEntryId(*entry, "storage") ||
+      IsEntryId(*entry, "camera") || IsEntryId(*entry, "nfc") ||
+      IsEntryId(*entry, "infrared") || IsEntryId(*entry, "cellular")) {
+    RefreshAirPeripheralTestData(state, *entry);
+    return;
+  }
+
   if (IsEntryId(*entry, "imu")) {
+    const bool start_failed =
+        state->imu_session == nullptr ||
+        state->imu_session->start_failed.load(std::memory_order_acquire);
+    const bool started =
+        state->imu_session != nullptr &&
+        state->imu_session->started.load(std::memory_order_acquire);
+    if (start_failed) {
+      lv_label_set_text(state->test_data_label,
+          "imu data:\nstatus: start failed");
+      return;
+    }
+    if (!started) {
+      lv_label_set_text(state->test_data_label,
+          "imu data:\nstatus: starting");
+      return;
+    }
+
     const hal::ImuStatus& imu = state->diagnostics.imu;
     std::snprintf(text, sizeof(text),
         "imu data:\nstatus: %s\npitch: %.2f deg\nyaw: %.2f deg\n"
         "roll: %.2f deg",
-        imu.ready ? "ready" : "not ready", imu.pitch_deg, imu.yaw_deg,
+        imu.ready ? "ready" : "waiting", imu.pitch_deg, imu.yaw_deg,
         imu.roll_deg);
     lv_label_set_text(state->test_data_label, text);
     return;
@@ -1402,37 +1971,54 @@ void RefreshActiveTestData(CitViewState* state) {
 
   if (IsEntryId(*entry, "battery_management")) {
     const hal::BatteryManagementStatus& battery_management = state->diagnostics.battery_management;
-    std::snprintf(text, sizeof(text),
-        "Battery Management data:\nstatus: %s\npack: %s\ncharging: %s\n"
+    size_t used = 0;
+    AppendFormatted(text, sizeof(text), &used,
+        "battery management test data:\nstatus: %s\npack: %s\ncharging: %s\n"
         "full: %s\nempty: %s\n"
         "\n"
-        "voltage: %d mV\ncurrent: %d mA\naverage current: %d mA\n"
-        "average power: %d mW\n"
+        "voltage: %d mV\ncurrent: %d mA\n"
         "\n"
-        "charge: %d%%\nhealth: %d%%\ncycle count: %d\n"
-        "capacity:\n"
-        "     remaining: %d mAh\n"
-        "     full: %d mAh\n"
-        "     design: %d mAh\n"
-        "\n"
-        "time:\n"
-        "     empty: %d min\n"
-        "     full: %d min\n"
-        "\n"
-        "temperature:\n"
-        "     pack: %.2f C\n"
-        "     gauge: %.2f C",
+        "charge: %d%%\nhealth: %d%%\n",
         battery_management.ready ? "ready" : "not ready",
         battery_management.pack_present ? "present" : "none",
         battery_management.charging ? "yes" : "no",
         battery_management.full_charged ? "yes" : "no", battery_management.full_discharged ? "yes" : "no",
-        battery_management.voltage_mv, battery_management.current_ma, battery_management.average_current_ma,
-        battery_management.average_power_mw, battery_management.charge_percent,
-        battery_management.health_percent,
-        battery_management.cycle_count, battery_management.remaining_capacity_mah,
-        battery_management.full_charge_capacity_mah, battery_management.design_capacity_mah,
-        battery_management.time_to_empty_min, battery_management.time_to_full_min, battery_management.pack_temperature_c,
-        battery_management.gauge_temperature_c);
+        battery_management.voltage_mv, battery_management.current_ma,
+        battery_management.charge_percent, battery_management.health_percent);
+    if (battery_management.capabilities.average_measurements) {
+      AppendFormatted(text, sizeof(text), &used,
+          "average current: %d mA\naverage power: %d mW\n",
+          battery_management.average_current_ma,
+          battery_management.average_power_mw);
+    }
+    if (battery_management.capabilities.cycle_count) {
+      AppendFormatted(text, sizeof(text), &used, "cycle count: %d\n",
+          battery_management.cycle_count);
+    }
+    if (battery_management.capabilities.capacity) {
+      AppendFormatted(text, sizeof(text), &used,
+          "capacity:\n"
+          "     remaining: %d mAh\n"
+          "     full: %d mAh\n"
+          "     design: %d mAh\n",
+          battery_management.remaining_capacity_mah,
+          battery_management.full_charge_capacity_mah,
+          battery_management.design_capacity_mah);
+    }
+    if (battery_management.capabilities.remaining_time) {
+      AppendFormatted(text, sizeof(text), &used,
+          "time:\n"
+          "     empty: %d min\n"
+          "     full: %d min\n",
+          battery_management.time_to_empty_min,
+          battery_management.time_to_full_min);
+    }
+    AppendFormatted(text, sizeof(text), &used,
+        "temperature:\n"
+        "     pack: %.2f C\n"
+        "     chip: %.2f C",
+        battery_management.pack_temperature_c,
+        battery_management.chip_temperature_c);
     lv_label_set_text(state->test_data_label, text);
   }
 }
@@ -2613,27 +3199,39 @@ bool AddDiagnosticsContent(
     lv_obj_t* content, CitViewState* state, const app::CitTestEntry& entry) {
   const char* initial_text = "diagnostics data:";
   if (IsEntryId(entry, "imu")) {
-    initial_text = "imu data:";
+    initial_text = "imu data:\nstatus: starting";
   } else if (IsEntryId(entry, "battery_management")) {
-    initial_text = "Battery Management data:";
+    initial_text = "battery management test data:";
   }
 
   state->test_data_label = CreateDataLabel(content, initial_text);
   if (state->test_data_label == nullptr) {
     return false;
   }
-  if (IsEntryId(entry, "imu") &&
-      (state->imu == nullptr || !state->imu->SetImuEnabled(true))) {
-    lv_label_set_text(state->test_data_label,
-        "imu data:\nstatus: start failed");
+
+  if (IsEntryId(entry, "imu")) {
+    state->diagnostics.imu = hal::ImuStatus();
+    state->diagnostics_read = false;
+    if (state->retiring_imu_session != nullptr &&
+        state->retiring_imu_session->completed.load(
+            std::memory_order_acquire)) {
+      state->retiring_imu_session.reset();
+    }
+    state->imu_session =
+        StartImuSession(state->imu, state->retiring_imu_session);
+    if (state->imu_session == nullptr) {
+      lv_label_set_text(state->test_data_label,
+          "imu data:\nstatus: start failed");
+    }
     return true;
   }
+
   RefreshActiveTestData(state);
   return true;
 }
 
 /**
- * @brief 添加 GPS 测试内容并启动 L76K 读取
+ * @brief 添加 GPS 测试内容并启动后台采集会话
  * @param content 内容容器
  * @param state CIT 页面状态
  * @return 成功返回 true，否则返回 false
@@ -2644,22 +3242,27 @@ bool AddGpsContent(lv_obj_t* content, CitViewState* state) {
   }
 
   state->gps_elapsed_ms = 0;
-  state->gps_read_elapsed_ms = 0;
   state->gps_update_interval_ms = 1000;
   state->gps_status = hal::GpsStatus();
   state->gps_status_valid = false;
   state->gps_positioned = false;
-  state->test_data_label = CreateDataLabel(content, "GPS data:\nstatus: start");
+  state->test_data_label =
+      CreateDataLabel(content, "GPS data:\nstatus: starting");
   if (state->test_data_label == nullptr) {
     return false;
   }
 
-  if (state->gps == nullptr || !state->gps->SetGpsEnabled(true)) {
+  if (state->retiring_gps_session != nullptr &&
+      state->retiring_gps_session->completed.load(
+          std::memory_order_acquire)) {
+    state->retiring_gps_session.reset();
+  }
+  state->gps_session =
+      StartGpsSession(state->gps, state->retiring_gps_session);
+  if (state->gps_session == nullptr) {
     lv_label_set_text(
         state->test_data_label, "GPS data:\nstatus: start failed");
-    return true;
   }
-  RefreshGpsTestData(state);
   return true;
 }
 
@@ -2747,6 +3350,54 @@ bool AddRtcContent(lv_obj_t* content, CitViewState* state) {
 }
 
 /**
+ * @brief 添加 Air 板扩展外设测试内容并启动对应硬件
+ * @param content 内容容器
+ * @param state CIT 页面状态
+ * @param entry 测试项
+ * @return 页面创建成功返回 true
+ */
+bool AddAirPeripheralContent(
+    lv_obj_t* content, CitViewState* state, const app::CitTestEntry& entry) {
+  if (state == nullptr) {
+    return false;
+  }
+  state->test_data_label =
+      CreateDataLabel(content, "hardware data:\nstatus: starting");
+  if (state->test_data_label == nullptr) {
+    return false;
+  }
+
+  bool started = false;
+  if (IsEntryId(entry, "radio")) {
+    started = state->radio != nullptr;
+  } else if (IsEntryId(entry, "storage")) {
+    if (state->storage != nullptr) {
+      state->storage_was_mounted = state->storage->IsSdCardMounted();
+      started = state->storage->EnsureSdCardMounted();
+      state->storage_mounted_by_test = started && !state->storage_was_mounted;
+    }
+  } else if (IsEntryId(entry, "camera")) {
+    started = state->camera != nullptr && state->camera->StartCameraPreview();
+  } else if (IsEntryId(entry, "nfc")) {
+    started = state->nfc != nullptr && state->nfc->SetNfcPollingEnabled(true);
+  } else if (IsEntryId(entry, "infrared")) {
+    started = state->infrared != nullptr &&
+              state->infrared->SetInfraredReceiverEnabled(true);
+  } else if (IsEntryId(entry, "cellular")) {
+    started =
+        state->cellular != nullptr && state->cellular->SetCellularEnabled(true);
+  }
+
+  if (!started) {
+    lv_label_set_text(
+        state->test_data_label, "hardware data:\nstatus: start failed");
+    return true;
+  }
+  RefreshAirPeripheralTestData(state, entry);
+  return true;
+}
+
+/**
  * @brief 添加普通数据展示类测试内容
  * @param content 内容容器
  * @param entry 测试项
@@ -2798,6 +3449,11 @@ bool PopulateTestContent(
   }
   if (IsEntryId(entry, "imu") || IsEntryId(entry, "battery_management")) {
     return AddDiagnosticsContent(content, state, entry);
+  }
+  if (IsEntryId(entry, "radio") || IsEntryId(entry, "storage") ||
+      IsEntryId(entry, "camera") || IsEntryId(entry, "nfc") ||
+      IsEntryId(entry, "infrared") || IsEntryId(entry, "cellular")) {
+    return AddAirPeripheralContent(content, state, entry);
   }
   return AddPlainDataContent(content, entry);
 }
@@ -2868,13 +3524,15 @@ bool ShowCitTest(CitViewState* state, size_t index) {
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
 
+  const int title_width = state->width - 2 * kTitleLeft;
   lv_obj_t* title = CreateLabel(
-      page, TestTitle(*row.entry), lv_color_hex(kCitTitleColor), Font48());
+      page, row.entry->name, lv_color_hex(kCitTitleColor), Font48());
   if (title == nullptr) {
     DeleteTestPage(state);
     return false;
   }
-  lv_obj_set_size(title, state->width - 2 * kTitleLeft, 70);
+  lv_obj_set_size(title, title_width, 70);
+  lv_label_set_long_mode(title, LV_LABEL_LONG_SCROLL_CIRCULAR);
   lv_obj_align(title, LV_ALIGN_TOP_LEFT, kTitleLeft, kTitleTop);
 
   lv_obj_t* content = lv_obj_create(page);
@@ -3000,7 +3658,7 @@ lv_obj_t* CreateStatusRow(
   }
 
   lv_obj_t* name_label =
-      CreateLabel(row, TestTitle(entry), GetStatusColor(status), Font32());
+      CreateLabel(row, entry.name, GetStatusColor(status), Font32());
   if (name_label == nullptr) {
     lv_obj_delete(row);
     return nullptr;
@@ -3076,10 +3734,16 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
   state->audio = config.audio;
   state->haptic = config.haptic;
   state->battery_management = config.battery_management;
+  state->camera = config.camera;
   state->rtc = config.rtc;
+  state->radio = config.radio;
   state->imu = config.imu;
   state->ethernet = config.ethernet;
   state->wifi = config.wifi;
+  state->storage = config.storage;
+  state->nfc = config.nfc;
+  state->infrared = config.infrared;
+  state->cellular = config.cellular;
   state->system_status = config.system_status;
   state->set_status_bar_visible = config.set_status_bar_visible;
   state->root = container;

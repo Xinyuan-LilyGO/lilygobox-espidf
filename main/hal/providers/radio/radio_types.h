@@ -2,7 +2,7 @@
  * @Description: Radio Provider 芯片与协议公共类型
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
- * @LastEditTime: 2026-07-19 01:30:46
+ * @LastEditTime: 2026-07-30 18:00:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -14,6 +14,7 @@ namespace lilygo_box::radio {
 enum class ChipType : uint8_t {
   kUnknown = 0,
   kSx1262 = 1,
+  kLr1121 = 2,
 };
 
 enum class ProtocolType : uint8_t {

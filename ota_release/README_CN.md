@@ -190,7 +190,8 @@ Manifest，不依赖 GitHub `latest`，所以 Alpha 和 Beta 也能可靠发现�
 ```text
 ota_release/
 ├─ devices/
-│  └─ t-display-p4.json
+│  ├─ t-display-p4.json
+│  └─ t-display-p4-air.json
 ├─ input/                           用户提供，Git 忽略
 ├─ output/                          自动生成，Git 忽略
 ├─ generate_manifest.py
@@ -209,6 +210,8 @@ output/<deviceId>/<channel>/<Release tag>/
 ## 使用方法
 
 以下命令在 `lilygobox-espidf/ota_release` 目录运行，并均为单行命令。
+生成器默认使用 `devices/t-display-p4.json`。为 T-Display-P4-Air 生成时，
+需要在命令中增加 `--config .\devices\t-display-p4-air.json`。
 
 项目默认 `PROJECT_VER` 为 `1.0.0`。构建预发布固件时应通过 CMake
 缓存参数提供与频道一致的内嵌版本，例如：
@@ -233,6 +236,12 @@ idf.py -DPROJECT_VER=1.1.0-beta.1 build
 
 ```bat
 python .\generate_manifest.py --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\network_adapter.bin" --note "Initial LilygoBox firmware release"
+```
+
+T-Display-P4-Air 使用独立设备 ID 和 ESP32-C5 Wireless 固件：
+
+```bat
+python .\generate_manifest.py --config .\devices\t-display-p4-air.json --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c5-rev0.0=.\input\network_adapter.bin" --note "Initial T-Display-P4-Air firmware release"
 ```
 
 ### 只更新主固件
@@ -266,11 +275,12 @@ python .\generate_manifest.py --channel beta --firmware-file "device-v1.0-esp32p
 
 后续 Alpha 或 Beta 版本使用本频道上一版 Manifest 继承未更新文件。生成器
 会拒绝 `stable + -beta.N`、`beta + 无后缀` 等频道与版本不一致的组合。
-三个频道共用同一个 `devices/t-display-p4.json`，不复制硬件配置。
+每个设备使用一份由三个频道共用的硬件配置文件。
 
 ### 增加硬件或芯片版本
 
-只需修改 `devices/t-display-p4.json`：
+只需修改 `devices/` 下对应设备的配置，例如 `t-display-p4.json` 或
+`t-display-p4-air.json`：
 
 1. 在 `files` 增加新固件文件 ID 及可信 `chip`、`projectName`。
 2. 在 `targets` 增加新的 `deviceVersion` 和完整芯片 `revision` 组合。

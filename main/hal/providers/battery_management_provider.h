@@ -9,8 +9,22 @@
 
 namespace lilygo_box::hal {
 
+// 电池管理芯片功能支持情况。
+struct BatteryManagementCapabilities {
+  // 是否支持平均电流和平均功率。
+  bool average_measurements = false;
+  // 是否支持容量数据。
+  bool capacity = false;
+  // 是否支持读取剩余充放电时间。
+  bool remaining_time = false;
+  // 是否支持循环次数。
+  bool cycle_count = false;
+};
+
 // 电池管理芯片读取到的电池包、容量、电流和温度状态。
 struct BatteryManagementStatus {
+  // 电池管理功能支持情况。
+  BatteryManagementCapabilities capabilities;
   // 电池管理功能是否已经初始化并可读取。
   bool ready = false;
   // 是否检测到电池包。
@@ -47,8 +61,8 @@ struct BatteryManagementStatus {
   int cycle_count = 0;
   // 电池包温度，单位为摄氏度。
   float pack_temperature_c = 0.0F;
-  // 电量计芯片温度，单位为摄氏度。
-  float gauge_temperature_c = 0.0F;
+  // 电池管理芯片温度，单位为摄氏度。
+  float chip_temperature_c = 0.0F;
 };
 
 class BatteryManagementProvider {

@@ -132,13 +132,23 @@ void FormatBatterySummary(
   }
 
   if (status.charging) {
-    std::snprintf(buffer, buffer_size,
-        "Charging time estimate | Battery %d%%", status.charge_percent);
+    if (status.capabilities.remaining_time) {
+      std::snprintf(buffer, buffer_size,
+          "Charging time estimate | Battery %d%%", status.charge_percent);
+    } else {
+      std::snprintf(
+          buffer, buffer_size, "Charging | Battery %d%%", status.charge_percent);
+    }
     return;
   }
 
-  std::snprintf(buffer, buffer_size, "Available time | Battery %d%%",
-      status.charge_percent);
+  if (status.capabilities.remaining_time) {
+    std::snprintf(buffer, buffer_size, "Available time | Battery %d%%",
+        status.charge_percent);
+  } else {
+    std::snprintf(
+        buffer, buffer_size, "Battery %d%%", status.charge_percent);
+  }
 }
 
 /**
@@ -177,9 +187,17 @@ void UpdateBatteryOverview(
       lv_color_hex(BatteryOverviewFillColor(percent, status.charging)),
       LV_PART_MAIN);
 
-  char time_text[32] = {};
-  FormatDuration(BatteryEstimateMinutes(status), time_text, sizeof(time_text));
-  lv_label_set_text(state->battery_overview_time_label, time_text);
+  if (status.capabilities.remaining_time) {
+    char time_text[32] = {};
+    FormatDuration(
+        BatteryEstimateMinutes(status), time_text, sizeof(time_text));
+    lv_label_set_text(state->battery_overview_time_label, time_text);
+    lv_obj_clear_flag(
+        state->battery_overview_time_label, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_label_set_text(state->battery_overview_time_label, "");
+    lv_obj_add_flag(state->battery_overview_time_label, LV_OBJ_FLAG_HIDDEN);
+  }
 
   char summary[80] = {};
   FormatBatterySummary(status, summary, sizeof(summary));
@@ -215,7 +233,8 @@ void UpdateBatteryProtection(
     std::snprintf(health, sizeof(health), "%d%%", status.health_percent);
     lv_label_set_text(state->battery_health_value_label, health);
   }
-  if (state->battery_cycle_value_label != nullptr) {
+  if (state->battery_cycle_value_label != nullptr &&
+      status.capabilities.cycle_count) {
     char cycles[24] = {};
     std::snprintf(cycles, sizeof(cycles), "%d", status.cycle_count);
     lv_label_set_text(state->battery_cycle_value_label, cycles);
@@ -340,9 +359,7 @@ bool BuildBatteryProtectionPage(lv_obj_t* body, SettingsViewState* state) {
   }
 
   char health[24] = {};
-  char cycles[24] = {};
   std::snprintf(health, sizeof(health), "%d%%", status.health_percent);
-  std::snprintf(cycles, sizeof(cycles), "%d", status.cycle_count);
 
   const int width = state->config.width;
   int y = 0;
@@ -354,7 +371,12 @@ bool BuildBatteryProtectionPage(lv_obj_t* body, SettingsViewState* state) {
           &state->battery_health_value_label)) {
     return false;
   }
+  if (!status.capabilities.cycle_count) {
+    return true;
+  }
   y += kBasicRowHeight;
+  char cycles[24] = {};
+  std::snprintf(cycles, sizeof(cycles), "%d", status.cycle_count);
   return CreateBatteryInfoRow(body, "Charge cycles", cycles, y, width, state,
       &state->battery_cycle_value_label);
 }
