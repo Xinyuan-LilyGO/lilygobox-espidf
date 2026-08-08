@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 46 px
  * Bpp: 4
- * Opts: --no-compress --no-prefilter --bpp 4 --size 46 --font D:\github\T-Display-P4_debug_2\apps\lilygobox-espidf\assets\icon\material_symbols\MaterialSymbolsRounded.ttf -r 62221 --format lvgl --lv-include lvgl.h --lv-font-name lvgl_font_material_symbols_outline_w200_46 -o D:\github\T-Display-P4_debug_2\apps\lilygobox-espidf\main\ui\resources\fonts\icons\lvgl_font_material_rounded_outline_w200_46.c
+ * Opts: --no-compress --no-prefilter --bpp 4 --size 46 --font assets/icon/material_symbols/MaterialSymbolsRounded.ttf -r 62221 --format lvgl --lv-include lvgl.h --lv-font-name lvgl_font_material_symbols_outline_w200_46 -o main/ui/resources/fonts/icons/lvgl_font_material_rounded_outline_w200_46.c
  * Variation axes: FILL=0, GRAD=0, opsz=24, wght=200
  ******************************************************************************/
 

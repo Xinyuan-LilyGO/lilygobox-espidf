@@ -205,8 +205,8 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ReadMicrophoneStatus(MicrophoneStatus* status) override;
 
   /**
-   * @brief 启动摄像头预览并直接写入屏幕
-   * @return 启动成功返回 true，否则返回 false
+   * @brief 在后台启动摄像头预览并更新内部帧缓冲区
+   * @return 启动请求成功提交返回 true，否则返回 false
    */
   bool StartCameraPreview() override;
 
@@ -505,6 +505,12 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ExitDeviceSleep(bool deep_sleep = false) override;
 
  private:
+  enum class CameraStartupAttemptResult : uint8_t {
+    kSuccess,
+    kStop,
+    kPowerCycle,
+  };
+
   static constexpr int kScreenReadyTimeoutMs = 5000;
   static constexpr int kScreenReadyPollMs = 20;
   static constexpr int kPowerOffTaskTimeoutMs = 5000;
@@ -619,10 +625,25 @@ class TDisplayP4Device final : public ScreenProvider,
   void RunCameraPreviewTask();
 
   /**
-   * @brief 初始化 ESP-IDF camera video 设备
+   * @brief 在共享启动超时内等待摄像头传感器在 SCCB/I2C 总线上响应
+   * @param startup_tick 摄像头启动流程开始时的系统节拍
+   * @return 传感器在超时前就绪返回 true，否则返回 false
+   */
+  bool WaitForCameraSensorReady(TickType_t startup_tick);
+
+  /**
+   * @brief 在共享总超时内初始化 ESP-IDF camera video 设备
    * @return 初始化成功返回 true，否则返回 false
    */
   bool InitializeCameraPreview();
+
+  /**
+   * @brief 执行一次完整的摄像头上电和预览初始化
+   * @param startup_tick 摄像头启动流程开始时的系统节拍
+   * @return 本次初始化结果和失败恢复策略
+   */
+  CameraStartupAttemptResult InitializeCameraPreviewAttempt(
+      TickType_t startup_tick);
 
   /**
    * @brief 关闭 camera video 设备并释放缓冲区
@@ -898,6 +919,8 @@ class TDisplayP4Device final : public ScreenProvider,
   struct CameraPreviewState {
     // ESP Video 的 video0 和 video20 是否已经完成一次性初始化
     std::atomic<bool> video_system_initialized{false};
+    // 总超时状态机仍在后台尝试时隐藏中间错误，避免 UI 提前结束加载状态
+    std::atomic<bool> startup_in_progress{false};
     std::atomic<CameraError> error{CameraError::kNone};
     // 组件会长期保存该地址，用于摄像头重新上电后恢复传感器格式
     esp_cam_sensor_format_t sensor_format{};

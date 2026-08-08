@@ -29,7 +29,7 @@ class CameraProvider {
 
   /**
    * @brief 启动摄像头预览并更新内部帧缓冲区
-   * @return 启动成功返回 true，否则返回 false
+   * @return 启动请求成功提交返回 true，否则返回 false
    */
   virtual bool StartCameraPreview() = 0;
 

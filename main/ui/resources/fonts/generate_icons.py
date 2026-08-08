@@ -85,11 +85,15 @@ def normalize_generated_file(
     output_path: Path,
     conversion_source: Path,
     source_path: Path,
+    app_root: Path,
     variation_axes: dict[str, int] | None,
 ) -> None:
     """统一生成文件编码、来源注释和文件末尾空行。"""
     content = output_path.read_text(encoding="utf-8")
-    content = content.replace(str(conversion_source), str(source_path))
+    relative_source = source_path.relative_to(app_root).as_posix()
+    relative_output = output_path.relative_to(app_root).as_posix()
+    content = content.replace(str(conversion_source), relative_source)
+    content = content.replace(str(output_path), relative_output)
     if variation_axes:
         axes_text = ", ".join(
             f"{name}={value}" for name, value in variation_axes.items()
@@ -187,6 +191,7 @@ def generate_font(
         output_path,
         conversion_source,
         source_path,
+        app_root,
         variation_axes,
     )
     print(f"已生成 {font['output']}")

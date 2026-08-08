@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 22 px
  * Bpp: 4
- * Opts: --no-compress --no-prefilter --bpp 4 --size 22 --font D:\github\T-Display-P4_debug_2\apps\lilygobox-espidf\assets\icon\material_symbols\MaterialSymbolsRoundedFill.ttf -r 59915 --format lvgl --lv-include lvgl.h --lv-font-name lvgl_font_material_symbols_fill_22 -o D:\github\T-Display-P4_debug_2\apps\lilygobox-espidf\main\ui\resources\fonts\icons\lvgl_font_material_rounded_fill_22.c
+ * Opts: --no-compress --no-prefilter --bpp 4 --size 22 --font assets/icon/material_symbols/MaterialSymbolsRoundedFill.ttf -r 59915 --format lvgl --lv-include lvgl.h --lv-font-name lvgl_font_material_symbols_fill_22 -o main/ui/resources/fonts/icons/lvgl_font_material_rounded_fill_22.c
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE

@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 56 px
  * Bpp: 4
- * Opts: --no-compress --no-prefilter --bpp 4 --size 56 --font D:\github\T-Display-P4\apps\lilygobox-espidf\assets\icon\material_symbols\MaterialSymbolsRounded.ttf -r 57408,57409,57411,57424,57669,57767,57786,57819,58055,58056,58131,58134,58146,58356,58729,58819,58820,58826,58828,58829,58834,58837,58989,59418,59500,59528,59534,59545,59576,59667,59694,59826,59915,60346,60374,60385,60388,61523,61541,61571,62210,62212,62221,63687 --format lvgl --lv-include lvgl.h --lv-font-name lvgl_font_material_symbols_outline_56 -o main/ui/resources/fonts/icons/lvgl_font_material_rounded_outline_56.c
+ * Opts: --no-compress --no-prefilter --bpp 4 --size 56 --font assets/icon/material_symbols/MaterialSymbolsRounded.ttf -r 57408,57409,57411,57424,57669,57767,57786,57819,58055,58056,58131,58134,58146,58356,58729,58819,58820,58826,58828,58829,58834,58837,58989,59418,59500,59528,59534,59545,59576,59667,59694,59826,59915,60346,60374,60385,60388,61523,61541,61571,62210,62212,62221,63687 --format lvgl --lv-include lvgl.h --lv-font-name lvgl_font_material_symbols_outline_56 -o main/ui/resources/fonts/icons/lvgl_font_material_rounded_outline_56.c
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE

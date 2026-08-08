@@ -1692,10 +1692,21 @@ void RefreshAirPeripheralTestData(
     hal::CameraPreviewFrameInfo frame;
     const bool frame_ready = state->camera != nullptr &&
                              state->camera->GetCameraPreviewFrameInfo(&frame);
+    const CameraError camera_error =
+        state->camera == nullptr ? CameraError::kProviderUnavailable
+                                 : state->camera->GetCameraPreviewError();
+    const DiagnosticError diagnostic_error =
+        GetCameraDiagnosticError(camera_error);
+    const char* status = frame_ready
+                             ? "streaming"
+                             : (camera_error == CameraError::kNone
+                                       ? "starting"
+                                       : "start failed");
     std::snprintf(text, sizeof(text),
-        "camera data:\nstatus: %s\nframe: %ux%u\n"
+        "camera data:\nstatus: %s\nerror: %s\nframe: %ux%u\n"
         "stride: %u\nsequence: %u",
-        frame_ready ? "streaming" : "starting",
+        status,
+        camera_error == CameraError::kNone ? "-" : diagnostic_error.code,
         static_cast<unsigned>(frame.width), static_cast<unsigned>(frame.height),
         static_cast<unsigned>(frame.stride),
         static_cast<unsigned>(frame.sequence));

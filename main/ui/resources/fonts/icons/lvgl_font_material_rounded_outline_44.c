@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 44 px
  * Bpp: 4
- * Opts: --no-compress --no-prefilter --bpp 4 --size 44 --font D:\github\T-Display-P4_debug_2\apps\lilygobox-espidf\assets\icon\material_symbols\MaterialSymbolsRounded.ttf -r 57669,58729,58820,58826,58828,58829 --format lvgl --lv-include lvgl.h --lv-font-name lvgl_font_material_symbols_outline_44 -o D:\github\T-Display-P4_debug_2\apps\lilygobox-espidf\main\ui\resources\fonts\icons\lvgl_font_material_rounded_outline_44.c
+ * Opts: --no-compress --no-prefilter --bpp 4 --size 44 --font assets/icon/material_symbols/MaterialSymbolsRounded.ttf -r 57669,58729,58820,58826,58828,58829 --format lvgl --lv-include lvgl.h --lv-font-name lvgl_font_material_symbols_outline_44 -o main/ui/resources/fonts/icons/lvgl_font_material_rounded_outline_44.c
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE

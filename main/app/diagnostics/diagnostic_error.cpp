@@ -22,9 +22,9 @@ DiagnosticError GetCameraDiagnosticError(CameraError error) {
     case CameraError::kVideoInitFailed:
       return {"CAM-E03", "Video subsystem initialization failed"};
     case CameraError::kSensorNotDetected:
-      return {"CAM-E04", "Camera sensor was not detected"};
+      return {"CAM-E04", "Camera sensor did not respond on SCCB/I2C"};
     case CameraError::kVideoDeviceOpenFailed:
-      return {"CAM-E05", "Camera device could not be opened"};
+      return {"CAM-E05", "Camera video device is unavailable"};
     case CameraError::kSensorRestoreFailed:
       return {"CAM-E06", "Camera sensor configuration failed"};
     case CameraError::kFormatConfigurationFailed:
