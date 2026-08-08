@@ -1496,31 +1496,7 @@ bool TDisplayP4Device::PlaySpeakerTone(size_t* bytes_written) {
 
 bool TDisplayP4Device::StartSpeakerTone() {
   if (speaker_.running.load()) {
-    if (speaker_.playback_kind.load() !=
-            SpeakerState::PlaybackKind::kAudioFile ||
-        speaker_.file_state.load() != AudioFilePlaybackState::kPaused) {
-      return false;
-    }
-
-    bool expected = false;
-    if (!speaker_.tone_overlay_running.compare_exchange_strong(
-            expected, true)) {
-      return false;
-    }
-    speaker_.completed.store(false);
-    speaker_.success.store(false);
-    speaker_.bytes_written.store(0);
-    speaker_.total_bytes.store(sizeof(c2_b16_s44100));
-
-    const BaseType_t result = xTaskCreate(PausedAudioSpeakerToneTaskEntry,
-        "speaker_overlay", kSpeakerPlaybackTaskStackBytes, this,
-        kSpeakerPlaybackTaskPriority, nullptr);
-    if (result != pdPASS) {
-      speaker_.tone_overlay_running.store(false);
-      speaker_.completed.store(true);
-      return false;
-    }
-    return true;
+    return StartPausedAudioSpeakerTone(false);
   }
 
   bool expected = false;
@@ -1551,9 +1527,15 @@ bool TDisplayP4Device::StartSpeakerTone() {
 }
 
 bool TDisplayP4Device::StartSpeakerToneLoop() {
+  if (speaker_.tone_overlay_running.load()) {
+    return speaker_.tone_overlay_loop_enabled.load();
+  }
   if (speaker_.running.load()) {
-    return speaker_.playback_kind.load() ==
-           SpeakerState::PlaybackKind::kToneLoop;
+    if (speaker_.playback_kind.load() ==
+        SpeakerState::PlaybackKind::kToneLoop) {
+      return true;
+    }
+    return StartPausedAudioSpeakerTone(true);
   }
   speaker_.loop_enabled.store(true);
   speaker_.stop_requested.store(false);
@@ -1586,6 +1568,12 @@ bool TDisplayP4Device::StartSpeakerToneLoop() {
 }
 
 bool TDisplayP4Device::StopSpeakerToneLoop() {
+  if (speaker_.tone_overlay_running.load() &&
+      speaker_.tone_overlay_loop_enabled.load()) {
+    speaker_.tone_overlay_stop_requested.store(true);
+    speaker_.tone_overlay_loop_enabled.store(false);
+    return true;
+  }
   if (speaker_.playback_kind.load() !=
       SpeakerState::PlaybackKind::kToneLoop) {
     return false;
@@ -1795,6 +1783,36 @@ void TDisplayP4Device::RunSpeakerPlaybackTask() {
   UpdateAudioCodecOperatingMode();
 }
 
+bool TDisplayP4Device::StartPausedAudioSpeakerTone(bool loop_enabled) {
+  if (speaker_.playback_kind.load() !=
+          SpeakerState::PlaybackKind::kAudioFile ||
+      speaker_.file_state.load() != AudioFilePlaybackState::kPaused) {
+    return false;
+  }
+
+  bool expected = false;
+  if (!speaker_.tone_overlay_running.compare_exchange_strong(expected, true)) {
+    return false;
+  }
+  speaker_.tone_overlay_loop_enabled.store(loop_enabled);
+  speaker_.tone_overlay_stop_requested.store(false);
+  speaker_.completed.store(false);
+  speaker_.success.store(false);
+  speaker_.bytes_written.store(0);
+  speaker_.total_bytes.store(sizeof(c2_b16_s44100));
+
+  const BaseType_t result = xTaskCreate(PausedAudioSpeakerToneTaskEntry,
+      "speaker_overlay", kSpeakerPlaybackTaskStackBytes, this,
+      kSpeakerPlaybackTaskPriority, nullptr);
+  if (result != pdPASS) {
+    speaker_.tone_overlay_loop_enabled.store(false);
+    speaker_.tone_overlay_running.store(false);
+    speaker_.completed.store(true);
+    return false;
+  }
+  return true;
+}
+
 void TDisplayP4Device::RunPausedAudioSpeakerToneTask() {
   bool pause_ready = false;
   for (uint32_t elapsed_ms = 0; elapsed_ms < kPausedAudioReadyTimeoutMs;
@@ -1810,15 +1828,28 @@ void TDisplayP4Device::RunPausedAudioSpeakerToneTask() {
   }
 
   const uint32_t paused_sample_rate_hz = speaker_.sample_rate_hz.load();
-  size_t bytes_written = 0;
-  const bool played = pause_ready && PlaySpeakerTone(&bytes_written);
+  size_t total_bytes_written = 0;
+  bool played = false;
+  if (pause_ready && !speaker_.tone_overlay_stop_requested.load() &&
+      !speaker_.stop_requested.load()) {
+    do {
+      size_t bytes_written = 0;
+      played = PlaySpeakerTone(&bytes_written) || played;
+      total_bytes_written += bytes_written;
+      speaker_.bytes_written.store(total_bytes_written);
+    } while (speaker_.tone_overlay_loop_enabled.load() &&
+             !speaker_.tone_overlay_stop_requested.load() &&
+             !speaker_.stop_requested.load());
+  }
   const bool output_restored =
       !pause_ready || Configure(paused_sample_rate_hz,
                           kSpeakerPlaybackChannelCount,
                           kSpeakerPlaybackBitsPerSample);
-  speaker_.bytes_written.store(bytes_written);
+  speaker_.bytes_written.store(total_bytes_written);
   speaker_.success.store(played && output_restored);
   speaker_.completed.store(true);
+  speaker_.tone_overlay_loop_enabled.store(false);
+  speaker_.tone_overlay_stop_requested.store(false);
   speaker_.tone_overlay_running.store(false);
   if (speaker_.stop_requested.load()) {
     speaker_.paused.store(false);

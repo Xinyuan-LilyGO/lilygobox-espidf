@@ -558,7 +558,14 @@ class TDisplayP4Device final : public ScreenProvider,
   void RunSpeakerPlaybackTask();
 
   /**
-   * @brief 在不终止暂停 MP3 任务的情况下播放一次扬声器测试音
+   * @brief 在暂停的 MP3 上方启动独立扬声器测试音
+   * @param loop_enabled 是否持续循环播放
+   * @return 后台测试音任务创建成功返回 true，否则返回 false
+   */
+  bool StartPausedAudioSpeakerTone(bool loop_enabled);
+
+  /**
+   * @brief 在不终止暂停 MP3 任务的情况下播放扬声器测试音
    */
   void RunPausedAudioSpeakerToneTask();
 
@@ -869,6 +876,10 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<bool> pause_acknowledged{false};
     // 暂停音乐上方的独立扬声器测试音是否正在播放
     std::atomic<bool> tone_overlay_running{false};
+    // 独立扬声器测试音是否持续循环播放
+    std::atomic<bool> tone_overlay_loop_enabled{false};
+    // 是否请求停止独立扬声器测试音
+    std::atomic<bool> tone_overlay_stop_requested{false};
     // MP3 文件播放状态
     std::atomic<AudioFilePlaybackState> file_state{
         AudioFilePlaybackState::kStopped};
