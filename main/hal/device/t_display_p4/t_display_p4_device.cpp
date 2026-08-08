@@ -1566,8 +1566,7 @@ bool TDisplayP4Device::StopSpeakerToneLoop() {
 }
 
 bool TDisplayP4Device::SetSpeakerVolumePercent(int percent) {
-  if (!driver_.IsEs8311Ready() &&
-      (!driver_.InitEs8311() || !driver_.ConfigEs8311())) {
+  if (!driver_.IsEs8311Ready() && !driver_.InitEs8311()) {
     LogMessage(
         LogLevel::kWarning, __FILE__, __LINE__, "Es8311 init failed\n");
     return false;
@@ -1575,7 +1574,7 @@ bool TDisplayP4Device::SetSpeakerVolumePercent(int percent) {
 
   const uint8_t volume = PercentToUint8Value(percent, kAudioVolumeMax);
   const bool result = driver_.chip().es8311->SetDacVolume(volume);
-  UpdateAudioCodecPowerState();
+  UpdateAudioCodecOperatingMode();
   return result;
 }
 
@@ -1727,7 +1726,7 @@ void TDisplayP4Device::RunSpeakerPlaybackTask() {
                                             : AudioFilePlaybackState::kError));
     speaker_.playback_kind.store(SpeakerState::PlaybackKind::kNone);
     speaker_.running.store(false);
-    UpdateAudioCodecPowerState();
+    UpdateAudioCodecOperatingMode();
     return;
   }
 
@@ -1746,25 +1745,25 @@ void TDisplayP4Device::RunSpeakerPlaybackTask() {
   speaker_.stop_requested.store(false);
   speaker_.playback_kind.store(SpeakerState::PlaybackKind::kNone);
   speaker_.running.store(false);
-  UpdateAudioCodecPowerState();
+  UpdateAudioCodecOperatingMode();
 }
 
-bool TDisplayP4Device::UpdateAudioCodecPowerState() {
-  using AudioPowerState =
-      lilygo_device_driver::TDisplayP4Driver::Es8311PowerState;
+bool TDisplayP4Device::UpdateAudioCodecOperatingMode() {
+  using OperatingMode =
+      lilygo_device_driver::TDisplayP4Driver::Es8311OperatingMode;
   const bool playback_active = speaker_.running.load();
   const bool capture_active = microphone_.running.load();
-  AudioPowerState state = AudioPowerState::kSleep;
+  OperatingMode mode = OperatingMode::kSleep;
   if (playback_active && capture_active) {
-    state = AudioPowerState::kDuplex;
+    mode = OperatingMode::kDuplex;
   } else if (playback_active) {
-    state = AudioPowerState::kPlayback;
+    mode = OperatingMode::kPlayback;
   } else if (capture_active) {
-    state = microphone_.adc_to_dac_enabled.load()
-                ? AudioPowerState::kDuplex
-                : AudioPowerState::kCapture;
+    mode = microphone_.adc_to_dac_enabled.load()
+               ? OperatingMode::kDuplex
+               : OperatingMode::kCapture;
   }
-  return driver_.SetEs8311PowerState(state);
+  return driver_.SetEs8311OperatingMode(mode);
 }
 
 bool TDisplayP4Device::Configure(uint32_t sample_rate_hz,
@@ -1774,7 +1773,7 @@ bool TDisplayP4Device::Configure(uint32_t sample_rate_hz,
     return false;
   }
   const bool codec_was_ready = driver_.IsEs8311Ready();
-  if (!UpdateAudioCodecPowerState()) {
+  if (!UpdateAudioCodecOperatingMode()) {
     return false;
   }
   if (codec_was_ready && speaker_.sample_rate_hz.load() == sample_rate_hz) {
@@ -1876,7 +1875,7 @@ void TDisplayP4Device::RunHapticPlaybackTask() {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Aw86224 ConfigureRamPlaybackWaveform failed, sequence=%u\n",
           static_cast<unsigned int>(sequence));
-      driver_.chip().aw86224->StopRamPlaybackWaveform();
+      driver_.SetAw86224Standby();
       haptic_.running.store(false);
       return;
     }
@@ -1900,16 +1899,16 @@ void TDisplayP4Device::RunHapticPlaybackTask() {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Aw86224 StartRamPlaybackWaveform failed, sequence=%u\n",
         static_cast<unsigned int>(sequence));
-    driver_.chip().aw86224->StopRamPlaybackWaveform();
+    driver_.SetAw86224Standby();
     haptic_.running.store(false);
     return;
   }
 
   vTaskDelay(pdMS_TO_TICKS(kVibrationPreviewPlayMs));
 
-  if (!driver_.chip().aw86224->StopRamPlaybackWaveform()) {
+  if (!driver_.SetAw86224Standby()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Aw86224 StopRamPlaybackWaveform failed, sequence=%u\n",
+        "Aw86224 standby failed, sequence=%u\n",
         static_cast<unsigned int>(sequence));
   }
 
@@ -1928,9 +1927,9 @@ bool TDisplayP4Device::StartMicrophone() {
   microphone_.bytes_read.store(0);
   if (!SetAudioAdcToDac(false)) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Failed to power the ES8311 microphone capture path\n");
+        "Failed to activate the ES8311 microphone capture path\n");
     microphone_.running.store(false);
-    UpdateAudioCodecPowerState();
+    UpdateAudioCodecOperatingMode();
     return false;
   }
 
@@ -1940,7 +1939,7 @@ bool TDisplayP4Device::StartMicrophone() {
   if (result != pdPASS) {
     microphone_.running.store(false);
     microphone_.stop_requested.store(true);
-    UpdateAudioCodecPowerState();
+    UpdateAudioCodecOperatingMode();
     return false;
   }
 
@@ -1965,9 +1964,9 @@ bool TDisplayP4Device::SetAudioAdcToDac(bool enable) {
   }
 
   const bool previous_enabled = microphone_.adc_to_dac_enabled.exchange(enable);
-  if (!UpdateAudioCodecPowerState() || !driver_.IsEs8311Ready()) {
+  if (!UpdateAudioCodecOperatingMode() || !driver_.IsEs8311Ready()) {
     microphone_.adc_to_dac_enabled.store(previous_enabled);
-    UpdateAudioCodecPowerState();
+    UpdateAudioCodecOperatingMode();
     return false;
   }
 
@@ -2955,7 +2954,7 @@ void TDisplayP4Device::RunMicrophoneCaptureTask() {
             LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
                 "ES8311 microphone PCM loopback write failed\n");
             microphone_.adc_to_dac_enabled.store(false);
-            UpdateAudioCodecPowerState();
+            UpdateAudioCodecOperatingMode();
             break;
           }
           written_bytes += written;
@@ -2970,7 +2969,7 @@ void TDisplayP4Device::RunMicrophoneCaptureTask() {
   microphone_.level_percent.store(0);
   microphone_.peak_sample.store(0);
   microphone_.running.store(false);
-  UpdateAudioCodecPowerState();
+  UpdateAudioCodecOperatingMode();
 }
 
 void TDisplayP4Device::EthernetInitTaskEntry(void* context) {
@@ -4174,9 +4173,9 @@ bool TDisplayP4Device::ActivateRadio(const RadioConfig& config) {
              antenna_switch->GpioWrite(
                  gpio::xl9535::kSky13453Vctl, antenna_level);
   }
-  if (result && driver_.SetSx1262PowerState(
+  if (result && driver_.SetSx1262OperatingMode(
                     lilygo_device_driver::TDisplayP4Driver::
-                        Sx1262PowerState::kStandby)) {
+                        Sx1262OperatingMode::kStandby)) {
     auto* radio = driver_.chip().sx1262.get();
     result = radio != nullptr && radio->Configure(driver_config) &&
              radio->StartReceive();
@@ -4184,8 +4183,8 @@ bool TDisplayP4Device::ActivateRadio(const RadioConfig& config) {
     result = false;
   }
   if (!result) {
-    driver_.SetSx1262PowerState(
-        lilygo_device_driver::TDisplayP4Driver::Sx1262PowerState::kSleep);
+    driver_.SetSx1262OperatingMode(
+        lilygo_device_driver::TDisplayP4Driver::Sx1262OperatingMode::kSleep);
   }
   radio_.active = result;
   radio_.transmitting = false;
@@ -4223,9 +4222,9 @@ bool TDisplayP4Device::DeactivateRadio() {
                    SX126X_STATUS_OK &&
                radio->ClearIrqStatus(SX126X_IRQ_ALL);
     }
-    result &= driver_.SetSx1262PowerState(
+    result &= driver_.SetSx1262OperatingMode(
         lilygo_device_driver::TDisplayP4Driver::
-            Sx1262PowerState::kSleep);
+            Sx1262OperatingMode::kStandby);
   }
   radio_.active = false;
   radio_.transmitting = false;

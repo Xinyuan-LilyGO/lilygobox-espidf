@@ -1864,13 +1864,12 @@ bool TDisplayP4AirDevice::StopSpeakerToneLoop() {
 }
 
 bool TDisplayP4AirDevice::SetSpeakerVolumePercent(int percent) {
-  if (!driver_.IsEs8389Ready() &&
-      (!driver_.InitEs8389() || !driver_.ConfigEs8389())) {
+  if (!driver_.IsEs8389Ready() && !driver_.InitEs8389()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "ES8389 init failed\n");
     return false;
   }
-  if (!driver_.SetEs8389PowerState(
-          TDisplayP4AirBoardDriver::Es8389PowerState::kActive)) {
+  if (!driver_.SetEs8389OperatingMode(
+          TDisplayP4AirBoardDriver::Es8389OperatingMode::kActive)) {
     return false;
   }
   const int clamped_percent = std::clamp(percent, 0, 100);
@@ -1880,7 +1879,7 @@ bool TDisplayP4AirDevice::SetSpeakerVolumePercent(int percent) {
   if (result) {
     speaker_.volume_percent.store(clamped_percent);
   }
-  UpdateAudioCodecPowerState();
+  UpdateAudioCodecOperatingMode();
   return result;
 }
 
@@ -2025,7 +2024,7 @@ void TDisplayP4AirDevice::RunSpeakerPlaybackTask() {
                                              : AudioFilePlaybackState::kError));
     speaker_.playback_kind.store(SpeakerState::PlaybackKind::kNone);
     speaker_.running.store(false);
-    UpdateAudioCodecPowerState();
+    UpdateAudioCodecOperatingMode();
     return;
   }
 
@@ -2043,16 +2042,16 @@ void TDisplayP4AirDevice::RunSpeakerPlaybackTask() {
   speaker_.stop_requested.store(false);
   speaker_.playback_kind.store(SpeakerState::PlaybackKind::kNone);
   speaker_.running.store(false);
-  UpdateAudioCodecPowerState();
+  UpdateAudioCodecOperatingMode();
 }
 
-bool TDisplayP4AirDevice::UpdateAudioCodecPowerState() {
+bool TDisplayP4AirDevice::UpdateAudioCodecOperatingMode() {
   const bool audio_active =
       speaker_.running.load() || microphone_.running.load();
-  const auto state = audio_active
-                         ? TDisplayP4AirBoardDriver::Es8389PowerState::kActive
-                         : TDisplayP4AirBoardDriver::Es8389PowerState::kSleep;
-  if (!driver_.SetEs8389PowerState(state)) {
+  const auto mode =
+      audio_active ? TDisplayP4AirBoardDriver::Es8389OperatingMode::kActive
+                   : TDisplayP4AirBoardDriver::Es8389OperatingMode::kSleep;
+  if (!driver_.SetEs8389OperatingMode(mode)) {
     return false;
   }
   return !audio_active ||
@@ -2066,11 +2065,10 @@ bool TDisplayP4AirDevice::Configure(
       bits_per_sample != kSpeakerPlaybackBitsPerSample) {
     return false;
   }
-  if (!driver_.IsEs8389Ready() &&
-      (!driver_.InitEs8389() || !driver_.ConfigEs8389())) {
+  if (!driver_.IsEs8389Ready() && !driver_.InitEs8389()) {
     return false;
   }
-  if (!UpdateAudioCodecPowerState()) {
+  if (!UpdateAudioCodecOperatingMode()) {
     return false;
   }
   esp_codec_dev_handle_t output = driver_.es8389_output_codec_dev();
@@ -2184,7 +2182,7 @@ void TDisplayP4AirDevice::RunHapticPlaybackTask() {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Aw86224 ConfigureRamPlaybackWaveform failed, sequence=%u\n",
           static_cast<unsigned int>(sequence));
-      driver_.chip().aw86224->StopRamPlaybackWaveform();
+      driver_.SetAw86224Standby();
       haptic_.running.store(false);
       return;
     }
@@ -2208,16 +2206,16 @@ void TDisplayP4AirDevice::RunHapticPlaybackTask() {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Aw86224 StartRamPlaybackWaveform failed, sequence=%u\n",
         static_cast<unsigned int>(sequence));
-    driver_.chip().aw86224->StopRamPlaybackWaveform();
+    driver_.SetAw86224Standby();
     haptic_.running.store(false);
     return;
   }
 
   vTaskDelay(pdMS_TO_TICKS(kVibrationPreviewPlayMs));
 
-  if (!driver_.chip().aw86224->StopRamPlaybackWaveform()) {
+  if (!driver_.SetAw86224Standby()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Aw86224 StopRamPlaybackWaveform failed, sequence=%u\n",
+        "Aw86224 standby failed, sequence=%u\n",
         static_cast<unsigned int>(sequence));
   }
 
@@ -2236,9 +2234,9 @@ bool TDisplayP4AirDevice::StartMicrophone() {
   microphone_.bytes_read.store(0);
   if (!SetAudioAdcToDac(false)) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Failed to power the microphone capture path\n");
+        "Failed to activate the microphone capture path\n");
     microphone_.running.store(false);
-    UpdateAudioCodecPowerState();
+    UpdateAudioCodecOperatingMode();
     return false;
   }
 
@@ -2248,7 +2246,7 @@ bool TDisplayP4AirDevice::StartMicrophone() {
   if (result != pdPASS) {
     microphone_.running.store(false);
     microphone_.stop_requested.store(true);
-    UpdateAudioCodecPowerState();
+    UpdateAudioCodecOperatingMode();
     return false;
   }
 
@@ -2272,11 +2270,11 @@ bool TDisplayP4AirDevice::SetAudioAdcToDac(bool enable) {
   }
 
   const bool previous_enabled = microphone_.adc_to_dac_enabled.exchange(enable);
-  const bool codec_ready = driver_.IsEs8389Ready() ||
-                           (driver_.InitEs8389() && driver_.ConfigEs8389());
-  if (!UpdateAudioCodecPowerState() || !codec_ready) {
+  const bool codec_ready =
+      driver_.IsEs8389Ready() || driver_.InitEs8389();
+  if (!UpdateAudioCodecOperatingMode() || !codec_ready) {
     microphone_.adc_to_dac_enabled.store(previous_enabled);
-    UpdateAudioCodecPowerState();
+    UpdateAudioCodecOperatingMode();
     return false;
   }
 
@@ -2769,7 +2767,7 @@ bool TDisplayP4AirDevice::SetGpsEnabled(bool enabled) {
     gps_status_.running = false;
     gps_pending_data_.clear();
     if (!cellular_.task_active.load()) {
-      result &= driver_.SetNrf9151PowerEnabled(false);
+      result &= driver_.DeinitNrf9151();
     }
     xSemaphoreGive(nrf9151_mutex_);
     if (!result) {
@@ -2779,10 +2777,10 @@ bool TDisplayP4AirDevice::SetGpsEnabled(bool enabled) {
     return result;
   }
 
-  if (!driver_.SetNrf9151PowerEnabled(true) || !driver_.IsNrf9151Ready() ||
+  if (!driver_.InitNrf9151() || !driver_.IsNrf9151Ready() ||
       driver_.chip().nrf9151 == nullptr ||
       driver_.bus().nrf9151_uart_bus == nullptr) {
-    driver_.SetNrf9151PowerEnabled(false);
+    driver_.DeinitNrf9151();
     xSemaphoreGive(nrf9151_mutex_);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Enable nRF9151 GNSS failed: modem unavailable\n");
@@ -2824,7 +2822,7 @@ bool TDisplayP4AirDevice::SetGpsEnabled(bool enabled) {
     }
     gps_running_ = false;
     gps_status_.running = false;
-    driver_.SetNrf9151PowerEnabled(false);
+    driver_.DeinitNrf9151();
     xSemaphoreGive(nrf9151_mutex_);
     return false;
   }
@@ -2838,7 +2836,7 @@ bool TDisplayP4AirDevice::SetGpsEnabled(bool enabled) {
   if (!result) {
     gps_running_ = false;
     gps_status_.running = false;
-    driver_.SetNrf9151PowerEnabled(false);
+    driver_.DeinitNrf9151();
   }
   xSemaphoreGive(nrf9151_mutex_);
   return result;
@@ -3081,19 +3079,19 @@ bool TDisplayP4AirDevice::SetNfcPollingEnabled(bool enabled) {
       vTaskDelay(pdMS_TO_TICKS(kPowerOffTaskPollMs));
     }
     const bool stopped = !nfc_.task_active.load();
-    return stopped && driver_.SetSt25r3916PowerEnabled(false);
+    return stopped && driver_.DeinitSt25r3916();
   }
 
   if (nfc_.task_active.load()) {
     return true;
   }
   if (nfc_.mutex == nullptr || driver_.chip().st25r3916 == nullptr ||
-      !driver_.SetSt25r3916PowerEnabled(true) || !driver_.IsSt25r3916Ready()) {
+      !driver_.InitSt25r3916() || !driver_.IsSt25r3916Ready()) {
     return false;
   }
 
   if (xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
-    driver_.SetSt25r3916PowerEnabled(false);
+    driver_.DeinitSt25r3916();
     return false;
   }
   nfc_.status = NfcStatus();
@@ -3112,7 +3110,7 @@ bool TDisplayP4AirDevice::SetNfcPollingEnabled(bool enabled) {
       nfc_.status.last_error = ESP_ERR_NO_MEM;
       xSemaphoreGive(nfc_.mutex);
     }
-    driver_.SetSt25r3916PowerEnabled(false);
+    driver_.DeinitSt25r3916();
     return false;
   }
   return true;
@@ -3630,7 +3628,7 @@ void TDisplayP4AirDevice::RunCellularTask() {
       xSemaphoreTake(nrf9151_mutex_, portMAX_DELAY) == pdTRUE;
   bool initialized = modem_locked;
   if (initialized) {
-    snapshot.powered = driver_.SetNrf9151PowerEnabled(true);
+    snapshot.powered = driver_.InitNrf9151();
     initialized = snapshot.powered && driver_.IsNrf9151Ready();
   }
 
@@ -3689,7 +3687,7 @@ void TDisplayP4AirDevice::RunCellularTask() {
     publish_status();
     if (snapshot.powered) {
       if (xSemaphoreTake(nrf9151_mutex_, portMAX_DELAY) == pdTRUE) {
-        driver_.SetNrf9151PowerEnabled(false);
+        driver_.DeinitNrf9151();
         xSemaphoreGive(nrf9151_mutex_);
       }
       snapshot.powered = false;
@@ -3740,7 +3738,7 @@ void TDisplayP4AirDevice::RunCellularTask() {
       std::string response;
       send_command("AT+CFUN=0", &response);
     }
-    driver_.SetNrf9151PowerEnabled(false);
+    driver_.DeinitNrf9151();
     xSemaphoreGive(nrf9151_mutex_);
   }
   snapshot.enabled = false;
@@ -3813,7 +3811,7 @@ void TDisplayP4AirDevice::RunMicrophoneCaptureTask() {
             LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
                 "Microphone PCM loopback write failed\n");
             microphone_.adc_to_dac_enabled.store(false);
-            UpdateAudioCodecPowerState();
+            UpdateAudioCodecOperatingMode();
             break;
           }
           written_bytes += written;
@@ -3828,7 +3826,7 @@ void TDisplayP4AirDevice::RunMicrophoneCaptureTask() {
   microphone_.level_percent.store(0);
   microphone_.peak_sample.store(0);
   microphone_.running.store(false);
-  UpdateAudioCodecPowerState();
+  UpdateAudioCodecOperatingMode();
 }
 
 void TDisplayP4AirDevice::WifiInitTaskEntry(void* context) {
@@ -4688,8 +4686,8 @@ bool TDisplayP4AirDevice::ActivateRadio(const RadioConfig& config) {
                 config.protocol == radio::ProtocolType::kLora &&
                 config.antenna == radio::AntennaType::kInternal &&
                 BuildRadioConfig(config.lora, &driver_config);
-  if (result && driver_.SetLr1121PowerState(
-                    TDisplayP4AirBoardDriver::Lr1121PowerState::kStandby)) {
+  if (result && driver_.SetLr1121OperatingMode(
+                    TDisplayP4AirBoardDriver::Lr1121OperatingMode::kStandby)) {
     auto* radio = driver_.chip().lr1121.get();
     result = radio != nullptr &&
              EnsureLr1121ImageCalibration(*radio, config.lora.frequency_hz,
@@ -4705,8 +4703,8 @@ bool TDisplayP4AirDevice::ActivateRadio(const RadioConfig& config) {
     result = false;
   }
   if (!result) {
-    driver_.SetLr1121PowerState(
-        TDisplayP4AirBoardDriver::Lr1121PowerState::kSleep);
+    driver_.SetLr1121OperatingMode(
+        TDisplayP4AirBoardDriver::Lr1121OperatingMode::kSleep);
   }
   radio_.active = result;
   radio_.transmitting = false;
@@ -4746,8 +4744,8 @@ bool TDisplayP4AirDevice::DeactivateRadio() {
                radio->Invoke(lr11xx_system_clear_irq_status,
                    LR11XX_SYSTEM_IRQ_ALL_MASK) == LR11XX_STATUS_OK;
     }
-    result &= driver_.SetLr1121PowerState(
-        TDisplayP4AirBoardDriver::Lr1121PowerState::kSleep);
+    result &= driver_.SetLr1121OperatingMode(
+        TDisplayP4AirBoardDriver::Lr1121OperatingMode::kStandby);
   }
   radio_.active = false;
   radio_.transmitting = false;

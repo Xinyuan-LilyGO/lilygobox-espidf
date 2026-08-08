@@ -608,8 +608,11 @@ class TDisplayP4AirDevice final : public ScreenProvider,
    */
   void RunSpeakerPlaybackTask();
 
-  // 根据扬声器和麦克风的实际占用情况选择 ES8389 电源状态。
-  bool UpdateAudioCodecPowerState();
+  /**
+   * @brief 根据扬声器和麦克风的实际占用情况选择 ES8389 工作模式
+   * @return 工作模式更新成功返回 true，否则返回 false
+   */
+  bool UpdateAudioCodecOperatingMode();
 
   /**
    * @brief 根据 MP3 流参数配置 ES8389 PCM 输出
