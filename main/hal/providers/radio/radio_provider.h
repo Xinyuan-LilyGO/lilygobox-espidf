@@ -2,7 +2,7 @@
  * @Description: Radio 射频状态、配置与收发 Provider 接口
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
- * @LastEditTime: 2026-07-19 01:30:46
+ * @LastEditTime: 2026-07-30 18:00:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -36,11 +36,11 @@ enum class RadioFailureReason : uint8_t {
   kNone,
   // 射频硬件未初始化或已离线。
   kHardwareUnavailable,
-  // 读取 SX1262 中断状态失败。
+  // 读取射频芯片中断状态失败。
   kIrqReadFailed,
-  // 清除 SX1262 中断状态失败。
+  // 清除射频芯片中断状态失败。
   kIrqClearFailed,
-  // SX1262 报告发送超时。
+  // 射频芯片报告发送超时。
   kHardwareTimeout,
   // 软件看门狗等待发送结果超时。
   kSoftwareTimeout,
@@ -50,7 +50,7 @@ enum class RadioFailureReason : uint8_t {
 
 struct LoraRadioConfig {
   // LoRa 中心频率，单位为 Hz。
-  uint32_t frequency_hz = 915000000;
+  uint32_t frequency_hz = 868000000;
   // LoRa 信号带宽，单位为 Hz。
   uint32_t bandwidth_hz = 125000;
   // LoRa 前导码符号数量。
@@ -61,13 +61,13 @@ struct LoraRadioConfig {
   uint8_t coding_rate_denominator = 5;
   // LoRa 网络同步字。
   uint8_t sync_word = 0x12;
-  // SX1262 发射功率，单位为 dBm。
+  // 射频芯片发射功率，单位为 dBm。
   int8_t output_power_dbm = 22;
   // 是否启用数据包 CRC 校验。
   bool crc_enabled = true;
   // 是否反转 LoRa IQ 极性。
   bool invert_iq = false;
-  // 是否使用 SX1262 增强接收模式。
+  // 是否使用射频芯片增强接收模式。
   bool rx_boosted = true;
 };
 
@@ -98,6 +98,8 @@ struct RadioCapabilities {
   RadioCapability entries[kRadioCapabilityCapacity] = {};
   // entries 数组中的有效能力项数量。
   size_t count = 0;
+  // 当前设备是否提供可由软件切换的外置天线路径。
+  bool supports_external_antenna = false;
 };
 
 struct RadioStatus {
@@ -105,9 +107,9 @@ struct RadioStatus {
   RadioLinkState state = RadioLinkState::kInactive;
   // 当前激活 Radio 配置的稳定 ID。
   uint32_t active_client_token = 0;
-  // SX1262 驱动是否可用。
+  // 当前射频芯片驱动是否可用。
   bool hardware_ready = false;
-  // SX1262 是否正在发送数据。
+  // 当前射频芯片是否正在发送数据。
   bool transmitting = false;
 };
 

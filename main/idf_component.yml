@@ -4,20 +4,14 @@ dependencies:
   cpp_bus_driver:
     override_path: "../libraries/cpp_bus_driver"
 
-  arduino_cpp_bus_driver:
-    override_path: "../libraries/arduino_cpp_bus_driver"
-
   lilygo_device_driver:
     override_path: "../libraries/lilygo_device_driver"
 
-  radiolib_cpp_bus_driver:
-    override_path: "../libraries/radiolib_cpp_bus_driver"
-
-  icm20948_we:
-    override_path: "../libraries/icm20948_we"
-
   espressif/esp_video:
     override_path: "../libraries/esp-video-components/esp_video"
+
+  espressif/esp_hosted:
+    override_path: "../libraries/esp_hosted"
 
   usp_cpp_bus_driver:
     path: "../libraries/usp_cpp_bus_driver"
@@ -27,9 +21,6 @@ dependencies:
 
   espressif/esp_audio_codec:
     version: "2.4.1"
-
-  espressif/esp_hosted:
-    version: "2.12.3"
 
   espressif/esp_wifi_remote:
     version: ">=1.6.1,<2.0"

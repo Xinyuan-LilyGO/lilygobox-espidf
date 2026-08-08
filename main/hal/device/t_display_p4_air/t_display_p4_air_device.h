@@ -1,8 +1,8 @@
 /*
- * @Description: T-Display-P4 设备及硬件 Provider 适配接口
+ * @Description: T-Display-P4-Air 设备及硬件 Provider 适配接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-17 18:40:56
+ * @LastEditTime: 2026-08-06 18:11:44
  * @License: GPL 3.0
  */
 #pragma once
@@ -11,8 +11,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
 
 #include "audio/mp3_decoder.h"
+#include "driver/rmt_encoder.h"
+#include "driver/rmt_rx.h"
+#include "driver/rmt_tx.h"
 #include "esp_cam_sensor_types.h"
 #include "esp_timer.h"
 #include "esp_wifi_types.h"
@@ -22,42 +26,49 @@
 #include "hal/ppa/ppa_srm_helper.h"
 #include "hal/providers/providers.h"
 #include "hal/usb/usb_storage_manager.h"
-#include "t_display_p4_driver.h"
+#include "t_display_p4_air_driver.h"
 
 namespace lilygo_box::hal {
-class TDisplayP4Device final : public ScreenProvider,
-                               public DeviceProvider,
-                               public DeviceDiagnosticsProvider,
-                               public DeviceInfoProvider,
-                               public GpsProvider,
-                               public ImuProvider,
-                               public AudioProvider,
-                               public HapticProvider,
-                               public CameraProvider,
-                               public BatteryManagementProvider,
-                               public RtcProvider,
-                               public RadioProvider,
-                               public EthernetProvider,
-                               public WifiProvider,
-                               public StorageProvider,
-                               private audio::PcmOutput {
+
+using TDisplayP4AirBoardDriver = lilygo_device_driver::TDisplayP4AirDriver;
+
+class TDisplayP4AirDevice final : public ScreenProvider,
+                                  public DeviceProvider,
+                                  public DeviceDiagnosticsProvider,
+                                  public DeviceInfoProvider,
+                                  public GpsProvider,
+                                  public ImuProvider,
+                                  public AudioProvider,
+                                  public HapticProvider,
+                                  public CameraProvider,
+                                  public CellularProvider,
+                                  public BatteryManagementProvider,
+                                  public InfraredProvider,
+                                  public NfcProvider,
+                                  public RadioProvider,
+                                  public WifiProvider,
+                                  public StorageProvider,
+                                  private audio::PcmOutput {
  public:
-  TDisplayP4Device();
+  /**
+   * @brief 创建使用独立 Air 板级驱动的设备适配对象
+   */
+  TDisplayP4AirDevice();
 
   /**
-   * @brief 初始化 T-Display-P4 到屏幕可用状态
+   * @brief 初始化 T-Display-P4-Air 到屏幕可用状态
    * @return 初始化成功返回 true，否则返回 false
    */
   bool InitDevice() override;
 
   /**
-   * @brief 完成设备关机准备并请求进入 ESP 深度睡眠。
-   * @return 关机准备成功时返回 kEnterDeepSleep，否则返回 kFailed。
+   * @brief 完成设备关机准备并通过 AXP517 运输模式切断电池供电。
+   * @return 运输模式请求成功时返回 kWaitForPowerCut，否则返回 kFailed。
    */
   PowerOffAction RequestPowerOff() override;
 
   /**
-   * @brief 读取当前 T-Display-P4 设备信息
+   * @brief 读取当前 T-Display-P4-Air 设备信息
    * @param info 设备信息输出地址
    * @return 读取成功返回 true，否则返回 false
    */
@@ -96,43 +107,43 @@ class TDisplayP4Device final : public ScreenProvider,
    * @param auto_brake true 表示启用自动制动，false 表示关闭自动制动
    * @return 播放任务启动成功返回 true，否则返回 false
    */
-  bool PlayHapticWaveform(uint8_t waveform_sequence_number,
-      uint8_t loop_count, uint8_t gain, bool auto_brake) override;
+  bool PlayHapticWaveform(uint8_t waveform_sequence_number, uint8_t loop_count,
+      uint8_t gain, bool auto_brake) override;
 
   /**
-   * @brief 播放 ES8311 扬声器音频提示
+   * @brief 播放 ES8389 扬声器音频提示
    * @param bytes_written 实际写入 I2S 的字节数输出地址
    * @return 播放成功返回 true，否则返回 false
    */
   bool PlaySpeakerTone(size_t* bytes_written) override;
 
   /**
-   * @brief 创建后台任务播放 ES8311 扬声器音频
+   * @brief 创建后台任务播放 ES8389 扬声器音频
    * @return 任务创建成功返回 true，否则返回 false
    */
   bool StartSpeakerTone() override;
 
   /**
-   * @brief 创建后台任务循环播放 ES8311 扬声器音频预览
+   * @brief 创建后台任务循环播放 ES8389 扬声器音频预览
    * @return 任务创建成功或已经在播放返回 true，否则返回 false
    */
   bool StartSpeakerToneLoop() override;
 
   /**
-   * @brief 停止后台循环播放 ES8311 扬声器音频预览
+   * @brief 停止后台循环播放 ES8389 扬声器音频预览
    * @return 停止命令发送成功返回 true，否则返回 false
    */
   bool StopSpeakerToneLoop() override;
 
   /**
-   * @brief 设置 ES8311 扬声器播放音量百分比
+   * @brief 设置 ES8389 扬声器播放音量百分比
    * @param percent 音量百分比，范围 0~100
    * @return 设置成功返回 true，否则返回 false
    */
   bool SetSpeakerVolumePercent(int percent) override;
 
   /**
-   * @brief 读取 ES8311 扬声器播放状态
+   * @brief 读取 ES8389 扬声器播放状态
    * @param status 播放状态输出地址
    * @return 读取成功返回 true，否则返回 false
    */
@@ -179,26 +190,26 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ReadAudioFileStatus(AudioFilePlaybackStatus* status) override;
 
   /**
-   * @brief 创建后台任务读取 ES8311 麦克风采样数据
+   * @brief 创建后台任务读取 ES8389 麦克风采样数据
    * @return 任务创建成功返回 true，否则返回 false
    */
   bool StartMicrophone() override;
 
   /**
-   * @brief 停止 ES8311 麦克风采样并关闭 ADC PCM 到 DAC 的实时转送
+   * @brief 停止 ES8389 麦克风采样并关闭 ADC PCM 到 DAC 的实时转送
    * @return 停止命令发送成功返回 true，否则返回 false
    */
   bool StopMicrophone() override;
 
   /**
-   * @brief 设置是否将 ES8311 麦克风 ADC PCM 数据实时转送到 DAC
+   * @brief 设置是否将 ES8389 麦克风 ADC PCM 数据实时转送到 DAC
    * @param enable true 表示打开实时转送，false 表示关闭实时转送
    * @return 设置成功返回 true，否则返回 false
    */
   bool SetAudioAdcToDac(bool enable) override;
 
   /**
-   * @brief 读取 ES8311 麦克风状态
+   * @brief 读取 ES8389 麦克风状态
    * @param status 麦克风状态输出地址
    * @return 读取成功返回 true，否则返回 false
    */
@@ -209,12 +220,6 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 启动成功返回 true，否则返回 false
    */
   bool StartCameraPreview() override;
-
-  /**
-   * @brief 获取最近一次摄像头预览启动错误
-   * @return 摄像头错误
-   */
-  CameraError GetCameraPreviewError() const override;
 
   /**
    * @brief 停止摄像头预览
@@ -239,14 +244,80 @@ class TDisplayP4Device final : public ScreenProvider,
   bool CopyCameraPreviewFrame(uint8_t* buffer, size_t buffer_size,
       CameraPreviewFrameInfo* info) override;
 
+  /**
+   * @brief 启动或停止 nRF9151 GNSS 定位模式
+   * @param enabled true 启动 GNSS，false 停止 GNSS
+   * @return 状态切换成功或目标状态已经满足返回 true
+   */
   bool SetGpsEnabled(bool enabled) override;
 
   /**
-   * @brief 读取 L76K GPS 测试状态和最新 GNSS 解析数据
+   * @brief 读取板载 GNSS 模块状态和最新解析数据
    * @param status GPS 测试状态输出地址
    * @return 读取成功返回 true，否则返回 false
    */
   bool ReadGpsStatus(GpsStatus* status) override;
+
+  /**
+   * @brief 启动或停止 ST25R3916 NFC 后台发现
+   * @param enabled true 启动轮询，false 停止轮询并关闭射频场
+   * @return 请求成功接受或目标状态已经满足返回 true
+   */
+  bool SetNfcPollingEnabled(bool enabled) override;
+
+  /**
+   * @brief 非阻塞读取 ST25R3916 轮询和最近卡片状态
+   * @param status NFC 状态输出地址
+   * @return 状态读取成功返回 true，否则返回 false
+   */
+  bool ReadNfcStatus(NfcStatus* status) override;
+
+  /**
+   * @brief 启动或停止板载红外接收
+   * @param enabled true 连续接收，false 停止接收
+   * @return 状态切换成功或目标状态已经满足返回 true
+   */
+  bool SetInfraredReceiverEnabled(bool enabled) override;
+
+  /**
+   * @brief 使用板载红外发射器发送标准 NEC 指令
+   * @param address NEC 八位地址
+   * @param command NEC 八位命令
+   * @return 完整帧发送成功返回 true，否则返回 false
+   */
+  bool SendInfraredNec(uint8_t address, uint8_t command) override;
+
+  /**
+   * @brief 非阻塞读取最近的红外接收状态
+   * @param status 红外状态输出地址
+   * @return 状态读取成功返回 true，否则返回 false
+   */
+  bool ReadInfraredStatus(InfraredStatus* status) override;
+
+  /**
+   * @brief 异步启动或停止 nRF9151 蜂窝网络管理
+   * @param enabled true 启动蜂窝模式，false 停止并关闭模块电源
+   * @return 请求成功接受或目标状态已经满足返回 true
+   */
+  bool SetCellularEnabled(bool enabled) override;
+
+  /**
+   * @brief 非阻塞读取 nRF9151 蜂窝网络状态
+   * @param status 蜂窝状态输出地址
+   * @return 状态读取成功返回 true，否则返回 false
+   */
+  bool ReadCellularStatus(CellularStatus* status) override;
+
+  /**
+   * @brief 向已经启用的 nRF9151 发送一条 AT 指令
+   * @param command 不包含换行符的 AT 指令
+   * @param response AT 完整响应输出缓冲区
+   * @param response_size 输出缓冲区容量
+   * @param timeout_ms 等待最终响应的超时时间
+   * @return 收到 OK 最终响应返回 true，否则返回 false
+   */
+  bool SendCellularCommand(const char* command, char* response,
+      size_t response_size, uint32_t timeout_ms) override;
 
   /**
    * @brief 注册像素传输完成和物理画面刷新完成回调
@@ -307,41 +378,27 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ReadBatteryLevel(int* percent) override;
 
   /**
-   * @brief 读取 PCF8563 RTC 日期时间和时钟完整性状态
-   * @param status RTC 状态输出地址
-   * @return 读取到有效 RTC 数据返回 true，否则返回 false
-   */
-  bool ReadRtcStatus(RtcStatus* status) override;
-
-  /**
-   * @brief 将 UTC Unix 时间转换为当前本地时区并写入 PCF8563
-   * @param unix_time UTC Unix 时间戳
-   * @return 写入成功返回 true，否则返回 false
-   */
-  bool WriteRtcUnixTime(int64_t unix_time) override;
-
-  /**
-   * @brief 读取板载 SX1262 支持的射频协议和负载能力
+   * @brief 读取板载 LR1121 支持的射频协议和负载能力
    * @param capabilities 射频能力输出地址
    * @return 能力信息读取成功时返回 true
    */
   bool ReadRadioCapabilities(RadioCapabilities* capabilities) override;
 
   /**
-   * @brief 配置板载 SX1262 并启动指定射频会话的连续接收
+   * @brief 配置板载 LR1121 并启动指定射频会话的连续接收
    * @param config 待激活的射频配置
    * @return 配置成功且连续接收已启动时返回 true
    */
   bool ActivateRadio(const RadioConfig& config) override;
 
   /**
-   * @brief 停止当前射频会话并将板载 SX1262 切换到待机状态
-   * @return 停止成功或 SX1262 无需处理时返回 true
+   * @brief 停止当前射频会话并将板载 LR1121 切换到待机状态
+   * @return 停止成功或 LR1121 无需处理时返回 true
    */
   bool DeactivateRadio() override;
 
   /**
-   * @brief 使用板载 SX1262 启动一条可关联异步事件的射频发送
+   * @brief 使用板载 LR1121 启动一条可关联异步事件的射频发送
    * @param data 待发送数据
    * @param size 数据长度
    * @param request_token 调用方提供的发送请求唯一序号
@@ -351,31 +408,38 @@ class TDisplayP4Device final : public ScreenProvider,
       const uint8_t* data, size_t size, uint64_t request_token) override;
 
   /**
-   * @brief 非阻塞轮询板载 SX1262 的收发和芯片错误事件
+   * @brief 非阻塞轮询板载 LR1121 的收发和芯片错误事件
    * @param event 射频事件输出地址，无事件时类型保持为 kNone
    * @return 轮询及必要的硬件状态处理成功时返回 true
    */
   bool PollRadioEvent(RadioEvent* event) override;
 
   /**
-   * @brief 读取板载 SX1262 的会话、硬件和发送状态
+   * @brief 读取板载 LR1121 的会话、硬件和发送状态
    * @param status 射频状态输出地址
    * @return 状态读取成功时返回 true
    */
   bool ReadRadioStatus(RadioStatus* status) override;
 
+  /**
+   * @brief 启动或停止 BHI260AP 与 QMC6310N 姿态传感器
+   * @param enabled true 启动传感器，false 停止传感器
+   * @return 状态切换成功或目标状态已经满足返回 true
+   */
   bool SetImuEnabled(bool enabled) override;
-  bool ReadImuStatus(ImuStatus* status) override;
-
-  bool SetEthernetEnabled(bool enabled) override;
 
   /**
-   * @brief 读取 IP101 以太网链路和 DHCP 状态
-   * @param status 以太网状态输出地址
-   * @return 读取成功返回 true，否则返回 false
+   * @brief 读取 Air 板组合姿态传感器的最近状态
+   * @param status IMU 状态输出地址
+   * @return 读取到有效状态返回 true，否则返回 false
    */
-  bool ReadEthernetStatus(EthernetStatus* status) override;
+  bool ReadImuStatus(ImuStatus* status) override;
 
+  /**
+   * @brief 启动或停止由 ESP32-C5 提供的 hosted WiFi
+   * @param enabled true 启动 WiFi，false 停止 WiFi
+   * @return 状态切换请求成功返回 true，否则返回 false
+   */
   bool SetWifiEnabled(bool enabled) override;
 
   /**
@@ -471,8 +535,7 @@ class TDisplayP4Device final : public ScreenProvider,
    * @param snapshot 快照输出地址
    * @return 读取成功返回 true，否则返回 false
    */
-  bool ReadUsbStorageSnapshot(
-      UsbStorageSnapshot* snapshot) const override;
+  bool ReadUsbStorageSnapshot(UsbStorageSnapshot* snapshot) const override;
 
   /**
    * @brief 设置屏幕亮度
@@ -545,11 +608,11 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   void RunSpeakerPlaybackTask();
 
-  // 根据扬声器和麦克风的实际占用情况选择 ES8311 电源状态。
+  // 根据扬声器和麦克风的实际占用情况选择 ES8389 电源状态。
   bool UpdateAudioCodecPowerState();
 
   /**
-   * @brief 根据 MP3 流参数配置 ES8311 PCM 输出
+   * @brief 根据 MP3 流参数配置 ES8389 PCM 输出
    * @param sample_rate_hz 采样率
    * @param channel_count 声道数
    * @param bits_per_sample 采样位宽
@@ -572,7 +635,7 @@ class TDisplayP4Device final : public ScreenProvider,
   bool TakeSeekRequest(uint32_t* position_ms) override;
 
   /**
-   * @brief 向 ES8311 写入解码后的 PCM 数据
+   * @brief 向 ES8389 写入解码后的 PCM 数据
    * @param data PCM 数据地址
    * @param size PCM 数据字节数
    * @return 完整写入返回 true，否则返回 false
@@ -619,6 +682,50 @@ class TDisplayP4Device final : public ScreenProvider,
   void RunCameraPreviewTask();
 
   /**
+   * @brief ST25R3916 NFC 轮询任务入口
+   * @param context 设备对象指针
+   */
+  static void NfcPollingTaskEntry(void* context);
+
+  /**
+   * @brief 执行 ST25R3916 NFC 发现和卡片状态维护
+   */
+  void RunNfcPollingTask();
+
+  /**
+   * @brief 处理 RMT 红外接收完成中断
+   * @param channel RMT 接收通道
+   * @param event_data 接收完成数据
+   * @param context 设备对象指针
+   * @return 是否唤醒更高优先级任务
+   */
+  static bool InfraredReceiveDoneCallback(rmt_channel_handle_t channel,
+      const rmt_rx_done_event_data_t* event_data, void* context);
+
+  /**
+   * @brief 创建并启用红外 RMT 收发资源
+   * @return 初始化成功或资源已经可用返回 true
+   */
+  bool InitializeInfraredHardware();
+
+  /**
+   * @brief 提交下一次非阻塞红外接收事务
+   * @return 接收已经挂起或提交成功返回 true
+   */
+  bool StartInfraredReceive();
+
+  /**
+   * @brief nRF9151 蜂窝管理任务入口
+   * @param context 设备对象指针
+   */
+  static void CellularTaskEntry(void* context);
+
+  /**
+   * @brief 执行 nRF9151 蜂窝模式初始化和周期状态查询
+   */
+  void RunCellularTask();
+
+  /**
    * @brief 初始化 ESP-IDF camera video 设备
    * @return 初始化成功返回 true，否则返回 false
    */
@@ -637,49 +744,6 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 处理成功返回 true，否则返回 false
    */
   bool RenderCameraFrame(uint8_t* buffer, uint32_t width, uint32_t height);
-
-  /**
-   * @brief 以太网初始化任务入口
-   * @param context 设备对象指针
-   */
-  static void EthernetInitTaskEntry(void* context);
-
-  /**
-   * @brief 执行 IP101 以太网异步初始化或重新启动
-   */
-  void RunEthernetInitTask();
-
-  /**
-   * @brief 初始化 ESP-IDF 以太网驱动和 netif
-   * @return 初始化成功返回 ESP_OK，否则返回错误码
-   */
-  int InitializeEthernetStack();
-
-  /**
-   * @brief 记录以太网初始化失败状态
-   * @param error 错误码
-   */
-  void SetEthernetFailure(int error);
-
-  /**
-   * @brief 处理以太网链路事件
-   * @param arg 设备对象指针
-   * @param event_base 事件类型
-   * @param event_id 事件 ID
-   * @param event_data 事件数据
-   */
-  static void EthernetEventHandler(
-      void* arg, const char* event_base, int32_t event_id, void* event_data);
-
-  /**
-   * @brief 处理以太网 DHCP 获取 IP 事件
-   * @param arg 设备对象指针
-   * @param event_base 事件类型
-   * @param event_id 事件 ID
-   * @param event_data 事件数据
-   */
-  static void EthernetGotIpEventHandler(
-      void* arg, const char* event_base, int32_t event_id, void* event_data);
 
   /**
    * @brief hosted WiFi 初始化任务入口
@@ -715,7 +779,7 @@ class TDisplayP4Device final : public ScreenProvider,
   void RunWifiConnectTask();
 
   /**
-   * @brief 等待 ESP32-C6 桥接芯片完成上电复位
+   * @brief 等待 ESP32-C5 桥接芯片完成上电复位
    * @return 就绪返回 true，否则返回 false
    */
   bool WaitForWifiHardwareReady();
@@ -723,7 +787,7 @@ class TDisplayP4Device final : public ScreenProvider,
   /**
    * @brief 初始化 hosted WiFi 驱动和默认 STA netif
    * @return 初始化成功返回 ESP_OK，否则返回错误码
-  */
+   */
   int InitializeWifiStack();
 
   /**
@@ -765,18 +829,6 @@ class TDisplayP4Device final : public ScreenProvider,
    * @param argument 设备对象指针
    */
   static void WifiSntpAttemptTimerCallback(void* argument);
-
-  /**
-   * @brief 将最近一次有效网络时间异步写入外部 RTC
-   * @param unix_time UTC Unix 时间戳
-   */
-  void ScheduleRtcSync(int64_t unix_time);
-
-  /**
-   * @brief 外部 RTC 网络校时任务入口
-   * @param argument 设备对象指针
-   */
-  static void RtcSyncTaskEntry(void* argument);
 
   /**
    * @brief 记录 hosted WiFi 初始化或连接失败状态
@@ -841,8 +893,10 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<bool> seek_requested{false};
     // MP3 文件待定位的播放时间，单位毫秒
     std::atomic<uint32_t> seek_position_ms{0};
-    // 当前 ES8311 输出采样率
+    // 当前 ES8389 输出采样率
     std::atomic<uint32_t> sample_rate_hz{44100};
+    // 当前扬声器音量百分比，ES8389 重新唤醒后用于恢复用户设置。
+    std::atomic<int> volume_percent{100};
     // 当前 MP3 文件绝对路径
     char audio_file_path[512] = {};
   };
@@ -898,7 +952,6 @@ class TDisplayP4Device final : public ScreenProvider,
   struct CameraPreviewState {
     // ESP Video 的 video0 和 video20 是否已经完成一次性初始化
     std::atomic<bool> video_system_initialized{false};
-    std::atomic<CameraError> error{CameraError::kNone};
     // 组件会长期保存该地址，用于摄像头重新上电后恢复传感器格式
     esp_cam_sensor_format_t sensor_format{};
     // 摄像头预览资源是否已经初始化
@@ -941,37 +994,6 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<uint32_t> frame_sequence{0};
     // PPA SRM helper
     PpaSrmHelper ppa;
-  };
-
-  struct EthernetState {
-    // 用户是否已经请求停止以太网。
-    std::atomic<bool> stop_requested{false};
-    // 初始化任务是否正在运行
-    std::atomic<bool> init_task_running{false};
-    // 驱动是否已经初始化完成
-    std::atomic<bool> driver_initialized{false};
-    // 驱动是否已经启动
-    std::atomic<bool> running{false};
-    // 网线链路是否已经连接
-    std::atomic<bool> link_up{false};
-    // 是否已经获取 DHCP 地址
-    std::atomic<bool> got_ip{false};
-    // 启动或连接是否失败
-    std::atomic<bool> start_failed{false};
-    // 端口数量
-    std::atomic<int> port_count{0};
-    // 最近一次错误码
-    std::atomic<int> last_error{0};
-    // MAC 地址打包值
-    std::atomic<uint64_t> mac_address{0};
-    // DHCP IP 地址
-    std::atomic<uint32_t> ip_address{0};
-    // DHCP 子网掩码
-    std::atomic<uint32_t> netmask{0};
-    // DHCP 网关
-    std::atomic<uint32_t> gateway{0};
-    // ESP-IDF 以太网驱动句柄
-    void* handle = nullptr;
   };
 
   struct WifiState {
@@ -1027,6 +1049,8 @@ class TDisplayP4Device final : public ScreenProvider,
     SemaphoreHandle_t scan_results_mutex = nullptr;
     // 用户是否已经请求关闭 WiFi。
     std::atomic<bool> stop_requested{false};
+    // WiFi 初始化完成后是否需要立即启动一次扫描。
+    std::atomic<bool> scan_requested{false};
     // WiFi 连接任务是否正在后台执行。
     std::atomic<bool> connect_task_running{false};
     // WiFi 连接任务是否已经请求取消。
@@ -1054,10 +1078,6 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<int> sntp_attempt_count{0};
     // 每 10 秒触发下一次尝试，并在 30 秒时结束检测
     esp_timer_handle_t sntp_attempt_timer = nullptr;
-    // 外部 RTC 网络校时任务是否正在运行
-    std::atomic<bool> rtc_sync_task_running{false};
-    // 最近一次写入外部 RTC 的 UTC Unix 时间戳
-    std::atomic<int64_t> rtc_sync_unix_time{0};
     // 进入测试前驱动是否已启动
     bool previous_running = false;
     // 进入测试前 STA 是否已连接
@@ -1083,20 +1103,95 @@ class TDisplayP4Device final : public ScreenProvider,
     int64_t transmit_deadline_us = 0;
     // 当前激活配置的 LoRa 调制和数据包参数。
     LoraRadioConfig lora_config;
-    // SX1262 是否处于连续接收或发送会话。
+    // 最近一次成功执行的 LR1121 Sub-GHz 镜像校准区间。
+    uint16_t calibrated_image_minimum_mhz = 0;
+    uint16_t calibrated_image_maximum_mhz = 0;
+    // LR1121 是否处于连续接收或发送会话。
     bool active = false;
-    // SX1262 是否正在执行发送命令。
+    // LR1121 是否正在执行发送命令。
     bool transmitting = false;
     // 最近一次芯片操作是否需要重新激活配置。
     bool chip_error = false;
   };
 
-  lilygo_device_driver::TDisplayP4Driver& driver_;
+  struct ImuState {
+    // 保护传感器配置、FIFO 解析结果和磁力计采样。
+    SemaphoreHandle_t mutex = nullptr;
+    // BHI260AP 加速度虚拟传感器是否已经完成配置。
+    bool configured = false;
+    // 最近一次 BHI260AP 三轴加速度，单位为 g。
+    float acceleration[3] = {};
+    // 最近一次 QMC6310N 三轴磁场读数。
+    float magnetic_field[3] = {};
+    // 是否已经取得有效加速度样本。
+    bool acceleration_ready = false;
+    // 是否已经取得有效磁场样本。
+    bool magnetic_field_ready = false;
+  };
+
+  struct NfcState {
+    // 保护 NFC 状态快照，RFAL 调用只由轮询任务执行。
+    SemaphoreHandle_t mutex = nullptr;
+    // NFC 轮询任务是否仍占用对象。
+    std::atomic<bool> task_active{false};
+    // 是否请求轮询任务停止并关闭射频场。
+    std::atomic<bool> stop_requested{false};
+    // 供应用层非阻塞读取的 NFC 状态快照。
+    NfcStatus status;
+  };
+
+  struct InfraredState {
+    // 保护 RMT 资源创建、解码结果和状态快照。
+    SemaphoreHandle_t mutex = nullptr;
+    // 红外接收 RMT 通道。
+    rmt_channel_handle_t receive_channel = nullptr;
+    // 红外发送 RMT 通道。
+    rmt_channel_handle_t transmit_channel = nullptr;
+    // 直接复制 NEC symbol 的 RMT 编码器。
+    rmt_encoder_handle_t copy_encoder = nullptr;
+    // RMT 接收目标缓冲区。
+    rmt_symbol_word_t receive_symbols[64] = {};
+    // 接收通道当前是否处于启用状态。
+    bool receive_channel_enabled = false;
+    // 最近一次完成事务中的 symbol 数量。
+    std::atomic<size_t> received_symbol_count{0};
+    // 是否存在尚未完成的非阻塞接收事务。
+    std::atomic<bool> receive_pending{false};
+    // 中断是否已经提交一组待解码 symbol。
+    std::atomic<bool> receive_complete{false};
+    // 用户是否要求连续监听红外信号。
+    std::atomic<bool> receiver_enabled{false};
+    // 供应用层读取的红外状态快照。
+    InfraredStatus status;
+  };
+
+  struct CellularState {
+    // 保护蜂窝状态快照，避免 UI 读取到一半更新的数据。
+    SemaphoreHandle_t status_mutex = nullptr;
+    // 蜂窝管理任务是否仍占用对象。
+    std::atomic<bool> task_active{false};
+    // 是否请求蜂窝任务停止并关闭模块电源。
+    std::atomic<bool> stop_requested{false};
+    // 供应用层非阻塞读取的蜂窝状态快照。
+    CellularStatus status;
+  };
+
+  /**
+   * @brief 接收 BHI260AP FIFO 加速度数据并写入当前设备状态
+   * @param callback_info Bosch FIFO 解析数据
+   * @param context 当前设备对象
+   */
+  static void Bhi260apAccelerationCallback(
+      const struct bhy2_fifo_parse_data_info* callback_info, void* context);
+
+  // Air 设备独占的底层板级驱动实例。
+  TDisplayP4AirBoardDriver& driver_;
+  // 底层驱动异步初始化与任务调度工具。
   std::unique_ptr<cpp_bus_driver::Tool> tool_;
+  // SD 卡与 USB Host MSC 的统一存储管理器。
   UsbStorageManager usb_storage_manager_;
+  // LVGL 端注册的像素传输和物理刷新回调。
   ScreenProviderDisplayCallbacks display_callbacks_;
-  // RM69A10 软件渐变使用的当前亮度百分比。
-  int rm69a10_brightness_percent_ = 0;
   // 扬声器播放状态，供 UI 和后台播放任务共享
   SpeakerState speaker_;
   // 振动播放状态，供 UI 和后台播放任务共享
@@ -1105,15 +1200,27 @@ class TDisplayP4Device final : public ScreenProvider,
   MicrophoneState microphone_;
   // 摄像头预览状态，供 UI 和后台预览任务共享
   CameraPreviewState camera_preview_;
-  // 以太网运行状态，供事件回调和 UI 查询共享
-  EthernetState ethernet_;
   // WiFi 运行状态，供事件回调和 UI 查询共享
   WifiState wifi_;
   // WiFi 获取时间测试状态，保存测试流程和进入前配置
   WifiTimeTestState wifi_time_test_;
   // Radio 会话状态，单芯片只允许一个活动配置。
   RadioState radio_;
+  // BHI260AP 与 QMC6310N 组合姿态状态。
+  ImuState imu_;
+  // Air 板 ST25R3916 后台轮询状态。
+  NfcState nfc_;
+  // Air 板红外 NEC 收发状态。
+  InfraredState infrared_;
+  // Air 板 nRF9151 蜂窝状态。
+  CellularState cellular_;
   std::atomic<bool> imu_enabled_{false};
+  // 保护 nRF9151 的 AT 指令和异步 NMEA 串口数据，避免 GNSS 与蜂窝业务抢占。
+  SemaphoreHandle_t nrf9151_mutex_ = nullptr;
+  // Air 板使用独立解析器处理 nRF9151 输出的标准 NMEA 语句。
+  cpp_bus_driver::GnssParser gps_parser_;
+  // 保存尚未接收到换行符的 nRF9151 UART 半包。
+  std::string gps_pending_data_;
   bool gps_running_ = false;
   GpsStatus gps_status_;
 };

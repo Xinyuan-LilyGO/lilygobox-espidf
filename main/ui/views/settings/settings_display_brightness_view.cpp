@@ -114,10 +114,10 @@ void BrightnessSliderChangedEventCallback(lv_event_t* event) {
     state->display_brightness_percent = brightness_percent;
     PlaySettingsHapticPreview(state);
     hal::LvglPort* lvgl_port = state->config.lvgl_port;
-    if (state->config.screen != nullptr && lvgl_port != nullptr &&
+    if (state->config.set_screen_brightness && lvgl_port != nullptr &&
         lvgl_port->TryBeginScreenTransition()) {
       if (!lvgl_port->IsDisplayFlushPaused()) {
-        state->config.screen->SetScreenBrightnessPercent(brightness_percent);
+        state->config.set_screen_brightness(brightness_percent);
       }
       lvgl_port->EndScreenTransition();
     }

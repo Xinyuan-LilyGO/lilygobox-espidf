@@ -2,7 +2,7 @@
  * @Description: 启动器布局、应用切换与系统覆盖层管理实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-16 17:14:31
+ * @LastEditTime: 2026-07-30 18:00:00
  * @License: GPL 3.0
  */
 #include "ui/ui_manager.h"
@@ -16,13 +16,13 @@
 #include "app/app_catalog.h"
 #include "app/network_monitor.h"
 #include "ui/app_view_factory.h"
-#include "ui/resources/fonts/font_assets.h"
-#include "ui/resources/fonts/icon_assets.h"
 #include "ui/haptic_feedback.h"
-#include "ui/resources/images/image_assets.h"
 #include "ui/input/app_view_gesture_flags.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"
+#include "ui/resources/fonts/font_assets.h"
+#include "ui/resources/fonts/icon_assets.h"
+#include "ui/resources/images/image_assets.h"
 #include "ui/views/first_boot_welcome_view.h"
 #include "ui/views/lock_screen_view.h"
 #include "ui/views/power_menu_view.h"
@@ -858,7 +858,8 @@ bool UiManager::Init(hal::ScreenProvider* screen,
     hal::ImuProvider* imu,
     hal::EthernetProvider* ethernet,
     hal::WifiProvider* wifi,
-    hal::StorageProvider* storage) {
+    hal::StorageProvider* storage, hal::NfcProvider* nfc,
+    hal::InfraredProvider* infrared, hal::CellularProvider* cellular) {
   if (screen == nullptr || lvgl_port == nullptr) {
     return false;
   }
@@ -878,6 +879,9 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   ethernet_provider_ = ethernet;
   wifi_provider_ = wifi;
   storage_provider_ = storage;
+  nfc_provider_ = nfc;
+  infrared_provider_ = infrared;
+  cellular_provider_ = cellular;
   system_status_cache_.Init(rtc_provider_, battery_management_provider_, wifi_provider_);
 
   root_screen_ = lv_obj_create(nullptr);
@@ -1141,6 +1145,11 @@ void UiManager::SetSystemPowerCallbacks(
 
 void UiManager::SetScreenLockCallback(std::function<void()> callback) {
   screen_lock_callback_ = std::move(callback);
+}
+
+void UiManager::SetScreenBrightnessCallback(
+    std::function<bool(int)> callback) {
+  screen_brightness_callback_ = std::move(callback);
 }
 
 void UiManager::HidePowerMenu() {
@@ -2463,6 +2472,9 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   config.ethernet = ethernet_provider_;
   config.wifi = wifi_provider_;
   config.storage = storage_provider_;
+  config.nfc = nfc_provider_;
+  config.infrared = infrared_provider_;
+  config.cellular = cellular_provider_;
   config.system_status = &system_status_cache_;
   config.theme_provider = &theme_provider_;
   config.back_callback = BackButtonEventCallback;
@@ -2478,6 +2490,7 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
     active_view_lock_screen_callback_ = std::move(callback);
   };
   config.request_screen_lock = screen_lock_callback_;
+  config.set_screen_brightness = screen_brightness_callback_;
   config.show_power_options = [this]() {
     return ShowPowerMenu(restart_device_callback_,
         power_off_device_callback_, std::function<void()>());

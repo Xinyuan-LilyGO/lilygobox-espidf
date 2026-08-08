@@ -88,17 +88,20 @@ class ScreenProvider {
       TouchPoint* points, size_t max_points, size_t* point_count);
 
   /**
-   * @brief 启动屏幕背光
-   * @param initial_percent 初始亮度百分比，范围 0~100
-   */
-  virtual void StartScreenBacklight(int initial_percent = 100) = 0;
-
-  /**
-   * @brief 设置屏幕背光亮度
+   * @brief 设置屏幕亮度
    * @param percent 亮度百分比，范围 0~100
    * @return 设置成功返回 true，否则返回 false
    */
   virtual bool SetScreenBrightnessPercent(int percent) = 0;
+
+  /**
+   * @brief 将屏幕亮度渐变到目标值
+   * @param target_percent 目标亮度百分比，范围 0~100
+   * @param duration_ms 渐变持续时间
+   * @return 渐变成功返回 true，否则返回 false
+   */
+  virtual bool FadeScreenBrightnessPercent(
+      int target_percent, uint32_t duration_ms) = 0;
 
   /**
    * @brief 让设备进入芯片睡眠状态

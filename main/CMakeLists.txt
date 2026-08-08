@@ -24,6 +24,10 @@ if(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
     list(APPEND src_dirs
         "hal/device/t_display_p4"
         "hal/usb")
+elseif(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
+    list(APPEND src_dirs
+        "hal/device/t_display_p4_air"
+        "hal/usb")
 endif()
 
 idf_component_register(
@@ -42,6 +46,7 @@ idf_component_register(
         esp_app_format
         esp_common
         esp_audio_codec
+        esp_driver_rmt
         esp_eth
         esp_event
         esp_hosted

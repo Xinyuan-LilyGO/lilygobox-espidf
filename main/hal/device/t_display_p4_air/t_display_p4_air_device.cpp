@@ -1,13 +1,12 @@
 /*
- * @Description: T-Display-P4 设备初始化与硬件 Provider 适配实现
+ * @Description: T-Display-P4-Air 设备初始化与硬件 Provider 适配实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-08-03 18:02:10
+ * @LastEditTime: 2026-08-06 18:03:31
  * @License: GPL 3.0
  */
-#include "hal/device/t_display_p4/t_display_p4_device.h"
+#include "hal/device/t_display_p4_air/t_display_p4_air_device.h"
 
-#include <cerrno>
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -18,12 +17,15 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <iterator>
+#include <limits>
 #include <memory>
 #include <new>
 #include <string>
@@ -31,10 +33,9 @@
 #include "app/storage/display_storage.h"
 #include "audio/new_notification_010_c2_b16_s44100.h"
 #include "base/logger.h"
+#include "bhy2_parse.h"
+#include "esp_attr.h"
 #include "esp_err.h"
-#include "esp_eth.h"
-#include "esp_eth_mac.h"
-#include "esp_eth_phy_802_3.h"
 #include "esp_event.h"
 #include "esp_heap_caps.h"
 #include "esp_hosted.h"
@@ -54,14 +55,12 @@
 #include "linux/videodev2.h"
 
 namespace lilygo_box::hal {
-namespace device = lilygo_device_driver::t_display_p4::device;
-namespace gpio = lilygo_device_driver::t_display_p4::gpio;
+namespace device = lilygo_device_driver::t_display_p4_air::device;
+namespace gpio = lilygo_device_driver::t_display_p4_air::gpio;
 namespace {
 
 constexpr int kScreenBrightnessMinPercent = 0;
 constexpr int kScreenBrightnessMaxPercent = 100;
-constexpr uint32_t kScreenBrightnessFadeUpdateMs = 10;
-constexpr uint8_t kRm69a10BrightnessMax = UINT8_MAX;
 constexpr uint8_t kVibrationTestGain = 255;
 constexpr uint8_t kVibrationTestLoopCount = 1;
 constexpr uint8_t kAudioVolumeMax = 192;
@@ -92,18 +91,45 @@ constexpr uint32_t kCameraFrameIntervalMs = 10;
 constexpr uint32_t kCameraStopWaitTimeoutMs = 5000;
 constexpr uint32_t kCameraOutputClearFrameCount = 3;
 constexpr uint32_t kCameraWarmupFrameCount = 5;
-constexpr uint32_t kCameraVideoInitFlags =
-    ESP_VIDEO_INIT_FLAGS_MIPI_CSI | ESP_VIDEO_INIT_FLAGS_ISP;
 // Radio 发送硬件超时的最小值和额外保护时间。
 constexpr uint32_t kMinimumRadioTransmitTimeoutMs = 1000;
 constexpr uint32_t kRadioTransmitTimeoutMarginMs = 500;
 constexpr uint32_t kRadioTransmitWatchdogGraceMs = 1000;
-constexpr float kDegreesToRadians = 0.0174532925F;
 constexpr float kRadiansToDegrees = 57.2957795F;
+constexpr float kDegreesToRadians = 0.0174532925F;
+constexpr float kBhi260apAccelerometerScale = 1.0F / 4096.0F;
+constexpr float kBhi260apSampleRateHz = 100.0F;
+constexpr uint32_t kBhi260apReportLatencyMs = 0;
+constexpr uint32_t kImuHardwareReadyTimeoutMs = 5000;
+constexpr uint32_t kImuHardwareReadyPollMs = 20;
 constexpr const char* kCameraDeviceName = ESP_VIDEO_MIPI_CSI_DEVICE_NAME;
 constexpr size_t kGpsMaxReadBufferBytes = 4096;
-constexpr uint32_t kEthernetInitTaskStackBytes = 6 * 1024;
-constexpr UBaseType_t kEthernetInitTaskPriority = 3;
+constexpr uint32_t kNrf9151CommandTimeoutMs = 5000;
+constexpr uint32_t kNrf9151StartupDelayMs = 1000;
+constexpr size_t kNrf9151PendingDataLimit = 8192;
+constexpr uint32_t kNrf9151GnssUpdateIntervalMs = 1000;
+constexpr uint32_t kNfcPollingTaskStackBytes = 6 * 1024;
+constexpr UBaseType_t kNfcPollingTaskPriority = 3;
+constexpr uint32_t kNfcCardRemovalTimeoutMs = 700;
+constexpr uint32_t kNfcTaskStopTimeoutMs = 2000;
+constexpr int kNfcPlatformErrorBase = 1000;
+constexpr uint32_t kInfraredReceiveMinimumNs = 1000;
+constexpr uint32_t kInfraredReceiveMaximumNs = 12 * 1000 * 1000;
+constexpr uint32_t kInfraredTransmitTimeoutMs = 1000;
+constexpr uint16_t kNecLeaderMarkUs = 9000;
+constexpr uint16_t kNecLeaderSpaceUs = 4500;
+constexpr uint16_t kNecRepeatSpaceUs = 2250;
+constexpr uint16_t kNecBitMarkUs = 560;
+constexpr uint16_t kNecZeroSpaceUs = 560;
+constexpr uint16_t kNecOneSpaceUs = 1690;
+constexpr uint16_t kNecFrameEndSpaceUs = 10000;
+constexpr size_t kNecDataBitCount = 32;
+constexpr size_t kNecFrameSymbolCount = kNecDataBitCount + 2;
+constexpr uint32_t kCellularTaskStackBytes = 6 * 1024;
+constexpr UBaseType_t kCellularTaskPriority = 3;
+constexpr uint32_t kCellularCommandTimeoutMs = 2000;
+constexpr uint32_t kCellularStatusPollMs = 2000;
+constexpr uint32_t kCellularTaskStopTimeoutMs = 12000;
 constexpr uint32_t kWifiInitTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kWifiInitTaskPriority = 3;
 constexpr uint32_t kWifiScanTaskStackBytes = 6 * 1024;
@@ -112,7 +138,7 @@ constexpr uint32_t kWifiConnectTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kWifiConnectTaskPriority = 3;
 constexpr uint32_t kWifiHardwareReadyTimeoutMs = 8000;
 constexpr uint32_t kWifiHardwareReadyPollMs = 50;
-constexpr uint32_t kWifiEsp32c6BootDelayMs = 500;
+constexpr uint32_t kWifiCoprocessorBootDelayMs = 500;
 constexpr uint32_t kWifiScanTimeoutMs = 8000;
 constexpr uint32_t kWifiScanStateRetryIntervalMs = 500;
 constexpr const char* kFactoryWifiSsid = "LilyGo-AABB";
@@ -122,40 +148,301 @@ constexpr int kWifiSntpMaxAttemptCount = 3;
 constexpr uint32_t kWifiSntpAttemptIntervalMs =
     kWifiInternetCheckTimeoutMs / kWifiSntpMaxAttemptCount;
 static_assert(kWifiSntpAttemptIntervalMs * kWifiSntpMaxAttemptCount ==
-    kWifiInternetCheckTimeoutMs);
+              kWifiInternetCheckTimeoutMs);
 constexpr int kWifiMaxReconnectCount = 8;
 constexpr int64_t kWifiValidUnixTimeThreshold = 1700000000LL;
-constexpr uint32_t kRtcSyncTaskStackBytes = 4 * 1024;
-constexpr UBaseType_t kRtcSyncTaskPriority = 3;
 constexpr size_t kRadioIrqTextCapacity = 160;
 
-// SX1262 IRQ 位与日志名称映射。
+enum class NecDecodeResult {
+  kInvalid,
+  kFrame,
+  kRepeat,
+};
+
+/**
+ * @brief 判断 RMT symbol 持续时间是否处于 NEC 允许误差内
+ * @param actual_us RMT 读取到的持续时间
+ * @param expected_us NEC 协议期望持续时间
+ * @return 持续时间匹配返回 true
+ */
+bool IsNecDuration(uint16_t actual_us, uint16_t expected_us) {
+  const int difference =
+      std::abs(static_cast<int>(actual_us) - static_cast<int>(expected_us));
+  return difference <= device::infrared::kNecDecodeMargin;
+}
+
+/**
+ * @brief 将一组 RMT symbol 解码为标准 NEC 地址和命令
+ * @param symbols RMT symbol 数组
+ * @param symbol_count symbol 有效数量
+ * @param address NEC 地址输出地址
+ * @param command NEC 命令输出地址
+ * @return 普通帧、重复帧或无效帧
+ */
+NecDecodeResult DecodeNecSymbols(const rmt_symbol_word_t* symbols,
+    size_t symbol_count, uint8_t* address, uint8_t* command) {
+  if (symbols == nullptr || address == nullptr || command == nullptr ||
+      symbol_count < 2 ||
+      !IsNecDuration(symbols[0].duration0, kNecLeaderMarkUs)) {
+    return NecDecodeResult::kInvalid;
+  }
+  if (IsNecDuration(symbols[0].duration1, kNecRepeatSpaceUs) &&
+      IsNecDuration(symbols[1].duration0, kNecBitMarkUs)) {
+    return NecDecodeResult::kRepeat;
+  }
+  if (symbol_count < kNecFrameSymbolCount ||
+      !IsNecDuration(symbols[0].duration1, kNecLeaderSpaceUs)) {
+    return NecDecodeResult::kInvalid;
+  }
+
+  uint32_t raw_data = 0;
+  for (size_t bit = 0; bit < kNecDataBitCount; ++bit) {
+    const rmt_symbol_word_t& symbol = symbols[bit + 1];
+    if (!IsNecDuration(symbol.duration0, kNecBitMarkUs)) {
+      return NecDecodeResult::kInvalid;
+    }
+    if (IsNecDuration(symbol.duration1, kNecOneSpaceUs)) {
+      raw_data |= 1UL << bit;
+    } else if (!IsNecDuration(symbol.duration1, kNecZeroSpaceUs)) {
+      return NecDecodeResult::kInvalid;
+    }
+  }
+
+  const uint8_t decoded_address = raw_data & 0xFFU;
+  const uint8_t inverted_address = (raw_data >> 8) & 0xFFU;
+  const uint8_t decoded_command = (raw_data >> 16) & 0xFFU;
+  const uint8_t inverted_command = (raw_data >> 24) & 0xFFU;
+  if (static_cast<uint8_t>(~decoded_address) != inverted_address ||
+      static_cast<uint8_t>(~decoded_command) != inverted_command) {
+    return NecDecodeResult::kInvalid;
+  }
+  *address = decoded_address;
+  *command = decoded_command;
+  return NecDecodeResult::kFrame;
+}
+
+/**
+ * @brief 将 RFAL 卡片类型转换为应用层 NFC 技术
+ * @param type RFAL 卡片类型
+ * @return 应用层 NFC 技术
+ */
+NfcTechnology ToNfcTechnology(rfalNfcDevType type) {
+  switch (type) {
+    case RFAL_NFC_LISTEN_TYPE_NFCA:
+      return NfcTechnology::kTypeA;
+    case RFAL_NFC_LISTEN_TYPE_NFCB:
+      return NfcTechnology::kTypeB;
+    case RFAL_NFC_LISTEN_TYPE_NFCF:
+      return NfcTechnology::kTypeF;
+    case RFAL_NFC_LISTEN_TYPE_NFCV:
+      return NfcTechnology::kTypeV;
+    case RFAL_NFC_LISTEN_TYPE_ST25TB:
+      return NfcTechnology::kSt25Tb;
+    default:
+      return NfcTechnology::kUnknown;
+  }
+}
+
+/**
+ * @brief 删除字符串首尾的 ASCII 空白字符
+ * @param text 待处理字符串
+ * @return 删除空白后的字符串副本
+ */
+std::string TrimAsciiWhitespace(const std::string& text) {
+  size_t first = 0;
+  while (first < text.size() &&
+         std::isspace(static_cast<unsigned char>(text[first])) != 0) {
+    ++first;
+  }
+  size_t last = text.size();
+  while (last > first &&
+         std::isspace(static_cast<unsigned char>(text[last - 1])) != 0) {
+    --last;
+  }
+  return text.substr(first, last - first);
+}
+
+/**
+ * @brief 从 AT 完整响应中提取指定前缀所在的数据行
+ * @param response AT 完整响应
+ * @param prefix 数据行前缀
+ * @param value 数据行去除前缀后的输出地址
+ * @return 找到有效数据行返回 true
+ */
+bool ExtractAtPrefixedValue(
+    const std::string& response, const char* prefix, std::string* value) {
+  if (prefix == nullptr || value == nullptr) {
+    return false;
+  }
+  const size_t prefix_position = response.find(prefix);
+  if (prefix_position == std::string::npos) {
+    return false;
+  }
+  const size_t value_start = prefix_position + std::strlen(prefix);
+  const size_t line_end = response.find_first_of("\r\n", value_start);
+  *value = TrimAsciiWhitespace(response.substr(
+      value_start, line_end == std::string::npos ? std::string::npos
+                                                 : line_end - value_start));
+  return !value->empty();
+}
+
+/**
+ * @brief 从 AT 响应中提取首个纯数字数据行
+ * @param response AT 完整响应
+ * @param value 数字字符串输出地址
+ * @return 找到纯数字数据行返回 true
+ */
+bool ExtractAtNumericLine(const std::string& response, std::string* value) {
+  if (value == nullptr) {
+    return false;
+  }
+  size_t line_start = 0;
+  while (line_start < response.size()) {
+    const size_t line_end = response.find_first_of("\r\n", line_start);
+    const std::string line = TrimAsciiWhitespace(response.substr(
+        line_start, line_end == std::string::npos ? std::string::npos
+                                                  : line_end - line_start));
+    if (!line.empty() &&
+        std::all_of(line.begin(), line.end(), [](unsigned char character) {
+          return std::isdigit(character) != 0;
+        })) {
+      *value = line;
+      return true;
+    }
+    if (line_end == std::string::npos) {
+      break;
+    }
+    line_start = line_end + 1;
+  }
+  return false;
+}
+
+/**
+ * @brief 将 CEREG 数值转换为应用层注册状态
+ * @param registration CEREG 注册数值
+ * @return 应用层注册状态
+ */
+CellularRegistrationState ToCellularRegistrationState(int registration) {
+  switch (registration) {
+    case 0:
+      return CellularRegistrationState::kNotRegistered;
+    case 1:
+      return CellularRegistrationState::kRegisteredHome;
+    case 2:
+      return CellularRegistrationState::kSearching;
+    case 3:
+      return CellularRegistrationState::kDenied;
+    case 5:
+      return CellularRegistrationState::kRegisteredRoaming;
+    default:
+      return CellularRegistrationState::kUnknown;
+  }
+}
+
+/**
+ * @brief 解析 +CEREG 响应中的网络注册状态
+ * @param response AT+CEREG? 完整响应
+ * @param state 注册状态输出地址
+ * @return 解析成功返回 true
+ */
+bool ParseCellularRegistration(
+    const std::string& response, CellularRegistrationState* state) {
+  std::string value;
+  if (state == nullptr ||
+      !ExtractAtPrefixedValue(response, "+CEREG:", &value)) {
+    return false;
+  }
+  int reporting_mode = 0;
+  int registration = 0;
+  const int parsed =
+      std::sscanf(value.c_str(), "%d,%d", &reporting_mode, &registration);
+  if (parsed == 1) {
+    registration = reporting_mode;
+  } else if (parsed != 2) {
+    return false;
+  }
+  *state = ToCellularRegistrationState(registration);
+  return true;
+}
+
+/**
+ * @brief 解析 +CSQ 响应并换算 RSSI
+ * @param response AT+CSQ 完整响应
+ * @param signal_quality CSQ 输出地址
+ * @param rssi_dbm RSSI 输出地址
+ * @return 解析成功返回 true
+ */
+bool ParseCellularSignal(
+    const std::string& response, int* signal_quality, int* rssi_dbm) {
+  std::string value;
+  if (signal_quality == nullptr || rssi_dbm == nullptr ||
+      !ExtractAtPrefixedValue(response, "+CSQ:", &value)) {
+    return false;
+  }
+  int quality = 99;
+  int bit_error_rate = 99;
+  if (std::sscanf(value.c_str(), "%d,%d", &quality, &bit_error_rate) != 2) {
+    return false;
+  }
+  *signal_quality = quality;
+  *rssi_dbm = quality >= 0 && quality <= 31 ? -113 + quality * 2 : 0;
+  return true;
+}
+
+/**
+ * @brief 解析 +COPS 响应中的运营商字段
+ * @param response AT+COPS? 完整响应
+ * @param operator_name 运营商字符串输出地址
+ * @return 解析成功返回 true
+ */
+bool ParseCellularOperator(
+    const std::string& response, std::string* operator_name) {
+  std::string value;
+  if (operator_name == nullptr ||
+      !ExtractAtPrefixedValue(response, "+COPS:", &value)) {
+    return false;
+  }
+  const size_t first_quote = value.find('"');
+  if (first_quote != std::string::npos) {
+    const size_t second_quote = value.find('"', first_quote + 1);
+    if (second_quote != std::string::npos) {
+      *operator_name =
+          value.substr(first_quote + 1, second_quote - first_quote - 1);
+      return !operator_name->empty();
+    }
+  }
+  const size_t last_comma = value.rfind(',');
+  *operator_name = TrimAsciiWhitespace(
+      last_comma == std::string::npos ? value : value.substr(last_comma + 1));
+  return !operator_name->empty();
+}
+
+// LR1121 IRQ 位与日志名称映射。
 struct RadioIrqDescription {
-  uint16_t mask;
+  lr11xx_system_irq_mask_t mask;
   const char* name;
 };
 
-constexpr std::array<RadioIrqDescription, 10> kRadioIrqDescriptions = {{
-    {static_cast<uint16_t>(SX126X_IRQ_TX_DONE), "TX_DONE"},
-    {static_cast<uint16_t>(SX126X_IRQ_RX_DONE), "RX_DONE"},
-    {static_cast<uint16_t>(SX126X_IRQ_PREAMBLE_DETECTED),
-        "PREAMBLE_DETECTED"},
-    {static_cast<uint16_t>(SX126X_IRQ_SYNC_WORD_VALID), "SYNC_WORD_VALID"},
-    {static_cast<uint16_t>(SX126X_IRQ_HEADER_VALID), "HEADER_VALID"},
-    {static_cast<uint16_t>(SX126X_IRQ_HEADER_ERROR), "HEADER_ERROR"},
-    {static_cast<uint16_t>(SX126X_IRQ_CRC_ERROR), "CRC_ERROR"},
-    {static_cast<uint16_t>(SX126X_IRQ_CAD_DONE), "CAD_DONE"},
-    {static_cast<uint16_t>(SX126X_IRQ_CAD_DETECTED), "CAD_DETECTED"},
-    {static_cast<uint16_t>(SX126X_IRQ_TIMEOUT), "TIMEOUT"},
+constexpr std::array<RadioIrqDescription, 5> kRadioIrqDescriptions = {{
+    {LR11XX_SYSTEM_IRQ_TX_DONE, "TX_DONE"},
+    {LR11XX_SYSTEM_IRQ_RX_DONE, "RX_DONE"},
+    {LR11XX_SYSTEM_IRQ_HEADER_ERROR, "HEADER_ERROR"},
+    {LR11XX_SYSTEM_IRQ_CRC_ERROR, "CRC_ERROR"},
+    {LR11XX_SYSTEM_IRQ_TIMEOUT, "TIMEOUT"},
 }};
+constexpr lr11xx_system_irq_mask_t kRadioEventIrqMask =
+    LR11XX_SYSTEM_IRQ_TX_DONE | LR11XX_SYSTEM_IRQ_RX_DONE |
+    LR11XX_SYSTEM_IRQ_HEADER_ERROR | LR11XX_SYSTEM_IRQ_CRC_ERROR |
+    LR11XX_SYSTEM_IRQ_TIMEOUT;
 
 /**
- * @brief 将 SX1262 IRQ 位掩码格式化为可读名称和十六进制数值
- * @param irq_mask SX1262 IRQ 位掩码
+ * @brief 将 LR1121 IRQ 位掩码格式化为可读名称和十六进制数值
+ * @param irq_mask LR1121 IRQ 位掩码
  * @param output 输出文本缓冲区
  * @param output_size 输出文本缓冲区大小
  */
-void FormatRadioIrqMask(uint16_t irq_mask, char* output, size_t output_size) {
+void FormatRadioIrqMask(
+    lr11xx_system_irq_mask_t irq_mask, char* output, size_t output_size) {
   if (output == nullptr || output_size == 0) {
     return;
   }
@@ -164,8 +451,8 @@ void FormatRadioIrqMask(uint16_t irq_mask, char* output, size_t output_size) {
   bool has_name = false;
 
   const auto append_name = [&](const char* name) {
-    const int result = std::snprintf(output + used, output_size - used,
-        "%s%s", has_name ? " | " : "", name);
+    const int result = std::snprintf(
+        output + used, output_size - used, "%s%s", has_name ? " | " : "", name);
     if (result < 0 || static_cast<size_t>(result) >= output_size - used) {
       output[output_size - 1] = '\0';
       return false;
@@ -175,7 +462,7 @@ void FormatRadioIrqMask(uint16_t irq_mask, char* output, size_t output_size) {
     return true;
   };
 
-  uint16_t unknown_mask = irq_mask;
+  lr11xx_system_irq_mask_t unknown_mask = irq_mask;
   for (const RadioIrqDescription& description : kRadioIrqDescriptions) {
     if ((irq_mask & description.mask) == 0) {
       continue;
@@ -183,7 +470,7 @@ void FormatRadioIrqMask(uint16_t irq_mask, char* output, size_t output_size) {
     if (!append_name(description.name)) {
       return;
     }
-    unknown_mask &= static_cast<uint16_t>(~description.mask);
+    unknown_mask &= ~description.mask;
   }
   if (unknown_mask != 0 && !append_name("UNKNOWN")) {
     return;
@@ -192,14 +479,21 @@ void FormatRadioIrqMask(uint16_t irq_mask, char* output, size_t output_size) {
     return;
   }
 
-  std::snprintf(output + used, output_size - used, " (0x%04X)",
-      static_cast<unsigned>(irq_mask));
+  std::snprintf(output + used, output_size - used, " (0x%08lX)",
+      static_cast<unsigned long>(irq_mask));
 }
 
 // 当前接收 SNTP 同步回调的设备实例
-std::atomic<TDisplayP4Device*> g_wifi_time_sync_owner{nullptr};
+std::atomic<TDisplayP4AirDevice*> g_wifi_time_sync_owner{nullptr};
 
+/**
+ * @brief 将触摸点标记为屏幕边缘手势
+ * @param point 待更新的触摸点
+ */
 void SetEdgeTouchPoint(TouchPoint* point) {
+  if (point == nullptr) {
+    return;
+  }
   point->id = 0;
   point->x = -1;
   point->y = -1;
@@ -245,19 +539,14 @@ ppa_srm_rotation_angle_t ToCameraPreviewPpaRotation(int angle) {
   }
 }
 
+/**
+ * @brief 将屏幕亮度限制在驱动支持的百分比范围
+ * @param percent 原始亮度百分比
+ * @return 限制后的亮度百分比
+ */
 int ClampScreenBrightnessPercent(int percent) {
   return std::clamp(
       percent, kScreenBrightnessMinPercent, kScreenBrightnessMaxPercent);
-}
-
-uint8_t ScreenBrightnessPercentToRm69a10Value(int clamped_percent) {
-  return static_cast<uint8_t>(
-      clamped_percent * kRm69a10BrightnessMax / kScreenBrightnessMaxPercent);
-}
-
-uint8_t PercentToUint8Value(int percent, uint8_t max_value) {
-  const int clamped_percent = std::clamp(percent, 0, 100);
-  return static_cast<uint8_t>(clamped_percent * max_value / 100);
 }
 
 /**
@@ -313,99 +602,257 @@ bool IsSecureWifiAuthMode(wifi_auth_mode_t auth_mode) {
  * @param channel WiFi 主信道
  * @return 大于 2.4 GHz 信道范围返回 true
  */
-bool IsFiveGWifiChannel(int channel) {
-  return channel > 14;
+bool IsFiveGWifiChannel(int channel) { return channel > 14; }
+
+/**
+ * @brief 控制板载 WiFi 协处理器电源
+ * @param driver 当前板级驱动
+ * @param enabled true 上电，false 断电
+ * @return GPIO 状态切换成功返回 true，否则返回 false
+ */
+bool SetWifiCoprocessorPowerEnabled(
+    TDisplayP4AirBoardDriver& driver, bool enabled) {
+  return driver.SetEsp32c5PowerEnabled(enabled);
 }
 
 esp_err_t SetWifiCoprocessorResetLevel(void* user_data, bool level) {
-  auto* driver =
-      static_cast<lilygo_device_driver::TDisplayP4Driver*>(user_data);
+  auto* driver = static_cast<TDisplayP4AirBoardDriver*>(user_data);
   if (driver == nullptr) {
     return ESP_ERR_INVALID_ARG;
   }
-  return driver->SetEsp32c6PowerEnabled(level) ? ESP_OK : ESP_FAIL;
+  return SetWifiCoprocessorPowerEnabled(*driver, level) ? ESP_OK : ESP_FAIL;
 }
 
-bool SelectLoraBandwidth(uint32_t bandwidth_hz,
-    sx126x_lora_bw_t* bandwidth) {
+/**
+ * @brief 判断 HI8561 触摸控制器是否可用
+ * @param driver 当前板级驱动
+ * @return 触摸控制器可用返回 true
+ */
+bool IsTouchReady(const TDisplayP4AirBoardDriver& driver) {
+  return driver.IsHi8561TouchReady();
+}
+
+using BoardLoraBandwidth = lr11xx_radio_lora_bw_t;
+
+/**
+ * @brief 将应用层带宽转换为 LR1121 LoRa 带宽枚举
+ * @param bandwidth_hz 应用层带宽，单位 Hz
+ * @param bandwidth LR1121 带宽输出地址
+ * @return 带宽受支持返回 true
+ */
+bool SelectLoraBandwidth(uint32_t bandwidth_hz, BoardLoraBandwidth* bandwidth) {
   if (bandwidth == nullptr) {
     return false;
   }
   switch (bandwidth_hz) {
     case 62500:
-      *bandwidth = SX126X_LORA_BW_062;
+      *bandwidth = LR11XX_RADIO_LORA_BW_62;
       return true;
     case 125000:
-      *bandwidth = SX126X_LORA_BW_125;
+      *bandwidth = LR11XX_RADIO_LORA_BW_125;
+      return true;
+    case 200000:
+      *bandwidth = LR11XX_RADIO_LORA_BW_200;
       return true;
     case 250000:
-      *bandwidth = SX126X_LORA_BW_250;
+      *bandwidth = LR11XX_RADIO_LORA_BW_250;
+      return true;
+    case 400000:
+      *bandwidth = LR11XX_RADIO_LORA_BW_400;
       return true;
     case 500000:
-      *bandwidth = SX126X_LORA_BW_500;
+      *bandwidth = LR11XX_RADIO_LORA_BW_500;
+      return true;
+    case 800000:
+      *bandwidth = LR11XX_RADIO_LORA_BW_800;
       return true;
     default:
       return false;
   }
 }
 
-void SelectImageCalibration(uint32_t frequency_hz,
-    uint16_t* minimum_mhz, uint16_t* maximum_mhz) {
-  const uint32_t frequency_mhz = frequency_hz / 1000000;
-  if (frequency_mhz >= 902) {
-    *minimum_mhz = 902;
-    *maximum_mhz = 928;
-  } else if (frequency_mhz >= 863) {
-    *minimum_mhz = 863;
-    *maximum_mhz = 870;
-  } else if (frequency_mhz >= 779) {
-    *minimum_mhz = 779;
-    *maximum_mhz = 787;
-  } else if (frequency_mhz >= 470) {
-    *minimum_mhz = 470;
-    *maximum_mhz = 510;
-  } else {
-    *minimum_mhz = 430;
-    *maximum_mhz = 440;
-  }
+bool ShouldEnableLoraLdro(const LoraRadioConfig& config);
+
+/**
+ * @brief 创建 LR1121 LoRa 数据包参数
+ * @param source 应用层 LoRa 配置
+ * @param payload_length 当前收发负载长度
+ * @return LR1121 数据包参数
+ */
+lr11xx_radio_pkt_params_lora_t MakeLr1121PacketConfig(
+    const LoraRadioConfig& source, uint8_t payload_length) {
+  return {
+      .preamble_len_in_symb = source.preamble_length,
+      .header_type = LR11XX_RADIO_LORA_PKT_EXPLICIT,
+      .pld_len_in_bytes = payload_length,
+      .crc = source.crc_enabled ? LR11XX_RADIO_LORA_CRC_ON
+                                : LR11XX_RADIO_LORA_CRC_OFF,
+      .iq = source.invert_iq ? LR11XX_RADIO_LORA_IQ_INVERTED
+                             : LR11XX_RADIO_LORA_IQ_STANDARD,
+  };
 }
 
 /**
- * @brief 校验应用层 LoRa 参数并转换为 SX1262 驱动配置
- * @param source 应用层 LoRa 配置
- * @param target SX1262 驱动配置输出地址
- * @return 参数有效且转换成功时返回 true
+ * @brief 使用当前 LoRa 参数重新进入连续接收
+ * @param lr1121 LR1121 驱动
+ * @param config 应用层 LoRa 配置
+ * @return 接收启动成功返回 true
  */
-bool BuildSx1262Config(const LoraRadioConfig& source,
-    usp_cpp_bus_driver::Sx126x::LoraConfig* target) {
-  if (target == nullptr || source.frequency_hz < 150000000 ||
-      source.frequency_hz > 960000000 || source.spreading_factor < 5 ||
-      source.spreading_factor > 12 || source.coding_rate_denominator < 5 ||
-      source.coding_rate_denominator > 8 || source.preamble_length == 0 ||
-      source.output_power_dbm < -9 || source.output_power_dbm > 22 ||
-      !SelectLoraBandwidth(source.bandwidth_hz, &target->bandwidth)) {
+bool StartLr1121Receive(
+    usp_cpp_bus_driver::Lr11xx& lr1121, const LoraRadioConfig& config) {
+  const lr11xx_radio_pkt_params_lora_t packet =
+      MakeLr1121PacketConfig(config, UINT8_MAX);
+  return lr1121.Invoke(lr11xx_radio_set_lora_pkt_params, &packet) ==
+             LR11XX_STATUS_OK &&
+         lr1121.StartReceive(0);
+}
+
+struct Lr1121ImageCalibrationBand {
+  uint16_t minimum_mhz = 0;
+  uint16_t maximum_mhz = 0;
+};
+
+/**
+ * @brief 选择覆盖目标 Sub-GHz 频率的 LR1121 镜像校准区间
+ * @param frequency_hz 目标射频频率
+ * @param band 校准区间输出地址
+ * @return 目标位于 LR1121 Sub-GHz 路径且区间有效时返回 true
+ */
+bool SelectLr1121ImageCalibrationBand(
+    uint32_t frequency_hz, Lr1121ImageCalibrationBand* band) {
+  static constexpr Lr1121ImageCalibrationBand kStandardBands[] = {
+      {430, 440},
+      {470, 510},
+      {779, 787},
+      {863, 870},
+      {902, 928},
+  };
+  if (band == nullptr || frequency_hz < 150000000U ||
+      frequency_hz > 960000000U) {
     return false;
   }
-  target->frequency_hz = source.frequency_hz;
-  target->spreading_factor =
-      static_cast<sx126x_lora_sf_t>(source.spreading_factor);
-  target->coding_rate =
-      static_cast<sx126x_lora_cr_t>(source.coding_rate_denominator - 4);
-  target->preamble_length = source.preamble_length;
-  target->sync_word = source.sync_word;
-  target->output_power_dbm = source.output_power_dbm;
-  target->crc_enabled = source.crc_enabled;
-  target->invert_iq = source.invert_iq;
-  target->rx_boosted = source.rx_boosted;
-  SelectImageCalibration(source.frequency_hz,
-      &target->image_calibration_min_mhz, &target->image_calibration_max_mhz);
+
+  for (const Lr1121ImageCalibrationBand& standard_band : kStandardBands) {
+    if (frequency_hz >=
+            static_cast<uint32_t>(standard_band.minimum_mhz) * 1000000U &&
+        frequency_hz <=
+            static_cast<uint32_t>(standard_band.maximum_mhz) * 1000000U) {
+      *band = standard_band;
+      return true;
+    }
+  }
+
+  // 非标准频段使用目标频率前后各 10 MHz 的窗口，频率变化超过
+  // LR1121 手册要求的 10 MHz 阈值后会重新执行镜像校准。
+  const uint16_t frequency_mhz = static_cast<uint16_t>(frequency_hz / 1000000U);
+  band->minimum_mhz =
+      frequency_mhz > 160 ? static_cast<uint16_t>(frequency_mhz - 10) : 150;
+  band->maximum_mhz = static_cast<uint16_t>(
+      std::min<uint32_t>(960U, static_cast<uint32_t>(frequency_mhz) + 10U));
+  return band->minimum_mhz < band->maximum_mhz;
+}
+
+/**
+ * @brief 确保 LR1121 已完成目标 Sub-GHz 区间的镜像校准
+ * @param lr1121 LR1121 驱动
+ * @param frequency_hz 目标射频频率
+ * @param calibrated_minimum_mhz 已缓存校准区间下限
+ * @param calibrated_maximum_mhz 已缓存校准区间上限
+ * @return 无需校准或校准成功时返回 true
+ */
+bool EnsureLr1121ImageCalibration(usp_cpp_bus_driver::Lr11xx& lr1121,
+    uint32_t frequency_hz, uint16_t* calibrated_minimum_mhz,
+    uint16_t* calibrated_maximum_mhz) {
+  if (frequency_hz >= 2400000000U && frequency_hz <= 2500000000U) {
+    // CalibImage 只适用于 RFI_N/P_LF Sub-GHz 接收路径。
+    return true;
+  }
+  if (calibrated_minimum_mhz == nullptr || calibrated_maximum_mhz == nullptr) {
+    return false;
+  }
+
+  Lr1121ImageCalibrationBand band;
+  if (!SelectLr1121ImageCalibrationBand(frequency_hz, &band)) {
+    return false;
+  }
+  if (frequency_hz >=
+          static_cast<uint32_t>(*calibrated_minimum_mhz) * 1000000U &&
+      frequency_hz <=
+          static_cast<uint32_t>(*calibrated_maximum_mhz) * 1000000U) {
+    return true;
+  }
+
+  if (lr1121.Invoke(lr11xx_system_calibrate_image_in_mhz, band.minimum_mhz,
+          band.maximum_mhz) != LR11XX_STATUS_OK) {
+    return false;
+  }
+  *calibrated_minimum_mhz = band.minimum_mhz;
+  *calibrated_maximum_mhz = band.maximum_mhz;
+  return true;
+}
+
+/**
+ * @brief 校验应用层 LoRa 参数并转换为板载射频驱动配置
+ * @param source 应用层 LoRa 配置
+ * @param target 板载射频驱动配置输出地址
+ * @return 参数有效且转换成功时返回 true
+ */
+bool BuildRadioConfig(const LoraRadioConfig& source,
+    usp_cpp_bus_driver::Lr11xx::LoraConfig* target) {
+  const bool use_hf_path =
+      source.frequency_hz >= 2400000000U && source.frequency_hz <= 2500000000U;
+  const bool use_sub_ghz_path =
+      source.frequency_hz >= 150000000U && source.frequency_hz <= 960000000U;
+  const bool bandwidth_supported =
+      use_hf_path
+          ? (source.bandwidth_hz == 200000 || source.bandwidth_hz == 400000 ||
+                source.bandwidth_hz == 800000)
+          : (source.bandwidth_hz == 62500 || source.bandwidth_hz == 125000 ||
+                source.bandwidth_hz == 250000 || source.bandwidth_hz == 500000);
+  BoardLoraBandwidth bandwidth;
+  if (target == nullptr || (!use_hf_path && !use_sub_ghz_path) ||
+      !bandwidth_supported || source.spreading_factor < 5 ||
+      source.spreading_factor > 12 || source.coding_rate_denominator < 5 ||
+      source.coding_rate_denominator > 8 || source.preamble_length == 0 ||
+      source.output_power_dbm < -9 ||
+      source.output_power_dbm > (use_hf_path ? 13 : 22) ||
+      !SelectLoraBandwidth(source.bandwidth_hz, &bandwidth)) {
+    return false;
+  }
+
+  *target = usp_cpp_bus_driver::Lr11xx::LoraConfig{
+      .frequency_hz = source.frequency_hz,
+      .modulation =
+          {
+              .sf =
+                  static_cast<lr11xx_radio_lora_sf_t>(source.spreading_factor),
+              .bw = bandwidth,
+              .cr = static_cast<lr11xx_radio_lora_cr_t>(
+                  source.coding_rate_denominator - 4),
+              .ldro = static_cast<uint8_t>(ShouldEnableLoraLdro(source)),
+          },
+      .packet = MakeLr1121PacketConfig(source, UINT8_MAX),
+      .sync_word = source.sync_word,
+      .rx_boosted = source.rx_boosted,
+      .pa =
+          {
+              .pa_sel =
+                  use_hf_path ? LR11XX_RADIO_PA_SEL_HF : LR11XX_RADIO_PA_SEL_HP,
+              .pa_reg_supply = use_hf_path ? LR11XX_RADIO_PA_REG_SUPPLY_VREG
+                                           : LR11XX_RADIO_PA_REG_SUPPLY_VBAT,
+              .pa_duty_cycle = static_cast<uint8_t>(use_hf_path ? 0x00 : 0x04),
+              .pa_hp_sel = static_cast<uint8_t>(use_hf_path ? 0x00 : 0x07),
+          },
+      .output_power_dbm = source.output_power_dbm,
+      .ramp_time = LR11XX_RADIO_RAMP_48_US,
+  };
   return true;
 }
 
 struct LoraTransmitTiming {
   // 根据当前调制参数计算的理论空中时间。
   uint32_t time_on_air_ms = 0;
-  // 写入 SX1262 SetTx 命令的硬件超时，0 表示禁用硬件超时。
+  // 写入 LR1121 SetTx 命令的硬件超时。
   uint32_t hardware_timeout_ms = 0;
   // MCU 等待 TX_DONE 或 TIMEOUT 事件的最长时间。
   uint32_t watchdog_timeout_ms = 0;
@@ -437,25 +884,28 @@ bool CalculateLoraTransmitTiming(const LoraRadioConfig& config,
       config.coding_rate_denominator > 8 || config.preamble_length == 0) {
     return false;
   }
-  sx126x_lora_bw_t bandwidth;
+  BoardLoraBandwidth bandwidth;
   if (!SelectLoraBandwidth(config.bandwidth_hz, &bandwidth)) {
     return false;
   }
-  const sx126x_mod_params_lora_t modulation_params = {
-      .sf = static_cast<sx126x_lora_sf_t>(config.spreading_factor),
+  const lr11xx_radio_mod_params_lora_t modulation_params = {
+      .sf = static_cast<lr11xx_radio_lora_sf_t>(config.spreading_factor),
       .bw = bandwidth,
-      .cr = static_cast<sx126x_lora_cr_t>(config.coding_rate_denominator - 4),
+      .cr = static_cast<lr11xx_radio_lora_cr_t>(
+          config.coding_rate_denominator - 4),
       .ldro = static_cast<uint8_t>(ShouldEnableLoraLdro(config)),
   };
-  const sx126x_pkt_params_lora_t packet_params = {
+  const lr11xx_radio_pkt_params_lora_t packet_params = {
       .preamble_len_in_symb = config.preamble_length,
-      .header_type = SX126X_LORA_PKT_EXPLICIT,
+      .header_type = LR11XX_RADIO_LORA_PKT_EXPLICIT,
       .pld_len_in_bytes = static_cast<uint8_t>(payload_size),
-      .crc_is_on = config.crc_enabled,
-      .invert_iq_is_on = config.invert_iq,
+      .crc = config.crc_enabled ? LR11XX_RADIO_LORA_CRC_ON
+                                : LR11XX_RADIO_LORA_CRC_OFF,
+      .iq = config.invert_iq ? LR11XX_RADIO_LORA_IQ_INVERTED
+                             : LR11XX_RADIO_LORA_IQ_STANDARD,
   };
-  const uint32_t time_on_air_ms =
-      sx126x_get_lora_time_on_air_in_ms(&packet_params, &modulation_params);
+  const uint32_t time_on_air_ms = lr11xx_radio_get_lora_time_on_air_in_ms(
+      &packet_params, &modulation_params);
   if (time_on_air_ms == 0) {
     return false;
   }
@@ -466,10 +916,8 @@ bool CalculateLoraTransmitTiming(const LoraRadioConfig& config,
           static_cast<uint64_t>(time_on_air_ms) + margin_ms);
   *timing = LoraTransmitTiming{};
   timing->time_on_air_ms = time_on_air_ms;
-  timing->hardware_timeout_ms =
-      requested_timeout_ms <= SX126X_MAX_TIMEOUT_IN_MS
-          ? static_cast<uint32_t>(requested_timeout_ms)
-          : 0;
+  timing->hardware_timeout_ms = static_cast<uint32_t>(std::min<uint64_t>(
+      requested_timeout_ms, std::numeric_limits<uint32_t>::max()));
   timing->watchdog_timeout_ms = static_cast<uint32_t>(std::min<uint64_t>(
       requested_timeout_ms + kRadioTransmitWatchdogGraceMs, UINT32_MAX));
   return true;
@@ -477,16 +925,29 @@ bool CalculateLoraTransmitTiming(const LoraRadioConfig& config,
 
 }  // namespace
 
-TDisplayP4Device::TDisplayP4Device()
-    : driver_(lilygo_device_driver::TDisplayP4Driver::GetInstance()),
+TDisplayP4AirDevice::TDisplayP4AirDevice()
+    : driver_(TDisplayP4AirBoardDriver::GetInstance()),
       tool_(std::make_unique<cpp_bus_driver::Tool>()) {
   wifi_.scan_results_mutex = xSemaphoreCreateMutex();
   radio_.mutex = xSemaphoreCreateMutex();
+  nrf9151_mutex_ = xSemaphoreCreateMutex();
+  imu_.mutex = xSemaphoreCreateMutex();
+  nfc_.mutex = xSemaphoreCreateMutex();
+  infrared_.mutex = xSemaphoreCreateMutex();
+  cellular_.status_mutex = xSemaphoreCreateMutex();
 }
 
-bool TDisplayP4Device::InitDevice() {
-  const bool result =
-      driver_.Init(lilygo_device_driver::TDisplayP4Driver::InitMode::kAsync);
+bool TDisplayP4AirDevice::InitDevice() {
+  if (wifi_.scan_results_mutex == nullptr || radio_.mutex == nullptr ||
+      nrf9151_mutex_ == nullptr || imu_.mutex == nullptr ||
+      nfc_.mutex == nullptr || infrared_.mutex == nullptr ||
+      cellular_.status_mutex == nullptr) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Create T-Display-P4-Air synchronization resources failed\n");
+    return false;
+  }
+
+  const bool result = driver_.Init(TDisplayP4AirBoardDriver::InitMode::kAsync);
   if (!result) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "Init failed\n");
   }
@@ -509,33 +970,47 @@ bool TDisplayP4Device::InitDevice() {
   return true;
 }
 
-PowerOffAction TDisplayP4Device::RequestPowerOff() {
+PowerOffAction TDisplayP4AirDevice::RequestPowerOff() {
+  if (!driver_.IsAxp517Ready() || driver_.chip().axp517 == nullptr) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Enter AXP517 shipping mode failed: device unavailable\n");
+    return PowerOffAction::kFailed;
+  }
+
   if (!PrepareForPowerOff()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Prepare device for power off failed\n");
+        "Prepare device for AXP517 shipping mode failed\n");
     return PowerOffAction::kFailed;
   }
   if (!driver_.PrepareForPowerOff()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Prepare device hardware for power off failed\n");
+        "Prepare device hardware for AXP517 shipping mode failed\n");
     return PowerOffAction::kFailed;
   }
-  return PowerOffAction::kEnterDeepSleep;
+
+  LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+      "Entering AXP517 shipping mode\n");
+  if (!driver_.chip().axp517->SetShippingModeEnable(true)) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Enter AXP517 shipping mode failed\n");
+    return PowerOffAction::kFailed;
+  }
+  return PowerOffAction::kWaitForPowerCut;
 }
 
-int TDisplayP4Device::ScreenWidth() const {
+int TDisplayP4AirDevice::ScreenWidth() const {
   return driver_.screen_info().width;
 }
 
-int TDisplayP4Device::ScreenHeight() const {
+int TDisplayP4AirDevice::ScreenHeight() const {
   return driver_.screen_info().height;
 }
 
-int TDisplayP4Device::ScreenBitsPerPixel() const {
+int TDisplayP4AirDevice::ScreenBitsPerPixel() const {
   return driver_.screen_info().bits_per_pixel;
 }
 
-bool TDisplayP4Device::ReadDeviceInfo(DeviceInfo* info) {
+bool TDisplayP4AirDevice::ReadDeviceInfo(DeviceInfo* info) {
   if (info == nullptr) {
     return false;
   }
@@ -552,83 +1027,18 @@ bool TDisplayP4Device::ReadDeviceInfo(DeviceInfo* info) {
   info->camera_pixel_format = device_info.camera.pixel_format;
   info->camera_bits_per_pixel = device_info.camera.bits_per_pixel;
   info->camera_buffer_count = device_info.camera.buffer_count;
-  info->battery_fuel_gauge_name = device_info.battery.fuel_gauge_name;
-  info->battery_capacity_mah = device_info.battery.capacity_mah;
+  info->battery_fuel_gauge_name = "AXP517";
+  // 原理图未固定电池容量，运行时仅报告 PMIC 电量计数据。
+  info->battery_capacity_mah = 0;
   return true;
 }
 
-bool TDisplayP4Device::SetEthernetEnabled(bool enabled) {
-  ethernet_.stop_requested.store(!enabled);
-  if (!enabled) {
-    if (ethernet_.init_task_running.load()) {
-      return true;
-    }
-    if (ethernet_.handle != nullptr && ethernet_.running.load()) {
-      const esp_err_t result =
-          esp_eth_stop(reinterpret_cast<esp_eth_handle_t>(ethernet_.handle));
-      if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
-        SetEthernetFailure(result);
-        driver_.SetEthernetPowerEnabled(false);
-        return false;
-      }
-    }
-    ethernet_.running.store(false);
-    ethernet_.link_up.store(false);
-    ethernet_.got_ip.store(false);
-    ethernet_.start_failed.store(false);
-    ethernet_.last_error.store(ESP_OK);
-    ethernet_.ip_address.store(0);
-    ethernet_.netmask.store(0);
-    ethernet_.gateway.store(0);
-    return driver_.SetEthernetPowerEnabled(false);
-  }
-
-  if (ethernet_.driver_initialized.load() && ethernet_.running.load()) {
-    return true;
-  }
-
-  bool expected = false;
-  if (!ethernet_.init_task_running.compare_exchange_strong(expected, true)) {
-    return true;
-  }
-
-  ethernet_.start_failed.store(false);
-  ethernet_.last_error.store(ESP_OK);
-  const BaseType_t result = xTaskCreate(EthernetInitTaskEntry, "ethernet",
-      kEthernetInitTaskStackBytes, this, kEthernetInitTaskPriority, nullptr);
-  if (result != pdPASS) {
-    SetEthernetFailure(ESP_ERR_NO_MEM);
-    driver_.SetEthernetPowerEnabled(false);
-    return false;
-  }
-  return true;
-}
-
-bool TDisplayP4Device::ReadEthernetStatus(EthernetStatus* status) {
-  if (status == nullptr) {
-    return false;
-  }
-
-  status->init_task_running = ethernet_.init_task_running.load();
-  status->driver_initialized = ethernet_.driver_initialized.load();
-  status->running = ethernet_.running.load();
-  status->link_up = ethernet_.link_up.load();
-  status->got_ip = ethernet_.got_ip.load();
-  status->start_failed = ethernet_.start_failed.load();
-  status->port_count = ethernet_.port_count.load();
-  status->last_error = ethernet_.last_error.load();
-  status->mac_address = ethernet_.mac_address.load();
-  status->ip_address = ethernet_.ip_address.load();
-  status->netmask = ethernet_.netmask.load();
-  status->gateway = ethernet_.gateway.load();
-  return true;
-}
-
-bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
+bool TDisplayP4AirDevice::SetWifiEnabled(bool enabled) {
   if (!enabled) {
     wifi_time_test_.requested.store(false);
     wifi_.connect_cancel_requested.store(true);
     wifi_.stop_requested.store(true);
+    wifi_.scan_requested.store(false);
     if (wifi_time_test_.active.load()) {
       StopWifiTimeTest();
     } else {
@@ -657,7 +1067,7 @@ bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
       wifi_.running.store(false);
       wifi_.connected.store(false);
       wifi_.got_ip.store(false);
-      return driver_.SetEsp32c6PowerEnabled(false);
+      return SetWifiCoprocessorPowerEnabled(driver_, false);
     }
 
     if (wifi_.scan_running.load() || wifi_.scan_task_running.load()) {
@@ -666,7 +1076,7 @@ bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
           scan_result != ESP_ERR_INVALID_STATE &&
           scan_result != ESP_ERR_WIFI_STATE) {
         SetWifiFailure(scan_result);
-        driver_.SetEsp32c6PowerEnabled(false);
+        SetWifiCoprocessorPowerEnabled(driver_, false);
         return false;
       }
     }
@@ -676,14 +1086,14 @@ bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
     esp_err_t result = esp_wifi_stop();
     if (result != ESP_OK && result != ESP_ERR_WIFI_NOT_STARTED) {
       SetWifiFailure(result);
-      driver_.SetEsp32c6PowerEnabled(false);
+      SetWifiCoprocessorPowerEnabled(driver_, false);
       return false;
     }
 
     result = esp_wifi_set_mode(WIFI_MODE_NULL);
     if (result != ESP_OK) {
       SetWifiFailure(result);
-      driver_.SetEsp32c6PowerEnabled(false);
+      SetWifiCoprocessorPowerEnabled(driver_, false);
       return false;
     }
 
@@ -694,7 +1104,7 @@ bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
     result = esp_wifi_deinit();
     if (result != ESP_OK && result != ESP_ERR_WIFI_NOT_INIT) {
       SetWifiFailure(result);
-      driver_.SetEsp32c6PowerEnabled(false);
+      SetWifiCoprocessorPowerEnabled(driver_, false);
       return false;
     }
     wifi_.driver_initialized.store(false);
@@ -706,7 +1116,7 @@ bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
       result = static_cast<esp_err_t>(esp_hosted_deinit());
       if (result != ESP_OK) {
         SetWifiFailure(result);
-        driver_.SetEsp32c6PowerEnabled(false);
+        SetWifiCoprocessorPowerEnabled(driver_, false);
         return false;
       }
     }
@@ -727,7 +1137,7 @@ bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
     wifi_.ip_address.store(0);
     wifi_.netmask.store(0);
     wifi_.gateway.store(0);
-    return driver_.SetEsp32c6PowerEnabled(false);
+    return SetWifiCoprocessorPowerEnabled(driver_, false);
   }
 
   wifi_.stop_requested.store(false);
@@ -735,7 +1145,7 @@ bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
     return true;
   }
 
-  if (!driver_.SetEsp32c6PowerEnabled(true)) {
+  if (!SetWifiCoprocessorPowerEnabled(driver_, true)) {
     SetWifiFailure(ESP_FAIL);
     return false;
   }
@@ -750,19 +1160,29 @@ bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
   const BaseType_t result = xTaskCreate(WifiInitTaskEntry, "wifi_init",
       kWifiInitTaskStackBytes, this, kWifiInitTaskPriority, nullptr);
   if (result != pdPASS) {
+    wifi_.init_task_running.store(false);
     SetWifiFailure(ESP_ERR_NO_MEM);
-    driver_.SetEsp32c6PowerEnabled(false);
+    SetWifiCoprocessorPowerEnabled(driver_, false);
     return false;
   }
   return true;
 }
 
-bool TDisplayP4Device::StartWifiScan() {
+bool TDisplayP4AirDevice::StartWifiScan() {
   wifi_.stop_requested.store(false);
   if (!wifi_.driver_initialized.load()) {
-    return SetWifiEnabled(true);
+    wifi_.scan_requested.store(true);
+    wifi_.scan_running.store(true);
+    if (SetWifiEnabled(true)) {
+      return true;
+    }
+    wifi_.scan_requested.store(false);
+    wifi_.scan_running.store(false);
+    wifi_.scan_failed.store(true);
+    return false;
   }
 
+  wifi_.scan_requested.store(false);
   bool expected = false;
   if (!wifi_.scan_task_running.compare_exchange_strong(expected, true)) {
     return true;
@@ -784,7 +1204,7 @@ bool TDisplayP4Device::StartWifiScan() {
   return true;
 }
 
-bool TDisplayP4Device::ReadWifiScanStatus(WifiScanStatus* status) {
+bool TDisplayP4AirDevice::ReadWifiScanStatus(WifiScanStatus* status) {
   if (status == nullptr) {
     return false;
   }
@@ -808,8 +1228,7 @@ bool TDisplayP4Device::ReadWifiScanStatus(WifiScanStatus* status) {
   return true;
 }
 
-bool TDisplayP4Device::ConnectWifi(
-    const char* ssid, const char* password) {
+bool TDisplayP4AirDevice::ConnectWifi(const char* ssid, const char* password) {
   if (ssid == nullptr || ssid[0] == '\0' || wifi_.stop_requested.load()) {
     return false;
   }
@@ -840,7 +1259,7 @@ bool TDisplayP4Device::ConnectWifi(
   return true;
 }
 
-bool TDisplayP4Device::CancelWifiConnection() {
+bool TDisplayP4AirDevice::CancelWifiConnection() {
   wifi_.connect_cancel_requested.store(true);
   wifi_.connect_task_running.store(false);
   StopWifiInternetCheck();
@@ -871,7 +1290,7 @@ bool TDisplayP4Device::CancelWifiConnection() {
   return true;
 }
 
-bool TDisplayP4Device::RequestWifiInternetCheck() {
+bool TDisplayP4AirDevice::RequestWifiInternetCheck() {
   if (!wifi_.driver_initialized.load() || !wifi_.got_ip.load() ||
       wifi_time_test_.active.load()) {
     return false;
@@ -890,7 +1309,7 @@ bool TDisplayP4Device::RequestWifiInternetCheck() {
   return true;
 }
 
-void TDisplayP4Device::StopWifiInternetCheck() {
+void TDisplayP4AirDevice::StopWifiInternetCheck() {
   wifi_time_test_.sync_started.store(false);
   wifi_time_test_.sntp_attempt_count.store(0);
   if (wifi_time_test_.sntp_attempt_timer != nullptr &&
@@ -898,14 +1317,14 @@ void TDisplayP4Device::StopWifiInternetCheck() {
     esp_timer_stop(wifi_time_test_.sntp_attempt_timer);
   }
   esp_sntp_set_time_sync_notification_cb(nullptr);
-  TDisplayP4Device* owner = this;
+  TDisplayP4AirDevice* owner = this;
   g_wifi_time_sync_owner.compare_exchange_strong(owner, nullptr);
   if (esp_sntp_enabled()) {
     esp_sntp_stop();
   }
 }
 
-bool TDisplayP4Device::StartWifiTimeTest() {
+bool TDisplayP4AirDevice::StartWifiTimeTest() {
   wifi_.stop_requested.store(false);
   wifi_time_test_.requested.store(true);
   if (!wifi_.driver_initialized.load()) {
@@ -924,7 +1343,7 @@ bool TDisplayP4Device::StartWifiTimeTest() {
   return true;
 }
 
-bool TDisplayP4Device::StopWifiTimeTest() {
+bool TDisplayP4AirDevice::StopWifiTimeTest() {
   wifi_time_test_.requested.store(false);
   const bool was_active = wifi_time_test_.active.exchange(false);
   if (!wifi_.driver_initialized.load()) {
@@ -1005,7 +1424,7 @@ bool TDisplayP4Device::StopWifiTimeTest() {
   return true;
 }
 
-bool TDisplayP4Device::ReadWifiStatus(WifiStatus* status) {
+bool TDisplayP4AirDevice::ReadWifiStatus(WifiStatus* status) {
   if (status == nullptr) {
     return false;
   }
@@ -1062,7 +1481,7 @@ bool TDisplayP4Device::ReadWifiStatus(WifiStatus* status) {
   return true;
 }
 
-bool TDisplayP4Device::EnsureSdCardMounted() {
+bool TDisplayP4AirDevice::EnsureSdCardMounted() {
   if (IsSdCardMounted()) {
     return true;
   }
@@ -1075,9 +1494,9 @@ bool TDisplayP4Device::EnsureSdCardMounted() {
   return IsSdCardMounted();
 }
 
-bool TDisplayP4Device::UnmountSdCard() { return driver_.DeinitSdmmc(); }
+bool TDisplayP4AirDevice::UnmountSdCard() { return driver_.DeinitSdmmc(); }
 
-bool TDisplayP4Device::IsSdCardMounted() const {
+bool TDisplayP4AirDevice::IsSdCardMounted() const {
   if (!driver_.IsSdmmcReady()) {
     return false;
   }
@@ -1085,28 +1504,28 @@ bool TDisplayP4Device::IsSdCardMounted() const {
   return stat(device::sd::kBasePath, &info) == 0 && S_ISDIR(info.st_mode);
 }
 
-const char* TDisplayP4Device::SdCardBasePath() const {
+const char* TDisplayP4AirDevice::SdCardBasePath() const {
   return device::sd::kBasePath;
 }
 
-bool TDisplayP4Device::StartUsbStorage() {
+bool TDisplayP4AirDevice::StartUsbStorage() {
   if (!driver_.SetUsbHostPowerEnabled(true)) {
     return false;
   }
   return usb_storage_manager_.Start();
 }
 
-bool TDisplayP4Device::StopUsbStorage() {
+bool TDisplayP4AirDevice::StopUsbStorage() {
   // USB PHY 供电保持开启可避免 ESP32-P4 产生约 20 mA 的额外功耗。
   return usb_storage_manager_.Stop();
 }
 
-bool TDisplayP4Device::ReadUsbStorageSnapshot(
+bool TDisplayP4AirDevice::ReadUsbStorageSnapshot(
     UsbStorageSnapshot* snapshot) const {
   return usb_storage_manager_.ReadSnapshot(snapshot);
 }
 
-bool TDisplayP4Device::RegisterScreenDisplayCallbacks(
+bool TDisplayP4AirDevice::RegisterScreenDisplayCallbacks(
     const ScreenProviderDisplayCallbacks& callbacks) {
   if (!driver_.IsScreenReady()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
@@ -1169,7 +1588,7 @@ bool TDisplayP4Device::RegisterScreenDisplayCallbacks(
   return true;
 }
 
-bool TDisplayP4Device::WriteScreenPixels(
+bool TDisplayP4AirDevice::WriteScreenPixels(
     int x_start, int y_start, int x_end, int y_end, const void* pixels) {
   if (!driver_.IsScreenReady()) {
     return false;
@@ -1179,21 +1598,18 @@ bool TDisplayP4Device::WriteScreenPixels(
     case device::ScreenType::kHi8561:
       return driver_.chip().hi8561->SendColorStreamCoordinate(
           x_start, y_start, x_end, y_end, pixels);
-    case device::ScreenType::kRm69a10:
-      return driver_.chip().rm69a10->SendColorStreamCoordinate(
-          x_start, y_start, x_end, y_end, pixels);
     default:
       break;
   }
   return false;
 }
 
-bool TDisplayP4Device::ReadScreenTouch(TouchPoint* point) {
+bool TDisplayP4AirDevice::ReadScreenTouch(TouchPoint* point) {
   if (point == nullptr) {
     return false;
   }
 
-  if (!driver_.IsTouchReady()) {
+  if (!IsTouchReady(driver_)) {
     return false;
   }
 
@@ -1220,27 +1636,13 @@ bool TDisplayP4Device::ReadScreenTouch(TouchPoint* point) {
       point->edge_touch_flag = touch_point.edge_touch_flag;
       return true;
     }
-    case device::ScreenType::kRm69a10: {
-      cpp_bus_driver::Gt9895::TouchPoint touch_point;
-      const bool result =
-          driver_.chip().gt9895->GetSingleTouchPoint(touch_point);
-      if (!result || touch_point.info.empty()) {
-        return false;
-      }
-      point->id = touch_point.info[0].finger_id;
-      point->x = touch_point.info[0].x;
-      point->y = touch_point.info[0].y;
-      point->pressure = touch_point.info[0].pressure_value;
-      point->edge_touch_flag = touch_point.edge_touch_flag;
-      return true;
-    }
     default:
       break;
   }
   return false;
 }
 
-bool TDisplayP4Device::ReadScreenTouchPoints(
+bool TDisplayP4AirDevice::ReadScreenTouchPoints(
     TouchPoint* points, size_t max_points, size_t* point_count) {
   if (point_count != nullptr) {
     *point_count = 0;
@@ -1249,7 +1651,7 @@ bool TDisplayP4Device::ReadScreenTouchPoints(
     return false;
   }
 
-  if (!driver_.IsTouchReady()) {
+  if (!IsTouchReady(driver_)) {
     return false;
   }
 
@@ -1281,43 +1683,13 @@ bool TDisplayP4Device::ReadScreenTouchPoints(
       }
       return *point_count > 0;
     }
-    case device::ScreenType::kRm69a10: {
-      cpp_bus_driver::Gt9895::TouchPoint touch_point;
-      const bool result =
-          driver_.chip().gt9895->GetMultipleTouchPoint(touch_point);
-      if (!result || touch_point.info.empty()) {
-        return false;
-      }
-
-      const size_t count = std::min(max_points, touch_point.info.size());
-      for (size_t i = 0; i < count; ++i) {
-        if (touch_point.info[i].x == UINT16_MAX &&
-            touch_point.info[i].y == UINT16_MAX) {
-          continue;
-        }
-        if (touch_point.edge_touch_flag && touch_point.info[i].finger_id == 0) {
-          continue;
-        }
-        points[*point_count].id = touch_point.info[i].finger_id;
-        points[*point_count].x = touch_point.info[i].x;
-        points[*point_count].y = touch_point.info[i].y;
-        points[*point_count].pressure = touch_point.info[i].pressure_value;
-        points[*point_count].edge_touch_flag = touch_point.edge_touch_flag;
-        ++(*point_count);
-      }
-      if (*point_count == 0 && touch_point.edge_touch_flag) {
-        SetEdgeTouchPoint(&points[0]);
-        *point_count = 1;
-      }
-      return *point_count > 0;
-    }
     default:
       break;
   }
   return false;
 }
 
-bool TDisplayP4Device::ReadHapticWaveformCount(uint8_t* waveform_count) {
+bool TDisplayP4AirDevice::ReadHapticWaveformCount(uint8_t* waveform_count) {
   if (waveform_count != nullptr) {
     *waveform_count = 0;
   }
@@ -1334,15 +1706,15 @@ bool TDisplayP4Device::ReadHapticWaveformCount(uint8_t* waveform_count) {
   return info.waveform_count > 0;
 }
 
-bool TDisplayP4Device::PlayHapticWaveform(uint8_t waveform_sequence_number,
+bool TDisplayP4AirDevice::PlayHapticWaveform(uint8_t waveform_sequence_number,
     uint8_t loop_count, uint8_t gain, bool auto_brake) {
   haptic_.waveform_sequence_number.store(waveform_sequence_number);
   haptic_.loop_count.store(std::clamp<uint8_t>(loop_count, 1, 16));
   haptic_.gain.store(gain);
   haptic_.auto_brake.store(auto_brake);
 
-  const uint32_t now_ms = static_cast<uint32_t>(xTaskGetTickCount() *
-      portTICK_PERIOD_MS);
+  const uint32_t now_ms =
+      static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
   const uint32_t last_preview_ms = haptic_.last_preview_ms.load();
   if (haptic_.running.load() ||
       now_ms - last_preview_ms < kVibrationPreviewMinIntervalMs) {
@@ -1355,9 +1727,9 @@ bool TDisplayP4Device::PlayHapticWaveform(uint8_t waveform_sequence_number,
     return true;
   }
 
-  const BaseType_t result = xTaskCreate(HapticPlaybackTaskEntry,
-      "haptic_play", kSpeakerPlaybackTaskStackBytes, this,
-      kSpeakerPlaybackTaskPriority, nullptr);
+  const BaseType_t result = xTaskCreate(HapticPlaybackTaskEntry, "haptic_play",
+      kSpeakerPlaybackTaskStackBytes, this, kSpeakerPlaybackTaskPriority,
+      nullptr);
   if (result != pdPASS) {
     haptic_.running.store(false);
     return false;
@@ -1365,15 +1737,15 @@ bool TDisplayP4Device::PlayHapticWaveform(uint8_t waveform_sequence_number,
   return true;
 }
 
-bool TDisplayP4Device::PlaySpeakerTone(size_t* bytes_written) {
+bool TDisplayP4AirDevice::PlaySpeakerTone(size_t* bytes_written) {
   if (bytes_written != nullptr) {
     *bytes_written = 0;
   }
 
-  if (!Configure(kSpeakerPlaybackSampleRateHz,
-          kSpeakerPlaybackChannelCount, kSpeakerPlaybackBitsPerSample)) {
+  if (!Configure(kSpeakerPlaybackSampleRateHz, kSpeakerPlaybackChannelCount,
+          kSpeakerPlaybackBitsPerSample)) {
     LogMessage(
-        LogLevel::kWarning, __FILE__, __LINE__, "Es8311 init retry failed\n");
+        LogLevel::kWarning, __FILE__, __LINE__, "Audio codec is unavailable\n");
     return false;
   }
 
@@ -1386,7 +1758,7 @@ bool TDisplayP4Device::PlaySpeakerTone(size_t* bytes_written) {
       ((audio_size / frame_size) * 1000U) / kSpeakerPlaybackSampleRateHz;
 
   LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
-      "ES8311 speaker playback: bytes=%u, sample_rate=%u, channels=%u, "
+      "Speaker playback: bytes=%u, sample_rate=%u, channels=%u, "
       "duration=%u ms\n",
       static_cast<unsigned int>(audio_size),
       static_cast<unsigned int>(kSpeakerPlaybackSampleRateHz),
@@ -1397,11 +1769,14 @@ bool TDisplayP4Device::PlaySpeakerTone(size_t* bytes_written) {
   while (total_written < audio_size) {
     const size_t write_size =
         std::min(kSpeakerPlaybackChunkBytes, audio_size - total_written);
-    const size_t written =
-        driver_.chip().es8311->WriteI2s(audio_data + total_written, write_size);
+    const int write_result =
+        esp_codec_dev_write(driver_.es8389_output_codec_dev(),
+            const_cast<uint8_t*>(audio_data + total_written),
+            static_cast<int>(write_size));
+    const size_t written = write_result == ESP_CODEC_DEV_OK ? write_size : 0;
     if (written == 0) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "ES8311 WriteI2s failed, written=%u/%u\n",
+          "Audio PCM write failed, written=%u/%u\n",
           static_cast<unsigned int>(total_written),
           static_cast<unsigned int>(audio_size));
       return false;
@@ -1416,7 +1791,7 @@ bool TDisplayP4Device::PlaySpeakerTone(size_t* bytes_written) {
   return true;
 }
 
-bool TDisplayP4Device::StartSpeakerTone() {
+bool TDisplayP4AirDevice::StartSpeakerTone() {
   bool expected = false;
   if (!speaker_.running.compare_exchange_strong(expected, true)) {
     return false;
@@ -1444,7 +1819,7 @@ bool TDisplayP4Device::StartSpeakerTone() {
   return true;
 }
 
-bool TDisplayP4Device::StartSpeakerToneLoop() {
+bool TDisplayP4AirDevice::StartSpeakerToneLoop() {
   if (speaker_.running.load()) {
     return speaker_.playback_kind.load() ==
            SpeakerState::PlaybackKind::kToneLoop;
@@ -1479,9 +1854,8 @@ bool TDisplayP4Device::StartSpeakerToneLoop() {
   return true;
 }
 
-bool TDisplayP4Device::StopSpeakerToneLoop() {
-  if (speaker_.playback_kind.load() !=
-      SpeakerState::PlaybackKind::kToneLoop) {
+bool TDisplayP4AirDevice::StopSpeakerToneLoop() {
+  if (speaker_.playback_kind.load() != SpeakerState::PlaybackKind::kToneLoop) {
     return false;
   }
   speaker_.stop_requested.store(true);
@@ -1489,21 +1863,28 @@ bool TDisplayP4Device::StopSpeakerToneLoop() {
   return true;
 }
 
-bool TDisplayP4Device::SetSpeakerVolumePercent(int percent) {
-  if (!driver_.IsEs8311Ready() &&
-      (!driver_.InitEs8311() || !driver_.ConfigEs8311())) {
-    LogMessage(
-        LogLevel::kWarning, __FILE__, __LINE__, "Es8311 init failed\n");
+bool TDisplayP4AirDevice::SetSpeakerVolumePercent(int percent) {
+  if (!driver_.IsEs8389Ready() &&
+      (!driver_.InitEs8389() || !driver_.ConfigEs8389())) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "ES8389 init failed\n");
     return false;
   }
-
-  const uint8_t volume = PercentToUint8Value(percent, kAudioVolumeMax);
-  const bool result = driver_.chip().es8311->SetDacVolume(volume);
+  if (!driver_.SetEs8389PowerState(
+          TDisplayP4AirBoardDriver::Es8389PowerState::kActive)) {
+    return false;
+  }
+  const int clamped_percent = std::clamp(percent, 0, 100);
+  const bool result =
+      esp_codec_dev_set_out_vol(driver_.es8389_output_codec_dev(),
+          clamped_percent) == ESP_CODEC_DEV_OK;
+  if (result) {
+    speaker_.volume_percent.store(clamped_percent);
+  }
   UpdateAudioCodecPowerState();
   return result;
 }
 
-bool TDisplayP4Device::ReadSpeakerToneStatus(SpeakerStatus* status) {
+bool TDisplayP4AirDevice::ReadSpeakerToneStatus(SpeakerStatus* status) {
   if (status == nullptr) {
     return false;
   }
@@ -1519,7 +1900,7 @@ bool TDisplayP4Device::ReadSpeakerToneStatus(SpeakerStatus* status) {
   return true;
 }
 
-bool TDisplayP4Device::StartAudioFile(
+bool TDisplayP4AirDevice::StartAudioFile(
     const char* path, uint32_t duration_ms) {
   if (path == nullptr || path[0] == '\0') {
     return false;
@@ -1539,8 +1920,8 @@ bool TDisplayP4Device::StartAudioFile(
   if (!speaker_.running.compare_exchange_strong(expected, true)) {
     return false;
   }
-  std::snprintf(speaker_.audio_file_path,
-      sizeof(speaker_.audio_file_path), "%s", path);
+  std::snprintf(
+      speaker_.audio_file_path, sizeof(speaker_.audio_file_path), "%s", path);
   speaker_.loop_enabled.store(false);
   speaker_.stop_requested.store(false);
   speaker_.paused.store(false);
@@ -1551,9 +1932,9 @@ bool TDisplayP4Device::StartAudioFile(
   speaker_.file_state.store(AudioFilePlaybackState::kPlaying);
   speaker_.playback_kind.store(SpeakerState::PlaybackKind::kAudioFile);
 
-  const BaseType_t result = xTaskCreate(SpeakerPlaybackTaskEntry,
-      "audio_file", kAudioFilePlaybackTaskStackBytes, this,
-      kSpeakerPlaybackTaskPriority, nullptr);
+  const BaseType_t result = xTaskCreate(SpeakerPlaybackTaskEntry, "audio_file",
+      kAudioFilePlaybackTaskStackBytes, this, kSpeakerPlaybackTaskPriority,
+      nullptr);
   if (result != pdPASS) {
     speaker_.running.store(false);
     speaker_.file_state.store(AudioFilePlaybackState::kError);
@@ -1563,10 +1944,9 @@ bool TDisplayP4Device::StartAudioFile(
   return true;
 }
 
-bool TDisplayP4Device::PauseAudioFile() {
+bool TDisplayP4AirDevice::PauseAudioFile() {
   if (!speaker_.running.load() ||
-      speaker_.playback_kind.load() !=
-          SpeakerState::PlaybackKind::kAudioFile ||
+      speaker_.playback_kind.load() != SpeakerState::PlaybackKind::kAudioFile ||
       speaker_.file_state.load() != AudioFilePlaybackState::kPlaying) {
     return false;
   }
@@ -1575,10 +1955,9 @@ bool TDisplayP4Device::PauseAudioFile() {
   return true;
 }
 
-bool TDisplayP4Device::ResumeAudioFile() {
+bool TDisplayP4AirDevice::ResumeAudioFile() {
   if (!speaker_.running.load() ||
-      speaker_.playback_kind.load() !=
-          SpeakerState::PlaybackKind::kAudioFile ||
+      speaker_.playback_kind.load() != SpeakerState::PlaybackKind::kAudioFile ||
       speaker_.file_state.load() != AudioFilePlaybackState::kPaused) {
     return false;
   }
@@ -1587,10 +1966,9 @@ bool TDisplayP4Device::ResumeAudioFile() {
   return true;
 }
 
-bool TDisplayP4Device::SeekAudioFile(uint32_t position_ms) {
+bool TDisplayP4AirDevice::SeekAudioFile(uint32_t position_ms) {
   if (!speaker_.running.load() ||
-      speaker_.playback_kind.load() !=
-          SpeakerState::PlaybackKind::kAudioFile) {
+      speaker_.playback_kind.load() != SpeakerState::PlaybackKind::kAudioFile) {
     return false;
   }
   const uint32_t duration_ms = speaker_.duration_ms.load();
@@ -1604,9 +1982,8 @@ bool TDisplayP4Device::SeekAudioFile(uint32_t position_ms) {
   return true;
 }
 
-bool TDisplayP4Device::StopAudioFile() {
-  if (speaker_.playback_kind.load() !=
-      SpeakerState::PlaybackKind::kAudioFile) {
+bool TDisplayP4AirDevice::StopAudioFile() {
+  if (speaker_.playback_kind.load() != SpeakerState::PlaybackKind::kAudioFile) {
     return false;
   }
   speaker_.stop_requested.store(true);
@@ -1615,8 +1992,7 @@ bool TDisplayP4Device::StopAudioFile() {
   return true;
 }
 
-bool TDisplayP4Device::ReadAudioFileStatus(
-    AudioFilePlaybackStatus* status) {
+bool TDisplayP4AirDevice::ReadAudioFileStatus(AudioFilePlaybackStatus* status) {
   if (status == nullptr) {
     return false;
   }
@@ -1626,17 +2002,16 @@ bool TDisplayP4Device::ReadAudioFileStatus(
   return true;
 }
 
-void TDisplayP4Device::SpeakerPlaybackTaskEntry(void* context) {
-  auto* self = static_cast<TDisplayP4Device*>(context);
+void TDisplayP4AirDevice::SpeakerPlaybackTaskEntry(void* context) {
+  auto* self = static_cast<TDisplayP4AirDevice*>(context);
   if (self != nullptr) {
     self->RunSpeakerPlaybackTask();
   }
   vTaskDelete(nullptr);
 }
 
-void TDisplayP4Device::RunSpeakerPlaybackTask() {
-  if (speaker_.playback_kind.load() ==
-      SpeakerState::PlaybackKind::kAudioFile) {
+void TDisplayP4AirDevice::RunSpeakerPlaybackTask() {
+  if (speaker_.playback_kind.load() == SpeakerState::PlaybackKind::kAudioFile) {
     const audio::Mp3PlaybackResult result =
         audio::PlayMp3File(speaker_.audio_file_path, this);
     const bool completed = result == audio::Mp3PlaybackResult::kCompleted;
@@ -1646,9 +2021,8 @@ void TDisplayP4Device::RunSpeakerPlaybackTask() {
     speaker_.seek_requested.store(false);
     speaker_.file_state.store(completed
                                   ? AudioFilePlaybackState::kCompleted
-                                  : (stopped
-                                            ? AudioFilePlaybackState::kStopped
-                                            : AudioFilePlaybackState::kError));
+                                  : (stopped ? AudioFilePlaybackState::kStopped
+                                             : AudioFilePlaybackState::kError));
     speaker_.playback_kind.store(SpeakerState::PlaybackKind::kNone);
     speaker_.running.store(false);
     UpdateAudioCodecPowerState();
@@ -1662,8 +2036,7 @@ void TDisplayP4Device::RunSpeakerPlaybackTask() {
     played = PlaySpeakerTone(&current_written) || played;
     bytes_written += current_written;
     speaker_.bytes_written.store(bytes_written);
-  } while (speaker_.loop_enabled.load() &&
-           !speaker_.stop_requested.load());
+  } while (speaker_.loop_enabled.load() && !speaker_.stop_requested.load());
   speaker_.success.store(played);
   speaker_.completed.store(true);
   speaker_.loop_enabled.store(false);
@@ -1673,62 +2046,67 @@ void TDisplayP4Device::RunSpeakerPlaybackTask() {
   UpdateAudioCodecPowerState();
 }
 
-bool TDisplayP4Device::UpdateAudioCodecPowerState() {
-  using AudioPowerState =
-      lilygo_device_driver::TDisplayP4Driver::Es8311PowerState;
-  const bool playback_active = speaker_.running.load();
-  const bool capture_active = microphone_.running.load();
-  AudioPowerState state = AudioPowerState::kSleep;
-  if (playback_active && capture_active) {
-    state = AudioPowerState::kDuplex;
-  } else if (playback_active) {
-    state = AudioPowerState::kPlayback;
-  } else if (capture_active) {
-    state = microphone_.adc_to_dac_enabled.load()
-                ? AudioPowerState::kDuplex
-                : AudioPowerState::kCapture;
+bool TDisplayP4AirDevice::UpdateAudioCodecPowerState() {
+  const bool audio_active =
+      speaker_.running.load() || microphone_.running.load();
+  const auto state = audio_active
+                         ? TDisplayP4AirBoardDriver::Es8389PowerState::kActive
+                         : TDisplayP4AirBoardDriver::Es8389PowerState::kSleep;
+  if (!driver_.SetEs8389PowerState(state)) {
+    return false;
   }
-  return driver_.SetEs8311PowerState(state);
+  return !audio_active ||
+         esp_codec_dev_set_out_vol(driver_.es8389_output_codec_dev(),
+             speaker_.volume_percent.load()) == ESP_CODEC_DEV_OK;
 }
 
-bool TDisplayP4Device::Configure(uint32_t sample_rate_hz,
-    uint8_t channel_count, uint8_t bits_per_sample) {
+bool TDisplayP4AirDevice::Configure(
+    uint32_t sample_rate_hz, uint8_t channel_count, uint8_t bits_per_sample) {
   if ((channel_count != 1 && channel_count != 2) ||
       bits_per_sample != kSpeakerPlaybackBitsPerSample) {
     return false;
   }
-  const bool codec_was_ready = driver_.IsEs8311Ready();
+  if (!driver_.IsEs8389Ready() &&
+      (!driver_.InitEs8389() || !driver_.ConfigEs8389())) {
+    return false;
+  }
   if (!UpdateAudioCodecPowerState()) {
     return false;
   }
-  if (codec_was_ready && speaker_.sample_rate_hz.load() == sample_rate_hz) {
+  esp_codec_dev_handle_t output = driver_.es8389_output_codec_dev();
+  if (output == nullptr) {
+    return false;
+  }
+  if (speaker_.sample_rate_hz.load() == sample_rate_hz) {
     return true;
   }
 
-  // ESP-IDF 只允许在 I2S 通道禁用时重配标准模式时钟。
-  if (!driver_.chip().es8311->SetI2sChannelEnable(false)) {
-    return false;
-  }
-  const bool clock_reconfigured =
-      driver_.chip().es8311->SetClockReconfig(
-          device::es8311::kMclkMultiple, sample_rate_hz);
-  const bool channels_restored =
-      driver_.chip().es8311->SetI2sChannelEnable(true);
-  if (!clock_reconfigured || !channels_restored) {
+  esp_codec_dev_sample_info_t sample_info = {
+      .bits_per_sample = bits_per_sample,
+      .channel = channel_count,
+      .channel_mask = static_cast<uint16_t>(
+          channel_count == 1 ? ESP_CODEC_DEV_MAKE_CHANNEL_MASK(0)
+                             : ESP_CODEC_DEV_MAKE_CHANNEL_MASK(0) |
+                                   ESP_CODEC_DEV_MAKE_CHANNEL_MASK(1)),
+      .sample_rate = sample_rate_hz,
+      .mclk_multiple = device::es8389::kMclkMultiple,
+  };
+  if (esp_codec_dev_close(output) != ESP_CODEC_DEV_OK ||
+      esp_codec_dev_open(output, &sample_info) != ESP_CODEC_DEV_OK) {
     return false;
   }
   speaker_.sample_rate_hz.store(sample_rate_hz);
   return true;
 }
 
-bool TDisplayP4Device::WaitUntilReady() {
+bool TDisplayP4AirDevice::WaitUntilReady() {
   while (speaker_.paused.load() && !speaker_.stop_requested.load()) {
     vTaskDelay(pdMS_TO_TICKS(20));
   }
   return !speaker_.stop_requested.load();
 }
 
-bool TDisplayP4Device::TakeSeekRequest(uint32_t* position_ms) {
+bool TDisplayP4AirDevice::TakeSeekRequest(uint32_t* position_ms) {
   if (position_ms == nullptr || !speaker_.seek_requested.exchange(false)) {
     return false;
   }
@@ -1736,8 +2114,12 @@ bool TDisplayP4Device::TakeSeekRequest(uint32_t* position_ms) {
   return true;
 }
 
-bool TDisplayP4Device::Write(const uint8_t* data, size_t size) {
-  if (data == nullptr || size == 0 || !driver_.IsEs8311Ready()) {
+bool TDisplayP4AirDevice::Write(const uint8_t* data, size_t size) {
+  if (data == nullptr || size == 0) {
+    return false;
+  }
+  if (!driver_.IsEs8389Ready() ||
+      driver_.es8389_output_codec_dev() == nullptr) {
     return false;
   }
   size_t total_written = 0;
@@ -1747,8 +2129,11 @@ bool TDisplayP4Device::Write(const uint8_t* data, size_t size) {
     }
     const size_t write_size =
         std::min(kSpeakerPlaybackChunkBytes, size - total_written);
-    const size_t written = driver_.chip().es8311->WriteI2s(
-        data + total_written, write_size);
+    const int write_result =
+        esp_codec_dev_write(driver_.es8389_output_codec_dev(),
+            const_cast<uint8_t*>(data + total_written),
+            static_cast<int>(write_size));
+    const size_t written = write_result == ESP_CODEC_DEV_OK ? write_size : 0;
     if (written == 0) {
       return false;
     }
@@ -1757,22 +2142,21 @@ bool TDisplayP4Device::Write(const uint8_t* data, size_t size) {
   return true;
 }
 
-void TDisplayP4Device::UpdateProgress(uint32_t elapsed_ms) {
+void TDisplayP4AirDevice::UpdateProgress(uint32_t elapsed_ms) {
   const uint32_t duration_ms = speaker_.duration_ms.load();
-  speaker_.elapsed_ms.store(duration_ms == 0
-                                ? elapsed_ms
-                                : std::min(elapsed_ms, duration_ms));
+  speaker_.elapsed_ms.store(
+      duration_ms == 0 ? elapsed_ms : std::min(elapsed_ms, duration_ms));
 }
 
-void TDisplayP4Device::HapticPlaybackTaskEntry(void* context) {
-  auto* self = static_cast<TDisplayP4Device*>(context);
+void TDisplayP4AirDevice::HapticPlaybackTaskEntry(void* context) {
+  auto* self = static_cast<TDisplayP4AirDevice*>(context);
   if (self != nullptr) {
     self->RunHapticPlaybackTask();
   }
   vTaskDelete(nullptr);
 }
 
-void TDisplayP4Device::RunHapticPlaybackTask() {
+void TDisplayP4AirDevice::RunHapticPlaybackTask() {
   if (!driver_.IsAw86224Ready() && !driver_.InitAw86224()) {
     LogMessage(
         LogLevel::kWarning, __FILE__, __LINE__, "Aw86224 init retry failed\n");
@@ -1840,7 +2224,7 @@ void TDisplayP4Device::RunHapticPlaybackTask() {
   haptic_.running.store(false);
 }
 
-bool TDisplayP4Device::StartMicrophone() {
+bool TDisplayP4AirDevice::StartMicrophone() {
   bool expected = false;
   if (!microphone_.running.compare_exchange_strong(expected, true)) {
     return !microphone_.stop_requested.load();
@@ -1852,7 +2236,7 @@ bool TDisplayP4Device::StartMicrophone() {
   microphone_.bytes_read.store(0);
   if (!SetAudioAdcToDac(false)) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Failed to power the ES8311 microphone capture path\n");
+        "Failed to power the microphone capture path\n");
     microphone_.running.store(false);
     UpdateAudioCodecPowerState();
     return false;
@@ -1871,25 +2255,26 @@ bool TDisplayP4Device::StartMicrophone() {
   return true;
 }
 
-bool TDisplayP4Device::StopMicrophone() {
+bool TDisplayP4AirDevice::StopMicrophone() {
   microphone_.stop_requested.store(true);
   microphone_.level_percent.store(0);
   microphone_.peak_sample.store(0);
-  if (!driver_.IsEs8311Ready()) {
+  if (!driver_.IsEs8389Ready()) {
     microphone_.adc_to_dac_enabled.store(false);
     return true;
   }
   return SetAudioAdcToDac(false);
 }
 
-bool TDisplayP4Device::SetAudioAdcToDac(bool enable) {
-  if (enable &&
-      (!microphone_.running.load() || speaker_.running.load())) {
+bool TDisplayP4AirDevice::SetAudioAdcToDac(bool enable) {
+  if (enable && (!microphone_.running.load() || speaker_.running.load())) {
     return false;
   }
 
   const bool previous_enabled = microphone_.adc_to_dac_enabled.exchange(enable);
-  if (!UpdateAudioCodecPowerState() || !driver_.IsEs8311Ready()) {
+  const bool codec_ready = driver_.IsEs8389Ready() ||
+                           (driver_.InitEs8389() && driver_.ConfigEs8389());
+  if (!UpdateAudioCodecPowerState() || !codec_ready) {
     microphone_.adc_to_dac_enabled.store(previous_enabled);
     UpdateAudioCodecPowerState();
     return false;
@@ -1898,7 +2283,7 @@ bool TDisplayP4Device::SetAudioAdcToDac(bool enable) {
   return true;
 }
 
-bool TDisplayP4Device::ReadMicrophoneStatus(MicrophoneStatus* status) {
+bool TDisplayP4AirDevice::ReadMicrophoneStatus(MicrophoneStatus* status) {
   if (status == nullptr) {
     return false;
   }
@@ -1911,20 +2296,19 @@ bool TDisplayP4Device::ReadMicrophoneStatus(MicrophoneStatus* status) {
   return true;
 }
 
-void TDisplayP4Device::HeapCapsBufferDeleter::operator()(uint8_t* pointer)
-    const {
+void TDisplayP4AirDevice::HeapCapsBufferDeleter::operator()(
+    uint8_t* pointer) const {
   if (pointer != nullptr) {
     heap_caps_free(pointer);
   }
 }
 
-bool TDisplayP4Device::StartCameraPreview() {
-  if (camera_preview_.task_active.load() ||
-      camera_preview_.running.load() || camera_preview_.initialized.load()) {
+bool TDisplayP4AirDevice::StartCameraPreview() {
+  if (camera_preview_.task_active.load() || camera_preview_.running.load() ||
+      camera_preview_.initialized.load()) {
     return !camera_preview_.stop_requested.load();
   }
 
-  camera_preview_.error.store(CameraError::kNone);
   camera_preview_.stop_requested.store(false);
   if (!InitializeCameraPreview()) {
     DeinitializeCameraPreview();
@@ -1933,14 +2317,9 @@ bool TDisplayP4Device::StartCameraPreview() {
   }
 
   camera_preview_.task_active.store(true);
-  BaseType_t result = xTaskCreate(CameraPreviewTaskEntry,
-      "camera_preview", kCameraPreviewTaskStackBytes, this,
-      kCameraPreviewTaskPriority, nullptr);
+  BaseType_t result = xTaskCreate(CameraPreviewTaskEntry, "camera_preview",
+      kCameraPreviewTaskStackBytes, this, kCameraPreviewTaskPriority, nullptr);
   if (result != pdPASS) {
-    camera_preview_.error.store(CameraError::kPreviewTaskCreateFailed);
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Create camera preview task failed: %ld\n",
-        static_cast<long>(result));
     camera_preview_.task_active.store(false);
     camera_preview_.stop_requested.store(true);
     DeinitializeCameraPreview();
@@ -1949,17 +2328,13 @@ bool TDisplayP4Device::StartCameraPreview() {
   return true;
 }
 
-CameraError TDisplayP4Device::GetCameraPreviewError() const {
-  return camera_preview_.error.load();
-}
-
-bool TDisplayP4Device::StopCameraPreview() {
+bool TDisplayP4AirDevice::StopCameraPreview() {
   camera_preview_.stop_requested.store(true);
   // 不在这里发 VIDIOC_STREAMOFF — 让 RunCameraPreviewTask 退出时由
   // DeinitializeCameraPreview 统一处理，避免与正在运行的 DQBUF/PPA 产生 I2C
   // 竞态
-  const uint32_t start_ms = static_cast<uint32_t>(
-      xTaskGetTickCount() * portTICK_PERIOD_MS);
+  const uint32_t start_ms =
+      static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
   while (camera_preview_.task_active.load()) {
     if (static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) -
             start_ms >=
@@ -1976,7 +2351,7 @@ bool TDisplayP4Device::StopCameraPreview() {
   return true;
 }
 
-bool TDisplayP4Device::GetCameraPreviewFrameInfo(
+bool TDisplayP4AirDevice::GetCameraPreviewFrameInfo(
     CameraPreviewFrameInfo* info) {
   if (info == nullptr || camera_preview_.output_buffer == nullptr ||
       camera_preview_.frame_sequence.load() == 0) {
@@ -1992,15 +2367,16 @@ bool TDisplayP4Device::GetCameraPreviewFrameInfo(
   return true;
 }
 
-bool TDisplayP4Device::CopyCameraPreviewFrame(uint8_t* buffer,
-    size_t buffer_size, CameraPreviewFrameInfo* info) {
+bool TDisplayP4AirDevice::CopyCameraPreviewFrame(
+    uint8_t* buffer, size_t buffer_size, CameraPreviewFrameInfo* info) {
   if (buffer == nullptr || info == nullptr ||
       !GetCameraPreviewFrameInfo(info) || buffer_size < info->data_size ||
       camera_preview_.output_mutex == nullptr) {
     return false;
   }
 
-  if (xSemaphoreTake(camera_preview_.output_mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
+  if (xSemaphoreTake(camera_preview_.output_mutex, pdMS_TO_TICKS(20)) !=
+      pdTRUE) {
     return false;
   }
   std::memcpy(buffer, camera_preview_.output_buffer.get(), info->data_size);
@@ -2009,11 +2385,11 @@ bool TDisplayP4Device::CopyCameraPreviewFrame(uint8_t* buffer,
   return true;
 }
 
-void TDisplayP4Device::CameraPreviewTaskEntry(void* context) {
-  static_cast<TDisplayP4Device*>(context)->RunCameraPreviewTask();
+void TDisplayP4AirDevice::CameraPreviewTaskEntry(void* context) {
+  static_cast<TDisplayP4AirDevice*>(context)->RunCameraPreviewTask();
 }
 
-void TDisplayP4Device::RunCameraPreviewTask() {
+void TDisplayP4AirDevice::RunCameraPreviewTask() {
   camera_preview_.running.store(true);
   while (!camera_preview_.stop_requested.load()) {
     v4l2_buffer buffer = {};
@@ -2024,10 +2400,10 @@ void TDisplayP4Device::RunCameraPreviewTask() {
       continue;
     }
 
-    const bool frame_valid =
-        buffer.index < kCameraBufferCount && buffer.bytesused > 0 &&
-        (buffer.flags & V4L2_BUF_FLAG_DONE) != 0 &&
-        (buffer.flags & V4L2_BUF_FLAG_ERROR) == 0;
+    const bool frame_valid = buffer.index < kCameraBufferCount &&
+                             buffer.bytesused > 0 &&
+                             (buffer.flags & V4L2_BUF_FLAG_DONE) != 0 &&
+                             (buffer.flags & V4L2_BUF_FLAG_ERROR) == 0;
     if (frame_valid) {
       if (camera_preview_.warmup_frames_remaining > 0) {
         // 传感器刚上电时丢弃少量预热帧，避免未稳定像素短暂显示。
@@ -2048,24 +2424,20 @@ void TDisplayP4Device::RunCameraPreviewTask() {
   vTaskDelete(nullptr);
 }
 
-bool TDisplayP4Device::InitializeCameraPreview() {
+bool TDisplayP4AirDevice::InitializeCameraPreview() {
   if (!driver_.IsScreenReady()) {
-    camera_preview_.error.store(CameraError::kScreenNotReady);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Camera preview start failed: screen is not ready\n");
     return false;
   }
   if (!driver_.SetCameraPowerEnabled(true)) {
-    camera_preview_.error.store(CameraError::kPowerEnableFailed);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Camera preview start failed: power enable failed\n");
     return false;
   }
 
-  const bool video_system_was_initialized =
-      camera_preview_.video_system_initialized.load();
-  bool initialized_video_system = false;
-  if (!video_system_was_initialized) {
+  const bool restore_sensor = camera_preview_.video_system_initialized.load();
+  if (!camera_preview_.video_system_initialized.load()) {
     esp_video_init_csi_config_t csi_config = {};
     csi_config.sccb_config.init_sccb = false;
     csi_config.sccb_config.i2c_handle =
@@ -2078,59 +2450,37 @@ bool TDisplayP4Device::InitializeCameraPreview() {
     esp_video_init_config_t camera_config = {};
     camera_config.csi = &csi_config;
     // video0 和 video20 只注册一次，避免组件反初始化后无法重复注册 VFS。
-    esp_err_t result =
-        esp_video_init_with_flags(&camera_config, kCameraVideoInitFlags);
+    const uint32_t init_flags =
+        ESP_VIDEO_INIT_FLAGS_MIPI_CSI | ESP_VIDEO_INIT_FLAGS_ISP;
+    esp_err_t result = esp_video_init_with_flags(&camera_config, init_flags);
     if (result != ESP_OK) {
       // 组件初始化失败时会清理当前已经创建的全部视频设备。
       camera_preview_.video_system_initialized.store(false);
-      camera_preview_.error.store(CameraError::kVideoInitFailed);
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "esp_video_init_with_flags failed: %s (%#X)\n",
           esp_err_to_name(result), static_cast<unsigned>(result));
+      driver_.SetCameraPowerEnabled(false);
       return false;
     }
-    initialized_video_system = true;
+    camera_preview_.video_system_initialized.store(true);
   }
 
   camera_preview_.video_fd = open(kCameraDeviceName, O_RDONLY | O_NONBLOCK);
   if (camera_preview_.video_fd < 0) {
-    const int open_error = errno;
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Open camera video device failed: %s (%d)\n",
-        std::strerror(open_error), open_error);
-    const esp_err_t deinit_result =
-        esp_video_deinit_with_flags(kCameraVideoInitFlags);
-    camera_preview_.video_system_initialized.store(false);
-    camera_preview_.error.store(initialized_video_system
-                                    ? CameraError::kSensorNotDetected
-                                    : CameraError::kVideoDeviceOpenFailed);
-    if (deinit_result != ESP_OK) {
-      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "esp_video_deinit_with_flags failed: %s (%#X)\n",
-          esp_err_to_name(deinit_result),
-          static_cast<unsigned>(deinit_result));
-    }
+        "Open camera video device failed\n");
     return false;
   }
-  if (initialized_video_system) {
-    camera_preview_.video_system_initialized.store(true);
-  }
 
-  if (video_system_was_initialized) {
+  if (restore_sensor) {
     // 摄像头重新上电后，通过组件公开接口重写传感器的完整寄存器配置。
     auto& sensor_format = camera_preview_.sensor_format;
-    if (ioctl(camera_preview_.video_fd, VIDIOC_G_SENSOR_FMT,
-            &sensor_format) != 0) {
-      camera_preview_.error.store(CameraError::kSensorRestoreFailed);
+    if (ioctl(camera_preview_.video_fd, VIDIOC_G_SENSOR_FMT, &sensor_format) !=
+            0 ||
+        ioctl(camera_preview_.video_fd, VIDIOC_S_SENSOR_FMT, &sensor_format) !=
+            0) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "VIDIOC_G_SENSOR_FMT failed\n");
-      return false;
-    }
-    if (ioctl(camera_preview_.video_fd, VIDIOC_S_SENSOR_FMT,
-            &sensor_format) != 0) {
-      camera_preview_.error.store(CameraError::kSensorRestoreFailed);
-      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "VIDIOC_S_SENSOR_FMT failed\n");
+          "Restore camera sensor format failed\n");
       return false;
     }
   }
@@ -2138,9 +2488,7 @@ bool TDisplayP4Device::InitializeCameraPreview() {
   v4l2_format format = {};
   format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   if (ioctl(camera_preview_.video_fd, VIDIOC_G_FMT, &format) != 0) {
-    camera_preview_.error.store(CameraError::kFormatConfigurationFailed);
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "VIDIOC_G_FMT failed\n");
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "VIDIOC_G_FMT failed\n");
     return false;
   }
   camera_preview_.frame_width = format.fmt.pix.width;
@@ -2153,9 +2501,7 @@ bool TDisplayP4Device::InitializeCameraPreview() {
   format.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB565;
 #endif
   if (ioctl(camera_preview_.video_fd, VIDIOC_S_FMT, &format) != 0) {
-    camera_preview_.error.store(CameraError::kFormatConfigurationFailed);
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "VIDIOC_S_FMT failed\n");
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "VIDIOC_S_FMT failed\n");
     return false;
   }
   camera_preview_.frame_width = format.fmt.pix.width;
@@ -2165,17 +2511,10 @@ bool TDisplayP4Device::InitializeCameraPreview() {
   request.count = kCameraBufferCount;
   request.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   request.memory = V4L2_MEMORY_MMAP;
-  if (ioctl(camera_preview_.video_fd, VIDIOC_REQBUFS, &request) != 0) {
-    camera_preview_.error.store(CameraError::kBufferAllocationFailed);
+  if (ioctl(camera_preview_.video_fd, VIDIOC_REQBUFS, &request) != 0 ||
+      request.count < kCameraBufferCount) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "VIDIOC_REQBUFS failed\n");
-    return false;
-  }
-  if (request.count < kCameraBufferCount) {
-    camera_preview_.error.store(CameraError::kBufferAllocationFailed);
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "VIDIOC_REQBUFS returned too few buffers: %lu\n",
-        static_cast<unsigned long>(request.count));
+        "VIDIOC_REQBUFS failed or returned too few buffers\n");
     return false;
   }
 
@@ -2185,26 +2524,23 @@ bool TDisplayP4Device::InitializeCameraPreview() {
     buffer.memory = V4L2_MEMORY_MMAP;
     buffer.index = index;
     if (ioctl(camera_preview_.video_fd, VIDIOC_QUERYBUF, &buffer) != 0) {
-      camera_preview_.error.store(CameraError::kBufferAllocationFailed);
-      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "VIDIOC_QUERYBUF failed\n");
+      LogMessage(
+          LogLevel::kWarning, __FILE__, __LINE__, "VIDIOC_QUERYBUF failed\n");
       return false;
     }
     camera_preview_.frame_buffer_sizes[index] = buffer.length;
-    camera_preview_.frame_buffers[index] = mmap(nullptr, buffer.length,
-        PROT_READ | PROT_WRITE, MAP_SHARED, camera_preview_.video_fd,
-        buffer.m.offset);
+    camera_preview_.frame_buffers[index] =
+        mmap(nullptr, buffer.length, PROT_READ | PROT_WRITE, MAP_SHARED,
+            camera_preview_.video_fd, buffer.m.offset);
     if (camera_preview_.frame_buffers[index] == MAP_FAILED) {
       camera_preview_.frame_buffers[index] = nullptr;
-      camera_preview_.error.store(CameraError::kBufferMappingFailed);
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Camera buffer mmap failed\n");
       return false;
     }
     if (ioctl(camera_preview_.video_fd, VIDIOC_QBUF, &buffer) != 0) {
-      camera_preview_.error.store(CameraError::kBufferAllocationFailed);
-      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "VIDIOC_QBUF failed\n");
+      LogMessage(
+          LogLevel::kWarning, __FILE__, __LINE__, "VIDIOC_QBUF failed\n");
       return false;
     }
   }
@@ -2212,8 +2548,6 @@ bool TDisplayP4Device::InitializeCameraPreview() {
   if (camera_preview_.output_mutex == nullptr) {
     camera_preview_.output_mutex = xSemaphoreCreateMutex();
     if (camera_preview_.output_mutex == nullptr) {
-      camera_preview_.error.store(
-          CameraError::kOutputBufferAllocationFailed);
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Camera output mutex allocation failed\n");
       return false;
@@ -2221,34 +2555,33 @@ bool TDisplayP4Device::InitializeCameraPreview() {
   }
 
   if (!camera_preview_.ppa.Init()) {
-    camera_preview_.error.store(CameraError::kProcessingInitFailed);
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "PPA SRM init failed\n");
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "PPA SRM init failed\n");
     return false;
   }
   const size_t bytes_per_pixel = ScreenBitsPerPixel() / 8;
   camera_preview_.output_rotation_angle = NormalizeCameraPreviewRotationAngle(
       app::GetDisplayPreferences().screen_rotation_angle);
-  const bool output_rotated =
-      camera_preview_.output_rotation_angle == 90 ||
-      camera_preview_.output_rotation_angle == 270;
+  const bool output_rotated = camera_preview_.output_rotation_angle == 90 ||
+                              camera_preview_.output_rotation_angle == 270;
   const uint32_t output_screen_width =
       output_rotated ? ScreenHeight() : ScreenWidth();
   const uint32_t output_screen_height =
       output_rotated ? ScreenWidth() : ScreenHeight();
   camera_preview_.output_width = output_screen_width;
   camera_preview_.output_height = output_screen_height;
-  camera_preview_.output_width = std::max<uint32_t>(1, camera_preview_.output_width);
-  camera_preview_.output_height = std::max<uint32_t>(1, camera_preview_.output_height);
-  camera_preview_.output_stride = camera_preview_.output_width * bytes_per_pixel;
-  camera_preview_.output_buffer_size = AlignUp(
-      camera_preview_.output_stride * camera_preview_.output_height,
-      camera_preview_.ppa.CacheLineSize());
-  void* output_buffer = heap_caps_aligned_calloc(
-      camera_preview_.ppa.CacheLineSize(), 1,
-      camera_preview_.output_buffer_size, MALLOC_CAP_SPIRAM);
+  camera_preview_.output_width =
+      std::max<uint32_t>(1, camera_preview_.output_width);
+  camera_preview_.output_height =
+      std::max<uint32_t>(1, camera_preview_.output_height);
+  camera_preview_.output_stride =
+      camera_preview_.output_width * bytes_per_pixel;
+  camera_preview_.output_buffer_size =
+      AlignUp(camera_preview_.output_stride * camera_preview_.output_height,
+          camera_preview_.ppa.CacheLineSize());
+  void* output_buffer =
+      heap_caps_aligned_calloc(camera_preview_.ppa.CacheLineSize(), 1,
+          camera_preview_.output_buffer_size, MALLOC_CAP_SPIRAM);
   if (output_buffer == nullptr) {
-    camera_preview_.error.store(CameraError::kOutputBufferAllocationFailed);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Camera output buffer allocation failed\n");
     return false;
@@ -2259,9 +2592,8 @@ bool TDisplayP4Device::InitializeCameraPreview() {
 
   int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   if (ioctl(camera_preview_.video_fd, VIDIOC_STREAMON, &type) != 0) {
-    camera_preview_.error.store(CameraError::kStreamStartFailed);
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "VIDIOC_STREAMON failed\n");
+    LogMessage(
+        LogLevel::kWarning, __FILE__, __LINE__, "VIDIOC_STREAMON failed\n");
     return false;
   }
 
@@ -2272,7 +2604,7 @@ bool TDisplayP4Device::InitializeCameraPreview() {
   return true;
 }
 
-void TDisplayP4Device::DeinitializeCameraPreview() {
+void TDisplayP4AirDevice::DeinitializeCameraPreview() {
   if (camera_preview_.video_fd >= 0) {
     int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     ioctl(camera_preview_.video_fd, VIDIOC_STREAMOFF, &type);
@@ -2321,7 +2653,7 @@ void TDisplayP4Device::DeinitializeCameraPreview() {
   }
 }
 
-bool TDisplayP4Device::RenderCameraFrame(
+bool TDisplayP4AirDevice::RenderCameraFrame(
     uint8_t* buffer, uint32_t width, uint32_t height) {
   if (buffer == nullptr || camera_preview_.output_buffer == nullptr ||
       camera_preview_.output_mutex == nullptr) {
@@ -2335,8 +2667,8 @@ bool TDisplayP4Device::RenderCameraFrame(
       output_rotation_angle == 90 || output_rotation_angle == 270;
   const uint32_t rotated_source_width = output_rotated ? height : width;
   const uint32_t rotated_source_height = output_rotated ? width : height;
-  const float scale = std::min(
-      static_cast<float>(output_width) / static_cast<float>(rotated_source_width),
+  const float scale = std::min(static_cast<float>(output_width) /
+                                   static_cast<float>(rotated_source_width),
       static_cast<float>(output_height) /
           static_cast<float>(rotated_source_height));
   const uint32_t scaled_width = std::max<uint32_t>(
@@ -2387,7 +2719,8 @@ bool TDisplayP4Device::RenderCameraFrame(
       .scale_y = scale,
       .mirror_y = driver_.screen_type() == device::ScreenType::kHi8561,
   };
-  if (xSemaphoreTake(camera_preview_.output_mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
+  if (xSemaphoreTake(camera_preview_.output_mutex, pdMS_TO_TICKS(20)) !=
+      pdTRUE) {
     return false;
   }
   if (camera_preview_.clear_output_frames_remaining > 0 ||
@@ -2398,7 +2731,8 @@ bool TDisplayP4Device::RenderCameraFrame(
       --camera_preview_.clear_output_frames_remaining;
     }
   }
-  const bool transformed = camera_preview_.ppa.Transform(input, output, transform);
+  const bool transformed =
+      camera_preview_.ppa.Transform(input, output, transform);
   if (transformed) {
     camera_preview_.frame_sequence.fetch_add(1);
   }
@@ -2406,57 +2740,131 @@ bool TDisplayP4Device::RenderCameraFrame(
   return transformed;
 }
 
-bool TDisplayP4Device::SetGpsEnabled(bool enabled) {
+bool TDisplayP4AirDevice::SetGpsEnabled(bool enabled) {
+  if (enabled && gps_running_) {
+    return true;
+  }
+  if (enabled && cellular_.task_active.load() && !SetCellularEnabled(false)) {
+    return false;
+  }
+  if (nrf9151_mutex_ == nullptr ||
+      xSemaphoreTake(nrf9151_mutex_, portMAX_DELAY) != pdTRUE) {
+    return false;
+  }
+
+  bool result = true;
   if (!enabled) {
+    if (gps_running_ && driver_.IsNrf9151Ready() &&
+        driver_.chip().nrf9151 != nullptr) {
+      std::string response;
+      const auto stop_result = driver_.chip().nrf9151->SendCommand(
+          "AT#XGNSS=0", &response, kNrf9151CommandTimeoutMs);
+      response.clear();
+      const auto nmea_result = driver_.chip().nrf9151->SendCommand(
+          "AT#XGNSSNMEA=0", &response, kNrf9151CommandTimeoutMs);
+      result &= stop_result == cpp_bus_driver::Nrf9151::CommandResult::kOk;
+      result &= nmea_result == cpp_bus_driver::Nrf9151::CommandResult::kOk;
+    }
     gps_running_ = false;
     gps_status_.running = false;
-    const bool result = driver_.SetL76kSleep(true);
+    gps_pending_data_.clear();
+    if (!cellular_.task_active.load()) {
+      result &= driver_.SetNrf9151PowerEnabled(false);
+    }
+    xSemaphoreGive(nrf9151_mutex_);
     if (!result) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Disable GPS failed\n");
+          "Disable nRF9151 GNSS failed\n");
     }
     return result;
   }
 
-  if (!driver_.SetL76kSleep(false) || !driver_.IsL76kReady()) {
-    driver_.SetL76kSleep(true);
+  if (!driver_.SetNrf9151PowerEnabled(true) || !driver_.IsNrf9151Ready() ||
+      driver_.chip().nrf9151 == nullptr ||
+      driver_.bus().nrf9151_uart_bus == nullptr) {
+    driver_.SetNrf9151PowerEnabled(false);
+    xSemaphoreGive(nrf9151_mutex_);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Enable GPS failed\n");
+        "Enable nRF9151 GNSS failed: modem unavailable\n");
+    return false;
+  }
+
+  vTaskDelay(pdMS_TO_TICKS(kNrf9151StartupDelayMs));
+  constexpr std::array<const char*, 5> kStartupCommands = {{
+      "AT+CFUN=0",
+      "AT%XSYSTEMMODE=0,0,1,0",
+      "AT+CFUN=31",
+      "AT#XGNSSNMEA=1",
+      "AT#XGNSS=1,0,1",
+  }};
+  size_t completed_command_count = 0;
+  for (const char* command : kStartupCommands) {
+    std::string response;
+    const auto command_result = driver_.chip().nrf9151->SendCommand(
+        command, &response, kNrf9151CommandTimeoutMs);
+    if (command_result != cpp_bus_driver::Nrf9151::CommandResult::kOk) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Enable nRF9151 GNSS failed at %s: %s\n", command,
+          cpp_bus_driver::Nrf9151::CommandResultToString(command_result));
+      break;
+    }
+    ++completed_command_count;
+  }
+
+  if (completed_command_count != kStartupCommands.size()) {
+    std::string response;
+    if (completed_command_count >= 4) {
+      driver_.chip().nrf9151->SendCommand(
+          "AT#XGNSS=0", &response, kNrf9151CommandTimeoutMs);
+    }
+    if (completed_command_count >= 3) {
+      response.clear();
+      driver_.chip().nrf9151->SendCommand(
+          "AT#XGNSSNMEA=0", &response, kNrf9151CommandTimeoutMs);
+    }
+    gps_running_ = false;
+    gps_status_.running = false;
+    driver_.SetNrf9151PowerEnabled(false);
+    xSemaphoreGive(nrf9151_mutex_);
     return false;
   }
 
   gps_status_ = GpsStatus();
-  gps_running_ = true;
   gps_status_.running = true;
-  gps_status_.update_interval_ms = driver_.chip().l76k->update_interval_ms();
-  if (!driver_.chip().l76k->ClearRxBufferData()) {
+  gps_status_.update_interval_ms = kNrf9151GnssUpdateIntervalMs;
+  gps_pending_data_.clear();
+  gps_running_ = true;
+  result = driver_.bus().nrf9151_uart_bus->ClearRxBufferData();
+  if (!result) {
     gps_running_ = false;
     gps_status_.running = false;
-    driver_.SetL76kSleep(true);
-    return false;
+    driver_.SetNrf9151PowerEnabled(false);
   }
-  return true;
+  xSemaphoreGive(nrf9151_mutex_);
+  return result;
 }
 
-bool TDisplayP4Device::ReadGpsStatus(GpsStatus* status) {
+bool TDisplayP4AirDevice::ReadGpsStatus(GpsStatus* status) {
   if (status == nullptr) {
     return false;
   }
 
   gps_status_.running = gps_running_;
-  if (driver_.IsL76kReady()) {
-    gps_status_.update_interval_ms = driver_.chip().l76k->update_interval_ms();
-  }
+  gps_status_.update_interval_ms = kNrf9151GnssUpdateIntervalMs;
   *status = gps_status_;
   if (!gps_running_) {
     return true;
   }
-  if (!driver_.IsL76kReady()) {
+  if (!driver_.IsNrf9151Ready() || driver_.bus().nrf9151_uart_bus == nullptr ||
+      nrf9151_mutex_ == nullptr ||
+      xSemaphoreTake(nrf9151_mutex_, pdMS_TO_TICKS(20)) != pdTRUE) {
     return false;
   }
 
-  const size_t rx_buffer_length = driver_.chip().l76k->GetRxBufferLength();
+  auto& uart = *driver_.bus().nrf9151_uart_bus;
+  const size_t rx_buffer_length = uart.GetRxBufferLength();
   if (rx_buffer_length == 0) {
+    xSemaphoreGive(nrf9151_mutex_);
     return true;
   }
 
@@ -2465,13 +2873,19 @@ bool TDisplayP4Device::ReadGpsStatus(GpsStatus* status) {
   std::unique_ptr<uint8_t[]> buffer(
       new (std::nothrow) uint8_t[buffer_length + 1]);
   if (buffer == nullptr) {
+    xSemaphoreGive(nrf9151_mutex_);
     return false;
   }
 
-  const uint32_t read_length = driver_.chip().l76k->ReadData(
-      buffer.get(), static_cast<uint32_t>(buffer_length));
+  const int32_t read_length =
+      uart.Read(buffer.get(), static_cast<uint32_t>(buffer_length));
   if (read_length == 0) {
+    xSemaphoreGive(nrf9151_mutex_);
     return true;
+  }
+  if (read_length < 0) {
+    xSemaphoreGive(nrf9151_mutex_);
+    return false;
   }
 
   const size_t data_length =
@@ -2482,11 +2896,27 @@ bool TDisplayP4Device::ReadGpsStatus(GpsStatus* status) {
   next_status.running = true;
   next_status.data_ready = true;
   next_status.bytes_read = data_length;
-  next_status.update_interval_ms = driver_.chip().l76k->update_interval_ms();
+  next_status.update_interval_ms = kNrf9151GnssUpdateIntervalMs;
 
-  cpp_bus_driver::L76k::Info info;
-  const bool parse_success =
-      driver_.chip().l76k->ParseInfo(buffer.get(), data_length, info);
+  cpp_bus_driver::GnssParser::Info info;
+  gps_pending_data_.append(
+      reinterpret_cast<const char*>(buffer.get()), data_length);
+  const size_t complete_data_end = gps_pending_data_.rfind('\n');
+  bool parse_success = false;
+  if (complete_data_end != std::string::npos) {
+    const size_t complete_data_length = complete_data_end + 1;
+    parse_success = gps_parser_.ParseInfo(
+        reinterpret_cast<const uint8_t*>(gps_pending_data_.data()),
+        complete_data_length, info);
+    gps_pending_data_.erase(0, complete_data_length);
+  }
+  if (gps_pending_data_.size() > kNrf9151PendingDataLimit) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Discard oversized nRF9151 GNSS partial frame: %u bytes\n",
+        static_cast<unsigned>(gps_pending_data_.size()));
+    gps_pending_data_.clear();
+  }
+  xSemaphoreGive(nrf9151_mutex_);
   next_status.parse_success = next_status.parse_success || parse_success;
   if (parse_success) {
     const auto& rmc = info.rmc;
@@ -2642,19 +3072,699 @@ bool TDisplayP4Device::ReadGpsStatus(GpsStatus* status) {
   return true;
 }
 
-void TDisplayP4Device::MicrophoneCaptureTaskEntry(void* context) {
-  auto* self = static_cast<TDisplayP4Device*>(context);
+bool TDisplayP4AirDevice::SetNfcPollingEnabled(bool enabled) {
+  if (!enabled) {
+    nfc_.stop_requested.store(true);
+    for (uint32_t elapsed_ms = 0;
+        elapsed_ms < kNfcTaskStopTimeoutMs && nfc_.task_active.load();
+        elapsed_ms += kPowerOffTaskPollMs) {
+      vTaskDelay(pdMS_TO_TICKS(kPowerOffTaskPollMs));
+    }
+    const bool stopped = !nfc_.task_active.load();
+    return stopped && driver_.SetSt25r3916PowerEnabled(false);
+  }
+
+  if (nfc_.task_active.load()) {
+    return true;
+  }
+  if (nfc_.mutex == nullptr || driver_.chip().st25r3916 == nullptr ||
+      !driver_.SetSt25r3916PowerEnabled(true) || !driver_.IsSt25r3916Ready()) {
+    return false;
+  }
+
+  if (xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
+    driver_.SetSt25r3916PowerEnabled(false);
+    return false;
+  }
+  nfc_.status = NfcStatus();
+  nfc_.status.hardware_ready = true;
+  nfc_.status.polling = true;
+  xSemaphoreGive(nfc_.mutex);
+
+  nfc_.stop_requested.store(false);
+  nfc_.task_active.store(true);
+  const BaseType_t task_result = xTaskCreate(NfcPollingTaskEntry, "nfc_poll",
+      kNfcPollingTaskStackBytes, this, kNfcPollingTaskPriority, nullptr);
+  if (task_result != pdPASS) {
+    nfc_.task_active.store(false);
+    if (xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+      nfc_.status.polling = false;
+      nfc_.status.last_error = ESP_ERR_NO_MEM;
+      xSemaphoreGive(nfc_.mutex);
+    }
+    driver_.SetSt25r3916PowerEnabled(false);
+    return false;
+  }
+  return true;
+}
+
+bool TDisplayP4AirDevice::ReadNfcStatus(NfcStatus* status) {
+  if (status == nullptr) {
+    return false;
+  }
+  if (nfc_.mutex == nullptr ||
+      xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
+    return false;
+  }
+  *status = nfc_.status;
+  status->hardware_ready = driver_.IsSt25r3916Ready();
+  status->polling = nfc_.task_active.load() && !nfc_.stop_requested.load();
+  xSemaphoreGive(nfc_.mutex);
+  return true;
+}
+
+void TDisplayP4AirDevice::NfcPollingTaskEntry(void* context) {
+  auto* self = static_cast<TDisplayP4AirDevice*>(context);
+  if (self != nullptr) {
+    self->RunNfcPollingTask();
+  }
+  vTaskDelete(nullptr);
+}
+
+void TDisplayP4AirDevice::RunNfcPollingTask() {
+  auto* nfc_driver = driver_.chip().st25r3916.get();
+  rfalNfcDiscoverParam parameters = {};
+  parameters.compMode = RFAL_COMPLIANCE_MODE_NFC;
+  parameters.techs2Find = RFAL_NFC_POLL_TECH_A | RFAL_NFC_POLL_TECH_B |
+                          RFAL_NFC_POLL_TECH_F | RFAL_NFC_POLL_TECH_V |
+                          RFAL_NFC_POLL_TECH_ST25TB;
+  parameters.totalDuration = 1000;
+  parameters.devLimit = 1;
+  parameters.maxBR = RFAL_BR_848;
+  parameters.nfcfBR = RFAL_BR_212;
+  parameters.ap2pBR = RFAL_BR_424;
+  parameters.wakeupEnabled = false;
+  parameters.wakeupConfigDefault = true;
+
+  ReturnCode result = nfc_driver == nullptr ? RFAL_ERR_INVALID_HANDLE
+                                            : rfalNfcDiscover(&parameters);
+  if (result != RFAL_ERR_NONE) {
+    if (xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+      nfc_.status.polling = false;
+      nfc_.status.last_error = static_cast<int>(result);
+      xSemaphoreGive(nfc_.mutex);
+    }
+    nfc_.task_active.store(false);
+    return;
+  }
+
+  TickType_t last_card_tick = xTaskGetTickCount();
+  while (!nfc_.stop_requested.load()) {
+    nfc_driver->NfcWorker();
+    const auto platform_error = nfc_driver->platform_error();
+    if (platform_error !=
+        stsw_st25rfal002_cpp_bus_driver::PlatformError::kNone) {
+      if (xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+        nfc_.status.last_error =
+            kNfcPlatformErrorBase + static_cast<int>(platform_error);
+        xSemaphoreGive(nfc_.mutex);
+      }
+      break;
+    }
+
+    const rfalNfcState state = rfalNfcGetState();
+    if (rfalNfcIsDevActivated(state)) {
+      rfalNfcDevice* active_device = nullptr;
+      result = rfalNfcGetActiveDevice(&active_device);
+      if (result == RFAL_ERR_NONE && active_device != nullptr &&
+          xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+        const size_t identifier_length =
+            std::min<size_t>(active_device->nfcidLen, kNfcIdentifierCapacity);
+        const bool same_card =
+            nfc_.status.card_present &&
+            nfc_.status.technology == ToNfcTechnology(active_device->type) &&
+            nfc_.status.identifier_length == identifier_length &&
+            (identifier_length == 0 ||
+                (active_device->nfcid != nullptr &&
+                    std::memcmp(nfc_.status.identifier, active_device->nfcid,
+                        identifier_length) == 0));
+        nfc_.status.card_present = true;
+        nfc_.status.technology = ToNfcTechnology(active_device->type);
+        nfc_.status.identifier_length = identifier_length;
+        std::memset(nfc_.status.identifier, 0, sizeof(nfc_.status.identifier));
+        if (identifier_length > 0 && active_device->nfcid != nullptr) {
+          std::memcpy(
+              nfc_.status.identifier, active_device->nfcid, identifier_length);
+        }
+        if (!same_card) {
+          ++nfc_.status.detection_count;
+        }
+        nfc_.status.last_error = 0;
+        xSemaphoreGive(nfc_.mutex);
+        last_card_tick = xTaskGetTickCount();
+      } else if (result != RFAL_ERR_NONE &&
+                 xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+        nfc_.status.last_error = static_cast<int>(result);
+        xSemaphoreGive(nfc_.mutex);
+      }
+      result = rfalNfcDeactivate(RFAL_NFC_DEACTIVATE_DISCOVERY);
+      if (result != RFAL_ERR_NONE &&
+          xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+        nfc_.status.last_error = static_cast<int>(result);
+        xSemaphoreGive(nfc_.mutex);
+      }
+    } else if (rfalNfcIsInDiscovery(state) &&
+               xTaskGetTickCount() - last_card_tick >=
+                   pdMS_TO_TICKS(kNfcCardRemovalTimeoutMs) &&
+               xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+      nfc_.status.card_present = false;
+      xSemaphoreGive(nfc_.mutex);
+    }
+    vTaskDelay(pdMS_TO_TICKS(1));
+  }
+
+  rfalNfcDeactivate(RFAL_NFC_DEACTIVATE_IDLE);
+  for (int worker_count = 0; worker_count < 20; ++worker_count) {
+    nfc_driver->NfcWorker();
+    if (rfalNfcGetState() == RFAL_NFC_STATE_IDLE) {
+      break;
+    }
+    vTaskDelay(pdMS_TO_TICKS(1));
+  }
+  if (xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+    nfc_.status.polling = false;
+    nfc_.status.card_present = false;
+    xSemaphoreGive(nfc_.mutex);
+  }
+  nfc_.task_active.store(false);
+}
+
+bool TDisplayP4AirDevice::SetInfraredReceiverEnabled(bool enabled) {
+  if (!enabled) {
+    infrared_.receiver_enabled.store(false);
+    if (infrared_.mutex == nullptr ||
+        xSemaphoreTake(infrared_.mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+      return false;
+    }
+    esp_err_t result = ESP_OK;
+    if (infrared_.receive_channel_enabled &&
+        infrared_.receive_channel != nullptr) {
+      result = rmt_disable(infrared_.receive_channel);
+      if (result == ESP_OK) {
+        infrared_.receive_channel_enabled = false;
+      }
+    }
+    infrared_.receive_pending.store(false);
+    infrared_.receive_complete.store(false);
+    infrared_.status.receiver_enabled = false;
+    infrared_.status.last_error = result;
+    xSemaphoreGive(infrared_.mutex);
+    return result == ESP_OK;
+  }
+  if (!InitializeInfraredHardware()) {
+    return false;
+  }
+  if (xSemaphoreTake(infrared_.mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+    return false;
+  }
+  esp_err_t result = ESP_OK;
+  if (!infrared_.receive_channel_enabled) {
+    result = rmt_enable(infrared_.receive_channel);
+    infrared_.receive_channel_enabled = result == ESP_OK;
+  }
+  infrared_.status.receiver_enabled = result == ESP_OK;
+  infrared_.status.last_error = result;
+  xSemaphoreGive(infrared_.mutex);
+  if (result != ESP_OK) {
+    return false;
+  }
+  infrared_.receiver_enabled.store(true);
+  return StartInfraredReceive();
+}
+
+bool TDisplayP4AirDevice::SendInfraredNec(uint8_t address, uint8_t command) {
+  if (!InitializeInfraredHardware()) {
+    return false;
+  }
+
+  std::array<rmt_symbol_word_t, kNecFrameSymbolCount> symbols = {};
+  symbols[0].level0 = 1;
+  symbols[0].duration0 = kNecLeaderMarkUs;
+  symbols[0].level1 = 0;
+  symbols[0].duration1 = kNecLeaderSpaceUs;
+
+  const uint32_t raw_data =
+      static_cast<uint32_t>(address) |
+      (static_cast<uint32_t>(static_cast<uint8_t>(~address)) << 8) |
+      (static_cast<uint32_t>(command) << 16) |
+      (static_cast<uint32_t>(static_cast<uint8_t>(~command)) << 24);
+  for (size_t bit = 0; bit < kNecDataBitCount; ++bit) {
+    rmt_symbol_word_t& symbol = symbols[bit + 1];
+    symbol.level0 = 1;
+    symbol.duration0 = kNecBitMarkUs;
+    symbol.level1 = 0;
+    symbol.duration1 =
+        (raw_data & (1UL << bit)) != 0 ? kNecOneSpaceUs : kNecZeroSpaceUs;
+  }
+  symbols.back().level0 = 1;
+  symbols.back().duration0 = kNecBitMarkUs;
+  symbols.back().level1 = 0;
+  symbols.back().duration1 = kNecFrameEndSpaceUs;
+
+  rmt_transmit_config_t transmit_config = {};
+  transmit_config.loop_count = 0;
+  esp_err_t result =
+      rmt_transmit(infrared_.transmit_channel, infrared_.copy_encoder,
+          symbols.data(), sizeof(symbols), &transmit_config);
+  if (result == ESP_OK) {
+    result = rmt_tx_wait_all_done(
+        infrared_.transmit_channel, kInfraredTransmitTimeoutMs);
+  }
+  if (xSemaphoreTake(infrared_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+    infrared_.status.last_error = result;
+    xSemaphoreGive(infrared_.mutex);
+  }
+  return result == ESP_OK;
+}
+
+bool TDisplayP4AirDevice::ReadInfraredStatus(InfraredStatus* status) {
+  if (status == nullptr) {
+    return false;
+  }
+  if (infrared_.mutex == nullptr ||
+      xSemaphoreTake(infrared_.mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
+    return false;
+  }
+
+  if (infrared_.receive_complete.exchange(false)) {
+    uint8_t address = infrared_.status.address;
+    uint8_t command = infrared_.status.command;
+    const NecDecodeResult decode_result =
+        DecodeNecSymbols(infrared_.receive_symbols,
+            infrared_.received_symbol_count.load(), &address, &command);
+    if (decode_result == NecDecodeResult::kFrame) {
+      infrared_.status.frame_received = true;
+      infrared_.status.repeat = false;
+      infrared_.status.address = address;
+      infrared_.status.command = command;
+      ++infrared_.status.receive_count;
+      infrared_.status.last_error = 0;
+    } else if (decode_result == NecDecodeResult::kRepeat &&
+               infrared_.status.frame_received) {
+      infrared_.status.repeat = true;
+      ++infrared_.status.receive_count;
+      infrared_.status.last_error = 0;
+    } else {
+      ++infrared_.status.decode_error_count;
+    }
+  }
+  infrared_.status.receiver_enabled = infrared_.receiver_enabled.load();
+  *status = infrared_.status;
+  xSemaphoreGive(infrared_.mutex);
+
+  if (infrared_.receiver_enabled.load()) {
+    StartInfraredReceive();
+  }
+  return true;
+}
+
+bool IRAM_ATTR TDisplayP4AirDevice::InfraredReceiveDoneCallback(
+    rmt_channel_handle_t channel, const rmt_rx_done_event_data_t* event_data,
+    void* context) {
+  (void)channel;
+  auto* self = static_cast<TDisplayP4AirDevice*>(context);
+  if (self == nullptr || event_data == nullptr) {
+    return false;
+  }
+  if (!self->infrared_.receiver_enabled.load()) {
+    self->infrared_.receive_pending.store(false);
+    self->infrared_.receive_complete.store(false);
+    return false;
+  }
+  self->infrared_.received_symbol_count.store(std::min<size_t>(
+      event_data->num_symbols, std::size(self->infrared_.receive_symbols)));
+  self->infrared_.receive_pending.store(false);
+  self->infrared_.receive_complete.store(true);
+  return false;
+}
+
+bool TDisplayP4AirDevice::InitializeInfraredHardware() {
+  if (infrared_.mutex == nullptr) {
+    return false;
+  }
+  if (xSemaphoreTake(infrared_.mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+    return false;
+  }
+  if (infrared_.status.hardware_ready) {
+    xSemaphoreGive(infrared_.mutex);
+    return true;
+  }
+
+  esp_err_t result = ESP_OK;
+  rmt_rx_channel_config_t receive_config = {};
+  receive_config.gpio_num = static_cast<gpio_num_t>(gpio::infrared::kRx);
+  receive_config.clk_src = RMT_CLK_SRC_DEFAULT;
+  receive_config.resolution_hz = device::infrared::kResolutionHz;
+  receive_config.mem_block_symbols = std::size(infrared_.receive_symbols);
+  receive_config.flags.with_dma = false;
+  result = rmt_new_rx_channel(&receive_config, &infrared_.receive_channel);
+
+  if (result == ESP_OK) {
+    rmt_rx_event_callbacks_t callbacks = {};
+    callbacks.on_recv_done = InfraredReceiveDoneCallback;
+    result = rmt_rx_register_event_callbacks(
+        infrared_.receive_channel, &callbacks, this);
+  }
+
+  if (result == ESP_OK) {
+    rmt_tx_channel_config_t transmit_config = {};
+    transmit_config.gpio_num = static_cast<gpio_num_t>(gpio::infrared::kTx);
+    transmit_config.clk_src = RMT_CLK_SRC_DEFAULT;
+    transmit_config.resolution_hz = device::infrared::kResolutionHz;
+    transmit_config.mem_block_symbols = 64;
+    transmit_config.trans_queue_depth = 4;
+    transmit_config.flags.with_dma = false;
+    result = rmt_new_tx_channel(&transmit_config, &infrared_.transmit_channel);
+  }
+
+  if (result == ESP_OK) {
+    rmt_copy_encoder_config_t encoder_config = {};
+    result = rmt_new_copy_encoder(&encoder_config, &infrared_.copy_encoder);
+  }
+
+  if (result == ESP_OK) {
+    rmt_carrier_config_t carrier_config = {};
+    carrier_config.frequency_hz = 38000;
+    carrier_config.duty_cycle = 0.33F;
+    carrier_config.flags.polarity_active_low = false;
+    carrier_config.flags.always_on = false;
+    result = rmt_apply_carrier(infrared_.transmit_channel, &carrier_config);
+  }
+  if (result == ESP_OK) {
+    result = rmt_enable(infrared_.receive_channel);
+    infrared_.receive_channel_enabled = result == ESP_OK;
+  }
+  if (result == ESP_OK) {
+    result = rmt_enable(infrared_.transmit_channel);
+  }
+
+  if (result != ESP_OK) {
+    if (infrared_.receive_channel != nullptr) {
+      rmt_disable(infrared_.receive_channel);
+      rmt_del_channel(infrared_.receive_channel);
+      infrared_.receive_channel = nullptr;
+    }
+    infrared_.receive_channel_enabled = false;
+    if (infrared_.transmit_channel != nullptr) {
+      rmt_disable(infrared_.transmit_channel);
+      rmt_del_channel(infrared_.transmit_channel);
+      infrared_.transmit_channel = nullptr;
+    }
+    if (infrared_.copy_encoder != nullptr) {
+      rmt_del_encoder(infrared_.copy_encoder);
+      infrared_.copy_encoder = nullptr;
+    }
+  }
+  infrared_.status.hardware_ready = result == ESP_OK;
+  infrared_.status.last_error = result;
+  xSemaphoreGive(infrared_.mutex);
+  return result == ESP_OK;
+}
+
+bool TDisplayP4AirDevice::StartInfraredReceive() {
+  if (!infrared_.receiver_enabled.load() ||
+      infrared_.receive_channel == nullptr) {
+    return false;
+  }
+  bool expected = false;
+  if (!infrared_.receive_pending.compare_exchange_strong(expected, true)) {
+    return true;
+  }
+
+  infrared_.received_symbol_count.store(0);
+  rmt_receive_config_t receive_config = {};
+  receive_config.signal_range_min_ns = kInfraredReceiveMinimumNs;
+  receive_config.signal_range_max_ns = kInfraredReceiveMaximumNs;
+  const esp_err_t result =
+      rmt_receive(infrared_.receive_channel, infrared_.receive_symbols,
+          sizeof(infrared_.receive_symbols), &receive_config);
+  if (result != ESP_OK) {
+    infrared_.receive_pending.store(false);
+    if (xSemaphoreTake(infrared_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+      infrared_.status.last_error = result;
+      xSemaphoreGive(infrared_.mutex);
+    }
+  }
+  return result == ESP_OK;
+}
+
+bool TDisplayP4AirDevice::SetCellularEnabled(bool enabled) {
+  if (!enabled) {
+    cellular_.stop_requested.store(true);
+    for (uint32_t elapsed_ms = 0;
+        elapsed_ms < kCellularTaskStopTimeoutMs && cellular_.task_active.load();
+        elapsed_ms += kPowerOffTaskPollMs) {
+      vTaskDelay(pdMS_TO_TICKS(kPowerOffTaskPollMs));
+    }
+    return !cellular_.task_active.load();
+  }
+
+  if (cellular_.task_active.load()) {
+    return true;
+  }
+  if (nrf9151_mutex_ == nullptr || cellular_.status_mutex == nullptr ||
+      driver_.chip().nrf9151 == nullptr ||
+      driver_.bus().nrf9151_uart_bus == nullptr) {
+    return false;
+  }
+  // nRF9151 的系统模式和 UART 为单实例资源，蜂窝模式启动前先结束 GNSS。
+  if (gps_running_ && !SetGpsEnabled(false)) {
+    return false;
+  }
+
+  if (xSemaphoreTake(cellular_.status_mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
+    return false;
+  }
+  cellular_.status = CellularStatus();
+  cellular_.status.hardware_ready = true;
+  cellular_.status.enabled = true;
+  xSemaphoreGive(cellular_.status_mutex);
+
+  cellular_.stop_requested.store(false);
+  cellular_.task_active.store(true);
+  const BaseType_t task_result = xTaskCreate(CellularTaskEntry, "cellular",
+      kCellularTaskStackBytes, this, kCellularTaskPriority, nullptr);
+  if (task_result != pdPASS) {
+    cellular_.task_active.store(false);
+    if (xSemaphoreTake(cellular_.status_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+      cellular_.status.enabled = false;
+      cellular_.status.last_error = ESP_ERR_NO_MEM;
+      xSemaphoreGive(cellular_.status_mutex);
+    }
+    return false;
+  }
+  return true;
+}
+
+bool TDisplayP4AirDevice::ReadCellularStatus(CellularStatus* status) {
+  if (status == nullptr) {
+    return false;
+  }
+  if (cellular_.status_mutex == nullptr ||
+      xSemaphoreTake(cellular_.status_mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
+    return false;
+  }
+  *status = cellular_.status;
+  status->enabled =
+      cellular_.task_active.load() && !cellular_.stop_requested.load();
+  xSemaphoreGive(cellular_.status_mutex);
+  return true;
+}
+
+bool TDisplayP4AirDevice::SendCellularCommand(const char* command,
+    char* response, size_t response_size, uint32_t timeout_ms) {
+  if (response != nullptr && response_size > 0) {
+    response[0] = '\0';
+  }
+  if (command == nullptr || std::strncmp(command, "AT", 2) != 0 ||
+      response == nullptr || response_size == 0 || timeout_ms == 0 ||
+      !cellular_.task_active.load() || nrf9151_mutex_ == nullptr) {
+    return false;
+  }
+  if (xSemaphoreTake(nrf9151_mutex_, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
+    return false;
+  }
+  if (!driver_.IsNrf9151Ready() || driver_.chip().nrf9151 == nullptr) {
+    xSemaphoreGive(nrf9151_mutex_);
+    return false;
+  }
+
+  std::string command_response;
+  const auto result = driver_.chip().nrf9151->SendCommand(
+      command, &command_response, timeout_ms);
+  std::snprintf(response, response_size, "%s", command_response.c_str());
+  xSemaphoreGive(nrf9151_mutex_);
+  return result == cpp_bus_driver::Nrf9151::CommandResult::kOk;
+}
+
+void TDisplayP4AirDevice::CellularTaskEntry(void* context) {
+  auto* self = static_cast<TDisplayP4AirDevice*>(context);
+  if (self != nullptr) {
+    self->RunCellularTask();
+  }
+  vTaskDelete(nullptr);
+}
+
+void TDisplayP4AirDevice::RunCellularTask() {
+  CellularStatus snapshot;
+  snapshot.hardware_ready = driver_.chip().nrf9151 != nullptr &&
+                            driver_.bus().nrf9151_uart_bus != nullptr;
+  snapshot.enabled = true;
+
+  const auto publish_status = [this, &snapshot]() {
+    if (xSemaphoreTake(cellular_.status_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+      cellular_.status = snapshot;
+      xSemaphoreGive(cellular_.status_mutex);
+    }
+  };
+  const auto send_command = [this, &snapshot](
+                                const char* command, std::string* response) {
+    const auto result = driver_.chip().nrf9151->SendCommand(
+        command, response, kCellularCommandTimeoutMs);
+    snapshot.last_error = static_cast<int>(result);
+    return result == cpp_bus_driver::Nrf9151::CommandResult::kOk;
+  };
+
+  const bool modem_locked =
+      snapshot.hardware_ready &&
+      xSemaphoreTake(nrf9151_mutex_, portMAX_DELAY) == pdTRUE;
+  bool initialized = modem_locked;
+  if (initialized) {
+    snapshot.powered = driver_.SetNrf9151PowerEnabled(true);
+    initialized = snapshot.powered && driver_.IsNrf9151Ready();
+  }
+
+  if (initialized && !cellular_.stop_requested.load()) {
+    std::string response;
+    initialized = send_command("AT+CFUN=0", &response);
+    constexpr std::array<const char*, 3> kSystemModeCommands = {{
+        "AT%XSYSTEMMODE=1,1,0,0",
+        "AT%XSYSTEMMODE=1,0,0,0",
+        "AT%XSYSTEMMODE=0,1,0,0",
+    }};
+    if (initialized) {
+      // 优先同时启用 LTE-M 和 NB-IoT；旧固件不支持时依次退回单模式。
+      bool mode_selected = false;
+      for (const char* command : kSystemModeCommands) {
+        if (cellular_.stop_requested.load()) {
+          break;
+        }
+        response.clear();
+        if (send_command(command, &response)) {
+          mode_selected = true;
+          break;
+        }
+      }
+      initialized = mode_selected;
+    }
+    if (initialized && !cellular_.stop_requested.load()) {
+      response.clear();
+      initialized = send_command("AT+CFUN=1", &response);
+    }
+  }
+
+  if (initialized && !cellular_.stop_requested.load()) {
+    CopyString(snapshot.model, sizeof(snapshot.model),
+        driver_.chip().nrf9151->device_id());
+    std::string response;
+    if (send_command("AT+CGSN", &response)) {
+      std::string imei;
+      if (ExtractAtNumericLine(response, &imei)) {
+        CopyString(snapshot.imei, sizeof(snapshot.imei), imei);
+      }
+    }
+    std::string firmware;
+    if (driver_.chip().nrf9151->GetModemFirmwareVersion(
+            &firmware, kCellularCommandTimeoutMs)) {
+      CopyString(snapshot.firmware, sizeof(snapshot.firmware), firmware);
+      snapshot.last_error = 0;
+    }
+  }
+  if (modem_locked) {
+    xSemaphoreGive(nrf9151_mutex_);
+  }
+
+  if (!initialized) {
+    snapshot.enabled = false;
+    publish_status();
+    if (snapshot.powered) {
+      if (xSemaphoreTake(nrf9151_mutex_, portMAX_DELAY) == pdTRUE) {
+        driver_.SetNrf9151PowerEnabled(false);
+        xSemaphoreGive(nrf9151_mutex_);
+      }
+      snapshot.powered = false;
+      publish_status();
+    }
+    cellular_.task_active.store(false);
+    return;
+  }
+  snapshot.last_error = 0;
+  publish_status();
+
+  while (!cellular_.stop_requested.load()) {
+    if (xSemaphoreTake(nrf9151_mutex_, pdMS_TO_TICKS(100)) == pdTRUE) {
+      std::string response;
+      if (send_command("AT+CEREG?", &response)) {
+        ParseCellularRegistration(response, &snapshot.registration);
+      }
+      if (!cellular_.stop_requested.load()) {
+        response.clear();
+        if (send_command("AT+CSQ", &response)) {
+          ParseCellularSignal(
+              response, &snapshot.signal_quality, &snapshot.rssi_dbm);
+        }
+      }
+      if (!cellular_.stop_requested.load()) {
+        response.clear();
+        if (send_command("AT+COPS?", &response)) {
+          std::string operator_name;
+          if (ParseCellularOperator(response, &operator_name)) {
+            CopyString(snapshot.operator_name, sizeof(snapshot.operator_name),
+                operator_name);
+          }
+        }
+      }
+      xSemaphoreGive(nrf9151_mutex_);
+      publish_status();
+    }
+
+    for (uint32_t elapsed_ms = 0;
+        elapsed_ms < kCellularStatusPollMs && !cellular_.stop_requested.load();
+        elapsed_ms += 100) {
+      vTaskDelay(pdMS_TO_TICKS(100));
+    }
+  }
+
+  if (xSemaphoreTake(nrf9151_mutex_, portMAX_DELAY) == pdTRUE) {
+    if (driver_.IsNrf9151Ready() && driver_.chip().nrf9151 != nullptr) {
+      std::string response;
+      send_command("AT+CFUN=0", &response);
+    }
+    driver_.SetNrf9151PowerEnabled(false);
+    xSemaphoreGive(nrf9151_mutex_);
+  }
+  snapshot.enabled = false;
+  snapshot.powered = false;
+  publish_status();
+  cellular_.task_active.store(false);
+}
+
+void TDisplayP4AirDevice::MicrophoneCaptureTaskEntry(void* context) {
+  auto* self = static_cast<TDisplayP4AirDevice*>(context);
   if (self != nullptr) {
     self->RunMicrophoneCaptureTask();
   }
   vTaskDelete(nullptr);
 }
 
-void TDisplayP4Device::RunMicrophoneCaptureTask() {
+void TDisplayP4AirDevice::RunMicrophoneCaptureTask() {
   std::array<int16_t, kMicrophoneReadSampleCount> samples = {};
   while (!microphone_.stop_requested.load()) {
-    const size_t read_bytes = driver_.chip().es8311->ReadI2s(
-        samples.data(), samples.size() * sizeof(samples[0]));
+    const size_t requested_bytes = samples.size() * sizeof(samples[0]);
+    const int read_result = esp_codec_dev_read(driver_.es8389_input_codec_dev(),
+        samples.data(), static_cast<int>(requested_bytes));
+    const size_t read_bytes =
+        read_result == ESP_CODEC_DEV_OK ? requested_bytes : 0;
     if (read_bytes > 0) {
       microphone_.bytes_read.fetch_add(read_bytes);
 
@@ -2670,8 +3780,8 @@ void TDisplayP4Device::RunMicrophoneCaptureTask() {
 
       const int average_sample =
           sample_count == 0 ? 0 : absolute_sum / static_cast<int>(sample_count);
-      const int average_level_percent = std::min(
-          100, (average_sample * 100) / kMicrophoneAverageFullScale);
+      const int average_level_percent =
+          std::min(100, (average_sample * 100) / kMicrophoneAverageFullScale);
       const int peak_level_percent =
           std::min(100, (peak_sample * 100) / kMicrophonePeakFullScale);
       const int target_level_percent =
@@ -2688,17 +3798,20 @@ void TDisplayP4Device::RunMicrophoneCaptureTask() {
       microphone_.level_percent.store(level_percent);
 
       if (microphone_.adc_to_dac_enabled.load()) {
-        const auto* pcm_data =
-            reinterpret_cast<const uint8_t*>(samples.data());
+        const auto* pcm_data = reinterpret_cast<const uint8_t*>(samples.data());
         size_t written_bytes = 0;
         while (written_bytes < read_bytes &&
                microphone_.adc_to_dac_enabled.load() &&
                !microphone_.stop_requested.load()) {
-          const size_t written = driver_.chip().es8311->WriteI2s(
-              pcm_data + written_bytes, read_bytes - written_bytes);
+          const int write_result =
+              esp_codec_dev_write(driver_.es8389_output_codec_dev(),
+                  const_cast<uint8_t*>(pcm_data + written_bytes),
+                  static_cast<int>(read_bytes - written_bytes));
+          const size_t written =
+              write_result == ESP_CODEC_DEV_OK ? read_bytes - written_bytes : 0;
           if (written == 0) {
             LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-                "ES8311 microphone PCM loopback write failed\n");
+                "Microphone PCM loopback write failed\n");
             microphone_.adc_to_dac_enabled.store(false);
             UpdateAudioCodecPowerState();
             break;
@@ -2718,257 +3831,15 @@ void TDisplayP4Device::RunMicrophoneCaptureTask() {
   UpdateAudioCodecPowerState();
 }
 
-void TDisplayP4Device::EthernetInitTaskEntry(void* context) {
-  auto* self = static_cast<TDisplayP4Device*>(context);
-  if (self != nullptr) {
-    self->RunEthernetInitTask();
-  }
-  vTaskDelete(nullptr);
-}
-
-void TDisplayP4Device::RunEthernetInitTask() {
-  if (ethernet_.stop_requested.load()) {
-    ethernet_.init_task_running.store(false);
-    SetEthernetEnabled(false);
-    return;
-  }
-
-  int result = ESP_OK;
-  if (!driver_.SetEthernetPowerEnabled(true)) {
-    result = ESP_FAIL;
-  } else if (ethernet_.stop_requested.load()) {
-    driver_.SetEthernetPowerEnabled(false);
-    ethernet_.init_task_running.store(false);
-    SetEthernetEnabled(false);
-    return;
-  } else {
-    result = InitializeEthernetStack();
-  }
-  if (result != ESP_OK) {
-    SetEthernetFailure(result);
-    driver_.SetEthernetPowerEnabled(false);
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Ethernet init failed: %s (%#X)\n",
-        esp_err_to_name(static_cast<esp_err_t>(result)),
-        static_cast<unsigned>(result));
-  }
-  ethernet_.init_task_running.store(false);
-  if (ethernet_.stop_requested.load()) {
-    SetEthernetEnabled(false);
-  }
-}
-
-int TDisplayP4Device::InitializeEthernetStack() {
-  if (ethernet_.handle != nullptr) {
-    const esp_err_t start_result =
-        esp_eth_start(reinterpret_cast<esp_eth_handle_t>(ethernet_.handle));
-    if (start_result != ESP_OK && start_result != ESP_ERR_INVALID_STATE) {
-      return start_result;
-    }
-    ethernet_.driver_initialized.store(true);
-    ethernet_.running.store(true);
-    ethernet_.start_failed.store(false);
-    ethernet_.last_error.store(ESP_OK);
-    return ESP_OK;
-  }
-
-  esp_err_t result = esp_netif_init();
-  if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
-    return result;
-  }
-
-  result = esp_event_loop_create_default();
-  if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
-    return result;
-  }
-
-  eth_mac_config_t mac_config = ETH_MAC_DEFAULT_CONFIG();
-  eth_phy_config_t phy_config = ETH_PHY_DEFAULT_CONFIG();
-  phy_config.phy_addr = device::ip101::kPhyAddress;
-  phy_config.reset_gpio_num = gpio::ip101::kPhyRst;
-
-  eth_esp32_emac_config_t emac_config = {};
-  emac_config.smi_gpio.mdc_num = gpio::ip101::kRmiiMdc;
-  emac_config.smi_gpio.mdio_num = gpio::ip101::kRmiiMdio;
-  emac_config.interface = EMAC_DATA_INTERFACE_RMII;
-  emac_config.clock_config.rmii.clock_mode = EMAC_CLK_EXT_IN;
-  emac_config.clock_config.rmii.clock_gpio =
-      static_cast<emac_rmii_clock_gpio_t>(gpio::ip101::kRmiiRefClk);
-  emac_config.dma_burst_len = ETH_DMA_BURST_LEN_32;
-  emac_config.intr_priority = 0;
-#if SOC_EMAC_USE_MULTI_IO_MUX || SOC_EMAC_MII_USE_GPIO_MATRIX
-  emac_config.emac_dataif_gpio.rmii.tx_en_num = gpio::ip101::kRmiiTxEn;
-  emac_config.emac_dataif_gpio.rmii.txd0_num = gpio::ip101::kRmiiTxd0;
-  emac_config.emac_dataif_gpio.rmii.txd1_num = gpio::ip101::kRmiiTxd1;
-  emac_config.emac_dataif_gpio.rmii.crs_dv_num = gpio::ip101::kRmiiCrsDv;
-  emac_config.emac_dataif_gpio.rmii.rxd0_num = gpio::ip101::kRmiiRxd0;
-  emac_config.emac_dataif_gpio.rmii.rxd1_num = gpio::ip101::kRmiiRxd1;
-#endif
-#if !SOC_EMAC_RMII_CLK_OUT_INTERNAL_LOOPBACK
-  emac_config.clock_config_out_in.rmii.clock_mode = EMAC_CLK_EXT_IN;
-  emac_config.clock_config_out_in.rmii.clock_gpio =
-      static_cast<emac_rmii_clock_gpio_t>(gpio::ip101::kRmiiClkOut);
-#endif
-  emac_config.mdc_freq_hz = 0;
-
-  esp_eth_mac_t* mac = esp_eth_mac_new_esp32(&emac_config, &mac_config);
-  if (mac == nullptr) {
-    return ESP_ERR_NO_MEM;
-  }
-
-  esp_eth_phy_t* phy = esp_eth_phy_new_ip101(&phy_config);
-  if (phy == nullptr) {
-    mac->del(mac);
-    return ESP_ERR_NO_MEM;
-  }
-
-  esp_eth_handle_t handle = nullptr;
-  esp_eth_config_t config = ETH_DEFAULT_CONFIG(mac, phy);
-  result = esp_eth_driver_install(&config, &handle);
-  if (result != ESP_OK) {
-    mac->del(mac);
-    phy->del(phy);
-    return result;
-  }
-
-  esp_netif_inherent_config_t inherent_config = *ESP_NETIF_BASE_DEFAULT_ETH;
-  esp_netif_config_t netif_config = {
-      .base = &inherent_config,
-      .driver = nullptr,
-      .stack = ESP_NETIF_NETSTACK_DEFAULT_ETH,
-  };
-  esp_netif_t* netif = esp_netif_new(&netif_config);
-  if (netif == nullptr) {
-    return ESP_ERR_NO_MEM;
-  }
-
-  auto glue = esp_eth_new_netif_glue(handle);
-  if (glue == nullptr) {
-    return ESP_ERR_NO_MEM;
-  }
-
-  result = esp_netif_attach(netif, glue);
-  if (result != ESP_OK) {
-    return result;
-  }
-
-  result = esp_event_handler_register(
-      ETH_EVENT, ESP_EVENT_ANY_ID, EthernetEventHandler, this);
-  if (result != ESP_OK) {
-    return result;
-  }
-
-  result = esp_event_handler_register(
-      IP_EVENT, IP_EVENT_ETH_GOT_IP, EthernetGotIpEventHandler, this);
-  if (result != ESP_OK) {
-    return result;
-  }
-
-  ethernet_.handle = handle;
-  ethernet_.port_count.store(1);
-
-  result = esp_eth_start(handle);
-  if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
-    return result;
-  }
-
-  ethernet_.driver_initialized.store(true);
-  ethernet_.running.store(true);
-  ethernet_.start_failed.store(false);
-  ethernet_.last_error.store(ESP_OK);
-  return ESP_OK;
-}
-
-void TDisplayP4Device::SetEthernetFailure(int error) {
-  ethernet_.init_task_running.store(false);
-  ethernet_.driver_initialized.store(ethernet_.handle != nullptr);
-  ethernet_.running.store(false);
-  ethernet_.link_up.store(false);
-  ethernet_.got_ip.store(false);
-  ethernet_.start_failed.store(true);
-  ethernet_.last_error.store(error);
-  ethernet_.ip_address.store(0);
-  ethernet_.netmask.store(0);
-  ethernet_.gateway.store(0);
-}
-
-void TDisplayP4Device::EthernetEventHandler(
-    void* arg, const char* event_base, int32_t event_id, void* event_data) {
-  (void)event_base;
-  auto* self = static_cast<TDisplayP4Device*>(arg);
-  if (self == nullptr) {
-    return;
-  }
-
-  switch (event_id) {
-    case ETHERNET_EVENT_CONNECTED: {
-      self->ethernet_.running.store(true);
-      self->ethernet_.link_up.store(true);
-      self->ethernet_.got_ip.store(false);
-      self->ethernet_.ip_address.store(0);
-      self->ethernet_.netmask.store(0);
-      self->ethernet_.gateway.store(0);
-
-      if (event_data != nullptr) {
-        esp_eth_handle_t handle = *static_cast<esp_eth_handle_t*>(event_data);
-        uint8_t mac_address[6] = {};
-        if (esp_eth_ioctl(handle, ETH_CMD_G_MAC_ADDR, mac_address) == ESP_OK) {
-          self->ethernet_.mac_address.store(PackMacAddress(mac_address));
-        }
-      }
-      break;
-    }
-    case ETHERNET_EVENT_DISCONNECTED:
-      self->ethernet_.link_up.store(false);
-      self->ethernet_.got_ip.store(false);
-      self->ethernet_.ip_address.store(0);
-      self->ethernet_.netmask.store(0);
-      self->ethernet_.gateway.store(0);
-      break;
-    case ETHERNET_EVENT_START:
-      self->ethernet_.running.store(true);
-      self->ethernet_.start_failed.store(false);
-      self->ethernet_.last_error.store(ESP_OK);
-      break;
-    case ETHERNET_EVENT_STOP:
-      self->ethernet_.running.store(false);
-      self->ethernet_.link_up.store(false);
-      self->ethernet_.got_ip.store(false);
-      self->ethernet_.ip_address.store(0);
-      self->ethernet_.netmask.store(0);
-      self->ethernet_.gateway.store(0);
-      break;
-    default:
-      break;
-  }
-}
-
-void TDisplayP4Device::EthernetGotIpEventHandler(
-    void* arg, const char* event_base, int32_t event_id, void* event_data) {
-  (void)event_base;
-  (void)event_id;
-  auto* self = static_cast<TDisplayP4Device*>(arg);
-  auto* event = static_cast<ip_event_got_ip_t*>(event_data);
-  if (self == nullptr || event == nullptr) {
-    return;
-  }
-
-  self->ethernet_.link_up.store(true);
-  self->ethernet_.got_ip.store(true);
-  self->ethernet_.ip_address.store(event->ip_info.ip.addr);
-  self->ethernet_.netmask.store(event->ip_info.netmask.addr);
-  self->ethernet_.gateway.store(event->ip_info.gw.addr);
-}
-
-void TDisplayP4Device::WifiInitTaskEntry(void* context) {
-  auto* self = static_cast<TDisplayP4Device*>(context);
+void TDisplayP4AirDevice::WifiInitTaskEntry(void* context) {
+  auto* self = static_cast<TDisplayP4AirDevice*>(context);
   if (self != nullptr) {
     self->RunWifiInitTask();
   }
   vTaskDelete(nullptr);
 }
 
-void TDisplayP4Device::RunWifiInitTask() {
+void TDisplayP4AirDevice::RunWifiInitTask() {
   if (!WaitForWifiHardwareReady()) {
     LogMessage(
         LogLevel::kWarning, __FILE__, __LINE__, "WiFi hardware is not ready\n");
@@ -2995,6 +3866,10 @@ void TDisplayP4Device::RunWifiInitTask() {
     SetWifiEnabled(false);
     return;
   }
+  if (wifi_.scan_requested.exchange(false) && !StartWifiScan()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Start deferred WiFi scan failed\n");
+  }
   if (wifi_time_test_.requested.load()) {
     const int test_result = StartWifiTimeTestInternal();
     if (test_result != ESP_OK) {
@@ -3007,23 +3882,23 @@ void TDisplayP4Device::RunWifiInitTask() {
   }
 }
 
-void TDisplayP4Device::WifiScanTaskEntry(void* context) {
-  auto* self = static_cast<TDisplayP4Device*>(context);
+void TDisplayP4AirDevice::WifiScanTaskEntry(void* context) {
+  auto* self = static_cast<TDisplayP4AirDevice*>(context);
   if (self != nullptr) {
     self->RunWifiScanTask();
   }
   vTaskDelete(nullptr);
 }
 
-void TDisplayP4Device::WifiConnectTaskEntry(void* context) {
-  auto* self = static_cast<TDisplayP4Device*>(context);
+void TDisplayP4AirDevice::WifiConnectTaskEntry(void* context) {
+  auto* self = static_cast<TDisplayP4AirDevice*>(context);
   if (self != nullptr) {
     self->RunWifiConnectTask();
   }
   vTaskDelete(nullptr);
 }
 
-void TDisplayP4Device::RunWifiScanTask() {
+void TDisplayP4AirDevice::RunWifiScanTask() {
   if (!wifi_.running.load()) {
     const int prepare_result = PrepareWifiStation();
     if (prepare_result != ESP_OK) {
@@ -3077,7 +3952,7 @@ void TDisplayP4Device::RunWifiScanTask() {
   wifi_.scan_task_running.store(false);
 }
 
-void TDisplayP4Device::RunWifiConnectTask() {
+void TDisplayP4AirDevice::RunWifiConnectTask() {
   char ssid[kWifiSsidMaxLength + 1] = {};
   char password[kWifiPasswordMaxLength + 1] = {};
   std::snprintf(ssid, sizeof(ssid), "%s", wifi_.connect_ssid);
@@ -3156,8 +4031,8 @@ void TDisplayP4Device::RunWifiConnectTask() {
   wifi_.netmask.store(0);
   wifi_.gateway.store(0);
 
-  const esp_err_t config_result = esp_wifi_set_config(WIFI_IF_STA,
-      &wifi_config);
+  const esp_err_t config_result =
+      esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
   if (config_result != ESP_OK) {
     finish(config_result);
     return;
@@ -3176,10 +4051,9 @@ void TDisplayP4Device::RunWifiConnectTask() {
   // 保持连接进行中状态，直到取得 DHCP 地址或收到断开事件。
 }
 
-bool TDisplayP4Device::WaitForWifiHardwareReady() {
+bool TDisplayP4AirDevice::WaitForWifiHardwareReady() {
   uint32_t elapsed_ms = 0;
-  while (!driver_.IsXl9535Ready() &&
-         elapsed_ms < kWifiHardwareReadyTimeoutMs) {
+  while (!driver_.IsXl9535Ready() && elapsed_ms < kWifiHardwareReadyTimeoutMs) {
     vTaskDelay(pdMS_TO_TICKS(kWifiHardwareReadyPollMs));
     elapsed_ms += kWifiHardwareReadyPollMs;
   }
@@ -3188,11 +4062,11 @@ bool TDisplayP4Device::WaitForWifiHardwareReady() {
     return false;
   }
 
-  vTaskDelay(pdMS_TO_TICKS(kWifiEsp32c6BootDelayMs));
+  vTaskDelay(pdMS_TO_TICKS(kWifiCoprocessorBootDelayMs));
   return true;
 }
 
-int TDisplayP4Device::InitializeWifiStack() {
+int TDisplayP4AirDevice::InitializeWifiStack() {
   if (wifi_.driver_initialized.load()) {
     return PrepareWifiStation();
   }
@@ -3229,7 +4103,7 @@ int TDisplayP4Device::InitializeWifiStack() {
   }
 
   wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
-  // 账号密码由 ESP32-P4 侧管理，C6 只接收 RAM 中的临时 WiFi 配置。
+  // 账号密码由 ESP32-P4 侧管理，C5 只接收 RAM 中的临时 WiFi 配置。
   config.nvs_enable = false;
   result = esp_wifi_init(&config);
   if (result != ESP_OK && result != ESP_ERR_WIFI_INIT_STATE) {
@@ -3277,7 +4151,7 @@ int TDisplayP4Device::InitializeWifiStack() {
   return ESP_OK;
 }
 
-int TDisplayP4Device::PrepareWifiStation() {
+int TDisplayP4AirDevice::PrepareWifiStation() {
   if (!wifi_.driver_initialized.load()) {
     return ESP_ERR_WIFI_NOT_INIT;
   }
@@ -3309,7 +4183,7 @@ int TDisplayP4Device::PrepareWifiStation() {
   return ESP_OK;
 }
 
-void TDisplayP4Device::CopyWifiScanResultsFromDriver() {
+void TDisplayP4AirDevice::CopyWifiScanResultsFromDriver() {
   uint16_t available_count = 0;
   esp_err_t result = esp_wifi_scan_get_ap_num(&available_count);
   if (result != ESP_OK) {
@@ -3350,10 +4224,9 @@ void TDisplayP4Device::CopyWifiScanResultsFromDriver() {
   }
 
   size_t network_count = 0;
-  for (uint16_t i = 0; i < record_count &&
-       network_count < kMaxWifiScanNetworkCount; ++i) {
-    const auto* ssid =
-        reinterpret_cast<const char*>(records[i].ssid);
+  for (uint16_t i = 0;
+      i < record_count && network_count < kMaxWifiScanNetworkCount; ++i) {
+    const auto* ssid = reinterpret_cast<const char*>(records[i].ssid);
     if (ssid == nullptr || ssid[0] == '\0') {
       continue;
     }
@@ -3394,7 +4267,7 @@ void TDisplayP4Device::CopyWifiScanResultsFromDriver() {
   }
 }
 
-int TDisplayP4Device::StartWifiTimeTestInternal() {
+int TDisplayP4AirDevice::StartWifiTimeTestInternal() {
   if (!wifi_.driver_initialized.load()) {
     return ESP_ERR_WIFI_NOT_INIT;
   }
@@ -3481,7 +4354,7 @@ int TDisplayP4Device::StartWifiTimeTestInternal() {
   return ESP_OK;
 }
 
-int TDisplayP4Device::StartWifiSntp() {
+int TDisplayP4AirDevice::StartWifiSntp() {
   if (wifi_time_test_.sync_started.load()) {
     return ESP_OK;
   }
@@ -3507,7 +4380,6 @@ int TDisplayP4Device::StartWifiSntp() {
         esp_timer_get_time() / 1000);
     owner->wifi_time_test_.synced.store(true);
     owner->StopWifiInternetCheck();
-    owner->ScheduleRtcSync(unix_time);
   });
   // 客户端取时使用轮询模式；成功回调或第三次检测结束后停止客户端。
   esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
@@ -3523,15 +4395,15 @@ int TDisplayP4Device::StartWifiSntp() {
   return ESP_OK;
 }
 
-int TDisplayP4Device::StartWifiSntpAttemptTimer() {
+int TDisplayP4AirDevice::StartWifiSntpAttemptTimer() {
   if (wifi_time_test_.sntp_attempt_timer == nullptr) {
     esp_timer_create_args_t timer_config = {};
     timer_config.callback = WifiSntpAttemptTimerCallback;
     timer_config.arg = this;
     timer_config.dispatch_method = ESP_TIMER_TASK;
     timer_config.name = "sntp_attempt";
-    const esp_err_t create_result = esp_timer_create(
-        &timer_config, &wifi_time_test_.sntp_attempt_timer);
+    const esp_err_t create_result =
+        esp_timer_create(&timer_config, &wifi_time_test_.sntp_attempt_timer);
     if (create_result != ESP_OK) {
       return create_result;
     }
@@ -3543,21 +4415,20 @@ int TDisplayP4Device::StartWifiSntpAttemptTimer() {
       kMicrosecondsPerMillisecond;
   wifi_time_test_.sntp_attempt_count.store(1);
   return esp_timer_is_active(wifi_time_test_.sntp_attempt_timer)
-      ? esp_timer_restart(wifi_time_test_.sntp_attempt_timer, interval_us)
-      : esp_timer_start_periodic(
-            wifi_time_test_.sntp_attempt_timer, interval_us);
+             ? esp_timer_restart(
+                   wifi_time_test_.sntp_attempt_timer, interval_us)
+             : esp_timer_start_periodic(
+                   wifi_time_test_.sntp_attempt_timer, interval_us);
 }
 
-void TDisplayP4Device::WifiSntpAttemptTimerCallback(void* argument) {
-  auto* self = static_cast<TDisplayP4Device*>(argument);
+void TDisplayP4AirDevice::WifiSntpAttemptTimerCallback(void* argument) {
+  auto* self = static_cast<TDisplayP4AirDevice*>(argument);
   if (self == nullptr) {
     return;
   }
 
-  const int attempt_count =
-      self->wifi_time_test_.sntp_attempt_count.load();
-  if (self->wifi_time_test_.synced.load() ||
-      !self->wifi_.got_ip.load() ||
+  const int attempt_count = self->wifi_time_test_.sntp_attempt_count.load();
+  if (self->wifi_time_test_.synced.load() || !self->wifi_.got_ip.load() ||
       attempt_count >= kWifiSntpMaxAttemptCount) {
     self->StopWifiInternetCheck();
     return;
@@ -3569,40 +4440,7 @@ void TDisplayP4Device::WifiSntpAttemptTimerCallback(void* argument) {
   }
 }
 
-void TDisplayP4Device::ScheduleRtcSync(int64_t unix_time) {
-  const int64_t previous_sync = wifi_time_test_.rtc_sync_unix_time.load();
-  bool expected = false;
-  if (!wifi_time_test_.rtc_sync_task_running.compare_exchange_strong(
-          expected, true)) {
-    return;
-  }
-  wifi_time_test_.rtc_sync_unix_time.store(unix_time);
-  const BaseType_t result = xTaskCreate(RtcSyncTaskEntry, "rtc_sync",
-      kRtcSyncTaskStackBytes, this, kRtcSyncTaskPriority, nullptr);
-  if (result != pdPASS) {
-    wifi_time_test_.rtc_sync_task_running.store(false);
-    wifi_time_test_.rtc_sync_unix_time.store(previous_sync);
-  }
-}
-
-void TDisplayP4Device::RtcSyncTaskEntry(void* argument) {
-  auto* self = static_cast<TDisplayP4Device*>(argument);
-  if (self == nullptr) {
-    vTaskDelete(nullptr);
-    return;
-  }
-
-  const int64_t unix_time = self->wifi_time_test_.rtc_sync_unix_time.load();
-  if (!self->WriteRtcUnixTime(unix_time)) {
-    self->wifi_time_test_.rtc_sync_unix_time.store(0);
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Write network time to PCF8563 failed\n");
-  }
-  self->wifi_time_test_.rtc_sync_task_running.store(false);
-  vTaskDelete(nullptr);
-}
-
-void TDisplayP4Device::SetWifiFailure(int error) {
+void TDisplayP4AirDevice::SetWifiFailure(int error) {
   StopWifiInternetCheck();
   wifi_.init_task_running.store(false);
   wifi_.connect_task_running.store(false);
@@ -3618,10 +4456,10 @@ void TDisplayP4Device::SetWifiFailure(int error) {
   wifi_.gateway.store(0);
 }
 
-void TDisplayP4Device::WifiEventHandler(
+void TDisplayP4AirDevice::WifiEventHandler(
     void* arg, const char* event_base, int32_t event_id, void* event_data) {
   (void)event_base;
-  auto* self = static_cast<TDisplayP4Device*>(arg);
+  auto* self = static_cast<TDisplayP4AirDevice*>(arg);
   if (self == nullptr) {
     return;
   }
@@ -3713,11 +4551,11 @@ void TDisplayP4Device::WifiEventHandler(
   }
 }
 
-void TDisplayP4Device::WifiGotIpEventHandler(
+void TDisplayP4AirDevice::WifiGotIpEventHandler(
     void* arg, const char* event_base, int32_t event_id, void* event_data) {
   (void)event_base;
   (void)event_id;
-  auto* self = static_cast<TDisplayP4Device*>(arg);
+  auto* self = static_cast<TDisplayP4AirDevice*>(arg);
   auto* event = static_cast<ip_event_got_ip_t*>(event_data);
   if (self == nullptr || event == nullptr) {
     return;
@@ -3736,166 +4574,108 @@ void TDisplayP4Device::WifiGotIpEventHandler(
   }
 }
 
-bool TDisplayP4Device::ReadDeviceDiagnostics(DeviceDiagnostics* diagnostics) {
+bool TDisplayP4AirDevice::ReadDeviceDiagnostics(
+    DeviceDiagnostics* diagnostics) {
   if (diagnostics == nullptr) {
     return false;
   }
 
   *diagnostics = DeviceDiagnostics();
-  const bool battery_management_result = ReadBatteryManagementStatus(&diagnostics->battery_management);
+  const bool battery_management_result =
+      ReadBatteryManagementStatus(&diagnostics->battery_management);
   const bool imu_result = ReadImuStatus(&diagnostics->imu);
   return battery_management_result || imu_result;
 }
 
-bool TDisplayP4Device::ReadBatteryManagementStatus(BatteryManagementStatus* status) {
+bool TDisplayP4AirDevice::ReadBatteryManagementStatus(
+    BatteryManagementStatus* status) {
   if (status == nullptr) {
     return false;
   }
 
   *status = BatteryManagementStatus();
-  status->capabilities.average_measurements = true;
-  status->capabilities.capacity = true;
-  status->capabilities.remaining_time = true;
-  status->capabilities.cycle_count = true;
 
-  if (driver_.IsBq27220Ready()) {
-    cpp_bus_driver::Bq27220::BatteryStatus battery_management_status_flags;
-    const bool battery_management_status_ok =
-        driver_.chip().bq27220->GetBatteryStatus(battery_management_status_flags);
-    const uint16_t voltage_mv = driver_.chip().bq27220->GetVoltage();
-    const int16_t current_ma = driver_.chip().bq27220->GetCurrent();
-    const uint16_t charge_percent = driver_.chip().bq27220->GetStatusOfCharge();
-
-    if (voltage_mv > 0 && voltage_mv != UINT16_MAX) {
-      status->ready = true;
-      status->voltage_mv = voltage_mv;
-      status->current_ma = current_ma;
-      status->average_current_ma = driver_.chip().bq27220->GetAverageCurrent();
-      status->average_power_mw = driver_.chip().bq27220->GetAveragePower();
-      status->charge_percent =
-          charge_percent == UINT16_MAX ? 0 : charge_percent;
-      status->health_percent = driver_.chip().bq27220->GetStatusOfHealth();
-      status->design_capacity_mah = driver_.chip().bq27220->GetDesignCapacity();
-      status->remaining_capacity_mah =
-          driver_.chip().bq27220->GetRemainingCapacity();
-      status->full_charge_capacity_mah =
-          driver_.chip().bq27220->GetFullChargeCapacity();
-      status->time_to_empty_min = driver_.chip().bq27220->GetTimeToEmpty();
-      status->time_to_full_min = driver_.chip().bq27220->GetTimeToFull();
-      status->cycle_count = driver_.chip().bq27220->GetCycleCount();
-      status->pack_temperature_c =
-          driver_.chip().bq27220->GetTemperatureCelsius();
-      status->chip_temperature_c =
-          driver_.chip().bq27220->GetChipTemperatureCelsius();
-      status->pack_present =
-          battery_management_status_ok && battery_management_status_flags.flag.battery_present;
-      status->charging = current_ma > 0 ||
-                         (battery_management_status_ok && !battery_management_status_flags.flag.discharging);
-      status->full_charged =
-          battery_management_status_ok && battery_management_status_flags.flag.full_charged;
-      status->full_discharged =
-          battery_management_status_ok && battery_management_status_flags.flag.full_discharged;
-      return true;
-    }
+  if (!driver_.IsAxp517Ready() || driver_.chip().axp517 == nullptr) {
+    return false;
   }
 
-  return false;
+  auto& axp517 = *driver_.chip().axp517;
+  cpp_bus_driver::Axp517::ChipStatus0 chip_status0;
+  cpp_bus_driver::Axp517::ChipStatus1 chip_status1;
+  if (!axp517.GetChipStatus0(chip_status0) ||
+      !axp517.GetChipStatus1(chip_status1)) {
+    return false;
+  }
+
+  const uint16_t voltage_mv = axp517.GetBatteryVoltage();
+  const uint8_t charge_percent = axp517.GetBatteryLevel();
+  const uint8_t health_percent = axp517.GetBatteryHealth();
+  const float current_ma = axp517.GetBatteryCurrent();
+
+  status->ready = true;
+  status->pack_present = chip_status0.battery_present_status;
+  status->charging = status->pack_present && chip_status0.vbus_good_indication &&
+                     (chip_status1.charging_status ==
+                             cpp_bus_driver::Axp517::ChargeStatus::kTrickleCharge ||
+                         chip_status1.charging_status ==
+                             cpp_bus_driver::Axp517::ChargeStatus::kPrecharge ||
+                         chip_status1.charging_status ==
+                             cpp_bus_driver::Axp517::ChargeStatus::kConstantCurrent ||
+                         chip_status1.charging_status ==
+                             cpp_bus_driver::Axp517::ChargeStatus::kConstantVoltage);
+  status->full_charged =
+      chip_status1.charging_status ==
+          cpp_bus_driver::Axp517::ChargeStatus::kChargeDone ||
+      charge_percent == 100;
+  status->full_discharged = status->pack_present && charge_percent == 0;
+  status->voltage_mv = voltage_mv;
+  status->current_ma = static_cast<int>(std::lround(current_ma));
+  status->charge_percent = charge_percent;
+  status->health_percent = health_percent;
+  status->pack_temperature_c = axp517.GetBatteryTemperatureCelsius();
+  if (axp517.SetAdcDataSelect(
+          cpp_bus_driver::Axp517::AdcData::kChipTemperatureCelsius)) {
+    status->chip_temperature_c = axp517.GetChipDieJunctionTemperatureCelsius();
+  }
+  return true;
 }
 
-bool TDisplayP4Device::ReadBatteryLevel(int* percent) {
-  if (percent == nullptr || !driver_.IsBq27220Ready()) {
+bool TDisplayP4AirDevice::ReadBatteryLevel(int* percent) {
+  if (percent == nullptr || !driver_.IsAxp517Ready() ||
+      driver_.chip().axp517 == nullptr) {
     return false;
   }
 
-  cpp_bus_driver::Bq27220::BatteryStatus battery_status;
-  if (!driver_.chip().bq27220->GetBatteryStatus(battery_status) ||
-      !battery_status.flag.battery_present) {
+  cpp_bus_driver::Axp517::ChipStatus0 chip_status;
+  if (!driver_.chip().axp517->GetChipStatus0(chip_status) ||
+      !chip_status.battery_present_status) {
     return false;
   }
-
-  const uint16_t charge_percent =
-      driver_.chip().bq27220->GetStatusOfCharge();
+  const uint8_t charge_percent = driver_.chip().axp517->GetBatteryLevel();
   if (charge_percent > 100) {
     return false;
   }
-
   *percent = charge_percent;
   return true;
 }
 
-bool TDisplayP4Device::ReadRtcStatus(RtcStatus* status) {
-  if (status == nullptr) {
-    return false;
-  }
-
-  *status = RtcStatus();
-
-  if (!driver_.IsPcf8563Ready() && !driver_.InitPcf8563()) {
-    LogMessage(
-        LogLevel::kWarning, __FILE__, __LINE__, "Pcf8563 init retry failed\n");
-    return false;
-  }
-
-  cpp_bus_driver::Pcf8563x::Time time;
-  if (!driver_.chip().pcf8563->GetTime(time)) {
-    return false;
-  }
-
-  status->ready = true;
-  status->clock_integrity = driver_.chip().pcf8563->CheckClockIntegrityFlag();
-  status->year = static_cast<uint16_t>(time.year) + 2000;
-  status->month = time.month;
-  status->day = time.day;
-  status->week = static_cast<uint8_t>(time.week);
-  status->hour = time.hour;
-  status->minute = time.minute;
-  status->second = time.second;
-  return true;
-}
-
-bool TDisplayP4Device::WriteRtcUnixTime(int64_t unix_time) {
-  if (unix_time <= kWifiValidUnixTimeThreshold ||
-      (!driver_.IsPcf8563Ready() && !driver_.InitPcf8563())) {
-    return false;
-  }
-
-  const std::time_t time_value = static_cast<std::time_t>(unix_time);
-  std::tm local_time = {};
-  if (localtime_r(&time_value, &local_time) == nullptr ||
-      local_time.tm_year + 1900 < 2000 ||
-      local_time.tm_year + 1900 > 2099) {
-    return false;
-  }
-
-  cpp_bus_driver::Pcf8563x::Time rtc_time;
-  rtc_time.year = static_cast<uint8_t>(local_time.tm_year + 1900 - 2000);
-  rtc_time.month = static_cast<uint8_t>(local_time.tm_mon + 1);
-  rtc_time.day = static_cast<uint8_t>(local_time.tm_mday);
-  rtc_time.week = static_cast<cpp_bus_driver::Pcf8563x::Week>(
-      local_time.tm_wday);
-  rtc_time.hour = static_cast<uint8_t>(local_time.tm_hour);
-  rtc_time.minute = static_cast<uint8_t>(local_time.tm_min);
-  rtc_time.second = static_cast<uint8_t>(local_time.tm_sec);
-  return driver_.chip().pcf8563->SetTime(rtc_time) &&
-      driver_.chip().pcf8563->ClearClockIntegrityFlag();
-}
-
-bool TDisplayP4Device::ReadRadioCapabilities(RadioCapabilities* capabilities) {
+bool TDisplayP4AirDevice::ReadRadioCapabilities(
+    RadioCapabilities* capabilities) {
   if (capabilities == nullptr) {
     return false;
   }
   *capabilities = RadioCapabilities();
   capabilities->entries[0] = {
-      .chip = radio::ChipType::kSx1262,
+      .chip = radio::ChipType::kLr1121,
       .protocol = radio::ProtocolType::kLora,
       .maximum_payload_size = kRadioPayloadCapacity,
   };
   capabilities->count = 1;
-  capabilities->supports_external_antenna = true;
+  capabilities->supports_external_antenna = false;
   return true;
 }
 
-bool TDisplayP4Device::ActivateRadio(const RadioConfig& config) {
+bool TDisplayP4AirDevice::ActivateRadio(const RadioConfig& config) {
   if (radio_.mutex == nullptr ||
       xSemaphoreTake(radio_.mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
@@ -3903,34 +4683,30 @@ bool TDisplayP4Device::ActivateRadio(const RadioConfig& config) {
         static_cast<unsigned long>(config.client_token));
     return false;
   }
-  usp_cpp_bus_driver::Sx126x::LoraConfig driver_config;
-  const bool antenna_supported =
-      config.antenna == radio::AntennaType::kInternal ||
-      config.antenna == radio::AntennaType::kExternal;
-  bool result = config.chip == radio::ChipType::kSx1262 &&
+  usp_cpp_bus_driver::Lr11xx::LoraConfig driver_config;
+  bool result = config.chip == radio::ChipType::kLr1121 &&
                 config.protocol == radio::ProtocolType::kLora &&
-                antenna_supported &&
-                BuildSx1262Config(config.lora, &driver_config);
-  if (result) {
-    auto* antenna_switch = driver_.chip().xl9535.get();
-    const uint8_t antenna_level =
-        config.antenna == radio::AntennaType::kExternal ? 0 : 1;
-    result = driver_.IsXl9535Ready() && antenna_switch != nullptr &&
-             antenna_switch->GpioWrite(
-                 gpio::xl9535::kSky13453Vctl, antenna_level);
-  }
-  if (result && driver_.SetSx1262PowerState(
-                    lilygo_device_driver::TDisplayP4Driver::
-                        Sx1262PowerState::kStandby)) {
-    auto* radio = driver_.chip().sx1262.get();
-    result = radio != nullptr && radio->Configure(driver_config) &&
-             radio->StartReceive();
+                config.antenna == radio::AntennaType::kInternal &&
+                BuildRadioConfig(config.lora, &driver_config);
+  if (result && driver_.SetLr1121PowerState(
+                    TDisplayP4AirBoardDriver::Lr1121PowerState::kStandby)) {
+    auto* radio = driver_.chip().lr1121.get();
+    result = radio != nullptr &&
+             EnsureLr1121ImageCalibration(*radio, config.lora.frequency_hz,
+                 &radio_.calibrated_image_minimum_mhz,
+                 &radio_.calibrated_image_maximum_mhz) &&
+             radio->Configure(driver_config) &&
+             radio->Invoke(lr11xx_system_clear_irq_status,
+                 LR11XX_SYSTEM_IRQ_ALL_MASK) == LR11XX_STATUS_OK &&
+             radio->Invoke(lr11xx_system_set_dio_irq_params, kRadioEventIrqMask,
+                 LR11XX_SYSTEM_IRQ_NONE) == LR11XX_STATUS_OK &&
+             StartLr1121Receive(*radio, config.lora);
   } else {
     result = false;
   }
   if (!result) {
-    driver_.SetSx1262PowerState(
-        lilygo_device_driver::TDisplayP4Driver::Sx1262PowerState::kSleep);
+    driver_.SetLr1121PowerState(
+        TDisplayP4AirBoardDriver::Lr1121PowerState::kSleep);
   }
   radio_.active = result;
   radio_.transmitting = false;
@@ -3948,11 +4724,12 @@ bool TDisplayP4Device::ActivateRadio(const RadioConfig& config) {
       static_cast<unsigned long>(config.lora.frequency_hz),
       static_cast<unsigned>(config.lora.spreading_factor),
       static_cast<unsigned long>(config.lora.bandwidth_hz),
-      config.antenna == radio::AntennaType::kExternal ? "RF2" : "RF1");
+      config.antenna == radio::AntennaType::kExternal ? "external"
+                                                      : "internal");
   return result;
 }
 
-bool TDisplayP4Device::DeactivateRadio() {
+bool TDisplayP4AirDevice::DeactivateRadio() {
   if (radio_.mutex == nullptr ||
       xSemaphoreTake(radio_.mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
@@ -3960,17 +4737,17 @@ bool TDisplayP4Device::DeactivateRadio() {
     return false;
   }
   bool result = true;
-  if (driver_.IsSx1262Ready()) {
-    auto* radio = driver_.chip().sx1262.get();
+  if (driver_.IsLr1121Ready()) {
+    auto* radio = driver_.chip().lr1121.get();
     if (radio_.active) {
       result = radio != nullptr &&
-               radio->Invoke(sx126x_set_standby, SX126X_STANDBY_CFG_RC) ==
-                   SX126X_STATUS_OK &&
-               radio->ClearIrqStatus(SX126X_IRQ_ALL);
+               radio->Invoke(lr11xx_system_set_standby,
+                   LR11XX_SYSTEM_STANDBY_CFG_RC) == LR11XX_STATUS_OK &&
+               radio->Invoke(lr11xx_system_clear_irq_status,
+                   LR11XX_SYSTEM_IRQ_ALL_MASK) == LR11XX_STATUS_OK;
     }
-    result &= driver_.SetSx1262PowerState(
-        lilygo_device_driver::TDisplayP4Driver::
-            Sx1262PowerState::kSleep);
+    result &= driver_.SetLr1121PowerState(
+        TDisplayP4AirBoardDriver::Lr1121PowerState::kSleep);
   }
   radio_.active = false;
   radio_.transmitting = false;
@@ -3984,7 +4761,7 @@ bool TDisplayP4Device::DeactivateRadio() {
   return result;
 }
 
-bool TDisplayP4Device::SendRadio(
+bool TDisplayP4AirDevice::SendRadio(
     const uint8_t* data, size_t size, uint64_t request_token) {
   if (data == nullptr || size == 0 || size > kRadioPayloadCapacity ||
       request_token == 0) {
@@ -4019,10 +4796,12 @@ bool TDisplayP4Device::SendRadio(
     xSemaphoreGive(radio_.mutex);
     return false;
   }
-  if (!driver_.IsSx1262Ready()) {
+  const bool hardware_ready = driver_.IsLr1121Ready();
+  constexpr const char* kRadioChipName = "LR1121";
+  if (!hardware_ready) {
     radio_.chip_error = true;
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Radio send rejected: SX1262 is unavailable, message=%lu\n",
+        "Radio send rejected: %s is unavailable, message=%lu\n", kRadioChipName,
         static_cast<unsigned long>(static_cast<uint32_t>(request_token)));
     xSemaphoreGive(radio_.mutex);
     return false;
@@ -4037,9 +4816,16 @@ bool TDisplayP4Device::SendRadio(
     xSemaphoreGive(radio_.mutex);
     return false;
   }
-  auto* radio = driver_.chip().sx1262.get();
-  const bool result = radio != nullptr && radio->StartTransmit(data, size,
-                                              timing.hardware_timeout_ms);
+  auto* radio = driver_.chip().lr1121.get();
+  const lr11xx_radio_pkt_params_lora_t packet_config =
+      MakeLr1121PacketConfig(radio_.lora_config, static_cast<uint8_t>(size));
+  const bool result = radio != nullptr &&
+                      radio->Invoke(lr11xx_system_clear_irq_status,
+                          LR11XX_SYSTEM_IRQ_ALL_MASK) == LR11XX_STATUS_OK &&
+                      radio->Invoke(lr11xx_radio_set_lora_pkt_params,
+                          &packet_config) == LR11XX_STATUS_OK &&
+                      radio->WriteBuffer(data, size) &&
+                      radio->StartTransmit(timing.hardware_timeout_ms);
   radio_.transmitting = result;
   radio_.chip_error = !result;
   radio_.transmit_request_token = result ? request_token : 0;
@@ -4064,7 +4850,7 @@ bool TDisplayP4Device::SendRadio(
   return result;
 }
 
-bool TDisplayP4Device::PollRadioEvent(RadioEvent* event) {
+bool TDisplayP4AirDevice::PollRadioEvent(RadioEvent* event) {
   if (event == nullptr) {
     return false;
   }
@@ -4081,7 +4867,7 @@ bool TDisplayP4Device::PollRadioEvent(RadioEvent* event) {
     xSemaphoreGive(radio_.mutex);
     return true;
   }
-  if (!driver_.IsSx1262Ready()) {
+  if (!driver_.IsLr1121Ready() || driver_.chip().lr1121 == nullptr) {
     radio_.active = false;
     radio_.transmitting = false;
     radio_.chip_error = true;
@@ -4091,16 +4877,18 @@ bool TDisplayP4Device::PollRadioEvent(RadioEvent* event) {
     radio_.transmit_deadline_us = 0;
     xSemaphoreGive(radio_.mutex);
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Radio event failed: SX1262 is unavailable, profile=%lu, message=%lu\n",
+        "Radio event failed: LR1121 is unavailable, profile=%lu, "
+        "message=%lu\n",
         static_cast<unsigned long>(event->client_token),
         static_cast<unsigned long>(
             static_cast<uint32_t>(event->request_token)));
     return false;
   }
 
-  auto* radio = driver_.chip().sx1262.get();
-  sx126x_irq_mask_t irq_mask = 0;
-  if (radio == nullptr || !radio->GetIrqStatus(irq_mask)) {
+  auto& lr1121 = *driver_.chip().lr1121;
+  lr11xx_system_irq_mask_t irq_mask = LR11XX_SYSTEM_IRQ_NONE;
+  if (lr1121.Invoke(lr11xx_system_get_irq_status, &irq_mask) !=
+      LR11XX_STATUS_OK) {
     radio_.active = false;
     radio_.transmitting = false;
     radio_.chip_error = true;
@@ -4110,16 +4898,18 @@ bool TDisplayP4Device::PollRadioEvent(RadioEvent* event) {
     radio_.transmit_deadline_us = 0;
     xSemaphoreGive(radio_.mutex);
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Radio event failed: cannot read IRQ, profile=%lu, message=%lu\n",
+        "Radio event failed: cannot read LR1121 IRQ, profile=%lu, "
+        "message=%lu\n",
         static_cast<unsigned long>(event->client_token),
         static_cast<unsigned long>(
             static_cast<uint32_t>(event->request_token)));
     return false;
   }
-  if (irq_mask == 0) {
+
+  if (irq_mask == LR11XX_SYSTEM_IRQ_NONE) {
     if (radio_.transmitting && radio_.transmit_deadline_us > 0 &&
         esp_timer_get_time() >= radio_.transmit_deadline_us) {
-      const bool recovered = radio->StartReceive();
+      const bool recovered = StartLr1121Receive(lr1121, radio_.lora_config);
       radio_.transmitting = false;
       radio_.active = recovered;
       radio_.chip_error = !recovered;
@@ -4141,21 +4931,15 @@ bool TDisplayP4Device::PollRadioEvent(RadioEvent* event) {
     return true;
   }
 
-  const bool timed_out = (irq_mask & SX126X_IRQ_TIMEOUT) != 0;
-  const bool tx_done = (irq_mask & SX126X_IRQ_TX_DONE) != 0;
-  const bool rx_done = (irq_mask & SX126X_IRQ_RX_DONE) != 0;
-  const bool receive_error =
-      (irq_mask & (SX126X_IRQ_HEADER_ERROR | SX126X_IRQ_CRC_ERROR)) != 0;
+  const bool timed_out = (irq_mask & LR11XX_SYSTEM_IRQ_TIMEOUT) != 0;
+  const bool tx_done = (irq_mask & LR11XX_SYSTEM_IRQ_TX_DONE) != 0;
+  const bool rx_done = (irq_mask & LR11XX_SYSTEM_IRQ_RX_DONE) != 0;
+  const bool receive_error = (irq_mask & (LR11XX_SYSTEM_IRQ_HEADER_ERROR |
+                                             LR11XX_SYSTEM_IRQ_CRC_ERROR)) != 0;
   char irq_text[kRadioIrqTextCapacity] = {};
-  bool irq_text_ready = false;
-  const auto irq_text_for_log = [&]() -> const char* {
-    if (!irq_text_ready) {
-      FormatRadioIrqMask(irq_mask, irq_text, sizeof(irq_text));
-      irq_text_ready = true;
-    }
-    return irq_text;
-  };
-  bool result = radio->ClearIrqStatus(irq_mask);
+  FormatRadioIrqMask(irq_mask, irq_text, sizeof(irq_text));
+  bool result = lr1121.Invoke(lr11xx_system_clear_irq_status, irq_mask) ==
+                LR11XX_STATUS_OK;
   if (!result) {
     radio_.active = false;
     radio_.transmitting = false;
@@ -4166,17 +4950,18 @@ bool TDisplayP4Device::PollRadioEvent(RadioEvent* event) {
     event->failure_reason = RadioFailureReason::kIrqClearFailed;
     xSemaphoreGive(radio_.mutex);
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Radio event failed: cannot clear IRQ %s, message=%lu\n",
-        irq_text_for_log(),
+        "Radio event failed: cannot clear IRQ %s, message=%lu\n", irq_text,
         static_cast<unsigned long>(
             static_cast<uint32_t>(event->request_token)));
     return false;
   }
+
   if (radio_.transmitting && (tx_done || timed_out)) {
     radio_.transmitting = false;
     radio_.transmit_request_token = 0;
     radio_.transmit_deadline_us = 0;
-    const bool receive_restarted = radio->StartReceive();
+    const bool receive_restarted =
+        StartLr1121Receive(lr1121, radio_.lora_config);
     radio_.active = receive_restarted;
     radio_.chip_error = !receive_restarted;
     if (timed_out) {
@@ -4189,49 +4974,34 @@ bool TDisplayP4Device::PollRadioEvent(RadioEvent* event) {
       }
     }
     result = receive_restarted;
-    if (event->type == RadioEventType::kTransmitComplete && receive_restarted) {
-      LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
-          "Radio send completed: profile %lu\n",
-          static_cast<unsigned long>(event->client_token));
-    } else if (event->type == RadioEventType::kTransmitFailed) {
-      LogMessage(LogLevel::kError, __FILE__, __LINE__,
-          "Radio send failed: hardware timeout, profile=%lu, message=%lu, "
-          "receive recovery=%s\n",
-          static_cast<unsigned long>(event->client_token),
-          static_cast<unsigned long>(
-              static_cast<uint32_t>(event->request_token)),
-          receive_restarted ? "succeeded" : "failed");
-    } else {
-      LogMessage(LogLevel::kError, __FILE__, __LINE__,
-          "Radio send completed, but receive restart failed: profile=%lu, "
-          "message=%lu\n",
-          static_cast<unsigned long>(event->client_token),
-          static_cast<unsigned long>(
-              static_cast<uint32_t>(event->request_token)));
-    }
   } else if (radio_.transmitting) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Radio send ignored unrelated IRQ %s, message=%lu\n",
-        irq_text_for_log(),
+        "Radio send ignored unrelated IRQ %s, message=%lu\n", irq_text,
         static_cast<unsigned long>(
             static_cast<uint32_t>(event->request_token)));
   } else if (rx_done && !receive_error) {
-    uint8_t received_size = 0;
-    usp_cpp_bus_driver::Sx126x::PacketMetrics metrics;
-    result = radio->ReadPacket(
-        event->payload, kRadioPayloadCapacity, received_size, &metrics);
-    result = result && radio->StartReceive();
+    lr11xx_radio_rx_buffer_status_t buffer_status = {};
+    lr11xx_radio_pkt_status_lora_t packet_status = {};
+    result = lr1121.Invoke(lr11xx_radio_get_rx_buffer_status, &buffer_status) ==
+                 LR11XX_STATUS_OK &&
+             buffer_status.pld_len_in_bytes > 0 &&
+             buffer_status.pld_len_in_bytes <= kRadioPayloadCapacity &&
+             lr1121.ReadBuffer(buffer_status.buffer_start_pointer,
+                 event->payload, buffer_status.pld_len_in_bytes) &&
+             lr1121.Invoke(lr11xx_radio_get_lora_pkt_status, &packet_status) ==
+                 LR11XX_STATUS_OK &&
+             StartLr1121Receive(lr1121, radio_.lora_config);
     if (result) {
       event->type = RadioEventType::kPacketReceived;
-      event->payload_size = received_size;
-      event->rssi_dbm = metrics.rssi_dbm;
-      event->snr_db = metrics.snr_db;
+      event->payload_size = buffer_status.pld_len_in_bytes;
+      event->rssi_dbm = packet_status.rssi_pkt_in_dbm;
+      event->snr_db = packet_status.snr_pkt_in_db;
     }
   } else {
-    result = radio->StartReceive();
+    result = StartLr1121Receive(lr1121, radio_.lora_config);
     if (receive_error) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Radio RX packet rejected: IRQ=%s\n", irq_text_for_log());
+          "Radio RX packet rejected: IRQ=%s\n", irq_text);
     }
   }
 
@@ -4250,20 +5020,19 @@ bool TDisplayP4Device::PollRadioEvent(RadioEvent* event) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Radio event processing failed: profile=%lu, message=%lu, IRQ=%s\n",
         static_cast<unsigned long>(event->client_token),
-        static_cast<unsigned long>(
-            static_cast<uint32_t>(event->request_token)),
-        irq_text_for_log());
+        static_cast<unsigned long>(static_cast<uint32_t>(event->request_token)),
+        irq_text);
   }
   xSemaphoreGive(radio_.mutex);
   return result;
 }
 
-bool TDisplayP4Device::ReadRadioStatus(RadioStatus* status) {
+bool TDisplayP4AirDevice::ReadRadioStatus(RadioStatus* status) {
   if (status == nullptr || radio_.mutex == nullptr ||
       xSemaphoreTake(radio_.mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
     return false;
   }
-  status->hardware_ready = driver_.IsSx1262Ready();
+  status->hardware_ready = driver_.IsLr1121Ready();
   status->transmitting = radio_.transmitting;
   status->active_client_token = radio_.active_client_token;
   if (radio_.chip_error || (radio_.active && !status->hardware_ready)) {
@@ -4277,70 +5046,220 @@ bool TDisplayP4Device::ReadRadioStatus(RadioStatus* status) {
   return true;
 }
 
-bool TDisplayP4Device::SetImuEnabled(bool enabled) {
-  const bool result = driver_.SetIcm20948Sleep(!enabled);
-  imu_enabled_.store(enabled && result);
+void TDisplayP4AirDevice::Bhi260apAccelerationCallback(
+    const struct bhy2_fifo_parse_data_info* callback_info, void* context) {
+  auto* self = static_cast<TDisplayP4AirDevice*>(context);
+  if (self == nullptr || callback_info == nullptr ||
+      callback_info->data_ptr == nullptr || callback_info->data_size < 6) {
+    return;
+  }
+
+  struct bhy2_data_xyz data = {};
+  bhy2_parse_xyz(callback_info->data_ptr, &data);
+  self->imu_.acceleration[0] = data.x * kBhi260apAccelerometerScale;
+  self->imu_.acceleration[1] = data.y * kBhi260apAccelerometerScale;
+  self->imu_.acceleration[2] = data.z * kBhi260apAccelerometerScale;
+  self->imu_.acceleration_ready = true;
+}
+
+bool TDisplayP4AirDevice::SetImuEnabled(bool enabled) {
+  if (imu_.mutex == nullptr ||
+      xSemaphoreTake(imu_.mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Set IMU enabled state failed: mutex unavailable\n");
+    return false;
+  }
+
+  bool result = true;
+  if (!enabled) {
+    if (imu_.configured && driver_.IsBhi260apReady() &&
+        driver_.chip().bhi260ap != nullptr) {
+      result &= driver_.chip().bhi260ap->ConfigureSensor(
+          BHY2_SENSOR_ID_ACC_PASS, 0.0F, kBhi260apReportLatencyMs);
+    }
+    result &= driver_.SetBhi260apSleep(true);
+    result &= driver_.SetQmc6310nSleep(true);
+    imu_.configured = false;
+    imu_.acceleration_ready = false;
+    imu_.magnetic_field_ready = false;
+    imu_enabled_.store(false);
+    xSemaphoreGive(imu_.mutex);
+    return result;
+  }
+
+  if (imu_enabled_.load() && imu_.configured &&
+      driver_.IsBhi260apReady() && driver_.IsQmc6310nReady() &&
+      driver_.chip().bhi260ap != nullptr &&
+      driver_.chip().qmc6310n != nullptr) {
+    xSemaphoreGive(imu_.mutex);
+    return true;
+  }
+
+  uint32_t elapsed_ms = 0;
+  while (driver_.chip().bhi260ap != nullptr &&
+         driver_.chip().qmc6310n != nullptr &&
+         (!driver_.IsBhi260apReady() || !driver_.IsQmc6310nReady()) &&
+         elapsed_ms < kImuHardwareReadyTimeoutMs) {
+    vTaskDelay(pdMS_TO_TICKS(kImuHardwareReadyPollMs));
+    elapsed_ms += kImuHardwareReadyPollMs;
+  }
+  if (!driver_.IsBhi260apReady() || !driver_.IsQmc6310nReady() ||
+      driver_.chip().bhi260ap == nullptr ||
+      driver_.chip().qmc6310n == nullptr) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Enable IMU failed: BHI260AP ready=%u, QMC6310N ready=%u\n",
+        static_cast<unsigned int>(driver_.IsBhi260apReady()),
+        static_cast<unsigned int>(driver_.IsQmc6310nReady()));
+    xSemaphoreGive(imu_.mutex);
+    return false;
+  }
+
+  auto& bhi260ap = *driver_.chip().bhi260ap;
+  result = driver_.SetBhi260apSleep(false);
+  if (!result) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Enable IMU failed: wake BHI260AP failed\n");
+  }
+  if (result) {
+    result = driver_.SetQmc6310nSleep(false);
+    if (!result) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Enable IMU failed: wake QMC6310N failed\n");
+    }
+  }
+  if (result) {
+    result = bhi260ap.RegisterFifoCallback(
+        BHY2_SENSOR_ID_ACC_PASS, Bhi260apAccelerationCallback, this);
+    if (!result) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Enable IMU failed: register BHI260AP FIFO callback failed "
+          "(error code: %d)\n",
+          static_cast<int>(bhi260ap.last_error()));
+    }
+  }
+  if (result) {
+    result = bhi260ap.ProcessFifo();
+    if (!result) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Enable IMU failed: process BHI260AP FIFO failed "
+          "(error code: %d)\n",
+          static_cast<int>(bhi260ap.last_error()));
+    }
+  }
+  if (result) {
+    result = bhi260ap.UpdateVirtualSensorList();
+    if (!result) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Enable IMU failed: update BHI260AP virtual sensor list failed "
+          "(error code: %d)\n",
+          static_cast<int>(bhi260ap.last_error()));
+    }
+  }
+  if (result) {
+    result = bhi260ap.ConfigureSensor(BHY2_SENSOR_ID_ACC_PASS,
+        kBhi260apSampleRateHz, kBhi260apReportLatencyMs);
+    if (!result) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Enable IMU failed: configure BHI260AP accelerometer failed "
+          "(error code: %d)\n",
+          static_cast<int>(bhi260ap.last_error()));
+    }
+  }
+  imu_.configured = result;
+  imu_.acceleration_ready = false;
+  imu_.magnetic_field_ready = false;
+  imu_enabled_.store(result);
+  if (!result) {
+    driver_.SetBhi260apSleep(true);
+    driver_.SetQmc6310nSleep(true);
+  }
+  xSemaphoreGive(imu_.mutex);
   return result;
 }
 
-bool TDisplayP4Device::ReadImuStatus(ImuStatus* status) {
+bool TDisplayP4AirDevice::ReadImuStatus(ImuStatus* status) {
   if (status == nullptr) {
     return false;
   }
 
   *status = ImuStatus();
 
-  auto&icm20948 = driver_.chip().icm20948;
-  if (!imu_enabled_.load() || !driver_.IsIcm20948Ready() ||
-      icm20948 == nullptr) {
+  if (!imu_enabled_.load() || !imu_.configured) {
+    return false;
+  }
+  if (!driver_.IsBhi260apReady() || !driver_.IsQmc6310nReady() ||
+      driver_.chip().bhi260ap == nullptr ||
+      driver_.chip().qmc6310n == nullptr) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Read IMU status failed: BHI260AP ready=%u, QMC6310N ready=%u\n",
+        static_cast<unsigned int>(driver_.IsBhi260apReady()),
+        static_cast<unsigned int>(driver_.IsQmc6310nReady()));
+    return false;
+  }
+  if (imu_.mutex == nullptr ||
+      xSemaphoreTake(imu_.mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
     return false;
   }
 
-  cpp_bus_driver::Icm20948::SensorData data;
-  if (!icm20948->ReadData(data)) {
+  bool result = driver_.chip().bhi260ap->ProcessFifo();
+  if (!result) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Read IMU status failed: process BHI260AP FIFO failed "
+        "(error code: %d)\n",
+        static_cast<int>(driver_.chip().bhi260ap->last_error()));
+  }
+  MagnetometerData magnetic_data;
+  if (driver_.chip().qmc6310n->readData(magnetic_data)) {
+    imu_.magnetic_field[0] = magnetic_data.magnetic_field.x;
+    imu_.magnetic_field[1] = magnetic_data.magnetic_field.y;
+    imu_.magnetic_field[2] = magnetic_data.magnetic_field.z;
+    imu_.magnetic_field_ready = true;
+  } else if (!imu_.magnetic_field_ready) {
+    result = false;
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Read IMU status failed: QMC6310N has no valid data\n");
+  }
+
+  if (!result || !imu_.acceleration_ready ||
+      !imu_.magnetic_field_ready) {
+    xSemaphoreGive(imu_.mutex);
     return false;
   }
 
-  const auto& acceleration = data.acceleration_g;
-  const float acceleration_magnitude_squared = acceleration.x * acceleration.x +
-                                               acceleration.y * acceleration.y +
-                                               acceleration.z * acceleration.z;
-  const auto& magnetic = data.magnetic_field_ut;
-  const float magnetic_magnitude_squared = magnetic.x * magnetic.x +
-                                           magnetic.y * magnetic.y +
-                                           magnetic.z * magnetic.z;
-  if (acceleration_magnitude_squared < 0.0001F ||
-      magnetic_magnitude_squared < 0.0001F || data.magnetometer_overflow) {
-    return false;
-  }
-
+  const float acceleration_z = -imu_.acceleration[2];
   const float pitch =
-      std::atan2(-acceleration.x, std::sqrt(acceleration.y * acceleration.y +
-                                            acceleration.z * acceleration.z)) *
+      std::atan2(-imu_.acceleration[0],
+          std::sqrt(imu_.acceleration[1] * imu_.acceleration[1] +
+                    acceleration_z * acceleration_z)) *
       kRadiansToDegrees;
-    const float roll =
-      std::atan2(acceleration.y, acceleration.z) * kRadiansToDegrees;
+  const float roll =
+      std::atan2(imu_.acceleration[1], acceleration_z) * kRadiansToDegrees;
   const float pitch_radians = pitch * kDegreesToRadians;
   const float roll_radians = roll * kDegreesToRadians;
-  const float magnetic_x_horizontal = magnetic.x * std::cos(pitch_radians) +
-                                      magnetic.z * std::sin(pitch_radians);
-    const float magnetic_y_horizontal =
-      magnetic.x * std::sin(roll_radians) * std::sin(pitch_radians) +
-      magnetic.y * std::cos(roll_radians) -
-      magnetic.z * std::sin(roll_radians) * std::cos(pitch_radians); float yaw =
-        std::atan2(magnetic_y_horizontal, magnetic_x_horizontal) * kRadiansToDegrees;
+  const float magnetic_x_horizontal =
+      imu_.magnetic_field[0] * std::cos(pitch_radians) +
+      imu_.magnetic_field[2] * std::sin(pitch_radians);
+  const float magnetic_y_horizontal =
+      imu_.magnetic_field[0] * std::sin(roll_radians) *
+          std::sin(pitch_radians) -
+      imu_.magnetic_field[2] * std::sin(roll_radians) *
+          std::cos(pitch_radians) +
+      imu_.magnetic_field[1] * std::cos(roll_radians);
+  float yaw = std::atan2(magnetic_y_horizontal, magnetic_x_horizontal) *
+              kRadiansToDegrees;
   if (yaw < 0.0F) {
     yaw += 360.0F;
   }
 
-    status->ready = true;
-    status->pitch_deg = pitch;
-    status->yaw_deg = yaw;
-    status->roll_deg = roll;
-    return true;
+  status->ready = true;
+  status->pitch_deg = pitch;
+  status->yaw_deg = yaw;
+  status->roll_deg = roll;
+  xSemaphoreGive(imu_.mutex);
+  return true;
 }
 
-bool TDisplayP4Device::SetScreenBrightnessPercent(int percent) {
+bool TDisplayP4AirDevice::SetScreenBrightnessPercent(int percent) {
   if (!WaitForScreenReady()) {
     return false;
   }
@@ -4353,24 +5272,13 @@ bool TDisplayP4Device::SetScreenBrightnessPercent(int percent) {
             static_cast<uint8_t>(clamped_percent));
       }
       break;
-    case device::ScreenType::kRm69a10:
-      if (driver_.IsRm69a10Ready()) {
-        const uint8_t brightness =
-            ScreenBrightnessPercentToRm69a10Value(clamped_percent);
-        const bool result = driver_.chip().rm69a10->SetBrightness(brightness);
-        if (result) {
-          rm69a10_brightness_percent_ = clamped_percent;
-        }
-        return result;
-      }
-      break;
     default:
       break;
   }
   return false;
 }
 
-bool TDisplayP4Device::FadeScreenBrightnessPercent(
+bool TDisplayP4AirDevice::FadeScreenBrightnessPercent(
     int target_percent, uint32_t duration_ms) {
   if (!WaitForScreenReady()) {
     return false;
@@ -4390,39 +5298,13 @@ bool TDisplayP4Device::FadeScreenBrightnessPercent(
         return true;
       }
       break;
-    case device::ScreenType::kRm69a10:
-      if (driver_.IsRm69a10Ready()) {
-        const int start_percent = rm69a10_brightness_percent_;
-        const int brightness_delta = std::abs(clamped_percent - start_percent);
-        if (brightness_delta == 0) {
-          return true;
-        }
-        const int duration_step_count =
-            static_cast<int>(duration_ms / kScreenBrightnessFadeUpdateMs);
-        const int step_count =
-            std::max(1, std::min(brightness_delta, duration_step_count));
-        for (int step = 1; step <= step_count; ++step) {
-          const int brightness_percent = start_percent +
-              (clamped_percent - start_percent) * step / step_count;
-          const uint8_t brightness =
-              ScreenBrightnessPercentToRm69a10Value(brightness_percent);
-          if (!driver_.chip().rm69a10->SetBrightness(brightness)) {
-            return false;
-          }
-          rm69a10_brightness_percent_ = brightness_percent;
-          vTaskDelay(pdMS_TO_TICKS(
-              std::max<uint32_t>(1, duration_ms / step_count)));
-        }
-        return true;
-      }
-      break;
     default:
       break;
   }
   return false;
 }
 
-bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
+bool TDisplayP4AirDevice::EnterDeviceSleep(bool deep_sleep) {
   if (!deep_sleep && !WaitForScreenReady()) {
     return false;
   }
@@ -4430,8 +5312,7 @@ bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
     return driver_.SetScreenSleep(true);
   }
 
-  const bool
-    prepared = PrepareForPowerOff();
+  const bool prepared = PrepareForPowerOff();
   if (!prepared) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Prepare device for power off failed\n");
@@ -4440,7 +5321,7 @@ bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
   return driver_.PrepareForPowerOff();
 }
 
-bool TDisplayP4Device::ExitDeviceSleep(bool deep_sleep) {
+bool TDisplayP4AirDevice::ExitDeviceSleep(bool deep_sleep) {
   if (deep_sleep) {
     return false;
   }
@@ -4453,7 +5334,7 @@ bool TDisplayP4Device::ExitDeviceSleep(bool deep_sleep) {
   return WaitForScreenReady();
 }
 
-bool TDisplayP4Device::PrepareForPowerOff() {
+bool TDisplayP4AirDevice::PrepareForPowerOff() {
   bool result = true;
 
   if (speaker_.running.load()) {
@@ -4465,8 +5346,7 @@ bool TDisplayP4Device::PrepareForPowerOff() {
       speaker_.loop_enabled.store(false);
     }
   }
-  if (microphone_.running.load() ||
-      microphone_.adc_to_dac_enabled.load()) {
+  if (microphone_.running.load() || microphone_.adc_to_dac_enabled.load()) {
     result &= StopMicrophone();
   }
   if (camera_preview_.task_active.load() ||
@@ -4476,26 +5356,26 @@ bool TDisplayP4Device::PrepareForPowerOff() {
   if (radio_.active || radio_.transmitting) {
     result &= DeactivateRadio();
   }
+  result &= SetNfcPollingEnabled(false);
+  result &= SetInfraredReceiverEnabled(false);
+  result &= SetCellularEnabled(false);
   result &= SetGpsEnabled(false);
   result &= SetImuEnabled(false);
-  result &= SetEthernetEnabled(false);
   result &= SetWifiEnabled(false);
   result &= StopUsbStorage();
   result &= WaitForPowerOffTasks();
   return result;
 }
 
-bool TDisplayP4Device::WaitForPowerOffTasks() {
+bool TDisplayP4AirDevice::WaitForPowerOffTasks() {
   for (int elapsed_ms = 0; elapsed_ms < kPowerOffTaskTimeoutMs;
       elapsed_ms += kPowerOffTaskPollMs) {
-    const bool tasks_running = speaker_.running.load() ||
-                               haptic_.running.load() ||
-                               microphone_.running.load() ||
-                               camera_preview_.task_active.load() ||
-                               ethernet_.init_task_running.load() ||
-                               wifi_.init_task_running.load() ||
-                               wifi_.scan_task_running.load() ||
-                               wifi_.connect_task_running.load();
+    const bool tasks_running =
+        speaker_.running.load() || haptic_.running.load() ||
+        microphone_.running.load() || camera_preview_.task_active.load() ||
+        nfc_.task_active.load() || cellular_.task_active.load() ||
+        wifi_.init_task_running.load() || wifi_.scan_task_running.load() ||
+        wifi_.connect_task_running.load();
     if (!tasks_running) {
       return true;
     }
@@ -4504,7 +5384,7 @@ bool TDisplayP4Device::WaitForPowerOffTasks() {
   return false;
 }
 
-bool TDisplayP4Device::WaitForScreenReady() {
+bool TDisplayP4AirDevice::WaitForScreenReady() {
   for (int elapsed_ms = 0; elapsed_ms < kScreenReadyTimeoutMs;
       elapsed_ms += kScreenReadyPollMs) {
     if (driver_.IsScreenReady()) {
@@ -4515,15 +5395,15 @@ bool TDisplayP4Device::WaitForScreenReady() {
   return driver_.IsScreenReady();
 }
 
-bool TDisplayP4Device::WaitForTouchReady() {
+bool TDisplayP4AirDevice::WaitForTouchReady() {
   for (int elapsed_ms = 0; elapsed_ms < kScreenReadyTimeoutMs;
       elapsed_ms += kScreenReadyPollMs) {
-    if (driver_.IsTouchReady()) {
+    if (IsTouchReady(driver_)) {
       return true;
     }
     vTaskDelay(pdMS_TO_TICKS(kScreenReadyPollMs));
   }
-  return driver_.IsTouchReady();
+  return IsTouchReady(driver_);
 }
 
 }  // namespace lilygo_box::hal

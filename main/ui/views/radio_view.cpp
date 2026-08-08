@@ -1,8 +1,8 @@
 /*
- * @Description: Radio control app view
+ * @Description: Radio 射频控制应用页面实现
  * @Author: LILYGO_L
  * @Date: 2026-07-12 00:00:00
- * @LastEditTime: 2026-07-19 11:17:26
+ * @LastEditTime: 2026-07-30 18:00:00
  * @License: GPL 3.0
  */
 #include "ui/views/radio_view.h"
@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <iterator>
 #include <memory>
 #include <new>
 
@@ -285,7 +286,7 @@ struct RadioViewState {
   lv_obj_t* add_chip_buttons[hal::kRadioCapabilityCapacity] = {};
   lv_obj_t* add_protocol_buttons[hal::kRadioCapabilityCapacity] = {};
   lv_obj_t* add_sf_buttons[8] = {};
-  lv_obj_t* add_bandwidth_buttons[4] = {};
+  lv_obj_t* add_bandwidth_buttons[7] = {};
   lv_obj_t* add_coding_rate_buttons[4] = {};
   NavigationDrawerState drawer;
   EdgeBackSwipeState selection_edge_swipe = {};
@@ -549,13 +550,22 @@ const char* ChipDisplayName(radio::ChipType chip) {
   switch (chip) {
     case radio::ChipType::kSx1262:
       return "SX1262";
+    case radio::ChipType::kLr1121:
+      return "LR1121";
     default:
       return "Unknown chip";
   }
 }
 
 const char* ChipShortName(radio::ChipType chip) {
-  return chip == radio::ChipType::kSx1262 ? "SX" : "Radio";
+  switch ( chip) {
+    case radio::ChipType::kSx1262:
+      return "SX";
+    case radio::ChipType::kLr1121 :
+      return "LR";
+    default:
+      return "Radio";
+  }
 }
 
 const char* ProtocolDisplayName(radio::ProtocolType protocol) {
@@ -595,6 +605,10 @@ bool IsProfileSupported(
   if (state == nullptr) {
     return false;
   }
+  if (profile.antenna == radio::AntennaType::kExternal &&
+      !state->capabilities.supports_external_antenna) {
+    return false;
+  }
   for (size_t index = 0; index < state->capabilities.count; ++index) {
     const hal::RadioCapability& capability =
         state->capabilities.entries[index];
@@ -604,6 +618,85 @@ bool IsProfileSupported(
     }
   }
   return false;
+}
+
+/**
+ * @brief 获取当前设备首选的射频能力
+ * @param state 射频页面状态
+ * @return 能力可用时返回指针，否则返回 nullptr
+ */
+const hal::RadioCapability* PrimaryRadioCapability(
+    const RadioViewState* state) {
+  if (state == nullptr || state->capabilities.count == 0) {
+    return nullptr;
+  }
+  return &state->capabilities.entries[0];
+}
+
+/**
+ * @brief 让配置使用当前设备首选的射频芯片和协议
+ * @param state 射频页面状态
+ * @param profile 待更新的配置
+ */
+void ApplyPrimaryRadioCapability(
+    const RadioViewState* state, app::RadioProfile* profile) {
+  const hal::RadioCapability* capability = PrimaryRadioCapability(state);
+  if (capability == nullptr || profile == nullptr) {
+    return;
+  }
+  profile->chip = capability->chip;
+  profile->protocol = capability->protocol;
+}
+
+/**
+ * @brief 获取添加配置页面当前使用的射频芯片
+ * @param state 射频页面状态
+ * @return 当前设备首选芯片，无能力信息时返回 SX1262
+ */
+radio::ChipType AddProfileChip(const RadioViewState* state) {
+  const hal::RadioCapability* capability = PrimaryRadioCapability(state);
+  return capability == nullptr ? radio::ChipType::kSx1262 : capability->chip;
+}
+
+/**
+ * @brief 获取当前芯片可编辑的 LoRa 带宽数量
+ * @param state 射频页面状态
+ * @return 带宽选项数量
+ */
+size_t AddProfileBandwidthCount(const RadioViewState* state) {
+  return AddProfileChip(state) == radio::ChipType::kLr1121 ? 7 : 4;
+}
+
+/**
+ * @brief 获取当前芯片指定索引的 LoRa 带宽
+ * @param state 射频页面状态
+ * @param index 带宽选项索引
+ * @return 带宽，索引无效时返回 0
+ */
+uint32_t AddProfileBandwidth(const RadioViewState* state, size_t index) {
+  constexpr uint32_t kSx1262Bandwidths[] = {62500, 125000, 250000, 500000};
+  constexpr uint32_t kLr1121Bandwidths[] = {
+      62500, 125000, 200000, 250000, 400000, 500000, 800000};
+  if (AddProfileChip(state) == radio::ChipType::kLr1121) {
+    return index < std::size(kLr1121Bandwidths) ? kLr1121Bandwidths[index] : 0;
+  }
+  return index < std::size(kSx1262Bandwidths) ? kSx1262Bandwidths[index] : 0;
+}
+
+/**
+ * @brief 获取当前芯片带宽选项的显示文本
+ * @param state 射频页面状态
+ * @param index 带宽选项索引
+ * @return 带宽显示文本
+ */
+const char* AddProfileBandwidthName(const RadioViewState* state, size_t index) {
+  constexpr const char* kSx1262Names[] = {"62.5", "125", "250", "500"};
+  constexpr const char* kLr1121Names[] = {
+      "62.5", "125", "200", "250", "400", "500", "800"};
+  if (AddProfileChip(state) == radio::ChipType::kLr1121) {
+    return index < std::size(kLr1121Names) ? kLr1121Names[index] : "";
+  }
+  return index < std::size(kSx1262Names) ? kSx1262Names[index] : "";
 }
 
 size_t FindProfileIndex(const RadioViewState* state, uint32_t profile_id) {
@@ -5099,7 +5192,8 @@ void UpdateAddOptionSelection(RadioViewState* state) {
       state->add_protocol_buttons, 1, state->selected_add_protocol);
   UpdateOptionButtonGroup(
       state->add_sf_buttons, 8, state->selected_add_sf);
-  UpdateOptionButtonGroup(state->add_bandwidth_buttons, 4,
+  UpdateOptionButtonGroup(state->add_bandwidth_buttons,
+      static_cast<int>(AddProfileBandwidthCount(state)),
       state->selected_add_bandwidth);
   UpdateOptionButtonGroup(state->add_coding_rate_buttons, 4,
       state->selected_add_coding_rate);
@@ -5107,12 +5201,35 @@ void UpdateAddOptionSelection(RadioViewState* state) {
 
 /**
  * @brief 判断当前芯片的工作频率是否处于可设置范围
- * @param chip_index 芯片选项索引
+ * @param chip 射频芯片类型
  * @param frequency_mhz 以 MHz 为单位的工作频率
  * @return 频率有效返回 true，否则返回 false
  */
-bool IsFrequencyValidForChip(int chip_index, double frequency_mhz) {
-  return chip_index == 0 && frequency_mhz >= 150 && frequency_mhz <= 960;
+bool IsFrequencyValidForChip(radio::ChipType chip, double frequency_mhz) {
+  const bool sub_ghz = frequency_mhz >= 150.0 && frequency_mhz <= 960.0;
+  const bool lr1121_hf = chip == radio::ChipType::kLr1121 && frequency_mhz >= 2400.0 && frequency_mhz <= 2500.0;
+  return sub_ghz || lr1121_hf;
+}
+
+/**
+ * @brief 判断当前频段与 LoRa 带宽组合是否受芯片支持
+ * @param chip 射频芯片类型
+ * @param frequency_mhz 以 MHz 为单位的工作频率
+ * @param bandwidth_hz 以 Hz 为单位的 LoRa 带宽
+ * @return 参数组合有效返回 true
+ */
+bool IsBandwidthValidForFrequency(
+    radio::ChipType chip, double frequency_mhz, uint32_t bandwidth_hz) {
+  const bool high_frequency = chip == radio::ChipType::kLr1121 &&
+                              frequency_mhz >= 2400.0 &&
+                              frequency_mhz <= 2500.0;
+  if (high_frequency) {
+    return bandwidth_hz == 200000 || bandwidth_hz == 400000 ||
+           bandwidth_hz == 800000;
+  }
+  return frequency_mhz >= 150.0 && frequency_mhz <= 960.0 &&
+         (bandwidth_hz == 62500 || bandwidth_hz == 125000 ||
+             bandwidth_hz == 250000 || bandwidth_hz == 500000);
 }
 
 /**
@@ -5131,8 +5248,55 @@ bool IsAddFrequencyValid(const RadioViewState* state) {
   char* end = nullptr;
   const double frequency_mhz = std::strtod(text, &end);
   return end != nullptr && end[0] == '\0' &&
-         IsFrequencyValidForChip(
-             state->selected_add_chip, frequency_mhz);
+         IsFrequencyValidForChip(AddProfileChip(state), frequency_mhz);
+}
+
+/**
+ * @brief 校验添加模块页面当前选择的频率和带宽组合
+ * @param state 射频页面状态
+ * @return 组合有效返回 true
+ */
+bool IsAddBandwidthValid(const RadioViewState* state) {
+  if (state == nullptr ||
+             state->add_frequency_input == nullptr ||
+      state->selected_add_bandwidth < 0 ||
+      static_cast<size_t>(state->selected_add_bandwidth) >=
+          AddProfileBandwidthCount(state)) {
+    return false;
+  }
+  const char* text = lv_textarea_get_text(state->add_frequency_input);
+  if (text == nullptr || text[0] == '\0') {
+    return false;
+  }
+  char* end = nullptr;
+  const double frequency_mhz = std::strtod(text, &end);
+  return end != nullptr && end[0] == '\0' &&
+         IsBandwidthValidForFrequency(AddProfileChip(state), frequency_mhz,
+             AddProfileBandwidth(state, state->selected_add_bandwidth));
+}
+
+/**
+ * @brief 频段切换后为无效带宽自动选择兼容默认值
+ * @param state 射频页面状态
+ */
+void NormalizeAddBandwidthSelection(RadioViewState* state) {
+  if (state == nullptr || state->add_frequency_input == nullptr ||
+      IsAddBandwidthValid(state)) {
+    return;
+  }
+  const char* text = lv_textarea_get_text(state->add_frequency_input);
+  char* end = nullptr;
+  const double frequency_mhz = text == nullptr ? 0.0 : std::strtod(text, &end);
+  if (end == nullptr || end[0] != '\0' ||
+      !IsFrequencyValidForChip(AddProfileChip(state), frequency_mhz)) {
+    return;
+  }
+  const bool high_frequency =
+      AddProfileChip(state) == radio::ChipType::kLr1121 &&
+      frequency_mhz >= 2400.0;
+  // LR1121 列表中 200 kHz 为索引 2，Sub-GHz 默认 125 kHz 为索引 1。
+  state->selected_add_bandwidth = high_frequency ? 2 : 1;
+  UpdateAddOptionSelection(state);
 }
 
 bool ParseTextAreaLong(lv_obj_t* input, int base, long minimum,
@@ -5152,6 +5316,27 @@ bool ParseTextAreaLong(lv_obj_t* input, int base, long minimum,
   }
   *value = parsed;
   return true;
+}
+
+/**
+ * @brief 校验当前芯片和频段对应的发射功率
+ * @param state 射频页面状态
+ * @return 发射功率有效返回 true
+ */
+bool IsAddOutputPowerValid(const RadioViewState* state) {
+  if (state == nullptr || state->add_frequency_input == nullptr) {
+    return false;
+  }
+  const char* frequency_text = lv_textarea_get_text(state->add_frequency_input);
+  char* end = nullptr;
+  const double frequency_mhz =
+      frequency_text == nullptr ? 0.0 : std::strtod(frequency_text, &end);
+  const bool lr1121_hf = AddProfileChip(state) == radio::ChipType::kLr1121 &&
+                         end != nullptr && end[0] == '\0' &&
+                         frequency_mhz >= 2400.0;
+  long output_power = 0;
+  return ParseTextAreaLong(
+      state->add_power_input, 10, -9, lr1121_hf ? 13 : 22, &output_power);
 }
 
 /**
@@ -5190,8 +5375,8 @@ void UpdateAddInputErrorStyles(RadioViewState* state) {
     return;
   }
   long parsed_value = 0;
-  const bool power_valid = ParseTextAreaLong(
-      state->add_power_input, 10, -9, 22, &parsed_value);
+  const bool power_valid = IsAddOutputPowerValid(
+      state);
   const bool preamble_valid = ParseTextAreaLong(
       state->add_preamble_input, 10, 1, 65535, &parsed_value);
   const bool sync_word_valid = ParseTextAreaLong(
@@ -5221,7 +5406,8 @@ bool IsAddModuleFormComplete(const RadioViewState* state) {
       state->add_crc_switch == nullptr ||
       state->add_iq_switch == nullptr ||
       state->add_rx_boost_switch == nullptr ||
-      state->add_external_antenna_switch == nullptr ||
+      (state->capabilities.supports_external_antenna &&
+      state->add_external_antenna_switch == nullptr) ||
       (!editing && state->add_active_switch == nullptr) ||
       (state->editing_index >= state->module_count &&
        state->module_count >= kRadioModuleCapacity)) {
@@ -5232,14 +5418,13 @@ bool IsAddModuleFormComplete(const RadioViewState* state) {
       : lv_textarea_get_text(state->add_name_input);
   const char* frequency =
       lv_textarea_get_text(state->add_frequency_input);
-  long power = 0;
   long preamble = 0;
   long sync_word = 0;
   return (editing ||
              (profile_name != nullptr && profile_name[0] != '\0')) &&
          frequency != nullptr && frequency[0] != '\0' &&
-         IsAddFrequencyValid(state) &&
-         ParseTextAreaLong(state->add_power_input, 10, -9, 22, &power) &&
+         IsAddFrequencyValid(state) && IsAddBandwidthValid(state) &&
+         IsAddOutputPowerValid(state) &&
          ParseTextAreaLong(state->add_preamble_input, 10, 1, 65535,
              &preamble) &&
          ParseTextAreaLong(state->add_sync_word_input, 16, 0, 255,
@@ -5250,7 +5435,9 @@ bool IsAddModuleFormComplete(const RadioViewState* state) {
          state->selected_add_protocol == 0 && state->selected_add_sf >= 0 &&
          state->selected_add_sf < 8 &&
          state->selected_add_bandwidth >= 0 &&
-         state->selected_add_bandwidth < 4 &&
+         static_cast<size_t>(
+         state->selected_add_bandwidth) <
+             AddProfileBandwidthCount(state) &&
          state->selected_add_coding_rate >= 0 &&
          state->selected_add_coding_rate < 4;
 }
@@ -5366,6 +5553,10 @@ void AddInputEventCallback(lv_event_t* event) {
   auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   const lv_event_code_t code = lv_event_get_code(event);
   if (code == LV_EVENT_VALUE_CHANGED) {
+    if (state != nullptr &&
+        lv_event_get_target_obj(event) == state->add_frequency_input) {
+      NormalizeAddBandwidthSelection(state);
+    }
     UpdateAddSubmitButton(state);
     return;
   }
@@ -5529,6 +5720,7 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
       ? state->preferences.profiles[index]
       : app::RadioProfile{};
   const app::RadioProfile previous_profile = profile;
+  ApplyPrimaryRadioCapability(state, &profile);
   if (!editing) {
     profile.id = state->preferences.next_profile_id++;
     if (profile.id == 0) {
@@ -5550,12 +5742,10 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
       &preamble);
   ParseTextAreaLong(state->add_sync_word_input, 16, 0, 255,
       &sync_word);
-  constexpr uint32_t kBandwidths[] = {
-      62500, 125000, 250000, 500000};
   profile.frequency_hz = static_cast<uint32_t>(
       frequency_mhz * 1000000.0 + 0.5);
   profile.bandwidth_hz =
-      kBandwidths[state->selected_add_bandwidth];
+      AddProfileBandwidth(state,state->selected_add_bandwidth);
   profile.preamble_length = static_cast<uint16_t>(preamble);
   profile.spreading_factor = static_cast<uint8_t>(
       state->selected_add_sf + 5);
@@ -5569,7 +5759,7 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
       state->add_iq_switch, LV_STATE_CHECKED);
   profile.rx_boosted = lv_obj_has_state(
       state->add_rx_boost_switch, LV_STATE_CHECKED);
-  profile.antenna = lv_obj_has_state(
+  profile.antenna = state->add_external_antenna_switch != nullptr && lv_obj_has_state(
       state->add_external_antenna_switch, LV_STATE_CHECKED)
       ? radio::AntennaType::kExternal
       : radio::AntennaType::kInternal;
@@ -6328,10 +6518,10 @@ bool ShowAutoSendSettingsPage(RadioViewState* state) {
 bool CreateAddModuleContent(RadioViewState* state) {
   lv_obj_t* body = state->add_body;
   const bool editing = state->editing_index < state->module_count;
-  const int content_offset = editing ? 0 : kAddProfileNameSectionHeight;
-  const app::RadioProfile profile = editing
+  const int content_offset = editing ? 0 : kAddProfileNameSectionHeight; app::RadioProfile profile = editing
       ? state->preferences.profiles[state->editing_index]
       : app::RadioProfile{};
+  ApplyPrimaryRadioCapability(state, &profile);
   char frequency[16] = {};
   char power[8] = {};
   char preamble[12] = {};
@@ -6442,13 +6632,15 @@ bool CreateAddModuleContent(RadioViewState* state) {
       body, "BANDWIDTH (kHz)", 582 + content_offset)) {
     return false;
   }
-  const char* bandwidth_names[] = {"62.5", "125", "250", "500"};
-  for (int index = 0; index < 4; ++index) {
+  const size_t bandwidth_count = AddProfileBandwidthCount(state);
+  const int bandwidth_option_width =
+      (option_area_width - static_cast<int>(bandwidth_count - 1)* option_gap) /
+      static_cast<int>(bandwidth_count);
+  for (size_t index = 0; index < bandwidth_count; ++index) {
     state->add_bandwidth_buttons[index] = CreateAddOptionButton(
-        body, state, RadioAddOptionGroup::kBandwidth, index,
-        bandwidth_names[index],
-        28 + index * (option_width + option_gap), 618 + content_offset,
-        option_width, 60);
+        body, state, RadioAddOptionGroup::kBandwidth, static_cast<int>( index),
+        AddProfileBandwidthName(state,index),
+        28 + static_cast<int>( index) * (bandwidth_option_width + option_gap), 618 + content_offset, bandwidth_option_width, 60);
     if (state->add_bandwidth_buttons[index] == nullptr) {
       return false;
     }
@@ -6536,30 +6728,37 @@ bool CreateAddModuleContent(RadioViewState* state) {
   const int switch_rows_top = 1258 + content_offset;
   constexpr int kSwitchRowPitch =
       kAddSwitchRowHeight + kAddSwitchRowGap;
+  int switch_row_index = 0;
+  state->add_external_antenna_switch = nullptr;
+  if (state->capabilities.supports_external_antenna) {
   state->add_external_antenna_switch = CreateAddSwitchRow(body, state,
-      "External antenna", "Enable the external antenna", switch_rows_top,
+      "External antenna", "Enable the external antenna", switch_rows_top + switch_row_index * kSwitchRowPitch,
       profile.antenna == radio::AntennaType::kExternal);
+    ++switch_row_index;
+  }
   state->add_crc_switch = CreateAddSwitchRow(body, state,
       "CRC", "Reject damaged LoRa packets",
-      switch_rows_top + kSwitchRowPitch, profile.crc_enabled);
+      switch_rows_top + switch_row_index++ * kSwitchRowPitch, profile.crc_enabled);
   state->add_iq_switch = CreateAddSwitchRow(body, state,
       "Invert IQ", "Enable only when the peer also inverts IQ",
-      switch_rows_top + 2 * kSwitchRowPitch,
+      switch_rows_top + switch_row_index++ * kSwitchRowPitch,
       profile.invert_iq);
   state->add_rx_boost_switch = CreateAddSwitchRow(body, state,
       "RX boost", "Higher receive sensitivity",
-      switch_rows_top + 3 * kSwitchRowPitch,
+      switch_rows_top + switch_row_index++ * kSwitchRowPitch,
       profile.rx_boosted);
   state->add_active_switch = nullptr;
   if (!editing) {
     state->add_active_switch = CreateAddSwitchRow(body, state,
-        "Active profile", "Only one profile can use the SX1262",
-        switch_rows_top + 4 * kSwitchRowPitch, true);
+        "Active profile",
+        "Only one profile can use the radio chip",
+        switch_rows_top + switch_row_index * kSwitchRowPitch, true);
   }
   if (state->add_crc_switch == nullptr ||
       state->add_iq_switch == nullptr ||
       state->add_rx_boost_switch == nullptr ||
-      state->add_external_antenna_switch == nullptr ||
+      (state->capabilities.supports_external_antenna &&
+      state->add_external_antenna_switch == nullptr) ||
       (!editing && state->add_active_switch == nullptr)) {
     return false;
   }
@@ -6674,19 +6873,17 @@ bool ShowAddModulePage(RadioViewState* state) {
   }
   state->selected_add_chip = 0;
   state->selected_add_protocol = 0;
-  const bool editing = state->editing_index < state->module_count;
-  const app::RadioProfile profile = editing
+  const bool editing = state->editing_index < state->module_count; app::RadioProfile profile = editing
       ? state->preferences.profiles[state->editing_index]
       : app::RadioProfile{};
+  ApplyPrimaryRadioCapability(state, &profile);
   state->selected_add_sf = editing
       ? std::clamp(static_cast<int>(profile.spreading_factor) - 5, 0, 7)
       : kDefaultSpreadingFactorIndex;
-  constexpr uint32_t kBandwidths[] = {
-      62500, 125000, 250000, 500000};
   state->selected_add_bandwidth = 1;
-  for (int index = 0; index < 4; ++index) {
-    if (profile.bandwidth_hz == kBandwidths[index]) {
-      state->selected_add_bandwidth = index;
+  for (size_t index = 0; index < AddProfileBandwidthCount(state); ++index) {
+    if (profile.bandwidth_hz == AddProfileBandwidth(state,index)) {
+      state->selected_add_bandwidth = static_cast<int>( index);
     }
   }
   state->selected_add_coding_rate = std::clamp(

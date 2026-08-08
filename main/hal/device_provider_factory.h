@@ -2,7 +2,7 @@
  * @Description: 设备 Provider 上下文与工厂接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-14 00:45:00
+ * @LastEditTime: 2026-07-30 18:00:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -26,6 +26,12 @@ struct DeviceProviderContext {
   CameraProvider* camera = nullptr;
   RtcProvider* rtc = nullptr;
   RadioProvider* radio = nullptr;
+  // Air 板 NFC 读卡器接口，其他设备保持为空。
+  NfcProvider* nfc = nullptr;
+  // Air 板红外收发接口，其他设备保持为空。
+  InfraredProvider* infrared = nullptr;
+  // Air 板 nRF9151 蜂窝接口，其他设备保持为空。
+  CellularProvider* cellular = nullptr;
   EthernetProvider* ethernet = nullptr;
   WifiProvider* wifi = nullptr;
   StorageProvider* storage = nullptr;

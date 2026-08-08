@@ -2,7 +2,7 @@
  * @Description: 应用页面尺寸、硬件服务与回调依赖配置
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-10 13:27:05
+ * @LastEditTime: 2026-07-30 18:00:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -23,13 +23,16 @@ namespace lilygo_box::hal {
 class AudioProvider;
 class BatteryManagementProvider;
 class CameraProvider;
+class CellularProvider;
 class DeviceDiagnosticsProvider;
 class DeviceInfoProvider;
 class EthernetProvider;
 class GpsProvider;
 class HapticProvider;
 class ImuProvider;
+class InfraredProvider;
 class LvglPort;
+class NfcProvider;
 class RtcProvider;
 class RadioProvider;
 class ScreenProvider;
@@ -75,6 +78,12 @@ struct AppViewConfig {
   hal::WifiProvider* wifi = nullptr;
   // SD 卡和本机存储状态提供者。
   hal::StorageProvider* storage = nullptr;
+  // NFC 读卡器状态和控制提供者。
+  hal::NfcProvider* nfc = nullptr;
+  // 红外 NEC 收发和状态提供者。
+  hal::InfraredProvider* infrared = nullptr;
+  // 蜂窝通信状态和 AT 指令提供者。
+  hal::CellularProvider* cellular = nullptr;
   // 系统状态运行缓存，不负责 NVS 持久化。
   app::SystemStatusCache* system_status = nullptr;
   // 当前 app 可读取的主题提供器。
@@ -92,6 +101,8 @@ struct AppViewConfig {
       set_lock_screen_visibility_callback;
   // 请求应用层立即进入锁屏状态。
   std::function<void()> request_screen_lock;
+  // 请求应用层设置屏幕亮度。
+  std::function<bool(int percent)> set_screen_brightness;
   // 显示系统重新启动和关机选项。
   std::function<bool()> show_power_options;
 };

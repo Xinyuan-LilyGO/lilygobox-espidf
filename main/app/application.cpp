@@ -2,14 +2,14 @@
  * @Description: 系统应用初始化、任务调度与电源状态管理实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-17 17:57:58
+ * @LastEditTime: 2026-07-30 18:00:00
  * @License: GPL 3.0
  */
 #include "app/application.h"
 
 #include <algorithm>
-#include <cstdio>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <ctime>
 
@@ -30,8 +30,8 @@
 #include "hal/device_provider_factory.h"
 #include "nvs.h"
 #include "nvs_flash.h"
-#include "ui/resources/fonts/icon_assets.h"
 #include "ui/haptic_feedback.h"
+#include "ui/resources/fonts/icon_assets.h"
 #include "ui/views/settings/settings_view_internal.h"
 
 namespace lilygo_box {
@@ -51,6 +51,7 @@ constexpr uint32_t kScreenOffTouchPollMs = 30;
 constexpr uint32_t kScreenLockSleepConfirmMs = 3 * 1000;
 constexpr uint32_t kAwakeLockScreenSleepTimeoutMs = 10 * 1000;
 constexpr uint32_t kLowBatteryStartupWarningMs = 10 * 1000;
+constexpr uint32_t kScreenStartupFadeMs = 500;
 constexpr uint32_t kScreenLockFadeMs = 300;
 constexpr uint32_t kScreenBrightnessTransitionWaitMs = 10;
 constexpr int kScreenLockFadeStepCount = 12;
@@ -220,12 +221,15 @@ bool Application::Init() {
       device_provider_context_.rtc, device_provider_context_.radio,
       device_provider_context_.imu,
       device_provider_context_.ethernet, device_provider_context_.wifi,
-      device_provider_context_.storage);
+      device_provider_context_.storage, device_provider_context_.nfc,
+      device_provider_context_.infrared, device_provider_context_.cellular);
   if (!result) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__, "Init failed\n");
     return false;
   }
   ui_manager_.SetScreenLockCallback([this]() { RequestScreenLock(); });
+  ui_manager_.SetScreenBrightnessCallback(
+      [this](int percent) { return ApplyScreenBrightness(percent); });
   ui_manager_.SetSystemPowerCallbacks(
       [this]() { RestartDevice(); }, [this]() { PowerOffDevice(); });
 
@@ -250,7 +254,7 @@ bool Application::Init() {
   lvgl_port_.Lock();
   lvgl_port_.SetDisplayRotation(display_preferences.screen_rotation_angle);
   lvgl_port_.Unlock();
-  current_screen_brightness_percent_.store(display_preferences.brightness_percent);
+  current_screen_brightness_percent_.store(0);
   if (device_provider_context_.audio != nullptr) {
     app::SoundPreferences sound_preferences = app::GetSoundPreferences();
     device_provider_context_.audio->SetSpeakerVolumePercent(
@@ -268,7 +272,7 @@ bool Application::Init() {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "ShowBatteryStartupWarning failed\n");
     }
-    screen->StartScreenBacklight(current_screen_brightness_percent_.load());
+    StartScreenBacklight(display_preferences.brightness_percent);
     vTaskDelay(pdMS_TO_TICKS(kLowBatteryStartupWarningMs));
     PowerOffDevice();
     return false;
@@ -284,7 +288,7 @@ bool Application::Init() {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "ShowBatteryStartupWarning failed\n");
     }
-    screen->StartScreenBacklight(current_screen_brightness_percent_.load());
+    StartScreenBacklight(display_preferences.brightness_percent);
     vTaskDelay(pdMS_TO_TICKS(kLowBatteryStartupWarningMs));
     PowerOffDevice();
     return false;
@@ -295,7 +299,7 @@ bool Application::Init() {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "StartStartupScreen failed\n");
   }
-  screen->StartScreenBacklight(current_screen_brightness_percent_.load());
+  StartScreenBacklight(display_preferences.brightness_percent);
 
   if (!app::IsFirstBootCompleted()) {
     lvgl_port_.Lock();
@@ -741,7 +745,7 @@ void Application::RunScreenLockTask() {
         break;
       }
       if (touched) {
-        FadeScreenBrightnessTo(start_brightness);
+        FadeScreenBrightnessTo(start_brightness, kScreenLockFadeMs);
         lvgl_port_.SetInputBlocked(false);
         last_touch_ms = static_cast<uint32_t>(xTaskGetTickCount() *
             portTICK_PERIOD_MS);
@@ -771,7 +775,7 @@ void Application::RunScreenLockTask() {
         break;
       }
       if (touched) {
-        FadeScreenBrightnessTo(start_brightness);
+        FadeScreenBrightnessTo(start_brightness, kScreenLockFadeMs);
         lvgl_port_.SetInputBlocked(false);
         last_touch_ms = static_cast<uint32_t>(xTaskGetTickCount() *
             portTICK_PERIOD_MS);
@@ -796,7 +800,7 @@ void Application::RunScreenLockTask() {
       lvgl_port_.Lock();
       ui_manager_.HideLockScreen();
       lvgl_port_.Unlock();
-      FadeScreenBrightnessTo(start_brightness);
+      FadeScreenBrightnessTo(start_brightness, kScreenLockFadeMs);
       lvgl_port_.SetInputBlocked(false);
       last_touch_ms = static_cast<uint32_t>(xTaskGetTickCount() *
           portTICK_PERIOD_MS);
@@ -903,12 +907,31 @@ void Application::PowerOffDevice() {
     power_action_in_progress_.store(false);
     return;
   }
-  hal::ScreenProvider* screen = device_provider_context_.screen.get();
-  if (screen != nullptr && !screen->EnterDeviceSleep(true)) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Prepare device for power off failed after preferences were saved\n");
+  hal::DeviceProvider* device = device_provider_context_.device;
+  const hal::PowerOffAction action =
+      device == nullptr ? hal::PowerOffAction::kFailed
+                        : device->RequestPowerOff();
+  if (action == hal::PowerOffAction::kEnterDeepSleep) {
+    esp_deep_sleep_start();
+    return;
   }
-  esp_deep_sleep_start();
+  if (action == hal::PowerOffAction::kWaitForPowerCut) {
+    while (true) {
+      vTaskDelay(portMAX_DELAY);
+    }
+  }
+
+  LogMessage(LogLevel::kError, __FILE__, __LINE__,
+      "Power off failed after preferences were saved\n");
+  app::ResumeStorageUpdatesAfterShutdownFailure();
+  const bool screen_restored = RestoreScreenAfterSleep();
+  lvgl_port_.EndScreenTransition();
+  lvgl_port_.SetInputBlocked(false);
+  power_action_in_progress_.store(false);
+  if (!screen_restored) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Power off failed and screen recovery also failed\n");
+  }
 }
 
 bool Application::SleepAwakeLockScreenWithTimeout() {
@@ -942,7 +965,8 @@ bool Application::SleepAwakeLockScreenWithTimeout() {
       return false;
     }
     if (touched) {
-      FadeScreenBrightnessTo(preferences.brightness_percent);
+      FadeScreenBrightnessTo(
+          preferences.brightness_percent, kScreenLockFadeMs);
       fade_canceled = true;
       break;
     }
@@ -966,7 +990,8 @@ bool Application::SleepAwakeLockScreenWithTimeout() {
       return false;
     }
     if (touched) {
-      FadeScreenBrightnessTo(preferences.brightness_percent);
+      FadeScreenBrightnessTo(
+          preferences.brightness_percent, kScreenLockFadeMs);
       lock_screen_awake_.store(true);
       return false;
     }
@@ -1006,8 +1031,17 @@ bool Application::EnterScreenSleep() {
     return false;
   }
 
+  const int previous_brightness = current_screen_brightness_percent_.load();
+  if (previous_brightness != 0 && !ApplyScreenBrightness(0)) {
+    lvgl_port_.EndScreenTransition();
+    return false;
+  }
+
   lvgl_port_.AcquireSleepInputBlock();
   if (!lvgl_port_.PauseDisplayFlush()) {
+    if (previous_brightness != 0) {
+      ApplyScreenBrightness(previous_brightness);
+    }
     lvgl_port_.ReleaseSleepInputBlock();
     lvgl_port_.EndScreenTransition();
     return false;
@@ -1048,8 +1082,18 @@ bool Application::PreparePowerActionStorage() {
     return false;
   }
 
+  const int previous_brightness = current_screen_brightness_percent_.load();
+  if (previous_brightness != 0 && !ApplyScreenBrightness(0)) {
+    lvgl_port_.EndScreenTransition();
+    lvgl_port_.SetInputBlocked(false);
+    return false;
+  }
+
   lvgl_port_.AcquireSleepInputBlock();
   if (!lvgl_port_.PauseDisplayFlush()) {
+    if (previous_brightness != 0) {
+      ApplyScreenBrightness(previous_brightness);
+    }
     lvgl_port_.ReleaseSleepInputBlock();
     lvgl_port_.EndScreenTransition();
     lvgl_port_.SetInputBlocked(false);
@@ -1126,15 +1170,12 @@ bool Application::RestoreScreenAfterSleep() {
 
   const app::DisplayPreferences preferences =
       LoadDisplayPreferencesOrDefault();
-  if (!screen->SetScreenBrightnessPercent(
-          preferences.brightness_percent)) {
+  if (!ApplyScreenBrightness(preferences.brightness_percent)) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Screen woke, but restoring brightness failed\n");
     lvgl_port_.PauseDisplayFlush();
     return false;
   }
-  current_screen_brightness_percent_.store(
-      preferences.brightness_percent);
   lvgl_port_.ReleaseSleepInputBlock();
   return true;
 }
@@ -1207,6 +1248,41 @@ bool Application::ReadScreenTouchWhileSleeping(hal::TouchPoint* point) {
 }
 
 bool Application::SetScreenBrightnessWhileAwake(int percent) {
+  const TickType_t timeout_ticks =
+      pdMS_TO_TICKS(kScreenBrightnessTransitionWaitMs);
+  if (!lvgl_port_.TryBeginScreenTransition(timeout_ticks)) {
+    return false;
+  }
+
+  const bool can_access = !power_action_in_progress_.load() &&
+      !lvgl_port_.IsDisplayFlushPaused() &&
+      !screen_off_confirmed_.load();
+  const bool updated = can_access && ApplyScreenBrightness(percent);
+  lvgl_port_.EndScreenTransition();
+  return updated;
+}
+
+bool Application::ApplyScreenBrightness(int percent) {
+  hal::ScreenProvider* screen = device_provider_context_.screen.get();
+  if (screen == nullptr) {
+    return false;
+  }
+
+  const int clamped_percent = std::clamp(percent, 0, 100);
+  if (!screen->SetScreenBrightnessPercent(clamped_percent)) {
+    return false;
+  }
+  current_screen_brightness_percent_.store(clamped_percent);
+  return true;
+}
+
+bool Application::StartScreenBacklight(int target_percent) {
+  current_screen_brightness_percent_.store(0);
+  return FadeScreenBrightnessTo(target_percent, kScreenStartupFadeMs);
+}
+
+bool Application::FadeScreenBrightnessTo(
+    int target_percent, uint32_t duration_ms) {
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
   const TickType_t timeout_ticks =
       pdMS_TO_TICKS(kScreenBrightnessTransitionWaitMs);
@@ -1215,31 +1291,17 @@ bool Application::SetScreenBrightnessWhileAwake(int percent) {
     return false;
   }
 
-  const int clamped_percent = std::clamp(percent, 0, 100);
+  const int clamped_percent = std::clamp(target_percent, 0, 100);
   const bool can_access = !power_action_in_progress_.load() &&
       !lvgl_port_.IsDisplayFlushPaused() &&
       !screen_off_confirmed_.load();
-  const bool updated = can_access &&
-      screen->SetScreenBrightnessPercent(clamped_percent);
+  const bool updated = can_access && screen->FadeScreenBrightnessPercent(
+      clamped_percent, duration_ms);
   if (updated) {
     current_screen_brightness_percent_.store(clamped_percent);
   }
   lvgl_port_.EndScreenTransition();
   return updated;
-}
-
-bool Application::FadeScreenBrightnessTo(int target_percent) {
-  const int start_percent = current_screen_brightness_percent_.load();
-  for (int step = 1; step <= kScreenLockFadeStepCount; ++step) {
-    const int brightness = start_percent +
-        (target_percent - start_percent) * step / kScreenLockFadeStepCount;
-    if (!SetScreenBrightnessWhileAwake(brightness)) {
-      return false;
-    }
-    vTaskDelay(pdMS_TO_TICKS(
-        std::max<uint32_t>(1, kScreenLockFadeMs / kScreenLockFadeStepCount)));
-  }
-  return true;
 }
 
 app::DisplayPreferences Application::LoadDisplayPreferencesOrDefault() const {

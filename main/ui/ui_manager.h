@@ -2,7 +2,7 @@
  * @Description: 启动器、状态栏、应用窗口与系统覆盖层管理接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-06-25 10:18:00
+ * @LastEditTime: 2026-07-30 18:00:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -25,13 +25,16 @@ namespace lilygo_box::hal {
 class AudioProvider;
 class BatteryManagementProvider;
 class CameraProvider;
+class CellularProvider;
 class DeviceDiagnosticsProvider;
 class DeviceInfoProvider;
 class EthernetProvider;
 class GpsProvider;
 class HapticProvider;
 class ImuProvider;
+class InfraredProvider;
 class LvglPort;
+class NfcProvider;
 class RtcProvider;
 class RadioProvider;
 class WifiProvider;
@@ -46,20 +49,25 @@ class UiManager final {
 
   /**
    * @brief 初始化 launcher 和根屏幕 UI
-   * @param screen 屏幕设备对象
-   * @param lvgl_port LVGL 显示刷新生命周期对象
-   * @param diagnostics 设备诊断提供者指针
-   * @param device_info 设备信息提供者指针
-   * @param gps GPS 提供者指针
-   * @param audio 音频提供者指针
-   * @param haptic 振动提供者指针
-   * @param battery_management 电池管理提供者指针
-   * @param camera 摄像头提供者指针
-   * @param rtc RTC 提供者指针
-   * @param imu IMU 提供者指针
-   * @param ethernet 以太网提供者指针
-   * @param wifi hosted WiFi 提供者指针
-   * @return 初始化成功返回 true，否则返回 false
+   * @param screen 屏幕接口
+   * @param lvgl_port LVGL 显示接口
+   * @param diagnostics 诊断接口
+   * @param device_info 设备信息接口
+   * @param gps GPS 接口
+   * @param audio 音频接口
+   * @param haptic 振动接口
+   * @param battery_management 电池接口
+   * @param camera 相机接口
+   * @param rtc RTC 接口
+   * @param radio 射频接口
+   * @param imu IMU 接口
+   * @param ethernet 以太网接口
+   * @param wifi hosted WiFi 接口
+   * @param storage 存储接口
+   * @param nfc NFC 接口
+   * @param infrared 红外接口
+   * @param cellular 蜂窝接口
+   * @return 成功返回 true
    */
   bool Init(hal::ScreenProvider* screen,
       hal::LvglPort* lvgl_port,
@@ -75,7 +83,8 @@ class UiManager final {
       hal::ImuProvider* imu,
       hal::EthernetProvider* ethernet,
       hal::WifiProvider* wifi,
-      hal::StorageProvider* storage);
+      hal::StorageProvider* storage, hal::NfcProvider* nfc,
+      hal::InfraredProvider* infrared, hal::CellularProvider* cellular);
 
   /**
    * @brief 设置系统重启和关机操作回调
@@ -90,6 +99,12 @@ class UiManager final {
    * @param callback 由应用层处理的锁屏请求回调
    */
   void SetScreenLockCallback(std::function<void()> callback);
+
+  /**
+   * @brief 设置屏幕亮度调整回调
+   * @param callback 由应用层统一处理的亮度调整回调
+   */
+  void SetScreenBrightnessCallback(std::function<bool(int)> callback);
 
   /**
    * @brief 启动系统启动界面动画
@@ -404,7 +419,7 @@ class UiManager final {
 
   /**
    * @brief 根据电池管理状态刷新状态栏电池显示
-   * @param status 电池管理状态
+   * @param status 电池状态
    */
   void UpdateBatteryStatus(const hal::BatteryManagementStatus& status);
 
@@ -495,6 +510,12 @@ class UiManager final {
   hal::EthernetProvider* ethernet_provider_ = nullptr;
   hal::WifiProvider* wifi_provider_ = nullptr;
   hal::StorageProvider* storage_provider_ = nullptr;
+  // Air 板 NFC 读卡器接口。
+  hal::NfcProvider* nfc_provider_ = nullptr;
+  // Air 板红外收发接口。
+  hal::InfraredProvider* infrared_provider_ = nullptr;
+  // Air 板 nRF9151 蜂窝接口。
+  hal::CellularProvider* cellular_provider_ = nullptr;
   lv_obj_t* root_screen_ = nullptr;
   StatusBar status_bar_;
   lv_obj_t* startup_background_ = nullptr;
@@ -524,6 +545,7 @@ class UiManager final {
   lv_obj_t* active_view_container_ = nullptr;
   std::function<void(bool visible)> active_view_lock_screen_callback_;
   std::function<void()> screen_lock_callback_;
+  std::function<bool(int)> screen_brightness_callback_;
   std::function<void()> restart_device_callback_;
   std::function<void()> power_off_device_callback_;
   EdgeBackSwipeState app_back_swipe_ = {};

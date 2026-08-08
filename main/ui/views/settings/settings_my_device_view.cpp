@@ -587,10 +587,12 @@ void FactoryResetEdgeBackEventCallback(lv_event_t* event) {
   lv_event_stop_processing(event);
 }
 
-bool RestoreFactoryResetScreen(hal::ScreenProvider* screen,
-    hal::LvglPort* lvgl_port, int brightness_percent) {
+bool RestoreFactoryResetScreen(const AppViewConfig& config,
+    int brightness_percent) {
+  hal::ScreenProvider* screen = config.screen;
+  hal::LvglPort* lvgl_port = config.lvgl_port;
   if (!screen->ExitDeviceSleep(false) ||
-      !screen->SetScreenBrightnessPercent(brightness_percent)) {
+      !config.set_screen_brightness(brightness_percent)) {
     return false;
   }
 
@@ -621,6 +623,7 @@ void FactoryResetConfirmClickedEventCallback(lv_event_t* event) {
   hal::LvglPort* lvgl_port = state->config.lvgl_port;
   const int previous_brightness = state->display_brightness_percent;
   if (screen == nullptr || lvgl_port == nullptr ||
+      !state->config.set_screen_brightness ||
       !lvgl_port->BeginScreenTransition()) {
     state->factory_reset_started = false;
     UpdateFactoryResetConfirmButton(state);
@@ -633,10 +636,18 @@ void FactoryResetConfirmClickedEventCallback(lv_event_t* event) {
     return;
   }
 
+  if (!state->config.set_screen_brightness(0)) {
+    lvgl_port->EndScreenTransition();
+    state->factory_reset_started = false;
+    UpdateFactoryResetConfirmButton(state);
+    return;
+  }
+
   // 与锁屏、关机共用屏幕事务。
   // 确保面板关闭后再擦除 NVS 和 LittleFS。
   lvgl_port->AcquireSleepInputBlock();
   if (!lvgl_port->PauseDisplayFlush()) {
+    state->config.set_screen_brightness(previous_brightness);
     lvgl_port->ReleaseSleepInputBlock();
     lvgl_port->EndScreenTransition();
     state->factory_reset_started = false;
@@ -647,7 +658,7 @@ void FactoryResetConfirmClickedEventCallback(lv_event_t* event) {
   const bool screen_off = screen->EnterDeviceSleep(false);
   if (!screen_off) {
     const bool screen_restored = RestoreFactoryResetScreen(
-        screen, lvgl_port, previous_brightness);
+        state->config, previous_brightness);
     lvgl_port->EndScreenTransition();
     if (!screen_restored) {
       LogMessage(LogLevel::kError, __FILE__, __LINE__,
@@ -659,7 +670,7 @@ void FactoryResetConfirmClickedEventCallback(lv_event_t* event) {
   }
   if (!app::FactoryResetAfterScreenOff()) {
     const bool screen_restored = RestoreFactoryResetScreen(
-        screen, lvgl_port, previous_brightness);
+        state->config, previous_brightness);
     lvgl_port->EndScreenTransition();
     if (!screen_restored) {
       LogMessage(LogLevel::kError, __FILE__, __LINE__,

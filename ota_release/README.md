@@ -150,7 +150,8 @@ Beta channels remain discoverable.
 ```text
 ota_release/
 ├─ devices/
-│  └─ t-display-p4.json
+│  ├─ t-display-p4.json
+│  └─ t-display-p4-air.json
 ├─ input/                           User-provided, ignored by Git
 ├─ output/                          Generated, ignored by Git
 ├─ generate_manifest.py
@@ -169,6 +170,8 @@ output/<deviceId>/<channel>/<Release tag>/
 ## Usage
 
 Run these single-line commands from `lilygobox-espidf/ota_release`.
+The generator defaults to `devices/t-display-p4.json`. For T-Display-P4-Air,
+add `--config .\devices\t-display-p4-air.json` to the command.
 
 The project defaults `PROJECT_VER` to `1.0.0`. Supply the matching embedded
 version through the CMake cache when building a pre-release image:
@@ -196,6 +199,12 @@ firmware image, `--release` must match the main firmware version.
 
 ```bat
 python .\generate_manifest.py --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\network_adapter.bin" --note "Initial LilygoBox firmware release"
+```
+
+T-Display-P4-Air uses its independent device ID and ESP32-C5 Wireless image:
+
+```bat
+python .\generate_manifest.py --config .\devices\t-display-p4-air.json --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c5-rev0.0=.\input\network_adapter.bin" --note "Initial T-Display-P4-Air firmware release"
 ```
 
 ### Update Main Firmware Only
@@ -229,12 +238,13 @@ python .\generate_manifest.py --channel beta --firmware-file "device-v1.0-esp32p
 
 Later Alpha or Beta releases inherit unchanged files from the previous
 Manifest in the same channel. The generator rejects mismatches such as a
-stable channel with `-beta.N` or a Beta channel without a suffix. All three
-channels share the single `devices/t-display-p4.json` file.
+stable channel with `-beta.N` or a Beta channel without a suffix. Each device
+uses one hardware configuration file shared by all three channels.
 
 ## Add a Board or Chip Revision
 
-Edit only `devices/t-display-p4.json`:
+Edit the matching file under `devices/`, such as `t-display-p4.json` or
+`t-display-p4-air.json`:
 
 1. Add a file ID with its trusted `chip` and `projectName`.
 2. Add a target containing the new `deviceVersion` and complete chip
