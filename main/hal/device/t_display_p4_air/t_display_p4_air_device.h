@@ -604,9 +604,20 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   static void SpeakerPlaybackTaskEntry(void* context);
 
   /**
+   * @brief 在 MP3 保持暂停时播放扬声器测试音的任务入口
+   * @param context 设备对象指针
+   */
+  static void PausedAudioSpeakerToneTaskEntry(void* context);
+
+  /**
    * @brief 执行后台扬声器播放
    */
   void RunSpeakerPlaybackTask();
+
+  /**
+   * @brief 在不终止暂停 MP3 任务的情况下播放一次扬声器测试音
+   */
+  void RunPausedAudioSpeakerToneTask();
 
   /**
    * @brief 根据扬声器和麦克风的实际占用情况选择 ES8389 工作模式
@@ -885,6 +896,10 @@ class TDisplayP4AirDevice final : public ScreenProvider,
     std::atomic<PlaybackKind> playback_kind{PlaybackKind::kNone};
     // MP3 文件播放是否暂停
     std::atomic<bool> paused{false};
+    // MP3 解码任务是否已经停止向音频设备写入数据
+    std::atomic<bool> pause_acknowledged{false};
+    // 暂停音乐上方的独立扬声器测试音是否正在播放
+    std::atomic<bool> tone_overlay_running{false};
     // MP3 文件播放状态
     std::atomic<AudioFilePlaybackState> file_state{
         AudioFilePlaybackState::kStopped};

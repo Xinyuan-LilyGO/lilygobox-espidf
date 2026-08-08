@@ -73,6 +73,8 @@ constexpr size_t kSpeakerPlaybackChunkBytes = 4096;
 constexpr uint32_t kSpeakerPlaybackTaskStackBytes = 4 * 1024;
 constexpr uint32_t kAudioFilePlaybackTaskStackBytes = 8 * 1024;
 constexpr UBaseType_t kSpeakerPlaybackTaskPriority = 3;
+constexpr uint32_t kPausedAudioReadyTimeoutMs = 1000;
+constexpr uint32_t kPausedAudioReadyPollMs = 10;
 constexpr uint32_t kSpeakerPlaybackSampleRateHz = 44100;
 constexpr uint8_t kSpeakerPlaybackChannelCount = 2;
 constexpr uint8_t kSpeakerPlaybackBitsPerSample = 16;
@@ -1792,6 +1794,34 @@ bool TDisplayP4AirDevice::PlaySpeakerTone(size_t* bytes_written) {
 }
 
 bool TDisplayP4AirDevice::StartSpeakerTone() {
+  if (speaker_.running.load()) {
+    if (speaker_.playback_kind.load() !=
+            SpeakerState::PlaybackKind::kAudioFile ||
+        speaker_.file_state.load() != AudioFilePlaybackState::kPaused) {
+      return false;
+    }
+
+    bool expected = false;
+    if (!speaker_.tone_overlay_running.compare_exchange_strong(
+            expected, true)) {
+      return false;
+    }
+    speaker_.completed.store(false);
+    speaker_.success.store(false);
+    speaker_.bytes_written.store(0);
+    speaker_.total_bytes.store(sizeof(c2_b16_s44100));
+
+    const BaseType_t result = xTaskCreate(PausedAudioSpeakerToneTaskEntry,
+        "speaker_overlay", kSpeakerPlaybackTaskStackBytes, this,
+        kSpeakerPlaybackTaskPriority, nullptr);
+    if (result != pdPASS) {
+      speaker_.tone_overlay_running.store(false);
+      speaker_.completed.store(true);
+      return false;
+    }
+    return true;
+  }
+
   bool expected = false;
   if (!speaker_.running.compare_exchange_strong(expected, true)) {
     return false;
@@ -1890,8 +1920,10 @@ bool TDisplayP4AirDevice::ReadSpeakerToneStatus(SpeakerStatus* status) {
 
   const SpeakerState::PlaybackKind playback_kind =
       speaker_.playback_kind.load();
-  status->running = speaker_.running.load() &&
-                    playback_kind != SpeakerState::PlaybackKind::kAudioFile;
+  const bool audio_file_running =
+      playback_kind == SpeakerState::PlaybackKind::kAudioFile;
+  status->running = speaker_.tone_overlay_running.load() ||
+                    (speaker_.running.load() && !audio_file_running);
   status->completed = speaker_.completed.load();
   status->success = speaker_.success.load();
   status->bytes_written = speaker_.bytes_written.load();
@@ -1902,6 +1934,9 @@ bool TDisplayP4AirDevice::ReadSpeakerToneStatus(SpeakerStatus* status) {
 bool TDisplayP4AirDevice::StartAudioFile(
     const char* path, uint32_t duration_ms) {
   if (path == nullptr || path[0] == '\0') {
+    return false;
+  }
+  if (speaker_.tone_overlay_running.load()) {
     return false;
   }
   if (speaker_.running.load()) {
@@ -1949,6 +1984,7 @@ bool TDisplayP4AirDevice::PauseAudioFile() {
       speaker_.file_state.load() != AudioFilePlaybackState::kPlaying) {
     return false;
   }
+  speaker_.pause_acknowledged.store(false);
   speaker_.paused.store(true);
   speaker_.file_state.store(AudioFilePlaybackState::kPaused);
   return true;
@@ -1957,6 +1993,7 @@ bool TDisplayP4AirDevice::PauseAudioFile() {
 bool TDisplayP4AirDevice::ResumeAudioFile() {
   if (!speaker_.running.load() ||
       speaker_.playback_kind.load() != SpeakerState::PlaybackKind::kAudioFile ||
+      speaker_.tone_overlay_running.load() ||
       speaker_.file_state.load() != AudioFilePlaybackState::kPaused) {
     return false;
   }
@@ -1986,7 +2023,9 @@ bool TDisplayP4AirDevice::StopAudioFile() {
     return false;
   }
   speaker_.stop_requested.store(true);
-  speaker_.paused.store(false);
+  if (!speaker_.tone_overlay_running.load()) {
+    speaker_.paused.store(false);
+  }
   speaker_.file_state.store(AudioFilePlaybackState::kStopped);
   return true;
 }
@@ -2005,6 +2044,14 @@ void TDisplayP4AirDevice::SpeakerPlaybackTaskEntry(void* context) {
   auto* self = static_cast<TDisplayP4AirDevice*>(context);
   if (self != nullptr) {
     self->RunSpeakerPlaybackTask();
+  }
+  vTaskDelete(nullptr);
+}
+
+void TDisplayP4AirDevice::PausedAudioSpeakerToneTaskEntry(void* context) {
+  auto* self = static_cast<TDisplayP4AirDevice*>(context);
+  if (self != nullptr) {
+    self->RunPausedAudioSpeakerToneTask();
   }
   vTaskDelete(nullptr);
 }
@@ -2043,6 +2090,36 @@ void TDisplayP4AirDevice::RunSpeakerPlaybackTask() {
   speaker_.playback_kind.store(SpeakerState::PlaybackKind::kNone);
   speaker_.running.store(false);
   UpdateAudioCodecOperatingMode();
+}
+
+void TDisplayP4AirDevice::RunPausedAudioSpeakerToneTask() {
+  bool pause_ready = false;
+  for (uint32_t elapsed_ms = 0; elapsed_ms < kPausedAudioReadyTimeoutMs;
+       elapsed_ms += kPausedAudioReadyPollMs) {
+    if (speaker_.pause_acknowledged.load()) {
+      pause_ready = true;
+      break;
+    }
+    if (!speaker_.paused.load() || speaker_.stop_requested.load()) {
+      break;
+    }
+    vTaskDelay(pdMS_TO_TICKS(kPausedAudioReadyPollMs));
+  }
+
+  const uint32_t paused_sample_rate_hz = speaker_.sample_rate_hz.load();
+  size_t bytes_written = 0;
+  const bool played = pause_ready && PlaySpeakerTone(&bytes_written);
+  const bool output_restored =
+      !pause_ready || Configure(paused_sample_rate_hz,
+                          kSpeakerPlaybackChannelCount,
+                          kSpeakerPlaybackBitsPerSample);
+  speaker_.bytes_written.store(bytes_written);
+  speaker_.success.store(played && output_restored);
+  speaker_.completed.store(true);
+  speaker_.tone_overlay_running.store(false);
+  if (speaker_.stop_requested.load()) {
+    speaker_.paused.store(false);
+  }
 }
 
 bool TDisplayP4AirDevice::UpdateAudioCodecOperatingMode() {
@@ -2098,9 +2175,13 @@ bool TDisplayP4AirDevice::Configure(
 }
 
 bool TDisplayP4AirDevice::WaitUntilReady() {
+  if (speaker_.paused.load() && !speaker_.stop_requested.load()) {
+    speaker_.pause_acknowledged.store(true);
+  }
   while (speaker_.paused.load() && !speaker_.stop_requested.load()) {
     vTaskDelay(pdMS_TO_TICKS(20));
   }
+  speaker_.pause_acknowledged.store(false);
   return !speaker_.stop_requested.load();
 }
 
