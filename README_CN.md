@@ -60,7 +60,7 @@ idf.py set-target esp32p4
 idf.py menuconfig
 ```
 
-设备相关选项位于 `lilygo_device_driver configuration`，应用日志选项位于 `LilygoBox Configuration`。
+设备相关选项位于 `lilygo_device_driver configuration`，应用日志选项位于 `LilygoBox Configuration`。这些选项用于选择启动默认值，应用可以在运行时通过各自线程安全的 `SetMinimumLogLevel()` 接口动态调整最低日志等级。
 
 切换到原版 T-Display-P4 时，需要选择其独立设备选项，并把 ESP-Hosted
 从机目标改为 ESP32-C6；切换回 T-Display-P4-Air 时，则需要同时选择 Air

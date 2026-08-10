@@ -7,12 +7,33 @@
  */
 #include "base/logger.h"
 
+#include <atomic>
 #include <cstdarg>
 #include <cstdio>
 #include <memory>
 
+#include "sdkconfig.h"
+
 namespace lilygo_box {
 namespace {
+
+constexpr uint16_t kMaxLogBufferSize = 1024;
+
+#if defined(CONFIG_LILYGO_BOX_LOG_LEVEL_DEBUG)
+constexpr LogLevel kDefaultMinimumLogLevel = LogLevel::kDebug;
+#elif defined(CONFIG_LILYGO_BOX_LOG_LEVEL_INFO)
+constexpr LogLevel kDefaultMinimumLogLevel = LogLevel::kInfo;
+#elif defined(CONFIG_LILYGO_BOX_LOG_LEVEL_WARNING)
+constexpr LogLevel kDefaultMinimumLogLevel = LogLevel::kWarning;
+#elif defined(CONFIG_LILYGO_BOX_LOG_LEVEL_ERROR)
+constexpr LogLevel kDefaultMinimumLogLevel = LogLevel::kError;
+#elif defined(CONFIG_LILYGO_BOX_LOG_LEVEL_NONE)
+constexpr LogLevel kDefaultMinimumLogLevel = LogLevel::kNone;
+#else
+constexpr LogLevel kDefaultMinimumLogLevel = LogLevel::kInfo;
+#endif
+
+std::atomic<LogLevel> g_minimum_log_level{kDefaultMinimumLogLevel};
 
 /**
  * @brief 获取日志级别名称
@@ -29,44 +50,37 @@ const char* LogLevelName(LogLevel level) {
       return "Warning";
     case LogLevel::kError:
       return "Error";
+    case LogLevel::kNone:
+      return "None";
     default:
       return "Unknown";
   }
 }
 
-/**
- * @brief 判断指定日志级别是否允许输出
- * @param level 日志级别
- * @return 允许输出返回 true，否则返回 false
- */
-bool IsLogLevelEnabled(LogLevel level) {
-  switch (level) {
-#if defined(LILYGO_BOX_LOG_LEVEL_DEBUG)
-    case LogLevel::kDebug:
-      return true;
-#endif
-#if defined(LILYGO_BOX_LOG_LEVEL_INFO)
-    case LogLevel::kInfo:
-      return true;
-#endif
-#if defined(LILYGO_BOX_LOG_LEVEL_WARNING)
-    case LogLevel::kWarning:
-      return true;
-#endif
-#if defined(LILYGO_BOX_LOG_LEVEL_ERROR)
-    case LogLevel::kError:
-      return true;
-#endif
-    default:
-      return false;
+}  // namespace
+
+void SetMinimumLogLevel(LogLevel level) {
+  if (level > LogLevel::kNone) {
+    level = LogLevel::kNone;
   }
+  g_minimum_log_level.store(level, std::memory_order_relaxed);
 }
 
-}  // namespace
+LogLevel GetMinimumLogLevel() {
+  return g_minimum_log_level.load(std::memory_order_relaxed);
+}
+
+bool ShouldLog(LogLevel level) {
+  if (level > LogLevel::kError) {
+    return false;
+  }
+  const LogLevel minimum_level = GetMinimumLogLevel();
+  return minimum_level != LogLevel::kNone && level >= minimum_level;
+}
 
 void LogMessage(LogLevel level, const char* file_name, size_t line_number,
     const char* format, ...) {
-  if (!IsLogLevelEnabled(level)) {
+  if (!ShouldLog(level)) {
     return;
   }
 

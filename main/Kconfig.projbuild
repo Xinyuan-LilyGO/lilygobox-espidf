@@ -1,7 +1,10 @@
 menu "LilygoBox Configuration"
     choice LILYGO_BOX_LOG_LEVEL
-        prompt "Select LilygoBox log level"
+        prompt "Select default LilygoBox log level"
         default LILYGO_BOX_LOG_LEVEL_INFO
+        help
+            Selects the minimum log level used when the application starts.
+            The application can change it later through SetMinimumLogLevel().
         config LILYGO_BOX_LOG_LEVEL_DEBUG
             bool "Debug"
         config LILYGO_BOX_LOG_LEVEL_INFO

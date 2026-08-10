@@ -61,7 +61,7 @@ co-processor, or log settings, run:
 idf.py menuconfig
 ```
 
-Device-related options are under `lilygo_device_driver configuration`, and application log options are under `LilygoBox Configuration`.
+Device-related options are under `lilygo_device_driver configuration`, and application log options are under `LilygoBox Configuration`. These options select the startup defaults; the application can change both minimum log levels at runtime through their thread-safe `SetMinimumLogLevel()` APIs.
 
 When switching to the original T-Display-P4, select its independent device
 option and change the ESP-Hosted slave target to ESP32-C6. When switching back
