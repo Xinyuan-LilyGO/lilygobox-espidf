@@ -584,7 +584,8 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
 
   SetFirmwareObjectVisible(state->firmware_update_spinner, scanning);
   SetFirmwareObjectVisible(
-      state->firmware_update_status_log_button, true);
+      state->firmware_update_status_log_button,
+      snapshot.current_release_notes_available);
   SetFirmwareObjectVisible(
       state->firmware_update_scan_message_label, true);
   SetFirmwareObjectVisible(
@@ -897,7 +898,8 @@ void FirmwareCurrentLogClickedEventCallback(lv_event_t* event) {
   }
   auto* state = static_cast<SettingsViewState*>(
       lv_event_get_user_data(event));
-  if (state == nullptr) {
+  if (state == nullptr ||
+      !GetFirmwareUpdateSnapshot().current_release_notes_available) {
     return;
   }
   ShowFirmwareUpdateLogPage(state);
@@ -1371,6 +1373,7 @@ bool CreateFirmwareUpdateBody(
   }
   lv_obj_add_event_cb(log_button,
       FirmwareCurrentLogClickedEventCallback, LV_EVENT_CLICKED, state);
+  lv_obj_add_flag(log_button, LV_OBJ_FLAG_HIDDEN);
 
   lv_obj_t* log_label = CreateLabel(log_button,
       "Current version update log", lv_color_hex(kSecondaryTextColor),
