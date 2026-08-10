@@ -62,6 +62,8 @@ namespace {
 
 constexpr int kScreenBrightnessMinPercent = 0;
 constexpr int kScreenBrightnessMaxPercent = 100;
+constexpr int kHi8561BrightnessInputMinPercent = 10;
+constexpr int kHi8561BacklightDutyMinPercent = 1;
 constexpr uint32_t kScreenBrightnessFadeUpdateMs = 10;
 constexpr uint8_t kRm69a10BrightnessMax = UINT8_MAX;
 constexpr uint8_t kVibrationTestGain = 255;
@@ -326,6 +328,28 @@ ppa_srm_rotation_angle_t ToCameraPreviewPpaRotation(int angle) {
 int ClampScreenBrightnessPercent(int percent) {
   return std::clamp(
       percent, kScreenBrightnessMinPercent, kScreenBrightnessMaxPercent);
+}
+
+/**
+ * @brief 将用户亮度映射为 HI8561 液晶背光 PWM 占空比
+ * @param clamped_percent 已限制到 0～100 的用户亮度
+ * @return 0 表示关闭背光，非零亮度平滑映射到 1～100 的占空比
+ */
+uint8_t ScreenBrightnessPercentToHi8561Duty(int clamped_percent) {
+  if (clamped_percent <= kScreenBrightnessMinPercent) {
+    return 0;
+  }
+
+  const int input_percent =
+      std::max(clamped_percent, kHi8561BrightnessInputMinPercent);
+  constexpr int kInputRange = kScreenBrightnessMaxPercent -
+      kHi8561BrightnessInputMinPercent;
+  constexpr int kDutyRange = kScreenBrightnessMaxPercent -
+      kHi8561BacklightDutyMinPercent;
+  const int scaled_duty =
+      (input_percent - kHi8561BrightnessInputMinPercent) * kDutyRange;
+  return static_cast<uint8_t>(kHi8561BacklightDutyMinPercent +
+      (scaled_duty + kInputRange / 2) / kInputRange);
 }
 
 uint8_t ScreenBrightnessPercentToRm69a10Value(int clamped_percent) {
@@ -4715,8 +4739,9 @@ bool TDisplayP4Device::SetScreenBrightnessPercent(int percent) {
   switch (driver_.screen_type()) {
     case device::ScreenType::kHi8561:
       if (driver_.IsHi8561BacklightReady()) {
-        return driver_.chip().hi8561_backlight->SetDuty(
-            static_cast<uint8_t>(clamped_percent));
+        const uint8_t duty =
+            ScreenBrightnessPercentToHi8561Duty(clamped_percent);
+        return driver_.chip().hi8561_backlight->SetDuty(duty);
       }
       break;
     case device::ScreenType::kRm69a10:
@@ -4749,11 +4774,13 @@ bool TDisplayP4Device::FadeScreenBrightnessPercent(
 
   switch (driver_.screen_type()) {
     case device::ScreenType::kHi8561:
-      if (driver_.IsHi8561BacklightReady() &&
-          driver_.chip().hi8561_backlight->StartGradientTime(
-              static_cast<uint8_t>(clamped_percent),
+      if (driver_.IsHi8561BacklightReady()) {
+        const uint8_t target_duty =
+            ScreenBrightnessPercentToHi8561Duty(clamped_percent);
+        if (driver_.chip().hi8561_backlight->StartGradientTime(target_duty,
               static_cast<int32_t>(duration_ms))) {
-        return true;
+          return true;
+        }
       }
       break;
     case device::ScreenType::kRm69a10:
