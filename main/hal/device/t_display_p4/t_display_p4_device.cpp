@@ -4177,12 +4177,15 @@ bool TDisplayP4Device::ReadBatteryManagementStatus(BatteryManagementStatus* stat
           driver_.chip().bq27220->GetTemperatureCelsius();
       status->chip_temperature_c =
           driver_.chip().bq27220->GetChipTemperatureCelsius();
+      const bool full_charged = battery_management_status_ok &&
+          battery_management_status_flags.flag.full_charged;
+      const bool idle_or_charging = battery_management_status_ok &&
+          !battery_management_status_flags.flag.discharging;
       status->pack_present =
           battery_management_status_ok && battery_management_status_flags.flag.battery_present;
       status->charging = current_ma > 0 ||
-                         (battery_management_status_ok && !battery_management_status_flags.flag.discharging);
-      status->full_charged =
-          battery_management_status_ok && battery_management_status_flags.flag.full_charged;
+          (current_ma == 0 && (full_charged || idle_or_charging));
+      status->full_charged = full_charged;
       status->full_discharged =
           battery_management_status_ok && battery_management_status_flags.flag.full_discharged;
       return true;
