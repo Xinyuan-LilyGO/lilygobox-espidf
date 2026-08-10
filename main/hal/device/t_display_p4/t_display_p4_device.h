@@ -511,6 +511,12 @@ class TDisplayP4Device final : public ScreenProvider,
     kPowerCycle,
   };
 
+  enum class AuxiliaryAudioOutput : uint8_t {
+    kNone,
+    kSpeakerTone,
+    kMicrophoneLoopback,
+  };
+
   static constexpr int kScreenReadyTimeoutMs = 5000;
   static constexpr int kScreenReadyPollMs = 20;
   static constexpr int kPowerOffTaskTimeoutMs = 5000;
@@ -568,6 +574,25 @@ class TDisplayP4Device final : public ScreenProvider,
    * @brief 在不终止暂停 MP3 任务的情况下播放扬声器测试音
    */
   void RunPausedAudioSpeakerToneTask();
+
+  /**
+   * @brief 尝试独占音乐之外的临时音频输出
+   * @param output 请求占用输出的功能
+   * @return 成功取得输出返回 true，否则返回 false
+   */
+  bool TryAcquireAuxiliaryAudioOutput(AuxiliaryAudioOutput output);
+
+  /**
+   * @brief 释放音乐之外的临时音频输出
+   * @param output 当前持有输出的功能
+   */
+  void ReleaseAuxiliaryAudioOutput(AuxiliaryAudioOutput output);
+
+  /**
+   * @brief 等待暂停的 MP3 解码任务停止写入音频设备
+   * @return 暂停状态稳定返回 true，否则返回 false
+   */
+  bool WaitForPausedAudioFile();
 
   /**
    * @brief 根据扬声器和麦克风的实际占用情况选择 ES8311 工作模式
@@ -880,6 +905,9 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<bool> tone_overlay_loop_enabled{false};
     // 是否请求停止独立扬声器测试音
     std::atomic<bool> tone_overlay_stop_requested{false};
+    // 当前独占临时音频输出的功能
+    std::atomic<AuxiliaryAudioOutput> auxiliary_output{
+        AuxiliaryAudioOutput::kNone};
     // MP3 文件播放状态
     std::atomic<AudioFilePlaybackState> file_state{
         AudioFilePlaybackState::kStopped};

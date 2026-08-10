@@ -1798,8 +1798,14 @@ bool TDisplayP4AirDevice::StartSpeakerTone() {
     return StartPausedAudioSpeakerTone(false);
   }
 
+  if (!TryAcquireAuxiliaryAudioOutput(
+          AuxiliaryAudioOutput::kSpeakerTone)) {
+    return false;
+  }
+
   bool expected = false;
   if (!speaker_.running.compare_exchange_strong(expected, true)) {
+    ReleaseAuxiliaryAudioOutput(AuxiliaryAudioOutput::kSpeakerTone);
     return false;
   }
 
@@ -1819,6 +1825,7 @@ bool TDisplayP4AirDevice::StartSpeakerTone() {
     speaker_.running.store(false);
     speaker_.completed.store(true);
     speaker_.playback_kind.store(SpeakerState::PlaybackKind::kNone);
+    ReleaseAuxiliaryAudioOutput(AuxiliaryAudioOutput::kSpeakerTone);
     return false;
   }
 
@@ -1836,11 +1843,16 @@ bool TDisplayP4AirDevice::StartSpeakerToneLoop() {
     }
     return StartPausedAudioSpeakerTone(true);
   }
+  if (!TryAcquireAuxiliaryAudioOutput(
+          AuxiliaryAudioOutput::kSpeakerTone)) {
+    return false;
+  }
   speaker_.loop_enabled.store(true);
   speaker_.stop_requested.store(false);
 
   bool expected = false;
   if (!speaker_.running.compare_exchange_strong(expected, true)) {
+    ReleaseAuxiliaryAudioOutput(AuxiliaryAudioOutput::kSpeakerTone);
     return speaker_.playback_kind.load() ==
            SpeakerState::PlaybackKind::kToneLoop;
   }
@@ -1860,6 +1872,7 @@ bool TDisplayP4AirDevice::StartSpeakerToneLoop() {
     speaker_.completed.store(true);
     speaker_.loop_enabled.store(false);
     speaker_.playback_kind.store(SpeakerState::PlaybackKind::kNone);
+    ReleaseAuxiliaryAudioOutput(AuxiliaryAudioOutput::kSpeakerTone);
     return false;
   }
 
@@ -1924,7 +1937,10 @@ bool TDisplayP4AirDevice::StartAudioFile(
   if (path == nullptr || path[0] == '\0') {
     return false;
   }
-  if (speaker_.tone_overlay_running.load()) {
+  const AuxiliaryAudioOutput auxiliary_output =
+      speaker_.auxiliary_output.load();
+  if (auxiliary_output == AuxiliaryAudioOutput::kMicrophoneLoopback ||
+      speaker_.tone_overlay_running.load()) {
     return false;
   }
   if (speaker_.running.load()) {
@@ -1937,9 +1953,16 @@ bool TDisplayP4AirDevice::StartAudioFile(
       return false;
     }
   }
+  if (speaker_.auxiliary_output.load() != AuxiliaryAudioOutput::kNone) {
+    return false;
+  }
 
   bool expected = false;
   if (!speaker_.running.compare_exchange_strong(expected, true)) {
+    return false;
+  }
+  if (speaker_.auxiliary_output.load() != AuxiliaryAudioOutput::kNone) {
+    speaker_.running.store(false);
     return false;
   }
   std::snprintf(
@@ -1981,7 +2004,7 @@ bool TDisplayP4AirDevice::PauseAudioFile() {
 bool TDisplayP4AirDevice::ResumeAudioFile() {
   if (!speaker_.running.load() ||
       speaker_.playback_kind.load() != SpeakerState::PlaybackKind::kAudioFile ||
-      speaker_.tone_overlay_running.load() ||
+      speaker_.auxiliary_output.load() != AuxiliaryAudioOutput::kNone ||
       speaker_.file_state.load() != AudioFilePlaybackState::kPaused) {
     return false;
   }
@@ -2076,6 +2099,7 @@ void TDisplayP4AirDevice::RunSpeakerPlaybackTask() {
   speaker_.loop_enabled.store(false);
   speaker_.stop_requested.store(false);
   speaker_.playback_kind.store(SpeakerState::PlaybackKind::kNone);
+  ReleaseAuxiliaryAudioOutput(AuxiliaryAudioOutput::kSpeakerTone);
   speaker_.running.store(false);
   UpdateAudioCodecOperatingMode();
 }
@@ -2087,8 +2111,14 @@ bool TDisplayP4AirDevice::StartPausedAudioSpeakerTone(bool loop_enabled) {
     return false;
   }
 
+  if (!TryAcquireAuxiliaryAudioOutput(
+          AuxiliaryAudioOutput::kSpeakerTone)) {
+    return false;
+  }
+
   bool expected = false;
   if (!speaker_.tone_overlay_running.compare_exchange_strong(expected, true)) {
+    ReleaseAuxiliaryAudioOutput(AuxiliaryAudioOutput::kSpeakerTone);
     return false;
   }
   speaker_.tone_overlay_loop_enabled.store(loop_enabled);
@@ -2105,24 +2135,14 @@ bool TDisplayP4AirDevice::StartPausedAudioSpeakerTone(bool loop_enabled) {
     speaker_.tone_overlay_loop_enabled.store(false);
     speaker_.tone_overlay_running.store(false);
     speaker_.completed.store(true);
+    ReleaseAuxiliaryAudioOutput(AuxiliaryAudioOutput::kSpeakerTone);
     return false;
   }
   return true;
 }
 
 void TDisplayP4AirDevice::RunPausedAudioSpeakerToneTask() {
-  bool pause_ready = false;
-  for (uint32_t elapsed_ms = 0; elapsed_ms < kPausedAudioReadyTimeoutMs;
-       elapsed_ms += kPausedAudioReadyPollMs) {
-    if (speaker_.pause_acknowledged.load()) {
-      pause_ready = true;
-      break;
-    }
-    if (!speaker_.paused.load() || speaker_.stop_requested.load()) {
-      break;
-    }
-    vTaskDelay(pdMS_TO_TICKS(kPausedAudioReadyPollMs));
-  }
+  const bool pause_ready = WaitForPausedAudioFile();
 
   const uint32_t paused_sample_rate_hz = speaker_.sample_rate_hz.load();
   size_t total_bytes_written = 0;
@@ -2148,9 +2168,46 @@ void TDisplayP4AirDevice::RunPausedAudioSpeakerToneTask() {
   speaker_.tone_overlay_loop_enabled.store(false);
   speaker_.tone_overlay_stop_requested.store(false);
   speaker_.tone_overlay_running.store(false);
+  ReleaseAuxiliaryAudioOutput(AuxiliaryAudioOutput::kSpeakerTone);
   if (speaker_.stop_requested.load()) {
     speaker_.paused.store(false);
   }
+}
+
+bool TDisplayP4AirDevice::TryAcquireAuxiliaryAudioOutput(
+    AuxiliaryAudioOutput output) {
+  AuxiliaryAudioOutput expected = AuxiliaryAudioOutput::kNone;
+  return output != AuxiliaryAudioOutput::kNone &&
+         speaker_.auxiliary_output.compare_exchange_strong(expected, output);
+}
+
+void TDisplayP4AirDevice::ReleaseAuxiliaryAudioOutput(
+    AuxiliaryAudioOutput output) {
+  speaker_.auxiliary_output.compare_exchange_strong(
+      output, AuxiliaryAudioOutput::kNone);
+}
+
+bool TDisplayP4AirDevice::WaitForPausedAudioFile() {
+  for (uint32_t elapsed_ms = 0; elapsed_ms < kPausedAudioReadyTimeoutMs;
+       elapsed_ms += kPausedAudioReadyPollMs) {
+    if (!speaker_.running.load() || !speaker_.paused.load() ||
+        speaker_.stop_requested.load() ||
+        speaker_.playback_kind.load() !=
+            SpeakerState::PlaybackKind::kAudioFile ||
+        speaker_.file_state.load() != AudioFilePlaybackState::kPaused) {
+      return false;
+    }
+    if (speaker_.pause_acknowledged.load()) {
+      return true;
+    }
+    vTaskDelay(pdMS_TO_TICKS(kPausedAudioReadyPollMs));
+  }
+  return speaker_.running.load() && speaker_.paused.load() &&
+         !speaker_.stop_requested.load() &&
+         speaker_.playback_kind.load() ==
+             SpeakerState::PlaybackKind::kAudioFile &&
+         speaker_.file_state.load() == AudioFilePlaybackState::kPaused &&
+         speaker_.pause_acknowledged.load();
 }
 
 bool TDisplayP4AirDevice::UpdateAudioCodecOperatingMode() {
@@ -2371,23 +2428,46 @@ bool TDisplayP4AirDevice::StopMicrophone() {
   microphone_.peak_sample.store(0);
   if (!driver_.IsEs8389Ready()) {
     microphone_.adc_to_dac_enabled.store(false);
+    ReleaseAuxiliaryAudioOutput(AuxiliaryAudioOutput::kMicrophoneLoopback);
     return true;
   }
   return SetAudioAdcToDac(false);
 }
 
 bool TDisplayP4AirDevice::SetAudioAdcToDac(bool enable) {
-  if (enable && (!microphone_.running.load() || speaker_.running.load())) {
+  if (enable && microphone_.adc_to_dac_enabled.load()) {
+    return true;
+  }
+  if (enable && !microphone_.running.load()) {
     return false;
   }
 
-  const bool previous_enabled = microphone_.adc_to_dac_enabled.exchange(enable);
+  if (enable) {
+    if (!TryAcquireAuxiliaryAudioOutput(
+            AuxiliaryAudioOutput::kMicrophoneLoopback)) {
+      return false;
+    }
+    if (speaker_.running.load() && !WaitForPausedAudioFile()) {
+      ReleaseAuxiliaryAudioOutput(AuxiliaryAudioOutput::kMicrophoneLoopback);
+      return false;
+    }
+  }
+
+  const bool previous_enabled =
+      microphone_.adc_to_dac_enabled.exchange(enable);
   const bool codec_ready =
       driver_.IsEs8389Ready() || driver_.InitEs8389();
   if (!UpdateAudioCodecOperatingMode() || !codec_ready) {
     microphone_.adc_to_dac_enabled.store(previous_enabled);
+    if (enable) {
+      ReleaseAuxiliaryAudioOutput(AuxiliaryAudioOutput::kMicrophoneLoopback);
+    }
     UpdateAudioCodecOperatingMode();
     return false;
+  }
+
+  if (!enable) {
+    ReleaseAuxiliaryAudioOutput(AuxiliaryAudioOutput::kMicrophoneLoopback);
   }
 
   return true;
@@ -3923,6 +4003,8 @@ void TDisplayP4AirDevice::RunMicrophoneCaptureTask() {
             LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
                 "Microphone PCM loopback write failed\n");
             microphone_.adc_to_dac_enabled.store(false);
+            ReleaseAuxiliaryAudioOutput(
+                AuxiliaryAudioOutput::kMicrophoneLoopback);
             UpdateAudioCodecOperatingMode();
             break;
           }
@@ -3935,6 +4017,7 @@ void TDisplayP4AirDevice::RunMicrophoneCaptureTask() {
   }
 
   microphone_.adc_to_dac_enabled.store(false);
+  ReleaseAuxiliaryAudioOutput(AuxiliaryAudioOutput::kMicrophoneLoopback);
   microphone_.level_percent.store(0);
   microphone_.peak_sample.store(0);
   microphone_.running.store(false);
