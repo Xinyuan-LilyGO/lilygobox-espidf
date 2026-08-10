@@ -2499,6 +2499,7 @@ bool TDisplayP4AirDevice::StartCameraPreview() {
     return !camera_preview_.stop_requested.load();
   }
 
+  camera_preview_.error.store(CameraError::kNone);
   camera_preview_.stop_requested.store(false);
   if (!InitializeCameraPreview()) {
     DeinitializeCameraPreview();
@@ -2510,12 +2511,17 @@ bool TDisplayP4AirDevice::StartCameraPreview() {
   BaseType_t result = xTaskCreate(CameraPreviewTaskEntry, "camera_preview",
       kCameraPreviewTaskStackBytes, this, kCameraPreviewTaskPriority, nullptr);
   if (result != pdPASS) {
+    camera_preview_.error.store(CameraError::kPreviewTaskCreateFailed);
     camera_preview_.task_active.store(false);
     camera_preview_.stop_requested.store(true);
     DeinitializeCameraPreview();
     return false;
   }
   return true;
+}
+
+CameraError TDisplayP4AirDevice::GetCameraPreviewError() const {
+  return camera_preview_.error.load();
 }
 
 bool TDisplayP4AirDevice::StopCameraPreview() {
@@ -2616,11 +2622,13 @@ void TDisplayP4AirDevice::RunCameraPreviewTask() {
 
 bool TDisplayP4AirDevice::InitializeCameraPreview() {
   if (!driver_.IsScreenReady()) {
+    camera_preview_.error.store(CameraError::kScreenNotReady);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Camera preview start failed: screen is not ready\n");
     return false;
   }
   if (!driver_.SetCameraPowerEnabled(true)) {
+    camera_preview_.error.store(CameraError::kPowerEnableFailed);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Camera preview start failed: power enable failed\n");
     return false;
@@ -2646,6 +2654,7 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
     if (result != ESP_OK) {
       // 组件初始化失败时会清理当前已经创建的全部视频设备。
       camera_preview_.video_system_initialized.store(false);
+      camera_preview_.error.store(CameraError::kVideoInitFailed);
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "esp_video_init_with_flags failed: %s (%#X)\n",
           esp_err_to_name(result), static_cast<unsigned>(result));
@@ -2657,6 +2666,7 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
 
   camera_preview_.video_fd = open(kCameraDeviceName, O_RDONLY | O_NONBLOCK);
   if (camera_preview_.video_fd < 0) {
+    camera_preview_.error.store(CameraError::kVideoDeviceOpenFailed);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Open camera video device failed\n");
     return false;
@@ -2669,6 +2679,7 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
             0 ||
         ioctl(camera_preview_.video_fd, VIDIOC_S_SENSOR_FMT, &sensor_format) !=
             0) {
+      camera_preview_.error.store(CameraError::kSensorRestoreFailed);
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Restore camera sensor format failed\n");
       return false;
@@ -2678,6 +2689,7 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
   v4l2_format format = {};
   format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   if (ioctl(camera_preview_.video_fd, VIDIOC_G_FMT, &format) != 0) {
+    camera_preview_.error.store(CameraError::kFormatConfigurationFailed);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "VIDIOC_G_FMT failed\n");
     return false;
   }
@@ -2691,6 +2703,7 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
   format.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB565;
 #endif
   if (ioctl(camera_preview_.video_fd, VIDIOC_S_FMT, &format) != 0) {
+    camera_preview_.error.store(CameraError::kFormatConfigurationFailed);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "VIDIOC_S_FMT failed\n");
     return false;
   }
@@ -2703,6 +2716,7 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
   request.memory = V4L2_MEMORY_MMAP;
   if (ioctl(camera_preview_.video_fd, VIDIOC_REQBUFS, &request) != 0 ||
       request.count < kCameraBufferCount) {
+    camera_preview_.error.store(CameraError::kBufferAllocationFailed);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "VIDIOC_REQBUFS failed or returned too few buffers\n");
     return false;
@@ -2714,6 +2728,7 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
     buffer.memory = V4L2_MEMORY_MMAP;
     buffer.index = index;
     if (ioctl(camera_preview_.video_fd, VIDIOC_QUERYBUF, &buffer) != 0) {
+      camera_preview_.error.store(CameraError::kBufferAllocationFailed);
       LogMessage(
           LogLevel::kWarning, __FILE__, __LINE__, "VIDIOC_QUERYBUF failed\n");
       return false;
@@ -2724,11 +2739,13 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
             camera_preview_.video_fd, buffer.m.offset);
     if (camera_preview_.frame_buffers[index] == MAP_FAILED) {
       camera_preview_.frame_buffers[index] = nullptr;
+      camera_preview_.error.store(CameraError::kBufferMappingFailed);
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Camera buffer mmap failed\n");
       return false;
     }
     if (ioctl(camera_preview_.video_fd, VIDIOC_QBUF, &buffer) != 0) {
+      camera_preview_.error.store(CameraError::kBufferAllocationFailed);
       LogMessage(
           LogLevel::kWarning, __FILE__, __LINE__, "VIDIOC_QBUF failed\n");
       return false;
@@ -2738,6 +2755,8 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
   if (camera_preview_.output_mutex == nullptr) {
     camera_preview_.output_mutex = xSemaphoreCreateMutex();
     if (camera_preview_.output_mutex == nullptr) {
+      camera_preview_.error.store(
+          CameraError::kOutputBufferAllocationFailed);
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Camera output mutex allocation failed\n");
       return false;
@@ -2745,6 +2764,7 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
   }
 
   if (!camera_preview_.ppa.Init()) {
+    camera_preview_.error.store(CameraError::kProcessingInitFailed);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "PPA SRM init failed\n");
     return false;
   }
@@ -2772,6 +2792,8 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
       heap_caps_aligned_calloc(camera_preview_.ppa.CacheLineSize(), 1,
           camera_preview_.output_buffer_size, MALLOC_CAP_SPIRAM);
   if (output_buffer == nullptr) {
+    camera_preview_.error.store(
+        CameraError::kOutputBufferAllocationFailed);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Camera output buffer allocation failed\n");
     return false;
@@ -2782,6 +2804,7 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
 
   int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   if (ioctl(camera_preview_.video_fd, VIDIOC_STREAMON, &type) != 0) {
+    camera_preview_.error.store(CameraError::kStreamStartFailed);
     LogMessage(
         LogLevel::kWarning, __FILE__, __LINE__, "VIDIOC_STREAMON failed\n");
     return false;

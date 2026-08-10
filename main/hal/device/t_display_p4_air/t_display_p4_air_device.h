@@ -222,6 +222,12 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   bool StartCameraPreview() override;
 
   /**
+   * @brief 获取最近一次摄像头预览启动错误
+   * @return 摄像头错误
+   */
+  CameraError GetCameraPreviewError() const override;
+
+  /**
    * @brief 停止摄像头预览
    * @return 停止成功或已经停止返回 true，否则返回 false
    */
@@ -1009,6 +1015,8 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   struct CameraPreviewState {
     // ESP Video 的 video0 和 video20 是否已经完成一次性初始化
     std::atomic<bool> video_system_initialized{false};
+    // 最近一次摄像头预览启动错误
+    std::atomic<CameraError> error{CameraError::kNone};
     // 组件会长期保存该地址，用于摄像头重新上电后恢复传感器格式
     esp_cam_sensor_format_t sensor_format{};
     // 摄像头预览资源是否已经初始化
