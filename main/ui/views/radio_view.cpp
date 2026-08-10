@@ -1087,10 +1087,12 @@ void DrawChatRectangle(lv_layer_t* layer, int x, int y, int width,
  * @param height 文本区域高度
  * @param alignment 文本水平对齐方式
  * @param local_text 文本是否来自当前回调的临时缓冲区
+ * @param text_flags LVGL 文本排版标志
  */
 void DrawChatText(lv_layer_t* layer, const char* text, uint32_t color,
     const lv_font_t* font, int x, int y, int width, int height,
-    lv_text_align_t alignment, bool local_text) {
+    lv_text_align_t alignment, bool local_text,
+    lv_text_flag_t text_flags = LV_TEXT_FLAG_NONE) {
   if (layer == nullptr || text == nullptr || font == nullptr ||
       width <= 0 || height <= 0) {
     return;
@@ -1102,6 +1104,7 @@ void DrawChatText(lv_layer_t* layer, const char* text, uint32_t color,
   descriptor.font = font;
   descriptor.color = lv_color_hex(color);
   descriptor.align = alignment;
+  descriptor.flag = text_flags;
   lv_area_t area = {};
   area.x1 = x;
   area.y1 = y;
@@ -1170,19 +1173,19 @@ void DrawUserChatMessage(lv_layer_t* layer, int timeline_x,
   if (!outgoing) {
     char rssi[32] = {};
     char snr[32] = {};
-    std::snprintf(rssi, sizeof(rssi), "RSSI  %d dBm",
+    std::snprintf(rssi, sizeof(rssi), "RSSI %d dBm",
         static_cast<int>(message->rssi_dbm));
-    std::snprintf(snr, sizeof(snr), "SNR  %+d",
+    std::snprintf(snr, sizeof(snr), "SNR %+d",
         static_cast<int>(message->snr_db));
     DrawChatText(layer, rssi, kSecondaryTextColor, Font22(),
-        timeline_x + 28, status_y, 140, 30,
-        LV_TEXT_ALIGN_LEFT, true);
+        timeline_x + 28, status_y, 176, 30,
+        LV_TEXT_ALIGN_LEFT, true, LV_TEXT_FLAG_EXPAND);
     DrawChatText(layer, snr, kSecondaryTextColor, Font22(),
-        timeline_x + 174, status_y, 120, 30,
-        LV_TEXT_ALIGN_LEFT, true);
+        timeline_x + 220, status_y, 120, 30,
+        LV_TEXT_ALIGN_LEFT, true, LV_TEXT_FLAG_EXPAND);
     DrawChatText(layer, message->time, kSecondaryTextColor, Font22(),
         timeline_x + 28, status_y + 28, 180, 30,
-        LV_TEXT_ALIGN_LEFT, false);
+        LV_TEXT_ALIGN_LEFT, false, LV_TEXT_FLAG_EXPAND);
     return;
   }
 
