@@ -247,6 +247,7 @@ struct RadioViewState {
   lv_obj_t* auto_send_switch = nullptr;
   lv_obj_t* auto_send_text_area = nullptr;
   lv_obj_t* auto_send_interval_area = nullptr;
+  lv_obj_t* auto_send_action_area = nullptr;
   lv_obj_t* auto_send_keyboard = nullptr;
   lv_obj_t* detail_input = nullptr;
   lv_obj_t* detail_keyboard = nullptr;
@@ -270,6 +271,7 @@ struct RadioViewState {
   lv_obj_t* add_rx_boost_switch = nullptr;
   lv_obj_t* add_external_antenna_switch = nullptr;
   lv_obj_t* add_active_switch = nullptr;
+  lv_obj_t* add_action_area = nullptr;
   lv_obj_t* add_keyboard = nullptr;
   lv_obj_t* add_submit_button = nullptr;
   lv_obj_t* add_submit_label = nullptr;
@@ -5512,20 +5514,23 @@ void AddOptionClickedEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 调整键盘显示状态并保证当前输入框可见
+ * @brief 调整添加模块页面的键盘、操作区和滚动区域
  * @param state 射频页面状态
  * @param input 当前编辑的输入框
  * @param visible 是否显示键盘
  */
 void SetAddKeyboardVisible(
     RadioViewState* state, lv_obj_t* input, bool visible) {
-  if (state == nullptr || state->add_body == nullptr) {
+  if (state == nullptr || state->add_body == nullptr ||
+      state->add_action_area == nullptr) {
     return;
   }
   const int normal_height = state->config.height -
       kAddPageHeaderHeight - kAddPageActionHeight;
   if (!visible) {
     HideSharedKeyboard(state->add_keyboard);
+    lv_obj_align(
+        state->add_action_area, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_height(state->add_body, normal_height);
     lv_obj_update_layout(state->add_body);
     return;
@@ -5534,10 +5539,12 @@ void SetAddKeyboardVisible(
   const int keyboard_height =
       state->config.height * kAddKeyboardHeightPercent / 100;
   const int visible_height = state->config.height - keyboard_height -
-      kAddPageHeaderHeight - kAddKeyboardTopGap;
+      kAddPageHeaderHeight - kAddPageActionHeight - kAddKeyboardTopGap;
   if (visible_height <= 0 || input == nullptr) {
     return;
   }
+  lv_obj_align(state->add_action_area, LV_ALIGN_BOTTOM_MID, 0,
+      -keyboard_height - kAddKeyboardTopGap);
   lv_obj_set_height(state->add_body, visible_height);
   lv_obj_update_layout(state->add_body);
   const int input_y = lv_obj_get_y(input);
@@ -5599,6 +5606,7 @@ void AddPageCloseCompletedCallback(lv_anim_t* animation) {
   state->add_rx_boost_switch = nullptr;
   state->add_external_antenna_switch = nullptr;
   state->add_active_switch = nullptr;
+  state->add_action_area = nullptr;
   state->add_keyboard = nullptr;
   state->add_submit_button = nullptr;
   state->add_submit_label = nullptr;
@@ -5639,6 +5647,7 @@ void CloseAddModulePage(RadioViewState* state) {
     state->add_rx_boost_switch = nullptr;
     state->add_external_antenna_switch = nullptr;
     state->add_active_switch = nullptr;
+    state->add_action_area = nullptr;
     state->add_keyboard = nullptr;
     state->add_submit_button = nullptr;
     state->add_submit_label = nullptr;
@@ -6030,6 +6039,7 @@ void ResetAutoSendReferences(RadioViewState* state) {
   state->auto_send_switch = nullptr;
   state->auto_send_text_area = nullptr;
   state->auto_send_interval_area = nullptr;
+  state->auto_send_action_area = nullptr;
   state->auto_send_keyboard = nullptr;
   state->auto_send_edge_swipe = EdgeBackSwipeState();
   state->auto_send_closing = false;
@@ -6101,31 +6111,38 @@ void AutoSendEdgeBackEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 调整自动发送页面的键盘和滚动区域
+ * @brief 调整自动发送页面的键盘、操作区和滚动区域
  * @param state Radio 页面状态
  * @param input 当前输入框
  * @param visible 是否显示键盘
  */
 void SetAutoSendKeyboardVisible(
     RadioViewState* state, lv_obj_t* input, bool visible) {
-  if (state == nullptr || state->auto_send_body == nullptr) {
+  if (state == nullptr || state->auto_send_body == nullptr ||
+      state->auto_send_action_area == nullptr) {
     return;
   }
   const int normal_height = state->config.height -
       kAddPageHeaderHeight - kAddPageActionHeight;
   if (!visible) {
     HideSharedKeyboard(state->auto_send_keyboard);
+    lv_obj_align(
+        state->auto_send_action_area, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_height(state->auto_send_body, normal_height);
+    lv_obj_update_layout(state->auto_send_body);
     return;
   }
   const int keyboard_height =
       state->config.height * kAddKeyboardHeightPercent / 100;
   const int visible_height = state->config.height - keyboard_height -
-      kAddPageHeaderHeight - kAddKeyboardTopGap;
+      kAddPageHeaderHeight - kAddPageActionHeight - kAddKeyboardTopGap;
   if (input == nullptr || visible_height <= 0) {
     return;
   }
+  lv_obj_align(state->auto_send_action_area, LV_ALIGN_BOTTOM_MID, 0,
+      -keyboard_height - kAddKeyboardTopGap);
   lv_obj_set_height(state->auto_send_body, visible_height);
+  lv_obj_update_layout(state->auto_send_body);
   int32_t scroll_y = static_cast<int32_t>(lv_obj_get_y(input)) - 18;
   if (scroll_y < 0) {
     scroll_y = 0;
@@ -6459,6 +6476,7 @@ bool ShowAutoSendSettingsPage(RadioViewState* state) {
     CloseAutoSendSettingsPage(state, false);
     return false;
   }
+  state->auto_send_action_area = action_area;
   lv_obj_remove_flag(action_area, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(action_area, state->config.width, kAddPageActionHeight);
   lv_obj_align(action_area, LV_ALIGN_BOTTOM_MID, 0, 0);
@@ -6830,6 +6848,7 @@ bool CreateAddModuleActionArea(lv_obj_t* page, RadioViewState* state) {
   if (button == nullptr) {
     return false;
   }
+  state->add_action_area = area;
   state->add_submit_button = button;
   lv_obj_set_size(button, state->config.width - 96, 84);
   lv_obj_align(button, LV_ALIGN_CENTER, 0, 0);

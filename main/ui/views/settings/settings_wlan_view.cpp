@@ -2,7 +2,7 @@
  * @Description: Settings WLAN detail page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-07-19 11:17:26
+ * @LastEditTime: 2026-08-10 10:30:09
  * @License: GPL 3.0
  */
 #include "ui/views/settings/settings_view_internal.h"
@@ -2804,9 +2804,11 @@ void MoveWifiConnectSheetForKeyboard(
  */
 void WifiPasswordTextAreaEventCallback(lv_event_t* event) {
   const lv_event_code_t code = lv_event_get_code(event);
+  // 按钮按下时密码框会先失焦。此时保持弹窗位置不变，避免按钮在释放前
+  // 发生位移而丢失本次点击。
   if (code != LV_EVENT_VALUE_CHANGED && code != LV_EVENT_FOCUSED &&
       code != LV_EVENT_CLICKED && code != LV_EVENT_READY &&
-      code != LV_EVENT_CANCEL && code != LV_EVENT_DEFOCUSED) {
+      code != LV_EVENT_CANCEL) {
     return;
   }
 
@@ -2821,7 +2823,7 @@ void WifiPasswordTextAreaEventCallback(lv_event_t* event) {
   }
   if (code == LV_EVENT_FOCUSED || code == LV_EVENT_CLICKED) {
     MoveWifiConnectSheetForKeyboard(state, true);
-  } else {
+  } else if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
     if (state != nullptr && state->wifi_password_keyboard != nullptr) {
       HideSharedKeyboard(state->wifi_password_keyboard);
     }
