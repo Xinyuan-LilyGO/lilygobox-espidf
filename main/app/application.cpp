@@ -54,7 +54,6 @@ constexpr uint32_t kLowBatteryStartupWarningMs = 10 * 1000;
 constexpr uint32_t kScreenStartupFadeMs = 500;
 constexpr uint32_t kScreenLockFadeMs = 300;
 constexpr uint32_t kScreenBrightnessTransitionWaitMs = 10;
-constexpr int kScreenLockFadeStepCount = 12;
 constexpr int kScreenUnlockSwipeMinDistance = 120;
 constexpr uint32_t kScreenUnlockAnimationWaitMs = 240;
 constexpr int kScreenUnlockSwipeMaxHorizontalDrift = 90;
@@ -727,38 +726,9 @@ void Application::RunScreenLockTask() {
     bool fade_canceled = false;
     bool screen_access_interrupted = false;
     lvgl_port_.SetInputBlocked(true);
-    for (int step = 1; step <= kScreenLockFadeStepCount; ++step) {
-      const int brightness = start_brightness +
-          (target_brightness - start_brightness) * step /
-              kScreenLockFadeStepCount;
-      if (!SetScreenBrightnessWhileAwake(brightness)) {
-        screen_access_interrupted = true;
-        break;
-      }
-      vTaskDelay(pdMS_TO_TICKS(
-          std::max<uint32_t>(1, kScreenLockFadeMs / kScreenLockFadeStepCount)));
-      bool touch_access_available = false;
-      const bool touched = ReadScreenTouchWhileAwake(
-          &point, &touch_access_available);
-      if (!touch_access_available) {
-        screen_access_interrupted = true;
-        break;
-      }
-      if (touched) {
-        FadeScreenBrightnessTo(start_brightness, kScreenLockFadeMs);
-        lvgl_port_.SetInputBlocked(false);
-        last_touch_ms = static_cast<uint32_t>(xTaskGetTickCount() *
-            portTICK_PERIOD_MS);
-        fade_canceled = true;
-        break;
-      }
-    }
-    if (screen_access_interrupted) {
+    if (!FadeScreenBrightnessTo(target_brightness, kScreenLockFadeMs)) {
       lvgl_port_.SetInputBlocked(false);
       last_touch_ms = now_ms;
-      continue;
-    }
-    if (fade_canceled) {
       continue;
     }
 
@@ -941,37 +911,9 @@ bool Application::SleepAwakeLockScreenWithTimeout() {
   }
 
   const app::DisplayPreferences preferences = LoadDisplayPreferencesOrDefault();
-  const int start_brightness = current_screen_brightness_percent_.load();
   const int target_brightness =
       app::kUserDisplayBrightnessMinPercent;
-  bool fade_canceled = false;
-  for (int step = 1; step <= kScreenLockFadeStepCount; ++step) {
-    const int brightness = start_brightness +
-        (target_brightness - start_brightness) * step /
-            kScreenLockFadeStepCount;
-    if (!SetScreenBrightnessWhileAwake(brightness)) {
-      lock_screen_awake_.store(true);
-      return false;
-    }
-    vTaskDelay(pdMS_TO_TICKS(
-        std::max<uint32_t>(1, kScreenLockFadeMs / kScreenLockFadeStepCount)));
-
-    hal::TouchPoint point;
-    bool touch_access_available = false;
-    const bool touched = ReadScreenTouchWhileAwake(
-        &point, &touch_access_available);
-    if (!touch_access_available) {
-      lock_screen_awake_.store(true);
-      return false;
-    }
-    if (touched) {
-      FadeScreenBrightnessTo(
-          preferences.brightness_percent, kScreenLockFadeMs);
-      fade_canceled = true;
-      break;
-    }
-  }
-  if (fade_canceled) {
+  if (!FadeScreenBrightnessTo(target_brightness, kScreenLockFadeMs)) {
     lock_screen_awake_.store(true);
     return false;
   }
