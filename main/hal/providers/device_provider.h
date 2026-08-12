@@ -30,6 +30,18 @@ class DeviceProvider {
    * @return 设备对应的最终关机动作，失败时返回 kFailed。
    */
   virtual PowerOffAction RequestPowerOff() = 0;
+
+  /**
+   * @brief 读取设备物理电源键的稳定前原始状态
+   * @param pressed 输出按键是否处于按下状态
+   * @return 设备支持电源键并成功读取时返回 true
+   */
+  virtual bool ReadPowerButtonPressed(bool* pressed) {
+    if (pressed != nullptr) {
+      *pressed = false;
+    }
+    return false;
+  }
 };
 
 }  // namespace lilygo_box::hal

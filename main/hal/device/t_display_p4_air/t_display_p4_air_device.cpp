@@ -994,6 +994,20 @@ void TDisplayP4AirDevice::TouchInterruptHandler(void* context) {
   device->touch_interrupt_pending_.store(true, std::memory_order_relaxed);
 }
 
+bool TDisplayP4AirDevice::InitializePowerButton() {
+  if (power_button_initialized_) {
+    return true;
+  }
+  if (tool_ == nullptr) {
+    return false;
+  }
+
+  power_button_initialized_ = tool_->SetGpioMode(gpio::button::kPower,
+      cpp_bus_driver::Tool::GpioMode::kInput,
+      cpp_bus_driver::Tool::GpioStatus::kPullup);
+  return power_button_initialized_;
+}
+
 bool TDisplayP4AirDevice::InitDevice() {
   if (wifi_.scan_results_mutex == nullptr || radio_.mutex == nullptr ||
       nrf9151_mutex_ == nullptr || imu_.mutex == nullptr ||
@@ -1024,10 +1038,24 @@ bool TDisplayP4AirDevice::InitDevice() {
         "Activate screen failed\n");
     return false;
   }
+  if (!InitializePowerButton()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Initialize power button failed\n");
+  }
   if (touch_ready && !InitializeTouchInterrupt()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize touch interrupt failed; using polling fallback\n");
   }
+  return true;
+}
+
+bool TDisplayP4AirDevice::ReadPowerButtonPressed(bool* pressed) {
+  if (pressed == nullptr || !power_button_initialized_ || tool_ == nullptr) {
+    return false;
+  }
+
+  // 电源键使用上拉输入，按下时把 GPIO 拉低。
+  *pressed = !tool_->GpioRead(gpio::button::kPower);
   return true;
 }
 

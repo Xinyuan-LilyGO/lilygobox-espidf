@@ -46,6 +46,12 @@ constexpr uint32_t kStartupWifiAutoConnectTaskStackBytes = 8 * 1024;
 constexpr UBaseType_t kStartupWifiAutoConnectTaskPriority = 3;
 constexpr uint32_t kScreenLockTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kScreenLockTaskPriority = 3;
+// 该任务只读取 GPIO、去抖并投递原子事件，不执行 UI 或存储调用链。
+constexpr uint32_t kPowerButtonTaskStackBytes = 2 * 1024;
+constexpr UBaseType_t kPowerButtonTaskPriority = 3;
+constexpr uint32_t kPowerButtonPollMs = 20;
+constexpr uint32_t kPowerButtonDebounceMs = 40;
+constexpr uint32_t kPowerButtonLongPressMs = 2 * 1000;
 constexpr uint32_t kScreenLockPollMs = 100;
 constexpr uint32_t kScreenTouchPollMs = 30;
 // 防止触发熄屏的双击被触摸固件延迟上报为新的唤醒手势。
@@ -64,6 +70,8 @@ constexpr uint32_t kDoubleTapMaximumIntervalMs = 550;
 constexpr uint32_t kDoubleTapPressConfirmationMs = 30;
 constexpr int kDoubleTapMaximumDistance = 100;
 constexpr uint32_t kPowerActionPreSleepSettleMs = 30;
+// 深度睡眠等待 5 秒，使外设 3.3V 电源轨充分放电后再唤醒并启动系统。
+constexpr uint64_t kRestartDeepSleepWakeupUs = 5ULL * 1000ULL * 1000ULL;
 constexpr int kLowBatteryStartupThresholdPercent = 10;
 constexpr uint32_t kLowBatteryStartupIconColor = 0xFF3B30;
 constexpr uint32_t kBatteryFaultStartupIconColor = 0xFF9500;
@@ -171,6 +179,67 @@ class DoubleTapRecognizer final {
   hal::TouchPoint press_start_point_ = {};
   hal::TouchPoint press_last_point_ = {};
   hal::TouchPoint first_tap_point_ = {};
+};
+
+enum class PowerButtonEvent : uint8_t {
+  kNone,
+  kShortPress,
+  kLongPress,
+};
+
+/**
+ * @brief 将带抖动的电源键电平转换为短按和长按事件
+ */
+class PowerButtonRecognizer final {
+ public:
+  PowerButtonEvent Update(bool pressed, uint32_t now_ms) {
+    if (!initialized_) {
+      initialized_ = true;
+      raw_pressed_ = pressed;
+      stable_pressed_ = pressed;
+      ignore_initial_press_ = pressed;
+      raw_changed_ms_ = now_ms;
+      press_started_ms_ = now_ms;
+      return PowerButtonEvent::kNone;
+    }
+
+    if (pressed != raw_pressed_) {
+      raw_pressed_ = pressed;
+      raw_changed_ms_ = now_ms;
+    }
+    if (raw_pressed_ != stable_pressed_ &&
+        now_ms - raw_changed_ms_ >= kPowerButtonDebounceMs) {
+      stable_pressed_ = raw_pressed_;
+      if (stable_pressed_) {
+        press_started_ms_ = now_ms;
+        long_press_reported_ = false;
+        return PowerButtonEvent::kNone;
+      }
+      if (ignore_initial_press_) {
+        ignore_initial_press_ = false;
+        return PowerButtonEvent::kNone;
+      }
+      return long_press_reported_ ? PowerButtonEvent::kNone
+                                  : PowerButtonEvent::kShortPress;
+    }
+
+    if (stable_pressed_ && !ignore_initial_press_ &&
+        !long_press_reported_ &&
+        now_ms - press_started_ms_ >= kPowerButtonLongPressMs) {
+      long_press_reported_ = true;
+      return PowerButtonEvent::kLongPress;
+    }
+    return PowerButtonEvent::kNone;
+  }
+
+ private:
+  bool initialized_ = false;
+  bool raw_pressed_ = false;
+  bool stable_pressed_ = false;
+  bool ignore_initial_press_ = false;
+  bool long_press_reported_ = false;
+  uint32_t raw_changed_ms_ = 0;
+  uint32_t press_started_ms_ = 0;
 };
 
 DoubleTapEvent DoubleTapRecognizer::Update(
@@ -523,6 +592,19 @@ bool Application::Init() {
         "Create screen lock task failed\n");
   }
 
+  bool power_button_pressed = false;
+  if (screen_lock_task_result == pdPASS &&
+      device->ReadPowerButtonPressed(&power_button_pressed)) {
+    const BaseType_t power_button_task_result = xTaskCreate(
+        PowerButtonTaskEntry, "power_button",
+        kPowerButtonTaskStackBytes, this, kPowerButtonTaskPriority,
+        nullptr);
+    if (power_button_task_result != pdPASS) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Create power button task failed\n");
+    }
+  }
+
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
       "LilygoBox initialized on %s\n", device_model_name);
   return true;
@@ -600,6 +682,14 @@ void Application::ScreenLockTaskEntry(void* context) {
   vTaskDelete(nullptr);
 }
 
+void Application::PowerButtonTaskEntry(void* context) {
+  auto* self = static_cast<Application*>(context);
+  if (self != nullptr) {
+    self->RunPowerButtonTask();
+  }
+  vTaskDelete(nullptr);
+}
+
 void Application::RunStartupWifiAutoConnectTask() {
   app::WifiAutoConnectOptions options;
   options.start_driver_if_needed = true;
@@ -623,6 +713,39 @@ void Application::RunStartupWifiAutoConnectTask() {
   }
 }
 
+void Application::RunPowerButtonTask() {
+  hal::DeviceProvider* device = device_provider_context_.device;
+  if (device == nullptr) {
+    return;
+  }
+
+  PowerButtonRecognizer recognizer;
+  TickType_t last_poll_ticks = xTaskGetTickCount();
+  while (true) {
+    if (power_action_in_progress_.load()) {
+      pending_power_button_action_.store(PowerButtonAction::kNone);
+      xTaskDelayUntil(&last_poll_ticks, pdMS_TO_TICKS(kPowerButtonPollMs));
+      continue;
+    }
+
+    const uint32_t now_ms = static_cast<uint32_t>(
+        xTaskGetTickCount() * portTICK_PERIOD_MS);
+    bool pressed = false;
+    if (device->ReadPowerButtonPressed(&pressed)) {
+      const PowerButtonEvent event = recognizer.Update(pressed, now_ms);
+      if (power_button_events_enabled_.load()) {
+        if (event == PowerButtonEvent::kShortPress) {
+          pending_power_button_action_.store(PowerButtonAction::kShortPress);
+        } else if (event == PowerButtonEvent::kLongPress) {
+          pending_power_button_action_.store(
+              PowerButtonAction::kShowPowerMenu);
+        }
+      }
+    }
+    xTaskDelayUntil(&last_poll_ticks, pdMS_TO_TICKS(kPowerButtonPollMs));
+  }
+}
+
 void Application::RunScreenLockTask() {
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
   if (screen == nullptr) {
@@ -632,6 +755,7 @@ void Application::RunScreenLockTask() {
   while (ui_manager_.IsStartupScreenActive()) {
     vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
   }
+  power_button_events_enabled_.store(true);
 
   uint32_t last_touch_ms = static_cast<uint32_t>(xTaskGetTickCount() *
       portTICK_PERIOD_MS);
@@ -653,6 +777,27 @@ void Application::RunScreenLockTask() {
     const uint32_t now_ms = static_cast<uint32_t>(xTaskGetTickCount() *
         portTICK_PERIOD_MS);
     if (power_action_in_progress_.load()) {
+      pending_power_button_action_.store(PowerButtonAction::kNone);
+      vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
+      continue;
+    }
+    const PowerButtonAction power_button_action =
+        pending_power_button_action_.exchange(PowerButtonAction::kNone);
+    if (power_button_action != PowerButtonAction::kNone) {
+      last_touch_ms = now_ms;
+      lock_screen_last_interaction_ms = now_ms;
+      unlock_touch_active = false;
+      unlock_drag_ready = false;
+      discard_transition_touch_until_release = false;
+      wake_double_tap_recognizer.Reset();
+      sleep_double_tap_recognizer.Reset();
+      if (power_button_action == PowerButtonAction::kShortPress) {
+        HandlePowerButtonShortPress();
+      } else {
+        LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+            "Power button long press; showing power menu\n");
+        ShowPowerMenuFromPhysicalButton();
+      }
       vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
       continue;
     }
@@ -701,6 +846,17 @@ void Application::RunScreenLockTask() {
     }
     hal::TouchPoint point;
     if (ui_manager_.IsFirstBootWelcomeActive()) {
+      last_touch_ms = now_ms;
+      lock_screen_last_interaction_ms = now_ms;
+      unlock_touch_active = false;
+      unlock_drag_ready = false;
+      discard_transition_touch_until_release = false;
+      wake_double_tap_recognizer.Reset();
+      sleep_double_tap_recognizer.Reset();
+      vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
+      continue;
+    }
+    if (physical_power_menu_active_.load()) {
       last_touch_ms = now_ms;
       lock_screen_last_interaction_ms = now_ms;
       unlock_touch_active = false;
@@ -1016,6 +1172,94 @@ void Application::RunScreenLockTask() {
   }
 }
 
+void Application::HandlePowerButtonShortPress() {
+  if (power_action_in_progress_.load()) {
+    return;
+  }
+
+  const bool physical_menu_was_active =
+      physical_power_menu_active_.exchange(false);
+  lvgl_port_.Lock();
+  const bool power_menu_visible = ui_manager_.IsPowerMenuVisible();
+  if (power_menu_visible) {
+    ui_manager_.HidePowerMenu();
+  }
+  lvgl_port_.Unlock();
+  if (physical_menu_was_active &&
+      screen_lock_state_.load() != ScreenLockState::kUnlocked) {
+    lvgl_port_.SetInputBlocked(true);
+  }
+
+  bool result = false;
+  const char* action = "unknown";
+  switch (screen_lock_state_.load()) {
+    case ScreenLockState::kUnlocked:
+      action = "lock and sleep";
+      result = LockScreenNow();
+      break;
+    case ScreenLockState::kAwake:
+      action = "sleep";
+      result = SleepLockScreenNow();
+      break;
+    case ScreenLockState::kAsleep:
+      action = "wake";
+      result = WakeScreenFromLock();
+      break;
+  }
+  if (!result) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Screen lock or wake action failed: %s\n", action);
+  }
+}
+
+void Application::ShowPowerMenuFromPhysicalButton() {
+  if (power_action_in_progress_.load()) {
+    return;
+  }
+
+  lvgl_port_.Lock();
+  const bool already_visible = ui_manager_.IsPowerMenuVisible();
+  lvgl_port_.Unlock();
+  if (already_visible) {
+    return;
+  }
+
+  if (screen_lock_state_.load() == ScreenLockState::kAsleep &&
+      !WakeScreenFromLock()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Wake screen before showing power menu failed\n");
+    return;
+  }
+
+  const bool restore_lock_input =
+      screen_lock_state_.load() != ScreenLockState::kUnlocked;
+  if (restore_lock_input) {
+    // Android 的全局操作页可在锁屏页上选择操作；退出后恢复锁屏输入限制。
+    lvgl_port_.SetInputBlocked(false);
+  }
+  physical_power_menu_active_.store(true);
+  lvgl_port_.Lock();
+  const bool shown = ui_manager_.ShowPowerMenu(
+      [this]() { RestartDevice(); },
+      [this]() { PowerOffDevice(); },
+      [this, restore_lock_input]() {
+        physical_power_menu_active_.store(false);
+        if (restore_lock_input && !power_action_in_progress_.load() &&
+            screen_lock_state_.load() != ScreenLockState::kUnlocked) {
+          lvgl_port_.SetInputBlocked(true);
+        }
+      });
+  lvgl_port_.Unlock();
+  if (!shown) {
+    physical_power_menu_active_.store(false);
+    if (restore_lock_input) {
+      lvgl_port_.SetInputBlocked(true);
+    }
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Show power menu from physical button failed\n");
+  }
+}
+
 void Application::RequestScreenLock() {
   screen_lock_requested_.store(true);
 }
@@ -1118,7 +1362,22 @@ void Application::RestartDevice() {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Prepare device for restart failed after preferences were saved\n");
   }
-  esp_restart();
+  // 将可隔离 GPIO 的睡眠方向与上下拉配置为高阻浮空状态。
+  esp_sleep_config_gpio_isolate();
+  // 进入睡眠时自动切换到上述睡眠配置。
+  esp_sleep_enable_gpio_switch(true);
+  const esp_err_t wakeup_result =
+      esp_sleep_enable_timer_wakeup(kRestartDeepSleepWakeupUs);
+  if (wakeup_result != ESP_OK) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Configure restart timer wake-up failed: %s (%#X)\n",
+        esp_err_to_name(wakeup_result), static_cast<unsigned>(wakeup_result));
+    esp_restart();
+    return;
+  }
+  LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+      "Entering deep sleep; restarting from timer wake-up in 5000 ms\n");
+  esp_deep_sleep_start();
 }
 
 void Application::PowerOffDevice() {

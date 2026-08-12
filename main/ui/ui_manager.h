@@ -206,6 +206,12 @@ class UiManager final {
       std::function<void()> dismiss_callback);
 
   /**
+   * @brief 判断系统电源操作页是否正在显示
+   * @return 正在显示时返回 true
+   */
+  bool IsPowerMenuVisible() const { return power_menu_ != nullptr; }
+
+  /**
    * @brief 隐藏关机菜单覆盖层
    */
   void HidePowerMenu();

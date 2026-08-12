@@ -45,6 +45,13 @@ class Application final {
     kAsleep,
   };
 
+  // 电源键轮询任务只投递事件，屏幕状态始终由锁屏任务串行修改。
+  enum class PowerButtonAction : uint8_t {
+    kNone,
+    kShortPress,
+    kShowPowerMenu,
+  };
+
   /**
    * @brief 显示电池启动提示并等待完整画面传输到屏幕
    * @param icon 图标文本
@@ -80,9 +87,30 @@ class Application final {
   static void ScreenLockTaskEntry(void* context);
 
   /**
+   * @brief 设备物理电源键的后台轮询任务入口
+   * @param context Application 实例
+   */
+  static void PowerButtonTaskEntry(void* context);
+
+  /**
    * @brief 监控触摸并执行自动锁屏和锁屏页面双击亮屏或熄屏流程
    */
   void RunScreenLockTask();
+
+  /**
+   * @brief 处理设备物理电源键事件
+   */
+  void RunPowerButtonTask();
+
+  /**
+   * @brief 处理电源键短按，切换锁屏、熄屏和唤醒状态
+   */
+  void HandlePowerButtonShortPress();
+
+  /**
+   * @brief 显示由物理电源键长按触发的重启/关机操作页
+   */
+  void ShowPowerMenuFromPhysicalButton();
 
   /**
    * @brief 请求锁屏后台任务立即锁定并熄灭屏幕
@@ -219,6 +247,13 @@ class Application final {
   std::atomic<bool> screen_off_confirmed_{false};
   // 防止重启与关机流程并发进入最终熄屏和存储事务。
   std::atomic<bool> power_action_in_progress_{false};
+  // 启动页结束前只跟踪按键状态，不向界面投递事件。
+  std::atomic<bool> power_button_events_enabled_{false};
+  // 由电源键轮询任务写入，由锁屏任务交换取走。
+  std::atomic<PowerButtonAction> pending_power_button_action_{
+      PowerButtonAction::kNone};
+  // 物理电源键调出的操作页显示期间，暂停锁屏页手势处理。
+  std::atomic<bool> physical_power_menu_active_{false};
 };
 
 }  // namespace lilygo_box
