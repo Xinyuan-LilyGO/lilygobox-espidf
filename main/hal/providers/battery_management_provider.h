@@ -29,7 +29,7 @@ struct BatteryManagementStatus {
   bool ready = false;
   // 是否检测到电池包。
   bool pack_present = false;
-  // 当前是否正在充电。
+  // 是否处于充电状态；外部电源有效且电池已充满时同样为 true。
   bool charging = false;
   // 电池是否已充满。
   bool full_charged = false;

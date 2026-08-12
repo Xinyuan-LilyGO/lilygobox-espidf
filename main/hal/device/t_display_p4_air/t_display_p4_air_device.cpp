@@ -4933,7 +4933,9 @@ bool TDisplayP4AirDevice::ReadBatteryManagementStatus(
                          chip_status1.charging_status ==
                              cpp_bus_driver::Axp517::ChargeStatus::kConstantCurrent ||
                          chip_status1.charging_status ==
-                             cpp_bus_driver::Axp517::ChargeStatus::kConstantVoltage);
+                             cpp_bus_driver::Axp517::ChargeStatus::kConstantVoltage ||
+                         chip_status1.charging_status ==
+                             cpp_bus_driver::Axp517::ChargeStatus::kChargeDone);
   status->full_charged =
       chip_status1.charging_status ==
           cpp_bus_driver::Axp517::ChargeStatus::kChargeDone ||
