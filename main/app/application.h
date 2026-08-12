@@ -33,7 +33,7 @@ class Application final {
   void Run();
 
   /**
-   * @brief 让设备进入深度睡眠级关断状态并重启
+   * @brief 完成存储落盘后执行不切断设备电源轨的软件重启
    */
   void RestartDevice();
 
@@ -136,7 +136,7 @@ class Application final {
   bool WakeScreenFromLock();
 
   /**
-   * @brief 让设备进入深度睡眠级关断状态
+   * @brief 完成存储落盘后执行设备完整关机
    */
   void PowerOffDevice();
 

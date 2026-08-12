@@ -70,8 +70,6 @@ constexpr uint32_t kDoubleTapMaximumIntervalMs = 550;
 constexpr uint32_t kDoubleTapPressConfirmationMs = 30;
 constexpr int kDoubleTapMaximumDistance = 100;
 constexpr uint32_t kPowerActionPreSleepSettleMs = 30;
-// 深度睡眠等待 5 秒，使外设 3.3V 电源轨充分放电后再唤醒并启动系统。
-constexpr uint64_t kRestartDeepSleepWakeupUs = 5ULL * 1000ULL * 1000ULL;
 constexpr int kLowBatteryStartupThresholdPercent = 10;
 constexpr uint32_t kLowBatteryStartupIconColor = 0xFF3B30;
 constexpr uint32_t kBatteryFaultStartupIconColor = 0xFF9500;
@@ -1357,27 +1355,10 @@ void Application::RestartDevice() {
     power_action_in_progress_.store(false);
     return;
   }
-  hal::ScreenProvider* screen = device_provider_context_.screen.get();
-  if (screen != nullptr && !screen->EnterDeviceSleep(true)) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Prepare device for restart failed after preferences were saved\n");
-  }
-  // 将可隔离 GPIO 的睡眠方向与上下拉配置为高阻浮空状态。
-  esp_sleep_config_gpio_isolate();
-  // 进入睡眠时自动切换到上述睡眠配置。
-  esp_sleep_enable_gpio_switch(true);
-  const esp_err_t wakeup_result =
-      esp_sleep_enable_timer_wakeup(kRestartDeepSleepWakeupUs);
-  if (wakeup_result != ESP_OK) {
-    LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Configure restart timer wake-up failed: %s (%#X)\n",
-        esp_err_to_name(wakeup_result), static_cast<unsigned>(wakeup_result));
-    esp_restart();
-    return;
-  }
+  // 重启仅复位处理器，不进入设备关机准备，避免关闭外设电源轨。
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-      "Entering deep sleep; restarting from timer wake-up in 5000 ms\n");
-  esp_deep_sleep_start();
+      "Restarting system without powering off device rails\n");
+  esp_restart();
 }
 
 void Application::PowerOffDevice() {
