@@ -12,12 +12,19 @@
 
 namespace lilygo_box::hal {
 
+// 触摸固件识别的离散手势。
+enum class TouchGesture : uint8_t {
+  kNone,
+  kDoubleTap,
+};
+
 struct TouchPoint {
   uint8_t id = 0;
   int16_t x = 0;
   int16_t y = 0;
   uint8_t pressure = 0;
   bool edge_touch_flag = false;
+  TouchGesture gesture = TouchGesture::kNone;
 };
 
 using ScreenProviderDisplayCallback = void (*)(void*);
@@ -86,6 +93,18 @@ class ScreenProvider {
    */
   virtual bool ReadScreenTouchPoints(
       TouchPoint* points, size_t max_points, size_t* point_count);
+
+  /**
+   * @brief 判断当前设备是否提供触摸报告中断通知
+   * @return 支持触摸报告中断返回 true，否则返回 false
+   */
+  virtual bool SupportsTouchInterrupt() const { return false; }
+
+  /**
+   * @brief 消费一个待处理的触摸报告中断通知
+   * @return 存在新的触摸报告通知返回 true，否则返回 false
+   */
+  virtual bool ConsumeTouchInterrupt() { return false; }
 
   /**
    * @brief 设置屏幕亮度

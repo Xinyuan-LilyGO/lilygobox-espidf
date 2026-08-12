@@ -363,6 +363,18 @@ class TDisplayP4AirDevice final : public ScreenProvider,
       TouchPoint* points, size_t max_points, size_t* point_count) override;
 
   /**
+   * @brief 判断是否已启用板载触摸中断通知
+   * @return 触摸中断可用返回 true，否则返回 false
+   */
+  bool SupportsTouchInterrupt() const override;
+
+  /**
+   * @brief 消费一个来自 HI8561 TCH_ATTN 的触摸报告通知
+   * @return 存在新的触摸报告通知返回 true，否则返回 false
+   */
+  bool ConsumeTouchInterrupt() override;
+
+  /**
    * @brief 读取设备诊断快照
    * @param diagnostics 诊断数据输出地址
    * @return 读取到有效诊断数据返回 true，否则返回 false
@@ -584,6 +596,18 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   static constexpr int kScreenReadyPollMs = 20;
   static constexpr int kPowerOffTaskTimeoutMs = 5000;
   static constexpr int kPowerOffTaskPollMs = 20;
+
+  /**
+   * @brief 初始化 HI8561 TCH_ATTN 对应的 ESP32-P4 GPIO 中断
+   * @return 初始化成功返回 true，否则返回 false
+   */
+  bool InitializeTouchInterrupt();
+
+  /**
+   * @brief 记录 HI8561 触摸中断，实际 I2C 读取由任务上下文完成
+   * @param context 当前设备对象
+   */
+  static void TouchInterruptHandler(void* context);
 
   /**
    * @brief 等待异步屏幕初始化进入可用状态
@@ -1257,6 +1281,12 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   UsbStorageManager usb_storage_manager_;
   // LVGL 端注册的像素传输和物理刷新回调。
   ScreenProviderDisplayCallbacks display_callbacks_;
+  // HI8561 TCH_ATTN 中断是否已经完成注册。
+  bool touch_interrupt_initialized_ = false;
+  // 中断服务等待任务上下文处理的通知标志。
+  std::atomic<bool> touch_interrupt_pending_{false};
+  // 轻度熄屏期间是否启用了触摸固件双击唤醒。
+  bool touch_gesture_wake_enabled_ = false;
   // 扬声器播放状态，供 UI 和后台播放任务共享
   SpeakerState speaker_;
   // 振动播放状态，供 UI 和后台播放任务共享

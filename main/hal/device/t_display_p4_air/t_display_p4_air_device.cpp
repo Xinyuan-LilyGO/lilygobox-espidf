@@ -964,6 +964,36 @@ TDisplayP4AirDevice::TDisplayP4AirDevice()
   cellular_.status_mutex = xSemaphoreCreateMutex();
 }
 
+bool TDisplayP4AirDevice::InitializeTouchInterrupt() {
+  if (touch_interrupt_initialized_) {
+    return true;
+  }
+  if (tool_ == nullptr || !IsTouchReady(driver_)) {
+    return false;
+  }
+
+  touch_interrupt_pending_.store(false, std::memory_order_relaxed);
+  if (!tool_->InitGpioInterrupt(gpio::hi8561::kTouchInt,
+          cpp_bus_driver::Tool::InterruptMode::kFalling,
+          TouchInterruptHandler, this)) {
+    return false;
+  }
+
+  touch_interrupt_initialized_ = true;
+  if (!tool_->GpioRead(gpio::hi8561::kTouchInt)) {
+    touch_interrupt_pending_.store(true, std::memory_order_relaxed);
+  }
+  return true;
+}
+
+void TDisplayP4AirDevice::TouchInterruptHandler(void* context) {
+  if (context == nullptr) {
+    return;
+  }
+  auto* device = static_cast<TDisplayP4AirDevice*>(context);
+  device->touch_interrupt_pending_.store(true, std::memory_order_relaxed);
+}
+
 bool TDisplayP4AirDevice::InitDevice() {
   if (wifi_.scan_results_mutex == nullptr || radio_.mutex == nullptr ||
       nrf9151_mutex_ == nullptr || imu_.mutex == nullptr ||
@@ -993,6 +1023,10 @@ bool TDisplayP4AirDevice::InitDevice() {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Activate screen failed\n");
     return false;
+  }
+  if (!InitializeTouchInterrupt()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Initialize touch interrupt failed; using polling fallback\n");
   }
   return true;
 }
@@ -1635,38 +1669,44 @@ bool TDisplayP4AirDevice::ReadScreenTouch(TouchPoint* point) {
   if (point == nullptr) {
     return false;
   }
+  *point = TouchPoint();
 
   if (!IsTouchReady(driver_)) {
     return false;
   }
 
-  switch (driver_.screen_type()) {
-    case device::ScreenType::kHi8561: {
-      cpp_bus_driver::Hi8561Touch::TouchPoint touch_point;
-      const bool result =
-          driver_.chip().hi8561_touch->GetSingleTouchPoint(touch_point);
-      if (!result || touch_point.info.empty()) {
-        if (driver_.chip().hi8561_touch->GetEdgeTouch()) {
-          point->id = 0;
-          point->x = -1;
-          point->y = -1;
-          point->pressure = 0;
-          point->edge_touch_flag = true;
-          return true;
-        }
-        return false;
-      }
-      point->id = 1;
-      point->x = touch_point.info[0].x;
-      point->y = touch_point.info[0].y;
-      point->pressure = touch_point.info[0].pressure_value;
-      point->edge_touch_flag = touch_point.edge_touch_flag;
-      return true;
-    }
-    default:
-      break;
+  // 亮屏轮询会顺带消费通知，避免休眠时误把旧中断当成新的手势。
+  ConsumeTouchInterrupt();
+
+  cpp_bus_driver::TouchFrame frame;
+  const cpp_bus_driver::TouchReadStatus read_status =
+      driver_.chip().hi8561_touch->ReadPrimaryTouch(&frame);
+  if (frame.gesture == static_cast<uint8_t>(
+          cpp_bus_driver::Hi8561Touch::Gesture::kDoubleTap)) {
+    point->x = -1;
+    point->y = -1;
+    point->gesture = TouchGesture::kDoubleTap;
+    return true;
   }
-  return false;
+  if (read_status != cpp_bus_driver::TouchReadStatus::kSuccess) {
+    return false;
+  }
+  if (frame.contact_count == 0) {
+    if (!frame.edge_touch) {
+      return false;
+    }
+    SetEdgeTouchPoint(point);
+    return true;
+  }
+
+  const cpp_bus_driver::TouchContact& contact = frame.contacts[0];
+  point->id = contact.id;
+  point->x = contact.x;
+  point->y = contact.y;
+  point->pressure =
+      static_cast<uint8_t>(std::min<uint16_t>(contact.pressure, UINT8_MAX));
+  point->edge_touch_flag = frame.edge_touch;
+  return true;
 }
 
 bool TDisplayP4AirDevice::ReadScreenTouchPoints(
@@ -1682,38 +1722,40 @@ bool TDisplayP4AirDevice::ReadScreenTouchPoints(
     return false;
   }
 
-  switch (driver_.screen_type()) {
-    case device::ScreenType::kHi8561: {
-      cpp_bus_driver::Hi8561Touch::TouchPoint touch_point;
-      const bool result =
-          driver_.chip().hi8561_touch->GetMultipleTouchPoint(touch_point);
-      if (!result || touch_point.info.empty()) {
-        return false;
-      }
+  // 亮屏轮询会顺带消费通知，避免休眠时误把旧中断当成新的手势。
+  ConsumeTouchInterrupt();
 
-      const size_t count = std::min(max_points, touch_point.info.size());
-      for (size_t i = 0; i < count; ++i) {
-        if (touch_point.info[i].x == UINT16_MAX &&
-            touch_point.info[i].y == UINT16_MAX) {
-          continue;
-        }
-        points[*point_count].id = static_cast<uint8_t>(i + 1);
-        points[*point_count].x = touch_point.info[i].x;
-        points[*point_count].y = touch_point.info[i].y;
-        points[*point_count].pressure = touch_point.info[i].pressure_value;
-        points[*point_count].edge_touch_flag = touch_point.edge_touch_flag;
-        ++(*point_count);
-      }
-      if (*point_count == 0 && touch_point.edge_touch_flag) {
-        SetEdgeTouchPoint(&points[0]);
-        *point_count = 1;
-      }
-      return *point_count > 0;
-    }
-    default:
-      break;
+  cpp_bus_driver::TouchFrame frame;
+  const cpp_bus_driver::TouchReadStatus read_status =
+      driver_.chip().hi8561_touch->ReadTouchFrame(&frame);
+  if (read_status != cpp_bus_driver::TouchReadStatus::kSuccess) {
+    return false;
   }
-  return false;
+  const size_t count = std::min<size_t>(max_points, frame.contact_count);
+  for (size_t i = 0; i < count; ++i) {
+    const cpp_bus_driver::TouchContact& contact = frame.contacts[i];
+    points[i].id = contact.id;
+    points[i].x = contact.x;
+    points[i].y = contact.y;
+    points[i].pressure =
+        static_cast<uint8_t>(std::min<uint16_t>(contact.pressure, UINT8_MAX));
+    points[i].edge_touch_flag = frame.edge_touch;
+  }
+  *point_count = count;
+  if (*point_count == 0 && frame.edge_touch) {
+    SetEdgeTouchPoint(&points[0]);
+    *point_count = 1;
+  }
+  return *point_count > 0;
+}
+
+bool TDisplayP4AirDevice::SupportsTouchInterrupt() const {
+  return touch_interrupt_initialized_;
+}
+
+bool TDisplayP4AirDevice::ConsumeTouchInterrupt() {
+  return touch_interrupt_initialized_ &&
+         touch_interrupt_pending_.exchange(false, std::memory_order_relaxed);
 }
 
 bool TDisplayP4AirDevice::ReadHapticWaveformCount(uint8_t* waveform_count) {
@@ -5553,7 +5595,15 @@ bool TDisplayP4AirDevice::EnterDeviceSleep(bool deep_sleep) {
     return false;
   }
   if (!deep_sleep) {
-    return driver_.SetScreenSleep(true);
+    touch_gesture_wake_enabled_ =
+        driver_.IsHi8561TouchReady() &&
+        driver_.chip().hi8561_touch->SetGestureWakeEnabled(true);
+    const bool screen_slept = driver_.SetScreenSleep(true);
+    if (!screen_slept && touch_gesture_wake_enabled_) {
+      driver_.chip().hi8561_touch->SetGestureWakeEnabled(false);
+      touch_gesture_wake_enabled_ = false;
+    }
+    return screen_slept;
   }
 
   const bool prepared = PrepareForPowerOff();
@@ -5574,6 +5624,13 @@ bool TDisplayP4AirDevice::ExitDeviceSleep(bool deep_sleep) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Wake device from chip sleep failed\n");
     return false;
+  }
+  if (touch_gesture_wake_enabled_) {
+    if (!driver_.chip().hi8561_touch->SetGestureWakeEnabled(false)) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Disable HI8561 touch gesture wake failed\n");
+    }
+    touch_gesture_wake_enabled_ = false;
   }
   return WaitForScreenReady();
 }

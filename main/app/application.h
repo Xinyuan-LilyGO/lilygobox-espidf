@@ -38,6 +38,13 @@ class Application final {
   void RestartDevice();
 
  private:
+  // 锁屏页面与物理屏幕完成状态转换后的稳定状态。
+  enum class ScreenLockState : uint8_t {
+    kUnlocked,
+    kAwake,
+    kAsleep,
+  };
+
   /**
    * @brief 显示电池启动提示并等待完整画面传输到屏幕
    * @param icon 图标文本
@@ -96,8 +103,9 @@ class Application final {
 
   /**
    * @brief 恢复屏幕亮度并显示已准备好的锁屏页面
+   * @return 屏幕完成唤醒并提交锁屏亮屏状态时返回 true
    */
-  void WakeScreenFromLock();
+  bool WakeScreenFromLock();
 
   /**
    * @brief 让设备进入深度睡眠级关断状态
@@ -160,9 +168,11 @@ class Application final {
   /**
    * @brief 在面板熄屏且 LVGL 刷新暂停时直接读取触摸控制器
    * @param point 触摸点输出
+   * @param access_available 可选返回当前触摸源是否可访问
    * @return 检测到有效触摸返回 true
    */
-  bool ReadScreenTouchWhileSleeping(hal::TouchPoint* point);
+  bool ReadScreenTouchWhileSleeping(
+      hal::TouchPoint* point, bool* access_available = nullptr);
 
   /**
    * @brief 应用屏幕亮度并同步应用层当前值
@@ -203,8 +213,7 @@ class Application final {
   hal::LvglPort lvgl_port_;
   ui::UiManager ui_manager_;
   std::atomic<int> current_screen_brightness_percent_{90};
-  std::atomic<bool> screen_locked_{false};
-  std::atomic<bool> lock_screen_awake_{false};
+  std::atomic<ScreenLockState> screen_lock_state_{ScreenLockState::kUnlocked};
   std::atomic<bool> screen_lock_requested_{false};
   // 仅在驱动确认物理面板已完整熄屏后保持为 true。
   std::atomic<bool> screen_off_confirmed_{false};

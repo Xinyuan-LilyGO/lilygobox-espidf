@@ -286,6 +286,18 @@ class TDisplayP4Device final : public ScreenProvider,
       TouchPoint* points, size_t max_points, size_t* point_count) override;
 
   /**
+   * @brief 判断是否已启用板载触摸中断通知
+   * @return 触摸中断可用返回 true，否则返回 false
+   */
+  bool SupportsTouchInterrupt() const override;
+
+  /**
+   * @brief 消费一个 XL9535 汇总输入变化通知
+   * @return 存在需要检查的触摸报告返回 true，否则返回 false
+   */
+  bool ConsumeTouchInterrupt() override;
+
+  /**
    * @brief 读取设备诊断快照
    * @param diagnostics 诊断数据输出地址
    * @return 读取到有效诊断数据返回 true，否则返回 false
@@ -521,6 +533,18 @@ class TDisplayP4Device final : public ScreenProvider,
   static constexpr int kScreenReadyPollMs = 20;
   static constexpr int kPowerOffTaskTimeoutMs = 5000;
   static constexpr int kPowerOffTaskPollMs = 20;
+
+  /**
+   * @brief 初始化 XL9535 汇总中断对应的 ESP32-P4 GPIO
+   * @return 初始化成功返回 true，否则返回 false
+   */
+  bool InitializeTouchInterrupt();
+
+  /**
+   * @brief 记录 XL9535 汇总中断，实际 I2C 读取由任务上下文完成
+   * @param context 当前设备对象
+   */
+  static void TouchInterruptHandler(void* context);
 
   /**
    * @brief 等待异步屏幕初始化进入可用状态
@@ -1175,6 +1199,12 @@ class TDisplayP4Device final : public ScreenProvider,
   std::unique_ptr<cpp_bus_driver::Tool> tool_;
   UsbStorageManager usb_storage_manager_;
   ScreenProviderDisplayCallbacks display_callbacks_;
+  // XL9535 汇总中断是否已经完成注册。
+  bool touch_interrupt_initialized_ = false;
+  // 中断服务等待任务上下文处理的通知标志。
+  std::atomic<bool> touch_interrupt_pending_{false};
+  // 轻度熄屏期间是否启用了触摸固件双击唤醒。
+  bool touch_gesture_wake_enabled_ = false;
   // RM69A10 软件渐变使用的当前亮度百分比。
   int rm69a10_brightness_percent_ = 0;
   // 扬声器播放状态，供 UI 和后台播放任务共享
