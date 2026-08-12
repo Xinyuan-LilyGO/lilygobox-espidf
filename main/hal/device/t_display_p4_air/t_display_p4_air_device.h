@@ -369,7 +369,7 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   bool SupportsTouchInterrupt() const override;
 
   /**
-   * @brief 消费一个来自 HI8561 TCH_ATTN 的触摸报告通知
+   * @brief 消费一个来自触摸控制器的报告通知
    * @return 存在新的触摸报告通知返回 true，否则返回 false
    */
   bool ConsumeTouchInterrupt() override;
@@ -598,13 +598,13 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   static constexpr int kPowerOffTaskPollMs = 20;
 
   /**
-   * @brief 初始化 HI8561 TCH_ATTN 对应的 ESP32-P4 GPIO 中断
+   * @brief 初始化触摸通知信号对应的 ESP32-P4 GPIO 中断
    * @return 初始化成功返回 true，否则返回 false
    */
   bool InitializeTouchInterrupt();
 
   /**
-   * @brief 记录 HI8561 触摸中断，实际 I2C 读取由任务上下文完成
+   * @brief 记录触摸中断通知，实际 I2C 读取由任务上下文完成
    * @param context 当前设备对象
    */
   static void TouchInterruptHandler(void* context);
@@ -1281,7 +1281,7 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   UsbStorageManager usb_storage_manager_;
   // LVGL 端注册的像素传输和物理刷新回调。
   ScreenProviderDisplayCallbacks display_callbacks_;
-  // HI8561 TCH_ATTN 中断是否已经完成注册。
+  // 触摸通知中断是否已经完成注册。
   bool touch_interrupt_initialized_ = false;
   // 中断服务等待任务上下文处理的通知标志。
   std::atomic<bool> touch_interrupt_pending_{false};

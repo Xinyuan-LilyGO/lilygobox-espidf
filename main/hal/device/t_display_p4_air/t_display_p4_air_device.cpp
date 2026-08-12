@@ -651,7 +651,7 @@ esp_err_t SetWifiCoprocessorResetLevel(void* user_data, bool level) {
 }
 
 /**
- * @brief 判断 HI8561 触摸控制器是否可用
+ * @brief 判断触摸控制器是否可用
  * @param driver 当前板级驱动
  * @return 触摸控制器可用返回 true
  */
@@ -1014,17 +1014,17 @@ bool TDisplayP4AirDevice::InitDevice() {
         LogLevel::kError, __FILE__, __LINE__, "WaitForScreenReady failed\n");
     return false;
   }
-  if (!WaitForTouchReady()) {
-    LogMessage(
-        LogLevel::kError, __FILE__, __LINE__, "WaitForTouchReady failed\n");
-    return false;
+  const bool touch_ready = WaitForTouchReady();
+  if (!touch_ready) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Touch initialization timed out; continuing startup\n");
   }
   if (!driver_.SetScreenSleep(false)) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Activate screen failed\n");
     return false;
   }
-  if (!InitializeTouchInterrupt()) {
+  if (touch_ready && !InitializeTouchInterrupt()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize touch interrupt failed; using polling fallback\n");
   }
