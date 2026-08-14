@@ -213,13 +213,10 @@ struct CitViewState {
   hal::AudioProvider* audio = nullptr;
   hal::HapticProvider* haptic = nullptr;
   hal::BatteryManagementProvider* battery_management = nullptr;
-  hal::CameraProvider* camera = nullptr;
   hal::RtcProvider* rtc = nullptr;
-  hal::RadioProvider* radio = nullptr;
   hal::ImuProvider* imu = nullptr;
   hal::EthernetProvider* ethernet = nullptr;
   hal::WifiProvider* wifi = nullptr;
-  hal::StorageProvider* storage = nullptr;
   hal::NfcProvider* nfc = nullptr;
   hal::InfraredProvider* infrared = nullptr;
   hal::CellularProvider* cellular = nullptr;
@@ -244,8 +241,6 @@ struct CitViewState {
   int gps_elapsed_ms = 0;
   uint32_t gps_update_interval_ms = 1000;
   bool gps_positioned = false;
-  bool storage_was_mounted = false;
-  bool storage_mounted_by_test = false;
   int microphone_display_level = 0;
   std::array<lv_point_precise_t, kTouchTraceMaxPointCount> touch_trace_points;
   size_t touch_trace_point_count = 0;
@@ -678,14 +673,6 @@ void StopActiveTestHardware(CitViewState* state) {
     state->wifi->StopWifiTimeTest();
     app::SetWifiAutoConnectPaused(false);
   }
-  if (entry != nullptr && IsEntryId(*entry, "camera") &&
-      state->camera != nullptr) {
-    state->camera->StopCameraPreview();
-  }
-  if (entry != nullptr && IsEntryId(*entry, "storage") &&
-      state->storage != nullptr && state->storage_mounted_by_test) {
-    state->storage->UnmountSdCard();
-  }
   if (entry != nullptr && IsEntryId(*entry, "nfc") && state->nfc != nullptr) {
     state->nfc->SetNfcPollingEnabled(false);
   }
@@ -729,8 +716,6 @@ void ClearTestPageState(CitViewState* state) {
   state->gps_status = hal::GpsStatus();
   state->gps_status_valid = false;
   state->gps_positioned = false;
-  state->storage_was_mounted = false;
-  state->storage_mounted_by_test = false;
   state->microphone_display_level = 0;
   state->imu_session.reset();
   state->gps_session.reset();
@@ -1660,57 +1645,7 @@ void RefreshAirPeripheralTestData(
     return;
   }
   char text[640] = {};
-  if (IsEntryId(entry, "radio")) {
-    hal::RadioStatus radio_status;
-    hal::RadioCapabilities capabilities;
-    const bool status_valid =
-        state->radio != nullptr && state->radio->ReadRadioStatus(&radio_status);
-    const bool capabilities_valid =
-        state->radio != nullptr &&
-        state->radio->ReadRadioCapabilities(&capabilities);
-    const size_t maximum_payload =
-        capabilities_valid && capabilities.count > 0
-            ? capabilities.entries[0].maximum_payload_size
-            : 0;
-    std::snprintf(text, sizeof(text),
-        "LR1121 radio data:\nstatus: %s\nhardware: %s\n"
-        "capabilities: %u\nmaximum payload: %u bytes",
-        status_valid ? "ready" : "read failed",
-        status_valid && radio_status.hardware_ready ? "ready" : "not ready",
-        static_cast<unsigned>(capabilities.count),
-        static_cast<unsigned>(maximum_payload));
-  } else if (IsEntryId(entry, "storage")) {
-    const bool mounted =
-        state->storage != nullptr && state->storage->IsSdCardMounted();
-    const char* base_path =
-        state->storage == nullptr ? "" : state->storage->SdCardBasePath();
-    std::snprintf(text, sizeof(text),
-        "SD card data:\nstatus: %s\nmounted: %s\npath: %s",
-        state->storage == nullptr ? "provider unavailable" : "ready",
-        mounted ? "yes" : "no", base_path == nullptr ? "" : base_path);
-  } else if (IsEntryId(entry, "camera")) {
-    hal::CameraPreviewFrameInfo frame;
-    const bool frame_ready = state->camera != nullptr &&
-                             state->camera->GetCameraPreviewFrameInfo(&frame);
-    const CameraError camera_error =
-        state->camera == nullptr ? CameraError::kProviderUnavailable
-                                 : state->camera->GetCameraPreviewError();
-    const DiagnosticError diagnostic_error =
-        GetCameraDiagnosticError(camera_error);
-    const char* status = frame_ready
-                             ? "streaming"
-                             : (camera_error == CameraError::kNone
-                                       ? "starting"
-                                       : "start failed");
-    std::snprintf(text, sizeof(text),
-        "camera data:\nstatus: %s\nerror: %s\nframe: %ux%u\n"
-        "stride: %u\nsequence: %u",
-        status,
-        camera_error == CameraError::kNone ? "-" : diagnostic_error.code,
-        static_cast<unsigned>(frame.width), static_cast<unsigned>(frame.height),
-        static_cast<unsigned>(frame.stride),
-        static_cast<unsigned>(frame.sequence));
-  } else if (IsEntryId(entry, "nfc")) {
+  if (IsEntryId(entry, "nfc")) {
     hal::NfcStatus nfc_status;
     const bool status_valid =
         state->nfc != nullptr && state->nfc->ReadNfcStatus(&nfc_status);
@@ -1945,9 +1880,8 @@ void RefreshActiveTestData(CitViewState* state) {
     return;
   }
 
-  if (IsEntryId(*entry, "radio") || IsEntryId(*entry, "storage") ||
-      IsEntryId(*entry, "camera") || IsEntryId(*entry, "nfc") ||
-      IsEntryId(*entry, "infrared") || IsEntryId(*entry, "cellular")) {
+  if (IsEntryId(*entry, "nfc") || IsEntryId(*entry, "infrared") ||
+      IsEntryId(*entry, "cellular")) {
     RefreshAirPeripheralTestData(state, *entry);
     return;
   }
@@ -3379,17 +3313,7 @@ bool AddAirPeripheralContent(
   }
 
   bool started = false;
-  if (IsEntryId(entry, "radio")) {
-    started = state->radio != nullptr;
-  } else if (IsEntryId(entry, "storage")) {
-    if (state->storage != nullptr) {
-      state->storage_was_mounted = state->storage->IsSdCardMounted();
-      started = state->storage->EnsureSdCardMounted();
-      state->storage_mounted_by_test = started && !state->storage_was_mounted;
-    }
-  } else if (IsEntryId(entry, "camera")) {
-    started = state->camera != nullptr && state->camera->StartCameraPreview();
-  } else if (IsEntryId(entry, "nfc")) {
+  if (IsEntryId(entry, "nfc")) {
     started = state->nfc != nullptr && state->nfc->SetNfcPollingEnabled(true);
   } else if (IsEntryId(entry, "infrared")) {
     started = state->infrared != nullptr &&
@@ -3461,9 +3385,8 @@ bool PopulateTestContent(
   if (IsEntryId(entry, "imu") || IsEntryId(entry, "battery_management")) {
     return AddDiagnosticsContent(content, state, entry);
   }
-  if (IsEntryId(entry, "radio") || IsEntryId(entry, "storage") ||
-      IsEntryId(entry, "camera") || IsEntryId(entry, "nfc") ||
-      IsEntryId(entry, "infrared") || IsEntryId(entry, "cellular")) {
+  if (IsEntryId(entry, "nfc") || IsEntryId(entry, "infrared") ||
+      IsEntryId(entry, "cellular")) {
     return AddAirPeripheralContent(content, state, entry);
   }
   return AddPlainDataContent(content, entry);
@@ -3745,13 +3668,10 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
   state->audio = config.audio;
   state->haptic = config.haptic;
   state->battery_management = config.battery_management;
-  state->camera = config.camera;
   state->rtc = config.rtc;
-  state->radio = config.radio;
   state->imu = config.imu;
   state->ethernet = config.ethernet;
   state->wifi = config.wifi;
-  state->storage = config.storage;
   state->nfc = config.nfc;
   state->infrared = config.infrared;
   state->cellular = config.cellular;

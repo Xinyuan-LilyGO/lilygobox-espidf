@@ -44,13 +44,6 @@ constexpr CitTestEntry kCitTestEntries[] = {
         .name = "WIFI Get Time Test",
         .status = CitTestStatus::kPending},
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
-    {.id = "radio",
-        .name = "Radio Test",
-        .status = CitTestStatus::kPending},
-    {.id = "storage",
-        .name = "SD Card Test",
-        .status = CitTestStatus::kPending},
-    {.id = "camera", .name = "Camera Test", .status = CitTestStatus::kPending},
     {.id = "nfc", .name = "NFC Test", .status = CitTestStatus::kPending},
     {.id = "infrared",
         .name = "Infrared Test",
