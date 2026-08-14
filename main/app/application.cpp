@@ -559,7 +559,7 @@ bool Application::Init() {
   if (!startup_battery_management_ready) {
     const bool shown = ShowBatteryStartupWarning(
         ui::icon::kBatteryAndroidQuestion, kBatteryFaultStartupIconColor,
-        "Battery management fault", -1);
+        "Battery Status Error", -1);
     if (!shown) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "ShowBatteryStartupWarning failed\n");
@@ -716,7 +716,7 @@ void Application::RunPowerOffChargingScreen() {
         battery_status.full_charged);
   } else {
     shown = ShowBatteryStartupWarning(ui::icon::kBatteryAndroidQuestion,
-        kBatteryFaultStartupIconColor, "Battery management fault", -1);
+        kBatteryFaultStartupIconColor, "Battery Status Error", -1);
   }
   if (!shown) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
