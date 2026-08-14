@@ -1147,10 +1147,10 @@ bool TDisplayP4AirDevice::InitDevice() {
         LogLevel::kError, __FILE__, __LINE__, "WaitForScreenReady failed\n");
     return false;
   }
-  const bool touch_ready = WaitForTouchReady();
-  if (!touch_ready) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Touch initialization timed out; continuing startup\n");
+  if (!WaitForTouchReady()) {
+    LogMessage(
+        LogLevel::kError, __FILE__, __LINE__, "WaitForTouchReady failed\n");
+    return false;
   }
   if (!driver_.SetScreenSleep(false)) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
@@ -1161,7 +1161,7 @@ bool TDisplayP4AirDevice::InitDevice() {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize power button failed\n");
   }
-  if (touch_ready && !InitializeTouchInterrupt()) {
+  if (!InitializeTouchInterrupt()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize touch interrupt failed; using polling fallback\n");
   }
