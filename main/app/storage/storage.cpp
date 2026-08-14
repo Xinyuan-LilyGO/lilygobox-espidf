@@ -20,6 +20,7 @@
 #include "app/storage/haptic_storage.h"
 #include "app/storage/littlefs_storage.h"
 #include "app/storage/music_storage.h"
+#include "app/storage/power_state_storage.h"
 #include "app/storage/radio_storage.h"
 #include "app/storage/sound_storage.h"
 #include "app/storage/storage_internal.h"
@@ -53,6 +54,7 @@ struct StorageBackend {
 constexpr StorageBackend kStorageBackends[] = {
     {StageDisplayStorage, FinishDisplayStorage},
     {StageFirstBootStorage, FinishFirstBootStorage},
+    {StagePowerStateStorage, FinishPowerStateStorage},
     {StageHapticStorage, FinishHapticStorage},
     {StageMusicStorage, FinishMusicStorage},
     {StageRadioStorage, FinishRadioStorage},
@@ -78,6 +80,7 @@ SemaphoreHandle_t g_cache_mutex = nullptr;
 SemaphoreHandle_t g_storage_io_mutex = nullptr;
 std::atomic<TaskHandle_t> g_littlefs_storage_task{nullptr};
 std::atomic<bool> g_littlefs_flush_urgent{false};
+std::atomic<bool> g_application_nvs_initialized{false};
 uint32_t g_dirty_domains = 0;
 // 重启或关机最终检查期间拒绝新的 RAM 存储更新。
 bool g_updates_frozen = false;
@@ -87,6 +90,10 @@ bool g_updates_frozen = false;
  * @return 初始化成功返回 true
  */
 bool InitializeApplicationNvs() {
+  if (g_application_nvs_initialized.load()) {
+    return true;
+  }
+
   esp_err_t result =
       nvs_flash_init_partition(kApplicationNvsPartitionName);
   const char* recovery_reason = nullptr;
@@ -111,6 +118,7 @@ bool InitializeApplicationNvs() {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Application NVS recovered: reason=%s\n", recovery_reason);
   }
+  g_application_nvs_initialized.store(true);
   nvs_stats_t statistics = {};
   result = nvs_get_stats(kApplicationNvsPartitionName, &statistics);
   if (result == ESP_OK) {
@@ -332,6 +340,7 @@ void InitRadioChatCache() {
 }
 
 bool EraseAllNvsPartitions() {
+  g_application_nvs_initialized.store(false);
   esp_partition_iterator_t iterator = esp_partition_find(
       ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_NVS, nullptr);
   if (iterator == nullptr) {
@@ -363,6 +372,14 @@ bool EraseAllNvsPartitions() {
 }
 
 }  // namespace
+
+bool EnsureStorageCoordinatorInitialized() {
+  return InitializeStorageCoordinator();
+}
+
+bool EnsureApplicationNvsInitialized() {
+  return InitializeApplicationNvs();
+}
 
 esp_err_t OpenApplicationNvs(const char* namespace_name,
     nvs_open_mode_t open_mode, nvs_handle_t* handle) {
@@ -410,12 +427,15 @@ void RequestLittleFsStorageFlush(bool urgent) {
 }
 
 void InitStorage() {
-  if (!InitializeStorageCoordinator()) {
+  if (!EnsureStorageCoordinatorInitialized()) {
     return;
   }
-  if (!InitializeApplicationNvs()) {
+  if (!EnsureApplicationNvsInitialized()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Application settings will use defaults until NVS is available\n");
+  } else if (!InitPowerStateStorage()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Initialize power-state storage failed\n");
   }
   InitDisplayCache();
   InitFirstBootCache();

@@ -124,6 +124,16 @@ class UiManager final {
       const char* message, int battery_percent);
 
   /**
+   * @brief 显示关机充电电量界面
+   * @param battery_percent 当前电量百分比
+   * @param critical 电量是否低于允许正常开机的阈值
+   * @param full_charged 电池是否已经充满
+   * @return 显示成功时返回 true
+   */
+  bool ShowPowerOffChargingScreen(
+      int battery_percent, bool critical, bool full_charged);
+
+  /**
    * @brief 设置系统启动界面进度
    * @param percent 进度百分比，范围 0 到 100
    * @return 设置成功返回 true，否则返回 false

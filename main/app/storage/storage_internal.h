@@ -18,6 +18,7 @@ inline constexpr char kApplicationNvsPartitionName[] = "app_nvs";
 enum class StorageDomain : uint8_t {
   kDisplay,
   kFirstBoot,
+  kPowerState,
   kHaptic,
   kMusicSources,
   kRadioProfiles,
@@ -26,6 +27,18 @@ enum class StorageDomain : uint8_t {
   kWifiSavedNetworks,
   kCount,
 };
+
+/**
+ * @brief 确保存储缓存锁和 I/O 锁已经初始化
+ * @return 存储协调器可用时返回 true
+ */
+bool EnsureStorageCoordinatorInitialized();
+
+/**
+ * @brief 确保 LilyGoBox 独立应用 NVS 分区已经初始化
+ * @return app_nvs 分区可用时返回 true
+ */
+bool EnsureApplicationNvsInitialized();
 
 enum class StorageStageResult : uint8_t {
   kClean,
@@ -247,6 +260,19 @@ StorageStageResult StageFirstBootStorage(nvs_handle_t handle);
  * @param committed 事务是否提交成功
  */
 void FinishFirstBootStorage(bool committed);
+
+/**
+ * @brief 将系统电源状态脏快照暂存到当前 NVS 事务
+ * @param handle 已打开的共享 NVS 句柄
+ * @return 无修改、暂存成功或暂存失败
+ */
+StorageStageResult StagePowerStateStorage(nvs_handle_t handle);
+
+/**
+ * @brief 根据统一事务结果结束系统电源状态快照
+ * @param committed 事务是否提交成功
+ */
+void FinishPowerStateStorage(bool committed);
 
 /**
  * @brief 将振动偏好脏快照暂存到当前 NVS 事务

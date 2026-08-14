@@ -64,6 +64,32 @@ class Application final {
       const char* message, int battery_percent);
 
   /**
+   * @brief 显示一次关机充电界面并等待画面完整刷新
+   * @param battery_percent 当前电量百分比
+   * @param critical 电量是否低于开机阈值
+   * @param full_charged 电池是否已经充满
+   * @return 页面创建成功时返回 true
+   */
+  bool ShowPowerOffChargingScreen(
+      int battery_percent, bool critical, bool full_charged);
+
+  /**
+   * @brief 显示关机充电状态并在超时后重新进入关机
+   */
+  void RunPowerOffChargingScreen();
+
+  /**
+   * @brief 从完整关机准备状态恢复显示链路以显示充电状态
+   * @return 屏幕和刷新链路恢复成功时返回 true
+   */
+  bool WakeScreenForPowerOffCharging();
+
+  /**
+   * @brief 关机充电界面显示结束后重新进入运输模式或深度睡眠
+   */
+  void ReturnToPowerOffStateAfterChargingScreen();
+
+  /**
    * @brief 创建正常启动页并等待完整画面刷新到屏幕
    * @return 页面创建和刷新成功返回 true，否则返回 false
    */
@@ -134,6 +160,8 @@ class Application final {
    * @return 屏幕完成唤醒并提交锁屏亮屏状态时返回 true
    */
   bool WakeScreenFromLock();
+
+  void RestartSystem();
 
   /**
    * @brief 完成存储落盘后执行设备完整关机
@@ -254,6 +282,8 @@ class Application final {
       PowerButtonAction::kNone};
   // 物理电源键调出的操作页显示期间，暂停锁屏页手势处理。
   std::atomic<bool> physical_power_menu_active_{false};
+  // 当前是否由持久关机状态进入一次性的关机充电界面。
+  bool power_off_charging_boot_ = false;
 };
 
 }  // namespace lilygo_box

@@ -658,7 +658,7 @@ PowerOffAction TDisplayP4Device::RequestPowerOff() {
         "Prepare device for power off failed\n");
     return PowerOffAction::kFailed;
   }
-  if (!driver_.PrepareForPowerOff()) {
+  if (!driver_.PrepareDriversForPowerOff()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Prepare device hardware for power off failed\n");
     return PowerOffAction::kFailed;
@@ -4966,7 +4966,7 @@ bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
         "Prepare device for power off failed\n");
     return false;
   }
-  return driver_.PrepareForPowerOff();
+  return driver_.PrepareDriversForPowerOff();
 }
 
 bool TDisplayP4Device::ExitDeviceSleep(bool deep_sleep) {

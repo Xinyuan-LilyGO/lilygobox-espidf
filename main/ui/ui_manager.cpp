@@ -79,6 +79,9 @@ constexpr uint32_t kStartupProgressTrackColor = 0xE8E8E8;
 constexpr uint32_t kStartupProgressFillColor = 0x1C1C1C;
 constexpr uint32_t kStartupBlackBackgroundColor = 0x000000;
 constexpr uint32_t kLowBatteryStartupTextColor = 0xFFFFFF;
+constexpr uint32_t kPowerOffChargingColor = 0x27C769;
+constexpr uint32_t kPowerOffChargingCriticalColor = 0xFF3B30;
+constexpr int kPowerOffChargingBoltOffsetX = -2;
 constexpr uint32_t kStatusBarLightTextColor = 0xFFFFFF;
 constexpr int kStartupProgressMaxWidth = 360;
 constexpr int kStartupProgressWidthPercent = 54;
@@ -155,6 +158,14 @@ const lv_font_t* Font32() { return &lvgl_font_google_sans_flex_32; }
  */
 const lv_font_t* MaterialOutlineIconFont56() {
   return &lvgl_font_material_symbols_outline_56;
+}
+
+/**
+ * @brief 获取 32 号 Material Symbols 填充图标字体
+ * @return 字体指针
+ */
+const lv_font_t* MaterialFillIconFont32() {
+  return &lvgl_font_material_symbols_fill_32;
 }
 
 /**
@@ -1035,6 +1046,38 @@ bool UiManager::ShowBatteryStartupWarning(const char* icon_text,
   }
   lv_obj_move_to_index(warning, -1);
   lv_obj_invalidate(warning);
+  return true;
+}
+
+bool UiManager::ShowPowerOffChargingScreen(
+    int battery_percent, bool critical, bool full_charged) {
+  const int clamped_percent = std::clamp(battery_percent, 0, 100);
+  char message[32] = {};
+  if (full_charged) {
+    std::snprintf(message, sizeof(message), "%d%%  Fully charged",
+        clamped_percent);
+  } else {
+    std::snprintf(
+        message, sizeof(message), "%d%%  Charging", clamped_percent);
+  }
+
+  if (!ShowBatteryStartupWarning(icon::kBatteryAndroid0,
+          critical ? kPowerOffChargingCriticalColor : kPowerOffChargingColor,
+          message, clamped_percent)) {
+    return false;
+  }
+
+  lv_obj_t* bolt = lv_label_create(root_screen_);
+  if (bolt == nullptr) {
+    return false;
+  }
+  lv_label_set_text(bolt, icon::kBolt);
+  SetTextStyle(
+      bolt, lv_color_hex(kLowBatteryStartupTextColor), MaterialFillIconFont32());
+  lv_obj_align(bolt, LV_ALIGN_CENTER, kPowerOffChargingBoltOffsetX,
+      kLowBatteryStartupIconOffsetY);
+  lv_obj_move_to_index(bolt, -1);
+  lv_obj_invalidate(bolt);
   return true;
 }
 

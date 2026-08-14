@@ -18,6 +18,7 @@
 #include "app/storage/display_storage.h"
 #include "app/storage/first_boot_storage.h"
 #include "app/storage/littlefs_storage.h"
+#include "app/storage/power_state_storage.h"
 #include "app/storage/sound_storage.h"
 #include "app/storage/storage.h"
 #include "app/wifi_manager.h"
@@ -73,6 +74,8 @@ constexpr uint32_t kPowerActionPreSleepSettleMs = 30;
 constexpr int kLowBatteryStartupThresholdPercent = 10;
 constexpr uint32_t kLowBatteryStartupIconColor = 0xFF3B30;
 constexpr uint32_t kBatteryFaultStartupIconColor = 0xFF9500;
+constexpr uint32_t kPowerOffChargingScreenMs = 5 * 1000;
+constexpr int kPowerOffChargingBrightnessPercent = 30;
 constexpr char kNvsPartitionName[] = "nvs";
 constexpr char kChinaTimeZone[] = "CST-8";
 
@@ -420,16 +423,61 @@ bool Application::Init() {
     }
     LogNvsStorageInfo();
   }
-  if (!app::InitLittleFsStorage()) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "LittleFS internal storage is unavailable\n");
-  }
-
   hal::DeviceProvider* device = device_provider_context_.device;
   if (device == nullptr) {
     LogMessage(
         LogLevel::kError, __FILE__, __LINE__, "No device provider selected\n");
     return false;
+  }
+
+  if (device->SupportsPowerOffCharging()) {
+    if (!app::InitPowerStateStorage()) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Initialize persistent power state failed\n");
+    }
+    bool power_off_requested = false;
+    if (!app::ReadPowerOffRequested(&power_off_requested)) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Read persistent power-off state failed; continuing normal startup\n");
+    } else {
+      const hal::PowerOffBootAction boot_action =
+          device->ResolvePowerOffBoot(power_off_requested);
+      if (boot_action == hal::PowerOffBootAction::kEnterDeepSleep) {
+        esp_deep_sleep_start();
+        return false;
+      }
+      if (boot_action == hal::PowerOffBootAction::kWaitForPowerCut) {
+        while (true) {
+          vTaskDelay(portMAX_DELAY);
+        }
+      }
+      if (boot_action == hal::PowerOffBootAction::kShowChargingScreen) {
+        if (!power_off_requested &&
+            !app::WritePowerOffRequested(true)) {
+          LogMessage(LogLevel::kError, __FILE__, __LINE__,
+              "Persist USB power-on charging state failed; "
+              "continuing normal startup\n");
+        } else {
+          power_off_charging_boot_ = true;
+        }
+      } else {
+        if (boot_action == hal::PowerOffBootAction::kFailed) {
+          LogMessage(LogLevel::kError, __FILE__, __LINE__,
+              "Resolve persistent power-off boot failed; recovering normal startup\n");
+        }
+        if (power_off_requested &&
+            !app::WritePowerOffRequested(false)) {
+          LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+              "Clear persistent power-off state during startup failed\n");
+        }
+      }
+    }
+  }
+
+  // 关机充电的 5 秒巡检会在此之前重新入睡，避免反复挂载文件系统。
+  if (!app::InitLittleFsStorage()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "LittleFS internal storage is unavailable\n");
   }
 
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
@@ -476,6 +524,12 @@ bool Application::Init() {
     LogMessage(LogLevel::kError, __FILE__, __LINE__, "Start failed\n");
     return false;
   }
+
+  if (power_off_charging_boot_) {
+    RunPowerOffChargingScreen();
+    return false;
+  }
+
   app::InitStorage();
   if (!app::NetworkMonitor::Instance().Initialize(
           device_provider_context_.wifi)) {
@@ -626,6 +680,128 @@ bool Application::ShowBatteryStartupWarning(const char* icon,
         "Refresh battery startup warning failed\n");
   }
   return shown;
+}
+
+bool Application::ShowPowerOffChargingScreen(
+    int battery_percent, bool critical, bool full_charged) {
+  const bool flush_paused = lvgl_port_.PauseDisplayFlush();
+  if (!flush_paused) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Pause display refresh before power-off charging screen failed\n");
+  }
+
+  lvgl_port_.Lock();
+  const bool shown = ui_manager_.ShowPowerOffChargingScreen(
+      battery_percent, critical, full_charged);
+  lvgl_port_.Unlock();
+
+  if (flush_paused && !lvgl_port_.ResumeDisplayFlushAndWaitForRefresh()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Refresh power-off charging screen failed\n");
+  }
+  return shown;
+}
+
+void Application::RunPowerOffChargingScreen() {
+  hal::BatteryManagementStatus battery_status;
+  const bool battery_ready =
+      device_provider_context_.battery_management != nullptr &&
+      device_provider_context_.battery_management
+          ->ReadBatteryManagementStatus(&battery_status) &&
+      battery_status.ready && battery_status.pack_present;
+  bool shown = false;
+  if (battery_ready) {
+    shown = ShowPowerOffChargingScreen(battery_status.charge_percent,
+        battery_status.charge_percent < kLowBatteryStartupThresholdPercent,
+        battery_status.full_charged);
+  } else {
+    shown = ShowBatteryStartupWarning(ui::icon::kBatteryAndroidQuestion,
+        kBatteryFaultStartupIconColor, "Battery management fault", -1);
+  }
+  if (!shown) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Show power-off charging screen failed\n");
+  }
+  StartScreenBacklight(kPowerOffChargingBrightnessPercent);
+
+  PowerButtonRecognizer recognizer;
+  TickType_t last_poll_ticks = xTaskGetTickCount();
+  const uint32_t screen_started_ms = static_cast<uint32_t>(
+      last_poll_ticks * portTICK_PERIOD_MS);
+  while (static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) -
+          screen_started_ms < kPowerOffChargingScreenMs) {
+    bool pressed = false;
+    hal::DeviceProvider* device = device_provider_context_.device;
+    if (device != nullptr && device->ReadPowerButtonPressed(&pressed)) {
+      const uint32_t now_ms = static_cast<uint32_t>(
+          xTaskGetTickCount() * portTICK_PERIOD_MS);
+      if (recognizer.Update(pressed, now_ms) ==
+          PowerButtonEvent::kLongPress) {
+        app::ResumeStorageUpdatesAfterShutdownFailure();
+        if (app::WritePowerOffRequested(false)) {
+          LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+              "Long power-button press accepted from power-off charging; "
+              "restarting for normal startup\n");
+          RestartSystem();
+          return;
+        }
+        LogMessage(LogLevel::kError, __FILE__, __LINE__,
+            "Clear persistent power-off state from charging screen failed\n");
+        break;
+      }
+    }
+    xTaskDelayUntil(&last_poll_ticks, pdMS_TO_TICKS(kPowerButtonPollMs));
+  }
+  ReturnToPowerOffStateAfterChargingScreen();
+}
+
+bool Application::WakeScreenForPowerOffCharging() {
+  hal::ScreenProvider* screen = device_provider_context_.screen.get();
+  if (screen == nullptr || !screen->ExitDeviceSleep(false)) {
+    return false;
+  }
+  screen_off_confirmed_.store(false);
+  if (lvgl_port_.IsDisplayFlushPaused() &&
+      !lvgl_port_.ResumeDisplayFlushAndWaitForRefresh()) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Restore display refresh for power-off charging failed\n");
+    return false;
+  }
+  return true;
+}
+
+void Application::ReturnToPowerOffStateAfterChargingScreen() {
+  power_action_in_progress_.store(true);
+  lvgl_port_.SetInputBlocked(true);
+  if (current_screen_brightness_percent_.load() != 0) {
+    ApplyScreenBrightness(0);
+  }
+  if (!lvgl_port_.IsDisplayFlushPaused() && !lvgl_port_.PauseDisplayFlush()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Pause display refresh before returning to power-off state failed\n");
+  }
+
+  hal::DeviceProvider* device = device_provider_context_.device;
+  const hal::PowerOffAction action =
+      device == nullptr ? hal::PowerOffAction::kFailed
+                        : device->RequestPowerOffFromChargingScreen();
+  if (action == hal::PowerOffAction::kEnterDeepSleep) {
+    esp_deep_sleep_start();
+    return;
+  }
+  if (action == hal::PowerOffAction::kWaitForPowerCut) {
+    while (true) {
+      vTaskDelay(portMAX_DELAY);
+    }
+  }
+
+  LogMessage(LogLevel::kError, __FILE__, __LINE__,
+      "Return to power-off state after charging screen failed; restarting\n");
+  if (!app::WritePowerOffRequested(false)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Clear persistent power-off state after charging failure failed\n");
+  }
+  esp_restart();
 }
 
 bool Application::StartStartupScreen() {
@@ -1232,7 +1408,7 @@ void Application::ShowPowerMenuFromPhysicalButton() {
   const bool restore_lock_input =
       screen_lock_state_.load() != ScreenLockState::kUnlocked;
   if (restore_lock_input) {
-    // Android 的全局操作页可在锁屏页上选择操作；退出后恢复锁屏输入限制。
+    // 全局电源操作页可在锁屏页上选择操作；退出后恢复锁屏输入限制。
     lvgl_port_.SetInputBlocked(false);
   }
   physical_power_menu_active_.store(true);
@@ -1350,6 +1526,14 @@ void Application::RestartDevice() {
   if (!power_action_in_progress_.compare_exchange_strong(expected, true)) {
     return;
   }
+  hal::DeviceProvider* device = device_provider_context_.device;
+  if (device != nullptr && device->SupportsPowerOffCharging() &&
+      !app::WritePowerOffRequested(false)) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Clear persistent power-off state before restart failed\n");
+    power_action_in_progress_.store(false);
+    return;
+  }
   vTaskDelay(pdMS_TO_TICKS(kPowerActionPreSleepSettleMs));
   if (!PreparePowerActionStorage()) {
     power_action_in_progress_.store(false);
@@ -1358,6 +1542,27 @@ void Application::RestartDevice() {
   // 重启仅复位处理器，不进入设备关机准备，避免关闭外设电源轨。
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
       "Restarting system without powering off device rails\n");
+  RestartSystem();
+}
+
+void Application::RestartSystem() {
+  lvgl_port_.SetInputBlocked(true);
+  if (current_screen_brightness_percent_.load() != 0 &&
+      !ApplyScreenBrightness(0)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Turn off screen backlight before restart failed\n");
+  }
+  if (!lvgl_port_.IsDisplayFlushPaused() &&
+      !lvgl_port_.PauseDisplayFlush()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Pause display refresh before restart failed\n");
+  }
+  hal::ScreenProvider* screen = device_provider_context_.screen.get();
+  if (screen != nullptr && !screen->EnterDeviceSleep(false)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Put screen to sleep before restart failed\n");
+  }
+  vTaskDelay(pdMS_TO_TICKS(kPowerActionPreSleepSettleMs));
   esp_restart();
 }
 
@@ -1366,15 +1571,37 @@ void Application::PowerOffDevice() {
   if (!power_action_in_progress_.compare_exchange_strong(expected, true)) {
     return;
   }
-  vTaskDelay(pdMS_TO_TICKS(kPowerActionPreSleepSettleMs));
-  if (!PreparePowerActionStorage()) {
+  hal::DeviceProvider* device = device_provider_context_.device;
+  const bool persist_power_off =
+      device != nullptr && device->SupportsPowerOffCharging();
+  if (persist_power_off && !app::WritePowerOffRequested(true)) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Persist power-off state failed; canceling shutdown\n");
     power_action_in_progress_.store(false);
     return;
   }
-  hal::DeviceProvider* device = device_provider_context_.device;
+  vTaskDelay(pdMS_TO_TICKS(kPowerActionPreSleepSettleMs));
+  if (!PreparePowerActionStorage()) {
+    if (persist_power_off && !app::WritePowerOffRequested(false)) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Clear persistent power-off state after canceled shutdown failed\n");
+    }
+    power_action_in_progress_.store(false);
+    return;
+  }
   const hal::PowerOffAction action =
       device == nullptr ? hal::PowerOffAction::kFailed
                         : device->RequestPowerOff();
+  if (action == hal::PowerOffAction::kShowChargingScreen) {
+    if (!WakeScreenForPowerOffCharging()) {
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "Wake screen for power-off charging failed\n");
+      ReturnToPowerOffStateAfterChargingScreen();
+      return;
+    }
+    RunPowerOffChargingScreen();
+    return;
+  }
   if (action == hal::PowerOffAction::kEnterDeepSleep) {
     esp_deep_sleep_start();
     return;
@@ -1388,6 +1615,10 @@ void Application::PowerOffDevice() {
   LogMessage(LogLevel::kError, __FILE__, __LINE__,
       "Power off failed after preferences were saved\n");
   app::ResumeStorageUpdatesAfterShutdownFailure();
+  if (persist_power_off && !app::WritePowerOffRequested(false)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Clear persistent power-off state after shutdown failure failed\n");
+  }
   const bool screen_restored = RestoreScreenAfterSleep();
   lvgl_port_.EndScreenTransition();
   lvgl_port_.SetInputBlocked(false);

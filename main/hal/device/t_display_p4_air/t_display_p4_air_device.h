@@ -62,10 +62,30 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   bool InitDevice() override;
 
   /**
-   * @brief 完成设备关机准备并通过 AXP517 运输模式切断电池供电。
-   * @return 运输模式请求成功时返回 kWaitForPowerCut，否则返回 kFailed。
+   * @brief 根据外部电源状态进入 AXP517 运输模式或关机充电深度睡眠
+   * @return 外部供电时返回充电页面动作，否则返回最终关机动作
    */
   PowerOffAction RequestPowerOff() override;
+
+  /**
+   * @brief 关机充电页结束后跳过未启动的应用服务，直接关闭板级硬件
+   * @return 与 RequestPowerOff 相同的最终电源动作
+   */
+  PowerOffAction RequestPowerOffFromChargingScreen() override;
+
+  /**
+   * @brief Air 板支持在外部电源接入时保持关机充电状态
+   * @return 始终返回 true
+   */
+  bool SupportsPowerOffCharging() const override { return true; }
+
+  /**
+   * @brief 在完整外设初始化前处理关机后的充电、按键和定时唤醒
+   * @param power_off_requested 上次关机请求是否已持久化
+   * @return 当前启动应继续、显示充电界面或重新进入关机状态
+   */
+  PowerOffBootAction ResolvePowerOffBoot(
+      bool power_off_requested) override;
 
   /**
    * @brief 读取 Air 板上的物理电源键状态
@@ -614,6 +634,42 @@ class TDisplayP4AirDevice final : public ScreenProvider,
    * @return 电源键初始化成功时返回 true
    */
   bool InitializePowerButton();
+
+  /**
+   * @brief 判断当前电源键是否持续按下达到关机状态下的开机阈值
+   * @return 达到长按阈值时返回 true
+   */
+  bool IsPowerButtonHeldForStartup();
+
+  /**
+   * @brief 等待电源键释放，避免进入深度睡眠后被同一次按键立即唤醒
+   */
+  void WaitForPowerButtonRelease();
+
+  /**
+   * @brief 配置关机充电状态使用的定时器和电源键深度睡眠唤醒源
+   * @return 两个唤醒源均配置成功时返回 true
+   */
+  bool ConfigurePowerOffWakeSources();
+
+  /**
+   * @brief 关闭最小启动路径临时开启的电源并返回深度睡眠动作
+   * @return 可进入深度睡眠时返回 kEnterDeepSleep，否则返回 kFailed
+   */
+  PowerOffBootAction PreparePowerOffDeepSleep();
+
+  /**
+   * @brief 在无外部供电时进入 AXP517 运输模式并返回深度睡眠动作
+   * @return 运输模式设置成功时返回 kEnterDeepSleep，否则返回 kFailed
+   */
+  PowerOffBootAction PreparePowerOffShippingMode();
+
+  /**
+   * @brief 执行 Air 板统一的 USB 深度睡眠或电池运输模式关机
+   * @param prepare_device_services 是否先停止完整应用外设服务
+   * @return 最终电源动作
+   */
+  PowerOffAction RequestPowerOffInternal(bool prepare_device_services);
 
   /**
    * @brief 记录触摸中断通知，实际 I2C 读取由任务上下文完成
