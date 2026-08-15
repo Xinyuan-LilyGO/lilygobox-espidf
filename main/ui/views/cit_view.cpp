@@ -1587,6 +1587,159 @@ const char* NfcTechnologyText(hal::NfcTechnology technology) {
 }
 
 /**
+ * @brief 获取 NFC Forum 标签类型的测试页面文本
+ * @param type 标签类型
+ * @return 静态文本
+ */
+const char* NfcTagTypeText(hal::NfcTagType type) {
+  switch (type) {
+    case hal::NfcTagType::kType1:
+      return "Type 1 Tag";
+    case hal::NfcTagType::kType2:
+      return "Type 2 Tag";
+    case hal::NfcTagType::kType3:
+      return "Type 3 Tag";
+    case hal::NfcTagType::kType4:
+      return "Type 4 Tag";
+    case hal::NfcTagType::kType5:
+      return "Type 5 Tag";
+    case hal::NfcTagType::kPeerToPeer:
+      return "peer-to-peer";
+    case hal::NfcTagType::kProprietary:
+      return "proprietary";
+    case hal::NfcTagType::kUnknown:
+      return "unknown";
+  }
+  return "unknown";
+}
+
+/**
+ * @brief 获取 NFC 激活接口的测试页面文本
+ * @param rf_interface 激活接口
+ * @return 静态文本
+ */
+const char* NfcRfInterfaceText(hal::NfcRfInterface rf_interface) {
+  switch (rf_interface) {
+    case hal::NfcRfInterface::kRf:
+      return "RF";
+    case hal::NfcRfInterface::kIsoDep:
+      return "ISO-DEP";
+    case hal::NfcRfInterface::kNfcDep:
+      return "NFC-DEP";
+    case hal::NfcRfInterface::kUnknown:
+      return "unknown";
+  }
+  return "unknown";
+}
+
+/**
+ * @brief 获取 NDEF 记录类型的测试页面文本
+ * @param type NDEF 记录类型
+ * @return 静态文本
+ */
+const char* NfcNdefRecordTypeText(hal::NfcNdefRecordType type) {
+  switch (type) {
+    case hal::NfcNdefRecordType::kText:
+      return "text";
+    case hal::NfcNdefRecordType::kUri:
+      return "URI";
+    case hal::NfcNdefRecordType::kUnsupported:
+      return "unsupported";
+    case hal::NfcNdefRecordType::kNone:
+      return "none";
+  }
+  return "none";
+}
+
+/**
+ * @brief 追加当前标签技术特有的关键协议字段
+ * @param status NFC 状态
+ * @param text 显示文本
+ * @param text_size 文本缓冲区大小
+ * @param used 已使用长度
+ */
+void AppendNfcProtocolDetails(const hal::NfcStatus& status, char* text,
+    size_t text_size, size_t* used) {
+  switch (status.technology) {
+    case hal::NfcTechnology::kTypeA:
+      AppendFormatted(text, text_size, used,
+          "ATQA: 0x%04X\nSAK: 0x%02X\n",
+          static_cast<unsigned>(status.atqa),
+          static_cast<unsigned>(status.sak));
+      break;
+    case hal::NfcTechnology::kTypeB:
+      AppendFormatted(text, text_size, used, "AFI: 0x%02X\n",
+          static_cast<unsigned>(status.afi));
+      break;
+    case hal::NfcTechnology::kTypeF:
+      AppendFormatted(text, text_size, used, "system code: 0x%04X\n",
+          static_cast<unsigned>(status.system_code));
+      break;
+    case hal::NfcTechnology::kTypeV:
+      AppendFormatted(text, text_size, used,
+          "DSFID: 0x%02X\nmanufacturer: 0x%02X\n",
+          static_cast<unsigned>(status.dsfid),
+          static_cast<unsigned>(status.manufacturer_code));
+      break;
+    case hal::NfcTechnology::kSt25Tb:
+      AppendFormatted(text, text_size, used, "chip ID: 0x%02X\n",
+          static_cast<unsigned>(status.chip_id));
+      break;
+    case hal::NfcTechnology::kUnknown:
+      break;
+  }
+}
+
+/**
+ * @brief 追加 Type 2 标签的容量和 NDEF 内容摘要
+ * @param status NFC 状态
+ * @param text 显示文本
+ * @param text_size 文本缓冲区大小
+ * @param used 已使用长度
+ */
+void AppendNfcNdefDetails(const hal::NfcStatus& status, char* text,
+    size_t text_size, size_t* used) {
+  if (status.tag_type != hal::NfcTagType::kType2) {
+    return;
+  }
+  if (!status.ndef_formatted) {
+    AppendFormatted(text, text_size, used, "NDEF format: no\n");
+  } else {
+    AppendFormatted(text, text_size, used,
+        "NDEF format: yes\ncapacity: %u bytes\naccess: %s\n"
+        "NDEF message: %s\n",
+        static_cast<unsigned>(status.memory_capacity_bytes),
+        status.read_only ? "read-only" : "read/write",
+        status.ndef_present ? "present" : "none");
+  }
+
+  if (status.ndef_present) {
+    AppendFormatted(text, text_size, used,
+        "NDEF size: %u bytes\nrecord type: %s\n",
+        static_cast<unsigned>(status.ndef_message_length),
+        NfcNdefRecordTypeText(status.ndef_record_type));
+    if (status.ndef_language[0] != '\0') {
+      AppendFormatted(text, text_size, used, "language: %s\n",
+          status.ndef_language);
+    }
+    const char* content = status.content;
+    if (status.ndef_record_type == hal::NfcNdefRecordType::kUnsupported) {
+      content = "(not decoded)";
+    } else if (status.content[0] == '\0') {
+      content = "(empty)";
+    }
+    AppendFormatted(text, text_size, used, "content: %s\n", content);
+  }
+  if (status.content_truncated) {
+    AppendFormatted(text, text_size, used, "content scan: limited\n");
+  }
+  if (status.content_error != 0) {
+    AppendFormatted(text, text_size, used, "content error: %d\n",
+        status.content_error);
+  }
+}
+
+/**
  * @brief 获取蜂窝注册状态的测试页面文本
  * @param registration 注册状态
  * @return 静态文本
@@ -1644,22 +1797,35 @@ void RefreshAirPeripheralTestData(
   if (state == nullptr || state->test_data_label == nullptr) {
     return;
   }
-  char text[640] = {};
+  char text[768] = {};
   if (IsEntryId(entry, "nfc")) {
     hal::NfcStatus nfc_status;
     const bool status_valid =
         state->nfc != nullptr && state->nfc->ReadNfcStatus(&nfc_status);
+    if (!status_valid) {
+      lv_label_set_text(
+          state->test_data_label, "ST25R3916 NFC data:\nstatus: read failed");
+      return;
+    }
     char identifier[hal::kNfcIdentifierCapacity * 3] = {};
     FormatNfcIdentifier(nfc_status, identifier, sizeof(identifier));
-    std::snprintf(text, sizeof(text),
-        "ST25R3916 NFC data:\nstatus: %s\npolling: %s\n"
-        "card: %s\ntechnology: %s\nidentifier: %s\n"
-        "detections: %u\nerror: %d",
-        status_valid ? "ready" : "read failed",
-        nfc_status.polling ? "yes" : "no",
-        nfc_status.card_present ? "present" : "none",
-        NfcTechnologyText(nfc_status.technology),
-        identifier[0] == '\0' ? "-" : identifier,
+    size_t used = 0;
+    AppendFormatted(text, sizeof(text), &used,
+        "ST25R3916 NFC data:\nhardware: %s\npolling: %s\ncard: %s\n",
+        nfc_status.hardware_ready ? "ready" : "not ready",
+        nfc_status.polling ? "active" : "stopped",
+        nfc_status.card_present ? "present" : "none");
+    if (nfc_status.card_present) {
+      AppendFormatted(text, sizeof(text), &used,
+          "technology: %s\ntag type: %s\ninterface: %s\nUID: %s\n",
+          NfcTechnologyText(nfc_status.technology),
+          NfcTagTypeText(nfc_status.tag_type),
+          NfcRfInterfaceText(nfc_status.rf_interface),
+          identifier[0] == '\0' ? "-" : identifier);
+      AppendNfcProtocolDetails(nfc_status, text, sizeof(text), &used);
+      AppendNfcNdefDetails(nfc_status, text, sizeof(text), &used);
+    }
+    AppendFormatted(text, sizeof(text), &used, "detections: %u\nerror: %d",
         static_cast<unsigned>(nfc_status.detection_count),
         nfc_status.last_error);
   } else if (IsEntryId(entry, "infrared")) {

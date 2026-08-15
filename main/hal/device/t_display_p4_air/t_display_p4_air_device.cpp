@@ -2,7 +2,7 @@
  * @Description: T-Display-P4-Air 设备初始化与硬件 Provider 适配实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-08-06 18:03:31
+ * @LastEditTime: 2026-08-15 17:27:38
  * @License: GPL 3.0
  */
 #include "hal/device/t_display_p4_air/t_display_p4_air_device.h"
@@ -55,6 +55,13 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "linux/videodev2.h"
+
+extern "C" {
+#include "rfal_chip.h"
+#include "rfal_nfca.h"
+#include "rfal_t2t.h"
+#include "st25r3916_com.h"
+}
 
 namespace lilygo_box::hal {
 namespace device = lilygo_device_driver::t_display_p4_air::device;
@@ -116,9 +123,22 @@ constexpr size_t kNrf9151PendingDataLimit = 8192;
 constexpr uint32_t kNrf9151GnssUpdateIntervalMs = 1000;
 constexpr uint32_t kNfcPollingTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kNfcPollingTaskPriority = 3;
-constexpr uint32_t kNfcCardRemovalTimeoutMs = 700;
+// 移除超时需要大于一次发现周期与标签保持时间之和，避免状态闪烁。
+constexpr uint32_t kNfcDiscoveryDurationMs = 500;
+constexpr uint32_t kNfcCardRemovalTimeoutMs = 800;
+constexpr uint32_t kNfcActiveDeviceHoldMs = 100;
+constexpr uint32_t kNfcDiscoveryRestartDelayMs = 50;
 constexpr uint32_t kNfcTaskStopTimeoutMs = 2000;
 constexpr int kNfcPlatformErrorBase = 1000;
+constexpr uint8_t kNfcType2NdefMagic = 0xE1;
+constexpr uint8_t kNfcType2NullTlv = 0x00;
+constexpr uint8_t kNfcType2NdefMessageTlv = 0x03;
+constexpr uint8_t kNfcType2TerminatorTlv = 0xFE;
+constexpr size_t kNfcType2HeaderBytes = 16;
+constexpr size_t kNfcType2MaximumReadBytes = 256;
+// 以下参数只用于 Debug 日志和射频诊断。
+constexpr uint32_t kNfcDebugStatusLogIntervalMs = 5000;
+constexpr uint32_t kNfcDebugDiagnosticGuardTimeoutMs = 20;
 constexpr uint32_t kInfraredReceiveMinimumNs = 1000;
 // 关机充电状态每 5 秒短暂唤醒一次，仅用于检查 USB 是否已经拔出。
 constexpr uint64_t kPowerOffMonitorWakeIntervalUs = 5ULL * 1000 * 1000;
@@ -257,6 +277,514 @@ NfcTechnology ToNfcTechnology(rfalNfcDevType type) {
     default:
       return NfcTechnology::kUnknown;
   }
+}
+
+/**
+ * @brief 将 RFAL 接口转换为应用层 NFC 接口
+ * @param rf_interface RFAL 接口
+ * @return 应用层 NFC 接口
+ */
+NfcRfInterface ToNfcRfInterface(rfalNfcRfInterface rf_interface) {
+  switch (rf_interface) {
+    case RFAL_NFC_INTERFACE_RF:
+      return NfcRfInterface::kRf;
+    case RFAL_NFC_INTERFACE_ISODEP:
+      return NfcRfInterface::kIsoDep;
+    case RFAL_NFC_INTERFACE_NFCDEP:
+      return NfcRfInterface::kNfcDep;
+    default:
+      return NfcRfInterface::kUnknown;
+  }
+}
+
+/**
+ * @brief 判断字节序列是否等于指定 ASCII 文本
+ * @param data 字节序列
+ * @param length 字节数量
+ * @param text ASCII 文本
+ * @return 完全相同返回 true，否则返回 false
+ */
+bool NfcBytesEqualText(
+    const uint8_t* data, size_t length, const char* text) {
+  return data != nullptr && text != nullptr && std::strlen(text) == length &&
+         std::memcmp(data, text, length) == 0;
+}
+
+/**
+ * @brief 将标签字节追加为适合单行显示的文本
+ * @param data 标签字节
+ * @param length 字节数量
+ * @param output 输出缓冲区
+ * @param output_size 输出缓冲区容量
+ * @param used 已使用长度
+ * @param truncated 是否发生截断
+ */
+void AppendNfcDisplayText(const uint8_t* data, size_t length, char* output,
+    size_t output_size, size_t* used, bool* truncated) {
+  if (data == nullptr || output == nullptr || output_size == 0 ||
+      used == nullptr || truncated == nullptr) {
+    return;
+  }
+  for (size_t index = 0; index < length; ++index) {
+    if (*used + 1 >= output_size) {
+      *truncated = true;
+      break;
+    }
+    const uint8_t value = data[index];
+    const bool whitespace = value == '\r' || value == '\n' || value == '\t';
+    const bool control_character = value < 0x20 || value == 0x7F;
+    output[(*used)++] = whitespace
+                            ? ' '
+                            : (control_character ? '.'
+                                                 : static_cast<char>(value));
+  }
+  output[*used] = '\0';
+}
+
+/**
+ * @brief 将字符串追加到 NFC 内容摘要
+ * @param text 待追加字符串
+ * @param status NFC 状态
+ * @param used 已使用长度
+ */
+void AppendNfcContentText(
+    const char* text, NfcStatus* status, size_t* used) {
+  if (text == nullptr || status == nullptr || used == nullptr) {
+    return;
+  }
+  AppendNfcDisplayText(reinterpret_cast<const uint8_t*>(text),
+      std::strlen(text), status->content, sizeof(status->content), used,
+      &status->content_truncated);
+}
+
+/**
+ * @brief 将字节序列复制为 NFC 显示文本
+ * @param data 字节序列
+ * @param length 字节数量
+ * @param output 输出缓冲区
+ * @param output_size 输出缓冲区容量
+ * @param truncated 是否发生截断
+ */
+void CopyNfcDisplayText(const uint8_t* data, size_t length, char* output,
+    size_t output_size, bool* truncated) {
+  if (output == nullptr || output_size == 0 || truncated == nullptr) {
+    return;
+  }
+  output[0] = '\0';
+  size_t used = 0;
+  AppendNfcDisplayText(
+      data, length, output, output_size, &used, truncated);
+}
+
+/**
+ * @brief 获取常用 NDEF URI 标识码对应的前缀
+ * @param code URI 标识码
+ * @return URI 前缀
+ */
+const char* NfcNdefUriPrefix(uint8_t code) {
+  switch (code) {
+    case 1:
+      return "http://www.";
+    case 2:
+      return "https://www.";
+    case 3:
+      return "http://";
+    case 4:
+      return "https://";
+    case 5:
+      return "tel:";
+    case 6:
+      return "mailto:";
+    default:
+      return "";
+  }
+}
+
+/**
+ * @brief 记录 NDEF 数据不完整或格式错误
+ * @param complete 输入是否包含完整 NDEF 消息
+ * @param status NFC 状态
+ */
+void SetNfcNdefParseFailure(bool complete, NfcStatus* status) {
+  if (status == nullptr) {
+    return;
+  }
+  if (complete) {
+    status->content_error = RFAL_ERR_PROTO;
+  } else {
+    status->content_truncated = true;
+  }
+}
+
+/**
+ * @brief 解析首条 NDEF 记录中的文本或 URI
+ * @param message NDEF 消息
+ * @param message_length 已读取消息长度
+ * @param complete 是否已经读取完整消息
+ * @param status NFC 状态
+ */
+void ParseFirstNfcNdefRecord(const uint8_t* message, size_t message_length,
+    bool complete, NfcStatus* status) {
+  if (message == nullptr || status == nullptr || message_length < 3) {
+    SetNfcNdefParseFailure(complete, status);
+    return;
+  }
+
+  size_t offset = 0;
+  const uint8_t header = message[offset++];
+  const bool chunked = (header & 0x20) != 0;
+  const bool short_record = (header & 0x10) != 0;
+  const bool id_present = (header & 0x08) != 0;
+  const uint8_t tnf = header & 0x07;
+  const size_t type_length = message[offset++];
+
+  size_t payload_length = 0;
+  if (short_record) {
+    payload_length = message[offset++];
+  } else {
+    if (message_length - offset < 4) {
+      SetNfcNdefParseFailure(complete, status);
+      return;
+    }
+    payload_length = static_cast<uint32_t>(message[offset]) << 24U |
+                     static_cast<uint32_t>(message[offset + 1]) << 16U |
+                     static_cast<uint32_t>(message[offset + 2]) << 8U |
+                     message[offset + 3];
+    offset += 4;
+  }
+
+  size_t id_length = 0;
+  if (id_present) {
+    if (offset >= message_length) {
+      SetNfcNdefParseFailure(complete, status);
+      return;
+    }
+    id_length = message[offset++];
+  }
+  const size_t remaining = message_length - offset;
+  if (type_length > remaining || id_length > remaining - type_length ||
+      payload_length > remaining - type_length - id_length) {
+    SetNfcNdefParseFailure(complete, status);
+    return;
+  }
+
+  const uint8_t* type = message + offset;
+  offset += type_length + id_length;
+  const uint8_t* payload = message + offset;
+  if (chunked) {
+    status->ndef_record_type = NfcNdefRecordType::kUnsupported;
+    return;
+  }
+
+  if (tnf == 0x01 && NfcBytesEqualText(type, type_length, "T")) {
+    status->ndef_record_type = NfcNdefRecordType::kText;
+    if (payload_length == 0) {
+      return;
+    }
+    const uint8_t text_status = payload[0];
+    const size_t language_length = text_status & 0x3F;
+    if (language_length + 1 > payload_length) {
+      SetNfcNdefParseFailure(complete, status);
+      return;
+    }
+    bool language_truncated = false;
+    CopyNfcDisplayText(payload + 1, language_length, status->ndef_language,
+        sizeof(status->ndef_language), &language_truncated);
+    status->content_truncated |= language_truncated;
+    const uint8_t* text = payload + language_length + 1;
+    const size_t text_length = payload_length - language_length - 1;
+    if ((text_status & 0x80) != 0) {
+      std::snprintf(status->content, sizeof(status->content),
+          "UTF-16 text (%u bytes)", static_cast<unsigned>(text_length));
+      return;
+    }
+    CopyNfcDisplayText(text, text_length, status->content,
+        sizeof(status->content), &status->content_truncated);
+    return;
+  }
+
+  if (tnf == 0x01 && NfcBytesEqualText(type, type_length, "U")) {
+    status->ndef_record_type = NfcNdefRecordType::kUri;
+    if (payload_length == 0) {
+      return;
+    }
+    size_t used = 0;
+    AppendNfcContentText(NfcNdefUriPrefix(payload[0]), status, &used);
+    AppendNfcDisplayText(payload + 1, payload_length - 1, status->content,
+        sizeof(status->content), &used, &status->content_truncated);
+    return;
+  }
+
+  if (tnf == 0x03) {
+    status->ndef_record_type = NfcNdefRecordType::kUri;
+    CopyNfcDisplayText(type, type_length, status->content,
+        sizeof(status->content), &status->content_truncated);
+    return;
+  }
+  status->ndef_record_type = NfcNdefRecordType::kUnsupported;
+}
+
+/**
+ * @brief 解析 Type 2 标签数据区中的 NDEF TLV
+ * @param data Type 2 数据区
+ * @param data_length 已读取长度
+ * @param status NFC 状态
+ */
+void ParseNfcType2Tlvs(
+    const uint8_t* data, size_t data_length, NfcStatus* status) {
+  if (data == nullptr || status == nullptr) {
+    return;
+  }
+  size_t offset = 0;
+  while (offset < data_length) {
+    const uint8_t type = data[offset++];
+    if (type == kNfcType2NullTlv) {
+      continue;
+    }
+    if (type == kNfcType2TerminatorTlv) {
+      return;
+    }
+    if (offset >= data_length) {
+      status->content_truncated = true;
+      return;
+    }
+
+    size_t value_length = data[offset++];
+    if (value_length == 0xFF) {
+      if (data_length - offset < 2) {
+        status->content_truncated = true;
+        return;
+      }
+      value_length =
+          static_cast<size_t>(data[offset]) << 8U | data[offset + 1];
+      offset += 2;
+    }
+    const size_t available_length =
+        std::min(value_length, data_length - offset);
+    if (type == kNfcType2NdefMessageTlv) {
+      status->ndef_present = true;
+      status->ndef_message_length = value_length;
+      status->content_truncated |= available_length < value_length;
+      ParseFirstNfcNdefRecord(data + offset, available_length,
+          available_length == value_length, status);
+      return;
+    }
+    if (available_length < value_length) {
+      status->content_truncated = true;
+      return;
+    }
+    offset += value_length;
+  }
+}
+
+/**
+ * @brief 读取 Type 2 标签容量和有限长度的 NDEF 内容
+ * @param status NFC 状态
+ */
+void ReadNfcType2Content(NfcStatus* status) {
+  if (status == nullptr) {
+    return;
+  }
+  std::array<uint8_t, kNfcType2MaximumReadBytes> memory = {};
+  uint16_t received_length = 0;
+  ReturnCode result = rfalT2TPollerRead(
+      0, memory.data(), RFAL_T2T_READ_DATA_LEN, &received_length);
+  if (result != RFAL_ERR_NONE || received_length < kNfcType2HeaderBytes) {
+    status->content_error = result == RFAL_ERR_NONE ? RFAL_ERR_PROTO : result;
+    return;
+  }
+
+  const uint8_t* capability = memory.data() + 12;
+  status->ndef_formatted = capability[0] == kNfcType2NdefMagic;
+  if (!status->ndef_formatted) {
+    return;
+  }
+  status->memory_capacity_bytes = static_cast<size_t>(capability[2]) * 8;
+  status->read_only = (capability[3] & 0x0F) == 0x0F;
+  const size_t total_memory_bytes =
+      kNfcType2HeaderBytes + status->memory_capacity_bytes;
+  const size_t read_limit =
+      std::min(total_memory_bytes, memory.size());
+  status->content_truncated = total_memory_bytes > read_limit;
+
+  size_t bytes_read = kNfcType2HeaderBytes;
+  while (bytes_read < read_limit) {
+    const size_t page = bytes_read / RFAL_T2T_BLOCK_LEN;
+    std::array<uint8_t, RFAL_T2T_READ_DATA_LEN> block = {};
+    received_length = 0;
+    result = rfalT2TPollerRead(static_cast<uint8_t>(page), block.data(),
+        static_cast<uint16_t>(block.size()), &received_length);
+    if (result != RFAL_ERR_NONE || received_length < block.size()) {
+      status->content_error =
+          result == RFAL_ERR_NONE ? RFAL_ERR_PROTO : result;
+      status->content_truncated = true;
+      break;
+    }
+    const size_t copy_length =
+        std::min(block.size(), read_limit - bytes_read);
+    std::memcpy(memory.data() + bytes_read, block.data(), copy_length);
+    bytes_read += copy_length;
+  }
+
+  if (bytes_read > kNfcType2HeaderBytes) {
+    ParseNfcType2Tlvs(memory.data() + kNfcType2HeaderBytes,
+        bytes_read - kNfcType2HeaderBytes, status);
+  }
+}
+
+/**
+ * @brief 提取已激活 NFC 标签的关键协议字段和内容
+ * @param device RFAL 已激活设备
+ * @param status NFC 状态
+ */
+void PopulateNfcTagDetails(const rfalNfcDevice& device, NfcStatus* status) {
+  if (status == nullptr) {
+    return;
+  }
+  status->technology = ToNfcTechnology(device.type);
+  status->rf_interface = ToNfcRfInterface(device.rfInterface);
+
+  switch (device.type) {
+    case RFAL_NFC_LISTEN_TYPE_NFCA:
+      status->atqa =
+          static_cast<uint16_t>(device.dev.nfca.sensRes.platformInfo) << 8U |
+          device.dev.nfca.sensRes.anticollisionInfo;
+      status->sak = device.dev.nfca.selRes.sak;
+      switch (device.dev.nfca.type) {
+        case RFAL_NFCA_T1T:
+          status->tag_type = NfcTagType::kType1;
+          break;
+        case RFAL_NFCA_T2T:
+          status->tag_type = NfcTagType::kType2;
+          ReadNfcType2Content(status);
+          break;
+        case RFAL_NFCA_T4T:
+        case RFAL_NFCA_T4T_NFCDEP:
+          status->tag_type = NfcTagType::kType4;
+          break;
+        case RFAL_NFCA_NFCDEP:
+          status->tag_type = NfcTagType::kPeerToPeer;
+          break;
+        default:
+          break;
+      }
+      break;
+    case RFAL_NFC_LISTEN_TYPE_NFCB:
+      status->tag_type = rfalNfcbIsIsoDepSupported(&device.dev.nfcb)
+                             ? NfcTagType::kType4
+                             : NfcTagType::kUnknown;
+      status->afi = device.dev.nfcb.sensbRes.appData.AFI;
+      break;
+    case RFAL_NFC_LISTEN_TYPE_NFCF:
+      status->tag_type = rfalNfcfIsNfcDepSupported(&device.dev.nfcf)
+                             ? NfcTagType::kPeerToPeer
+                             : NfcTagType::kType3;
+      status->system_code =
+          static_cast<uint16_t>(device.dev.nfcf.sensfRes.RD[0]) << 8U |
+          device.dev.nfcf.sensfRes.RD[1];
+      break;
+    case RFAL_NFC_LISTEN_TYPE_NFCV:
+      status->tag_type = NfcTagType::kType5;
+      status->dsfid = device.dev.nfcv.InvRes.DSFID;
+      if (device.dev.nfcv.InvRes.UID[RFAL_NFCV_UID_LEN - 1U] == 0xE0) {
+        status->manufacturer_code =
+            device.dev.nfcv.InvRes.UID[RFAL_NFCV_UID_LEN - 2U];
+      }
+      break;
+    case RFAL_NFC_LISTEN_TYPE_ST25TB:
+      status->tag_type = NfcTagType::kProprietary;
+      status->chip_id = device.dev.st25tb.chipID;
+      break;
+    default:
+      status->tag_type = NfcTagType::kUnknown;
+      break;
+  }
+}
+
+/**
+ * @brief 创建 NFC 轮询发现参数
+ * @return 支持 NFC-A、B、F、V 和 ST25TB 的发现参数
+ */
+rfalNfcDiscoverParam CreateNfcDiscoveryParameters() {
+  rfalNfcDiscoverParam parameters = {};
+  parameters.compMode = RFAL_COMPLIANCE_MODE_NFC;
+  parameters.techs2Find = RFAL_NFC_POLL_TECH_A | RFAL_NFC_POLL_TECH_B |
+                          RFAL_NFC_POLL_TECH_F | RFAL_NFC_POLL_TECH_V |
+                          RFAL_NFC_POLL_TECH_ST25TB;
+  parameters.totalDuration = kNfcDiscoveryDurationMs;
+  parameters.devLimit = 1;
+  parameters.maxBR = RFAL_BR_848;
+  parameters.nfcfBR = RFAL_BR_212;
+  parameters.ap2pBR = RFAL_BR_424;
+  parameters.notifyCb = nullptr;
+  parameters.wakeupEnabled = false;
+  parameters.wakeupConfigDefault = true;
+  return parameters;
+}
+
+/**
+ * @brief 在 Debug 日志启用时执行 NFC 射频诊断
+ * @param nfc_driver ST25R3916 驱动
+ */
+void RunNfcDebugDiagnostics(
+    stsw_st25rfal002_cpp_bus_driver::St25r3916x& nfc_driver) {
+  if (!ShouldLog(LogLevel::kDebug)) {
+    return;
+  }
+
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "NFC reader detected (identity: 0x%02X, revision: %u, chip: %s)\n",
+      static_cast<unsigned>(nfc_driver.chip_identity()),
+      static_cast<unsigned>(nfc_driver.chip_revision()),
+      nfc_driver.is_st25r3916b() ? "ST25R3916B" : "ST25R3916");
+
+  const ReturnCode init_result = rfalNfcaPollerInitialize();
+  ReturnCode field_result = RFAL_ERR_INVALID_HANDLE;
+  ReturnCode amplitude_result = RFAL_ERR_INVALID_HANDLE;
+  ReturnCode probe_result = RFAL_ERR_INVALID_HANDLE;
+  uint8_t amplitude = 0;
+  uint8_t op_control = 0;
+  uint8_t aux_display = 0;
+  uint8_t tx_driver = 0;
+  uint8_t field_threshold = 0;
+  rfalNfcaSensRes sens_res = {};
+
+  if (init_result == RFAL_ERR_NONE) {
+    field_result = rfalFieldOnAndStartGT();
+  }
+  if (field_result == RFAL_ERR_NONE) {
+    const TickType_t guard_start_tick = xTaskGetTickCount();
+    while (!rfalIsGTExpired() &&
+           xTaskGetTickCount() - guard_start_tick <
+               pdMS_TO_TICKS(kNfcDebugDiagnosticGuardTimeoutMs)) {
+      nfc_driver.Worker();
+      vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    amplitude_result = rfalChipMeasureAmplitude(&amplitude);
+    probe_result = rfalNfcaPollerTechnologyDetection(
+        RFAL_COMPLIANCE_MODE_ISO, &sens_res);
+  }
+
+  st25r3916ReadRegister(ST25R3916_REG_OP_CONTROL, &op_control);
+  st25r3916ReadRegister(ST25R3916_REG_AUX_DISPLAY, &aux_display);
+  st25r3916ReadRegister(ST25R3916_REG_TX_DRIVER, &tx_driver);
+  st25r3916ReadRegister(
+      ST25R3916_REG_FIELD_THRESHOLD_ACTV, &field_threshold);
+  rfalFieldOff();
+
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "NFC RF diagnostic (init: %u, field: %u, amplitude result: %u, "
+      "amplitude: %u, NFC-A probe: %u, ATQA: %02X%02X, op: 0x%02X, "
+      "aux: 0x%02X, tx driver: 0x%02X, field threshold: 0x%02X)\n",
+      static_cast<unsigned>(init_result),
+      static_cast<unsigned>(field_result),
+      static_cast<unsigned>(amplitude_result),
+      static_cast<unsigned>(amplitude), static_cast<unsigned>(probe_result),
+      static_cast<unsigned>(sens_res.anticollisionInfo),
+      static_cast<unsigned>(sens_res.platformInfo),
+      static_cast<unsigned>(op_control), static_cast<unsigned>(aux_display),
+      static_cast<unsigned>(tx_driver),
+      static_cast<unsigned>(field_threshold));
 }
 
 /**
@@ -3680,24 +4208,22 @@ bool TDisplayP4AirDevice::SetNfcPollingEnabled(bool enabled) {
         elapsed_ms += kPowerOffTaskPollMs) {
       vTaskDelay(pdMS_TO_TICKS(kPowerOffTaskPollMs));
     }
-    const bool stopped = !nfc_.task_active.load();
-    return stopped && driver_.DeinitSt25r3916();
+    return !nfc_.task_active.load();
   }
 
   if (nfc_.task_active.load()) {
     return true;
   }
-  if (nfc_.mutex == nullptr || driver_.chip().st25r3916 == nullptr ||
-      !driver_.InitSt25r3916() || !driver_.IsSt25r3916Ready()) {
+  if (nfc_.mutex == nullptr || driver_.chip().st25r3916 == nullptr) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Start NFC polling failed: resources are unavailable\n");
     return false;
   }
 
   if (xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
-    driver_.DeinitSt25r3916();
     return false;
   }
   nfc_.status = NfcStatus();
-  nfc_.status.hardware_ready = true;
   nfc_.status.polling = true;
   xSemaphoreGive(nfc_.mutex);
 
@@ -3712,9 +4238,12 @@ bool TDisplayP4AirDevice::SetNfcPollingEnabled(bool enabled) {
       nfc_.status.last_error = ESP_ERR_NO_MEM;
       xSemaphoreGive(nfc_.mutex);
     }
-    driver_.DeinitSt25r3916();
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Create NFC polling task failed\n");
     return false;
   }
+  LogMessage(
+      LogLevel::kDebug, __FILE__, __LINE__, "NFC polling task started\n");
   return true;
 }
 
@@ -3742,33 +4271,73 @@ void TDisplayP4AirDevice::NfcPollingTaskEntry(void* context) {
 }
 
 void TDisplayP4AirDevice::RunNfcPollingTask() {
-  auto* nfc_driver = driver_.chip().st25r3916.get();
-  rfalNfcDiscoverParam parameters = {};
-  parameters.compMode = RFAL_COMPLIANCE_MODE_NFC;
-  parameters.techs2Find = RFAL_NFC_POLL_TECH_A | RFAL_NFC_POLL_TECH_B |
-                          RFAL_NFC_POLL_TECH_F | RFAL_NFC_POLL_TECH_V |
-                          RFAL_NFC_POLL_TECH_ST25TB;
-  parameters.totalDuration = 1000;
-  parameters.devLimit = 1;
-  parameters.maxBR = RFAL_BR_848;
-  parameters.nfcfBR = RFAL_BR_212;
-  parameters.ap2pBR = RFAL_BR_424;
-  parameters.wakeupEnabled = false;
-  parameters.wakeupConfigDefault = true;
-
-  ReturnCode result = nfc_driver == nullptr ? RFAL_ERR_INVALID_HANDLE
-                                            : rfalNfcDiscover(&parameters);
-  if (result != RFAL_ERR_NONE) {
+  auto* const nfc_driver = driver_.chip().st25r3916.get();
+  const bool initialized = nfc_driver != nullptr && driver_.InitSt25r3916() &&
+                           driver_.IsSt25r3916Ready();
+  if (!initialized) {
+    const auto& driver_status = driver_.status().st25r3916;
+    int error = RFAL_ERR_INTERNAL;
+    if (driver_status.result != RFAL_ERR_NONE) {
+      error = static_cast<int>(driver_status.result);
+    } else if (driver_status.platform_error !=
+               stsw_st25rfal002_cpp_bus_driver::PlatformError::kNone) {
+      error = kNfcPlatformErrorBase +
+              static_cast<int>(driver_status.platform_error);
+    }
     if (xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+      nfc_.status.hardware_ready = false;
       nfc_.status.polling = false;
-      nfc_.status.last_error = static_cast<int>(result);
+      nfc_.status.last_error = error;
       xSemaphoreGive(nfc_.mutex);
     }
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Start NFC polling failed (RFAL: %u, platform: %u)\n",
+        static_cast<unsigned>(driver_status.result),
+        static_cast<unsigned>(driver_status.platform_error));
     nfc_.task_active.store(false);
     return;
   }
 
+  if (xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+    nfc_.status.hardware_ready = true;
+    nfc_.status.last_error = 0;
+    xSemaphoreGive(nfc_.mutex);
+  }
+
+  const bool debug_logging_enabled = ShouldLog(LogLevel::kDebug);
+  RunNfcDebugDiagnostics(*nfc_driver);
+
+  rfalNfcDiscoverParam parameters = CreateNfcDiscoveryParameters();
+  ReturnCode result = rfalNfcDiscover(&parameters);
+  if (result != RFAL_ERR_NONE) {
+    if (xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+      nfc_.status.hardware_ready = false;
+      nfc_.status.polling = false;
+      nfc_.status.last_error = static_cast<int>(result);
+      xSemaphoreGive(nfc_.mutex);
+    }
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Start NFC discovery failed (RFAL: %u)\n",
+        static_cast<unsigned>(result));
+    driver_.DeinitSt25r3916();
+    nfc_.task_active.store(false);
+    return;
+  }
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "NFC discovery started (duration: %u ms, removal: %u ms, "
+      "hold: %u ms)\n",
+      static_cast<unsigned>(kNfcDiscoveryDurationMs),
+      static_cast<unsigned>(kNfcCardRemovalTimeoutMs),
+      static_cast<unsigned>(kNfcActiveDeviceHoldMs));
+
   TickType_t last_card_tick = xTaskGetTickCount();
+  TickType_t last_debug_log_tick = last_card_tick;
+  rfalNfcState previous_debug_state = rfalNfcGetState();
+  uint32_t debug_discovery_cycle_count = 0;
+  bool card_present = false;
+  NfcTechnology last_technology = NfcTechnology::kUnknown;
+  std::array<uint8_t, kNfcIdentifierCapacity> last_identifier = {};
+  size_t last_identifier_length = 0;
   while (!nfc_.stop_requested.load()) {
     nfc_driver->NfcWorker();
     const auto platform_error = nfc_driver->platform_error();
@@ -3779,6 +4348,9 @@ void TDisplayP4AirDevice::RunNfcPollingTask() {
             kNfcPlatformErrorBase + static_cast<int>(platform_error);
         xSemaphoreGive(nfc_.mutex);
       }
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "NFC platform failure (platform: %u)\n",
+          static_cast<unsigned>(platform_error));
       break;
     }
 
@@ -3786,49 +4358,125 @@ void TDisplayP4AirDevice::RunNfcPollingTask() {
     if (rfalNfcIsDevActivated(state)) {
       rfalNfcDevice* active_device = nullptr;
       result = rfalNfcGetActiveDevice(&active_device);
-      if (result == RFAL_ERR_NONE && active_device != nullptr &&
-          xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
-        const size_t identifier_length =
-            std::min<size_t>(active_device->nfcidLen, kNfcIdentifierCapacity);
+      if (result != RFAL_ERR_NONE || active_device == nullptr) {
+        const ReturnCode error = result == RFAL_ERR_NONE ? RFAL_ERR_INTERNAL
+                                                        : result;
+        if (xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+          nfc_.status.last_error = static_cast<int>(error);
+          xSemaphoreGive(nfc_.mutex);
+        }
+        LogMessage(LogLevel::kError, __FILE__, __LINE__,
+            "Read active NFC device failed (RFAL: %u, device: %s)\n",
+            static_cast<unsigned>(error),
+            active_device == nullptr ? "null" : "ready");
+      } else {
+        const size_t identifier_length = active_device->nfcid == nullptr
+                                             ? 0
+                                             : std::min<size_t>(
+                                                   active_device->nfcidLen,
+                                                   kNfcIdentifierCapacity);
+        const NfcTechnology technology = ToNfcTechnology(active_device->type);
         const bool same_card =
-            nfc_.status.card_present &&
-            nfc_.status.technology == ToNfcTechnology(active_device->type) &&
-            nfc_.status.identifier_length == identifier_length &&
+            card_present && last_technology == technology &&
+            last_identifier_length == identifier_length &&
             (identifier_length == 0 ||
-                (active_device->nfcid != nullptr &&
-                    std::memcmp(nfc_.status.identifier, active_device->nfcid,
-                        identifier_length) == 0));
-        nfc_.status.card_present = true;
-        nfc_.status.technology = ToNfcTechnology(active_device->type);
-        nfc_.status.identifier_length = identifier_length;
-        std::memset(nfc_.status.identifier, 0, sizeof(nfc_.status.identifier));
-        if (identifier_length > 0 && active_device->nfcid != nullptr) {
-          std::memcpy(
-              nfc_.status.identifier, active_device->nfcid, identifier_length);
-        }
+                std::memcmp(last_identifier.data(), active_device->nfcid,
+                    identifier_length) == 0);
+
+        NfcStatus detected_status;
         if (!same_card) {
-          ++nfc_.status.detection_count;
+          detected_status.hardware_ready = true;
+          detected_status.polling = true;
+          detected_status.card_present = true;
+          detected_status.technology = technology;
+          detected_status.identifier_length = identifier_length;
+          if (identifier_length > 0) {
+            std::memcpy(detected_status.identifier, active_device->nfcid,
+                identifier_length);
+          }
+          PopulateNfcTagDetails(*active_device, &detected_status);
         }
-        nfc_.status.last_error = 0;
-        xSemaphoreGive(nfc_.mutex);
-        last_card_tick = xTaskGetTickCount();
-      } else if (result != RFAL_ERR_NONE &&
-                 xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
-        nfc_.status.last_error = static_cast<int>(result);
-        xSemaphoreGive(nfc_.mutex);
+
+        uint32_t detection_count = 0;
+        bool status_updated = false;
+        if (xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+          if (same_card) {
+            nfc_.status.card_present = true;
+            nfc_.status.last_error = 0;
+          } else {
+            detected_status.detection_count =
+                nfc_.status.detection_count + 1;
+            nfc_.status = detected_status;
+          }
+          detection_count = nfc_.status.detection_count;
+          xSemaphoreGive(nfc_.mutex);
+          status_updated = true;
+        }
+
+        if (status_updated) {
+          card_present = true;
+          last_card_tick = xTaskGetTickCount();
+        }
+        if (status_updated && !same_card) {
+          last_technology = technology;
+          last_identifier_length = identifier_length;
+          last_identifier.fill(0);
+          if (identifier_length > 0) {
+            std::memcpy(last_identifier.data(), active_device->nfcid,
+                identifier_length);
+          }
+          LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+              "NFC tag detected (type: %u, identifier length: %u, "
+              "count: %u, NDEF: %s, content error: %d)\n",
+              static_cast<unsigned>(active_device->type),
+              static_cast<unsigned>(active_device->nfcidLen),
+              static_cast<unsigned>(detection_count),
+              detected_status.ndef_present ? "present" : "none",
+              detected_status.content_error);
+        }
       }
+      vTaskDelay(pdMS_TO_TICKS(kNfcActiveDeviceHoldMs));
+
       result = rfalNfcDeactivate(RFAL_NFC_DEACTIVATE_DISCOVERY);
       if (result != RFAL_ERR_NONE &&
           xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
         nfc_.status.last_error = static_cast<int>(result);
         xSemaphoreGive(nfc_.mutex);
       }
-    } else if (rfalNfcIsInDiscovery(state) &&
+      if (result != RFAL_ERR_NONE) {
+        LogMessage(LogLevel::kError, __FILE__, __LINE__,
+            "Restart NFC discovery failed (RFAL: %u)\n",
+            static_cast<unsigned>(result));
+        vTaskDelay(pdMS_TO_TICKS(kNfcDiscoveryRestartDelayMs));
+      }
+    } else if (card_present && rfalNfcIsInDiscovery(state) &&
                xTaskGetTickCount() - last_card_tick >=
                    pdMS_TO_TICKS(kNfcCardRemovalTimeoutMs) &&
                xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
       nfc_.status.card_present = false;
       xSemaphoreGive(nfc_.mutex);
+      card_present = false;
+    }
+
+    if (debug_logging_enabled) {
+      const TickType_t now = xTaskGetTickCount();
+      if (state != previous_debug_state) {
+        if (state == RFAL_NFC_STATE_START_DISCOVERY) {
+          ++debug_discovery_cycle_count;
+        }
+        previous_debug_state = state;
+      }
+      if (now - last_debug_log_tick >=
+          pdMS_TO_TICKS(kNfcDebugStatusLogIntervalMs)) {
+        LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+            "NFC discovery active (state: %u, cycles: %u, interrupt: %s)\n",
+            static_cast<unsigned>(state),
+            static_cast<unsigned>(debug_discovery_cycle_count),
+            tool_ != nullptr && tool_->GpioRead(gpio::st25r3916::kInt)
+                ? "high"
+                : "low");
+        last_debug_log_tick = now;
+      }
     }
     vTaskDelay(pdMS_TO_TICKS(1));
   }
@@ -3844,9 +4492,14 @@ void TDisplayP4AirDevice::RunNfcPollingTask() {
   if (xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
     nfc_.status.polling = false;
     nfc_.status.card_present = false;
+    nfc_.status.hardware_ready = false;
     xSemaphoreGive(nfc_.mutex);
   }
+  const bool deinitialized = driver_.DeinitSt25r3916();
   nfc_.task_active.store(false);
+  LogMessage(deinitialized ? LogLevel::kDebug : LogLevel::kError, __FILE__,
+      __LINE__, deinitialized ? "NFC polling task stopped\n"
+                              : "NFC polling task cleanup failed\n");
 }
 
 bool TDisplayP4AirDevice::SetInfraredReceiverEnabled(bool enabled) {
