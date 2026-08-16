@@ -1191,7 +1191,46 @@ bool IsTouchReady(const TDisplayP4AirBoardDriver& driver) {
   return driver.IsHi8561TouchReady();
 }
 
-using BoardLoraBandwidth = lr11xx_radio_lora_bw_t;
+/**
+ * @brief 将应用层扩频因子转换为 LR1121 LoRa 枚举
+ * @param value 应用层扩频因子
+ * @param spreading_factor LR1121 扩频因子输出地址
+ * @return 扩频因子受支持返回 true
+ */
+bool SelectLoraSpreadingFactor(
+    uint8_t value, lr11xx_radio_lora_sf_t* spreading_factor) {
+  if (spreading_factor == nullptr) {
+    return false;
+  }
+  switch (value) {
+    case 5:
+      *spreading_factor = LR11XX_RADIO_LORA_SF5;
+      return true;
+    case 6:
+      *spreading_factor = LR11XX_RADIO_LORA_SF6;
+      return true;
+    case 7:
+      *spreading_factor = LR11XX_RADIO_LORA_SF7;
+      return true;
+    case 8:
+      *spreading_factor = LR11XX_RADIO_LORA_SF8;
+      return true;
+    case 9:
+      *spreading_factor = LR11XX_RADIO_LORA_SF9;
+      return true;
+    case 10:
+      *spreading_factor = LR11XX_RADIO_LORA_SF10;
+      return true;
+    case 11:
+      *spreading_factor = LR11XX_RADIO_LORA_SF11;
+      return true;
+    case 12:
+      *spreading_factor = LR11XX_RADIO_LORA_SF12;
+      return true;
+    default:
+      return false;
+  }
+}
 
 /**
  * @brief 将应用层带宽转换为 LR1121 LoRa 带宽枚举
@@ -1199,7 +1238,8 @@ using BoardLoraBandwidth = lr11xx_radio_lora_bw_t;
  * @param bandwidth LR1121 带宽输出地址
  * @return 带宽受支持返回 true
  */
-bool SelectLoraBandwidth(uint32_t bandwidth_hz, BoardLoraBandwidth* bandwidth) {
+bool SelectLoraBandwidth(
+    uint32_t bandwidth_hz, lr11xx_radio_lora_bw_t* bandwidth) {
   if (bandwidth == nullptr) {
     return false;
   }
@@ -1224,6 +1264,35 @@ bool SelectLoraBandwidth(uint32_t bandwidth_hz, BoardLoraBandwidth* bandwidth) {
       return true;
     case 800000:
       *bandwidth = LR11XX_RADIO_LORA_BW_800;
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * @brief 将应用层编码率分母转换为 LR1121 LoRa 枚举
+ * @param denominator 应用层编码率分母
+ * @param coding_rate LR1121 编码率输出地址
+ * @return 编码率受支持返回 true
+ */
+bool SelectLoraCodingRate(
+    uint8_t denominator, lr11xx_radio_lora_cr_t* coding_rate) {
+  if (coding_rate == nullptr) {
+    return false;
+  }
+  switch (denominator) {
+    case 5:
+      *coding_rate = LR11XX_RADIO_LORA_CR_4_5;
+      return true;
+    case 6:
+      *coding_rate = LR11XX_RADIO_LORA_CR_4_6;
+      return true;
+    case 7:
+      *coding_rate = LR11XX_RADIO_LORA_CR_4_7;
+      return true;
+    case 8:
+      *coding_rate = LR11XX_RADIO_LORA_CR_4_8;
       return true;
     default:
       return false;
@@ -1368,14 +1437,17 @@ bool BuildRadioConfig(const LoraRadioConfig& source,
                 source.bandwidth_hz == 800000)
           : (source.bandwidth_hz == 62500 || source.bandwidth_hz == 125000 ||
                 source.bandwidth_hz == 250000 || source.bandwidth_hz == 500000);
-  BoardLoraBandwidth bandwidth;
+  lr11xx_radio_lora_sf_t spreading_factor;
+  lr11xx_radio_lora_bw_t bandwidth;
+  lr11xx_radio_lora_cr_t coding_rate;
   if (target == nullptr || (!use_hf_path && !use_sub_ghz_path) ||
-      !bandwidth_supported || source.spreading_factor < 5 ||
-      source.spreading_factor > 12 || source.coding_rate_denominator < 5 ||
-      source.coding_rate_denominator > 8 || source.preamble_length == 0 ||
+      !bandwidth_supported || source.preamble_length == 0 ||
       source.output_power_dbm < -9 ||
       source.output_power_dbm > (use_hf_path ? 13 : 22) ||
-      !SelectLoraBandwidth(source.bandwidth_hz, &bandwidth)) {
+      !SelectLoraSpreadingFactor(
+          source.spreading_factor, &spreading_factor) ||
+      !SelectLoraBandwidth(source.bandwidth_hz, &bandwidth) ||
+      !SelectLoraCodingRate(source.coding_rate_denominator, &coding_rate)) {
     return false;
   }
 
@@ -1383,11 +1455,9 @@ bool BuildRadioConfig(const LoraRadioConfig& source,
       .frequency_hz = source.frequency_hz,
       .modulation =
           {
-              .sf =
-                  static_cast<lr11xx_radio_lora_sf_t>(source.spreading_factor),
+              .sf = spreading_factor,
               .bw = bandwidth,
-              .cr = static_cast<lr11xx_radio_lora_cr_t>(
-                  source.coding_rate_denominator - 4),
+              .cr = coding_rate,
               .ldro = static_cast<uint8_t>(ShouldEnableLoraLdro(source)),
           },
       .packet = MakeLr1121PacketConfig(source, UINT8_MAX),
@@ -1438,20 +1508,22 @@ bool ShouldEnableLoraLdro(const LoraRadioConfig& config) {
 bool CalculateLoraTransmitTiming(const LoraRadioConfig& config,
     size_t payload_size, LoraTransmitTiming* timing) {
   if (timing == nullptr || payload_size == 0 || payload_size > UINT8_MAX ||
-      config.spreading_factor < 5 || config.spreading_factor > 12 ||
-      config.coding_rate_denominator < 5 ||
-      config.coding_rate_denominator > 8 || config.preamble_length == 0) {
+      config.preamble_length == 0) {
     return false;
   }
-  BoardLoraBandwidth bandwidth;
-  if (!SelectLoraBandwidth(config.bandwidth_hz, &bandwidth)) {
+  lr11xx_radio_lora_sf_t spreading_factor;
+  lr11xx_radio_lora_bw_t bandwidth;
+  lr11xx_radio_lora_cr_t coding_rate;
+  if (!SelectLoraSpreadingFactor(
+          config.spreading_factor, &spreading_factor) ||
+      !SelectLoraBandwidth(config.bandwidth_hz, &bandwidth) ||
+      !SelectLoraCodingRate(config.coding_rate_denominator, &coding_rate)) {
     return false;
   }
   const lr11xx_radio_mod_params_lora_t modulation_params = {
-      .sf = static_cast<lr11xx_radio_lora_sf_t>(config.spreading_factor),
+      .sf = spreading_factor,
       .bw = bandwidth,
-      .cr = static_cast<lr11xx_radio_lora_cr_t>(
-          config.coding_rate_denominator - 4),
+      .cr = coding_rate,
       .ldro = static_cast<uint8_t>(ShouldEnableLoraLdro(config)),
   };
   const lr11xx_radio_pkt_params_lora_t packet_params = {

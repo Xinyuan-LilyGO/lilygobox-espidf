@@ -452,6 +452,76 @@ bool SelectLoraBandwidth(uint32_t bandwidth_hz,
   }
 }
 
+/**
+ * @brief 将应用层扩频因子转换为 SX1262 LoRa 枚举
+ * @param value 应用层扩频因子
+ * @param spreading_factor SX1262 扩频因子输出地址
+ * @return 扩频因子受支持返回 true
+ */
+bool SelectLoraSpreadingFactor(
+    uint8_t value, sx126x_lora_sf_t* spreading_factor) {
+  if (spreading_factor == nullptr) {
+    return false;
+  }
+  switch (value) {
+    case 5:
+      *spreading_factor = SX126X_LORA_SF5;
+      return true;
+    case 6:
+      *spreading_factor = SX126X_LORA_SF6;
+      return true;
+    case 7:
+      *spreading_factor = SX126X_LORA_SF7;
+      return true;
+    case 8:
+      *spreading_factor = SX126X_LORA_SF8;
+      return true;
+    case 9:
+      *spreading_factor = SX126X_LORA_SF9;
+      return true;
+    case 10:
+      *spreading_factor = SX126X_LORA_SF10;
+      return true;
+    case 11:
+      *spreading_factor = SX126X_LORA_SF11;
+      return true;
+    case 12:
+      *spreading_factor = SX126X_LORA_SF12;
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * @brief 将应用层编码率分母转换为 SX1262 LoRa 枚举
+ * @param denominator 应用层编码率分母
+ * @param coding_rate SX1262 编码率输出地址
+ * @return 编码率受支持返回 true
+ */
+bool SelectLoraCodingRate(
+    uint8_t denominator, sx126x_lora_cr_t* coding_rate) {
+  if (coding_rate == nullptr) {
+    return false;
+  }
+  switch (denominator) {
+    case 5:
+      *coding_rate = SX126X_LORA_CR_4_5;
+      return true;
+    case 6:
+      *coding_rate = SX126X_LORA_CR_4_6;
+      return true;
+    case 7:
+      *coding_rate = SX126X_LORA_CR_4_7;
+      return true;
+    case 8:
+      *coding_rate = SX126X_LORA_CR_4_8;
+      return true;
+    default:
+      return false;
+  }
+}
+
 void SelectImageCalibration(uint32_t frequency_hz,
     uint16_t* minimum_mhz, uint16_t* maximum_mhz) {
   const uint32_t frequency_mhz = frequency_hz / 1000000;
@@ -481,19 +551,22 @@ void SelectImageCalibration(uint32_t frequency_hz,
  */
 bool BuildSx1262Config(const LoraRadioConfig& source,
     usp_cpp_bus_driver::Sx126x::LoraConfig* target) {
+  sx126x_lora_sf_t spreading_factor;
+  sx126x_lora_bw_t bandwidth;
+  sx126x_lora_cr_t coding_rate;
   if (target == nullptr || source.frequency_hz < 150000000 ||
-      source.frequency_hz > 960000000 || source.spreading_factor < 5 ||
-      source.spreading_factor > 12 || source.coding_rate_denominator < 5 ||
-      source.coding_rate_denominator > 8 || source.preamble_length == 0 ||
+      source.frequency_hz > 960000000 || source.preamble_length == 0 ||
       source.output_power_dbm < -9 || source.output_power_dbm > 22 ||
-      !SelectLoraBandwidth(source.bandwidth_hz, &target->bandwidth)) {
+      !SelectLoraSpreadingFactor(
+          source.spreading_factor, &spreading_factor) ||
+      !SelectLoraBandwidth(source.bandwidth_hz, &bandwidth) ||
+      !SelectLoraCodingRate(source.coding_rate_denominator, &coding_rate)) {
     return false;
   }
   target->frequency_hz = source.frequency_hz;
-  target->spreading_factor =
-      static_cast<sx126x_lora_sf_t>(source.spreading_factor);
-  target->coding_rate =
-      static_cast<sx126x_lora_cr_t>(source.coding_rate_denominator - 4);
+  target->spreading_factor = spreading_factor;
+  target->bandwidth = bandwidth;
+  target->coding_rate = coding_rate;
   target->preamble_length = source.preamble_length;
   target->sync_word = source.sync_word;
   target->output_power_dbm = source.output_power_dbm;
@@ -535,19 +608,22 @@ bool ShouldEnableLoraLdro(const LoraRadioConfig& config) {
 bool CalculateLoraTransmitTiming(const LoraRadioConfig& config,
     size_t payload_size, LoraTransmitTiming* timing) {
   if (timing == nullptr || payload_size == 0 || payload_size > UINT8_MAX ||
-      config.spreading_factor < 5 || config.spreading_factor > 12 ||
-      config.coding_rate_denominator < 5 ||
-      config.coding_rate_denominator > 8 || config.preamble_length == 0) {
+      config.preamble_length == 0) {
     return false;
   }
+  sx126x_lora_sf_t spreading_factor;
   sx126x_lora_bw_t bandwidth;
-  if (!SelectLoraBandwidth(config.bandwidth_hz, &bandwidth)) {
+  sx126x_lora_cr_t coding_rate;
+  if (!SelectLoraSpreadingFactor(
+          config.spreading_factor, &spreading_factor) ||
+      !SelectLoraBandwidth(config.bandwidth_hz, &bandwidth) ||
+      !SelectLoraCodingRate(config.coding_rate_denominator, &coding_rate)) {
     return false;
   }
   const sx126x_mod_params_lora_t modulation_params = {
-      .sf = static_cast<sx126x_lora_sf_t>(config.spreading_factor),
+      .sf = spreading_factor,
       .bw = bandwidth,
-      .cr = static_cast<sx126x_lora_cr_t>(config.coding_rate_denominator - 4),
+      .cr = coding_rate,
       .ldro = static_cast<uint8_t>(ShouldEnableLoraLdro(config)),
   };
   const sx126x_pkt_params_lora_t packet_params = {
@@ -4616,7 +4692,7 @@ bool TDisplayP4Device::PollRadioEvent(RadioEvent* event) {
   }
 
   auto* radio = driver_.chip().sx1262.get();
-  sx126x_irq_mask_t irq_mask = 0;
+  sx126x_irq_mask_t irq_mask = SX126X_IRQ_NONE;
   if (radio == nullptr || !radio->GetIrqStatus(irq_mask)) {
     radio_.active = false;
     radio_.transmitting = false;
@@ -4633,7 +4709,7 @@ bool TDisplayP4Device::PollRadioEvent(RadioEvent* event) {
             static_cast<uint32_t>(event->request_token)));
     return false;
   }
-  if (irq_mask == 0) {
+  if (irq_mask == SX126X_IRQ_NONE) {
     if (radio_.transmitting && radio_.transmit_deadline_us > 0 &&
         esp_timer_get_time() >= radio_.transmit_deadline_us) {
       const bool recovered = radio->StartReceive();
