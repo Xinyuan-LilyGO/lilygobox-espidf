@@ -617,16 +617,18 @@ void WifiSwitchValueChangedEventCallback(lv_event_t* event) {
 
   if (lv_obj_has_state(target, LV_STATE_CHECKED)) {
     state->wifi_enabled_requested = true;
+    SaveWifiPreferences(state);
     RequestWifiScan(state);
   } else {
     state->wifi_enabled_requested = false;
+    // 先保存关闭状态，避免恢复自动连接后再次拉高 WiFi 协处理器 EN。
+    SaveWifiPreferences(state);
     app::SetWifiAutoConnectPaused(false);
     ResetWifiConnectionState(state);
     state->wifi_scan_on_ready = false;
     state->wifi_scan_request_generation = 0;
     state->config.wifi->SetWifiEnabled(false);
   }
-  SaveWifiPreferences(state);
   UpdateSettingsWifiValue(state);
   state->wifi_refresh_force = true;
 }

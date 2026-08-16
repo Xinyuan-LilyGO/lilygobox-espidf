@@ -896,6 +896,15 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   static void WifiInitTaskEntry(void* context);
 
   /**
+   * @brief 处理 ESP-Hosted 对 WiFi 协处理器 EN 引脚的复位请求
+   * @param context 设备对象指针
+   * @param level true 拉高 EN，false 拉低 EN
+   * @return 引脚切换成功返回 ESP_OK，否则返回错误码
+   */
+  static esp_err_t WifiCoprocessorResetCallback(
+      void* context, bool level);
+
+  /**
    * @brief hosted WiFi 扫描任务入口
    * @param context 设备对象指针
    */

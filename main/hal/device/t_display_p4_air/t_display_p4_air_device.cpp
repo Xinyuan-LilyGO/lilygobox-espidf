@@ -1182,14 +1182,6 @@ bool SetWifiCoprocessorPowerEnabled(
   return driver.SetEsp32c5PowerEnabled(enabled);
 }
 
-esp_err_t SetWifiCoprocessorResetLevel(void* user_data, bool level) {
-  auto* driver = static_cast<TDisplayP4AirBoardDriver*>(user_data);
-  if (driver == nullptr) {
-    return ESP_ERR_INVALID_ARG;
-  }
-  return SetWifiCoprocessorPowerEnabled(*driver, level) ? ESP_OK : ESP_FAIL;
-}
-
 /**
  * @brief 判断触摸控制器是否可用
  * @param driver 当前板级驱动
@@ -1956,7 +1948,14 @@ bool TDisplayP4AirDevice::SetWifiEnabled(bool enabled) {
 
     if (!wifi_.driver_initialized.load()) {
       if (wifi_.init_task_running.load()) {
-        return true;
+        const bool power_disabled =
+            SetWifiCoprocessorPowerEnabled(driver_, false);
+        LogMessage(power_disabled ? LogLevel::kDebug : LogLevel::kError,
+            __FILE__, __LINE__,
+            power_disabled
+                ? "WiFi power disabled while initialization is stopping\n"
+                : "Disable WiFi power during initialization failed\n");
+        return power_disabled;
       }
       esp_event_handler_unregister(
           WIFI_EVENT, ESP_EVENT_ANY_ID, WifiEventHandler);
@@ -5095,11 +5094,29 @@ void TDisplayP4AirDevice::WifiInitTaskEntry(void* context) {
   vTaskDelete(nullptr);
 }
 
+esp_err_t TDisplayP4AirDevice::WifiCoprocessorResetCallback(
+    void* context, bool level) {
+  auto* self = static_cast<TDisplayP4AirDevice*>(context);
+  if (self == nullptr) {
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  // 关闭请求发出后拒绝 ESP-Hosted 再次拉高 EN，确保协处理器保持断电状态。
+  const bool enabled = level && !self->wifi_.stop_requested.load();
+  return SetWifiCoprocessorPowerEnabled(self->driver_, enabled) ? ESP_OK
+                                                                : ESP_FAIL;
+}
+
 void TDisplayP4AirDevice::RunWifiInitTask() {
   if (!WaitForWifiHardwareReady()) {
+    const bool stopping = wifi_.stop_requested.load();
+    wifi_.init_task_running.store(false);
+    if (stopping) {
+      SetWifiEnabled(false);
+      return;
+    }
     LogMessage(
         LogLevel::kWarning, __FILE__, __LINE__, "WiFi hardware is not ready\n");
-    wifi_.init_task_running.store(false);
     SetWifiEnabled(false);
     SetWifiFailure(ESP_ERR_TIMEOUT);
     return;
@@ -5107,12 +5124,16 @@ void TDisplayP4AirDevice::RunWifiInitTask() {
 
   const int result = InitializeWifiStack();
   if (result != ESP_OK) {
+    const bool stopping = wifi_.stop_requested.load();
+    wifi_.init_task_running.store(false);
+    SetWifiEnabled(false);
+    if (stopping) {
+      return;
+    }
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "WiFi init failed: %s (%#X)\n",
         esp_err_to_name(static_cast<esp_err_t>(result)),
         static_cast<unsigned>(result));
-    wifi_.init_task_running.store(false);
-    SetWifiEnabled(false);
     SetWifiFailure(result);
     return;
   }
@@ -5309,17 +5330,25 @@ void TDisplayP4AirDevice::RunWifiConnectTask() {
 
 bool TDisplayP4AirDevice::WaitForWifiHardwareReady() {
   uint32_t elapsed_ms = 0;
-  while (!driver_.IsXl9535Ready() && elapsed_ms < kWifiHardwareReadyTimeoutMs) {
+  while (!wifi_.stop_requested.load() && !driver_.IsXl9535Ready() &&
+         elapsed_ms < kWifiHardwareReadyTimeoutMs) {
     vTaskDelay(pdMS_TO_TICKS(kWifiHardwareReadyPollMs));
     elapsed_ms += kWifiHardwareReadyPollMs;
   }
 
-  if (!driver_.IsXl9535Ready()) {
+  if (wifi_.stop_requested.load() || !driver_.IsXl9535Ready()) {
     return false;
   }
 
-  vTaskDelay(pdMS_TO_TICKS(kWifiCoprocessorBootDelayMs));
-  return true;
+  for (elapsed_ms = 0;
+      elapsed_ms < kWifiCoprocessorBootDelayMs &&
+      !wifi_.stop_requested.load();
+      elapsed_ms += kWifiHardwareReadyPollMs) {
+    const uint32_t delay_ms = std::min(kWifiHardwareReadyPollMs,
+        kWifiCoprocessorBootDelayMs - elapsed_ms);
+    vTaskDelay(pdMS_TO_TICKS(delay_ms));
+  }
+  return !wifi_.stop_requested.load();
 }
 
 int TDisplayP4AirDevice::InitializeWifiStack() {
@@ -5327,18 +5356,28 @@ int TDisplayP4AirDevice::InitializeWifiStack() {
     return PrepareWifiStation();
   }
 
+  if (wifi_.stop_requested.load()) {
+    return ESP_ERR_INVALID_STATE;
+  }
+
   if (!wifi_.hosted_bridge_initialized.load()) {
     const esp_hosted_transport_err_t reset_callback_result =
         esp_hosted_sdio_set_reset_callback(
-            SetWifiCoprocessorResetLevel, &driver_);
+            WifiCoprocessorResetCallback, this);
     if (reset_callback_result != ESP_TRANSPORT_OK) {
       return static_cast<int>(reset_callback_result);
+    }
+    if (wifi_.stop_requested.load()) {
+      return ESP_ERR_INVALID_STATE;
     }
     const esp_err_t hosted_result = esp_hosted_init();
     if (hosted_result != ESP_OK && hosted_result != ESP_ERR_INVALID_STATE) {
       return hosted_result;
     }
     wifi_.hosted_bridge_initialized.store(true);
+    if (wifi_.stop_requested.load()) {
+      return ESP_ERR_INVALID_STATE;
+    }
   }
 
   esp_err_t result = esp_netif_init();

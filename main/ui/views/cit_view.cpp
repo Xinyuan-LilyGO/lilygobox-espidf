@@ -671,6 +671,10 @@ void StopActiveTestHardware(CitViewState* state) {
   }
   if (entry != nullptr && IsEntryId(*entry, "wifi") && state->wifi != nullptr) {
     state->wifi->StopWifiTimeTest();
+    // CIT 仅临时使用 WiFi；全局 WLAN 关闭时，退出测试后释放驱动并拉低 EN。
+    if (!app::GetWifiPreferences().enabled_requested) {
+      state->wifi->SetWifiEnabled(false);
+    }
     app::SetWifiAutoConnectPaused(false);
   }
   if (entry != nullptr && IsEntryId(*entry, "nfc") && state->nfc != nullptr) {
