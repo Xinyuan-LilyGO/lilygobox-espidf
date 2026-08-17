@@ -1776,6 +1776,63 @@ const char* CellularRegistrationText(
 }
 
 /**
+ * @brief 获取 SIM 卡状态的测试页面文本
+ * @param state SIM 卡状态
+ * @return 静态文本
+ */
+const char* CellularSimStateText(hal::CellularSimState state) {
+  switch (state) {
+    case hal::CellularSimState::kReady:
+      return "ready";
+    case hal::CellularSimState::kPinRequired:
+      return "PIN required";
+    case hal::CellularSimState::kPukRequired:
+      return "PUK required";
+    case hal::CellularSimState::kBlocked:
+      return "blocked";
+    case hal::CellularSimState::kFailure:
+      return "failure";
+    case hal::CellularSimState::kUnavailable:
+      return "not ready";
+    case hal::CellularSimState::kUnknown:
+      return "checking";
+  }
+  return "unknown";
+}
+
+/**
+ * @brief 获取蜂窝测试当前阶段的页面文本
+ * @param status 蜂窝状态快照
+ * @return 静态文本
+ */
+const char* CellularTestStageText(const hal::CellularStatus& status) {
+  if (!status.powered) {
+    return "starting modem";
+  }
+  if (status.sim_state == hal::CellularSimState::kUnknown) {
+    return "checking SIM";
+  }
+  if (status.sim_state == hal::CellularSimState::kPinRequired) {
+    return "waiting for SIM PIN";
+  }
+  if (status.sim_state == hal::CellularSimState::kPukRequired) {
+    return "SIM PUK required";
+  }
+  if (status.sim_state == hal::CellularSimState::kBlocked) {
+    return "SIM locked";
+  }
+  if (status.sim_state != hal::CellularSimState::kReady) {
+    return "SIM unavailable";
+  }
+  if (status.registration != hal::CellularRegistrationState::kRegisteredHome &&
+      status.registration !=
+          hal::CellularRegistrationState::kRegisteredRoaming) {
+    return "registering network";
+  }
+  return status.network_time_ready ? "complete" : "reading network time";
+}
+
+/**
  * @brief 将 NFC 标识符格式化为十六进制文本
  * @param status NFC 状态
  * @param output 输出缓冲区
@@ -1874,16 +1931,20 @@ void RefreshAirPeripheralTestData(
         state->cellular != nullptr &&
         state->cellular->ReadCellularStatus(&cellular_status);
     std::snprintf(text, sizeof(text),
-        "nRF9151 cellular data:\nstatus: %s\npower: %s\n"
-        "network: %s\nsignal: %d dBm (CSQ %d)\n"
-        "operator: %s\nmodel: %s\nIMEI: %s\nfirmware: %s\nerror: %d",
+        "nRF9151 cellular test:\nstatus: %s\nstage: %s\npower: %s\n"
+        "SIM: %s\nnetwork: %s\nsignal: %d dBm (CSQ %d)\n"
+        "operator: %s\nnetwork time: %s\nmodel: %s\nIMEI: %s\n"
+        "firmware: %s\nerror: %d",
         status_valid ? "ready" : "read failed",
+        CellularTestStageText(cellular_status),
         cellular_status.powered ? "on" : "starting",
+        CellularSimStateText(cellular_status.sim_state),
         CellularRegistrationText(cellular_status.registration),
         cellular_status.rssi_dbm, cellular_status.signal_quality,
         cellular_status.operator_name[0] == '\0'
             ? "-"
             : cellular_status.operator_name,
+        cellular_status.network_time_ready ? cellular_status.network_time : "-",
         cellular_status.model[0] == '\0' ? "-" : cellular_status.model,
         cellular_status.imei[0] == '\0' ? "-" : cellular_status.imei,
         cellular_status.firmware[0] == '\0' ? "-" : cellular_status.firmware,

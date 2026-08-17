@@ -16,6 +16,18 @@ inline constexpr size_t kCellularModelCapacity = 32;
 inline constexpr size_t kCellularImeiCapacity = 24;
 inline constexpr size_t kCellularFirmwareCapacity = 96;
 inline constexpr size_t kCellularOperatorCapacity = 40;
+inline constexpr size_t kCellularNetworkTimeCapacity = 40;
+
+// 由 3GPP CPIN 状态归一化后的 SIM 卡状态。
+enum class CellularSimState : uint8_t {
+  kUnknown,
+  kReady,
+  kPinRequired,
+  kPukRequired,
+  kBlocked,
+  kFailure,
+  kUnavailable,
+};
 
 // 由 3GPP CEREG 状态归一化后的网络注册状态。
 enum class CellularRegistrationState : uint8_t {
@@ -35,6 +47,8 @@ struct CellularStatus {
   bool enabled = false;
   // 模块电源和 UART 是否已经打开。
   bool powered = false;
+  // 当前 SIM 卡访问状态。
+  CellularSimState sim_state = CellularSimState::kUnknown;
   // 当前 EPS 网络注册状态。
   CellularRegistrationState registration = CellularRegistrationState::kUnknown;
   // AT+CSQ 原始信号质量，99 表示未知。
@@ -49,6 +63,10 @@ struct CellularStatus {
   char firmware[kCellularFirmwareCapacity] = {};
   // 当前运营商名称或数值编码。
   char operator_name[kCellularOperatorCapacity] = {};
+  // 网络提供并由 modem 时钟维护的当前时间。
+  char network_time[kCellularNetworkTimeCapacity] = {};
+  // network_time 是否已经成功读取。
+  bool network_time_ready = false;
   // 最近一次 AT 指令或底层错误码，0 表示无错误。
   int last_error = 0;
 };
