@@ -124,6 +124,7 @@ constexpr UBaseType_t kRadioCommandTaskPriority = tskIDLE_PRIORITY;
 constexpr uint32_t kRadioShutdownPollMs = 20;
 // UI 回调超过该时间才记录回归日志，正常路径只读取 LVGL 毫秒 tick。
 constexpr uint32_t kSlowRadioUiThresholdMs = 80;
+constexpr int kFrequencyInputMaximumLength = 10;
 constexpr char kFrequencyAcceptedChars[] = "0123456789.";
 constexpr char kIntegerAcceptedChars[] = "0123456789";
 constexpr char kHexAcceptedChars[] = "0123456789abcdefABCDEF";
@@ -580,6 +581,27 @@ const char* ProtocolDisplayName(radio::ProtocolType protocol) {
 }
 
 /**
+ * @brief 判断射频能力是否覆盖指定中心频率
+ * @param capability 当前板级射频能力
+ * @param frequency_hz 中心频率，单位为 Hz
+ * @return 任一有效频段覆盖目标频率时返回 true
+ */
+bool IsFrequencySupported(
+    const hal::RadioCapability& capability, uint32_t frequency_hz) {
+  const size_t band_count = std::min(
+      capability.frequency_band_count, hal::kRadioFrequencyBandCapacity);
+  for (size_t index = 0; index < band_count; ++index) {
+    const hal::RadioFrequencyBand& band = capability.frequency_bands[index];
+    if (band.minimum_hz <= band.maximum_hz &&
+        frequency_hz >= band.minimum_hz &&
+        frequency_hz <= band.maximum_hz) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * @brief 判断两个射频配置的可编辑内容是否一致
  * @param lhs 第一个射频配置
  * @param rhs 第二个射频配置
@@ -615,7 +637,8 @@ bool IsProfileSupported(
     const hal::RadioCapability& capability =
         state->capabilities.entries[index];
     if (capability.chip == profile.chip &&
-        capability.protocol == profile.protocol) {
+        capability.protocol == profile.protocol &&
+        IsFrequencySupported(capability, profile.frequency_hz)) {
       return true;
     }
   }
@@ -5205,15 +5228,20 @@ void UpdateAddOptionSelection(RadioViewState* state) {
 }
 
 /**
- * @brief 判断当前芯片的工作频率是否处于可设置范围
- * @param chip 射频芯片类型
+ * @brief 判断当前板级射频能力是否支持输入的工作频率
+ * @param capability 当前板级射频能力
  * @param frequency_mhz 以 MHz 为单位的工作频率
  * @return 频率有效返回 true，否则返回 false
  */
-bool IsFrequencyValidForChip(radio::ChipType chip, double frequency_mhz) {
-  const bool sub_ghz = frequency_mhz >= 150.0 && frequency_mhz <= 960.0;
-  const bool lr1121_hf = chip == radio::ChipType::kLr1121 && frequency_mhz >= 2400.0 && frequency_mhz <= 2500.0;
-  return sub_ghz || lr1121_hf;
+bool IsFrequencyValidForCapability(
+    const hal::RadioCapability* capability, double frequency_mhz) {
+  if (capability == nullptr || frequency_mhz < 0.0 ||
+      frequency_mhz > 4294.0) {
+    return false;
+  }
+  const uint32_t frequency_hz =
+      static_cast<uint32_t>(frequency_mhz * 1000000.0 + 0.5);
+  return IsFrequencySupported(*capability, frequency_hz);
 }
 
 /**
@@ -5232,9 +5260,8 @@ bool IsBandwidthValidForFrequency(
     return bandwidth_hz == 200000 || bandwidth_hz == 400000 ||
            bandwidth_hz == 800000;
   }
-  return frequency_mhz >= 150.0 && frequency_mhz <= 960.0 &&
-         (bandwidth_hz == 62500 || bandwidth_hz == 125000 ||
-             bandwidth_hz == 250000 || bandwidth_hz == 500000);
+  return bandwidth_hz == 62500 || bandwidth_hz == 125000 ||
+         bandwidth_hz == 250000 || bandwidth_hz == 500000;
 }
 
 /**
@@ -5253,7 +5280,8 @@ bool IsAddFrequencyValid(const RadioViewState* state) {
   char* end = nullptr;
   const double frequency_mhz = std::strtod(text, &end);
   return end != nullptr && end[0] == '\0' &&
-         IsFrequencyValidForChip(AddProfileChip(state), frequency_mhz);
+         IsFrequencyValidForCapability(
+             PrimaryRadioCapability(state), frequency_mhz);
 }
 
 /**
@@ -5276,6 +5304,8 @@ bool IsAddBandwidthValid(const RadioViewState* state) {
   char* end = nullptr;
   const double frequency_mhz = std::strtod(text, &end);
   return end != nullptr && end[0] == '\0' &&
+         IsFrequencyValidForCapability(
+             PrimaryRadioCapability(state), frequency_mhz) &&
          IsBandwidthValidForFrequency(AddProfileChip(state), frequency_mhz,
              AddProfileBandwidth(state, state->selected_add_bandwidth));
 }
@@ -5293,7 +5323,8 @@ void NormalizeAddBandwidthSelection(RadioViewState* state) {
   char* end = nullptr;
   const double frequency_mhz = text == nullptr ? 0.0 : std::strtod(text, &end);
   if (end == nullptr || end[0] != '\0' ||
-      !IsFrequencyValidForChip(AddProfileChip(state), frequency_mhz)) {
+      !IsFrequencyValidForCapability(
+          PrimaryRadioCapability(state), frequency_mhz)) {
     return;
   }
   const bool high_frequency =
@@ -5302,6 +5333,63 @@ void NormalizeAddBandwidthSelection(RadioViewState* state) {
   // LR1121 列表中 200 kHz 为索引 2，Sub-GHz 默认 125 kHz 为索引 1。
   state->selected_add_bandwidth = high_frequency ? 2 : 1;
   UpdateAddOptionSelection(state);
+}
+
+/**
+ * @brief 根据当前频段显示并重新排列可用的带宽选项
+ * @param state 射频页面状态
+ */
+void UpdateAddBandwidthOptionLayout(RadioViewState* state) {
+  if (state == nullptr || state->add_frequency_input == nullptr) {
+    return;
+  }
+  const char* text = lv_textarea_get_text(state->add_frequency_input);
+  char* end = nullptr;
+  const double frequency_mhz = text == nullptr ? 0.0 : std::strtod(text, &end);
+  if (end == nullptr || end[0] != '\0' ||
+      !IsFrequencyValidForCapability(
+          PrimaryRadioCapability(state), frequency_mhz)) {
+    return;
+  }
+
+  const size_t option_count = AddProfileBandwidthCount(state);
+  bool option_visible[hal::kRadioCapabilityCapacity] = {};
+  size_t visible_count = 0;
+  for (size_t index = 0; index < option_count; ++index) {
+    option_visible[index] = IsBandwidthValidForFrequency(
+        AddProfileChip(state), frequency_mhz,
+        AddProfileBandwidth(state, index));
+    if (option_visible[index]) {
+      ++visible_count;
+    }
+  }
+  if (visible_count == 0) {
+    return;
+  }
+
+  constexpr int kOptionLeft = 28;
+  constexpr int kOptionGap = 10;
+  const int option_area_width = state->config.width - 56;
+  const int option_width =
+      (option_area_width -
+          static_cast<int>(visible_count - 1) * kOptionGap) /
+      static_cast<int>(visible_count);
+  size_t visible_index = 0;
+  for (size_t index = 0; index < option_count; ++index) {
+    lv_obj_t* button = state->add_bandwidth_buttons[index];
+    if (button == nullptr) {
+      continue;
+    }
+    if (!option_visible[index]) {
+      lv_obj_add_flag(button, LV_OBJ_FLAG_HIDDEN);
+      continue;
+    }
+    lv_obj_remove_flag(button, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_x(button, kOptionLeft +
+        static_cast<int>(visible_index) * (option_width + kOptionGap));
+    lv_obj_set_width(button, option_width);
+    ++visible_index;
+  }
 }
 
 bool ParseTextAreaLong(lv_obj_t* input, int base, long minimum,
@@ -5566,6 +5654,7 @@ void AddInputEventCallback(lv_event_t* event) {
     if (state != nullptr &&
         lv_event_get_target_obj(event) == state->add_frequency_input) {
       NormalizeAddBandwidthSelection(state);
+      UpdateAddBandwidthOptionLayout(state);
     }
     UpdateAddSubmitButton(state);
     return;
@@ -6600,7 +6689,8 @@ bool CreateAddModuleContent(RadioViewState* state) {
     return false;
   }
   state->add_frequency_input = CreateAddTextArea(
-      body, state, "Frequency", frequency, 298 + content_offset, 7);
+      body, state, "Frequency", frequency, 298 + content_offset,
+      kFrequencyInputMaximumLength);
   if (state->add_frequency_input == nullptr) {
     return false;
   }
@@ -6783,6 +6873,8 @@ bool CreateAddModuleContent(RadioViewState* state) {
       (!editing && state->add_active_switch == nullptr)) {
     return false;
   }
+  NormalizeAddBandwidthSelection(state);
+  UpdateAddBandwidthOptionLayout(state);
   UpdateAddOptionSelection(state);
   return true;
 }

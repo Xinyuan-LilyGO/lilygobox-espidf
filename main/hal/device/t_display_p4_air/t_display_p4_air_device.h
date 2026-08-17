@@ -422,7 +422,7 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   bool ReadBatteryLevel(int* percent) override;
 
   /**
-   * @brief 读取板载 LR1121 支持的射频协议和负载能力
+   * @brief 读取板载 LR1121 支持的射频协议、频段和负载能力
    * @param capabilities 射频能力输出地址
    * @return 能力信息读取成功时返回 true
    */

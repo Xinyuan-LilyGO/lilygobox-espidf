@@ -16,6 +16,7 @@ namespace lilygo_box::hal {
 
 inline constexpr size_t kRadioPayloadCapacity = 255;
 inline constexpr size_t kRadioCapabilityCapacity = 8;
+inline constexpr size_t kRadioFrequencyBandCapacity = 3;
 
 enum class RadioLinkState {
   kInactive,
@@ -84,6 +85,13 @@ struct RadioConfig {
   LoraRadioConfig lora;
 };
 
+struct RadioFrequencyBand {
+  // 当前频段允许的最低中心频率，单位为 Hz。
+  uint32_t minimum_hz = 0;
+  // 当前频段允许的最高中心频率，单位为 Hz。
+  uint32_t maximum_hz = 0;
+};
+
 struct RadioCapability {
   // 当前能力项对应的物理射频芯片。
   radio::ChipType chip = radio::ChipType::kUnknown;
@@ -91,6 +99,10 @@ struct RadioCapability {
   radio::ProtocolType protocol = radio::ProtocolType::kUnknown;
   // 当前芯片和协议组合允许的最大负载长度。
   size_t maximum_payload_size = 0;
+  // 当前板级射频路径实际支持的频段。
+  RadioFrequencyBand frequency_bands[kRadioFrequencyBandCapacity] = {};
+  // frequency_bands 数组中的有效频段数量。
+  size_t frequency_band_count = 0;
 };
 
 struct RadioCapabilities {
@@ -137,7 +149,7 @@ class RadioProvider {
   virtual ~RadioProvider() = default;
 
   /**
-   * @brief 读取当前设备支持的射频芯片、协议和负载能力
+   * @brief 读取当前设备支持的射频芯片、协议、频段和负载能力
    * @param capabilities 射频能力输出地址
    * @return 能力信息读取成功时返回 true
    */

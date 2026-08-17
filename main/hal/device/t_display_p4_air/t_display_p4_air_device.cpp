@@ -6349,11 +6349,19 @@ bool TDisplayP4AirDevice::ReadRadioCapabilities(
     return false;
   }
   *capabilities = RadioCapabilities();
-  capabilities->entries[0] = {
-      .chip = radio::ChipType::kLr1121,
-      .protocol = radio::ProtocolType::kLora,
-      .maximum_payload_size = kRadioPayloadCapacity,
+  RadioCapability& capability = capabilities->entries[0];
+  capability.chip = radio::ChipType::kLr1121;
+  capability.protocol = radio::ProtocolType::kLora;
+  capability.maximum_payload_size = kRadioPayloadCapacity;
+  capability.frequency_bands[0] = {
+      .minimum_hz = 150000000U,
+      .maximum_hz = 960000000U,
   };
+  capability.frequency_bands[1] = {
+      .minimum_hz = 2400000000U,
+      .maximum_hz = 2500000000U,
+  };
+  capability.frequency_band_count = 2;
   capabilities->count = 1;
   capabilities->supports_external_antenna = false;
   return true;

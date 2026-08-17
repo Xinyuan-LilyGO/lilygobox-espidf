@@ -333,7 +333,7 @@ class TDisplayP4Device final : public ScreenProvider,
   bool WriteRtcUnixTime(int64_t unix_time) override;
 
   /**
-   * @brief 读取板载 SX1262 支持的射频协议和负载能力
+   * @brief 读取板载 SX1262 支持的射频协议、频段和负载能力
    * @param capabilities 射频能力输出地址
    * @return 能力信息读取成功时返回 true
    */
