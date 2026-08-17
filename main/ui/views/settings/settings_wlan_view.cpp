@@ -2012,7 +2012,7 @@ bool CreateWifiConnectedCard(lv_obj_t* parent, SettingsViewState* state,
             LV_PART_MAIN);
       }
     }
-    lv_obj_align_to(tag, title, LV_ALIGN_OUT_RIGHT_MID, 8, 0);
+    lv_obj_align_to(tag, title, LV_ALIGN_OUT_RIGHT_MID, 0, 0);
   }
 
   if (secure && !CreateWifiSmallLock(card, card_width - 112,
