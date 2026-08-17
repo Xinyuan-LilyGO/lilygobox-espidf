@@ -1816,7 +1816,6 @@ PowerOffBootAction TDisplayP4AirDevice::PreparePowerOffDeepSleep() {
   if (!driver_.PrepareMinimalDriversForPowerOff()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Prepare minimal power management path for deep sleep failed\n");
-    return PowerOffBootAction::kFailed;
   }
   return PowerOffBootAction::kEnterDeepSleep;
 }
@@ -1832,13 +1831,11 @@ PowerOffBootAction TDisplayP4AirDevice::PreparePowerOffShippingMode() {
   const bool sleep_prepared = driver_.PrepareMinimalDriversForPowerOff();
   if (!shipping_mode_enabled) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Enter AXP517 shipping mode failed\n");
-    return PowerOffBootAction::kFailed;
+        "Enter AXP517 shipping mode failed; retrying after timer wakeup\n");
   }
   if (!sleep_prepared) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Prepare AXP517 shipping-mode path failed\n");
-    return PowerOffBootAction::kFailed;
   }
   return PowerOffBootAction::kEnterDeepSleep;
 }
@@ -2025,7 +2022,10 @@ PowerOffAction TDisplayP4AirDevice::RequestPowerOffInternal(
   if (prepare_device_services && !PrepareForPowerOff()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Prepare Air device for power off failed\n");
-    return PowerOffAction::kFailed;
+    // 不再访问可能仍由应用任务占用的硬件，定时唤醒后重新处理关机状态。
+    g_power_off_rtc_magic = kPowerOffRtcMagic;
+    g_power_off_charging_screen_pending = true;
+    return PowerOffAction::kEnterDeepSleep;
   }
 
   cpp_bus_driver::Axp517::ChipStatus0 pre_hardware_shutdown_status0;
@@ -2047,7 +2047,10 @@ PowerOffAction TDisplayP4AirDevice::RequestPowerOffInternal(
   if (!driver_.PrepareDriversForPowerOff()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Prepare Air board hardware for power off failed\n");
-    return PowerOffAction::kFailed;
+    // 不再访问可能仍由初始化任务占用的硬件，定时唤醒后重新处理关机状态。
+    g_power_off_rtc_magic = kPowerOffRtcMagic;
+    g_power_off_charging_screen_pending = true;
+    return PowerOffAction::kEnterDeepSleep;
   }
 
   cpp_bus_driver::Axp517::ChipStatus0 final_chip_status0;
@@ -2069,7 +2072,6 @@ PowerOffAction TDisplayP4AirDevice::RequestPowerOffInternal(
     if (!driver_.PrepareMinimalDriversForPowerOff()) {
       LogMessage(LogLevel::kError, __FILE__, __LINE__,
           "Prepare power management path for deep sleep failed\n");
-      return PowerOffAction::kFailed;
     }
     return PowerOffAction::kEnterDeepSleep;
   }
@@ -2083,13 +2085,11 @@ PowerOffAction TDisplayP4AirDevice::RequestPowerOffInternal(
   const bool sleep_prepared = driver_.PrepareMinimalDriversForPowerOff();
   if (!shipping_mode_enabled) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Enter AXP517 shipping mode failed\n");
-    return PowerOffAction::kFailed;
+        "Enter AXP517 shipping mode failed; retrying after timer wakeup\n");
   }
   if (!sleep_prepared) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Prepare power management path after shipping-mode request failed\n");
-    return PowerOffAction::kFailed;
   }
   // 正常情况下 BATFET 会立即断开；深度睡眠是 USB 同时插入时的安全后备。
   return PowerOffAction::kEnterDeepSleep;
