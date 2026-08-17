@@ -253,6 +253,8 @@ struct CitViewState {
   std::shared_ptr<ImuSession> retiring_imu_session;
   std::shared_ptr<GpsSession> gps_session;
   std::shared_ptr<GpsSession> retiring_gps_session;
+  bool cellular_start_pending = false;
+  bool cellular_start_failed = false;
   EdgeBackSwipeState test_edge_back_swipe = {};
   bool test_page_closing = false;
   lv_timer_t* refresh_timer = nullptr;
@@ -689,9 +691,11 @@ void StopActiveTestHardware(CitViewState* state) {
       state->infrared != nullptr) {
     state->infrared->SetInfraredReceiverEnabled(false);
   }
-  if (entry != nullptr && IsEntryId(*entry, "cellular") &&
-      state->cellular != nullptr) {
-    state->cellular->SetCellularEnabled(false);
+  if (entry != nullptr && IsEntryId(*entry, "cellular")) {
+    state->cellular_start_pending = false;
+    if (state->cellular != nullptr) {
+      state->cellular->SetCellularEnabled(false);
+    }
   }
 }
 
@@ -731,6 +735,8 @@ void ClearTestPageState(CitViewState* state) {
   state->infrared_transmit_success_count = 0;
   state->imu_session.reset();
   state->gps_session.reset();
+  state->cellular_start_pending = false;
+  state->cellular_start_failed = false;
   state->pending_test_index = app::kMaxCitTestEntryCount;
   state->test_edge_back_swipe = EdgeBackSwipeState();
   state->test_page_closing = false;
@@ -1926,12 +1932,33 @@ void RefreshAirPeripheralTestData(
         static_cast<unsigned>(infrared_status.decode_error_count),
         status_valid ? infrared_status.last_error : ESP_FAIL);
   } else if (IsEntryId(entry, "cellular")) {
+    if (state->cellular_start_pending) {
+      if (state->retiring_gps_session != nullptr &&
+          !state->retiring_gps_session->completed.load(
+              std::memory_order_acquire)) {
+        lv_label_set_text(state->test_data_label,
+            "cellular test:\nstatus: waiting for GPS shutdown");
+        return;
+      }
+
+      state->retiring_gps_session.reset();
+      state->cellular_start_pending = false;
+      state->cellular_start_failed =
+          state->cellular == nullptr ||
+          !state->cellular->SetCellularEnabled(true);
+    }
+    if (state->cellular_start_failed) {
+      lv_label_set_text(state->test_data_label,
+          "cellular test:\nstatus: start failed");
+      return;
+    }
+
     hal::CellularStatus cellular_status;
     const bool status_valid =
         state->cellular != nullptr &&
         state->cellular->ReadCellularStatus(&cellular_status);
     std::snprintf(text, sizeof(text),
-        "nRF9151 cellular test:\nstatus: %s\nstage: %s\npower: %s\n"
+        "cellular test:\nstatus: %s\nstage: %s\npower: %s\n"
         "SIM: %s\nnetwork: %s\nsignal: %d dBm (CSQ %d)\n"
         "operator: %s\nnetwork time: %s\nmodel: %s\nIMEI: %s\n"
         "firmware: %s\nerror: %d",
@@ -1969,7 +1996,8 @@ void RefreshDiagnosticsState(CitViewState* state) {
   }
   if (state->retiring_gps_session != nullptr &&
       state->retiring_gps_session->completed.load(
-          std::memory_order_acquire)) {
+          std::memory_order_acquire) &&
+      !state->cellular_start_pending) {
     state->retiring_gps_session.reset();
   }
 
@@ -3579,8 +3607,20 @@ bool AddAirPeripheralContent(
   if (IsEntryId(entry, "nfc")) {
     started = state->nfc != nullptr && state->nfc->SetNfcPollingEnabled(true);
   } else if (IsEntryId(entry, "cellular")) {
-    started =
-        state->cellular != nullptr && state->cellular->SetCellularEnabled(true);
+    state->cellular_start_pending = false;
+    state->cellular_start_failed = false;
+    if (state->retiring_gps_session != nullptr &&
+        !state->retiring_gps_session->completed.load(
+            std::memory_order_acquire)) {
+      state->cellular_start_pending = true;
+      lv_label_set_text(state->test_data_label,
+          "cellular test:\nstatus: waiting for GPS shutdown");
+      return true;
+    }
+    state->retiring_gps_session.reset();
+    started = state->cellular != nullptr &&
+              state->cellular->SetCellularEnabled(true);
+    state->cellular_start_failed = !started;
   }
 
   if (!started) {
