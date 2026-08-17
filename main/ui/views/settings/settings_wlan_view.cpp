@@ -1986,8 +1986,9 @@ bool CreateWifiConnectedCard(lv_obj_t* parent, SettingsViewState* state,
   if (title == nullptr) {
     return false;
   }
-  lv_obj_set_width(title, card_width - 240);
-  lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+  lv_obj_set_size(title, card_width - 240,
+      static_cast<int>(lv_font_get_line_height(Font28())));
+  lv_label_set_long_mode(title, LV_LABEL_LONG_SCROLL_CIRCULAR);
   lv_obj_align(title, LV_ALIGN_LEFT_MID, 82, -16);
 
   lv_obj_t* subtitle = CreateLabel(card, state_text,
@@ -2108,9 +2109,11 @@ bool CreateWifiNetworkRow(lv_obj_t* parent, SettingsViewState* state,
   if (title == nullptr) {
     return false;
   }
-  lv_obj_set_width(title, row_width - kWifiNetworkTextLeft -
-      kWifiNetworkRightControlWidth - tag_reserve);
-  lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+  lv_obj_set_size(title,
+      row_width - kWifiNetworkTextLeft - kWifiNetworkRightControlWidth -
+          tag_reserve,
+      static_cast<int>(lv_font_get_line_height(Font28())));
+  lv_label_set_long_mode(title, LV_LABEL_LONG_SCROLL_CIRCULAR);
   lv_obj_align(title, LV_ALIGN_LEFT_MID, kWifiNetworkTextLeft, 0);
 
   if (show_tag) {
@@ -2170,9 +2173,10 @@ bool CreateWifiSavedManageRow(
   if (name == nullptr) {
     return false;
   }
-  lv_obj_set_width(
-      name, width - 2 * kWifiSidePadding - button_width - 28);
-  lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+  lv_obj_set_size(name,
+      width - 2 * kWifiSidePadding - button_width - 28,
+      static_cast<int>(lv_font_get_line_height(Font32())));
+  lv_label_set_long_mode(name, LV_LABEL_LONG_SCROLL_CIRCULAR);
   lv_obj_align(name, LV_ALIGN_LEFT_MID, kWifiSidePadding, 0);
 
   lv_obj_t* button = lv_button_create(row);
@@ -2345,8 +2349,9 @@ bool CreateWifiSubHeader(
   if (title_label == nullptr) {
     return false;
   }
-  lv_obj_set_width(title_label, state->config.width);
-  lv_label_set_long_mode(title_label, LV_LABEL_LONG_DOT);
+  lv_obj_set_size(title_label, state->config.width,
+      static_cast<int>(lv_font_get_line_height(Font32())));
+  lv_label_set_long_mode(title_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
   lv_obj_set_style_text_align(
       title_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, kDetailTitleTop);
@@ -2885,6 +2890,11 @@ bool ShowWifiConnectSheet(SettingsViewState* state,
     CloseWifiModalImmediately(state);
     return false;
   }
+  lv_obj_set_size(title,
+      sheet_width - 2 * kWifiConnectSheetInnerPadding,
+      static_cast<int>(lv_font_get_line_height(Font32())));
+  lv_label_set_long_mode(title, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 34);
 
   const char* subtitle = action.secure
