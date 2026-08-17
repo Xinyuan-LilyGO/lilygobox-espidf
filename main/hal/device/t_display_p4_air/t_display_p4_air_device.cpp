@@ -2,7 +2,7 @@
  * @Description: T-Display-P4-Air 设备初始化与硬件 Provider 适配实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-08-15 17:27:38
+ * @LastEditTime: 2026-08-17 09:16:56
  * @License: GPL 3.0
  */
 #include "hal/device/t_display_p4_air/t_display_p4_air_device.h"
@@ -4590,7 +4590,16 @@ bool TDisplayP4AirDevice::SetInfraredReceiverEnabled(bool enabled) {
     }
     infrared_.receive_pending.store(false);
     infrared_.receive_complete.store(false);
+    infrared_.received_symbol_count.store(0);
+    std::fill(std::begin(infrared_.receive_symbols),
+        std::end(infrared_.receive_symbols), rmt_symbol_word_t{});
     infrared_.status.receiver_enabled = false;
+    infrared_.status.frame_received = false;
+    infrared_.status.repeat = false;
+    infrared_.status.address = 0;
+    infrared_.status.command = 0;
+    infrared_.status.receive_count = 0;
+    infrared_.status.decode_error_count = 0;
     infrared_.status.last_error = result;
     xSemaphoreGive(infrared_.mutex);
     return result == ESP_OK;

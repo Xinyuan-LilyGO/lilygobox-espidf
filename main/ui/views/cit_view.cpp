@@ -62,6 +62,8 @@ constexpr int kTouchMarkerSize = 42;
 constexpr int kCitRefreshPeriodMs = 200;
 constexpr int kMicrophoneRefreshPeriodMs = 100;
 constexpr int kDiagnosticsRefreshPeriodMs = 1000;
+constexpr uint8_t kInfraredTestAddress = 0x04;
+constexpr uint8_t kInfraredTestCommand = 0x30;
 constexpr uint32_t kImuWorkerTaskStackBytes = 8 * 1024;
 constexpr UBaseType_t kImuWorkerTaskPriority = tskIDLE_PRIORITY;
 constexpr uint32_t kImuSamplePeriodMs = 1000;
@@ -242,6 +244,9 @@ struct CitViewState {
   uint32_t gps_update_interval_ms = 1000;
   bool gps_positioned = false;
   int microphone_display_level = 0;
+  bool infrared_last_transmit_succeeded = false;
+  uint32_t infrared_transmit_attempt_count = 0;
+  uint32_t infrared_transmit_success_count = 0;
   std::array<lv_point_precise_t, kTouchTraceMaxPointCount> touch_trace_points;
   size_t touch_trace_point_count = 0;
   std::shared_ptr<ImuSession> imu_session;
@@ -721,6 +726,9 @@ void ClearTestPageState(CitViewState* state) {
   state->gps_status_valid = false;
   state->gps_positioned = false;
   state->microphone_display_level = 0;
+  state->infrared_last_transmit_succeeded = false;
+  state->infrared_transmit_attempt_count = 0;
+  state->infrared_transmit_success_count = 0;
   state->imu_session.reset();
   state->gps_session.reset();
   state->pending_test_index = app::kMaxCitTestEntryCount;
@@ -1837,17 +1845,29 @@ void RefreshAirPeripheralTestData(
     const bool status_valid =
         state->infrared != nullptr &&
         state->infrared->ReadInfraredStatus(&infrared_status);
+    const char* transmit_status = "not tested";
+    if (state->infrared_transmit_attempt_count > 0) {
+      transmit_status = state->infrared_last_transmit_succeeded
+                            ? "sent"
+                            : "failed";
+    }
     std::snprintf(text, sizeof(text),
-        "infrared NEC data:\nstatus: %s\nreceiver: %s\n"
-        "frame: %s\naddress: 0x%02X\ncommand: 0x%02X\n"
-        "repeat: %s\nreceived: %u\ndecode errors: %u",
-        status_valid ? "ready" : "read failed",
+        "infrared NEC transceiver:\nhardware: %s\nreceiver: %s\n"
+        "TX: %s (0x%02X / 0x%02X)\nTX attempts/success: %u/%u\n"
+        "RX: %s\nRX code: 0x%02X / 0x%02X%s\n"
+        "RX frames/errors: %u/%u\nerror: %d",
+        status_valid && infrared_status.hardware_ready ? "ready"
+                                                       : "not ready",
         infrared_status.receiver_enabled ? "enabled" : "disabled",
+        transmit_status, kInfraredTestAddress, kInfraredTestCommand,
+        static_cast<unsigned>(state->infrared_transmit_attempt_count),
+        static_cast<unsigned>(state->infrared_transmit_success_count),
         infrared_status.frame_received ? "received" : "waiting",
         infrared_status.address, infrared_status.command,
-        infrared_status.repeat ? "yes" : "no",
+        infrared_status.repeat ? " (repeat)" : "",
         static_cast<unsigned>(infrared_status.receive_count),
-        static_cast<unsigned>(infrared_status.decode_error_count));
+        static_cast<unsigned>(infrared_status.decode_error_count),
+        status_valid ? infrared_status.last_error : ESP_FAIL);
   } else if (IsEntryId(entry, "cellular")) {
     hal::CellularStatus cellular_status;
     const bool status_valid =
@@ -2679,6 +2699,18 @@ void GenericStartButtonEventCallback(lv_event_t* event) {
     return;
   }
 
+  if (IsEntryId(*entry, "infrared")) {
+    ++state->infrared_transmit_attempt_count;
+    state->infrared_last_transmit_succeeded =
+        state->infrared != nullptr &&
+        state->infrared->SendInfraredNec(
+            kInfraredTestAddress, kInfraredTestCommand);
+    if (state->infrared_last_transmit_succeeded) {
+      ++state->infrared_transmit_success_count;
+    }
+    RefreshAirPeripheralTestData(state, *entry);
+    return;
+  }
   if (IsEntryId(*entry, "vibration")) {
     lv_label_set_text(
         state->test_data_label, "vibration data:\nplaying RAM waveforms...");
@@ -3485,9 +3517,6 @@ bool AddAirPeripheralContent(
   bool started = false;
   if (IsEntryId(entry, "nfc")) {
     started = state->nfc != nullptr && state->nfc->SetNfcPollingEnabled(true);
-  } else if (IsEntryId(entry, "infrared")) {
-    started = state->infrared != nullptr &&
-              state->infrared->SetInfraredReceiverEnabled(true);
   } else if (IsEntryId(entry, "cellular")) {
     started =
         state->cellular != nullptr && state->cellular->SetCellularEnabled(true);
@@ -3497,6 +3526,43 @@ bool AddAirPeripheralContent(
     lv_label_set_text(
         state->test_data_label, "hardware data:\nstatus: start failed");
     return true;
+  }
+  RefreshAirPeripheralTestData(state, entry);
+  return true;
+}
+
+/**
+ * @brief 添加红外 NEC 收发测试内容并启动连续接收
+ * @param content 内容容器
+ * @param state CIT 页面状态
+ * @param entry 红外测试项
+ * @return 页面创建成功返回 true
+ */
+bool AddInfraredContent(
+    lv_obj_t* content, CitViewState* state, const app::CitTestEntry& entry) {
+  if (state == nullptr) {
+    return false;
+  }
+
+  state->infrared_last_transmit_succeeded = false;
+  state->infrared_transmit_attempt_count = 0;
+  state->infrared_transmit_success_count = 0;
+  lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+      LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(content, 24, LV_PART_MAIN);
+  state->test_data_label = CreateDataLabel(
+      content, "infrared NEC transceiver:\nstatus: starting");
+  if (state->test_data_label == nullptr) {
+    return false;
+  }
+  if (CreateCenterButton(content, "SEND NEC",
+          GenericStartButtonEventCallback, state) == nullptr) {
+    return false;
+  }
+
+  if (state->infrared != nullptr) {
+    state->infrared->SetInfraredReceiverEnabled(true);
   }
   RefreshAirPeripheralTestData(state, entry);
   return true;
@@ -3555,8 +3621,10 @@ bool PopulateTestContent(
   if (IsEntryId(entry, "imu") || IsEntryId(entry, "battery_management")) {
     return AddDiagnosticsContent(content, state, entry);
   }
-  if (IsEntryId(entry, "nfc") || IsEntryId(entry, "infrared") ||
-      IsEntryId(entry, "cellular")) {
+  if (IsEntryId(entry, "infrared")) {
+    return AddInfraredContent(content, state, entry);
+  }
+  if (IsEntryId(entry, "nfc") || IsEntryId(entry, "cellular")) {
     return AddAirPeripheralContent(content, state, entry);
   }
   return AddPlainDataContent(content, entry);
