@@ -78,6 +78,30 @@ class DeviceProvider {
     }
     return false;
   }
+
+  /**
+   * @brief 读取设备物理音量加按键的原始状态
+   * @param pressed 输出按键是否处于按下状态
+   * @return 设备支持音量加按键并成功读取时返回 true
+   */
+  virtual bool ReadVolumeUpButtonPressed(bool* pressed) {
+    if (pressed != nullptr) {
+      *pressed = false;
+    }
+    return false;
+  }
+
+  /**
+   * @brief 读取设备物理音量减按键的原始状态
+   * @param pressed 输出按键是否处于按下状态
+   * @return 设备支持音量减按键并成功读取时返回 true
+   */
+  virtual bool ReadVolumeDownButtonPressed(bool* pressed) {
+    if (pressed != nullptr) {
+      *pressed = false;
+    }
+    return false;
+  }
 };
 
 }  // namespace lilygo_box::hal

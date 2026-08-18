@@ -1863,7 +1863,7 @@ void FormatNfcIdentifier(
 }
 
 /**
- * @brief 刷新 Air 板扩展外设测试数据
+ * @brief 刷新扩展外设测试数据
  * @param state CIT 页面状态
  * @param entry 当前测试项
  */
@@ -3586,7 +3586,7 @@ bool AddRtcContent(lv_obj_t* content, CitViewState* state) {
 }
 
 /**
- * @brief 添加 Air 板扩展外设测试内容并启动对应硬件
+ * @brief 添加扩展外设测试内容并启动对应硬件
  * @param content 内容容器
  * @param state CIT 页面状态
  * @param entry 测试项

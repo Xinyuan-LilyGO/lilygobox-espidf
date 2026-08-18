@@ -7,6 +7,7 @@
  */
 #include "ui/views/settings_view.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -154,6 +155,7 @@ void SettingsViewDeleteEventCallback(lv_event_t* event) {
     lv_timer_delete(state->firmware_update_refresh_timer);
     state->firmware_update_refresh_timer = nullptr;
   }
+  lv_obj_set_user_data(lv_event_get_target_obj(event), nullptr);
   delete state;
 }
 
@@ -486,6 +488,7 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
   }
   state->config = config;
   state->root = root;
+  lv_obj_set_user_data(root, state);
   LoadWifiSettingsFromCache(state, IsWifiCurrentlyEnabled(config));
   app::DisplayPreferences display_preferences = app::GetDisplayPreferences();
   state->display_brightness_percent = display_preferences.brightness_percent;
@@ -549,6 +552,26 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
   }
 
   return root;
+}
+
+void UpdateSettingsViewVolume(
+    lv_obj_t* settings_view, int volume_percent) {
+  if (settings_view == nullptr) {
+    return;
+  }
+  auto* state =
+      static_cast<SettingsViewState*>(lv_obj_get_user_data(settings_view));
+  if (state == nullptr) {
+    return;
+  }
+
+  const int clamped_percent = std::clamp(volume_percent, 0, 100);
+  state->audio_volume_percent = clamped_percent;
+  if (state->audio_volume_slider != nullptr &&
+      lv_slider_get_value(state->audio_volume_slider) != clamped_percent) {
+    lv_slider_set_value(
+        state->audio_volume_slider, clamped_percent, LV_ANIM_OFF);
+  }
 }
 
 }  // namespace lilygo_box::ui

@@ -26,6 +26,7 @@
 #include "ui/views/first_boot_welcome_view.h"
 #include "ui/views/lock_screen_view.h"
 #include "ui/views/power_menu_view.h"
+#include "ui/views/settings_view.h"
 #include "ui/wallpaper.h"
 #include "ui/widgets/brand_icon.h"
 
@@ -1195,6 +1196,36 @@ void UiManager::SetScreenBrightnessCallback(
   screen_brightness_callback_ = std::move(callback);
 }
 
+bool UiManager::ShowVolumeOverlay(int volume_percent,
+    VolumeOverlay::VolumeChangeCallback callback) {
+  if (root_screen_ == nullptr) {
+    return false;
+  }
+  auto synchronized_callback =
+      [this, callback = std::move(callback)](int percent, bool commit) {
+        if (!callback || !callback(percent, commit)) {
+          return false;
+        }
+        UpdateActiveSettingsVolume(percent);
+        return true;
+      };
+  const bool shown = volume_overlay_.Show(root_screen_, LayoutWidth(),
+      LayoutHeight(), volume_percent, std::move(synchronized_callback));
+  if (shown) {
+    UpdateActiveSettingsVolume(volume_percent);
+  }
+  return shown;
+}
+
+void UiManager::UpdateActiveSettingsVolume(int volume_percent) {
+  if (active_app_entry_ == nullptr || active_app_entry_->id == nullptr ||
+      std::strcmp(active_app_entry_->id, "settings") != 0 ||
+      active_view_container_ == nullptr) {
+    return;
+  }
+  UpdateSettingsViewVolume(active_view_container_, volume_percent);
+}
+
 void UiManager::HidePowerMenu() {
   if (power_menu_ == nullptr) {
     return;
@@ -1457,6 +1488,7 @@ void UiManager::RelayoutForScreenSize() {
   lv_anim_delete(this, SetFirstBootWelcomeOpacity);
   startup_progress_animating_ = false;
   startup_progress_pending_percent_ = 0;
+  volume_overlay_.Reset();
 
   if (lock_screen_ != nullptr) {
     lv_obj_delete(lock_screen_);

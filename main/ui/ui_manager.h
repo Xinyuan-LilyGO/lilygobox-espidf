@@ -20,6 +20,7 @@
 #include "ui/input/edge_back_gesture.h"
 #include "ui/theme/theme_provider.h"
 #include "ui/widgets/status_bar.h"
+#include "ui/widgets/volume_overlay.h"
 
 namespace lilygo_box::hal {
 class AudioProvider;
@@ -105,6 +106,15 @@ class UiManager final {
    * @param callback 由应用层统一处理的亮度调整回调
    */
   void SetScreenBrightnessCallback(std::function<bool(int)> callback);
+
+  /**
+   * @brief 在屏幕右上侧显示音量快捷浮层
+   * @param volume_percent 当前音量百分比
+   * @param callback 音量变化回调，第二个参数表示是否保存最终值
+   * @return 浮层创建并开始显示时返回 true
+   */
+  bool ShowVolumeOverlay(int volume_percent,
+      VolumeOverlay::VolumeChangeCallback callback);
 
   /**
    * @brief 启动系统启动界面动画
@@ -428,6 +438,12 @@ class UiManager final {
   void RefreshSystemStatus();
 
   /**
+   * @brief 将系统音量同步到当前打开的设置页面
+   * @param volume_percent 当前音量百分比
+   */
+  void UpdateActiveSettingsVolume(int volume_percent);
+
+  /**
    * @brief 根据 RTC 状态刷新状态栏和主界面时间显示
    * @param status RTC 状态
    */
@@ -526,11 +542,8 @@ class UiManager final {
   hal::EthernetProvider* ethernet_provider_ = nullptr;
   hal::WifiProvider* wifi_provider_ = nullptr;
   hal::StorageProvider* storage_provider_ = nullptr;
-  // Air 板 NFC 读卡器接口。
   hal::NfcProvider* nfc_provider_ = nullptr;
-  // Air 板红外收发接口。
   hal::InfraredProvider* infrared_provider_ = nullptr;
-  // Air 板 nRF9151 蜂窝接口。
   hal::CellularProvider* cellular_provider_ = nullptr;
   lv_obj_t* root_screen_ = nullptr;
   StatusBar status_bar_;
@@ -540,6 +553,7 @@ class UiManager final {
   lv_obj_t* first_boot_welcome_screen_ = nullptr;
   lv_obj_t* lock_screen_ = nullptr;
   lv_obj_t* power_menu_ = nullptr;
+  VolumeOverlay volume_overlay_;
   int startup_progress_percent_ = 0;
   int startup_progress_target_percent_ = 0;
   int startup_progress_pending_percent_ = 0;

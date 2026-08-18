@@ -94,6 +94,20 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   bool ReadPowerButtonPressed(bool* pressed) override;
 
   /**
+   * @brief 读取 Air 板 BOOT 音量加按键状态
+   * @param pressed 输出按键是否处于按下状态
+   * @return 音量加按键可用并成功读取时返回 true
+   */
+  bool ReadVolumeUpButtonPressed(bool* pressed) override;
+
+  /**
+   * @brief 读取 Air 板 KEY1 音量减按键状态
+   * @param pressed 输出按键是否处于按下状态
+   * @return 音量减按键可用并成功读取时返回 true
+   */
+  bool ReadVolumeDownButtonPressed(bool* pressed) override;
+
+  /**
    * @brief 读取当前 T-Display-P4-Air 设备信息
    * @param info 设备信息输出地址
    * @return 读取成功返回 true，否则返回 false
@@ -634,6 +648,12 @@ class TDisplayP4AirDevice final : public ScreenProvider,
    * @return 电源键初始化成功时返回 true
    */
   bool InitializePowerButton();
+
+  /**
+   * @brief 配置 Air 板物理音量加减按键 GPIO 输入
+   * @return 两个音量按键均初始化成功时返回 true
+   */
+  bool InitializeVolumeButtons();
 
   /**
    * @brief 判断当前电源键是否持续按下达到关机状态下的开机阈值
@@ -1362,6 +1382,8 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   bool touch_interrupt_initialized_ = false;
   // Air 板电源键 GPIO 是否已经配置为可轮询输入。
   bool power_button_initialized_ = false;
+  // Air 板音量加减 GPIO 是否已经配置为可轮询输入。
+  bool volume_buttons_initialized_ = false;
   // 中断服务等待任务上下文处理的通知标志。
   std::atomic<bool> touch_interrupt_pending_{false};
   // 轻度熄屏期间是否启用了触摸固件双击唤醒。

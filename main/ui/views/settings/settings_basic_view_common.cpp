@@ -51,6 +51,7 @@ void ExtraCloseCompletedCallback(lv_anim_t* animation) {
 
   lv_obj_t* page = state->settings_extra_page;
   state->settings_extra_page = nullptr;
+  state->audio_volume_slider = nullptr;
   state->settings_extra_closing = false;
   state->settings_extra_swipe = EdgeBackSwipeState();
   lv_obj_delete(page);
@@ -85,6 +86,7 @@ void CloseExtraPage(SettingsViewState* state, bool animated) {
   if (state->settings_nested_page != nullptr) {
     CloseNestedPage(state, false);
   }
+  state->audio_volume_slider = nullptr;
 
   if (animated &&
       StartSlideRightWindowTransition(state->settings_extra_page,

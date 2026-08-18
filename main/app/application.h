@@ -119,6 +119,12 @@ class Application final {
   static void PowerButtonTaskEntry(void* context);
 
   /**
+   * @brief 物理音量加减按键的后台轮询任务入口
+   * @param context Application 实例
+   */
+  static void VolumeButtonTaskEntry(void* context);
+
+  /**
    * @brief 监控触摸并执行自动锁屏和锁屏页面双击亮屏或熄屏流程
    */
   void RunScreenLockTask();
@@ -127,6 +133,26 @@ class Application final {
    * @brief 处理设备物理电源键事件
    */
   void RunPowerButtonTask();
+
+  /**
+   * @brief 轮询物理音量加减按键并处理按下和长按连续调节
+   */
+  void RunVolumeButtonTask();
+
+  /**
+   * @brief 应用物理按键计算出的音量并显示快捷浮层
+   * @param volume_percent 目标音量百分比
+   * @return 音量成功应用到硬件时返回 true
+   */
+  bool HandleVolumeButtonValue(int volume_percent);
+
+  /**
+   * @brief 应用扬声器音量并按需保存最终设置
+   * @param percent 目标音量百分比
+   * @param commit true 表示保存最终设置，false 仅更新硬件
+   * @return 音量成功应用到硬件时返回 true
+   */
+  bool ApplySpeakerVolume(int percent, bool commit);
 
   /**
    * @brief 处理电源键短按，切换锁屏、熄屏和唤醒状态
@@ -276,7 +302,7 @@ class Application final {
   // 防止重启与关机流程并发进入最终熄屏和存储事务。
   std::atomic<bool> power_action_in_progress_{false};
   // 启动页结束前只跟踪按键状态，不向界面投递事件。
-  std::atomic<bool> power_button_events_enabled_{false};
+  std::atomic<bool> physical_button_events_enabled_{false};
   // 由电源键轮询任务写入，由锁屏任务交换取走。
   std::atomic<PowerButtonAction> pending_power_button_action_{
       PowerButtonAction::kNone};

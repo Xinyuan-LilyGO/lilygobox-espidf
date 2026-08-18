@@ -159,6 +159,7 @@ bool BuildSoundHapticsContent(lv_obj_t* body, SettingsViewState* state) {
   }
   lv_obj_t* volume_slider =
       lv_obj_get_child(body, lv_obj_get_child_count(body) - 1);
+  state->audio_volume_slider = volume_slider;
   if (volume_slider != nullptr) {
     lv_obj_add_event_cb(volume_slider, VolumeSliderPressedEventCallback,
         LV_EVENT_PRESSED, state);

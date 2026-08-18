@@ -1736,6 +1736,24 @@ bool TDisplayP4AirDevice::InitializePowerButton() {
   return power_button_initialized_;
 }
 
+bool TDisplayP4AirDevice::InitializeVolumeButtons() {
+  if (volume_buttons_initialized_) {
+    return true;
+  }
+  if (tool_ == nullptr) {
+    return false;
+  }
+
+  volume_buttons_initialized_ =
+      tool_->SetGpioMode(gpio::button::kEsp32p4Boot,
+          cpp_bus_driver::Tool::GpioMode::kInput,
+          cpp_bus_driver::Tool::GpioStatus::kPullup) &&
+      tool_->SetGpioMode(gpio::button::kKey1,
+          cpp_bus_driver::Tool::GpioMode::kInput,
+          cpp_bus_driver::Tool::GpioStatus::kPullup);
+  return volume_buttons_initialized_;
+}
+
 bool TDisplayP4AirDevice::IsPowerButtonHeldForStartup() {
   if (!InitializePowerButton()) {
     return false;
@@ -1874,6 +1892,10 @@ bool TDisplayP4AirDevice::InitDevice() {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize power button failed\n");
   }
+  if (!InitializeVolumeButtons()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Initialize volume buttons failed\n");
+  }
   if (!InitializeTouchInterrupt()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize touch interrupt failed; using polling fallback\n");
@@ -1888,6 +1910,26 @@ bool TDisplayP4AirDevice::ReadPowerButtonPressed(bool* pressed) {
 
   // 电源键使用上拉输入，按下时把 GPIO 拉低。
   *pressed = !tool_->GpioRead(gpio::button::kPower);
+  return true;
+}
+
+bool TDisplayP4AirDevice::ReadVolumeUpButtonPressed(bool* pressed) {
+  if (pressed == nullptr || !volume_buttons_initialized_ || tool_ == nullptr) {
+    return false;
+  }
+
+  // BOOT 音量加按键使用上拉输入，按下时把 GPIO 拉低。
+  *pressed = !tool_->GpioRead(gpio::button::kEsp32p4Boot);
+  return true;
+}
+
+bool TDisplayP4AirDevice::ReadVolumeDownButtonPressed(bool* pressed) {
+  if (pressed == nullptr || !volume_buttons_initialized_ || tool_ == nullptr) {
+    return false;
+  }
+
+  // KEY1 音量减按键使用上拉输入，按下时把 GPIO 拉低。
+  *pressed = !tool_->GpioRead(gpio::button::kKey1);
   return true;
 }
 
@@ -3005,6 +3047,19 @@ bool TDisplayP4AirDevice::StopSpeakerToneLoop() {
 }
 
 bool TDisplayP4AirDevice::SetSpeakerVolumePercent(int percent) {
+  const int clamped_percent = std::clamp(percent, 0, 100);
+  if (speaker_.volume_percent.load() == clamped_percent) {
+    return true;
+  }
+
+  const bool audio_active =
+      speaker_.running.load() || microphone_.running.load();
+  if (!audio_active) {
+    // 音频未运行时只缓存音量，下一次启用编解码器时会自动恢复。
+    speaker_.volume_percent.store(clamped_percent);
+    return true;
+  }
+
   if (!driver_.IsEs8389Ready() && !driver_.InitEs8389()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "ES8389 init failed\n");
     return false;
@@ -3013,14 +3068,12 @@ bool TDisplayP4AirDevice::SetSpeakerVolumePercent(int percent) {
           TDisplayP4AirBoardDriver::Es8389OperatingMode::kActive)) {
     return false;
   }
-  const int clamped_percent = std::clamp(percent, 0, 100);
   const bool result =
       esp_codec_dev_set_out_vol(driver_.es8389_output_codec_dev(),
           clamped_percent) == ESP_CODEC_DEV_OK;
   if (result) {
     speaker_.volume_percent.store(clamped_percent);
   }
-  UpdateAudioCodecOperatingMode();
   return result;
 }
 

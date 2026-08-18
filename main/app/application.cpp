@@ -53,6 +53,13 @@ constexpr UBaseType_t kPowerButtonTaskPriority = 3;
 constexpr uint32_t kPowerButtonPollMs = 20;
 constexpr uint32_t kPowerButtonDebounceMs = 40;
 constexpr uint32_t kPowerButtonLongPressMs = 2 * 1000;
+constexpr uint32_t kVolumeButtonTaskStackBytes = 3 * 1024;
+constexpr UBaseType_t kVolumeButtonTaskPriority = 3;
+constexpr uint32_t kVolumeButtonPollMs = 20;
+constexpr uint32_t kVolumeButtonDebounceMs = 40;
+constexpr uint32_t kVolumeButtonRepeatDelayMs = 320;
+constexpr uint32_t kVolumeButtonRepeatIntervalMs = 40;
+constexpr int kVolumeButtonStepPercent = 2;
 constexpr uint32_t kScreenLockPollMs = 100;
 constexpr uint32_t kScreenTouchPollMs = 30;
 // 防止触发熄屏的双击被触摸固件延迟上报为新的唤醒手势。
@@ -241,6 +248,56 @@ class PowerButtonRecognizer final {
   bool long_press_reported_ = false;
   uint32_t raw_changed_ms_ = 0;
   uint32_t press_started_ms_ = 0;
+};
+
+/**
+ * @brief 对物理音量键去抖并生成按下和长按连续调节事件
+ */
+class RepeatingButtonRecognizer final {
+ public:
+  bool Update(bool pressed, uint32_t now_ms) {
+    if (!initialized_) {
+      initialized_ = true;
+      raw_pressed_ = pressed;
+      stable_pressed_ = pressed;
+      ignore_initial_press_ = pressed;
+      raw_changed_ms_ = now_ms;
+      next_repeat_ms_ = now_ms + kVolumeButtonRepeatDelayMs;
+      return false;
+    }
+
+    if (pressed != raw_pressed_) {
+      raw_pressed_ = pressed;
+      raw_changed_ms_ = now_ms;
+    }
+    if (raw_pressed_ != stable_pressed_ &&
+        now_ms - raw_changed_ms_ >= kVolumeButtonDebounceMs) {
+      stable_pressed_ = raw_pressed_;
+      if (!stable_pressed_) {
+        ignore_initial_press_ = false;
+        return false;
+      }
+      next_repeat_ms_ = now_ms + kVolumeButtonRepeatDelayMs;
+      return !ignore_initial_press_;
+    }
+
+    if (stable_pressed_ && !ignore_initial_press_ &&
+        static_cast<int32_t>(now_ms - next_repeat_ms_) >= 0) {
+      next_repeat_ms_ = now_ms + kVolumeButtonRepeatIntervalMs;
+      return true;
+    }
+    return false;
+  }
+
+  bool pressed() const { return stable_pressed_; }
+
+ private:
+  bool initialized_ = false;
+  bool raw_pressed_ = false;
+  bool stable_pressed_ = false;
+  bool ignore_initial_press_ = false;
+  uint32_t raw_changed_ms_ = 0;
+  uint32_t next_repeat_ms_ = 0;
 };
 
 DoubleTapEvent DoubleTapRecognizer::Update(
@@ -657,6 +714,21 @@ bool Application::Init() {
     }
   }
 
+  bool volume_up_pressed = false;
+  bool volume_down_pressed = false;
+  if (screen_lock_task_result == pdPASS &&
+      device->ReadVolumeUpButtonPressed(&volume_up_pressed) &&
+      device->ReadVolumeDownButtonPressed(&volume_down_pressed)) {
+    const BaseType_t volume_button_task_result = xTaskCreate(
+        VolumeButtonTaskEntry, "volume_button",
+        kVolumeButtonTaskStackBytes, this, kVolumeButtonTaskPriority,
+        nullptr);
+    if (volume_button_task_result != pdPASS) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Create volume button task failed\n");
+    }
+  }
+
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
       "LilygoBox initialized on %s\n", device_model_name);
   return true;
@@ -864,6 +936,14 @@ void Application::PowerButtonTaskEntry(void* context) {
   vTaskDelete(nullptr);
 }
 
+void Application::VolumeButtonTaskEntry(void* context) {
+  auto* self = static_cast<Application*>(context);
+  if (self != nullptr) {
+    self->RunVolumeButtonTask();
+  }
+  vTaskDelete(nullptr);
+}
+
 void Application::RunStartupWifiAutoConnectTask() {
   app::WifiAutoConnectOptions options;
   options.start_driver_if_needed = true;
@@ -907,7 +987,7 @@ void Application::RunPowerButtonTask() {
     bool pressed = false;
     if (device->ReadPowerButtonPressed(&pressed)) {
       const PowerButtonEvent event = recognizer.Update(pressed, now_ms);
-      if (power_button_events_enabled_.load()) {
+      if (physical_button_events_enabled_.load()) {
         if (event == PowerButtonEvent::kShortPress) {
           pending_power_button_action_.store(PowerButtonAction::kShortPress);
         } else if (event == PowerButtonEvent::kLongPress) {
@@ -920,6 +1000,125 @@ void Application::RunPowerButtonTask() {
   }
 }
 
+void Application::RunVolumeButtonTask() {
+  hal::DeviceProvider* device = device_provider_context_.device;
+  if (device == nullptr) {
+    return;
+  }
+
+  RepeatingButtonRecognizer volume_up_recognizer;
+  RepeatingButtonRecognizer volume_down_recognizer;
+  int adjusted_volume_percent = 0;
+  bool adjustment_active = false;
+  bool volume_up_limit_feedback_sent = false;
+  bool volume_down_limit_feedback_sent = false;
+  TickType_t last_poll_ticks = xTaskGetTickCount();
+  while (true) {
+    const uint32_t now_ms = static_cast<uint32_t>(
+        xTaskGetTickCount() * portTICK_PERIOD_MS);
+    bool volume_up_pressed = false;
+    bool volume_down_pressed = false;
+    const bool volume_up_available =
+        device->ReadVolumeUpButtonPressed(&volume_up_pressed);
+    const bool volume_down_available =
+        device->ReadVolumeDownButtonPressed(&volume_down_pressed);
+    const bool volume_up_event = volume_up_available &&
+        volume_up_recognizer.Update(volume_up_pressed, now_ms);
+    const bool volume_down_event = volume_down_available &&
+        volume_down_recognizer.Update(volume_down_pressed, now_ms);
+
+    if (!power_action_in_progress_.load() &&
+        physical_button_events_enabled_.load()) {
+      int delta_percent = 0;
+      if (volume_up_event && !volume_down_event) {
+        delta_percent = kVolumeButtonStepPercent;
+      } else if (volume_down_event && !volume_up_event) {
+        delta_percent = -kVolumeButtonStepPercent;
+      }
+      if (delta_percent != 0) {
+        if (!adjustment_active) {
+          adjusted_volume_percent =
+              app::GetSoundPreferences().volume_percent;
+        }
+        const int target_percent = std::clamp(
+            adjusted_volume_percent + delta_percent, 0, 100);
+        const bool at_upper_limit = delta_percent > 0 &&
+            target_percent == adjusted_volume_percent;
+        const bool at_lower_limit = delta_percent < 0 &&
+            target_percent == adjusted_volume_percent;
+        if ((at_upper_limit && !volume_up_limit_feedback_sent) ||
+            (at_lower_limit && !volume_down_limit_feedback_sent)) {
+          ui::PlayUiHapticFeedback();
+        }
+        volume_up_limit_feedback_sent |= at_upper_limit;
+        volume_down_limit_feedback_sent |= at_lower_limit;
+        if (HandleVolumeButtonValue(target_percent)) {
+          adjusted_volume_percent = target_percent;
+          adjustment_active = true;
+        }
+      }
+      if (!volume_up_recognizer.pressed()) {
+        volume_up_limit_feedback_sent = false;
+      }
+      if (!volume_down_recognizer.pressed()) {
+        volume_down_limit_feedback_sent = false;
+      }
+      if (adjustment_active && !volume_up_recognizer.pressed() &&
+          !volume_down_recognizer.pressed()) {
+        ApplySpeakerVolume(adjusted_volume_percent, true);
+        adjustment_active = false;
+      }
+    }
+    xTaskDelayUntil(&last_poll_ticks, pdMS_TO_TICKS(kVolumeButtonPollMs));
+  }
+}
+
+bool Application::HandleVolumeButtonValue(int volume_percent) {
+  const int clamped_percent = std::clamp(volume_percent, 0, 100);
+  if (!ApplySpeakerVolume(clamped_percent, false)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Apply physical volume-button change failed\n");
+    return false;
+  }
+
+  if (screen_lock_state_.load() == ScreenLockState::kAsleep) {
+    return true;
+  }
+  lvgl_port_.Lock();
+  const bool shown = ui_manager_.ShowVolumeOverlay(clamped_percent,
+      [this](int percent, bool commit) {
+        return ApplySpeakerVolume(percent, commit);
+      });
+  lvgl_port_.Unlock();
+  if (!shown) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Show volume overlay failed\n");
+  }
+  return true;
+}
+
+bool Application::ApplySpeakerVolume(int percent, bool commit) {
+  if (device_provider_context_.audio == nullptr) {
+    return false;
+  }
+  const int clamped_percent = std::clamp(percent, 0, 100);
+  if (!device_provider_context_.audio->SetSpeakerVolumePercent(
+          clamped_percent)) {
+    return false;
+  }
+  if (!commit) {
+    return true;
+  }
+
+  app::SoundPreferences preferences = app::GetSoundPreferences();
+  preferences.volume_percent = clamped_percent;
+  if (!app::UpdateSoundPreferences(preferences)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Persist volume-button setting failed\n");
+  }
+  return true;
+}
+
 void Application::RunScreenLockTask() {
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
   if (screen == nullptr) {
@@ -929,7 +1128,7 @@ void Application::RunScreenLockTask() {
   while (ui_manager_.IsStartupScreenActive()) {
     vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
   }
-  power_button_events_enabled_.store(true);
+  physical_button_events_enabled_.store(true);
 
   uint32_t last_touch_ms = static_cast<uint32_t>(xTaskGetTickCount() *
       portTICK_PERIOD_MS);

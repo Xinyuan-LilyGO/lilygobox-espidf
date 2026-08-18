@@ -23,4 +23,12 @@ namespace lilygo_box::ui {
 lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry& app_entry,
     const AppViewConfig& config);
 
+/**
+ * @brief 同步设置页面保存的音量值和当前可见的音量滑动条
+ * @param settings_view 设置页面根对象
+ * @param volume_percent 目标音量百分比
+ */
+void UpdateSettingsViewVolume(
+    lv_obj_t* settings_view, int volume_percent);
+
 }  // namespace lilygo_box::ui

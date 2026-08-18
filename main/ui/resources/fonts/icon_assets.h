@@ -52,6 +52,7 @@ inline constexpr char kRefresh[] = "\xEE\x97\x95";
 inline constexpr char kRepeat[] = "\xEE\x81\x80";
 inline constexpr char kRepeatOne[] = "\xEE\x81\x81";
 inline constexpr char kShuffle[] = "\xEE\x81\x83";
+inline constexpr char kVolumeOff[] = "\xEE\x81\x8F";
 inline constexpr char kVolumeUp[] = "\xEE\x81\x90";
 inline constexpr char kWarning[] = "\xEF\x82\x83";
 inline constexpr char kSignalWifi4Bar[] = "\xEF\x81\xA5";
