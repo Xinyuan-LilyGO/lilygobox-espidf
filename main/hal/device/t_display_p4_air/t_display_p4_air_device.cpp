@@ -139,6 +139,8 @@ constexpr size_t kNfcType2MaximumReadBytes = 256;
 // 以下参数只用于 Debug 日志和射频诊断。
 constexpr uint32_t kNfcDebugStatusLogIntervalMs = 5000;
 constexpr uint32_t kNfcDebugDiagnosticGuardTimeoutMs = 20;
+constexpr uint32_t kInfraredRmtResolutionHz = 1000000;
+constexpr int kNecDecodeMarginUs = 200;
 constexpr uint32_t kInfraredReceiveMinimumNs = 1000;
 // 关机充电状态每 5 秒短暂唤醒一次，仅用于检查 USB 是否已经拔出。
 constexpr uint64_t kPowerOffMonitorWakeIntervalUs = 5ULL * 1000 * 1000;
@@ -206,7 +208,7 @@ enum class NecDecodeResult {
 bool IsNecDuration(uint16_t actual_us, uint16_t expected_us) {
   const int difference =
       std::abs(static_cast<int>(actual_us) - static_cast<int>(expected_us));
-  return difference <= device::infrared::kNecDecodeMargin;
+  return difference <= kNecDecodeMarginUs;
 }
 
 /**
@@ -4928,7 +4930,7 @@ bool TDisplayP4AirDevice::InitializeInfraredHardware() {
   rmt_rx_channel_config_t receive_config = {};
   receive_config.gpio_num = static_cast<gpio_num_t>(gpio::infrared::kRx);
   receive_config.clk_src = RMT_CLK_SRC_DEFAULT;
-  receive_config.resolution_hz = device::infrared::kResolutionHz;
+  receive_config.resolution_hz = kInfraredRmtResolutionHz;
   receive_config.mem_block_symbols = std::size(infrared_.receive_symbols);
   receive_config.flags.with_dma = false;
   result = rmt_new_rx_channel(&receive_config, &infrared_.receive_channel);
@@ -4944,7 +4946,7 @@ bool TDisplayP4AirDevice::InitializeInfraredHardware() {
     rmt_tx_channel_config_t transmit_config = {};
     transmit_config.gpio_num = static_cast<gpio_num_t>(gpio::infrared::kTx);
     transmit_config.clk_src = RMT_CLK_SRC_DEFAULT;
-    transmit_config.resolution_hz = device::infrared::kResolutionHz;
+    transmit_config.resolution_hz = kInfraredRmtResolutionHz;
     transmit_config.mem_block_symbols = 64;
     transmit_config.trans_queue_depth = 4;
     transmit_config.flags.with_dma = false;
