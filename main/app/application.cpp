@@ -18,6 +18,7 @@
 #include "app/storage/display_storage.h"
 #include "app/storage/first_boot_storage.h"
 #include "app/storage/littlefs_storage.h"
+#include "app/storage/otg_storage.h"
 #include "app/storage/power_state_storage.h"
 #include "app/storage/sound_storage.h"
 #include "app/storage/storage.h"
@@ -43,6 +44,8 @@ constexpr uint32_t kStartupWifiAutoConnectPollMs = 200;
 constexpr uint32_t kWifiAutoConnectIdleMs = 2 * 1000;
 constexpr uint32_t kWifiAutoConnectFailureRetryMs = 30 * 1000;
 constexpr uint32_t kBatteryMonitorPeriodMs = 1000;
+constexpr uint32_t kOtgMonitorPeriodMs = 200;
+constexpr uint32_t kOtgRestoreDelayMs = 500;
 constexpr uint32_t kStartupWifiAutoConnectTaskStackBytes = 8 * 1024;
 constexpr UBaseType_t kStartupWifiAutoConnectTaskPriority = 3;
 constexpr uint32_t kScreenLockTaskStackBytes = 6 * 1024;
@@ -564,7 +567,8 @@ bool Application::Init() {
       device_provider_context_.rtc, device_provider_context_.radio,
       device_provider_context_.imu,
       device_provider_context_.ethernet, device_provider_context_.wifi,
-      device_provider_context_.storage, device_provider_context_.nfc,
+      device_provider_context_.storage, device_provider_context_.otg,
+      device_provider_context_.nfc,
       device_provider_context_.infrared, device_provider_context_.cellular);
   if (!result) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__, "Init failed\n");
@@ -641,6 +645,11 @@ bool Application::Init() {
     vTaskDelay(pdMS_TO_TICKS(kLowBatteryStartupWarningMs));
     PowerOffDevice();
     return false;
+  }
+
+  if (!UpdateOtgPowerPolicy()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Initialize OTG reverse-power policy failed\n");
   }
 
   const bool startup_result = StartStartupScreen();
@@ -895,15 +904,26 @@ bool Application::StartStartupScreen() {
 }
 
 void Application::Run() {
+  TickType_t last_battery_monitor_tick = xTaskGetTickCount();
   while (true) {
-    vTaskDelay(pdMS_TO_TICKS(kBatteryMonitorPeriodMs));
+    vTaskDelay(pdMS_TO_TICKS(kOtgMonitorPeriodMs));
     if (power_action_in_progress_.load()) {
       continue;
     }
 
+    UpdateOtgPowerPolicy();
+
+    const TickType_t current_tick = xTaskGetTickCount();
+    if (current_tick - last_battery_monitor_tick <
+        pdMS_TO_TICKS(kBatteryMonitorPeriodMs)) {
+      continue;
+    }
+    last_battery_monitor_tick = current_tick;
+
     int charge_percent = 0;
     if (device_provider_context_.battery_management != nullptr &&
-        device_provider_context_.battery_management->ReadBatteryLevel(&charge_percent) &&
+        device_provider_context_.battery_management->ReadBatteryLevel(
+            &charge_percent) &&
         charge_percent == 0) {
       LogMessage(LogLevel::kError, __FILE__, __LINE__,
           "Battery depleted; powering off device\n");
@@ -998,6 +1018,60 @@ void Application::RunPowerButtonTask() {
     }
     xTaskDelayUntil(&last_poll_ticks, pdMS_TO_TICKS(kPowerButtonPollMs));
   }
+}
+
+bool Application::UpdateOtgPowerPolicy() {
+  hal::OtgProvider* otg = device_provider_context_.otg;
+  if (otg == nullptr) {
+    return true;
+  }
+
+  bool external_power_present = false;
+  if (!otg->ReadExternalPowerPresent(&external_power_present)) {
+    otg_hardware_state_known_ = false;
+    return false;
+  }
+
+  const bool requested = app::GetOtgPreferences().enabled;
+  bool enable_hardware = requested && !external_power_present;
+  if (external_power_present) {
+    if (requested && !otg_suspended_for_external_power_) {
+      LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+          "External power connected; OTG reverse power suspended\n");
+    }
+    otg_suspended_for_external_power_ = requested;
+    otg_external_power_removed_tick_ = 0;
+  } else if (!requested) {
+    otg_suspended_for_external_power_ = false;
+    otg_external_power_removed_tick_ = 0;
+  } else if (otg_suspended_for_external_power_) {
+    const TickType_t current_tick = xTaskGetTickCount();
+    if (otg_external_power_removed_tick_ == 0) {
+      otg_external_power_removed_tick_ = current_tick;
+      enable_hardware = false;
+    } else if (current_tick - otg_external_power_removed_tick_ <
+               pdMS_TO_TICKS(kOtgRestoreDelayMs)) {
+      enable_hardware = false;
+    }
+  }
+
+  if (!otg_hardware_state_known_ ||
+      otg_hardware_enabled_ != enable_hardware) {
+    if (!otg->SetOtgPowerEnabled(enable_hardware)) {
+      otg_hardware_state_known_ = false;
+      return false;
+    }
+    otg_hardware_enabled_ = enable_hardware;
+    otg_hardware_state_known_ = true;
+    if (enable_hardware && otg_suspended_for_external_power_) {
+      otg_suspended_for_external_power_ = false;
+      otg_external_power_removed_tick_ = 0;
+      LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+          "OTG reverse power restored after external power removal\n");
+    }
+  }
+
+  return !enable_hardware || otg->UpdateOtgPowerState();
 }
 
 void Application::RunVolumeButtonTask() {

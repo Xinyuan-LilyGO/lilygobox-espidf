@@ -36,6 +36,7 @@ class ImuProvider;
 class InfraredProvider;
 class LvglPort;
 class NfcProvider;
+class OtgProvider;
 class RtcProvider;
 class RadioProvider;
 class WifiProvider;
@@ -65,6 +66,7 @@ class UiManager final {
    * @param ethernet 以太网接口
    * @param wifi hosted WiFi 接口
    * @param storage 存储接口
+   * @param otg OTG 反向供电接口
    * @param nfc NFC 接口
    * @param infrared 红外接口
    * @param cellular 蜂窝接口
@@ -84,7 +86,8 @@ class UiManager final {
       hal::ImuProvider* imu,
       hal::EthernetProvider* ethernet,
       hal::WifiProvider* wifi,
-      hal::StorageProvider* storage, hal::NfcProvider* nfc,
+      hal::StorageProvider* storage, hal::OtgProvider* otg,
+      hal::NfcProvider* nfc,
       hal::InfraredProvider* infrared, hal::CellularProvider* cellular);
 
   /**
@@ -542,6 +545,7 @@ class UiManager final {
   hal::EthernetProvider* ethernet_provider_ = nullptr;
   hal::WifiProvider* wifi_provider_ = nullptr;
   hal::StorageProvider* storage_provider_ = nullptr;
+  hal::OtgProvider* otg_provider_ = nullptr;
   hal::NfcProvider* nfc_provider_ = nullptr;
   hal::InfraredProvider* infrared_provider_ = nullptr;
   hal::CellularProvider* cellular_provider_ = nullptr;

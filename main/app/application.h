@@ -11,6 +11,7 @@
 #include <cstdint>
 
 #include "app/storage/display_storage.h"
+#include "freertos/FreeRTOS.h"
 #include "hal/lvgl_port.h"
 #include "hal/device_provider_factory.h"
 #include "ui/ui_manager.h"
@@ -94,6 +95,12 @@ class Application final {
    * @return 页面创建和刷新成功返回 true，否则返回 false
    */
   bool StartStartupScreen();
+
+  /**
+   * @brief 根据用户偏好和外部电源状态协调 OTG 反向供电
+   * @return 状态读取和所需硬件操作成功时返回 true
+   */
+  bool UpdateOtgPowerPolicy();
 
   /**
    * @brief 启动后自动连接 WLAN 的后台任务入口
@@ -310,6 +317,14 @@ class Application final {
   std::atomic<bool> physical_power_menu_active_{false};
   // 当前是否由持久关机状态进入一次性的关机充电界面。
   bool power_off_charging_boot_ = false;
+  // 外部电源接入期间是否临时暂停用户请求的 OTG 反向供电。
+  bool otg_suspended_for_external_power_ = false;
+  // 应用层记录的 OTG 硬件状态是否有效。
+  bool otg_hardware_state_known_ = false;
+  // 最近一次成功应用到驱动的 OTG 开关状态。
+  bool otg_hardware_enabled_ = false;
+  // 最近一次确认外部电源移除时的系统节拍。
+  TickType_t otg_external_power_removed_tick_ = 0;
 };
 
 }  // namespace lilygo_box

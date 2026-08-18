@@ -16,6 +16,7 @@
 #include "app/settings_catalog.h"
 #include "app/storage/display_storage.h"
 #include "app/storage/haptic_storage.h"
+#include "app/storage/otg_storage.h"
 #include "app/storage/sound_storage.h"
 #include "hal/providers/wifi_provider.h"
 #include "ui/resources/fonts/icon_assets.h"
@@ -146,6 +147,10 @@ void SettingsViewDeleteEventCallback(lv_event_t* event) {
   if (state != nullptr && state->wifi_refresh_timer != nullptr) {
     lv_timer_delete(state->wifi_refresh_timer);
     state->wifi_refresh_timer = nullptr;
+  }
+  if (state != nullptr && state->otg_refresh_timer != nullptr) {
+    lv_timer_delete(state->otg_refresh_timer);
+    state->otg_refresh_timer = nullptr;
   }
   if (state != nullptr && state->factory_reset_countdown_timer != nullptr) {
     lv_timer_delete(state->factory_reset_countdown_timer);
@@ -488,6 +493,9 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
   }
   state->config = config;
   state->root = root;
+  if (config.otg != nullptr) {
+    state->otg_enabled = app::GetOtgPreferences().enabled;
+  }
   lv_obj_set_user_data(root, state);
   LoadWifiSettingsFromCache(state, IsWifiCurrentlyEnabled(config));
   app::DisplayPreferences display_preferences = app::GetDisplayPreferences();

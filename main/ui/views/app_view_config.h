@@ -33,6 +33,7 @@ class ImuProvider;
 class InfraredProvider;
 class LvglPort;
 class NfcProvider;
+class OtgProvider;
 class RtcProvider;
 class RadioProvider;
 class ScreenProvider;
@@ -78,6 +79,8 @@ struct AppViewConfig {
   hal::WifiProvider* wifi = nullptr;
   // SD 卡和本机存储状态提供者。
   hal::StorageProvider* storage = nullptr;
+  // OTG 反向供电状态和控制提供者。
+  hal::OtgProvider* otg = nullptr;
   // NFC 读卡器状态和控制提供者。
   hal::NfcProvider* nfc = nullptr;
   // 红外 NEC 收发和状态提供者。

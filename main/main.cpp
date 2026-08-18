@@ -17,7 +17,7 @@ extern "C" void app_main() {
   // lilygo_device_driver::SetMinimumLogLevel(
   //     lilygo_device_driver::LogLevel::kDebug);
 
-  lilygo_box::Application app;
+  static lilygo_box::Application app;
   const bool result = app.Init();
   if (!result) {
     lilygo_box::LogMessage(

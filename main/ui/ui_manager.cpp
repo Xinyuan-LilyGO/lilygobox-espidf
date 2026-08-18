@@ -870,7 +870,8 @@ bool UiManager::Init(hal::ScreenProvider* screen,
     hal::ImuProvider* imu,
     hal::EthernetProvider* ethernet,
     hal::WifiProvider* wifi,
-    hal::StorageProvider* storage, hal::NfcProvider* nfc,
+    hal::StorageProvider* storage, hal::OtgProvider* otg,
+    hal::NfcProvider* nfc,
     hal::InfraredProvider* infrared, hal::CellularProvider* cellular) {
   if (screen == nullptr || lvgl_port == nullptr) {
     return false;
@@ -891,6 +892,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   ethernet_provider_ = ethernet;
   wifi_provider_ = wifi;
   storage_provider_ = storage;
+  otg_provider_ = otg;
   nfc_provider_ = nfc;
   infrared_provider_ = infrared;
   cellular_provider_ = cellular;
@@ -2547,6 +2549,7 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   config.ethernet = ethernet_provider_;
   config.wifi = wifi_provider_;
   config.storage = storage_provider_;
+  config.otg = otg_provider_;
   config.nfc = nfc_provider_;
   config.infrared = infrared_provider_;
   config.cellular = cellular_provider_;

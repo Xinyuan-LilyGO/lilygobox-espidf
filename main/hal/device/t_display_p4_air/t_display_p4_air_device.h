@@ -43,6 +43,7 @@ class TDisplayP4AirDevice final : public ScreenProvider,
                                   public CameraProvider,
                                   public CellularProvider,
                                   public BatteryManagementProvider,
+                                  public OtgProvider,
                                   public InfraredProvider,
                                   public NfcProvider,
                                   public RadioProvider,
@@ -436,6 +437,26 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   bool ReadBatteryLevel(int* percent) override;
 
   /**
+   * @brief 设置 AXP517 Type-C Source 反向供电状态
+   * @param enabled true 允许反向供电，false 保持受电角色
+   * @return 设置成功返回 true，否则返回 false
+   */
+  bool SetOtgPowerEnabled(bool enabled) override;
+
+  /**
+   * @brief 根据 AXP517 Type-C 连接角色更新反向供电状态
+   * @return 状态更新成功返回 true，否则返回 false
+   */
+  bool UpdateOtgPowerState() override;
+
+  /**
+   * @brief 读取 AXP517 Type-C 接口是否检测到外部供电端
+   * @param present 外部电源连接状态输出地址
+   * @return 状态读取成功返回 true，否则返回 false
+   */
+  bool ReadExternalPowerPresent(bool* present) override;
+
+  /**
    * @brief 读取板载 LR1121 支持的射频协议、频段和负载能力
    * @param capabilities 射频能力输出地址
    * @return 能力信息读取成功时返回 true
@@ -636,6 +657,7 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   static constexpr int kScreenReadyPollMs = 20;
   static constexpr int kPowerOffTaskTimeoutMs = 5000;
   static constexpr int kPowerOffTaskPollMs = 20;
+  static constexpr int kOtgMutexTimeoutMs = 50;
 
   /**
    * @brief 初始化触摸通知信号对应的 ESP32-P4 GPIO 中断
@@ -671,6 +693,26 @@ class TDisplayP4AirDevice final : public ScreenProvider,
    * @return 两个唤醒源均配置成功时返回 true
    */
   bool ConfigurePowerOffWakeSources();
+
+  /**
+   * @brief 在已持有 OTG 互斥锁时切换 AXP517 Boost 和 RBFET 输出
+   * @param enabled true 开启反向供电输出，false 关闭输出
+   * @return 输出状态设置成功时返回 true
+   */
+  bool SetOtgPowerOutputEnabledLocked(bool enabled);
+
+  /**
+   * @brief 在已持有 OTG 互斥锁时读取 Type-C 外部供电状态
+   * @param present 外部电源连接状态输出地址
+   * @return AXP517 状态读取成功时返回 true
+   */
+  bool ReadExternalPowerPresentLocked(bool* present);
+
+  /**
+   * @brief 在已持有 OTG 互斥锁时同步 Type-C 角色与反向供电输出
+   * @return AXP517 状态同步成功时返回 true
+   */
+  bool UpdateOtgPowerStateLocked();
 
   /**
    * @brief 关闭最小启动路径临时开启的电源并返回深度睡眠动作
@@ -1300,6 +1342,15 @@ class TDisplayP4AirDevice final : public ScreenProvider,
     bool chip_error = false;
   };
 
+  struct OtgState {
+    // 保护 AXP517 Type-C 角色切换和反向供电输出。
+    SemaphoreHandle_t mutex = nullptr;
+    // 当前是否已启用 Type-C Source 角色检测。
+    bool source_role_enabled = false;
+    // 当前是否已开启 Boost 和 RBFET 反向供电输出。
+    bool power_output_enabled = false;
+  };
+
   struct ImuState {
     // 保护传感器配置、FIFO 解析结果和磁力计采样。
     SemaphoreHandle_t mutex = nullptr;
@@ -1402,6 +1453,8 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   WifiTimeTestState wifi_time_test_;
   // Radio 会话状态，单芯片只允许一个活动配置。
   RadioState radio_;
+  // OTG 角色与反向供电硬件状态。
+  OtgState otg_;
   // BHI260AP 与 QMC6310N 组合姿态状态。
   ImuState imu_;
   // Air 板 ST25R3916 后台轮询状态。

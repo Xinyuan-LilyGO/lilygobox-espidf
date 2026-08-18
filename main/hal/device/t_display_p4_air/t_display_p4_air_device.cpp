@@ -1685,6 +1685,7 @@ TDisplayP4AirDevice::TDisplayP4AirDevice()
       tool_(std::make_unique<cpp_bus_driver::Tool>()) {
   wifi_.scan_results_mutex = xSemaphoreCreateMutex();
   radio_.mutex = xSemaphoreCreateMutex();
+  otg_.mutex = xSemaphoreCreateMutex();
   nrf9151_mutex_ = xSemaphoreCreateMutex();
   imu_.mutex = xSemaphoreCreateMutex();
   nfc_.mutex = xSemaphoreCreateMutex();
@@ -1860,6 +1861,7 @@ PowerOffBootAction TDisplayP4AirDevice::PreparePowerOffShippingMode() {
 
 bool TDisplayP4AirDevice::InitDevice() {
   if (wifi_.scan_results_mutex == nullptr || radio_.mutex == nullptr ||
+      otg_.mutex == nullptr ||
       nrf9151_mutex_ == nullptr || imu_.mutex == nullptr ||
       nfc_.mutex == nullptr || infrared_.mutex == nullptr ||
       cellular_.status_mutex == nullptr) {
@@ -1869,6 +1871,8 @@ bool TDisplayP4AirDevice::InitDevice() {
   }
 
   const bool result = driver_.Init(TDisplayP4AirBoardDriver::InitMode::kAsync);
+  otg_.source_role_enabled = false;
+  otg_.power_output_enabled = false;
   if (!result) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "Init failed\n");
   }
@@ -6396,6 +6400,163 @@ bool TDisplayP4AirDevice::ReadBatteryLevel(int* percent) {
   return true;
 }
 
+bool TDisplayP4AirDevice::SetOtgPowerEnabled(bool enabled) {
+  if (otg_.mutex == nullptr ||
+      xSemaphoreTake(otg_.mutex, pdMS_TO_TICKS(kOtgMutexTimeoutMs)) != pdTRUE) {
+    return false;
+  }
+
+  auto* axp517 =
+      driver_.IsAxp517Ready() ? driver_.chip().axp517.get() : nullptr;
+  bool result = axp517 != nullptr || !enabled;
+  if (axp517 == nullptr) {
+    otg_.source_role_enabled = false;
+    otg_.power_output_enabled = false;
+  } else if (!enabled) {
+    otg_.source_role_enabled = false;
+    result = SetOtgPowerOutputEnabledLocked(false);
+    result &= axp517->SetVbusDetectEnable(true);
+    result &= axp517->SetPdRole(false, false);
+  } else {
+    bool external_power_present = false;
+    result = ReadExternalPowerPresentLocked(&external_power_present);
+    if (result && external_power_present) {
+      otg_.source_role_enabled = false;
+      bool safe_state_result = SetOtgPowerOutputEnabledLocked(false);
+      safe_state_result &= axp517->SetPdRole(false, false);
+      if (!safe_state_result) {
+        LogMessage(LogLevel::kError, __FILE__, __LINE__,
+            "Keep OTG disabled while external power is present failed\n");
+      }
+      result = false;
+    } else if (result) {
+      result = SetOtgPowerOutputEnabledLocked(false);
+      result &= axp517->SetVbusDetectEnable(true);
+      result &= axp517->SetPdRole(true, true);
+      if (result) {
+        otg_.source_role_enabled = true;
+        result = UpdateOtgPowerStateLocked();
+      } else {
+        otg_.source_role_enabled = false;
+        SetOtgPowerOutputEnabledLocked(false);
+        axp517->SetPdRole(false, false);
+      }
+    }
+  }
+
+  xSemaphoreGive(otg_.mutex);
+  return result;
+}
+
+bool TDisplayP4AirDevice::UpdateOtgPowerState() {
+  if (otg_.mutex == nullptr ||
+      xSemaphoreTake(otg_.mutex, pdMS_TO_TICKS(kOtgMutexTimeoutMs)) != pdTRUE) {
+    return false;
+  }
+  const bool result = driver_.IsAxp517Ready() &&
+                      driver_.chip().axp517 != nullptr &&
+                      UpdateOtgPowerStateLocked();
+  xSemaphoreGive(otg_.mutex);
+  return result;
+}
+
+bool TDisplayP4AirDevice::ReadExternalPowerPresent(bool* present) {
+  if (present == nullptr || otg_.mutex == nullptr ||
+      xSemaphoreTake(otg_.mutex, pdMS_TO_TICKS(kOtgMutexTimeoutMs)) != pdTRUE) {
+    return false;
+  }
+  const bool result = driver_.IsAxp517Ready() &&
+                      driver_.chip().axp517 != nullptr &&
+                      ReadExternalPowerPresentLocked(present);
+  xSemaphoreGive(otg_.mutex);
+  return result;
+}
+
+bool TDisplayP4AirDevice::SetOtgPowerOutputEnabledLocked(bool enabled) {
+  auto* axp517 = driver_.chip().axp517.get();
+  if (axp517 == nullptr) {
+    return false;
+  }
+  if (otg_.power_output_enabled == enabled) {
+    return true;
+  }
+
+  if (enabled) {
+    if (!axp517->SetBoostEnable(true) ||
+        !axp517->SetForceRbfetEnable(true)) {
+      axp517->SetForceRbfetEnable(false);
+      axp517->SetBoostEnable(false);
+      otg_.power_output_enabled = false;
+      return false;
+    }
+  } else {
+    bool result = axp517->SetForceRbfetEnable(false);
+    result &= axp517->SetBoostEnable(false);
+    if (!result) {
+      return false;
+    }
+  }
+
+  otg_.power_output_enabled = enabled;
+  LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+      enabled ? "OTG reverse-power output enabled\n"
+              : "OTG reverse-power output disabled\n");
+  return true;
+}
+
+bool TDisplayP4AirDevice::ReadExternalPowerPresentLocked(bool* present) {
+  auto* axp517 = driver_.chip().axp517.get();
+  if (axp517 == nullptr) {
+    return false;
+  }
+  cpp_bus_driver::Axp517::PdConnectionStatus connection_status;
+  cpp_bus_driver::Axp517::ChipStatus0 chip_status;
+  if (!axp517->GetPdConnectionStatus(connection_status) ||
+      !axp517->GetChipStatus0(chip_status)) {
+    return false;
+  }
+  *present = connection_status.sink_power_attached ||
+             (!otg_.power_output_enabled &&
+                 chip_status.vbus_good_indication);
+  return true;
+}
+
+bool TDisplayP4AirDevice::UpdateOtgPowerStateLocked() {
+  auto* axp517 = driver_.chip().axp517.get();
+  if (axp517 == nullptr) {
+    return false;
+  }
+  if (!otg_.source_role_enabled) {
+    return SetOtgPowerOutputEnabledLocked(false);
+  }
+
+  cpp_bus_driver::Axp517::PdConnectionStatus connection_status;
+  cpp_bus_driver::Axp517::ChipStatus0 chip_status;
+  if (!axp517->GetPdConnectionStatus(connection_status) ||
+      !axp517->GetChipStatus0(chip_status)) {
+    return false;
+  }
+  const bool external_power_present =
+      connection_status.sink_power_attached ||
+      (!otg_.power_output_enabled && chip_status.vbus_good_indication);
+  if (external_power_present) {
+    otg_.source_role_enabled = false;
+    bool result = SetOtgPowerOutputEnabledLocked(false);
+    result &= axp517->SetPdRole(false, false);
+    return result;
+  }
+  if (connection_status.looking_for_connection) {
+    return SetOtgPowerOutputEnabledLocked(false);
+  }
+  if (connection_status.source_device_attached) {
+    return SetOtgPowerOutputEnabledLocked(true);
+  }
+  if (!SetOtgPowerOutputEnabledLocked(false)) {
+    return false;
+  }
+  return axp517->SetPdRole(true, true);
+}
+
 bool TDisplayP4AirDevice::ReadRadioCapabilities(
     RadioCapabilities* capabilities) {
   if (capabilities == nullptr) {
@@ -7128,6 +7289,7 @@ bool TDisplayP4AirDevice::PrepareForPowerOff() {
   result &= SetGpsEnabled(false);
   result &= SetImuEnabled(false);
   result &= SetWifiEnabled(false);
+  result &= SetOtgPowerEnabled(false);
   result &= StopUsbStorage();
   result &= WaitForPowerOffTasks();
   return result;

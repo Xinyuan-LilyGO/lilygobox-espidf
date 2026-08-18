@@ -55,6 +55,7 @@ DeviceProviderContext CreateDeviceProviderContext() {
 #endif
   context.radio = device.get();
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
+  context.otg = device.get();
   context.nfc = device.get();
   context.infrared = device.get();
   context.cellular = device.get();

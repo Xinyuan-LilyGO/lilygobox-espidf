@@ -26,6 +26,7 @@ struct DeviceProviderContext {
   CameraProvider* camera = nullptr;
   RtcProvider* rtc = nullptr;
   RadioProvider* radio = nullptr;
+  OtgProvider* otg = nullptr;
   // Air 板 NFC 读卡器接口，其他设备保持为空。
   NfcProvider* nfc = nullptr;
   // Air 板红外收发接口，其他设备保持为空。

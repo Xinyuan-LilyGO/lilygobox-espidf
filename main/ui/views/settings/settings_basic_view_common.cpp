@@ -503,7 +503,7 @@ bool CreateActionRow(lv_obj_t* parent, const char* title, int y, int width,
 
 bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,
     bool checked, lv_event_cb_t callback, SettingsViewState* state,
-    bool wrap_title) {
+    bool wrap_title, lv_obj_t** switch_output) {
   lv_obj_t* row = lv_obj_create(parent);
   if (row == nullptr) {
     return false;
@@ -550,6 +550,9 @@ bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,
   if (callback != nullptr) {
     lv_obj_add_event_cb(switch_object, callback, LV_EVENT_VALUE_CHANGED,
         state);
+  }
+  if (switch_output != nullptr) {
+    *switch_output = switch_object;
   }
   return true;
 }

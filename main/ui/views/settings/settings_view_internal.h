@@ -241,6 +241,7 @@ struct SettingsViewState {
   lv_obj_t* settings_nested_page = nullptr;
   // WLAN 页面定时刷新器，用来轮询 HAL 扫描和连接状态。
   lv_timer_t* wifi_refresh_timer = nullptr;
+  lv_timer_t* otg_refresh_timer = nullptr;
   lv_timer_t* battery_refresh_timer = nullptr;
   lv_timer_t* factory_reset_countdown_timer = nullptr;
   lv_timer_t* firmware_update_refresh_timer = nullptr;
@@ -307,6 +308,8 @@ struct SettingsViewState {
   uint32_t wifi_connect_started_ms = 0;
   bool bluetooth_enabled = false;
   bool hotspot_enabled = false;
+  lv_obj_t* otg_switch = nullptr;
+  bool otg_enabled = false;
   bool haptics_enabled = true;
   lv_obj_t* audio_volume_slider = nullptr;
   // 声音与振动页面中的振动强度控件容器。
