@@ -5220,7 +5220,7 @@ void TDisplayP4AirDevice::RunCellularTask() {
 
   if (initialized && !cellular_.stop_requested.load()) {
     CopyString(snapshot.model, sizeof(snapshot.model),
-        driver_.chip().nrf9151->device_id());
+        driver_.chip().nrf9151->chip_id());
     std::string response;
     const bool imei_command_ok = send_command("AT+CGSN", &response);
     if (imei_command_ok) {
