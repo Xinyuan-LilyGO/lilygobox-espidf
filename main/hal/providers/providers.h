@@ -19,6 +19,7 @@
 #include "hal/providers/haptic_provider.h"
 #include "hal/providers/imu_provider.h"
 #include "hal/providers/infrared_provider.h"
+#include "hal/providers/keyboard_expansion_provider.h"
 #include "hal/providers/nfc_provider.h"
 #include "hal/providers/otg_provider.h"
 #include "hal/providers/radio/radio_provider.h"

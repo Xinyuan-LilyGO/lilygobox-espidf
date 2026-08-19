@@ -71,7 +71,7 @@ namespace {
 constexpr int kScreenBrightnessMinPercent = 0;
 constexpr int kScreenBrightnessMaxPercent = 100;
 constexpr int kHi8561BrightnessInputMinPercent = 10;
-constexpr uint32_t kHi8561BacklightDutyScale = 1000;
+constexpr uint32_t kSy7200aDutyScale = 1000;
 constexpr uint8_t kVibrationTestGain = 255;
 constexpr uint8_t kVibrationTestLoopCount = 1;
 constexpr uint8_t kAudioVolumeMax = 192;
@@ -1227,7 +1227,7 @@ int ClampScreenBrightnessPercent(int percent) {
 cpp_bus_driver::Pwm::DutyCycle ScreenBrightnessPercentToHi8561DutyCycle(
     int clamped_percent) {
   if (clamped_percent <= kScreenBrightnessMinPercent) {
-    return {.value = 0, .scale = kHi8561BacklightDutyScale};
+    return {.value = 0, .scale = kSy7200aDutyScale};
   }
 
   const int input_percent =
@@ -1235,10 +1235,10 @@ cpp_bus_driver::Pwm::DutyCycle ScreenBrightnessPercentToHi8561DutyCycle(
   constexpr int kInputRangeSquared =
       kScreenBrightnessMaxPercent * kScreenBrightnessMaxPercent;
   const uint32_t scaled_duty = static_cast<uint32_t>(
-      input_percent * input_percent * kHi8561BacklightDutyScale);
+      input_percent * input_percent * kSy7200aDutyScale);
   return {
       .value = (scaled_duty + kInputRangeSquared / 2) / kInputRangeSquared,
-      .scale = kHi8561BacklightDutyScale,
+      .scale = kSy7200aDutyScale,
   };
 }
 
@@ -7175,10 +7175,10 @@ bool TDisplayP4AirDevice::SetScreenBrightnessPercent(int percent) {
   const int clamped_percent = ClampScreenBrightnessPercent(percent);
   switch (driver_.screen_type()) {
     case device::ScreenType::kHi8561:
-      if (driver_.IsHi8561BacklightReady()) {
+      if (driver_.IsSy7200aReady()) {
         const cpp_bus_driver::Pwm::DutyCycle duty =
             ScreenBrightnessPercentToHi8561DutyCycle(clamped_percent);
-        return driver_.chip().hi8561_backlight->SetDuty(duty);
+        return driver_.chip().sy7200a->SetDuty(duty);
       }
       break;
     default:
@@ -7200,10 +7200,10 @@ bool TDisplayP4AirDevice::FadeScreenBrightnessPercent(
 
   switch (driver_.screen_type()) {
     case device::ScreenType::kHi8561:
-      if (driver_.IsHi8561BacklightReady()) {
+      if (driver_.IsSy7200aReady()) {
         const cpp_bus_driver::Pwm::DutyCycle target_duty =
             ScreenBrightnessPercentToHi8561DutyCycle(clamped_percent);
-        if (driver_.chip().hi8561_backlight->FadeTo(target_duty, duration_ms,
+        if (driver_.chip().sy7200a->FadeTo(target_duty, duration_ms,
                 cpp_bus_driver::Pwm::FadeMode::kWaitForCompletion)) {
           return true;
         }

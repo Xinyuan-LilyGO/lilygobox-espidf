@@ -37,6 +37,7 @@ class TDisplayP4Device final : public ScreenProvider,
                                public BatteryManagementProvider,
                                public RtcProvider,
                                public RadioProvider,
+                               public KeyboardExpansionProvider,
                                public EthernetProvider,
                                public WifiProvider,
                                public StorageProvider,
@@ -516,6 +517,14 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   bool ExitDeviceSleep(bool deep_sleep = false) override;
 
+  /** @copydoc KeyboardExpansionProvider::StartKeyboardExpansionScan */
+  bool StartKeyboardExpansionScan() override;
+  /** @copydoc KeyboardExpansionProvider::DisableKeyboardExpansion */
+  bool DisableKeyboardExpansion() override;
+  /** @copydoc KeyboardExpansionProvider::ReadKeyboardExpansionStatus */
+  bool ReadKeyboardExpansionStatus(
+      KeyboardExpansionStatus* status) const override;
+
  private:
   enum class CameraStartupAttemptResult : uint8_t {
     kSuccess,
@@ -533,6 +542,8 @@ class TDisplayP4Device final : public ScreenProvider,
   static constexpr int kScreenReadyPollMs = 20;
   static constexpr int kPowerOffTaskTimeoutMs = 5000;
   static constexpr int kPowerOffTaskPollMs = 20;
+  static constexpr uint32_t kKeyboardExpansionTaskStackBytes = 4096;
+  static constexpr UBaseType_t kKeyboardExpansionTaskPriority = 3;
 
   /**
    * @brief 初始化 XL9535 汇总中断对应的 ESP32-P4 GPIO
@@ -545,6 +556,23 @@ class TDisplayP4Device final : public ScreenProvider,
    * @param context 当前设备对象
    */
   static void TouchInterruptHandler(void* context);
+
+  /**
+   * @brief 键盘扩展扫描任务入口
+   * @param context 当前设备对象
+   */
+  static void KeyboardExpansionScanTaskEntry(void* context);
+
+  /**
+   * @brief 执行键盘扩展硬件扫描、初始化和结果发布
+   */
+  void RunKeyboardExpansionScanTask();
+
+  /**
+   * @brief 等待键盘扩展扫描任务退出
+   * @return 超时前退出返回 true，否则返回 false
+   */
+  bool WaitForKeyboardExpansionTask();
 
   /**
    * @brief 等待异步屏幕初始化进入可用状态
@@ -1195,6 +1223,25 @@ class TDisplayP4Device final : public ScreenProvider,
     bool chip_error = false;
   };
 
+  struct KeyboardExpansionRuntimeState {
+    std::atomic<KeyboardExpansionState> state{
+        KeyboardExpansionState::kDisabled};
+    std::atomic<KeyboardExpansionComponentState> xl9555{
+        KeyboardExpansionComponentState::kNotChecked};
+    std::atomic<KeyboardExpansionComponentState> tca8418{
+        KeyboardExpansionComponentState::kNotChecked};
+    std::atomic<KeyboardExpansionComponentState> sy7200a{
+        KeyboardExpansionComponentState::kNotChecked};
+    std::atomic<KeyboardExpansionComponentState> cc1101{
+        KeyboardExpansionComponentState::kNotChecked};
+    std::atomic<KeyboardExpansionComponentState> nrf24l01{
+        KeyboardExpansionComponentState::kNotChecked};
+    std::atomic<KeyboardExpansionComponentState> st25r3916{
+        KeyboardExpansionComponentState::kNotChecked};
+    std::atomic<bool> task_running{false};
+    std::atomic<uint32_t> scan_generation{0};
+  };
+
   lilygo_device_driver::TDisplayP4Driver& driver_;
   std::unique_ptr<cpp_bus_driver::Tool> tool_;
   UsbStorageManager usb_storage_manager_;
@@ -1223,6 +1270,8 @@ class TDisplayP4Device final : public ScreenProvider,
   WifiTimeTestState wifi_time_test_;
   // Radio 会话状态，单芯片只允许一个活动配置。
   RadioState radio_;
+  // 可选键盘扩展的异步扫描和逐器件状态。
+  KeyboardExpansionRuntimeState keyboard_expansion_;
   std::atomic<bool> imu_enabled_{false};
   bool gps_running_ = false;
   GpsStatus gps_status_;

@@ -17,6 +17,7 @@ namespace lilygo_box::ui {
 constexpr int kBasicBodyTop = kDetailBodyTop;
 constexpr int kBasicSidePadding = 34;
 constexpr int kBasicRowHeight = 86;
+constexpr int kBasicSwitchRowWithSubtitleHeight = 120;
 constexpr int kBasicSectionHeight = 54;
 constexpr int kBasicSwitchWidth = 78;
 constexpr int kBasicSwitchHeight = 44;
@@ -113,11 +114,13 @@ bool CreateActionRow(lv_obj_t* parent, const char* title, int y, int width,
  * @param state 设置页状态
  * @param wrap_title 标题是否在开关左侧的可用宽度内换行
  * @param switch_output 可选返回创建的开关对象
+ * @param subtitle 可选二级说明文字，显示在标题下方
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,
     bool checked, lv_event_cb_t callback, SettingsViewState* state,
-    bool wrap_title = false, lv_obj_t** switch_output = nullptr);
+    bool wrap_title = false, lv_obj_t** switch_output = nullptr,
+    const char* subtitle = nullptr);
 
 /**
  * @brief 创建带图标的滑动条设置行

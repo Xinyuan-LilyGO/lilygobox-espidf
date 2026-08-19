@@ -11,11 +11,13 @@
 #include <cstdint>
 
 #include "app/storage/wifi_storage.h"
+#include "hal/providers/keyboard_expansion_provider.h"
 #include "hal/providers/wifi_provider.h"
 #include "lvgl.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/theme/theme_provider.h"
 #include "ui/views/app_view_config.h"
+#include "ui/widgets/prompt/prompt_dialog.h"
 #include "ui/widgets/prompt/prompt_select_sheet.h"
 
 namespace lilygo_box::hal {
@@ -241,6 +243,7 @@ struct SettingsViewState {
   lv_obj_t* settings_nested_page = nullptr;
   // WLAN 页面定时刷新器，用来轮询 HAL 扫描和连接状态。
   lv_timer_t* wifi_refresh_timer = nullptr;
+  lv_timer_t* keyboard_expansion_refresh_timer = nullptr;
   lv_timer_t* otg_refresh_timer = nullptr;
   lv_timer_t* battery_refresh_timer = nullptr;
   lv_timer_t* factory_reset_countdown_timer = nullptr;
@@ -308,6 +311,16 @@ struct SettingsViewState {
   uint32_t wifi_connect_started_ms = 0;
   bool bluetooth_enabled = false;
   bool hotspot_enabled = false;
+  // 屏幕键盘设置的临时 UI 状态，系统设置接入后再持久化。
+  bool on_screen_keyboard_enabled = true;
+  // 键盘扩展的临时 UI 状态，底层服务接入后再持久化。
+  bool keyboard_expansion_enabled = false;
+  bool keyboard_expansion_prompt_dismissed = false;
+  lv_obj_t* keyboard_expansion_switch = nullptr;
+  lv_obj_t* keyboard_expansion_prompt_status_label = nullptr;
+  lv_obj_t* keyboard_expansion_prompt_spinner = nullptr;
+  PromptDialogState keyboard_expansion_prompt = {};
+  char keyboard_expansion_prompt_message[256] = {};
   lv_obj_t* otg_switch = nullptr;
   bool otg_enabled = false;
   bool haptics_enabled = true;

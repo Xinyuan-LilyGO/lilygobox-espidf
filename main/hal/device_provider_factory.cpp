@@ -51,6 +51,8 @@ DeviceProviderContext CreateDeviceProviderContext() {
   context.battery_management = device.get();
   context.camera = device.get();
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
+  context.capabilities.supports_keyboard_expansion = true;
+  context.keyboard_expansion = device.get();
   context.rtc = device.get();
 #endif
   context.radio = device.get();

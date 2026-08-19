@@ -14,6 +14,7 @@
 
 #include "app/app_catalog.h"
 #include "app/system_status_cache.h"
+#include "hal/device_capabilities.h"
 #include "hal/providers/rtc_provider.h"
 #include "hal/providers/screen_provider.h"
 #include "lvgl.h"
@@ -34,6 +35,7 @@ class GpsProvider;
 class HapticProvider;
 class ImuProvider;
 class InfraredProvider;
+class KeyboardExpansionProvider;
 class LvglPort;
 class NfcProvider;
 class OtgProvider;
@@ -53,6 +55,7 @@ class UiManager final {
    * @brief 初始化 launcher 和根屏幕 UI
    * @param screen 屏幕接口
    * @param lvgl_port LVGL 显示接口
+   * @param device_capabilities 当前板级实现提供的可选功能能力
    * @param diagnostics 诊断接口
    * @param device_info 设备信息接口
    * @param gps GPS 接口
@@ -62,6 +65,7 @@ class UiManager final {
    * @param camera 相机接口
    * @param rtc RTC 接口
    * @param radio 射频接口
+   * @param keyboard_expansion 键盘扩展扫描和生命周期接口
    * @param imu IMU 接口
    * @param ethernet 以太网接口
    * @param wifi hosted WiFi 接口
@@ -74,6 +78,7 @@ class UiManager final {
    */
   bool Init(hal::ScreenProvider* screen,
       hal::LvglPort* lvgl_port,
+      const hal::DeviceCapabilities& device_capabilities,
       hal::DeviceDiagnosticsProvider* diagnostics,
       hal::DeviceInfoProvider* device_info,
       hal::GpsProvider* gps,
@@ -83,6 +88,7 @@ class UiManager final {
       hal::CameraProvider* camera,
       hal::RtcProvider* rtc,
       hal::RadioProvider* radio,
+      hal::KeyboardExpansionProvider* keyboard_expansion,
       hal::ImuProvider* imu,
       hal::EthernetProvider* ethernet,
       hal::WifiProvider* wifi,
@@ -532,6 +538,7 @@ class UiManager final {
   hal::ScreenProvider* screen_ = nullptr;
   // 向需要安全熄屏的系统页面传递统一 LVGL 刷新生命周期。
   hal::LvglPort* lvgl_port_ = nullptr;
+  hal::DeviceCapabilities device_capabilities_;
   hal::DeviceDiagnosticsProvider* diagnostics_provider_ = nullptr;
   hal::DeviceInfoProvider* device_info_provider_ = nullptr;
   hal::GpsProvider* gps_provider_ = nullptr;
@@ -541,6 +548,7 @@ class UiManager final {
   hal::CameraProvider* camera_provider_ = nullptr;
   hal::RtcProvider* rtc_provider_ = nullptr;
   hal::RadioProvider* radio_provider_ = nullptr;
+  hal::KeyboardExpansionProvider* keyboard_expansion_provider_ = nullptr;
   hal::ImuProvider* imu_provider_ = nullptr;
   hal::EthernetProvider* ethernet_provider_ = nullptr;
   hal::WifiProvider* wifi_provider_ = nullptr;

@@ -560,11 +560,13 @@ bool Application::Init() {
   }
 
   result = ui_manager_.Init(screen, &lvgl_port_,
+      device_provider_context_.capabilities,
       device_provider_context_.diagnostics,
       device_provider_context_.device_info, device_provider_context_.gps,
       device_provider_context_.audio, device_provider_context_.haptic,
       device_provider_context_.battery_management, device_provider_context_.camera,
       device_provider_context_.rtc, device_provider_context_.radio,
+      device_provider_context_.keyboard_expansion,
       device_provider_context_.imu,
       device_provider_context_.ethernet, device_provider_context_.wifi,
       device_provider_context_.storage, device_provider_context_.otg,

@@ -175,10 +175,17 @@ void EdgeBackEventCallback(lv_event_t* event) {
  */
 bool CreateActionButtons(PromptDialogState* state,
     const PromptDialogConfig& config, int action_y) {
+  const bool show_cancel = config.cancel_text != nullptr;
+  const bool show_confirm = config.confirm_text != nullptr;
+  if (!show_cancel && !show_confirm) {
+    return false;
+  }
   const int gap = config.action_button_gap;
   const int content_width =
       config.dialog_width - 2 * config.inner_padding;
-  const int button_width = (content_width - gap) / 2;
+  const int button_width = show_cancel && show_confirm
+      ? (content_width - gap) / 2
+      : content_width;
   const int button_height = config.action_button_height;
   const int button_y = action_y + config.action_height -
       config.action_bottom_padding - button_height;
@@ -196,13 +203,19 @@ bool CreateActionButtons(PromptDialogState* state,
   cancel_config.font = config.action_font;
   cancel_config.callback = CancelActionEventCallback;
   cancel_config.user_data = state;
-  if (CreatePromptSheetButton(state->panel, cancel_config) == nullptr) {
+  if (show_cancel &&
+      CreatePromptSheetButton(state->panel, cancel_config) == nullptr) {
     return false;
+  }
+  if (!show_confirm) {
+    return true;
   }
 
   PromptSheetButtonConfig confirm_config = cancel_config;
   confirm_config.text = config.confirm_text;
-  confirm_config.x = config.inner_padding + button_width + gap;
+  confirm_config.x = show_cancel
+      ? config.inner_padding + button_width + gap
+      : config.inner_padding;
   confirm_config.background_color = config.confirm_background_color;
   confirm_config.pressed_background_color = config.confirm_pressed_color;
   confirm_config.text_color = config.confirm_text_color;

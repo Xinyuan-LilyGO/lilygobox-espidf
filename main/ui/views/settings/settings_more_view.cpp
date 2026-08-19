@@ -7,13 +7,18 @@
  */
 #include "app/storage/otg_storage.h"
 #include "base/logger.h"
+#include "hal/providers/keyboard_expansion_provider.h"
 #include "hal/providers/otg_provider.h"
 #include "ui/views/settings/settings_basic_view_common.h"
+#include "ui/widgets/prompt/prompt_dialog.h"
+
+#include <cstdio>
 
 namespace lilygo_box::ui {
 namespace {
 
 constexpr uint32_t kOtgRefreshPeriodMs = 500;
+constexpr uint32_t kKeyboardExpansionRefreshPeriodMs = 100;
 
 /**
  * @brief 刷新 OTG 开关的保存状态和外部电源限制
@@ -123,7 +128,8 @@ bool BuildOtgContent(lv_obj_t* body, SettingsViewState* state) {
 
   if (!CreateSwitchRow(body, "OTG switch", 0, state->config.width,
           false, OtgSwitchChangedEventCallback, state, false,
-          &state->otg_switch)) {
+          &state->otg_switch,
+          "Power USB devices when USB input is disconnected.")) {
     return false;
   }
   const lv_style_selector_t disabled_main =
@@ -139,19 +145,6 @@ bool BuildOtgContent(lv_obj_t* body, SettingsViewState* state) {
       lv_color_hex(theme::LightNeutralTheme().disabled_container),
       disabled_indicator);
   lv_obj_set_style_opa(state->otg_switch, LV_OPA_COVER, disabled_main);
-
-  lv_obj_t* description = CreateLabel(body,
-      "Allow this device to supply power to connected USB devices. "
-      "OTG is unavailable while USB power is connected.",
-      lv_color_hex(kBasicMutedColor), Font24());
-  if (description == nullptr) {
-    return false;
-  }
-  lv_obj_set_width(
-      description, state->config.width - 2 * kBasicSidePadding);
-  lv_label_set_long_mode(description, LV_LABEL_LONG_WRAP);
-  lv_obj_align(description, LV_ALIGN_TOP_LEFT, kBasicSidePadding,
-      kBasicRowHeight + 18);
 
   if (state->otg_refresh_timer != nullptr) {
     lv_timer_delete(state->otg_refresh_timer);
@@ -210,6 +203,365 @@ void PowerOptionsClickedEventCallback(lv_event_t* event) {
 }
 
 /**
+ * @brief 记录屏幕键盘开关的临时 UI 状态
+ * @param event LVGL 事件对象
+ */
+void OnScreenKeyboardSwitchChangedEventCallback(lv_event_t* event) {
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
+  lv_obj_t* target = lv_event_get_target_obj(event);
+  if (state == nullptr || target == nullptr) {
+    return;
+  }
+  state->on_screen_keyboard_enabled =
+      lv_obj_has_state(target, LV_STATE_CHECKED);
+}
+
+/**
+ * @brief 构建输入法设置页面内容
+ * @param body 内容容器
+ * @param state 设置页状态
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool BuildInputMethodContent(lv_obj_t* body, SettingsViewState* state) {
+  if (body == nullptr || state == nullptr) {
+    return false;
+  }
+
+  int y = 0;
+  if (!CreateSectionLabel(body, "Options", y, state->config.width)) {
+    return false;
+  }
+  y += kBasicSectionHeight;
+  if (!CreateSwitchRow(body, "Show on-screen keyboard", y,
+          state->config.width, state->on_screen_keyboard_enabled,
+          OnScreenKeyboardSwitchChangedEventCallback, state, false, nullptr,
+          "Show with a connected physical keyboard.")) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * @brief 打开输入法设置页面
+ * @param event LVGL 事件对象
+ */
+void InputMethodClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  ShowNestedPage(static_cast<SettingsViewState*>(lv_event_get_user_data(event)),
+      "Input Method", BuildInputMethodContent);
+}
+
+void StopKeyboardExpansionRefreshTimer(SettingsViewState* state) {
+  if (state != nullptr && state->keyboard_expansion_refresh_timer != nullptr) {
+    lv_timer_delete(state->keyboard_expansion_refresh_timer);
+    state->keyboard_expansion_refresh_timer = nullptr;
+  }
+}
+
+void SetKeyboardExpansionSwitchChecked(
+    SettingsViewState* state, bool checked) {
+  if (state == nullptr) {
+    return;
+  }
+  state->keyboard_expansion_enabled = checked;
+  if (state->keyboard_expansion_switch == nullptr) {
+    return;
+  }
+  if (checked) {
+    lv_obj_add_state(state->keyboard_expansion_switch, LV_STATE_CHECKED);
+  } else {
+    lv_obj_remove_state(state->keyboard_expansion_switch, LV_STATE_CHECKED);
+  }
+}
+
+void KeyboardExpansionPromptCloseCallback(void* context) {
+  auto* state = static_cast<SettingsViewState*>(context);
+  if (state == nullptr) {
+    return;
+  }
+  state->keyboard_expansion_prompt_dismissed = true;
+}
+
+void AppendFailedKeyboardExpansionComponent(char* message, size_t capacity,
+    size_t* used, const char* name,
+    hal::KeyboardExpansionComponentState component_state) {
+  if (message == nullptr || used == nullptr || name == nullptr ||
+      *used >= capacity ||
+      component_state != hal::KeyboardExpansionComponentState::kFailed) {
+    return;
+  }
+  const int written = std::snprintf(
+      message + *used, capacity - *used, "\n- %s", name);
+  if (written > 0) {
+    *used += static_cast<size_t>(written) < capacity - *used
+        ? static_cast<size_t>(written)
+        : capacity - *used - 1;
+  }
+}
+
+void BuildKeyboardExpansionFailureMessage(SettingsViewState* state,
+    const hal::KeyboardExpansionStatus& status) {
+  if (state == nullptr) {
+    return;
+  }
+  char* message = state->keyboard_expansion_prompt_message;
+  constexpr size_t capacity =
+      sizeof(state->keyboard_expansion_prompt_message);
+  size_t used = 0;
+  if (status.state == hal::KeyboardExpansionState::kNotFound) {
+    std::snprintf(message, capacity,
+        "No keyboard expansion was detected. Check the connection and try "
+        "again.");
+    return;
+  }
+
+  const int written = std::snprintf(
+      message, capacity, "Could not initialize the following hardware:");
+  if (written > 0) {
+    used = static_cast<size_t>(written) < capacity
+        ? static_cast<size_t>(written)
+        : capacity - 1;
+  }
+  AppendFailedKeyboardExpansionComponent(
+      message, capacity, &used, "XL9555", status.xl9555);
+  AppendFailedKeyboardExpansionComponent(
+      message, capacity, &used, "TCA8418", status.tca8418);
+  AppendFailedKeyboardExpansionComponent(
+      message, capacity, &used, "SY7200A", status.sy7200a);
+  AppendFailedKeyboardExpansionComponent(
+      message, capacity, &used, "CC1101", status.cc1101);
+  AppendFailedKeyboardExpansionComponent(
+      message, capacity, &used, "NRF24L01", status.nrf24l01);
+  AppendFailedKeyboardExpansionComponent(
+      message, capacity, &used, "ST25R3916", status.st25r3916);
+  if (used == static_cast<size_t>(written)) {
+    std::snprintf(message, capacity,
+        "Keyboard expansion initialization failed. Check the connection and "
+        "try again.");
+  }
+}
+
+bool ShowKeyboardExpansionPrompt(SettingsViewState* state, bool scanning,
+    const hal::KeyboardExpansionStatus* status = nullptr) {
+  if (state == nullptr || state->root == nullptr) {
+    return false;
+  }
+
+  PromptDialogConfig config;
+  config.screen_width = state->config.width;
+  config.screen_height = state->config.height;
+  config.dialog_width = state->config.width - 52;
+  config.dialog_height = 330;
+  config.title = scanning ? "Scanning" : "Keyboard expansion unavailable";
+  config.title_font = Font32();
+  config.action_font = Font24();
+  config.cancel_text = "Close";
+  config.confirm_text = nullptr;
+  config.cancel_callback =
+      scanning ? KeyboardExpansionPromptCloseCallback : nullptr;
+  config.callback_context = state;
+  lv_obj_t* body = ShowPromptDialog(
+      state->root, &state->keyboard_expansion_prompt, config);
+  if (body == nullptr) {
+    return false;
+  }
+
+  state->keyboard_expansion_prompt_spinner = nullptr;
+  state->keyboard_expansion_prompt_status_label = nullptr;
+  if (scanning) {
+    lv_obj_t* spinner = lv_spinner_create(body);
+    if (spinner == nullptr) {
+      ClosePromptDialog(&state->keyboard_expansion_prompt);
+      return false;
+    }
+    state->keyboard_expansion_prompt_spinner = spinner;
+    lv_spinner_set_anim_params(spinner, 850, 250);
+    lv_obj_set_size(spinner, 42, 42);
+    lv_obj_set_pos(spinner, 30, 28);
+    lv_obj_set_style_arc_width(spinner, 5, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(spinner, 5, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(spinner,
+        lv_color_hex(theme::LightNeutralTheme().outline_variant),
+        LV_PART_MAIN);
+    lv_obj_set_style_arc_color(spinner,
+        lv_color_hex(theme::LightNeutralTheme().action), LV_PART_INDICATOR);
+  } else if (status != nullptr) {
+    BuildKeyboardExpansionFailureMessage(state, *status);
+  }
+
+  lv_obj_t* label = lv_label_create(body);
+  if (label == nullptr) {
+    ClosePromptDialog(&state->keyboard_expansion_prompt);
+    return false;
+  }
+  state->keyboard_expansion_prompt_status_label = label;
+  lv_label_set_text(label, scanning ? "Searching for connected hardware..."
+                                    : state->keyboard_expansion_prompt_message);
+  lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+  SetTextStyle(label, lv_color_hex(kSecondaryTextColor), Font22());
+  lv_obj_set_pos(label, scanning ? 92 : 28, scanning ? 34 : 22);
+  lv_obj_set_width(label,
+      config.dialog_width - (scanning ? 122 : 56));
+  return true;
+}
+
+void KeyboardExpansionRefreshTimerCallback(lv_timer_t* timer) {
+  auto* state = static_cast<SettingsViewState*>(
+      timer == nullptr ? nullptr : lv_timer_get_user_data(timer));
+  if (state == nullptr || state->config.keyboard_expansion == nullptr) {
+    return;
+  }
+
+  hal::KeyboardExpansionStatus status;
+  if (!state->config.keyboard_expansion->ReadKeyboardExpansionStatus(
+          &status) ||
+      status.state == hal::KeyboardExpansionState::kScanning) {
+    return;
+  }
+  StopKeyboardExpansionRefreshTimer(state);
+
+  if (status.state == hal::KeyboardExpansionState::kReady) {
+    SetKeyboardExpansionSwitchChecked(state, true);
+    ClosePromptDialog(&state->keyboard_expansion_prompt);
+    return;
+  }
+
+  SetKeyboardExpansionSwitchChecked(state, false);
+  if (status.state == hal::KeyboardExpansionState::kDisabled ||
+      state->keyboard_expansion_prompt_dismissed) {
+    ClosePromptDialog(&state->keyboard_expansion_prompt);
+    return;
+  }
+  ShowKeyboardExpansionPrompt(state, false, &status);
+}
+
+void KeyboardExpansionPageDeleteEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_DELETE) {
+    return;
+  }
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr) {
+    return;
+  }
+  StopKeyboardExpansionRefreshTimer(state);
+  ClosePromptDialog(&state->keyboard_expansion_prompt);
+  state->keyboard_expansion_switch = nullptr;
+  state->keyboard_expansion_prompt_status_label = nullptr;
+  state->keyboard_expansion_prompt_spinner = nullptr;
+}
+
+/**
+ * @brief 启用时扫描键盘扩展，关闭时释放扩展硬件
+ * @param event LVGL 事件对象
+ */
+void KeyboardExpansionSwitchChangedEventCallback(lv_event_t* event) {
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
+  lv_obj_t* target = lv_event_get_target_obj(event);
+  if (state == nullptr || target == nullptr ||
+      state->config.keyboard_expansion == nullptr) {
+    return;
+  }
+
+  const bool enabled = lv_obj_has_state(target, LV_STATE_CHECKED);
+  if (!enabled) {
+    state->keyboard_expansion_prompt_dismissed = true;
+    StopKeyboardExpansionRefreshTimer(state);
+    ClosePromptDialog(&state->keyboard_expansion_prompt);
+    if (!state->config.keyboard_expansion->DisableKeyboardExpansion()) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Disable keyboard expansion failed\n");
+    }
+    SetKeyboardExpansionSwitchChecked(state, false);
+    return;
+  }
+
+  if (!state->config.keyboard_expansion->StartKeyboardExpansionScan()) {
+    SetKeyboardExpansionSwitchChecked(state, false);
+    hal::KeyboardExpansionStatus failure_status;
+    failure_status.state = hal::KeyboardExpansionState::kComponentFailure;
+    ShowKeyboardExpansionPrompt(state, false, &failure_status);
+    return;
+  }
+  state->keyboard_expansion_prompt_dismissed = false;
+  SetKeyboardExpansionSwitchChecked(state, true);
+  if (!ShowKeyboardExpansionPrompt(state, true)) {
+    state->keyboard_expansion_prompt_dismissed = true;
+  }
+  StopKeyboardExpansionRefreshTimer(state);
+  state->keyboard_expansion_refresh_timer = lv_timer_create(
+      KeyboardExpansionRefreshTimerCallback,
+      kKeyboardExpansionRefreshPeriodMs, state);
+  if (state->keyboard_expansion_refresh_timer == nullptr) {
+    state->keyboard_expansion_prompt_dismissed = true;
+    ClosePromptDialog(&state->keyboard_expansion_prompt);
+  }
+}
+
+/**
+ * @brief 构建键盘扩展设置页面内容
+ * @param body 内容容器
+ * @param state 设置页状态
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool BuildKeyboardExpansionContent(lv_obj_t* body, SettingsViewState* state) {
+  if (body == nullptr || state == nullptr ||
+      state->config.keyboard_expansion == nullptr) {
+    return false;
+  }
+
+  lv_obj_add_event_cb(body, KeyboardExpansionPageDeleteEventCallback,
+      LV_EVENT_DELETE, state);
+  hal::KeyboardExpansionStatus status;
+  if (state->config.keyboard_expansion->ReadKeyboardExpansionStatus(&status)) {
+    state->keyboard_expansion_enabled =
+        status.state == hal::KeyboardExpansionState::kReady ||
+        status.state == hal::KeyboardExpansionState::kScanning;
+  }
+
+  int y = 0;
+  if (!CreateSectionLabel(body, "Connection", y, state->config.width)) {
+    return false;
+  }
+  y += kBasicSectionHeight;
+  if (!CreateSwitchRow(body, "Enable keyboard expansion", y,
+          state->config.width, state->keyboard_expansion_enabled,
+          KeyboardExpansionSwitchChangedEventCallback, state, false,
+          &state->keyboard_expansion_switch,
+          "Scan for connected keyboard expansion hardware.")) {
+    return false;
+  }
+  if (status.state == hal::KeyboardExpansionState::kScanning) {
+    state->keyboard_expansion_prompt_dismissed = false;
+    if (!ShowKeyboardExpansionPrompt(state, true)) {
+      state->keyboard_expansion_prompt_dismissed = true;
+    }
+    StopKeyboardExpansionRefreshTimer(state);
+    state->keyboard_expansion_refresh_timer = lv_timer_create(
+        KeyboardExpansionRefreshTimerCallback,
+        kKeyboardExpansionRefreshPeriodMs, state);
+    if (state->keyboard_expansion_refresh_timer == nullptr) {
+      state->keyboard_expansion_prompt_dismissed = true;
+      ClosePromptDialog(&state->keyboard_expansion_prompt);
+    }
+  }
+  return true;
+}
+
+/**
+ * @brief 打开键盘扩展设置页面
+ * @param event LVGL 事件对象
+ */
+void KeyboardExpansionClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  ShowNestedPage(static_cast<SettingsViewState*>(lv_event_get_user_data(event)),
+      "Keyboard Expansion", BuildKeyboardExpansionContent);
+}
+
+/**
  * @brief 构建更多设置页面内容
  * @param body 内容容器
  * @param state 设置页状态
@@ -220,7 +572,20 @@ bool BuildMoreSettingsContent(lv_obj_t* body, SettingsViewState* state) {
     return false;
   }
 
+  const bool supports_keyboard_expansion =
+      state->config.device_capabilities.supports_keyboard_expansion &&
+      state->config.keyboard_expansion != nullptr;
   int y = 0;
+  if (!CreateSectionLabel(
+          body, "System settings", y, state->config.width)) {
+    return false;
+  }
+  y += kBasicSectionHeight;
+  if (!CreateArrowRow(body, "Input Method", "", y, state->config.width,
+          InputMethodClickedEventCallback, state)) {
+    return false;
+  }
+  y += kBasicRowHeight + 12;
   if (!CreateSectionLabel(body, "Accessibility", y, state->config.width)) {
     return false;
   }
@@ -236,15 +601,27 @@ bool BuildMoreSettingsContent(lv_obj_t* body, SettingsViewState* state) {
   }
   y += kBasicRowHeight + 12;
 
-  if (state->config.otg != nullptr) {
+  const bool show_special_features =
+      supports_keyboard_expansion || state->config.otg != nullptr;
+  if (show_special_features) {
     if (!CreateSectionLabel(
             body, "Special features", y, state->config.width)) {
       return false;
     }
     y += kBasicSectionHeight;
-    if (!CreateArrowRow(body, "OTG", "", y, state->config.width,
-            OtgClickedEventCallback, state)) {
-      return false;
+    if (supports_keyboard_expansion) {
+      if (!CreateArrowRow(body, "Keyboard Expansion", "", y,
+              state->config.width, KeyboardExpansionClickedEventCallback,
+              state)) {
+        return false;
+      }
+      y += kBasicRowHeight;
+    }
+    if (state->config.otg != nullptr) {
+      if (!CreateArrowRow(body, "OTG", "", y, state->config.width,
+              OtgClickedEventCallback, state)) {
+        return false;
+      }
     }
   }
 

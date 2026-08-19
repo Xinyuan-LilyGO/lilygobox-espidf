@@ -858,6 +858,7 @@ lv_obj_t* CreateCircle(lv_obj_t* parent, int size, int x, int y,
 
 bool UiManager::Init(hal::ScreenProvider* screen,
     hal::LvglPort* lvgl_port,
+    const hal::DeviceCapabilities& device_capabilities,
     hal::DeviceDiagnosticsProvider* diagnostics,
     hal::DeviceInfoProvider* device_info,
     hal::GpsProvider* gps,
@@ -867,6 +868,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
     hal::CameraProvider* camera,
     hal::RtcProvider* rtc,
     hal::RadioProvider* radio,
+    hal::KeyboardExpansionProvider* keyboard_expansion,
     hal::ImuProvider* imu,
     hal::EthernetProvider* ethernet,
     hal::WifiProvider* wifi,
@@ -878,6 +880,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   }
   screen_ = screen;
   lvgl_port_ = lvgl_port;
+  device_capabilities_ = device_capabilities;
   diagnostics_provider_ = diagnostics;
   device_info_provider_ = device_info;
   gps_provider_ = gps;
@@ -888,6 +891,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   camera_provider_ = camera;
   rtc_provider_ = rtc;
   radio_provider_ = radio;
+  keyboard_expansion_provider_ = keyboard_expansion;
   imu_provider_ = imu;
   ethernet_provider_ = ethernet;
   wifi_provider_ = wifi;
@@ -2534,6 +2538,7 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   AppViewConfig config;
   config.width = LayoutWidth();
   config.height = LayoutHeight();
+  config.device_capabilities = device_capabilities_;
   config.screen = screen_;
   config.lvgl_port = lvgl_port_;
   config.diagnostics = diagnostics_provider_;
@@ -2545,6 +2550,7 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   config.camera = camera_provider_;
   config.rtc = rtc_provider_;
   config.radio = radio_provider_;
+  config.keyboard_expansion = keyboard_expansion_provider_;
   config.imu = imu_provider_;
   config.ethernet = ethernet_provider_;
   config.wifi = wifi_provider_;

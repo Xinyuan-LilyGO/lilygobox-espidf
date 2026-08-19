@@ -9,12 +9,14 @@
 
 #include <memory>
 
+#include "hal/device_capabilities.h"
 #include "hal/providers/providers.h"
 
 namespace lilygo_box::hal {
 
 struct DeviceProviderContext {
   DeviceProvider* device = nullptr;
+  DeviceCapabilities capabilities;
   std::unique_ptr<ScreenProvider> screen;
   DeviceDiagnosticsProvider* diagnostics = nullptr;
   DeviceInfoProvider* device_info = nullptr;
@@ -26,6 +28,7 @@ struct DeviceProviderContext {
   CameraProvider* camera = nullptr;
   RtcProvider* rtc = nullptr;
   RadioProvider* radio = nullptr;
+  KeyboardExpansionProvider* keyboard_expansion = nullptr;
   OtgProvider* otg = nullptr;
   // Air 板 NFC 读卡器接口，其他设备保持为空。
   NfcProvider* nfc = nullptr;

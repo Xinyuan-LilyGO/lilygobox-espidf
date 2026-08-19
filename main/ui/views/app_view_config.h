@@ -9,6 +9,7 @@
 
 #include <functional>
 
+#include "hal/device_capabilities.h"
 #include "lvgl.h"
 
 namespace lilygo_box::app {
@@ -31,6 +32,7 @@ class GpsProvider;
 class HapticProvider;
 class ImuProvider;
 class InfraredProvider;
+class KeyboardExpansionProvider;
 class LvglPort;
 class NfcProvider;
 class OtgProvider;
@@ -49,6 +51,8 @@ struct AppViewConfig {
   int width = 0;
   // 视图高度，单位为像素。
   int height = 0;
+  // 当前板级实现提供的可选功能能力。
+  hal::DeviceCapabilities device_capabilities;
   // 屏幕读写和尺寸信息提供者。
   hal::ScreenProvider* screen = nullptr;
   // LVGL 刷新、屏幕电源转换与短硬件访问协调器。
@@ -71,6 +75,8 @@ struct AppViewConfig {
   hal::RtcProvider* rtc = nullptr;
   // Radio 状态、配置与收发提供者。
   hal::RadioProvider* radio = nullptr;
+  // 可选键盘扩展的扫描和生命周期提供者。
+  hal::KeyboardExpansionProvider* keyboard_expansion = nullptr;
   // 姿态传感器状态提供者。
   hal::ImuProvider* imu = nullptr;
   // 以太网状态和控制提供者。

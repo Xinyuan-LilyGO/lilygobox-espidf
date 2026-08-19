@@ -63,7 +63,7 @@ namespace {
 constexpr int kScreenBrightnessMinPercent = 0;
 constexpr int kScreenBrightnessMaxPercent = 100;
 constexpr int kHi8561BrightnessInputMinPercent = 10;
-constexpr uint32_t kHi8561BacklightDutyScale = 1000;
+constexpr uint32_t kPt4103DutyScale = 1000;
 constexpr uint32_t kScreenBrightnessFadeUpdateMs = 10;
 constexpr uint8_t kRm69a10BrightnessMax = UINT8_MAX;
 constexpr uint8_t kVibrationTestGain = 255;
@@ -338,7 +338,7 @@ int ClampScreenBrightnessPercent(int percent) {
 cpp_bus_driver::Pwm::DutyCycle ScreenBrightnessPercentToHi8561DutyCycle(
     int clamped_percent) {
   if (clamped_percent <= kScreenBrightnessMinPercent) {
-    return {.value = 0, .scale = kHi8561BacklightDutyScale};
+    return {.value = 0, .scale = kPt4103DutyScale};
   }
 
   const int input_percent =
@@ -346,10 +346,10 @@ cpp_bus_driver::Pwm::DutyCycle ScreenBrightnessPercentToHi8561DutyCycle(
   constexpr int kInputRangeSquared =
       kScreenBrightnessMaxPercent * kScreenBrightnessMaxPercent;
   const uint32_t scaled_duty = static_cast<uint32_t>(
-      input_percent * input_percent * kHi8561BacklightDutyScale);
+      input_percent * input_percent * kPt4103DutyScale);
   return {
       .value = (scaled_duty + kInputRangeSquared / 2) / kInputRangeSquared,
-      .scale = kHi8561BacklightDutyScale,
+      .scale = kPt4103DutyScale,
   };
 }
 
@@ -726,6 +726,143 @@ bool TDisplayP4Device::InitDevice() {
         "Initialize touch interrupt failed; using polling fallback\n");
   }
   return true;
+}
+
+bool TDisplayP4Device::StartKeyboardExpansionScan() {
+  if (keyboard_expansion_.state.load() == KeyboardExpansionState::kReady) {
+    return true;
+  }
+
+  bool expected = false;
+  if (!keyboard_expansion_.task_running.compare_exchange_strong(
+          expected, true)) {
+    return keyboard_expansion_.state.load() ==
+           KeyboardExpansionState::kScanning;
+  }
+
+  keyboard_expansion_.xl9555.store(
+      KeyboardExpansionComponentState::kNotChecked);
+  keyboard_expansion_.tca8418.store(
+      KeyboardExpansionComponentState::kNotChecked);
+  keyboard_expansion_.sy7200a.store(
+      KeyboardExpansionComponentState::kNotChecked);
+  keyboard_expansion_.cc1101.store(
+      KeyboardExpansionComponentState::kNotChecked);
+  keyboard_expansion_.nrf24l01.store(
+      KeyboardExpansionComponentState::kNotChecked);
+  keyboard_expansion_.st25r3916.store(
+      KeyboardExpansionComponentState::kNotChecked);
+  keyboard_expansion_.state.store(KeyboardExpansionState::kScanning);
+
+  if (xTaskCreate(KeyboardExpansionScanTaskEntry,
+          "KeyboardExpScan", kKeyboardExpansionTaskStackBytes, this,
+          kKeyboardExpansionTaskPriority, nullptr) != pdPASS) {
+    keyboard_expansion_.task_running.store(false);
+    keyboard_expansion_.state.store(
+        KeyboardExpansionState::kComponentFailure);
+    keyboard_expansion_.scan_generation.fetch_add(1);
+    return false;
+  }
+  return true;
+}
+
+bool TDisplayP4Device::DisableKeyboardExpansion() {
+  if (!WaitForKeyboardExpansionTask()) {
+    return false;
+  }
+
+  const bool result = driver_.DeinitKeyboardExpansion();
+  keyboard_expansion_.xl9555.store(
+      KeyboardExpansionComponentState::kNotChecked);
+  keyboard_expansion_.tca8418.store(
+      KeyboardExpansionComponentState::kNotChecked);
+  keyboard_expansion_.sy7200a.store(
+      KeyboardExpansionComponentState::kNotChecked);
+  keyboard_expansion_.cc1101.store(
+      KeyboardExpansionComponentState::kNotChecked);
+  keyboard_expansion_.nrf24l01.store(
+      KeyboardExpansionComponentState::kNotChecked);
+  keyboard_expansion_.st25r3916.store(
+      KeyboardExpansionComponentState::kNotChecked);
+  keyboard_expansion_.state.store(result
+          ? KeyboardExpansionState::kDisabled
+          : KeyboardExpansionState::kComponentFailure);
+  keyboard_expansion_.scan_generation.fetch_add(1);
+  return result;
+}
+
+bool TDisplayP4Device::ReadKeyboardExpansionStatus(
+    KeyboardExpansionStatus* status) const {
+  if (status == nullptr) {
+    return false;
+  }
+  status->state = keyboard_expansion_.state.load();
+  status->xl9555 = keyboard_expansion_.xl9555.load();
+  status->tca8418 = keyboard_expansion_.tca8418.load();
+  status->sy7200a = keyboard_expansion_.sy7200a.load();
+  status->cc1101 = keyboard_expansion_.cc1101.load();
+  status->nrf24l01 = keyboard_expansion_.nrf24l01.load();
+  status->st25r3916 = keyboard_expansion_.st25r3916.load();
+  status->scan_generation = keyboard_expansion_.scan_generation.load();
+  return true;
+}
+
+void TDisplayP4Device::KeyboardExpansionScanTaskEntry(void* context) {
+  auto* device = static_cast<TDisplayP4Device*>(context);
+  if (device != nullptr) {
+    device->RunKeyboardExpansionScanTask();
+  }
+  vTaskDelete(nullptr);
+}
+
+void TDisplayP4Device::RunKeyboardExpansionScanTask() {
+  const bool initialized = driver_.InitKeyboardExpansion();
+
+  const auto component_state = [](bool ready) {
+    return ready ? KeyboardExpansionComponentState::kReady
+                 : KeyboardExpansionComponentState::kFailed;
+  };
+  const bool xl9555_ready = driver_.IsXl9555Ready();
+  keyboard_expansion_.xl9555.store(component_state(xl9555_ready));
+  keyboard_expansion_.tca8418.store(
+      component_state(driver_.IsTca8418Ready()));
+  keyboard_expansion_.sy7200a.store(
+      component_state(driver_.IsSy7200aReady()));
+  keyboard_expansion_.cc1101.store(
+      component_state(driver_.IsCc1101Ready()));
+  keyboard_expansion_.nrf24l01.store(
+      component_state(driver_.IsNrf24l01Ready()));
+  keyboard_expansion_.st25r3916.store(
+      component_state(driver_.IsSt25r3916Ready()));
+
+  KeyboardExpansionState state;
+  if (initialized) {
+    state = KeyboardExpansionState::kReady;
+  } else if (!xl9555_ready) {
+    state = KeyboardExpansionState::kNotFound;
+  } else {
+    state = KeyboardExpansionState::kComponentFailure;
+  }
+
+  if (state != KeyboardExpansionState::kReady &&
+      !driver_.DeinitKeyboardExpansion()) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Keyboard expansion cleanup failed\n");
+  }
+  keyboard_expansion_.state.store(state);
+  keyboard_expansion_.scan_generation.fetch_add(1);
+  keyboard_expansion_.task_running.store(false);
+}
+
+bool TDisplayP4Device::WaitForKeyboardExpansionTask() {
+  for (int elapsed_ms = 0; elapsed_ms < kPowerOffTaskTimeoutMs;
+      elapsed_ms += kPowerOffTaskPollMs) {
+    if (!keyboard_expansion_.task_running.load()) {
+      return true;
+    }
+    vTaskDelay(pdMS_TO_TICKS(kPowerOffTaskPollMs));
+  }
+  return !keyboard_expansion_.task_running.load();
 }
 
 PowerOffAction TDisplayP4Device::RequestPowerOff() {
@@ -4945,10 +5082,10 @@ bool TDisplayP4Device::SetScreenBrightnessPercent(int percent) {
   const int clamped_percent = ClampScreenBrightnessPercent(percent);
   switch (driver_.screen_type()) {
     case device::ScreenType::kHi8561:
-      if (driver_.IsHi8561BacklightReady()) {
+      if (driver_.IsPt4103Ready()) {
         const cpp_bus_driver::Pwm::DutyCycle duty =
             ScreenBrightnessPercentToHi8561DutyCycle(clamped_percent);
-        return driver_.chip().hi8561_backlight->SetDuty(duty);
+        return driver_.chip().pt4103->SetDuty(duty);
       }
       break;
     case device::ScreenType::kRm69a10:
@@ -4981,10 +5118,10 @@ bool TDisplayP4Device::FadeScreenBrightnessPercent(
 
   switch (driver_.screen_type()) {
     case device::ScreenType::kHi8561:
-      if (driver_.IsHi8561BacklightReady()) {
+      if (driver_.IsPt4103Ready()) {
         const cpp_bus_driver::Pwm::DutyCycle target_duty =
             ScreenBrightnessPercentToHi8561DutyCycle(clamped_percent);
-        if (driver_.chip().hi8561_backlight->FadeTo(target_duty, duration_ms,
+        if (driver_.chip().pt4103->FadeTo(target_duty, duration_ms,
                 cpp_bus_driver::Pwm::FadeMode::kWaitForCompletion)) {
           return true;
         }
@@ -5027,6 +5164,15 @@ bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
     return false;
   }
   if (!deep_sleep) {
+    if (keyboard_expansion_.task_running.load()) {
+      if (!WaitForKeyboardExpansionTask()) {
+        return false;
+      }
+    }
+    const bool keyboard_expansion_slept =
+        driver_.SetKeyboardExpansionOperatingMode(
+            lilygo_device_driver::TDisplayP4Driver::
+                KeyboardExpansionOperatingMode::kSleep);
     touch_gesture_wake_enabled_ =
         driver_.screen_type() == device::ScreenType::kHi8561 &&
         driver_.IsHi8561TouchReady() &&
@@ -5036,7 +5182,7 @@ bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
       driver_.chip().hi8561_touch->SetGestureWakeEnabled(false);
       touch_gesture_wake_enabled_ = false;
     }
-    return screen_slept;
+    return screen_slept && keyboard_expansion_slept;
   }
 
   const bool
@@ -5097,6 +5243,7 @@ bool TDisplayP4Device::PrepareForPowerOff() {
   result &= SetEthernetEnabled(false);
   result &= SetWifiEnabled(false);
   result &= StopUsbStorage();
+  result &= DisableKeyboardExpansion();
   result &= WaitForPowerOffTasks();
   return result;
 }
@@ -5109,6 +5256,7 @@ bool TDisplayP4Device::WaitForPowerOffTasks() {
                                microphone_.running.load() ||
                                camera_preview_.task_active.load() ||
                                ethernet_.init_task_running.load() ||
+                               keyboard_expansion_.task_running.load() ||
                                wifi_.init_task_running.load() ||
                                wifi_.scan_task_running.load() ||
                                wifi_.connect_task_running.load();

@@ -503,14 +503,18 @@ bool CreateActionRow(lv_obj_t* parent, const char* title, int y, int width,
 
 bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,
     bool checked, lv_event_cb_t callback, SettingsViewState* state,
-    bool wrap_title, lv_obj_t** switch_output) {
+    bool wrap_title, lv_obj_t** switch_output, const char* subtitle) {
+  const bool has_subtitle = subtitle != nullptr && subtitle[0] != '\0';
+  const int row_height = has_subtitle
+      ? kBasicSwitchRowWithSubtitleHeight
+      : kBasicRowHeight;
   lv_obj_t* row = lv_obj_create(parent);
   if (row == nullptr) {
     return false;
   }
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(row, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_size(row, width, kBasicRowHeight);
+  lv_obj_set_size(row, width, row_height);
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
@@ -523,13 +527,35 @@ bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,
   if (label == nullptr) {
     return false;
   }
-  if (wrap_title) {
-    constexpr int kSwitchTitleGap = 24;
+  constexpr int kSwitchTitleGap = 24;
+  if (wrap_title || has_subtitle) {
     lv_obj_set_width(label, width - 2 * kBasicSidePadding -
         kBasicSwitchWidth - kSwitchTitleGap);
-    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_label_set_long_mode(label,
+        has_subtitle ? LV_LABEL_LONG_DOT : LV_LABEL_LONG_WRAP);
   }
-  lv_obj_align(label, LV_ALIGN_LEFT_MID, kBasicSidePadding, 0);
+  if (has_subtitle) {
+    constexpr int kSwitchTitleTop = 12;
+    constexpr int kSwitchSubtitleGap = 6;
+    lv_obj_set_height(
+        label, static_cast<int>(lv_font_get_line_height(Font28())));
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, kBasicSidePadding,
+        kSwitchTitleTop);
+
+    lv_obj_t* subtitle_label = CreateLabel(
+        row, subtitle, lv_color_hex(kBasicMutedColor), Font22());
+    if (subtitle_label == nullptr) {
+      return false;
+    }
+    lv_obj_set_width(subtitle_label, width - 2 * kBasicSidePadding -
+        kBasicSwitchWidth - kSwitchTitleGap);
+    lv_label_set_long_mode(subtitle_label, LV_LABEL_LONG_WRAP);
+    lv_obj_update_layout(row);
+    lv_obj_align_to(subtitle_label, label, LV_ALIGN_OUT_BOTTOM_LEFT, 0,
+        kSwitchSubtitleGap);
+  } else {
+    lv_obj_align(label, LV_ALIGN_LEFT_MID, kBasicSidePadding, 0);
+  }
 
   lv_obj_t* switch_object = lv_switch_create(row);
   if (switch_object == nullptr) {

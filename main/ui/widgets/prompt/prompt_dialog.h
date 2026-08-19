@@ -66,6 +66,7 @@ struct PromptDialogConfig {
   lv_opa_t overlay_opacity = 115;
   uint32_t animation_ms = 180;
   const char* title = nullptr;
+  // 设为 nullptr 可隐藏对应按钮；仅保留一个按钮时会自动占满操作区域。
   const char* cancel_text = "Cancel";
   const char* confirm_text = "Save";
   const lv_font_t* title_font = nullptr;
