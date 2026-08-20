@@ -530,6 +530,13 @@ class TDisplayP4Device final : public ScreenProvider,
   bool DisableKeyboardExpansion() override;
 
   /**
+   * @brief 处理键盘扩展连接变化并在重新连接后启动扫描
+   * @param scan_started 自动重连扫描已启动时写入 true
+   * @return 连接监听和所需状态转换成功返回 true，否则返回 false
+   */
+  bool UpdateKeyboardExpansionConnection(bool* scan_started) override;
+
+  /**
    * @brief 设置键盘背光期望亮度
    * @param percent 亮度百分比，范围 0~100
    * @return 参数已保存且在扩展就绪时成功应用返回 true，否则返回 false
@@ -580,6 +587,7 @@ class TDisplayP4Device final : public ScreenProvider,
   static constexpr uint32_t kKeyboardExpansionTaskStackBytes = 4096;
   static constexpr UBaseType_t kKeyboardExpansionTaskPriority = 1;
   static constexpr uint8_t kKeyboardExpansionDisconnectFailureThreshold = 3;
+  static constexpr uint32_t kKeyboardExpansionConnectionDebounceMs = 50;
 
   /**
    * @brief 初始化 XL9535 汇总中断对应的 ESP32-P4 GPIO
@@ -592,6 +600,51 @@ class TDisplayP4Device final : public ScreenProvider,
    * @param context 当前设备对象
    */
   static void TouchInterruptHandler(void* context);
+
+  /**
+   * @brief 启用键盘扩展重新连接上升沿监听
+   * @param detect_current_level true 时同时检查当前连接电平
+   * @return 监听启用成功或已经启用返回 true，否则返回 false
+   */
+  bool InitializeKeyboardExpansionConnectionInterrupt(
+      bool detect_current_level);
+
+  /**
+   * @brief 启用 TCA8418 按键事件下降沿监听
+   * @return 监听启用成功或已经启用返回 true，否则返回 false
+   */
+  bool InitializeKeyboardInputInterrupt();
+
+  /**
+   * @brief 停止键盘扩展 GPIO 中断监听
+   * @return 监听关闭成功或尚未启用返回 true，否则返回 false
+   */
+  bool DeinitializeKeyboardExpansionInterrupt();
+
+  /**
+   * @brief 记录键盘扩展重新连接信号
+   * @param context 当前设备对象
+   */
+  static void KeyboardExpansionConnectionInterruptHandler(void* context);
+
+  /**
+   * @brief 记录 TCA8418 按键事件信号
+   * @param context 当前设备对象
+   */
+  static void KeyboardInputInterruptHandler(void* context);
+
+  /**
+   * @brief 记录键盘总线读取失败并执行有限次断开确认
+   */
+  void RecordKeyboardInputReadFailure();
+
+  /**
+   * @brief 释放键盘扩展硬件并发布指定的最终状态
+   * @param final_state 硬件成功释放后发布的状态
+   * @return 硬件和运行状态清理成功返回 true，否则返回 false
+   */
+  bool DeinitializeKeyboardExpansionHardware(
+      KeyboardExpansionState final_state);
 
   /**
    * @brief 键盘扩展扫描任务入口
@@ -1281,6 +1334,10 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<bool> shift_pressed{false};
     std::atomic<bool> caps_lock_enabled{false};
     std::atomic<uint8_t> consecutive_read_failures{0};
+    std::atomic<bool> interrupt_initialized{false};
+    std::atomic<bool> connection_interrupt_pending{false};
+    std::atomic<TickType_t> connection_interrupt_tick{0};
+    std::atomic<bool> input_interrupt_pending{false};
     std::atomic<bool> task_running{false};
     std::atomic<uint32_t> scan_generation{0};
   };

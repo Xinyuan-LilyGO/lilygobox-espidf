@@ -187,6 +187,16 @@ class UiManager final {
   bool ShowKeyboardExpansionUnavailablePrompt();
 
   /**
+   * @brief 关闭当前键盘扩展不可用提示
+   */
+  void CloseKeyboardExpansionUnavailablePrompt();
+
+  /**
+   * @brief 刷新当前设置页面中的键盘扩展控件
+   */
+  void RefreshActiveSettingsKeyboardExpansion();
+
+  /**
    * @brief 设置全局状态栏文字和图标颜色
    * @param color 文字和图标颜色，格式为 0xRRGGBB
    */
@@ -465,11 +475,6 @@ class UiManager final {
    * @param volume_percent 当前音量百分比
    */
   void UpdateActiveSettingsVolume(int volume_percent);
-
-  /**
-   * @brief 刷新当前设置页面中的键盘扩展控件
-   */
-  void RefreshActiveSettingsKeyboardExpansion();
 
   /**
    * @brief 根据 RTC 状态刷新状态栏和主界面时间显示

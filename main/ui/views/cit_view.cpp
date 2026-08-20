@@ -1022,10 +1022,10 @@ void HandleKeyboardTestInputEvent(
 }
 
 /**
- * @brief 退出已断开连接的键盘测试并请求重建 CIT 列表
+ * @brief 退出当前不可用的键盘测试并请求重建 CIT 列表
  * @param state CIT 页面状态
  */
-void CloseDisconnectedKeyboardTest(CitViewState* state) {
+void CloseUnavailableKeyboardTest(CitViewState* state) {
   if (state == nullptr || state->keyboard_test_hidden) {
     return;
   }
@@ -1068,23 +1068,23 @@ void RefreshKeyboardTestData(CitViewState* state) {
     case hal::KeyboardExpansionState::kNotFound:
       lv_label_set_text(state->keyboard_test_key_label,
           "Keyboard status: not detected");
-      break;
+      CloseUnavailableKeyboardTest(state);
+      return;
     case hal::KeyboardExpansionState::kDisconnected:
       lv_label_set_text(state->keyboard_test_key_label,
           "Keyboard status: disconnected");
-      CloseDisconnectedKeyboardTest(state);
+      CloseUnavailableKeyboardTest(state);
       return;
     case hal::KeyboardExpansionState::kComponentFailure:
       lv_label_set_text(state->keyboard_test_key_label,
           "Keyboard status: initialization failed");
-      break;
+      CloseUnavailableKeyboardTest(state);
+      return;
     case hal::KeyboardExpansionState::kDisabled:
       lv_label_set_text(state->keyboard_test_key_label,
           "Keyboard status: disabled");
-      if (!app::GetKeyboardExpansionPreferences().enabled) {
-        CloseDisconnectedKeyboardTest(state);
-      }
-      break;
+      CloseUnavailableKeyboardTest(state);
+      return;
     default:
       lv_label_set_text(state->keyboard_test_key_label,
           "Keyboard status: disabled");
@@ -4432,10 +4432,16 @@ bool AddCitRows(
     return false;
   }
 
+  bool keyboard_expansion_ready = false;
+  if (state->keyboard_expansion != nullptr &&
+      app::GetKeyboardExpansionPreferences().enabled) {
+    hal::KeyboardExpansionStatus status;
+    keyboard_expansion_ready =
+        state->keyboard_expansion->ReadKeyboardExpansionStatus(&status) &&
+        status.state == hal::KeyboardExpansionState::kReady;
+  }
   const bool show_keyboard_expansion_test =
-      state->keyboard_expansion != nullptr &&
-      app::GetKeyboardExpansionPreferences().enabled &&
-      !state->keyboard_test_hidden;
+      keyboard_expansion_ready && !state->keyboard_test_hidden;
   for (size_t i = 0; i < catalog.entry_count; ++i) {
     const app::CitTestEntry& entry = catalog.entries[i];
     if (IsEntryId(entry, "keyboard") && !show_keyboard_expansion_test) {
@@ -4514,16 +4520,15 @@ void RefreshKeyboardTestAvailability(CitViewState* state) {
     }
   }
 
-  const bool enabled = state->keyboard_expansion != nullptr &&
-      app::GetKeyboardExpansionPreferences().enabled;
-  bool disconnected = false;
-  if (state->keyboard_expansion != nullptr) {
+  bool ready = false;
+  if (state->keyboard_expansion != nullptr &&
+      app::GetKeyboardExpansionPreferences().enabled) {
     hal::KeyboardExpansionStatus status;
-    disconnected =
+    ready =
         state->keyboard_expansion->ReadKeyboardExpansionStatus(&status) &&
-        status.state == hal::KeyboardExpansionState::kDisconnected;
+        status.state == hal::KeyboardExpansionState::kReady;
   }
-  const bool should_show = enabled && !disconnected;
+  const bool should_show = ready;
   if (keyboard_test_row_exists == should_show) {
     return;
   }

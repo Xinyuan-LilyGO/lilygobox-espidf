@@ -792,7 +792,8 @@ bool TDisplayP4Device::InitializeTouchInterrupt() {
   touch_interrupt_pending_.store(false, std::memory_order_relaxed);
   if (!tool_->InitGpioInterrupt(gpio::xl9535::kInt,
           cpp_bus_driver::Tool::InterruptMode::kFalling,
-          TouchInterruptHandler, this)) {
+          TouchInterruptHandler, this,
+          cpp_bus_driver::Tool::GpioStatus::kPullup)) {
     return false;
   }
 
@@ -809,6 +810,141 @@ void TDisplayP4Device::TouchInterruptHandler(void* context) {
   }
   auto* device = static_cast<TDisplayP4Device*>(context);
   device->touch_interrupt_pending_.store(true, std::memory_order_relaxed);
+}
+
+bool TDisplayP4Device::InitializeKeyboardExpansionConnectionInterrupt(
+    bool detect_current_level) {
+  if (tool_ == nullptr) {
+    return false;
+  }
+
+  bool expected = false;
+  if (!keyboard_expansion_.interrupt_initialized
+           .compare_exchange_strong(expected, true)) {
+    return true;
+  }
+
+  keyboard_expansion_.connection_interrupt_pending.store(
+      false, std::memory_order_relaxed);
+  if (!tool_->SetGpioMode(keyboard_gpio::tca8418::kInt,
+          cpp_bus_driver::Tool::GpioMode::kInput,
+          cpp_bus_driver::Tool::GpioStatus::kPulldown)) {
+    keyboard_expansion_.interrupt_initialized.store(false);
+    return false;
+  }
+  const bool connected_before_interrupt =
+      tool_->GpioRead(keyboard_gpio::tca8418::kInt);
+  if (!tool_->InitGpioInterrupt(keyboard_gpio::tca8418::kInt,
+          cpp_bus_driver::Tool::InterruptMode::kRising,
+          KeyboardExpansionConnectionInterruptHandler, this,
+          cpp_bus_driver::Tool::GpioStatus::kPulldown)) {
+    keyboard_expansion_.interrupt_initialized.store(false);
+    return false;
+  }
+
+  // 初始化失败且连接线始终为高时等待下一次实际插拔，避免循环扫描；
+  // 监听注册期间出现的低到高变化仍需立即补记。
+  if ((detect_current_level || !connected_before_interrupt) &&
+      tool_->GpioRead(keyboard_gpio::tca8418::kInt)) {
+    keyboard_expansion_.connection_interrupt_tick.store(
+        xTaskGetTickCount(), std::memory_order_relaxed);
+    keyboard_expansion_.connection_interrupt_pending.store(
+        true, std::memory_order_release);
+  }
+  return true;
+}
+
+bool TDisplayP4Device::InitializeKeyboardInputInterrupt() {
+  if (tool_ == nullptr) {
+    return false;
+  }
+
+  bool expected = false;
+  if (!keyboard_expansion_.interrupt_initialized.compare_exchange_strong(
+          expected, true)) {
+    return true;
+  }
+
+  keyboard_expansion_.input_interrupt_pending.store(
+      false, std::memory_order_relaxed);
+  if (!tool_->InitGpioInterrupt(keyboard_gpio::tca8418::kInt,
+          cpp_bus_driver::Tool::InterruptMode::kFalling,
+          KeyboardInputInterruptHandler, this,
+          cpp_bus_driver::Tool::GpioStatus::kPulldown)) {
+    keyboard_expansion_.interrupt_initialized.store(false);
+    return false;
+  }
+
+  // 注册中断前 INT 可能已经拉低，需要补记已存在的按键事件。
+  if (!tool_->GpioRead(keyboard_gpio::tca8418::kInt)) {
+    keyboard_expansion_.input_interrupt_pending.store(
+        true, std::memory_order_release);
+  }
+  return true;
+}
+
+bool TDisplayP4Device::DeinitializeKeyboardExpansionInterrupt() {
+  if (!keyboard_expansion_.interrupt_initialized.exchange(false)) {
+    keyboard_expansion_.connection_interrupt_pending.store(
+        false, std::memory_order_relaxed);
+    keyboard_expansion_.input_interrupt_pending.store(
+        false, std::memory_order_relaxed);
+    return true;
+  }
+
+  const bool result = tool_ != nullptr &&
+      tool_->DeinitGpioInterrupt(keyboard_gpio::tca8418::kInt);
+  keyboard_expansion_.connection_interrupt_pending.store(
+      false, std::memory_order_relaxed);
+  keyboard_expansion_.input_interrupt_pending.store(
+      false, std::memory_order_relaxed);
+  return result;
+}
+
+void TDisplayP4Device::KeyboardExpansionConnectionInterruptHandler(
+    void* context) {
+  if (context == nullptr) {
+    return;
+  }
+  auto* device = static_cast<TDisplayP4Device*>(context);
+  device->keyboard_expansion_.connection_interrupt_tick.store(
+      xTaskGetTickCountFromISR(), std::memory_order_relaxed);
+  device->keyboard_expansion_.connection_interrupt_pending.store(
+      true, std::memory_order_release);
+}
+
+void TDisplayP4Device::KeyboardInputInterruptHandler(void* context) {
+  if (context == nullptr) {
+    return;
+  }
+  auto* device = static_cast<TDisplayP4Device*>(context);
+  device->keyboard_expansion_.input_interrupt_pending.store(
+      true, std::memory_order_release);
+}
+
+void TDisplayP4Device::RecordKeyboardInputReadFailure() {
+  const uint8_t failure_count =
+      keyboard_expansion_.consecutive_read_failures.fetch_add(1) + 1;
+  if (failure_count < kKeyboardExpansionDisconnectFailureThreshold) {
+    if (keyboard_expansion_.interrupt_initialized.load(
+            std::memory_order_acquire)) {
+      keyboard_expansion_.input_interrupt_pending.store(
+          true, std::memory_order_release);
+    }
+    return;
+  }
+
+  KeyboardExpansionState expected = KeyboardExpansionState::kReady;
+  if (keyboard_expansion_.state.compare_exchange_strong(
+          expected, KeyboardExpansionState::kDisconnected)) {
+    keyboard_expansion_.tca8418.store(
+        KeyboardExpansionComponentState::kFailed);
+    keyboard_expansion_.shift_pressed.store(false);
+    keyboard_expansion_.caps_lock_enabled.store(false);
+    keyboard_expansion_.scan_generation.fetch_add(1);
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Keyboard expansion disconnected\n");
+  }
 }
 
 bool TDisplayP4Device::InitDevice() {
@@ -845,6 +981,10 @@ bool TDisplayP4Device::StartKeyboardExpansionScan() {
     return true;
   }
 
+  if (!DeinitializeKeyboardExpansionInterrupt()) {
+    return false;
+  }
+
   bool expected = false;
   if (!keyboard_expansion_.task_running.compare_exchange_strong(
           expected, true)) {
@@ -876,23 +1016,35 @@ bool TDisplayP4Device::StartKeyboardExpansionScan() {
     keyboard_expansion_.state.store(
         KeyboardExpansionState::kComponentFailure);
     keyboard_expansion_.scan_generation.fetch_add(1);
+    if (!InitializeKeyboardExpansionConnectionInterrupt(false)) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Initialize keyboard expansion connection interrupt failed\n");
+    }
     return false;
   }
   return true;
 }
 
-bool TDisplayP4Device::DisableKeyboardExpansion() {
+bool TDisplayP4Device::DeinitializeKeyboardExpansionHardware(
+    KeyboardExpansionState final_state) {
   if (!WaitForKeyboardExpansionTask()) {
     return false;
   }
 
+  const KeyboardExpansionState previous_state =
+      keyboard_expansion_.state.load();
+  // 先停止向 LVGL 发布键盘事件，再释放中断和芯片资源。
+  keyboard_expansion_.state.store(final_state);
+  const bool interrupt_deinitialized =
+      DeinitializeKeyboardExpansionInterrupt();
   const auto deinit_mode =
-      keyboard_expansion_.state.load() == KeyboardExpansionState::kDisconnected
+      previous_state == KeyboardExpansionState::kDisconnected
           ? lilygo_device_driver::TDisplayP4Driver::
                 KeyboardExpansionDeinitMode::kForced
           : lilygo_device_driver::TDisplayP4Driver::
                 KeyboardExpansionDeinitMode::kNormal;
-  const bool result = driver_.DeinitKeyboardExpansion(deinit_mode);
+  const bool result =
+      driver_.DeinitKeyboardExpansion(deinit_mode) && interrupt_deinitialized;
   keyboard_expansion_.xl9555.store(
       KeyboardExpansionComponentState::kNotChecked);
   keyboard_expansion_.tca8418.store(
@@ -909,10 +1061,69 @@ bool TDisplayP4Device::DisableKeyboardExpansion() {
   keyboard_expansion_.caps_lock_enabled.store(false);
   keyboard_expansion_.consecutive_read_failures.store(0);
   keyboard_expansion_.state.store(result
-          ? KeyboardExpansionState::kDisabled
+          ? final_state
           : KeyboardExpansionState::kComponentFailure);
   keyboard_expansion_.scan_generation.fetch_add(1);
   return result;
+}
+
+bool TDisplayP4Device::DisableKeyboardExpansion() {
+  return DeinitializeKeyboardExpansionHardware(
+      KeyboardExpansionState::kDisabled);
+}
+
+bool TDisplayP4Device::UpdateKeyboardExpansionConnection(
+    bool* scan_started) {
+  if (scan_started != nullptr) {
+    *scan_started = false;
+  }
+
+  KeyboardExpansionState state = keyboard_expansion_.state.load();
+  if (state == KeyboardExpansionState::kReady ||
+      state == KeyboardExpansionState::kScanning) {
+    return true;
+  }
+  if (state == KeyboardExpansionState::kDisabled) {
+    return true;
+  }
+
+  if (state == KeyboardExpansionState::kDisconnected) {
+    if (!DeinitializeKeyboardExpansionHardware(
+            KeyboardExpansionState::kNotFound)) {
+      return false;
+    }
+    if (!InitializeKeyboardExpansionConnectionInterrupt(true)) {
+      return false;
+    }
+  } else if (!InitializeKeyboardExpansionConnectionInterrupt(false)) {
+    return false;
+  }
+
+  if (!keyboard_expansion_.connection_interrupt_pending.load(
+          std::memory_order_acquire)) {
+    return true;
+  }
+  const TickType_t interrupt_tick =
+      keyboard_expansion_.connection_interrupt_tick.load(
+          std::memory_order_relaxed);
+  if (xTaskGetTickCount() - interrupt_tick <
+      pdMS_TO_TICKS(kKeyboardExpansionConnectionDebounceMs)) {
+    return true;
+  }
+  if (!keyboard_expansion_.connection_interrupt_pending.exchange(
+          false, std::memory_order_acq_rel)) {
+    return true;
+  }
+  if (tool_ == nullptr ||
+      !tool_->GpioRead(keyboard_gpio::tca8418::kInt)) {
+    return true;
+  }
+
+  const bool started = StartKeyboardExpansionScan();
+  if (scan_started != nullptr) {
+    *scan_started = started;
+  }
+  return started;
 }
 
 bool TDisplayP4Device::SetKeyboardBacklightBrightnessPercent(int percent) {
@@ -969,46 +1180,60 @@ bool TDisplayP4Device::SetKeyboardExpansionLed(
 bool TDisplayP4Device::ReadKeyboardInputEvent(KeyboardInputEvent* event) {
   if (event == nullptr || tool_ == nullptr ||
       keyboard_expansion_.state.load() != KeyboardExpansionState::kReady ||
-      !driver_.IsTca8418Ready() || driver_.chip().tca8418 == nullptr ||
-      tool_->GpioRead(keyboard_gpio::tca8418::kInt)) {
+      !driver_.IsTca8418Ready() || driver_.chip().tca8418 == nullptr) {
+    return false;
+  }
+
+  const bool interrupt_initialized =
+      keyboard_expansion_.interrupt_initialized.load(
+          std::memory_order_acquire);
+  if (interrupt_initialized &&
+      !keyboard_expansion_.input_interrupt_pending.exchange(
+          false, std::memory_order_acq_rel)) {
+    return false;
+  }
+  // 中断初始化失败时保留 GPIO 轮询回退，避免键盘完全失去输入。
+  if (tool_->GpioRead(keyboard_gpio::tca8418::kInt)) {
     return false;
   }
 
   const uint8_t event_count = driver_.chip().tca8418->GetFingerCount();
   if (event_count == UINT8_MAX) {
-    const uint8_t failure_count =
-        keyboard_expansion_.consecutive_read_failures.fetch_add(1) + 1;
-    if (failure_count >= kKeyboardExpansionDisconnectFailureThreshold) {
-      KeyboardExpansionState expected = KeyboardExpansionState::kReady;
-      if (keyboard_expansion_.state.compare_exchange_strong(
-              expected, KeyboardExpansionState::kDisconnected)) {
-        keyboard_expansion_.tca8418.store(
-            KeyboardExpansionComponentState::kFailed);
-        keyboard_expansion_.shift_pressed.store(false);
-        keyboard_expansion_.caps_lock_enabled.store(false);
-        keyboard_expansion_.scan_generation.fetch_add(1);
-        LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-            "Keyboard expansion disconnected\n");
-      }
-    }
+    RecordKeyboardInputReadFailure();
     return false;
   }
-  keyboard_expansion_.consecutive_read_failures.store(0);
   if (event_count == 0 || event_count > 10) {
     if (event_count == 0) {
-      driver_.chip().tca8418->ClearIrqFlag(
-          cpp_bus_driver::Tca8418::IrqFlag::kKeyEvents);
+      if (!driver_.chip().tca8418->ClearIrqFlag(
+              cpp_bus_driver::Tca8418::IrqFlag::kKeyEvents)) {
+        RecordKeyboardInputReadFailure();
+      } else {
+        keyboard_expansion_.consecutive_read_failures.store(0);
+      }
+    } else {
+      keyboard_expansion_.consecutive_read_failures.store(0);
     }
     return false;
   }
 
   cpp_bus_driver::Tca8418::TouchInfo input;
   if (!driver_.chip().tca8418->ReadKeyEvent(&input)) {
+    RecordKeyboardInputReadFailure();
     return false;
   }
+  if (event_count > 1 && interrupt_initialized) {
+    keyboard_expansion_.input_interrupt_pending.store(
+        true, std::memory_order_release);
+  }
   if (event_count == 1) {
-    driver_.chip().tca8418->ClearIrqFlag(
-        cpp_bus_driver::Tca8418::IrqFlag::kKeyEvents);
+    if (!driver_.chip().tca8418->ClearIrqFlag(
+            cpp_bus_driver::Tca8418::IrqFlag::kKeyEvents)) {
+      RecordKeyboardInputReadFailure();
+    } else {
+      keyboard_expansion_.consecutive_read_failures.store(0);
+    }
+  } else {
+    keyboard_expansion_.consecutive_read_failures.store(0);
   }
   if (input.num == 0 ||
       input.num > keyboard_device::tca8418::kMap.size()) {
@@ -1108,8 +1333,18 @@ void TDisplayP4Device::RunKeyboardExpansionScanTask() {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Keyboard expansion cleanup failed\n");
   }
+  if (state == KeyboardExpansionState::kReady &&
+      !InitializeKeyboardInputInterrupt()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Initialize keyboard input interrupt failed; using polling fallback\n");
+  }
   keyboard_expansion_.state.store(state);
   keyboard_expansion_.scan_generation.fetch_add(1);
+  if (state != KeyboardExpansionState::kReady &&
+      !InitializeKeyboardExpansionConnectionInterrupt(false)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Initialize keyboard expansion connection interrupt failed\n");
+  }
   keyboard_expansion_.task_running.store(false);
 }
 

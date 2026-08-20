@@ -1102,8 +1102,8 @@ bool UiManager::ShowKeyboardExpansionUnavailablePrompt() {
   config.slide_from_bottom = true;
   config.title = "Keyboard expansion unavailable";
   config.subtitle =
-      "Keyboard expansion is not available. The feature has been "
-      "turned off.";
+      "Reconnect the keyboard expansion to use it again. Auto-connect "
+      "remains on.";
   config.title_font = Font32();
   config.subtitle_font = Font24();
   config.action_font = Font28();
@@ -1126,6 +1126,10 @@ bool UiManager::ShowKeyboardExpansionUnavailablePrompt() {
     DefocusSharedKeyboardTextAreas();
   }
   return true;
+}
+
+void UiManager::CloseKeyboardExpansionUnavailablePrompt() {
+  ClosePromptDialog(&keyboard_expansion_unavailable_prompt_);
 }
 
 void UiManager::KeyboardExpansionUnavailablePromptDismissedCallback(
