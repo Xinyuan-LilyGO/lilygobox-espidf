@@ -315,10 +315,8 @@ struct SettingsViewState {
   bool on_screen_keyboard_enabled = true;
   // 键盘扩展的临时 UI 状态，底层服务接入后再持久化。
   bool keyboard_expansion_enabled = false;
-  bool keyboard_expansion_prompt_dismissed = false;
+  bool keyboard_expansion_scan_pending = false;
   lv_obj_t* keyboard_expansion_switch = nullptr;
-  lv_obj_t* keyboard_expansion_prompt_status_label = nullptr;
-  lv_obj_t* keyboard_expansion_prompt_spinner = nullptr;
   PromptDialogState keyboard_expansion_prompt = {};
   char keyboard_expansion_prompt_message[256] = {};
   lv_obj_t* otg_switch = nullptr;

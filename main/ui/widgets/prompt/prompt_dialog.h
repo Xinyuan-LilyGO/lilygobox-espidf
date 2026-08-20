@@ -21,7 +21,13 @@ using PromptDialogActionCallback = void (*)(void* context);
 struct PromptDialogState {
   lv_obj_t* overlay = nullptr;
   lv_obj_t* panel = nullptr;
+  lv_obj_t* title_label = nullptr;
+  lv_obj_t* subtitle_label = nullptr;
   lv_obj_t* body = nullptr;
+  lv_obj_t* cancel_button = nullptr;
+  lv_obj_t* cancel_button_label = nullptr;
+  lv_obj_t* confirm_button = nullptr;
+  lv_obj_t* confirm_button_label = nullptr;
   EdgeBackSwipeState edge_swipe = {};
   PromptDialogActionCallback cancel_callback = nullptr;
   PromptDialogActionCallback confirm_callback = nullptr;
@@ -41,8 +47,12 @@ struct PromptDialogConfig {
   int inner_padding = 28;
   int header_height = 92;
   int title_y = 24;
+  int title_subtitle_gap = 8;
+  int subtitle_body_gap = 16;
   int action_height = 106;
   int action_button_height = 74;
+  // 设为 0 时按钮使用高度一半的圆角。
+  int action_button_radius = 0;
   int action_button_gap = 20;
   int action_bottom_padding = 32;
   int bottom_margin = 0;
@@ -66,11 +76,15 @@ struct PromptDialogConfig {
   lv_opa_t overlay_opacity = 115;
   uint32_t animation_ms = 180;
   const char* title = nullptr;
+  const char* subtitle = nullptr;
   // 设为 nullptr 可隐藏对应按钮；仅保留一个按钮时会自动占满操作区域。
   const char* cancel_text = "Cancel";
   const char* confirm_text = "Save";
   const lv_font_t* title_font = nullptr;
+  const lv_font_t* subtitle_font = nullptr;
   const lv_font_t* action_font = nullptr;
+  lv_text_align_t title_text_align = LV_TEXT_ALIGN_LEFT;
+  lv_text_align_t subtitle_text_align = LV_TEXT_ALIGN_LEFT;
   PromptDialogActionCallback cancel_callback = nullptr;
   PromptDialogActionCallback confirm_callback = nullptr;
   void* callback_context = nullptr;
@@ -86,6 +100,15 @@ struct PromptDialogConfig {
  */
 lv_obj_t* ShowPromptDialog(lv_obj_t* parent, PromptDialogState* state,
     const PromptDialogConfig& config);
+
+/**
+ * @brief 原位更新可见提示框的文字、布局、按钮和回调
+ * @param state 提示框状态
+ * @param config 更新后的提示框配置
+ * @return 更新成功返回正文区域，否则返回 nullptr
+ */
+lv_obj_t* UpdatePromptDialog(
+    PromptDialogState* state, const PromptDialogConfig& config);
 
 /**
  * @brief 播放退出动画并关闭提示框

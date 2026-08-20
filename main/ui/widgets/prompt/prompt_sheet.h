@@ -76,6 +76,15 @@ lv_obj_t* CreatePromptSheetLabel(lv_obj_t* parent, const char* text,
     uint32_t color, const lv_font_t* font);
 
 /**
+ * @brief 将二级标签排列在一级标签的实际底部
+ * @param subtitle 二级标签
+ * @param title 一级标签
+ * @param gap 标签之间的垂直间距
+ */
+void AlignPromptSheetSubtitle(
+    lv_obj_t* subtitle, lv_obj_t* title, int gap);
+
+/**
  * @brief 创建底部提示栏按钮
  * @param parent 父对象
  * @param config 按钮配置
@@ -92,6 +101,12 @@ lv_obj_t* CreatePromptSheetButton(
  */
 void AnimatePromptSheetIn(
     lv_obj_t* sheet, const PromptSheetConfig& config, uint32_t duration_ms);
+
+/**
+ * @brief 停止提示栏当前的垂直移动动画
+ * @param sheet 提示栏面板对象
+ */
+void StopPromptSheetAnimation(lv_obj_t* sheet);
 
 /**
  * @brief 播放底部提示栏退出动画并在结束后删除遮罩层

@@ -295,7 +295,8 @@ bool ShowPromptSelectSheet(
     lv_obj_set_width(message, config.sheet_width - 2 * config.inner_padding);
     lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_label_set_long_mode(message, LV_LABEL_LONG_WRAP);
-    lv_obj_align(message, LV_ALIGN_TOP_MID, 0, 78);
+    AlignPromptSheetSubtitle(
+        message, title, config.title_message_gap);
   }
 
   const int cancel_y =

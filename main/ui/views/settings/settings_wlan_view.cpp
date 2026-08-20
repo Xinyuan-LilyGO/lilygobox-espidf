@@ -2909,7 +2909,7 @@ bool ShowWifiConnectSheet(SettingsViewState* state,
     }
     state->wifi_password_error_label =
         has_error ? subtitle_label : nullptr;
-    lv_obj_align(subtitle_label, LV_ALIGN_TOP_MID, 0, 78);
+    AlignPromptSheetSubtitle(subtitle_label, title, 8);
   }
 
   const int button_y =
@@ -3058,7 +3058,7 @@ bool ShowWifiDeleteNetworkSheet(SettingsViewState* state, const char* ssid,
   lv_obj_set_width(message, sheet_width - 2 * kWifiConnectSheetInnerPadding);
   lv_label_set_long_mode(message, LV_LABEL_LONG_WRAP);
   lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-  lv_obj_align(message, LV_ALIGN_TOP_MID, 0, 78);
+  AlignPromptSheetSubtitle(message, title, 8);
 
   const int button_width =
       (sheet_width - 2 * kWifiConnectSheetInnerPadding -

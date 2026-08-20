@@ -110,6 +110,15 @@ lv_obj_t* CreatePromptSheetLabel(lv_obj_t* parent, const char* text,
   return label;
 }
 
+void AlignPromptSheetSubtitle(
+    lv_obj_t* subtitle, lv_obj_t* title, int gap) {
+  if (subtitle == nullptr || title == nullptr) {
+    return;
+  }
+  lv_obj_update_layout(title);
+  lv_obj_align_to(subtitle, title, LV_ALIGN_OUT_BOTTOM_MID, 0, gap);
+}
+
 lv_obj_t* CreatePromptSheetButton(
     lv_obj_t* parent, const PromptSheetButtonConfig& config) {
   if (parent == nullptr || config.text == nullptr || config.width <= 0 ||
@@ -208,6 +217,12 @@ void AnimatePromptSheetIn(
   lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
   lv_anim_set_exec_cb(&animation, SetObjectY);
   lv_anim_start(&animation);
+}
+
+void StopPromptSheetAnimation(lv_obj_t* sheet) {
+  if (sheet != nullptr) {
+    lv_anim_delete(sheet, SetObjectY);
+  }
 }
 
 bool AnimatePromptSheetOut(

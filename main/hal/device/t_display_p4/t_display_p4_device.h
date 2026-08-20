@@ -543,7 +543,7 @@ class TDisplayP4Device final : public ScreenProvider,
   static constexpr int kPowerOffTaskTimeoutMs = 5000;
   static constexpr int kPowerOffTaskPollMs = 20;
   static constexpr uint32_t kKeyboardExpansionTaskStackBytes = 4096;
-  static constexpr UBaseType_t kKeyboardExpansionTaskPriority = 3;
+  static constexpr UBaseType_t kKeyboardExpansionTaskPriority = 1;
 
   /**
    * @brief 初始化 XL9535 汇总中断对应的 ESP32-P4 GPIO

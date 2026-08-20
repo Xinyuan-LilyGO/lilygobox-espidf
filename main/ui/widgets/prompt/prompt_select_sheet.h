@@ -55,6 +55,7 @@ struct PromptSelectSheetConfig {
   int option_height = 0;
   int button_height = 0;
   int button_radius = 0;
+  int title_message_gap = 8;
   uint32_t sheet_color = theme::LightNeutralTheme().surface_container_lowest;
   uint32_t selected_color = theme::LightNeutralTheme().action_container;
   uint32_t primary_text_color = theme::LightNeutralTheme().on_surface;

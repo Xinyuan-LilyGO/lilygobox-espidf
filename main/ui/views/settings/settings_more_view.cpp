@@ -2,7 +2,7 @@
  * @Description: 更多设置页面
  * @Author: LILYGO_L
  * @Date: 2026-07-24 00:00:00
- * @LastEditTime: 2026-07-24 00:00:00
+ * @LastEditTime: 2026-08-19 20:20:02
  * @License: GPL 3.0
  */
 #include "app/storage/otg_storage.h"
@@ -19,6 +19,16 @@ namespace {
 
 constexpr uint32_t kOtgRefreshPeriodMs = 500;
 constexpr uint32_t kKeyboardExpansionRefreshPeriodMs = 100;
+constexpr char kKeyboardExpansionSubtitle[] =
+    "Use connected keyboard expansion hardware.";
+constexpr int kKeyboardExpansionPromptSideMargin = 34;
+constexpr int kKeyboardExpansionPromptBottomMargin = 32;
+constexpr int kKeyboardExpansionPromptRadius = 48;
+constexpr int kKeyboardExpansionNotFoundPromptHeight = 332;
+constexpr int kKeyboardExpansionFailurePromptHeight = 520;
+constexpr int kKeyboardExpansionPromptInnerPadding = 32;
+constexpr int kKeyboardExpansionPromptButtonHeight = 74;
+constexpr int kKeyboardExpansionPromptButtonRadius = 24;
 
 /**
  * @brief 刷新 OTG 开关的保存状态和外部电源限制
@@ -276,12 +286,20 @@ void SetKeyboardExpansionSwitchChecked(
   }
 }
 
-void KeyboardExpansionPromptCloseCallback(void* context) {
-  auto* state = static_cast<SettingsViewState*>(context);
+void SetKeyboardExpansionScanning(
+    SettingsViewState* state, bool scanning) {
   if (state == nullptr) {
     return;
   }
-  state->keyboard_expansion_prompt_dismissed = true;
+  if (state->keyboard_expansion_switch != nullptr) {
+    if (scanning) {
+      lv_obj_add_state(
+          state->keyboard_expansion_switch, LV_STATE_DISABLED);
+    } else {
+      lv_obj_remove_state(
+          state->keyboard_expansion_switch, LV_STATE_DISABLED);
+    }
+  }
 }
 
 void AppendFailedKeyboardExpansionComponent(char* message, size_t capacity,
@@ -310,13 +328,6 @@ void BuildKeyboardExpansionFailureMessage(SettingsViewState* state,
   constexpr size_t capacity =
       sizeof(state->keyboard_expansion_prompt_message);
   size_t used = 0;
-  if (status.state == hal::KeyboardExpansionState::kNotFound) {
-    std::snprintf(message, capacity,
-        "No keyboard expansion was detected. Check the connection and try "
-        "again.");
-    return;
-  }
-
   const int written = std::snprintf(
       message, capacity, "Could not initialize the following hardware:");
   if (written > 0) {
@@ -343,67 +354,74 @@ void BuildKeyboardExpansionFailureMessage(SettingsViewState* state,
   }
 }
 
-bool ShowKeyboardExpansionPrompt(SettingsViewState* state, bool scanning,
-    const hal::KeyboardExpansionStatus* status = nullptr) {
+bool ShowKeyboardExpansionFailurePrompt(SettingsViewState* state,
+    const hal::KeyboardExpansionStatus& status) {
   if (state == nullptr || state->root == nullptr) {
     return false;
   }
 
+  const bool not_found =
+      status.state == hal::KeyboardExpansionState::kNotFound;
+  if (!not_found) {
+    BuildKeyboardExpansionFailureMessage(state, status);
+  }
   PromptDialogConfig config;
   config.screen_width = state->config.width;
   config.screen_height = state->config.height;
-  config.dialog_width = state->config.width - 52;
-  config.dialog_height = 330;
-  config.title = scanning ? "Scanning" : "Keyboard expansion unavailable";
+  config.dialog_width =
+      state->config.width - 2 * kKeyboardExpansionPromptSideMargin;
+  config.dialog_height = not_found
+      ? kKeyboardExpansionNotFoundPromptHeight
+      : kKeyboardExpansionFailurePromptHeight;
+  config.dialog_radius = kKeyboardExpansionPromptRadius;
+  config.inner_padding = kKeyboardExpansionPromptInnerPadding;
+  config.header_height = 78;
+  config.title_y = 34;
+  config.title_subtitle_gap = 8;
+  config.subtitle_body_gap = 16;
+  config.action_height = 106;
+  config.action_button_height = kKeyboardExpansionPromptButtonHeight;
+  config.action_button_radius = kKeyboardExpansionPromptButtonRadius;
+  config.action_button_gap = 20;
+  config.action_bottom_padding = kKeyboardExpansionPromptInnerPadding;
+  config.bottom_margin = kKeyboardExpansionPromptBottomMargin;
+  config.animation_ms = kDetailSlideAnimationMs;
+  config.slide_from_bottom = true;
+  config.title = "Keyboard expansion unavailable";
+  config.subtitle = not_found
+      ? "No keyboard expansion was detected."
+      : "Some keyboard expansion hardware could not be initialized.";
   config.title_font = Font32();
-  config.action_font = Font24();
-  config.cancel_text = "Close";
+  config.subtitle_font = Font24();
+  config.action_font = Font28();
+  config.title_text_align = LV_TEXT_ALIGN_CENTER;
+  config.subtitle_text_align = LV_TEXT_ALIGN_CENTER;
+  config.cancel_text = "OK";
+  config.cancel_background_color = theme::LightNeutralTheme().action;
+  config.cancel_pressed_color = theme::LightNeutralTheme().action_pressed;
+  config.cancel_text_color = theme::LightNeutralTheme().on_action;
   config.confirm_text = nullptr;
-  config.cancel_callback =
-      scanning ? KeyboardExpansionPromptCloseCallback : nullptr;
-  config.callback_context = state;
   lv_obj_t* body = ShowPromptDialog(
       state->root, &state->keyboard_expansion_prompt, config);
   if (body == nullptr) {
     return false;
   }
 
-  state->keyboard_expansion_prompt_spinner = nullptr;
-  state->keyboard_expansion_prompt_status_label = nullptr;
-  if (scanning) {
-    lv_obj_t* spinner = lv_spinner_create(body);
-    if (spinner == nullptr) {
-      ClosePromptDialog(&state->keyboard_expansion_prompt);
-      return false;
-    }
-    state->keyboard_expansion_prompt_spinner = spinner;
-    lv_spinner_set_anim_params(spinner, 850, 250);
-    lv_obj_set_size(spinner, 42, 42);
-    lv_obj_set_pos(spinner, 30, 28);
-    lv_obj_set_style_arc_width(spinner, 5, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(spinner, 5, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(spinner,
-        lv_color_hex(theme::LightNeutralTheme().outline_variant),
-        LV_PART_MAIN);
-    lv_obj_set_style_arc_color(spinner,
-        lv_color_hex(theme::LightNeutralTheme().action), LV_PART_INDICATOR);
-  } else if (status != nullptr) {
-    BuildKeyboardExpansionFailureMessage(state, *status);
+  if (not_found) {
+    return true;
   }
-
   lv_obj_t* label = lv_label_create(body);
   if (label == nullptr) {
     ClosePromptDialog(&state->keyboard_expansion_prompt);
     return false;
   }
-  state->keyboard_expansion_prompt_status_label = label;
-  lv_label_set_text(label, scanning ? "Searching for connected hardware..."
-                                    : state->keyboard_expansion_prompt_message);
+  lv_label_set_text(label, state->keyboard_expansion_prompt_message);
   lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
-  SetTextStyle(label, lv_color_hex(kSecondaryTextColor), Font22());
-  lv_obj_set_pos(label, scanning ? 92 : 28, scanning ? 34 : 22);
-  lv_obj_set_width(label,
-      config.dialog_width - (scanning ? 122 : 56));
+  SetTextStyle(label, lv_color_hex(kSecondaryTextColor), Font24());
+  lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_set_width(
+      label, config.dialog_width - 2 * kKeyboardExpansionPromptInnerPadding);
+  lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 0);
   return true;
 }
 
@@ -414,6 +432,20 @@ void KeyboardExpansionRefreshTimerCallback(lv_timer_t* timer) {
     return;
   }
 
+  if (state->keyboard_expansion_scan_pending) {
+    state->keyboard_expansion_scan_pending = false;
+    if (!state->config.keyboard_expansion->StartKeyboardExpansionScan()) {
+      StopKeyboardExpansionRefreshTimer(state);
+      SetKeyboardExpansionSwitchChecked(state, false);
+      SetKeyboardExpansionScanning(state, false);
+      hal::KeyboardExpansionStatus failure_status;
+      failure_status.state =
+          hal::KeyboardExpansionState::kComponentFailure;
+      ShowKeyboardExpansionFailurePrompt(state, failure_status);
+      return;
+    }
+  }
+
   hal::KeyboardExpansionStatus status;
   if (!state->config.keyboard_expansion->ReadKeyboardExpansionStatus(
           &status) ||
@@ -421,20 +453,18 @@ void KeyboardExpansionRefreshTimerCallback(lv_timer_t* timer) {
     return;
   }
   StopKeyboardExpansionRefreshTimer(state);
+  SetKeyboardExpansionScanning(state, false);
 
   if (status.state == hal::KeyboardExpansionState::kReady) {
     SetKeyboardExpansionSwitchChecked(state, true);
-    ClosePromptDialog(&state->keyboard_expansion_prompt);
     return;
   }
 
   SetKeyboardExpansionSwitchChecked(state, false);
-  if (status.state == hal::KeyboardExpansionState::kDisabled ||
-      state->keyboard_expansion_prompt_dismissed) {
-    ClosePromptDialog(&state->keyboard_expansion_prompt);
+  if (status.state == hal::KeyboardExpansionState::kDisabled) {
     return;
   }
-  ShowKeyboardExpansionPrompt(state, false, &status);
+  ShowKeyboardExpansionFailurePrompt(state, status);
 }
 
 void KeyboardExpansionPageDeleteEventCallback(lv_event_t* event) {
@@ -445,11 +475,10 @@ void KeyboardExpansionPageDeleteEventCallback(lv_event_t* event) {
   if (state == nullptr) {
     return;
   }
+  state->keyboard_expansion_scan_pending = false;
   StopKeyboardExpansionRefreshTimer(state);
   ClosePromptDialog(&state->keyboard_expansion_prompt);
   state->keyboard_expansion_switch = nullptr;
-  state->keyboard_expansion_prompt_status_label = nullptr;
-  state->keyboard_expansion_prompt_spinner = nullptr;
 }
 
 /**
@@ -466,7 +495,7 @@ void KeyboardExpansionSwitchChangedEventCallback(lv_event_t* event) {
 
   const bool enabled = lv_obj_has_state(target, LV_STATE_CHECKED);
   if (!enabled) {
-    state->keyboard_expansion_prompt_dismissed = true;
+    state->keyboard_expansion_scan_pending = false;
     StopKeyboardExpansionRefreshTimer(state);
     ClosePromptDialog(&state->keyboard_expansion_prompt);
     if (!state->config.keyboard_expansion->DisableKeyboardExpansion()) {
@@ -474,28 +503,24 @@ void KeyboardExpansionSwitchChangedEventCallback(lv_event_t* event) {
           "Disable keyboard expansion failed\n");
     }
     SetKeyboardExpansionSwitchChecked(state, false);
+    SetKeyboardExpansionScanning(state, false);
     return;
   }
 
-  if (!state->config.keyboard_expansion->StartKeyboardExpansionScan()) {
-    SetKeyboardExpansionSwitchChecked(state, false);
-    hal::KeyboardExpansionStatus failure_status;
-    failure_status.state = hal::KeyboardExpansionState::kComponentFailure;
-    ShowKeyboardExpansionPrompt(state, false, &failure_status);
-    return;
-  }
-  state->keyboard_expansion_prompt_dismissed = false;
+  state->keyboard_expansion_scan_pending = true;
   SetKeyboardExpansionSwitchChecked(state, true);
-  if (!ShowKeyboardExpansionPrompt(state, true)) {
-    state->keyboard_expansion_prompt_dismissed = true;
-  }
+  SetKeyboardExpansionScanning(state, true);
   StopKeyboardExpansionRefreshTimer(state);
   state->keyboard_expansion_refresh_timer = lv_timer_create(
       KeyboardExpansionRefreshTimerCallback,
       kKeyboardExpansionRefreshPeriodMs, state);
   if (state->keyboard_expansion_refresh_timer == nullptr) {
-    state->keyboard_expansion_prompt_dismissed = true;
-    ClosePromptDialog(&state->keyboard_expansion_prompt);
+    state->keyboard_expansion_scan_pending = false;
+    SetKeyboardExpansionSwitchChecked(state, false);
+    SetKeyboardExpansionScanning(state, false);
+    hal::KeyboardExpansionStatus failure_status;
+    failure_status.state = hal::KeyboardExpansionState::kComponentFailure;
+    ShowKeyboardExpansionFailurePrompt(state, failure_status);
   }
 }
 
@@ -529,21 +554,18 @@ bool BuildKeyboardExpansionContent(lv_obj_t* body, SettingsViewState* state) {
           state->config.width, state->keyboard_expansion_enabled,
           KeyboardExpansionSwitchChangedEventCallback, state, false,
           &state->keyboard_expansion_switch,
-          "Scan for connected keyboard expansion hardware.")) {
+          kKeyboardExpansionSubtitle)) {
     return false;
   }
   if (status.state == hal::KeyboardExpansionState::kScanning) {
-    state->keyboard_expansion_prompt_dismissed = false;
-    if (!ShowKeyboardExpansionPrompt(state, true)) {
-      state->keyboard_expansion_prompt_dismissed = true;
-    }
+    state->keyboard_expansion_scan_pending = false;
+    SetKeyboardExpansionScanning(state, true);
     StopKeyboardExpansionRefreshTimer(state);
     state->keyboard_expansion_refresh_timer = lv_timer_create(
         KeyboardExpansionRefreshTimerCallback,
         kKeyboardExpansionRefreshPeriodMs, state);
     if (state->keyboard_expansion_refresh_timer == nullptr) {
-      state->keyboard_expansion_prompt_dismissed = true;
-      ClosePromptDialog(&state->keyboard_expansion_prompt);
+      SetKeyboardExpansionScanning(state, false);
     }
   }
   return true;
