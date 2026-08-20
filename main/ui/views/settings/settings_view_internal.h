@@ -311,12 +311,13 @@ struct SettingsViewState {
   uint32_t wifi_connect_started_ms = 0;
   bool bluetooth_enabled = false;
   bool hotspot_enabled = false;
-  // 屏幕键盘设置的临时 UI 状态，系统设置接入后再持久化。
+  // 连接实体键盘时是否仍显示屏幕键盘。
   bool on_screen_keyboard_enabled = true;
-  // 键盘扩展的临时 UI 状态，底层服务接入后再持久化。
+  // 键盘扩展的持久化期望状态。
   bool keyboard_expansion_enabled = false;
   bool keyboard_expansion_scan_pending = false;
   lv_obj_t* keyboard_expansion_switch = nullptr;
+  lv_obj_t* keyboard_backlight_controls = nullptr;
   PromptDialogState keyboard_expansion_prompt = {};
   char keyboard_expansion_prompt_message[256] = {};
   lv_obj_t* otg_switch = nullptr;
@@ -327,6 +328,7 @@ struct SettingsViewState {
   lv_obj_t* haptic_strength_controls = nullptr;
   bool battery_protection_enabled = true;
   int display_brightness_percent = 90;
+  int keyboard_backlight_brightness_percent = 90;
   int audio_volume_percent = 90;
   int haptic_strength_percent = 90;
   int auto_lock_seconds = 5 * 60;

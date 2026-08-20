@@ -103,6 +103,16 @@ class Application final {
   bool UpdateOtgPowerPolicy();
 
   /**
+   * @brief 检查开机恢复键盘扩展任务并在硬件缺失时关闭持久化开关
+   */
+  void UpdateKeyboardExpansionRestore();
+
+  /**
+   * @brief 在启动页结束后显示键盘扩展自动关闭提示
+   */
+  void ShowPendingKeyboardExpansionRestoreNotice();
+
+  /**
    * @brief 启动后自动连接 WLAN 的后台任务入口
    * @param context Application 实例
    */
@@ -325,6 +335,10 @@ class Application final {
   bool otg_hardware_enabled_ = false;
   // 最近一次确认外部电源移除时的系统节拍。
   TickType_t otg_external_power_removed_tick_ = 0;
+  // 开机按照 TLV 偏好执行的键盘扩展检测仍在进行。
+  bool keyboard_expansion_restore_pending_ = false;
+  // 启动恢复失败后等待系统主界面显示一次关闭提示。
+  bool keyboard_expansion_restore_notice_pending_ = false;
 };
 
 }  // namespace lilygo_box

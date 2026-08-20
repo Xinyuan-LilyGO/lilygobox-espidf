@@ -7,11 +7,14 @@
  */
 #include "ui/widgets/shared_keyboard.h"
 
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <limits>
 #include <new>
 
+#include "app/storage/input_method_storage.h"
+#include "hal/providers/keyboard_expansion_provider.h"
 #include "ui/haptic_feedback.h"
 
 namespace lilygo_box::ui {
@@ -26,6 +29,10 @@ constexpr uint32_t kKeyboardPressedKeyColor = 0xD4D4D4;
 constexpr uint32_t kKeyboardTextColor = 0x202020;
 constexpr uint32_t kKeyboardSpecialKeyColor = 0xC9CDD4;
 constexpr int kTextAreaActivationDragThreshold = 12;
+constexpr size_t kMaximumSharedKeyboardCount = 16;
+
+hal::KeyboardExpansionProvider* g_physical_keyboard_provider = nullptr;
+std::array<lv_obj_t*, kMaximumSharedKeyboardCount> g_shared_keyboards = {};
 
 const char* const kKeyboardLowerMap[] = {
     "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "\n",
@@ -182,6 +189,48 @@ struct TextAreaKeyboardBinding {
   bool allow_focus_event = false;
 };
 
+bool IsPhysicalKeyboardConnected() {
+  if (g_physical_keyboard_provider == nullptr) {
+    return false;
+  }
+  hal::KeyboardExpansionStatus status;
+  return g_physical_keyboard_provider->ReadKeyboardExpansionStatus(&status) &&
+      status.state == hal::KeyboardExpansionState::kReady &&
+      status.tca8418 == hal::KeyboardExpansionComponentState::kReady;
+}
+
+bool ShouldShowSharedKeyboardInternal() {
+  return !IsPhysicalKeyboardConnected() ||
+      app::GetInputMethodPreferences().use_on_screen_keyboard;
+}
+
+void SharedKeyboardDeleteEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_DELETE) {
+    return;
+  }
+  lv_obj_t* keyboard = lv_event_get_target_obj(event);
+  for (lv_obj_t*& registered_keyboard : g_shared_keyboards) {
+    if (registered_keyboard == keyboard) {
+      registered_keyboard = nullptr;
+      return;
+    }
+  }
+}
+
+void RegisterSharedKeyboard(lv_obj_t* keyboard) {
+  if (keyboard == nullptr) {
+    return;
+  }
+  for (lv_obj_t*& registered_keyboard : g_shared_keyboards) {
+    if (registered_keyboard == nullptr) {
+      registered_keyboard = keyboard;
+      lv_obj_add_event_cb(keyboard, SharedKeyboardDeleteEventCallback,
+          LV_EVENT_DELETE, nullptr);
+      return;
+    }
+  }
+}
+
 /**
  * @brief 计算整数绝对值
  * @param value 原始值
@@ -267,7 +316,11 @@ void ActivateTextAreaAfterRelease(
     lv_textarea_set_accepted_chars(text_area, binding->accepted_chars);
   }
   lv_keyboard_set_mode(binding->keyboard, LV_KEYBOARD_MODE_USER_1);
-  lv_obj_remove_flag(binding->keyboard, LV_OBJ_FLAG_HIDDEN);
+  if (ShouldShowSharedKeyboardInternal()) {
+    lv_obj_remove_flag(binding->keyboard, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(binding->keyboard, LV_OBJ_FLAG_HIDDEN);
+  }
   lv_obj_move_to_index(binding->keyboard, -1);
   binding->allow_focus_event = true;
   lv_obj_send_event(text_area, LV_EVENT_FOCUSED, indev);
@@ -409,6 +462,16 @@ void TextAreaKeyboardPreprocessEventCallback(lv_event_t* event) {
     return;
   }
 
+  if (code == LV_EVENT_KEY) {
+    const uint32_t key = lv_event_get_key(event);
+    if (key == LV_KEY_UP || key == LV_KEY_DOWN || key == LV_KEY_LEFT ||
+        key == LV_KEY_RIGHT) {
+      // 方向键仅由当前输入框处理，避免继续冒泡导致父容器滚动。
+      lv_event_stop_bubbling(event);
+    }
+    return;
+  }
+
   if (code == LV_EVENT_FOCUSED && !binding->allow_focus_event) {
     lv_event_stop_processing(event);
     return;
@@ -501,6 +564,29 @@ void TextAreaKeyboardPostprocessEventCallback(lv_event_t* event) {
 
 }  // namespace
 
+void RegisterSharedKeyboardPhysicalKeyboardProvider(
+    hal::KeyboardExpansionProvider* provider) {
+  g_physical_keyboard_provider = provider;
+}
+
+bool ShouldShowSharedKeyboard() {
+  return ShouldShowSharedKeyboardInternal();
+}
+
+void RefreshSharedKeyboardVisibility() {
+  const bool visible = ShouldShowSharedKeyboardInternal();
+  for (lv_obj_t* keyboard : g_shared_keyboards) {
+    if (keyboard == nullptr || lv_keyboard_get_textarea(keyboard) == nullptr) {
+      continue;
+    }
+    if (visible) {
+      lv_obj_remove_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+}
+
 lv_obj_t* CreateSharedKeyboard(
     lv_obj_t* parent, const SharedKeyboardConfig& config) {
   if (parent == nullptr || config.width <= 0 || config.height <= 0) {
@@ -523,6 +609,7 @@ lv_obj_t* CreateSharedKeyboard(
                                    LV_EVENT_PREPROCESS);
   lv_obj_add_event_cb(
       keyboard, SharedKeyboardModeEventCallback, mode_event, nullptr);
+  RegisterSharedKeyboard(keyboard);
   return keyboard;
 }
 

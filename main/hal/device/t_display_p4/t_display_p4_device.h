@@ -517,11 +517,37 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   bool ExitDeviceSleep(bool deep_sleep = false) override;
 
-  /** @copydoc KeyboardExpansionProvider::StartKeyboardExpansionScan */
+  /**
+   * @brief 启动一次键盘扩展硬件扫描和初始化任务
+   * @return 任务已启动或扩展已经就绪时返回 true，否则返回 false
+   */
   bool StartKeyboardExpansionScan() override;
-  /** @copydoc KeyboardExpansionProvider::DisableKeyboardExpansion */
+
+  /**
+   * @brief 关闭键盘扩展并释放所有硬件资源
+   * @return 扫描任务停止且硬件完成清理时返回 true，否则返回 false
+   */
   bool DisableKeyboardExpansion() override;
-  /** @copydoc KeyboardExpansionProvider::ReadKeyboardExpansionStatus */
+
+  /**
+   * @brief 设置键盘背光期望亮度
+   * @param percent 亮度百分比，范围 0~100
+   * @return 参数已保存且在扩展就绪时成功应用返回 true，否则返回 false
+   */
+  bool SetKeyboardBacklightBrightnessPercent(int percent) override;
+
+  /**
+   * @brief 非阻塞读取一个实体键盘按键事件
+   * @param event 按键事件输出地址
+   * @return 读取到有效按下或释放事件返回 true，否则返回 false
+   */
+  bool ReadKeyboardInputEvent(KeyboardInputEvent* event) override;
+
+  /**
+   * @brief 读取键盘扩展当前生命周期和逐器件状态
+   * @param status 状态输出地址
+   * @return 读取成功返回 true，否则返回 false
+   */
   bool ReadKeyboardExpansionStatus(
       KeyboardExpansionStatus* status) const override;
 
@@ -1223,6 +1249,8 @@ class TDisplayP4Device final : public ScreenProvider,
     bool chip_error = false;
   };
 
+  static constexpr int kDefaultKeyboardBacklightBrightnessPercent = 10;
+
   struct KeyboardExpansionRuntimeState {
     std::atomic<KeyboardExpansionState> state{
         KeyboardExpansionState::kDisabled};
@@ -1238,6 +1266,10 @@ class TDisplayP4Device final : public ScreenProvider,
         KeyboardExpansionComponentState::kNotChecked};
     std::atomic<KeyboardExpansionComponentState> st25r3916{
         KeyboardExpansionComponentState::kNotChecked};
+    std::atomic<int> backlight_brightness_percent{
+        kDefaultKeyboardBacklightBrightnessPercent};
+    std::atomic<bool> shift_pressed{false};
+    std::atomic<bool> caps_lock_enabled{false};
     std::atomic<bool> task_running{false};
     std::atomic<uint32_t> scan_generation{0};
   };

@@ -16,6 +16,8 @@
 #include "app/settings_catalog.h"
 #include "app/storage/display_storage.h"
 #include "app/storage/haptic_storage.h"
+#include "app/storage/input_method_storage.h"
+#include "app/storage/keyboard_expansion_storage.h"
 #include "app/storage/otg_storage.h"
 #include "app/storage/sound_storage.h"
 #include "hal/providers/wifi_provider.h"
@@ -500,6 +502,16 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
   LoadWifiSettingsFromCache(state, IsWifiCurrentlyEnabled(config));
   app::DisplayPreferences display_preferences = app::GetDisplayPreferences();
   state->display_brightness_percent = display_preferences.brightness_percent;
+  const app::InputMethodPreferences input_method_preferences =
+      app::GetInputMethodPreferences();
+  const app::KeyboardExpansionPreferences keyboard_expansion_preferences =
+      app::GetKeyboardExpansionPreferences();
+  state->on_screen_keyboard_enabled =
+      input_method_preferences.use_on_screen_keyboard;
+  state->keyboard_expansion_enabled =
+      keyboard_expansion_preferences.enabled;
+  state->keyboard_backlight_brightness_percent =
+      keyboard_expansion_preferences.backlight_brightness_percent;
   state->auto_lock_seconds = display_preferences.lock_timeout_seconds;
   state->screen_rotation_angle = display_preferences.screen_rotation_angle;
   state->lock_screen_double_tap_to_turn_screen_on_and_off =

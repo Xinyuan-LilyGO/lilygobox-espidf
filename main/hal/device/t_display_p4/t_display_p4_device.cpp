@@ -58,12 +58,24 @@
 namespace lilygo_box::hal {
 namespace device = lilygo_device_driver::t_display_p4::device;
 namespace gpio = lilygo_device_driver::t_display_p4::gpio;
+namespace keyboard_device =
+    lilygo_device_driver::t_display_p4::keyboard_expansion::device;
+namespace keyboard_gpio =
+    lilygo_device_driver::t_display_p4::keyboard_expansion::gpio;
 namespace {
+
+using KeyboardExpansionLed =
+    lilygo_device_driver::TDisplayP4Driver::KeyboardExpansionLed;
 
 constexpr int kScreenBrightnessMinPercent = 0;
 constexpr int kScreenBrightnessMaxPercent = 100;
+constexpr int kKeyboardBacklightBrightnessMinPercent = 0;
+constexpr int kKeyboardBacklightBrightnessMaxPercent = 100;
+// 键盘背光 PWM 只使用 0~500/1000，避免负载过大影响系统稳定性。
+constexpr uint32_t kKeyboardBacklightDutyMax = 500;
 constexpr int kHi8561BrightnessInputMinPercent = 10;
 constexpr uint32_t kPt4103DutyScale = 1000;
+constexpr uint32_t kSy7200aDutyScale = 1000;
 constexpr uint32_t kScreenBrightnessFadeUpdateMs = 10;
 constexpr uint8_t kRm69a10BrightnessMax = UINT8_MAX;
 constexpr uint8_t kVibrationTestGain = 255;
@@ -113,6 +125,96 @@ constexpr uint16_t kCameraSensorI2cAddress = 0x3C;
 #else
 #error "Unsupported camera sensor type"
 #endif
+
+/**
+ * @brief 将键盘扩展硬件键值转换为通用键盘键值
+ * @param key_code 键盘扩展硬件键值
+ * @param shift_pressed Shift 当前是否按下
+ * @return 通用键盘键值
+ */
+KeyboardKey ToKeyboardKey(
+    keyboard_device::tca8418::KeyCode key_code, bool shift_pressed) {
+  using KeyCode = keyboard_device::tca8418::KeyCode;
+  switch (key_code) {
+    case KeyCode::kCharacter:
+      return KeyboardKey::kCharacter;
+    case KeyCode::kEscape:
+      return KeyboardKey::kEscape;
+    case KeyCode::kBackspace:
+      return KeyboardKey::kBackspace;
+    case KeyCode::kEnter:
+      return KeyboardKey::kEnter;
+    case KeyCode::kTab:
+      return shift_pressed ? KeyboardKey::kPrevious : KeyboardKey::kNext;
+    case KeyCode::kUp:
+      return KeyboardKey::kUp;
+    case KeyCode::kDown:
+      return KeyboardKey::kDown;
+    case KeyCode::kLeft:
+      return KeyboardKey::kLeft;
+    case KeyCode::kRight:
+      return KeyboardKey::kRight;
+    case KeyCode::kCapsLock:
+      return KeyboardKey::kCapsLock;
+    case KeyCode::kShift:
+      return KeyboardKey::kShift;
+    case KeyCode::kControl:
+      return KeyboardKey::kControl;
+    case KeyCode::kAlt:
+      return KeyboardKey::kAlt;
+    case KeyCode::kMeta:
+      return KeyboardKey::kMeta;
+    case KeyCode::kFunction:
+      return KeyboardKey::kFunction;
+    case KeyCode::kRecord:
+      return KeyboardKey::kRecord;
+    case KeyCode::kF1:
+      return KeyboardKey::kF1;
+    case KeyCode::kF2:
+      return KeyboardKey::kF2;
+    case KeyCode::kF3:
+      return KeyboardKey::kF3;
+    case KeyCode::kF4:
+      return KeyboardKey::kF4;
+    case KeyCode::kF5:
+      return KeyboardKey::kF5;
+    case KeyCode::kF6:
+      return KeyboardKey::kF6;
+    case KeyCode::kF7:
+      return KeyboardKey::kF7;
+    case KeyCode::kF8:
+      return KeyboardKey::kF8;
+    case KeyCode::kF9:
+      return KeyboardKey::kF9;
+    case KeyCode::kF10:
+      return KeyboardKey::kF10;
+    case KeyCode::kF11:
+      return KeyboardKey::kF11;
+    case KeyCode::kUnknown:
+    default:
+      return KeyboardKey::kUnknown;
+  }
+}
+
+/**
+ * @brief 根据 Shift 和 Caps Lock 状态解析实体键盘字符
+ * @param mapping 实体键盘硬件映射
+ * @param shift_pressed Shift 当前是否按下
+ * @param caps_lock_enabled Caps Lock 当前是否启用
+ * @return ASCII 字符值，无有效字符返回 0
+ */
+uint32_t ResolveKeyboardCharacter(
+    const keyboard_device::tca8418::KeyMapping& mapping,
+    bool shift_pressed, bool caps_lock_enabled) {
+  char character = shift_pressed && mapping.shifted_character != '\0'
+      ? mapping.shifted_character
+      : mapping.character;
+  if (!shift_pressed && caps_lock_enabled && character >= 'a' &&
+      character <= 'z') {
+    character = static_cast<char>(character - 'a' + 'A');
+  }
+  return static_cast<uint8_t>(character);
+}
 
 /**
  * @brief 获取摄像头启动流程已经消耗的时间
@@ -356,6 +458,16 @@ cpp_bus_driver::Pwm::DutyCycle ScreenBrightnessPercentToHi8561DutyCycle(
 uint8_t ScreenBrightnessPercentToRm69a10Value(int clamped_percent) {
   return static_cast<uint8_t>(
       clamped_percent * kRm69a10BrightnessMax / kScreenBrightnessMaxPercent);
+}
+
+cpp_bus_driver::Pwm::DutyCycle
+KeyboardBacklightBrightnessPercentToSy7200aDutyCycle(int percent) {
+  return {
+      .value = static_cast<uint32_t>(percent) *
+          kKeyboardBacklightDutyMax /
+          kKeyboardBacklightBrightnessMaxPercent,
+      .scale = kSy7200aDutyScale,
+  };
 }
 
 uint8_t PercentToUint8Value(int percent, uint8_t max_value) {
@@ -752,6 +864,8 @@ bool TDisplayP4Device::StartKeyboardExpansionScan() {
       KeyboardExpansionComponentState::kNotChecked);
   keyboard_expansion_.st25r3916.store(
       KeyboardExpansionComponentState::kNotChecked);
+  keyboard_expansion_.shift_pressed.store(false);
+  keyboard_expansion_.caps_lock_enabled.store(false);
   keyboard_expansion_.state.store(KeyboardExpansionState::kScanning);
 
   if (xTaskCreate(KeyboardExpansionScanTaskEntry,
@@ -784,11 +898,99 @@ bool TDisplayP4Device::DisableKeyboardExpansion() {
       KeyboardExpansionComponentState::kNotChecked);
   keyboard_expansion_.st25r3916.store(
       KeyboardExpansionComponentState::kNotChecked);
+  keyboard_expansion_.shift_pressed.store(false);
+  keyboard_expansion_.caps_lock_enabled.store(false);
   keyboard_expansion_.state.store(result
           ? KeyboardExpansionState::kDisabled
           : KeyboardExpansionState::kComponentFailure);
   keyboard_expansion_.scan_generation.fetch_add(1);
   return result;
+}
+
+bool TDisplayP4Device::SetKeyboardBacklightBrightnessPercent(int percent) {
+  if (percent < kKeyboardBacklightBrightnessMinPercent ||
+      percent > kKeyboardBacklightBrightnessMaxPercent) {
+    return false;
+  }
+
+  if (driver_.IsSy7200aReady()) {
+    bool applied = false;
+    if (percent == kKeyboardBacklightBrightnessMinPercent) {
+      applied = driver_.chip().sy7200a->DisableOutput(
+          cpp_bus_driver::Pwm::IdleLevel::kLow);
+    } else {
+      applied = driver_.chip().sy7200a->SetDuty(
+          KeyboardBacklightBrightnessPercentToSy7200aDutyCycle(percent));
+    }
+    if (!applied) {
+      return false;
+    }
+  } else if (keyboard_expansion_.state.load() ==
+             KeyboardExpansionState::kReady) {
+    return false;
+  }
+
+  keyboard_expansion_.backlight_brightness_percent.store(percent);
+  return true;
+}
+
+bool TDisplayP4Device::ReadKeyboardInputEvent(KeyboardInputEvent* event) {
+  if (event == nullptr || tool_ == nullptr ||
+      keyboard_expansion_.state.load() != KeyboardExpansionState::kReady ||
+      !driver_.IsTca8418Ready() || driver_.chip().tca8418 == nullptr ||
+      tool_->GpioRead(keyboard_gpio::tca8418::kInt)) {
+    return false;
+  }
+
+  const uint8_t event_count = driver_.chip().tca8418->GetFingerCount();
+  if (event_count == 0 || event_count > 10) {
+    if (event_count == 0) {
+      driver_.chip().tca8418->ClearIrqFlag(
+          cpp_bus_driver::Tca8418::IrqFlag::kKeyEvents);
+    }
+    return false;
+  }
+
+  cpp_bus_driver::Tca8418::TouchInfo input;
+  if (!driver_.chip().tca8418->ReadKeyEvent(&input)) {
+    return false;
+  }
+  if (event_count == 1) {
+    driver_.chip().tca8418->ClearIrqFlag(
+        cpp_bus_driver::Tca8418::IrqFlag::kKeyEvents);
+  }
+  if (input.num == 0 ||
+      input.num > keyboard_device::tca8418::kMap.size()) {
+    return false;
+  }
+
+  const keyboard_device::tca8418::KeyMapping& mapping =
+      keyboard_device::tca8418::kMap[input.num - 1];
+  const bool shift_pressed = keyboard_expansion_.shift_pressed.load();
+  if (mapping.key == keyboard_device::tca8418::KeyCode::kShift) {
+    keyboard_expansion_.shift_pressed.store(input.press_flag);
+  } else if (mapping.key ==
+                 keyboard_device::tca8418::KeyCode::kCapsLock &&
+             input.press_flag) {
+    const bool caps_lock_enabled =
+        !keyboard_expansion_.caps_lock_enabled.load();
+    keyboard_expansion_.caps_lock_enabled.store(caps_lock_enabled);
+    if (!driver_.SetKeyboardExpansionLed(
+            KeyboardExpansionLed::kLed1, caps_lock_enabled)) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Set keyboard Caps Lock indicator failed\n");
+    }
+  }
+
+  event->key = ToKeyboardKey(mapping.key, shift_pressed);
+  event->character = mapping.key ==
+          keyboard_device::tca8418::KeyCode::kCharacter
+      ? ResolveKeyboardCharacter(mapping, shift_pressed,
+            keyboard_expansion_.caps_lock_enabled.load())
+      : 0;
+  event->key_id = input.num;
+  event->pressed = input.press_flag;
+  return event->key != KeyboardKey::kUnknown;
 }
 
 bool TDisplayP4Device::ReadKeyboardExpansionStatus(
@@ -803,6 +1005,8 @@ bool TDisplayP4Device::ReadKeyboardExpansionStatus(
   status->cc1101 = keyboard_expansion_.cc1101.load();
   status->nrf24l01 = keyboard_expansion_.nrf24l01.load();
   status->st25r3916 = keyboard_expansion_.st25r3916.load();
+  status->backlight_brightness_percent =
+      keyboard_expansion_.backlight_brightness_percent.load();
   status->scan_generation = keyboard_expansion_.scan_generation.load();
   return true;
 }
@@ -817,6 +1021,10 @@ void TDisplayP4Device::KeyboardExpansionScanTaskEntry(void* context) {
 
 void TDisplayP4Device::RunKeyboardExpansionScanTask() {
   const bool initialized = driver_.InitKeyboardExpansion();
+  const int backlight_brightness_percent =
+      keyboard_expansion_.backlight_brightness_percent.load();
+  const bool backlight_applied = !initialized ||
+      SetKeyboardBacklightBrightnessPercent(backlight_brightness_percent);
 
   const auto component_state = [](bool ready) {
     return ready ? KeyboardExpansionComponentState::kReady
@@ -827,7 +1035,7 @@ void TDisplayP4Device::RunKeyboardExpansionScanTask() {
   keyboard_expansion_.tca8418.store(
       component_state(driver_.IsTca8418Ready()));
   keyboard_expansion_.sy7200a.store(
-      component_state(driver_.IsSy7200aReady()));
+      component_state(driver_.IsSy7200aReady() && backlight_applied));
   keyboard_expansion_.cc1101.store(
       component_state(driver_.IsCc1101Ready()));
   keyboard_expansion_.nrf24l01.store(
@@ -836,7 +1044,7 @@ void TDisplayP4Device::RunKeyboardExpansionScanTask() {
       component_state(driver_.IsSt25r3916Ready()));
 
   KeyboardExpansionState state;
-  if (initialized) {
+  if (initialized && backlight_applied) {
     state = KeyboardExpansionState::kReady;
   } else if (!xl9555_ready) {
     state = KeyboardExpansionState::kNotFound;
@@ -5212,7 +5420,17 @@ bool TDisplayP4Device::ExitDeviceSleep(bool deep_sleep) {
     }
     touch_gesture_wake_enabled_ = false;
   }
-  return WaitForScreenReady();
+  if (!WaitForScreenReady()) {
+    return false;
+  }
+  if (keyboard_expansion_.state.load() == KeyboardExpansionState::kReady &&
+      !SetKeyboardBacklightBrightnessPercent(
+          keyboard_expansion_.backlight_brightness_percent.load())) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Restore keyboard backlight brightness failed\n");
+    return false;
+  }
+  return true;
 }
 
 bool TDisplayP4Device::PrepareForPowerOff() {

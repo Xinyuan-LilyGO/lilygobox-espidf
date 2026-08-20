@@ -29,6 +29,8 @@ enum class TlvDomain : uint16_t {
   kWifiSavedNetwork = 9,
   kPowerState = 10,
   kOtg = 11,
+  kKeyboardExpansion = 12,
+  kInputMethod = 13,
 };
 
 enum class TlvReadResult : uint8_t {

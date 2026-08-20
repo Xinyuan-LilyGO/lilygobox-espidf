@@ -2557,15 +2557,17 @@ void SetDetailKeyboardVisible(RadioViewState* state, bool visible) {
       state->detail_chat_body == nullptr) {
     return;
   }
-  if (state->detail_keyboard_visible == visible) {
-    if (!visible) {
+  const bool input_active = visible;
+  const bool keyboard_visible = input_active && ShouldShowSharedKeyboard();
+  if (state->detail_keyboard_visible == keyboard_visible) {
+    if (!input_active) {
       HideSharedKeyboard(state->detail_keyboard);
     }
     return;
   }
   const bool follow_latest =
       state->chat_follow_latest && IsChatAtBottom(state);
-  state->detail_keyboard_visible = visible;
+  state->detail_keyboard_visible = keyboard_visible;
   // 视口改高会让 LVGL 在布局阶段自动校正滚动位置，整个过程必须视为
   // 程序滚动，否则校正事件会被误判为用户离开了最新消息。
   const bool programmatic_scroll_was_active =
@@ -2573,7 +2575,7 @@ void SetDetailKeyboardVisible(RadioViewState* state, bool visible) {
   state->chat_programmatic_scroll = true;
   const int keyboard_height = state->config.height *
       kAddKeyboardHeightPercent / 100;
-  const int offset = visible ? keyboard_height : 0;
+  const int offset = keyboard_visible ? keyboard_height : 0;
   const int composer_top = state->config.height - 108 - offset;
   lv_obj_set_y(state->detail_composer_background,
       composer_top);
@@ -2610,7 +2612,7 @@ void SetDetailKeyboardVisible(RadioViewState* state, bool visible) {
   if (follow_latest) {
     SetChatJumpButtonVisible(state, false);
   }
-  if (!visible) {
+  if (!input_active) {
     HideSharedKeyboard(state->detail_keyboard);
   }
 }
@@ -5613,10 +5615,14 @@ void SetAddKeyboardVisible(
       state->add_action_area == nullptr) {
     return;
   }
+  const bool input_active = visible;
+  const bool keyboard_visible = input_active && ShouldShowSharedKeyboard();
   const int normal_height = state->config.height -
       kAddPageHeaderHeight - kAddPageActionHeight;
-  if (!visible) {
-    HideSharedKeyboard(state->add_keyboard);
+  if (!keyboard_visible) {
+    if (!input_active) {
+      HideSharedKeyboard(state->add_keyboard);
+    }
     lv_obj_align(
         state->add_action_area, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_height(state->add_body, normal_height);
@@ -6211,10 +6217,14 @@ void SetAutoSendKeyboardVisible(
       state->auto_send_action_area == nullptr) {
     return;
   }
+  const bool input_active = visible;
+  const bool keyboard_visible = input_active && ShouldShowSharedKeyboard();
   const int normal_height = state->config.height -
       kAddPageHeaderHeight - kAddPageActionHeight;
-  if (!visible) {
-    HideSharedKeyboard(state->auto_send_keyboard);
+  if (!keyboard_visible) {
+    if (!input_active) {
+      HideSharedKeyboard(state->auto_send_keyboard);
+    }
     lv_obj_align(
         state->auto_send_action_area, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_height(state->auto_send_body, normal_height);

@@ -25,6 +25,45 @@ enum class KeyboardExpansionComponentState : uint8_t {
   kFailed,
 };
 
+enum class KeyboardKey : uint8_t {
+  kUnknown,
+  kCharacter,
+  kEscape,
+  kBackspace,
+  kEnter,
+  kNext,
+  kPrevious,
+  kUp,
+  kDown,
+  kLeft,
+  kRight,
+  kCapsLock,
+  kShift,
+  kControl,
+  kAlt,
+  kMeta,
+  kFunction,
+  kRecord,
+  kF1,
+  kF2,
+  kF3,
+  kF4,
+  kF5,
+  kF6,
+  kF7,
+  kF8,
+  kF9,
+  kF10,
+  kF11,
+};
+
+struct KeyboardInputEvent {
+  KeyboardKey key = KeyboardKey::kUnknown;
+  uint32_t character = 0;
+  uint8_t key_id = 0;
+  bool pressed = false;
+};
+
 struct KeyboardExpansionStatus {
   KeyboardExpansionState state = KeyboardExpansionState::kDisabled;
   KeyboardExpansionComponentState xl9555 =
@@ -39,6 +78,7 @@ struct KeyboardExpansionStatus {
       KeyboardExpansionComponentState::kNotChecked;
   KeyboardExpansionComponentState st25r3916 =
       KeyboardExpansionComponentState::kNotChecked;
+  int backlight_brightness_percent = -1;
   uint32_t scan_generation = 0;
 };
 
@@ -57,6 +97,20 @@ class KeyboardExpansionProvider {
    * @return 扫描任务停止且硬件完成清理时返回 true，否则返回 false
    */
   virtual bool DisableKeyboardExpansion() = 0;
+
+  /**
+   * @brief 设置键盘背光期望亮度
+   * @param percent 亮度百分比，范围 0~100
+   * @return 参数已保存且在扩展就绪时成功应用返回 true，否则返回 false
+   */
+  virtual bool SetKeyboardBacklightBrightnessPercent(int percent) = 0;
+
+  /**
+   * @brief 非阻塞读取一个实体键盘按键事件
+   * @param event 按键事件输出地址
+   * @return 读取到有效按下或释放事件返回 true，否则返回 false
+   */
+  virtual bool ReadKeyboardInputEvent(KeyboardInputEvent* event) = 0;
 
   /**
    * @brief 读取键盘扩展当前生命周期和逐器件状态

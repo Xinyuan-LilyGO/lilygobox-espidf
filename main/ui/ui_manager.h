@@ -20,6 +20,7 @@
 #include "lvgl.h"
 #include "ui/input/edge_back_gesture.h"
 #include "ui/theme/theme_provider.h"
+#include "ui/widgets/prompt/prompt_dialog.h"
 #include "ui/widgets/status_bar.h"
 #include "ui/widgets/volume_overlay.h"
 
@@ -178,6 +179,12 @@ class UiManager final {
    * @return 首次开机欢迎流程仍在进行返回 true，否则返回 false
    */
   bool IsFirstBootWelcomeActive() const;
+
+  /**
+   * @brief 显示启动恢复键盘扩展失败提示
+   * @return 提示框创建成功返回 true，否则返回 false
+   */
+  bool ShowKeyboardExpansionRestoreFailurePrompt();
 
   /**
    * @brief 设置全局状态栏文字和图标颜色
@@ -565,6 +572,7 @@ class UiManager final {
   lv_obj_t* first_boot_welcome_screen_ = nullptr;
   lv_obj_t* lock_screen_ = nullptr;
   lv_obj_t* power_menu_ = nullptr;
+  PromptDialogState keyboard_expansion_restore_prompt_;
   VolumeOverlay volume_overlay_;
   int startup_progress_percent_ = 0;
   int startup_progress_target_percent_ = 0;

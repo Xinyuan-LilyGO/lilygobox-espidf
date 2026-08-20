@@ -18,6 +18,8 @@
 #include "app/storage/display_storage.h"
 #include "app/storage/first_boot_storage.h"
 #include "app/storage/haptic_storage.h"
+#include "app/storage/input_method_storage.h"
+#include "app/storage/keyboard_expansion_storage.h"
 #include "app/storage/littlefs_storage.h"
 #include "app/storage/music_storage.h"
 #include "app/storage/otg_storage.h"
@@ -63,6 +65,8 @@ constexpr StorageBackend kStorageBackends[] = {
     {StageWifiPreferencesStorage, FinishWifiPreferencesStorage},
     {StageWifiSavedNetworksStorage, FinishWifiSavedNetworksStorage},
     {StageOtgStorage, FinishOtgStorage},
+    {StageInputMethodStorage, FinishInputMethodStorage},
+    {StageKeyboardExpansionStorage, FinishKeyboardExpansionStorage},
 };
 constexpr size_t kStorageBackendCount =
     sizeof(kStorageBackends) / sizeof(kStorageBackends[0]);
@@ -447,6 +451,8 @@ void InitStorage() {
   InitSoundCache();
   InitWifiCache();
   InitOtgCache();
+  InitInputMethodCache();
+  InitKeyboardExpansionCache();
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
       "NVS caches loaded: domains=%u, status=ready\n",
       static_cast<unsigned>(kStorageDomainCount));

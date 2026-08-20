@@ -16,6 +16,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "hal/ppa/ppa_srm_helper.h"
+#include "hal/providers/keyboard_expansion_provider.h"
 #include "hal/providers/screen_provider.h"
 #include "lvgl.h"
 #include "sys/lock.h"
@@ -35,9 +36,10 @@ class LvglPort final {
   /**
    * @brief 初始化 LVGL 显示、输入和 tick timer
    * @param screen 屏幕设备对象
+   * @param keyboard 可选的实体键盘输入接口
    * @return 初始化成功返回 true，否则返回 false
    */
-  bool Init(ScreenProvider* screen);
+  bool Init(ScreenProvider* screen, KeyboardExpansionProvider* keyboard);
 
   /**
    * @brief 启动 LVGL 任务
@@ -198,6 +200,22 @@ class LvglPort final {
   static void TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data);
 
   /**
+   * @brief 读取实体键盘并转换为 LVGL keypad 输入
+   * @param indev LVGL 输入设备
+   * @param data 输入数据输出地址
+   */
+  static void KeyboardReadCallback(
+      lv_indev_t* indev, lv_indev_data_t* data);
+
+  /**
+   * @brief 将通用实体键盘事件转换为 LVGL 键值
+   * @param event 通用实体键盘事件
+   * @return LVGL 键值，不支持的按键返回 0
+   */
+  static uint32_t KeyboardEventToLvglKey(
+      const KeyboardInputEvent& event);
+
+  /**
    * @brief 处理 LVGL tick 定时器回调
    * @param context 回调上下文
    */
@@ -272,8 +290,13 @@ class LvglPort final {
       bool* access_available);
 
   ScreenProvider* screen_ = nullptr;
+  KeyboardExpansionProvider* keyboard_ = nullptr;
   lv_display_t* lvgl_display_ = nullptr;
   lv_indev_t* input_device_ = nullptr;
+  lv_indev_t* keyboard_input_device_ = nullptr;
+  lv_group_t* keyboard_group_ = nullptr;
+  uint8_t active_keyboard_key_id_ = 0;
+  uint32_t active_lvgl_key_ = 0;
   // 专用 LVGL 任务句柄，用于在恢复刷新时立即唤醒渲染循环。
   TaskHandle_t task_handle_ = nullptr;
   std::atomic<bool> input_blocked_{false};

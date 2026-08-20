@@ -2780,6 +2780,7 @@ void MoveWifiConnectSheetForKeyboard(
   if (state == nullptr || state->wifi_modal_sheet == nullptr) {
     return;
   }
+  keyboard_visible = keyboard_visible && ShouldShowSharedKeyboard();
 
   const int sheet_height = lv_obj_get_height(state->wifi_modal_sheet);
   int target_y =

@@ -29,6 +29,7 @@
 #include "ui/views/settings_view.h"
 #include "ui/wallpaper.h"
 #include "ui/widgets/brand_icon.h"
+#include "ui/widgets/shared_keyboard.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -100,6 +101,13 @@ constexpr int kStartupBatteryFillHeight = 20;
 constexpr int kStartupBatteryFillOffsetX = 6;
 constexpr int kStartupBatteryFillOffsetY = 0;
 constexpr int kStartupBatteryFillRadius = 2;
+constexpr int kKeyboardExpansionPromptSideMargin = 34;
+constexpr int kKeyboardExpansionPromptHeight = 360;
+constexpr int kKeyboardExpansionPromptRadius = 48;
+constexpr int kKeyboardExpansionPromptInnerPadding = 32;
+constexpr int kKeyboardExpansionPromptButtonHeight = 74;
+constexpr int kKeyboardExpansionPromptButtonRadius = 24;
+constexpr int kKeyboardExpansionPromptBottomMargin = 32;
 
 struct IconStyle {
   const char* symbol;
@@ -146,6 +154,12 @@ const lv_font_t* Font22() { return &lvgl_font_google_sans_flex_22; }
  * @return 字体指针
  */
 const lv_font_t* Font24() { return &lvgl_font_google_sans_flex_24; }
+
+/**
+ * @brief 获取 28 号 Google Sans 字体
+ * @return 字体指针
+ */
+const lv_font_t* Font28() { return &lvgl_font_google_sans_flex_28; }
 
 /**
  * @brief 获取 32 号 Google Sans 字体
@@ -892,6 +906,8 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   rtc_provider_ = rtc;
   radio_provider_ = radio;
   keyboard_expansion_provider_ = keyboard_expansion;
+  RegisterSharedKeyboardPhysicalKeyboardProvider(
+      keyboard_expansion_provider_);
   imu_provider_ = imu;
   ethernet_provider_ = ethernet;
   wifi_provider_ = wifi;
@@ -1054,6 +1070,49 @@ bool UiManager::ShowBatteryStartupWarning(const char* icon_text,
   lv_obj_move_to_index(warning, -1);
   lv_obj_invalidate(warning);
   return true;
+}
+
+bool UiManager::ShowKeyboardExpansionRestoreFailurePrompt() {
+  if (root_screen_ == nullptr) {
+    return false;
+  }
+
+  PromptDialogConfig config;
+  config.screen_width = LayoutWidth();
+  config.screen_height = LayoutHeight();
+  config.dialog_width =
+      config.screen_width - 2 * kKeyboardExpansionPromptSideMargin;
+  config.dialog_height = kKeyboardExpansionPromptHeight;
+  config.dialog_radius = kKeyboardExpansionPromptRadius;
+  config.inner_padding = kKeyboardExpansionPromptInnerPadding;
+  config.header_height = 78;
+  config.title_y = 34;
+  config.title_subtitle_gap = 8;
+  config.subtitle_body_gap = 16;
+  config.action_height = 106;
+  config.action_button_height = kKeyboardExpansionPromptButtonHeight;
+  config.action_button_radius = kKeyboardExpansionPromptButtonRadius;
+  config.action_button_gap = 20;
+  config.action_bottom_padding = kKeyboardExpansionPromptInnerPadding;
+  config.bottom_margin = kKeyboardExpansionPromptBottomMargin;
+  config.animation_ms = 180;
+  config.slide_from_bottom = true;
+  config.title = "Keyboard expansion unavailable";
+  config.subtitle =
+      "Keyboard expansion could not be initialized. The feature has been "
+      "turned off.";
+  config.title_font = Font32();
+  config.subtitle_font = Font24();
+  config.action_font = Font28();
+  config.title_text_align = LV_TEXT_ALIGN_CENTER;
+  config.subtitle_text_align = LV_TEXT_ALIGN_CENTER;
+  config.cancel_text = "OK";
+  config.cancel_background_color = theme::LightNeutralTheme().action;
+  config.cancel_pressed_color = theme::LightNeutralTheme().action_pressed;
+  config.cancel_text_color = theme::LightNeutralTheme().on_action;
+  config.confirm_text = nullptr;
+  return ShowPromptDialog(root_screen_,
+             &keyboard_expansion_restore_prompt_, config) != nullptr;
 }
 
 bool UiManager::ShowPowerOffChargingScreen(

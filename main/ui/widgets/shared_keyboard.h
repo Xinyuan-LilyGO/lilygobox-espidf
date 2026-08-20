@@ -9,6 +9,10 @@
 
 #include "lvgl.h"
 
+namespace lilygo_box::hal {
+class KeyboardExpansionProvider;
+}  // namespace lilygo_box::hal
+
 namespace lilygo_box::ui {
 
 // 共享键盘配置
@@ -16,6 +20,24 @@ struct SharedKeyboardConfig {
   int width = 0;
   int height = 0;
 };
+
+/**
+ * @brief 注册用于判断实体键盘连接状态的接口
+ * @param provider 键盘扩展接口，不支持实体键盘时可为 nullptr
+ */
+void RegisterSharedKeyboardPhysicalKeyboardProvider(
+    hal::KeyboardExpansionProvider* provider);
+
+/**
+ * @brief 按当前输入法偏好和实体键盘连接状态刷新全部屏幕键盘
+ */
+void RefreshSharedKeyboardVisibility();
+
+/**
+ * @brief 判断当前输入法策略是否需要显示屏幕键盘
+ * @return 需要显示返回 true，否则返回 false
+ */
+bool ShouldShowSharedKeyboard();
 
 /**
  * @brief 创建共享屏幕键盘

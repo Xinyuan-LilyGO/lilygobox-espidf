@@ -57,7 +57,8 @@ LvglPort::~LvglPort() {
   }
 }
 
-bool LvglPort::Init(ScreenProvider* screen) {
+bool LvglPort::Init(
+    ScreenProvider* screen, KeyboardExpansionProvider* keyboard) {
   if (screen == nullptr) {
     return false;
   }
@@ -69,6 +70,7 @@ bool LvglPort::Init(ScreenProvider* screen) {
   }
 
   screen_ = screen;
+  keyboard_ = keyboard;
   lv_init();
 
   lvgl_display_ =
@@ -106,6 +108,20 @@ bool LvglPort::Init(ScreenProvider* screen) {
   lv_indev_set_user_data(input_device_, this);
   lv_indev_set_read_cb(input_device_, TouchReadCallback);
   lv_indev_set_display(input_device_, lvgl_display_);
+
+  if (keyboard_ != nullptr) {
+    keyboard_group_ = lv_group_create();
+    keyboard_input_device_ = lv_indev_create();
+    if (keyboard_group_ == nullptr || keyboard_input_device_ == nullptr) {
+      return false;
+    }
+    lv_group_set_default(keyboard_group_);
+    lv_indev_set_type(keyboard_input_device_, LV_INDEV_TYPE_KEYPAD);
+    lv_indev_set_user_data(keyboard_input_device_, this);
+    lv_indev_set_read_cb(keyboard_input_device_, KeyboardReadCallback);
+    lv_indev_set_display(keyboard_input_device_, lvgl_display_);
+    lv_indev_set_group(keyboard_input_device_, keyboard_group_);
+  }
 
   const ScreenProviderDisplayCallbacks display_callbacks = {
       .flush_ready_callback = FlushReadyCallback,
@@ -639,6 +655,81 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
   self->pending_edge_touch_flag_ = false;
   self->has_last_touch_point_ = false;
   data->state = LV_INDEV_STATE_REL;
+}
+
+uint32_t LvglPort::KeyboardEventToLvglKey(
+    const KeyboardInputEvent& event) {
+  switch (event.key) {
+    case KeyboardKey::kCharacter:
+      return event.character;
+    case KeyboardKey::kEscape:
+      return LV_KEY_ESC;
+    case KeyboardKey::kBackspace:
+      return LV_KEY_BACKSPACE;
+    case KeyboardKey::kEnter:
+      return LV_KEY_ENTER;
+    case KeyboardKey::kNext:
+      return LV_KEY_NEXT;
+    case KeyboardKey::kPrevious:
+      return LV_KEY_PREV;
+    case KeyboardKey::kUp:
+      return LV_KEY_UP;
+    case KeyboardKey::kDown:
+      return LV_KEY_DOWN;
+    case KeyboardKey::kLeft:
+      return LV_KEY_LEFT;
+    case KeyboardKey::kRight:
+      return LV_KEY_RIGHT;
+    default:
+      return 0;
+  }
+}
+
+void LvglPort::KeyboardReadCallback(
+    lv_indev_t* indev, lv_indev_data_t* data) {
+  auto* self = static_cast<LvglPort*>(lv_indev_get_user_data(indev));
+  if (self == nullptr || self->keyboard_ == nullptr) {
+    data->key = 0;
+    data->state = LV_INDEV_STATE_RELEASED;
+    return;
+  }
+
+  data->key = self->active_lvgl_key_;
+  data->state = self->active_keyboard_key_id_ == 0
+      ? LV_INDEV_STATE_RELEASED
+      : LV_INDEV_STATE_PRESSED;
+  if (self->IsInputBlocked()) {
+    self->active_keyboard_key_id_ = 0;
+    self->active_lvgl_key_ = 0;
+    data->key = 0;
+    data->state = LV_INDEV_STATE_RELEASED;
+    return;
+  }
+
+  KeyboardInputEvent event;
+  if (!self->keyboard_->ReadKeyboardInputEvent(&event)) {
+    return;
+  }
+  data->continue_reading = true;
+
+  if (event.pressed) {
+    const uint32_t lvgl_key = KeyboardEventToLvglKey(event);
+    if (lvgl_key == 0) {
+      return;
+    }
+    self->active_keyboard_key_id_ = event.key_id;
+    self->active_lvgl_key_ = lvgl_key;
+    data->key = lvgl_key;
+    data->state = LV_INDEV_STATE_PRESSED;
+    return;
+  }
+
+  if (event.key_id == self->active_keyboard_key_id_) {
+    data->key = self->active_lvgl_key_;
+    data->state = LV_INDEV_STATE_RELEASED;
+    self->active_keyboard_key_id_ = 0;
+    self->active_lvgl_key_ = 0;
+  }
 }
 
 void LvglPort::TickCallback(void*) { lv_tick_inc(kLvglTickPeriodMs); }

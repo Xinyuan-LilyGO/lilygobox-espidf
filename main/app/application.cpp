@@ -17,6 +17,7 @@
 #include "app/network_monitor.h"
 #include "app/storage/display_storage.h"
 #include "app/storage/first_boot_storage.h"
+#include "app/storage/keyboard_expansion_storage.h"
 #include "app/storage/littlefs_storage.h"
 #include "app/storage/otg_storage.h"
 #include "app/storage/power_state_storage.h"
@@ -35,6 +36,7 @@
 #include "ui/haptic_feedback.h"
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/views/settings/settings_view_internal.h"
+#include "ui/widgets/shared_keyboard.h"
 
 namespace lilygo_box {
 namespace {
@@ -553,7 +555,8 @@ bool Application::Init() {
     return false;
   }
 
-  result = lvgl_port_.Init(screen);
+  result = lvgl_port_.Init(
+      screen, device_provider_context_.keyboard_expansion);
   if (!result) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__, "Init failed\n");
     return false;
@@ -606,6 +609,29 @@ bool Application::Init() {
   }
   lilygo_box::ui::SetLvglPortForRotation(&lvgl_port_);
   app::DisplayPreferences display_preferences = app::GetDisplayPreferences();
+  app::KeyboardExpansionPreferences keyboard_expansion_preferences =
+      app::GetKeyboardExpansionPreferences();
+  if (device_provider_context_.keyboard_expansion != nullptr &&
+      keyboard_expansion_preferences.enabled) {
+    const int keyboard_backlight_percent =
+        keyboard_expansion_preferences.backlight_brightness_percent;
+    const bool brightness_configured =
+        device_provider_context_.keyboard_expansion->
+            SetKeyboardBacklightBrightnessPercent(
+                keyboard_backlight_percent);
+    keyboard_expansion_restore_pending_ = brightness_configured &&
+        device_provider_context_.keyboard_expansion->
+            StartKeyboardExpansionScan();
+    if (!keyboard_expansion_restore_pending_) {
+      keyboard_expansion_preferences.enabled = false;
+      keyboard_expansion_restore_notice_pending_ = true;
+      if (!app::UpdateKeyboardExpansionPreferences(
+              keyboard_expansion_preferences)) {
+        LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+            "Clear keyboard expansion startup preference failed\n");
+      }
+    }
+  }
   lvgl_port_.Lock();
   lvgl_port_.SetDisplayRotation(display_preferences.screen_rotation_angle);
   lvgl_port_.Unlock();
@@ -914,6 +940,8 @@ void Application::Run() {
     }
 
     UpdateOtgPowerPolicy();
+    UpdateKeyboardExpansionRestore();
+    ShowPendingKeyboardExpansionRestoreNotice();
 
     const TickType_t current_tick = xTaskGetTickCount();
     if (current_tick - last_battery_monitor_tick <
@@ -931,6 +959,59 @@ void Application::Run() {
           "Battery depleted; powering off device\n");
       PowerOffDevice();
     }
+  }
+}
+
+void Application::UpdateKeyboardExpansionRestore() {
+  if (!keyboard_expansion_restore_pending_ ||
+      device_provider_context_.keyboard_expansion == nullptr) {
+    return;
+  }
+
+  app::KeyboardExpansionPreferences preferences =
+      app::GetKeyboardExpansionPreferences();
+  if (!preferences.enabled) {
+    keyboard_expansion_restore_pending_ = false;
+    return;
+  }
+
+  hal::KeyboardExpansionStatus status;
+  if (!device_provider_context_.keyboard_expansion->
+          ReadKeyboardExpansionStatus(&status) ||
+      status.state == hal::KeyboardExpansionState::kScanning) {
+    return;
+  }
+  keyboard_expansion_restore_pending_ = false;
+  if (status.state == hal::KeyboardExpansionState::kReady) {
+    lvgl_port_.Lock();
+    ui::RefreshSharedKeyboardVisibility();
+    lvgl_port_.Unlock();
+    return;
+  }
+
+  preferences.enabled = false;
+  if (!app::UpdateKeyboardExpansionPreferences(preferences)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Clear unavailable keyboard expansion preference failed\n");
+  }
+  keyboard_expansion_restore_notice_pending_ = true;
+}
+
+void Application::ShowPendingKeyboardExpansionRestoreNotice() {
+  if (!keyboard_expansion_restore_notice_pending_ ||
+      ui_manager_.IsStartupScreenActive() ||
+      ui_manager_.IsFirstBootWelcomeActive()) {
+    return;
+  }
+
+  lvgl_port_.Lock();
+  const bool shown =
+      ui_manager_.ShowKeyboardExpansionRestoreFailurePrompt();
+  lvgl_port_.Unlock();
+  keyboard_expansion_restore_notice_pending_ = false;
+  if (!shown) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Show keyboard expansion startup failure prompt failed\n");
   }
 }
 

@@ -26,6 +26,8 @@ enum class StorageDomain : uint8_t {
   kWifiPreferences,
   kWifiSavedNetworks,
   kOtg,
+  kInputMethod,
+  kKeyboardExpansion,
   kCount,
 };
 
@@ -287,6 +289,32 @@ StorageStageResult StageOtgStorage(nvs_handle_t handle);
  * @param committed 事务是否提交成功
  */
 void FinishOtgStorage(bool committed);
+
+/**
+ * @brief 将输入法偏好脏快照暂存到当前 NVS 事务
+ * @param handle 已打开的共享 NVS 句柄
+ * @return 无修改、暂存成功或暂存失败
+ */
+StorageStageResult StageInputMethodStorage(nvs_handle_t handle);
+
+/**
+ * @brief 根据 NVS 事务提交结果结束输入法偏好快照
+ * @param committed 事务是否提交成功
+ */
+void FinishInputMethodStorage(bool committed);
+
+/**
+ * @brief 将键盘扩展偏好脏快照暂存到当前 NVS 事务
+ * @param handle 已打开的共享 NVS 句柄
+ * @return 无修改、暂存成功或暂存失败
+ */
+StorageStageResult StageKeyboardExpansionStorage(nvs_handle_t handle);
+
+/**
+ * @brief 根据 NVS 事务提交结果结束键盘扩展偏好快照
+ * @param committed 事务是否提交成功
+ */
+void FinishKeyboardExpansionStorage(bool committed);
 
 /**
  * @brief 将振动偏好脏快照暂存到当前 NVS 事务
