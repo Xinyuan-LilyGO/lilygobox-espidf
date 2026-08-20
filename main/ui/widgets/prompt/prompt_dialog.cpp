@@ -201,11 +201,12 @@ void EdgeBackEventCallback(lv_event_t* event) {
  * @brief 创建提示框底部取消和确认按钮
  * @param state 提示框状态
  * @param config 提示框配置
+ * @param panel_width 提示框面板宽度
  * @param action_y 操作区域顶部坐标
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateActionButtons(PromptDialogState* state,
-    const PromptDialogConfig& config, int action_y) {
+    const PromptDialogConfig& config, int panel_width, int action_y) {
   state->cancel_button = nullptr;
   state->cancel_button_label = nullptr;
   state->confirm_button = nullptr;
@@ -217,7 +218,7 @@ bool CreateActionButtons(PromptDialogState* state,
   }
   const int gap = config.action_button_gap;
   const int content_width =
-      lv_obj_get_width(state->panel) - 2 * config.inner_padding;
+      panel_width - 2 * config.inner_padding;
   const int button_width = show_cancel && show_confirm
       ? (content_width - gap) / 2
       : content_width;
@@ -387,7 +388,8 @@ lv_obj_t* ShowPromptDialog(lv_obj_t* parent, PromptDialogState* state,
   lv_obj_add_flag(state->body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(state->body, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
-  if (!CreateActionButtons(state, config, action_y)) {
+  if (!CreateActionButtons(
+      state, config, sheet_config.sheet_width, action_y)) {
     CloseImmediately(state);
     return nullptr;
   }
