@@ -708,6 +708,15 @@ void LvglPort::KeyboardReadCallback(
 
   KeyboardInputEvent event;
   if (!self->keyboard_->ReadKeyboardInputEvent(&event)) {
+    KeyboardExpansionStatus status;
+    if (self->active_keyboard_key_id_ != 0 &&
+        self->keyboard_->ReadKeyboardExpansionStatus(&status) &&
+        status.state == KeyboardExpansionState::kDisconnected) {
+      data->key = self->active_lvgl_key_;
+      data->state = LV_INDEV_STATE_RELEASED;
+      self->active_keyboard_key_id_ = 0;
+      self->active_lvgl_key_ = 0;
+    }
     return;
   }
   data->continue_reading = true;

@@ -31,4 +31,10 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry& app_entry,
 void UpdateSettingsViewVolume(
     lv_obj_t* settings_view, int volume_percent);
 
+/**
+ * @brief 根据当前硬件状态刷新设置页面中的键盘扩展控件
+ * @param settings_view 设置页面根对象
+ */
+void RefreshSettingsViewKeyboardExpansion(lv_obj_t* settings_view);
+
 }  // namespace lilygo_box::ui

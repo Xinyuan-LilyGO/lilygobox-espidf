@@ -16,6 +16,7 @@ enum class KeyboardExpansionState : uint8_t {
   kScanning,
   kReady,
   kNotFound,
+  kDisconnected,
   kComponentFailure,
 };
 

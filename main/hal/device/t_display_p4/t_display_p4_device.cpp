@@ -866,6 +866,7 @@ bool TDisplayP4Device::StartKeyboardExpansionScan() {
       KeyboardExpansionComponentState::kNotChecked);
   keyboard_expansion_.shift_pressed.store(false);
   keyboard_expansion_.caps_lock_enabled.store(false);
+  keyboard_expansion_.consecutive_read_failures.store(0);
   keyboard_expansion_.state.store(KeyboardExpansionState::kScanning);
 
   if (xTaskCreate(KeyboardExpansionScanTaskEntry,
@@ -885,7 +886,13 @@ bool TDisplayP4Device::DisableKeyboardExpansion() {
     return false;
   }
 
-  const bool result = driver_.DeinitKeyboardExpansion();
+  const auto deinit_mode =
+      keyboard_expansion_.state.load() == KeyboardExpansionState::kDisconnected
+          ? lilygo_device_driver::TDisplayP4Driver::
+                KeyboardExpansionDeinitMode::kForced
+          : lilygo_device_driver::TDisplayP4Driver::
+                KeyboardExpansionDeinitMode::kNormal;
+  const bool result = driver_.DeinitKeyboardExpansion(deinit_mode);
   keyboard_expansion_.xl9555.store(
       KeyboardExpansionComponentState::kNotChecked);
   keyboard_expansion_.tca8418.store(
@@ -900,6 +907,7 @@ bool TDisplayP4Device::DisableKeyboardExpansion() {
       KeyboardExpansionComponentState::kNotChecked);
   keyboard_expansion_.shift_pressed.store(false);
   keyboard_expansion_.caps_lock_enabled.store(false);
+  keyboard_expansion_.consecutive_read_failures.store(0);
   keyboard_expansion_.state.store(result
           ? KeyboardExpansionState::kDisabled
           : KeyboardExpansionState::kComponentFailure);
@@ -943,6 +951,25 @@ bool TDisplayP4Device::ReadKeyboardInputEvent(KeyboardInputEvent* event) {
   }
 
   const uint8_t event_count = driver_.chip().tca8418->GetFingerCount();
+  if (event_count == UINT8_MAX) {
+    const uint8_t failure_count =
+        keyboard_expansion_.consecutive_read_failures.fetch_add(1) + 1;
+    if (failure_count >= kKeyboardExpansionDisconnectFailureThreshold) {
+      KeyboardExpansionState expected = KeyboardExpansionState::kReady;
+      if (keyboard_expansion_.state.compare_exchange_strong(
+              expected, KeyboardExpansionState::kDisconnected)) {
+        keyboard_expansion_.tca8418.store(
+            KeyboardExpansionComponentState::kFailed);
+        keyboard_expansion_.shift_pressed.store(false);
+        keyboard_expansion_.caps_lock_enabled.store(false);
+        keyboard_expansion_.scan_generation.fetch_add(1);
+        LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+            "Keyboard expansion disconnected\n");
+      }
+    }
+    return false;
+  }
+  keyboard_expansion_.consecutive_read_failures.store(0);
   if (event_count == 0 || event_count > 10) {
     if (event_count == 0) {
       driver_.chip().tca8418->ClearIrqFlag(

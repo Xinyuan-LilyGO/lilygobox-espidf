@@ -15,6 +15,7 @@
 
 #include "app/app_catalog.h"
 #include "app/network_monitor.h"
+#include "app/storage/input_method_storage.h"
 #include "ui/app_view_factory.h"
 #include "ui/haptic_feedback.h"
 #include "ui/input/app_view_gesture_flags.h"
@@ -102,7 +103,7 @@ constexpr int kStartupBatteryFillOffsetX = 6;
 constexpr int kStartupBatteryFillOffsetY = 0;
 constexpr int kStartupBatteryFillRadius = 2;
 constexpr int kKeyboardExpansionPromptSideMargin = 34;
-constexpr int kKeyboardExpansionPromptHeight = 360;
+constexpr int kKeyboardExpansionPromptHeight = 312;
 constexpr int kKeyboardExpansionPromptRadius = 48;
 constexpr int kKeyboardExpansionPromptInnerPadding = 32;
 constexpr int kKeyboardExpansionPromptButtonHeight = 74;
@@ -1072,10 +1073,12 @@ bool UiManager::ShowBatteryStartupWarning(const char* icon_text,
   return true;
 }
 
-bool UiManager::ShowKeyboardExpansionRestoreFailurePrompt() {
+bool UiManager::ShowKeyboardExpansionUnavailablePrompt() {
   if (root_screen_ == nullptr) {
     return false;
   }
+
+  RefreshActiveSettingsKeyboardExpansion();
 
   PromptDialogConfig config;
   config.screen_width = LayoutWidth();
@@ -1099,7 +1102,7 @@ bool UiManager::ShowKeyboardExpansionRestoreFailurePrompt() {
   config.slide_from_bottom = true;
   config.title = "Keyboard expansion unavailable";
   config.subtitle =
-      "Keyboard expansion could not be initialized. The feature has been "
+      "Keyboard expansion is not available. The feature has been "
       "turned off.";
   config.title_font = Font32();
   config.subtitle_font = Font24();
@@ -1111,8 +1114,27 @@ bool UiManager::ShowKeyboardExpansionRestoreFailurePrompt() {
   config.cancel_pressed_color = theme::LightNeutralTheme().action_pressed;
   config.cancel_text_color = theme::LightNeutralTheme().on_action;
   config.confirm_text = nullptr;
-  return ShowPromptDialog(root_screen_,
-             &keyboard_expansion_restore_prompt_, config) != nullptr;
+  config.cancel_callback =
+      KeyboardExpansionUnavailablePromptDismissedCallback;
+  config.callback_context = this;
+  if (ShowPromptDialog(root_screen_,
+          &keyboard_expansion_unavailable_prompt_, config) == nullptr) {
+    return false;
+  }
+
+  if (!app::GetInputMethodPreferences().use_on_screen_keyboard) {
+    DefocusSharedKeyboardTextAreas();
+  }
+  return true;
+}
+
+void UiManager::KeyboardExpansionUnavailablePromptDismissedCallback(
+    void* context) {
+  auto* manager = static_cast<UiManager*>(context);
+  if (manager != nullptr) {
+    manager->RefreshActiveSettingsKeyboardExpansion();
+    RefreshSharedKeyboardVisibility();
+  }
 }
 
 bool UiManager::ShowPowerOffChargingScreen(
@@ -1289,6 +1311,15 @@ void UiManager::UpdateActiveSettingsVolume(int volume_percent) {
     return;
   }
   UpdateSettingsViewVolume(active_view_container_, volume_percent);
+}
+
+void UiManager::RefreshActiveSettingsKeyboardExpansion() {
+  if (active_app_entry_ == nullptr || active_app_entry_->id == nullptr ||
+      std::strcmp(active_app_entry_->id, "settings") != 0 ||
+      active_view_container_ == nullptr) {
+    return;
+  }
+  RefreshSettingsViewKeyboardExpansion(active_view_container_);
 }
 
 void UiManager::HidePowerMenu() {

@@ -30,7 +30,7 @@ constexpr char kKeyboardExpansionSubtitle[] =
 constexpr int kKeyboardExpansionPromptSideMargin = 34;
 constexpr int kKeyboardExpansionPromptBottomMargin = 32;
 constexpr int kKeyboardExpansionPromptRadius = 48;
-constexpr int kKeyboardExpansionNotFoundPromptHeight = 332;
+constexpr int kKeyboardExpansionNotFoundPromptHeight = 280;
 constexpr int kKeyboardExpansionFailurePromptHeight = 520;
 constexpr int kKeyboardExpansionPromptInnerPadding = 32;
 constexpr int kKeyboardExpansionPromptButtonHeight = 74;
@@ -452,7 +452,8 @@ bool ShowKeyboardExpansionFailurePrompt(SettingsViewState* state,
   }
 
   const bool not_found =
-      status.state == hal::KeyboardExpansionState::kNotFound;
+      status.state == hal::KeyboardExpansionState::kNotFound ||
+      status.state == hal::KeyboardExpansionState::kDisconnected;
   if (!not_found) {
     BuildKeyboardExpansionFailureMessage(state, status);
   }
@@ -820,6 +821,25 @@ bool BuildMoreSettingsContent(lv_obj_t* body, SettingsViewState* state) {
 
 bool ShowMoreSettingsPage(SettingsViewState* state) {
   return ShowBasicPage(state, "More Settings", BuildMoreSettingsContent);
+}
+
+void RefreshKeyboardExpansionSettings(SettingsViewState* state) {
+  if (state == nullptr || state->config.keyboard_expansion == nullptr) {
+    return;
+  }
+
+  hal::KeyboardExpansionStatus status;
+  if (!state->config.keyboard_expansion->ReadKeyboardExpansionStatus(
+          &status)) {
+    return;
+  }
+  const bool scanning =
+      status.state == hal::KeyboardExpansionState::kScanning;
+  SetKeyboardExpansionSwitchChecked(state,
+      status.state == hal::KeyboardExpansionState::kReady || scanning);
+  SetKeyboardExpansionScanning(state, scanning);
+  SetKeyboardBacklightControlsVisible(state,
+      status.state == hal::KeyboardExpansionState::kReady);
 }
 
 }  // namespace lilygo_box::ui

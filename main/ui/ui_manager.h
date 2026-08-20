@@ -181,10 +181,10 @@ class UiManager final {
   bool IsFirstBootWelcomeActive() const;
 
   /**
-   * @brief 显示启动恢复键盘扩展失败提示
+   * @brief 显示键盘扩展不可用提示
    * @return 提示框创建成功返回 true，否则返回 false
    */
-  bool ShowKeyboardExpansionRestoreFailurePrompt();
+  bool ShowKeyboardExpansionUnavailablePrompt();
 
   /**
    * @brief 设置全局状态栏文字和图标颜色
@@ -302,6 +302,13 @@ class UiManager final {
    * @param timer LVGL 定时器
    */
   static void SystemStatusRefreshTimerCallback(lv_timer_t* timer);
+
+  /**
+   * @brief 处理键盘扩展不可用提示关闭事件
+   * @param context UiManager 指针
+   */
+  static void KeyboardExpansionUnavailablePromptDismissedCallback(
+      void* context);
 
   /**
    * @brief 处理根屏幕尺寸变化或刷新事件，用于旋转后重新计算布局
@@ -460,6 +467,11 @@ class UiManager final {
   void UpdateActiveSettingsVolume(int volume_percent);
 
   /**
+   * @brief 刷新当前设置页面中的键盘扩展控件
+   */
+  void RefreshActiveSettingsKeyboardExpansion();
+
+  /**
    * @brief 根据 RTC 状态刷新状态栏和主界面时间显示
    * @param status RTC 状态
    */
@@ -572,7 +584,7 @@ class UiManager final {
   lv_obj_t* first_boot_welcome_screen_ = nullptr;
   lv_obj_t* lock_screen_ = nullptr;
   lv_obj_t* power_menu_ = nullptr;
-  PromptDialogState keyboard_expansion_restore_prompt_;
+  PromptDialogState keyboard_expansion_unavailable_prompt_;
   VolumeOverlay volume_overlay_;
   int startup_progress_percent_ = 0;
   int startup_progress_target_percent_ = 0;

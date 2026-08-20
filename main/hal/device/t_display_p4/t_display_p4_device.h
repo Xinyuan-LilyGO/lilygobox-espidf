@@ -570,6 +570,7 @@ class TDisplayP4Device final : public ScreenProvider,
   static constexpr int kPowerOffTaskPollMs = 20;
   static constexpr uint32_t kKeyboardExpansionTaskStackBytes = 4096;
   static constexpr UBaseType_t kKeyboardExpansionTaskPriority = 1;
+  static constexpr uint8_t kKeyboardExpansionDisconnectFailureThreshold = 3;
 
   /**
    * @brief 初始化 XL9535 汇总中断对应的 ESP32-P4 GPIO
@@ -1270,6 +1271,7 @@ class TDisplayP4Device final : public ScreenProvider,
         kDefaultKeyboardBacklightBrightnessPercent};
     std::atomic<bool> shift_pressed{false};
     std::atomic<bool> caps_lock_enabled{false};
+    std::atomic<uint8_t> consecutive_read_failures{0};
     std::atomic<bool> task_running{false};
     std::atomic<uint32_t> scan_generation{0};
   };

@@ -624,7 +624,7 @@ bool Application::Init() {
             StartKeyboardExpansionScan();
     if (!keyboard_expansion_restore_pending_) {
       keyboard_expansion_preferences.enabled = false;
-      keyboard_expansion_restore_notice_pending_ = true;
+      keyboard_expansion_unavailable_notice_pending_ = true;
       if (!app::UpdateKeyboardExpansionPreferences(
               keyboard_expansion_preferences)) {
         LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
@@ -941,7 +941,8 @@ void Application::Run() {
 
     UpdateOtgPowerPolicy();
     UpdateKeyboardExpansionRestore();
-    ShowPendingKeyboardExpansionRestoreNotice();
+    HandleKeyboardExpansionDisconnection();
+    ShowPendingKeyboardExpansionUnavailableNotice();
 
     const TickType_t current_tick = xTaskGetTickCount();
     if (current_tick - last_battery_monitor_tick <
@@ -994,11 +995,41 @@ void Application::UpdateKeyboardExpansionRestore() {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Clear unavailable keyboard expansion preference failed\n");
   }
-  keyboard_expansion_restore_notice_pending_ = true;
+  keyboard_expansion_unavailable_notice_pending_ = true;
 }
 
-void Application::ShowPendingKeyboardExpansionRestoreNotice() {
-  if (!keyboard_expansion_restore_notice_pending_ ||
+void Application::HandleKeyboardExpansionDisconnection() {
+  if (keyboard_expansion_restore_pending_ ||
+      device_provider_context_.keyboard_expansion == nullptr) {
+    return;
+  }
+
+  hal::KeyboardExpansionStatus status;
+  if (!device_provider_context_.keyboard_expansion->
+          ReadKeyboardExpansionStatus(&status) ||
+      status.state != hal::KeyboardExpansionState::kDisconnected) {
+    return;
+  }
+
+  if (!device_provider_context_.keyboard_expansion->
+          DisableKeyboardExpansion()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Clean up disconnected keyboard expansion failed\n");
+  }
+
+  app::KeyboardExpansionPreferences preferences =
+      app::GetKeyboardExpansionPreferences();
+  preferences.enabled = false;
+  if (!app::UpdateKeyboardExpansionPreferences(preferences)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Clear disconnected keyboard expansion preference failed\n");
+  }
+
+  keyboard_expansion_unavailable_notice_pending_ = true;
+}
+
+void Application::ShowPendingKeyboardExpansionUnavailableNotice() {
+  if (!keyboard_expansion_unavailable_notice_pending_ ||
       ui_manager_.IsStartupScreenActive() ||
       ui_manager_.IsFirstBootWelcomeActive()) {
     return;
@@ -1006,12 +1037,15 @@ void Application::ShowPendingKeyboardExpansionRestoreNotice() {
 
   lvgl_port_.Lock();
   const bool shown =
-      ui_manager_.ShowKeyboardExpansionRestoreFailurePrompt();
+      ui_manager_.ShowKeyboardExpansionUnavailablePrompt();
   lvgl_port_.Unlock();
-  keyboard_expansion_restore_notice_pending_ = false;
+  keyboard_expansion_unavailable_notice_pending_ = false;
   if (!shown) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Show keyboard expansion startup failure prompt failed\n");
+        "Show keyboard expansion unavailable prompt failed\n");
+    lvgl_port_.Lock();
+    ui::RefreshSharedKeyboardVisibility();
+    lvgl_port_.Unlock();
   }
 }
 

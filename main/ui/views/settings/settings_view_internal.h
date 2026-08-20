@@ -549,6 +549,12 @@ bool ShowLockScreenPage(SettingsViewState* state);
 bool ShowMoreSettingsPage(SettingsViewState* state);
 
 /**
+ * @brief 根据当前硬件状态刷新键盘扩展页面控件
+ * @param state 设置页状态
+ */
+void RefreshKeyboardExpansionSettings(SettingsViewState* state);
+
+/**
  * @brief 设置旋转后自动恢复的子页面 ID
  * @param page_id 子页面 ID（如 "display_brightness"），nullptr 表示清除
  */

@@ -34,6 +34,11 @@ void RegisterSharedKeyboardPhysicalKeyboardProvider(
 void RefreshSharedKeyboardVisibility();
 
 /**
+ * @brief 取消全部共享键盘当前绑定输入框的焦点并隐藏屏幕键盘
+ */
+void DefocusSharedKeyboardTextAreas();
+
+/**
  * @brief 判断当前输入法策略是否需要显示屏幕键盘
  * @return 需要显示返回 true，否则返回 false
  */

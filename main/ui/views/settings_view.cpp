@@ -594,4 +594,12 @@ void UpdateSettingsViewVolume(
   }
 }
 
+void RefreshSettingsViewKeyboardExpansion(lv_obj_t* settings_view) {
+  if (settings_view == nullptr) {
+    return;
+  }
+  RefreshKeyboardExpansionSettings(
+      static_cast<SettingsViewState*>(lv_obj_get_user_data(settings_view)));
+}
+
 }  // namespace lilygo_box::ui

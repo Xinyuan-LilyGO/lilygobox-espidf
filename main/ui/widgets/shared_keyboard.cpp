@@ -587,6 +587,24 @@ void RefreshSharedKeyboardVisibility() {
   }
 }
 
+void DefocusSharedKeyboardTextAreas() {
+  for (lv_obj_t* keyboard : g_shared_keyboards) {
+    if (keyboard == nullptr) {
+      continue;
+    }
+
+    lv_obj_t* text_area = lv_keyboard_get_textarea(keyboard);
+    lv_keyboard_set_textarea(keyboard, nullptr);
+    lv_obj_add_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
+    if (text_area == nullptr) {
+      continue;
+    }
+
+    lv_obj_remove_state(text_area, LV_STATE_FOCUSED);
+    lv_obj_send_event(text_area, LV_EVENT_DEFOCUSED, nullptr);
+  }
+}
+
 lv_obj_t* CreateSharedKeyboard(
     lv_obj_t* parent, const SharedKeyboardConfig& config) {
   if (parent == nullptr || config.width <= 0 || config.height <= 0) {
