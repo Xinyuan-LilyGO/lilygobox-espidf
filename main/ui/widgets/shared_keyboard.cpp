@@ -463,6 +463,7 @@ void TextAreaKeyboardPreprocessEventCallback(lv_event_t* event) {
   }
 
   if (code == LV_EVENT_KEY) {
+    PlayUiHapticFeedback();
     const uint32_t key = lv_event_get_key(event);
     if (key == LV_KEY_UP || key == LV_KEY_DOWN || key == LV_KEY_LEFT ||
         key == LV_KEY_RIGHT) {
