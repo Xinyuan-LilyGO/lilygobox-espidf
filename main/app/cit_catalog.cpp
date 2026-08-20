@@ -36,7 +36,7 @@ constexpr CitTestEntry kCitTestEntries[] = {
     {.id = "gps", .name = "GPS Test", .status = CitTestStatus::kPending},
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
     {.id = "keyboard",
-        .name = "Keyboard Test",
+        .name = "Keyboard Expansion - Keyboard Test",
         .status = CitTestStatus::kPending},
     {.id = "ethernet",
         .name = "Ethernet Test",

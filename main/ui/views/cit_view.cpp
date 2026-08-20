@@ -276,6 +276,8 @@ struct CitViewState {
   bool keyboard_test_active = false;
   bool keyboard_test_owns_expansion = false;
   bool keyboard_test_key_received = false;
+  bool keyboard_test_hidden = false;
+  bool cit_rows_rebuild_pending = false;
   EdgeBackSwipeState test_edge_back_swipe = {};
   bool test_page_closing = false;
   lv_timer_t* refresh_timer = nullptr;
@@ -284,6 +286,8 @@ struct CitViewState {
 void ShowCitList(CitViewState* state);
 bool ShowCitTest(CitViewState* state, size_t index);
 void RefreshCitRows(CitViewState* state);
+bool RebuildCitRows(CitViewState* state);
+void RefreshKeyboardTestAvailability(CitViewState* state);
 void SetCitRowsClickable(CitViewState* state, bool enabled);
 void TestPageEdgeBackEventCallback(lv_event_t* event);
 void ScreenColorOverlayEventCallback(lv_event_t* event);
@@ -831,12 +835,20 @@ void FinishTestPageClose(CitViewState* state) {
     return;
   }
 
-  const size_t next_index = state->pending_test_index;
+  size_t next_index = state->pending_test_index;
   state->pending_test_index = app::kMaxCitTestEntryCount;
   if (state->test_page != nullptr) {
     lv_obj_delete(state->test_page);
   }
   ClearTestPageState(state);
+  if (state->cit_rows_rebuild_pending) {
+    state->cit_rows_rebuild_pending = false;
+    next_index = app::kMaxCitTestEntryCount;
+    if (!RebuildCitRows(state)) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Rebuild CIT rows after keyboard disconnection failed\n");
+    }
+  }
   RestoreCitListGestures(state);
   RefreshCitRows(state);
 
@@ -1010,6 +1022,21 @@ void HandleKeyboardTestInputEvent(
 }
 
 /**
+ * @brief 退出已断开连接的键盘测试并请求重建 CIT 列表
+ * @param state CIT 页面状态
+ */
+void CloseDisconnectedKeyboardTest(CitViewState* state) {
+  if (state == nullptr || state->keyboard_test_hidden) {
+    return;
+  }
+
+  state->keyboard_test_hidden = true;
+  state->cit_rows_rebuild_pending = true;
+  DefocusSharedKeyboardTextAreas();
+  ShowCitList(state);
+}
+
+/**
  * @brief 刷新键盘扩展测试的连接状态
  * @param state CIT 页面状态
  */
@@ -1045,12 +1072,19 @@ void RefreshKeyboardTestData(CitViewState* state) {
     case hal::KeyboardExpansionState::kDisconnected:
       lv_label_set_text(state->keyboard_test_key_label,
           "Keyboard status: disconnected");
-      break;
+      CloseDisconnectedKeyboardTest(state);
+      return;
     case hal::KeyboardExpansionState::kComponentFailure:
       lv_label_set_text(state->keyboard_test_key_label,
           "Keyboard status: initialization failed");
       break;
     case hal::KeyboardExpansionState::kDisabled:
+      lv_label_set_text(state->keyboard_test_key_label,
+          "Keyboard status: disabled");
+      if (!app::GetKeyboardExpansionPreferences().enabled) {
+        CloseDisconnectedKeyboardTest(state);
+      }
+      break;
     default:
       lv_label_set_text(state->keyboard_test_key_label,
           "Keyboard status: disabled");
@@ -2543,6 +2577,7 @@ void RefreshActiveTestData(CitViewState* state) {
  */
 void CitRefreshTimerCallback(lv_timer_t* timer) {
   auto* state = static_cast<CitViewState*>(lv_timer_get_user_data(timer));
+  RefreshKeyboardTestAvailability(state);
   RefreshCitRows(state);
   RefreshActiveTestData(state);
 }
@@ -4353,6 +4388,14 @@ lv_obj_t* CreateStatusRow(
     lv_obj_delete(row);
     return nullptr;
   }
+  const int name_label_width = state->width -
+      2 * kListHorizontalPadding - kRowIconWidth;
+  if (name_label_width <= 0) {
+    lv_obj_delete(row);
+    return nullptr;
+  }
+  lv_obj_set_width(name_label, name_label_width);
+  lv_label_set_long_mode(name_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
   AlignStatusLabels(icon_label, name_label);
 
   state->rows[state->row_count] = {
@@ -4389,14 +4432,107 @@ bool AddCitRows(
     return false;
   }
 
+  const bool show_keyboard_expansion_test =
+      state->keyboard_expansion != nullptr &&
+      app::GetKeyboardExpansionPreferences().enabled &&
+      !state->keyboard_test_hidden;
   for (size_t i = 0; i < catalog.entry_count; ++i) {
     const app::CitTestEntry& entry = catalog.entries[i];
-    state->test_statuses[i] = app::CitTestStatus::kPending;
+    if (IsEntryId(entry, "keyboard") && !show_keyboard_expansion_test) {
+      continue;
+    }
+    state->test_statuses[state->row_count] = app::CitTestStatus::kPending;
     if (CreateStatusRow(parent, entry, state) == nullptr) {
       return false;
     }
   }
   return true;
+}
+
+/**
+ * @brief 重建 CIT 测试行并保留仍可见测试项的结果
+ * @param state CIT 页面状态
+ * @return 列表重建成功返回 true，否则返回 false
+ */
+bool RebuildCitRows(CitViewState* state) {
+  if (state == nullptr || state->list_page == nullptr) {
+    return false;
+  }
+
+  std::array<const char*, app::kMaxCitTestEntryCount> previous_ids = {};
+  std::array<app::CitTestStatus, app::kMaxCitTestEntryCount>
+      previous_statuses = {};
+  const size_t previous_row_count = state->row_count;
+  for (size_t i = 0; i < previous_row_count; ++i) {
+    if (state->rows[i].entry != nullptr) {
+      previous_ids[i] = state->rows[i].entry->id;
+      previous_statuses[i] = state->test_statuses[i];
+    }
+  }
+
+  lv_obj_clean(state->list_page);
+  state->rows.fill(CitStatusRow());
+  state->test_statuses.fill(app::CitTestStatus::kPending);
+  state->row_count = 0;
+  if (!AddCitRows(state->list_page, app::GetCitTestCatalog(), state)) {
+    return false;
+  }
+  EnableEdgeBackSwipeEventBubble(state->list_page);
+
+  for (size_t i = 0; i < state->row_count; ++i) {
+    const app::CitTestEntry* entry = state->rows[i].entry;
+    if (entry == nullptr || entry->id == nullptr) {
+      continue;
+    }
+    for (size_t j = 0; j < previous_row_count; ++j) {
+      if (previous_ids[j] != nullptr &&
+          std::strcmp(entry->id, previous_ids[j]) == 0) {
+        state->test_statuses[i] = previous_statuses[j];
+        break;
+      }
+    }
+  }
+  return true;
+}
+
+/**
+ * @brief 根据键盘扩展开关和连接状态刷新 CIT 键盘测试入口
+ * @param state CIT 页面状态
+ */
+void RefreshKeyboardTestAvailability(CitViewState* state) {
+  if (state == nullptr || state->list_page == nullptr ||
+      state->test_page != nullptr || state->test_page_closing) {
+    return;
+  }
+
+  bool keyboard_test_row_exists = false;
+  for (size_t i = 0; i < state->row_count; ++i) {
+    if (state->rows[i].entry != nullptr &&
+        IsEntryId(*state->rows[i].entry, "keyboard")) {
+      keyboard_test_row_exists = true;
+      break;
+    }
+  }
+
+  const bool enabled = state->keyboard_expansion != nullptr &&
+      app::GetKeyboardExpansionPreferences().enabled;
+  bool disconnected = false;
+  if (state->keyboard_expansion != nullptr) {
+    hal::KeyboardExpansionStatus status;
+    disconnected =
+        state->keyboard_expansion->ReadKeyboardExpansionStatus(&status) &&
+        status.state == hal::KeyboardExpansionState::kDisconnected;
+  }
+  const bool should_show = enabled && !disconnected;
+  if (keyboard_test_row_exists == should_show) {
+    return;
+  }
+
+  state->keyboard_test_hidden = !should_show;
+  if (!RebuildCitRows(state)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Refresh CIT keyboard test availability failed\n");
+  }
 }
 
 }  // namespace
