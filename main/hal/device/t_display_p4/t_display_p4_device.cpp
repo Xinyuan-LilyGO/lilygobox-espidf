@@ -197,20 +197,23 @@ KeyboardKey ToKeyboardKey(
 }
 
 /**
- * @brief 根据 Shift 和 Caps Lock 状态解析实体键盘字符
+ * @brief 根据 Fn、Shift 和 Caps Lock 状态解析实体键盘字符
  * @param mapping 实体键盘硬件映射
+ * @param function_pressed Fn 当前是否按下
  * @param shift_pressed Shift 当前是否按下
  * @param caps_lock_enabled Caps Lock 当前是否启用
  * @return ASCII 字符值，无有效字符返回 0
  */
 uint32_t ResolveKeyboardCharacter(
     const keyboard_device::tca8418::KeyMapping& mapping,
-    bool shift_pressed, bool caps_lock_enabled) {
-  char character = shift_pressed && mapping.shifted_character != '\0'
-      ? mapping.shifted_character
+    bool function_pressed, bool shift_pressed, bool caps_lock_enabled) {
+  const bool use_function_character =
+      function_pressed && mapping.function_character != '\0';
+  char character = use_function_character
+      ? mapping.function_character
       : mapping.character;
-  if (!shift_pressed && caps_lock_enabled && character >= 'a' &&
-      character <= 'z') {
+  if (!use_function_character && shift_pressed != caps_lock_enabled &&
+      character >= 'a' && character <= 'z') {
     character = static_cast<char>(character - 'a' + 'A');
   }
   return static_cast<uint8_t>(character);
@@ -940,6 +943,7 @@ void TDisplayP4Device::RecordKeyboardInputReadFailure() {
     keyboard_expansion_.tca8418.store(
         KeyboardExpansionComponentState::kFailed);
     keyboard_expansion_.shift_pressed.store(false);
+    keyboard_expansion_.function_pressed.store(false);
     keyboard_expansion_.caps_lock_enabled.store(false);
     keyboard_expansion_.scan_generation.fetch_add(1);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
@@ -1005,6 +1009,7 @@ bool TDisplayP4Device::StartKeyboardExpansionScan() {
   keyboard_expansion_.st25r3916.store(
       KeyboardExpansionComponentState::kNotChecked);
   keyboard_expansion_.shift_pressed.store(false);
+  keyboard_expansion_.function_pressed.store(false);
   keyboard_expansion_.caps_lock_enabled.store(false);
   keyboard_expansion_.consecutive_read_failures.store(0);
   keyboard_expansion_.state.store(KeyboardExpansionState::kScanning);
@@ -1058,6 +1063,7 @@ bool TDisplayP4Device::DeinitializeKeyboardExpansionHardware(
   keyboard_expansion_.st25r3916.store(
       KeyboardExpansionComponentState::kNotChecked);
   keyboard_expansion_.shift_pressed.store(false);
+  keyboard_expansion_.function_pressed.store(false);
   keyboard_expansion_.caps_lock_enabled.store(false);
   keyboard_expansion_.consecutive_read_failures.store(0);
   keyboard_expansion_.state.store(result
@@ -1243,8 +1249,12 @@ bool TDisplayP4Device::ReadKeyboardInputEvent(KeyboardInputEvent* event) {
   const keyboard_device::tca8418::KeyMapping& mapping =
       keyboard_device::tca8418::kMap[input.num - 1];
   const bool shift_pressed = keyboard_expansion_.shift_pressed.load();
+  const bool function_pressed = keyboard_expansion_.function_pressed.load();
   if (mapping.key == keyboard_device::tca8418::KeyCode::kShift) {
     keyboard_expansion_.shift_pressed.store(input.press_flag);
+  } else if (mapping.key ==
+             keyboard_device::tca8418::KeyCode::kFunction) {
+    keyboard_expansion_.function_pressed.store(input.press_flag);
   } else if (mapping.key ==
                  keyboard_device::tca8418::KeyCode::kCapsLock &&
              input.press_flag) {
@@ -1261,7 +1271,7 @@ bool TDisplayP4Device::ReadKeyboardInputEvent(KeyboardInputEvent* event) {
   event->key = ToKeyboardKey(mapping.key, shift_pressed);
   event->character = mapping.key ==
           keyboard_device::tca8418::KeyCode::kCharacter
-      ? ResolveKeyboardCharacter(mapping, shift_pressed,
+      ? ResolveKeyboardCharacter(mapping, function_pressed, shift_pressed,
             keyboard_expansion_.caps_lock_enabled.load())
       : 0;
   event->key_id = input.num;

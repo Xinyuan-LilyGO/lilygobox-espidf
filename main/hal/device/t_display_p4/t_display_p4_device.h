@@ -1332,6 +1332,7 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<int> backlight_brightness_percent{
         kDefaultKeyboardBacklightBrightnessPercent};
     std::atomic<bool> shift_pressed{false};
+    std::atomic<bool> function_pressed{false};
     std::atomic<bool> caps_lock_enabled{false};
     std::atomic<uint8_t> consecutive_read_failures{0};
     std::atomic<bool> interrupt_initialized{false};

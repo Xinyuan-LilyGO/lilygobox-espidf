@@ -3921,7 +3921,7 @@ bool AddKeyboardContent(lv_obj_t* content, CitViewState* state) {
     return false;
   }
 
-  SetTestContentVerticalScrollEnabled(content, false);
+  SetTestContentVerticalScrollEnabled(content, true);
   lv_obj_add_event_cb(content, KeyboardTestBackgroundClickedEventCallback,
       LV_EVENT_CLICKED, state);
   if (state->test_page != nullptr) {
@@ -3944,6 +3944,7 @@ bool AddKeyboardContent(lv_obj_t* content, CitViewState* state) {
   }
   state->keyboard_test_text_area = text_area;
   lv_obj_add_flag(text_area, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_add_flag(text_area, LV_OBJ_FLAG_SCROLL_CHAIN_VER);
   lv_obj_set_size(text_area, LV_PCT(100), kKeyboardTestTextAreaHeight);
   lv_obj_align(
       text_area, LV_ALIGN_TOP_MID, 0, kKeyboardTestTextAreaTop);
