@@ -168,20 +168,6 @@ bool BuildOtgContent(lv_obj_t* body, SettingsViewState* state) {
           "Power USB devices when USB input is disconnected.")) {
     return false;
   }
-  const lv_style_selector_t disabled_main =
-      static_cast<lv_style_selector_t>(LV_PART_MAIN) |
-      static_cast<lv_style_selector_t>(LV_STATE_DISABLED);
-  const lv_style_selector_t disabled_indicator =
-      static_cast<lv_style_selector_t>(LV_PART_INDICATOR) |
-      static_cast<lv_style_selector_t>(LV_STATE_DISABLED);
-  lv_obj_set_style_bg_color(state->otg_switch,
-      lv_color_hex(theme::LightNeutralTheme().disabled_container),
-      disabled_main);
-  lv_obj_set_style_bg_color(state->otg_switch,
-      lv_color_hex(theme::LightNeutralTheme().disabled_container),
-      disabled_indicator);
-  lv_obj_set_style_opa(state->otg_switch, LV_OPA_COVER, disabled_main);
-
   if (state->otg_refresh_timer != nullptr) {
     lv_timer_delete(state->otg_refresh_timer);
   }
