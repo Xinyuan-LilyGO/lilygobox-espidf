@@ -64,7 +64,7 @@ namespace keyboard_gpio =
     lilygo_device_driver::t_display_p4::keyboard_expansion::gpio;
 namespace {
 
-using KeyboardExpansionLed =
+using DriverKeyboardExpansionLed =
     lilygo_device_driver::TDisplayP4Driver::KeyboardExpansionLed;
 
 constexpr int kScreenBrightnessMinPercent = 0;
@@ -942,6 +942,30 @@ bool TDisplayP4Device::SetKeyboardBacklightBrightnessPercent(int percent) {
   return true;
 }
 
+bool TDisplayP4Device::SetKeyboardExpansionLed(
+    KeyboardExpansionLed led, bool enabled) {
+  if (keyboard_expansion_.state.load() != KeyboardExpansionState::kReady ||
+      !driver_.IsXl9555Ready()) {
+    return false;
+  }
+
+  DriverKeyboardExpansionLed driver_led;
+  switch (led) {
+    case KeyboardExpansionLed::kLed1:
+      driver_led = DriverKeyboardExpansionLed::kLed1;
+      break;
+    case KeyboardExpansionLed::kLed2:
+      driver_led = DriverKeyboardExpansionLed::kLed2;
+      break;
+    case KeyboardExpansionLed::kLed3:
+      driver_led = DriverKeyboardExpansionLed::kLed3;
+      break;
+    default:
+      return false;
+  }
+  return driver_.SetKeyboardExpansionLed(driver_led, enabled);
+}
+
 bool TDisplayP4Device::ReadKeyboardInputEvent(KeyboardInputEvent* event) {
   if (event == nullptr || tool_ == nullptr ||
       keyboard_expansion_.state.load() != KeyboardExpansionState::kReady ||
@@ -1002,7 +1026,7 @@ bool TDisplayP4Device::ReadKeyboardInputEvent(KeyboardInputEvent* event) {
     const bool caps_lock_enabled =
         !keyboard_expansion_.caps_lock_enabled.load();
     keyboard_expansion_.caps_lock_enabled.store(caps_lock_enabled);
-    if (!driver_.SetKeyboardExpansionLed(
+    if (!SetKeyboardExpansionLed(
             KeyboardExpansionLed::kLed1, caps_lock_enabled)) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Set keyboard Caps Lock indicator failed\n");
@@ -5450,12 +5474,17 @@ bool TDisplayP4Device::ExitDeviceSleep(bool deep_sleep) {
   if (!WaitForScreenReady()) {
     return false;
   }
-  if (keyboard_expansion_.state.load() == KeyboardExpansionState::kReady &&
-      !SetKeyboardBacklightBrightnessPercent(
-          keyboard_expansion_.backlight_brightness_percent.load())) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Restore keyboard backlight brightness failed\n");
-    return false;
+  if (keyboard_expansion_.state.load() == KeyboardExpansionState::kReady) {
+    bool keyboard_state_restored = SetKeyboardBacklightBrightnessPercent(
+        keyboard_expansion_.backlight_brightness_percent.load());
+    keyboard_state_restored &= SetKeyboardExpansionLed(
+        KeyboardExpansionLed::kLed1,
+        keyboard_expansion_.caps_lock_enabled.load());
+    if (!keyboard_state_restored) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Restore keyboard expansion state failed\n");
+      return false;
+    }
   }
   return true;
 }

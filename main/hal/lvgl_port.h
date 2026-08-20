@@ -11,6 +11,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -25,6 +26,9 @@ namespace lilygo_box::hal {
 
 class LvglPort final {
  public:
+  using KeyboardInputEventCallback =
+      std::function<void(const KeyboardInputEvent& event)>;
+
   enum class TouchReadMode : uint8_t {
     kSinglePoint,
     kMultiPoint,
@@ -46,6 +50,12 @@ class LvglPort final {
    * @return 启动成功返回 true，否则返回 false
    */
   bool Start();
+
+  /**
+   * @brief 设置实体键盘原始输入事件观察回调
+   * @param callback 按键事件回调，空回调表示停止观察
+   */
+  void SetKeyboardInputEventCallback(KeyboardInputEventCallback callback);
 
   /**
    * @brief 判断当前 LVGL 输入是否带有硬件边缘触摸标志。
@@ -295,6 +305,7 @@ class LvglPort final {
   lv_indev_t* input_device_ = nullptr;
   lv_indev_t* keyboard_input_device_ = nullptr;
   lv_group_t* keyboard_group_ = nullptr;
+  KeyboardInputEventCallback keyboard_input_event_callback_;
   uint8_t active_keyboard_key_id_ = 0;
   uint32_t active_lvgl_key_ = 0;
   // 专用 LVGL 任务句柄，用于在恢复刷新时立即唤醒渲染循环。

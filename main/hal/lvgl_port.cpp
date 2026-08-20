@@ -8,6 +8,7 @@
 #include "hal/lvgl_port.h"
 
 #include <algorithm>
+#include <utility>
 
 #include "base/logger.h"
 #include "esp_err.h"
@@ -165,6 +166,11 @@ bool LvglPort::Start() {
       TaskEntry, "lvgl", kLvglTaskStackBytes, this, kLvglTaskPriority,
       &task_handle_);
   return result == pdPASS;
+}
+
+void LvglPort::SetKeyboardInputEventCallback(
+    KeyboardInputEventCallback callback) {
+  keyboard_input_event_callback_ = std::move(callback);
 }
 
 bool LvglPort::ActiveInputEdgeTouch() {
@@ -720,6 +726,9 @@ void LvglPort::KeyboardReadCallback(
     return;
   }
   data->continue_reading = true;
+  if (self->keyboard_input_event_callback_) {
+    self->keyboard_input_event_callback_(event);
+  }
 
   if (event.pressed) {
     const uint32_t lvgl_key = KeyboardEventToLvglKey(event);

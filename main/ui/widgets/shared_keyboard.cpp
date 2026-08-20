@@ -463,6 +463,14 @@ void TextAreaKeyboardPreprocessEventCallback(lv_event_t* event) {
   }
 
   if (code == LV_EVENT_KEY) {
+    if (lv_keyboard_get_textarea(binding->keyboard) != text_area) {
+      // LVGL 的 keypad group 可能仍将按键发送给已取消激活的输入框。
+      // 只有当前绑定到共享键盘的输入框可以接收实体键盘输入。
+      lv_event_stop_bubbling(event);
+      lv_event_stop_processing(event);
+      return;
+    }
+
     PlayUiHapticFeedback();
     const uint32_t key = lv_event_get_key(event);
     if (key == LV_KEY_UP || key == LV_KEY_DOWN || key == LV_KEY_LEFT ||

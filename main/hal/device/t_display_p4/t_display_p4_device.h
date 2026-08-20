@@ -537,6 +537,15 @@ class TDisplayP4Device final : public ScreenProvider,
   bool SetKeyboardBacklightBrightnessPercent(int percent) override;
 
   /**
+   * @brief 设置键盘扩展指示灯状态
+   * @param led 键盘扩展指示灯
+   * @param enabled true 点亮，false 熄灭
+   * @return 指示灯状态设置成功返回 true，否则返回 false
+   */
+  bool SetKeyboardExpansionLed(
+      KeyboardExpansionLed led, bool enabled) override;
+
+  /**
    * @brief 非阻塞读取一个实体键盘按键事件
    * @param event 按键事件输出地址
    * @return 读取到有效按下或释放事件返回 true，否则返回 false

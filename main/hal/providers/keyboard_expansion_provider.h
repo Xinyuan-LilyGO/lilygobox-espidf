@@ -58,6 +58,12 @@ enum class KeyboardKey : uint8_t {
   kF11,
 };
 
+enum class KeyboardExpansionLed : uint8_t {
+  kLed1,
+  kLed2,
+  kLed3,
+};
+
 struct KeyboardInputEvent {
   KeyboardKey key = KeyboardKey::kUnknown;
   uint32_t character = 0;
@@ -105,6 +111,15 @@ class KeyboardExpansionProvider {
    * @return 参数已保存且在扩展就绪时成功应用返回 true，否则返回 false
    */
   virtual bool SetKeyboardBacklightBrightnessPercent(int percent) = 0;
+
+  /**
+   * @brief 设置键盘扩展指示灯状态
+   * @param led 键盘扩展指示灯
+   * @param enabled true 点亮，false 熄灭
+   * @return 指示灯状态设置成功返回 true，否则返回 false
+   */
+  virtual bool SetKeyboardExpansionLed(
+      KeyboardExpansionLed led, bool enabled) = 0;
 
   /**
    * @brief 非阻塞读取一个实体键盘按键事件

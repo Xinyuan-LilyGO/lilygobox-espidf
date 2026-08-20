@@ -23,8 +23,10 @@
 
 #include "app/cit_catalog.h"
 #include "app/device_info_snapshot.h"
+#include "app/storage/keyboard_expansion_storage.h"
 #include "app/system_status_cache.h"
 #include "app/wifi_manager.h"
+#include "base/logger.h"
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -39,6 +41,7 @@
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/theme/theme_provider.h"
+#include "ui/widgets/shared_keyboard.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -57,6 +60,17 @@ constexpr int kTestButtonGap = 60;
 constexpr int kTestButtonCenterOffset = (kTestButtonWidth + kTestButtonGap) / 2;
 constexpr int kTestStartButtonWidth = 240;
 constexpr int kTestStartButtonHeight = 78;
+constexpr int kKeyboardTestTextAreaHeight = 420;
+constexpr int kKeyboardTestTextAreaTop = 116;
+constexpr int kKeyboardTestTextAreaRadius = 22;
+constexpr int kKeyboardTestKeyboardHeightPercent = 40;
+constexpr size_t kKeyboardTestMaximumTextLength = 2048;
+constexpr char kKeyboardTestAcceptedChars[] =
+    "abcdefghijklmnopqrstuvwxyz"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "0123456789"
+    " !@#$%^&*()"
+    "`~-_=+[]{}\\|;:'\",.<>/?\n";
 constexpr int kTouchTraceLineWidth = 6;
 constexpr int kTouchMarkerSize = 42;
 constexpr int kCitRefreshPeriodMs = 200;
@@ -205,6 +219,9 @@ struct CitViewState {
   lv_obj_t* microphone_scale = nullptr;
   lv_obj_t* microphone_needle = nullptr;
   lv_obj_t* microphone_adc_to_dac_switch = nullptr;
+  lv_obj_t* keyboard_test_key_label = nullptr;
+  lv_obj_t* keyboard_test_text_area = nullptr;
+  lv_obj_t* keyboard_test_screen_keyboard = nullptr;
   std::array<lv_obj_t*, kTouchDisplayPointCount> touch_point_markers = {};
   int width = 0;
   int height = 0;
@@ -214,6 +231,7 @@ struct CitViewState {
   hal::GpsProvider* gps = nullptr;
   hal::AudioProvider* audio = nullptr;
   hal::HapticProvider* haptic = nullptr;
+  hal::KeyboardExpansionProvider* keyboard_expansion = nullptr;
   hal::BatteryManagementProvider* battery_management = nullptr;
   hal::RtcProvider* rtc = nullptr;
   hal::ImuProvider* imu = nullptr;
@@ -255,6 +273,9 @@ struct CitViewState {
   std::shared_ptr<GpsSession> retiring_gps_session;
   bool cellular_start_pending = false;
   bool cellular_start_failed = false;
+  bool keyboard_test_active = false;
+  bool keyboard_test_owns_expansion = false;
+  bool keyboard_test_key_received = false;
   EdgeBackSwipeState test_edge_back_swipe = {};
   bool test_page_closing = false;
   lv_timer_t* refresh_timer = nullptr;
@@ -653,6 +674,56 @@ void StopGpsTestHardware(CitViewState* state) {
 }
 
 /**
+ * @brief 停止键盘测试事件观察并释放测试临时启用的扩展资源
+ * @param state CIT 页面状态
+ */
+void StopKeyboardTestHardware(CitViewState* state) {
+  if (state == nullptr) {
+    return;
+  }
+
+  state->keyboard_test_active = false;
+  if (state->lvgl_port != nullptr) {
+    state->lvgl_port->SetKeyboardInputEventCallback(
+        hal::LvglPort::KeyboardInputEventCallback());
+  }
+  if (state->keyboard_test_screen_keyboard != nullptr) {
+    HideSharedKeyboard(state->keyboard_test_screen_keyboard);
+  }
+  const bool should_disable_expansion =
+      state->keyboard_test_owns_expansion ||
+      !app::GetKeyboardExpansionPreferences().enabled;
+  if (state->keyboard_expansion != nullptr) {
+    if (should_disable_expansion) {
+      state->keyboard_expansion->SetKeyboardExpansionLed(
+          hal::KeyboardExpansionLed::kLed1, false);
+    }
+    state->keyboard_expansion->SetKeyboardExpansionLed(
+        hal::KeyboardExpansionLed::kLed2, false);
+    state->keyboard_expansion->SetKeyboardExpansionLed(
+        hal::KeyboardExpansionLed::kLed3, false);
+  }
+  if (!should_disable_expansion || state->keyboard_expansion == nullptr) {
+    state->keyboard_test_owns_expansion = false;
+    return;
+  }
+
+  hal::KeyboardExpansionStatus status;
+  const bool status_read =
+      state->keyboard_expansion->ReadKeyboardExpansionStatus(&status);
+  const bool needs_deinit = status_read &&
+      (status.state == hal::KeyboardExpansionState::kScanning ||
+          status.state == hal::KeyboardExpansionState::kReady ||
+          status.state == hal::KeyboardExpansionState::kDisconnected);
+  if (needs_deinit &&
+      !state->keyboard_expansion->DisableKeyboardExpansion()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Clean up CIT keyboard test resources failed\n");
+  }
+  state->keyboard_test_owns_expansion = false;
+}
+
+/**
  * @brief 停止当前测试页面关联的硬件任务
  * @param state CIT 页面状态
  */
@@ -662,6 +733,9 @@ void StopActiveTestHardware(CitViewState* state) {
   }
 
   const app::CitTestEntry* entry = state->rows[state->current_test_index].entry;
+  if (entry != nullptr && IsEntryId(*entry, "keyboard")) {
+    StopKeyboardTestHardware(state);
+  }
   if (entry != nullptr && IsEntryId(*entry, "microphone") &&
       state->audio != nullptr) {
     state->audio->StopMicrophone();
@@ -722,6 +796,9 @@ void ClearTestPageState(CitViewState* state) {
   state->microphone_scale = nullptr;
   state->microphone_needle = nullptr;
   state->microphone_adc_to_dac_switch = nullptr;
+  state->keyboard_test_key_label = nullptr;
+  state->keyboard_test_text_area = nullptr;
+  state->keyboard_test_screen_keyboard = nullptr;
   state->touch_point_markers.fill(nullptr);
   state->touch_trace_point_count = 0;
   state->gps_elapsed_ms = 0;
@@ -737,6 +814,9 @@ void ClearTestPageState(CitViewState* state) {
   state->gps_session.reset();
   state->cellular_start_pending = false;
   state->cellular_start_failed = false;
+  state->keyboard_test_active = false;
+  state->keyboard_test_owns_expansion = false;
+  state->keyboard_test_key_received = false;
   state->pending_test_index = app::kMaxCitTestEntryCount;
   state->test_edge_back_swipe = EdgeBackSwipeState();
   state->test_page_closing = false;
@@ -789,6 +869,211 @@ bool IsEntryId(const app::CitTestEntry& entry, const char* id) {
     return false;
   }
   return std::strcmp(entry.id, id) == 0;
+}
+
+/**
+ * @brief 获取实体键盘按键说明
+ * @param key 通用键盘键值
+ * @return 按键说明文本
+ */
+const char* GetKeyboardTestKeyName(hal::KeyboardKey key) {
+  switch (key) {
+    case hal::KeyboardKey::kCharacter:
+      return "Character";
+    case hal::KeyboardKey::kEscape:
+      return "Escape";
+    case hal::KeyboardKey::kBackspace:
+      return "Backspace";
+    case hal::KeyboardKey::kEnter:
+      return "Enter";
+    case hal::KeyboardKey::kNext:
+      return "Tab";
+    case hal::KeyboardKey::kPrevious:
+      return "Shift + Tab";
+    case hal::KeyboardKey::kUp:
+      return "Up";
+    case hal::KeyboardKey::kDown:
+      return "Down";
+    case hal::KeyboardKey::kLeft:
+      return "Left";
+    case hal::KeyboardKey::kRight:
+      return "Right";
+    case hal::KeyboardKey::kCapsLock:
+      return "Caps Lock";
+    case hal::KeyboardKey::kShift:
+      return "Shift";
+    case hal::KeyboardKey::kControl:
+      return "Control";
+    case hal::KeyboardKey::kAlt:
+      return "Alt";
+    case hal::KeyboardKey::kMeta:
+      return "Meta";
+    case hal::KeyboardKey::kFunction:
+      return "Fn";
+    case hal::KeyboardKey::kRecord:
+      return "Record";
+    case hal::KeyboardKey::kF1:
+      return "F1";
+    case hal::KeyboardKey::kF2:
+      return "F2";
+    case hal::KeyboardKey::kF3:
+      return "F3";
+    case hal::KeyboardKey::kF4:
+      return "F4";
+    case hal::KeyboardKey::kF5:
+      return "F5";
+    case hal::KeyboardKey::kF6:
+      return "F6";
+    case hal::KeyboardKey::kF7:
+      return "F7";
+    case hal::KeyboardKey::kF8:
+      return "F8";
+    case hal::KeyboardKey::kF9:
+      return "F9";
+    case hal::KeyboardKey::kF10:
+      return "F10";
+    case hal::KeyboardKey::kF11:
+      return "F11";
+    case hal::KeyboardKey::kUnknown:
+    default:
+      return "Unknown";
+  }
+}
+
+/**
+ * @brief 格式化实体键盘测试中的最近按键说明
+ * @param event 原始键盘事件
+ * @param buffer 输出缓冲区
+ * @param capacity 输出缓冲区容量
+ */
+void FormatKeyboardTestKeyDescription(const hal::KeyboardInputEvent& event,
+    char* buffer, size_t capacity) {
+  if (buffer == nullptr || capacity == 0) {
+    return;
+  }
+
+  if (event.key != hal::KeyboardKey::kCharacter) {
+    std::snprintf(buffer, capacity,
+        "Last pressed key: %s\nMatrix key ID: %u",
+        GetKeyboardTestKeyName(event.key),
+        static_cast<unsigned>(event.key_id));
+    return;
+  }
+
+  if (event.character == ' ') {
+    std::snprintf(buffer, capacity,
+        "Last pressed key: Space\nMatrix key ID: %u",
+        static_cast<unsigned>(event.key_id));
+  } else if (event.character >= 0x20 && event.character <= 0x7E) {
+    std::snprintf(buffer, capacity,
+        "Last pressed key: Character '%c'\nMatrix key ID: %u",
+        static_cast<char>(event.character),
+        static_cast<unsigned>(event.key_id));
+  } else {
+    std::snprintf(buffer, capacity,
+        "Last pressed key: Character U+%04lX\nMatrix key ID: %u",
+        static_cast<unsigned long>(event.character),
+        static_cast<unsigned>(event.key_id));
+  }
+}
+
+/**
+ * @brief 处理键盘测试页面观察到的原始按键事件
+ * @param state CIT 页面状态
+ * @param event 原始键盘事件
+ */
+void HandleKeyboardTestInputEvent(
+    CitViewState* state, const hal::KeyboardInputEvent& event) {
+  if (state == nullptr || !state->keyboard_test_active) {
+    return;
+  }
+
+  if (state->keyboard_expansion != nullptr &&
+      (event.key == hal::KeyboardKey::kF10 ||
+          event.key == hal::KeyboardKey::kF11)) {
+    const hal::KeyboardExpansionLed led =
+        event.key == hal::KeyboardKey::kF10
+        ? hal::KeyboardExpansionLed::kLed2
+        : hal::KeyboardExpansionLed::kLed3;
+    state->keyboard_expansion->SetKeyboardExpansionLed(led, event.pressed);
+  }
+
+  if (!event.pressed || state->keyboard_test_key_label == nullptr ||
+      !lv_obj_is_valid(state->keyboard_test_key_label)) {
+    return;
+  }
+
+  char description[128] = {};
+  FormatKeyboardTestKeyDescription(event, description, sizeof(description));
+  lv_label_set_text(state->keyboard_test_key_label, description);
+  state->keyboard_test_key_received = true;
+}
+
+/**
+ * @brief 刷新键盘扩展测试的连接状态
+ * @param state CIT 页面状态
+ */
+void RefreshKeyboardTestData(CitViewState* state) {
+  if (state == nullptr || !state->keyboard_test_active ||
+      state->keyboard_expansion == nullptr ||
+      state->keyboard_test_key_label == nullptr) {
+    return;
+  }
+
+  hal::KeyboardExpansionStatus status;
+  if (!state->keyboard_expansion->ReadKeyboardExpansionStatus(&status)) {
+    lv_label_set_text(state->keyboard_test_key_label,
+        "Keyboard status: unavailable");
+    return;
+  }
+
+  switch (status.state) {
+    case hal::KeyboardExpansionState::kScanning:
+      lv_label_set_text(state->keyboard_test_key_label,
+          "Keyboard status: initializing...");
+      break;
+    case hal::KeyboardExpansionState::kReady:
+      if (!state->keyboard_test_key_received) {
+        lv_label_set_text(state->keyboard_test_key_label,
+            "Last pressed key: waiting\nF10: LED2; F11: LED3");
+      }
+      break;
+    case hal::KeyboardExpansionState::kNotFound:
+      lv_label_set_text(state->keyboard_test_key_label,
+          "Keyboard status: not detected");
+      break;
+    case hal::KeyboardExpansionState::kDisconnected:
+      lv_label_set_text(state->keyboard_test_key_label,
+          "Keyboard status: disconnected");
+      break;
+    case hal::KeyboardExpansionState::kComponentFailure:
+      lv_label_set_text(state->keyboard_test_key_label,
+          "Keyboard status: initialization failed");
+      break;
+    case hal::KeyboardExpansionState::kDisabled:
+    default:
+      lv_label_set_text(state->keyboard_test_key_label,
+          "Keyboard status: disabled");
+      break;
+  }
+}
+
+/**
+ * @brief 点击键盘测试空白区域时取消输入框焦点并收起屏幕键盘
+ * @param event LVGL 点击事件
+ */
+void KeyboardTestBackgroundClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED ||
+      lv_event_get_target_obj(event) !=
+          lv_event_get_current_target_obj(event)) {
+    return;
+  }
+
+  auto* state = static_cast<CitViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || !state->keyboard_test_active) {
+    return;
+  }
+  DefocusSharedKeyboardTextAreas();
 }
 
 /**
@@ -2124,6 +2409,11 @@ void RefreshActiveTestData(CitViewState* state) {
   }
 
   char text[640] = {};
+  if (IsEntryId(*entry, "keyboard")) {
+    RefreshKeyboardTestData(state);
+    return;
+  }
+
   if (IsEntryId(*entry, "touch")) {
     RefreshTouchTestData(state);
     return;
@@ -3586,6 +3876,127 @@ bool AddRtcContent(lv_obj_t* content, CitViewState* state) {
 }
 
 /**
+ * @brief 添加键盘扩展按键和文本输入测试内容
+ * @param content 内容容器
+ * @param state CIT 页面状态
+ * @return 页面创建成功返回 true
+ */
+bool AddKeyboardContent(lv_obj_t* content, CitViewState* state) {
+  if (content == nullptr || state == nullptr) {
+    return false;
+  }
+
+  SetTestContentVerticalScrollEnabled(content, false);
+  lv_obj_add_event_cb(content, KeyboardTestBackgroundClickedEventCallback,
+      LV_EVENT_CLICKED, state);
+  if (state->test_page != nullptr) {
+    lv_obj_add_event_cb(state->test_page,
+        KeyboardTestBackgroundClickedEventCallback, LV_EVENT_CLICKED, state);
+  }
+  state->keyboard_test_key_received = false;
+  state->keyboard_test_owns_expansion = false;
+  state->keyboard_test_key_label = CreateDataLabel(
+      content, "Keyboard status: preparing...");
+  if (state->keyboard_test_key_label == nullptr) {
+    return false;
+  }
+  state->test_data_label = state->keyboard_test_key_label;
+  lv_obj_set_height(state->keyboard_test_key_label, 88);
+
+  lv_obj_t* text_area = lv_textarea_create(content);
+  if (text_area == nullptr) {
+    return false;
+  }
+  state->keyboard_test_text_area = text_area;
+  lv_obj_add_flag(text_area, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(text_area, LV_PCT(100), kKeyboardTestTextAreaHeight);
+  lv_obj_align(
+      text_area, LV_ALIGN_TOP_MID, 0, kKeyboardTestTextAreaTop);
+  lv_textarea_set_one_line(text_area, false);
+  lv_textarea_set_max_length(
+      text_area, kKeyboardTestMaximumTextLength);
+  lv_textarea_set_accepted_chars(text_area, kKeyboardTestAcceptedChars);
+  lv_textarea_set_placeholder_text(
+      text_area, "Type all supported characters here...");
+  lv_obj_set_style_text_font(text_area, Font28(), LV_PART_MAIN);
+  lv_obj_set_style_text_color(text_area,
+      lv_color_hex(theme::LightNeutralTheme().on_surface), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(text_area,
+      lv_color_hex(theme::LightNeutralTheme().surface_container_high),
+      LV_PART_MAIN);
+  lv_obj_set_style_bg_color(text_area,
+      lv_color_hex(theme::LightNeutralTheme().surface_container_high),
+      LV_STATE_FOCUSED);
+  lv_obj_set_style_bg_opa(text_area, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(text_area, LV_OPA_COVER, LV_STATE_FOCUSED);
+  lv_obj_set_style_border_width(text_area, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(
+      text_area, kKeyboardTestTextAreaRadius, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(text_area, 20, LV_PART_MAIN);
+  lv_obj_set_scrollbar_mode(text_area, LV_SCROLLBAR_MODE_AUTO);
+  AddEdgeBackSwipeEvents(text_area, TestPageEdgeBackEventCallback, state);
+
+  if (state->test_page == nullptr) {
+    return false;
+  }
+  SharedKeyboardConfig keyboard_config;
+  keyboard_config.width = state->width;
+  keyboard_config.height =
+      state->height * kKeyboardTestKeyboardHeightPercent / 100;
+  state->keyboard_test_screen_keyboard =
+      CreateSharedKeyboard(state->test_page, keyboard_config);
+  if (state->keyboard_test_screen_keyboard == nullptr ||
+      !AttachSharedKeyboardToTextArea(state->keyboard_test_screen_keyboard,
+          text_area, kKeyboardTestAcceptedChars)) {
+    return false;
+  }
+  lv_obj_add_flag(
+      state->keyboard_test_screen_keyboard, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  AddEdgeBackSwipeEvents(state->keyboard_test_screen_keyboard,
+      TestPageEdgeBackEventCallback, state);
+
+  state->keyboard_test_active = true;
+  if (state->lvgl_port != nullptr) {
+    state->lvgl_port->SetKeyboardInputEventCallback(
+        [state](const hal::KeyboardInputEvent& event) {
+          HandleKeyboardTestInputEvent(state, event);
+        });
+  }
+  if (state->keyboard_expansion == nullptr) {
+    lv_label_set_text(state->keyboard_test_key_label,
+        "Keyboard status: unsupported");
+    return true;
+  }
+
+  hal::KeyboardExpansionStatus status;
+  if (!state->keyboard_expansion->ReadKeyboardExpansionStatus(&status)) {
+    lv_label_set_text(state->keyboard_test_key_label,
+        "Keyboard status: unavailable");
+    return true;
+  }
+  if (status.state == hal::KeyboardExpansionState::kReady ||
+      status.state == hal::KeyboardExpansionState::kScanning) {
+    RefreshKeyboardTestData(state);
+    return true;
+  }
+
+  if (status.state == hal::KeyboardExpansionState::kDisconnected &&
+      !state->keyboard_expansion->DisableKeyboardExpansion()) {
+    lv_label_set_text(state->keyboard_test_key_label,
+        "Keyboard status: cleanup failed");
+    return true;
+  }
+  if (!state->keyboard_expansion->StartKeyboardExpansionScan()) {
+    lv_label_set_text(state->keyboard_test_key_label,
+        "Keyboard status: initialization failed");
+    return true;
+  }
+  state->keyboard_test_owns_expansion = true;
+  RefreshKeyboardTestData(state);
+  return true;
+}
+
+/**
  * @brief 添加扩展外设测试内容并启动对应硬件
  * @param content 内容容器
  * @param state CIT 页面状态
@@ -3709,6 +4120,9 @@ bool PopulateTestContent(
   }
   if (IsEntryId(entry, "gps")) {
     return AddGpsContent(content, state);
+  }
+  if (IsEntryId(entry, "keyboard")) {
+    return AddKeyboardContent(content, state);
   }
   if (IsEntryId(entry, "ethernet")) {
     return AddEthernetContent(content, state);
@@ -3834,6 +4248,9 @@ bool ShowCitTest(CitViewState* state, size_t index) {
   if (CreateTestButtonBar(page, state) == nullptr) {
     DeleteTestPage(state);
     return false;
+  }
+  if (state->keyboard_test_screen_keyboard != nullptr) {
+    lv_obj_move_to_index(state->keyboard_test_screen_keyboard, -1);
   }
 
   if (state->touch_trace_surface != nullptr) {
@@ -4006,6 +4423,7 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
   state->gps = config.gps;
   state->audio = config.audio;
   state->haptic = config.haptic;
+  state->keyboard_expansion = config.keyboard_expansion;
   state->battery_management = config.battery_management;
   state->rtc = config.rtc;
   state->imu = config.imu;
