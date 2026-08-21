@@ -467,6 +467,41 @@ void SetAddKeyboardVisible(
  */
 bool ParseTextAreaUint64(lv_obj_t* input, int base, uint64_t minimum,
     uint64_t maximum, uint64_t* value);
+
+/**
+ * @brief 解析 Enhanced ShockBurst 十六进制地址并推导地址宽度
+ * @param input 地址文本输入框
+ * @param address 地址数值输出
+ * @param address_width 地址宽度输出，单位为字节
+ * @return 地址包含 6、8 或 10 个十六进制字符时返回 true
+ */
+bool ParseEnhancedShockBurstAddress(
+    lv_obj_t* input, uint64_t* address, uint8_t* address_width) {
+  if (input == nullptr || address == nullptr || address_width == nullptr) {
+    return false;
+  }
+  const char* text = lv_textarea_get_text(input);
+  if (text == nullptr) {
+    return false;
+  }
+  const size_t hex_digit_count = std::strlen(text);
+  if (hex_digit_count != 6 && hex_digit_count != 8 &&
+      hex_digit_count != 10) {
+    return false;
+  }
+  for (size_t index = 0; index < hex_digit_count; ++index) {
+    if (std::isxdigit(static_cast<unsigned char>(text[index])) == 0) {
+      return false;
+    }
+  }
+  if (!ParseTextAreaUint64(
+          input, 16, 1, 0xFFFFFFFFFFULL, address)) {
+    return false;
+  }
+  *address_width = static_cast<uint8_t>(hex_digit_count / 2);
+  return true;
+}
+
 bool IsAddGfskFormComplete(const RadioViewState* state);
 bool IsAddEnhancedShockBurstFormComplete(const RadioViewState* state);
 /**
@@ -5883,6 +5918,7 @@ void UpdateAddInputErrorStyles(RadioViewState* state) {
   }
   if (chip == radio::ChipType::kNrf24l01) {
     long retry_delay = 0;
+    uint8_t address_width = 0;
     const bool retry_delay_valid = ParseTextAreaLong(
         state->add_retransmit_delay_input, 10, 250, 4000, &retry_delay) &&
         retry_delay % 250 == 0;
@@ -5891,8 +5927,8 @@ void UpdateAddInputErrorStyles(RadioViewState* state) {
         ParseTextAreaLong(state->add_frequency_input,
             10, 2400, 2525, &parsed_value));
     UpdateAddTextAreaErrorStyle(state->add_address_input,
-        ParseTextAreaUint64(state->add_address_input, 16, 1,
-            0xFFFFFFFFFFULL, &parsed_address));
+        ParseEnhancedShockBurstAddress(state->add_address_input,
+            &parsed_address, &address_width));
     UpdateAddTextAreaErrorStyle(state->add_retransmit_count_input,
         ParseTextAreaLong(state->add_retransmit_count_input,
             10, 0, 15, &parsed_value));
@@ -6361,10 +6397,11 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
     long retransmit_count = 0;
     long retransmit_delay = 0;
     uint64_t address = 0;
+    uint8_t address_width = 0;
     ParseTextAreaLong(
         state->add_frequency_input, 10, 2400, 2525, &frequency_mhz);
-    ParseTextAreaUint64(state->add_address_input,
-        16, 1, 0xFFFFFFFFFFULL, &address);
+    ParseEnhancedShockBurstAddress(
+        state->add_address_input, &address, &address_width);
     ParseTextAreaLong(state->add_retransmit_count_input,
         10, 0, 15, &retransmit_count);
     ParseTextAreaLong(state->add_retransmit_delay_input,
@@ -6375,6 +6412,7 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
     profile.esb_data_rate_bps =
         kNrf24l01DataRates[state->selected_add_data_rate];
     profile.esb_address = address;
+    profile.esb_address_width = address_width;
     profile.esb_retransmit_count =
         static_cast<uint8_t>(retransmit_count);
     profile.esb_retransmit_delay_us =
@@ -7304,26 +7342,21 @@ bool IsAddEnhancedShockBurstFormComplete(const RadioViewState* state) {
   long retransmit_delay = 0;
   long value = 0;
   uint64_t address = 0;
-  uint8_t address_width = 5;
-  if (state->editing_index < state->module_count) {
-    address_width = state->preferences.profiles[
-        state->editing_index].esb_address_width;
-  }
+  uint8_t address_width = 0;
   if (!IsAddOutputPowerValid(state) ||
       !ParseTextAreaLong(
           state->add_frequency_input, 10, 2400, 2525, &value) ||
       state->selected_add_data_rate < 0 ||
       static_cast<size_t>(state->selected_add_data_rate) >=
           std::size(kNrf24l01DataRates) ||
-      !ParseTextAreaUint64(state->add_address_input, 16, 1,
-          0xFFFFFFFFFFULL, &address) ||
+      !ParseEnhancedShockBurstAddress(
+          state->add_address_input, &address, &address_width) ||
       !ParseTextAreaLong(
           state->add_retransmit_count_input, 10, 0, 15,
           &retransmit_count) ||
       !ParseTextAreaLong(state->add_retransmit_delay_input,
           10, 250, 4000, &retransmit_delay) ||
       retransmit_delay % 250 != 0 ||
-      address >= (1ULL << (static_cast<uint32_t>(address_width) * 8)) ||
       state->add_auto_ack_switch == nullptr ||
       state->add_dynamic_payload_switch == nullptr) {
     return false;
@@ -7677,7 +7710,9 @@ bool CreateNonLoraAddModuleContent(RadioViewState* state,
         kFirstTitleY + row * kRowPitch + additional_content_height +
         content_offset;
     ++row;
-    std::snprintf(value, sizeof(value), "%010llX",
+    const int address_hex_digits =
+        std::clamp<int>(profile.esb_address_width, 3, 5) * 2;
+    std::snprintf(value, sizeof(value), "%0*llX", address_hex_digits,
         static_cast<unsigned long long>(profile.esb_address));
     if (!CreateAddParameterTitle(body, "ADDRESS (HEX)", address_title_y)) {
       return false;
@@ -7692,8 +7727,8 @@ bool CreateNonLoraAddModuleContent(RadioViewState* state,
             address_title_y + 36)) {
       return false;
     }
-    // 地址宽度和 CRC 长度使用 Enhanced ShockBurst 常用默认值，
-    // 仍保留在配置结构中以兼容已有配置。
+    // 地址宽度由输入的 6、8 或 10 位十六进制字符自动确定。
+    // CRC 长度继续使用 Enhanced ShockBurst 常用默认值。
     state->add_address_width_input = nullptr;
     state->selected_add_output_power =
         static_cast<int>(std::size(kNrf24l01OutputPowers) - 1);
