@@ -32,6 +32,7 @@
       "icon_set": "all_used",
       "exclude_icons": [
         "BatteryAndroid0",
+        "Keyboard",
         "VolumeOff",
         "Repeat",
         "RepeatOne",
@@ -104,6 +105,21 @@
       "icons": ["BatteryAndroid0"]
     },
     {
+      "id": "material_rounded_outline_w300_38",
+      "object_name": "lvgl_font_material_symbols_outline_w300_38",
+      "style": "outline",
+      "size": 38,
+      "optical_size": 24,
+      "variation_axes": {
+        "FILL": 0,
+        "GRAD": 0,
+        "opsz": 24,
+        "wght": 300
+      },
+      "output": "main/ui/resources/fonts/icons/lvgl_font_material_rounded_outline_w300_38.c",
+      "icons": ["Keyboard"]
+    },
+    {
       "id": "material_rounded_outline_56",
       "object_name": "lvgl_font_material_symbols_outline_56",
       "style": "outline",
@@ -113,6 +129,7 @@
       "icon_set": "all_used",
       "exclude_icons": [
         "Camera",
+        "Keyboard",
         "Music",
         "SdStorage",
         "SettingsInputAntenna",
@@ -155,6 +172,7 @@
     "Home": {"cpp_name": "kHome", "codepoint": 59826},
     "Image": {"cpp_name": "kImage", "codepoint": 58356},
     "Info": {"cpp_name": "kInfo", "codepoint": 59534},
+    "Keyboard": {"cpp_name": "kKeyboard", "codepoint": 58130},
     "KeyboardArrowDown": {
       "cpp_name": "kKeyboardArrowDown",
       "codepoint": 58131

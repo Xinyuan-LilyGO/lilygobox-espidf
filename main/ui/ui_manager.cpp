@@ -16,6 +16,7 @@
 #include "app/app_catalog.h"
 #include "app/network_monitor.h"
 #include "app/storage/input_method_storage.h"
+#include "hal/providers/keyboard_expansion_provider.h"
 #include "ui/app_view_factory.h"
 #include "ui/haptic_feedback.h"
 #include "ui/input/app_view_gesture_flags.h"
@@ -1848,6 +1849,7 @@ void UiManager::RefreshSystemStatus() {
   if (system_status_cache_.wifi_status_valid()) {
     UpdateWifiStatus(system_status_cache_.wifi_status());
   }
+  UpdateKeyboardExpansionStatus();
 }
 
 void UiManager::RefreshSystemStatusNow() {
@@ -1863,6 +1865,7 @@ void UiManager::RefreshSystemStatusNow() {
   if (system_status_cache_.wifi_status_valid()) {
     UpdateWifiStatus(system_status_cache_.wifi_status());
   }
+  UpdateKeyboardExpansionStatus();
 }
 
 void UiManager::UpdateClockLabels(const hal::RtcStatus& status) {
@@ -1921,6 +1924,14 @@ void UiManager::UpdateWifiStatus(const hal::WifiStatus& status) {
       : internet_state != app::InternetAccessState::kAvailable;
   status_bar_.SetWifiStatus(status.connected, status.rssi,
       internet_unavailable);
+}
+
+void UiManager::UpdateKeyboardExpansionStatus() {
+  hal::KeyboardExpansionStatus status;
+  const bool connected = keyboard_expansion_provider_ != nullptr &&
+      keyboard_expansion_provider_->ReadKeyboardExpansionStatus(&status) &&
+      status.state == hal::KeyboardExpansionState::kReady;
+  status_bar_.SetKeyboardExpansionConnected(connected);
 }
 
 lv_obj_t* UiManager::CreateAppGrid(lv_obj_t* parent) {

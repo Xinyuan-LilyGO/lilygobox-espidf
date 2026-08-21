@@ -318,6 +318,7 @@ struct SettingsViewState {
   bool keyboard_expansion_scan_pending = false;
   lv_obj_t* keyboard_expansion_switch = nullptr;
   lv_obj_t* keyboard_backlight_controls = nullptr;
+  lv_obj_t* keyboard_backlight_slider = nullptr;
   PromptDialogState keyboard_expansion_prompt = {};
   char keyboard_expansion_prompt_message[256] = {};
   lv_obj_t* otg_switch = nullptr;

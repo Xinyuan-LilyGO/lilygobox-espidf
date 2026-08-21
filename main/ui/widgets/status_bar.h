@@ -45,6 +45,12 @@ class StatusBar final {
   void SetWifiStatus(bool connected, int rssi, bool internet_unavailable);
 
   /**
+   * @brief 设置键盘扩展连接状态图标
+   * @param connected 键盘扩展是否已经就绪
+   */
+  void SetKeyboardExpansionConnected(bool connected);
+
+  /**
    * @brief 获取状态栏对象
    * @return 状态栏对象指针
    */
@@ -70,6 +76,7 @@ class StatusBar final {
  private:
   lv_obj_t* object_ = nullptr;
   lv_obj_t* time_label_ = nullptr;
+  lv_obj_t* keyboard_expansion_label_ = nullptr;
   lv_obj_t* wifi_label_ = nullptr;
   lv_obj_t* battery_management_label_ = nullptr;
   lv_obj_t* battery_management_fill_ = nullptr;
@@ -81,6 +88,7 @@ class StatusBar final {
   char time_text_[6] = "09:15";
   char battery_management_percent_text_[8] = "--%";
   bool battery_management_charging_ = false;
+  bool keyboard_expansion_connected_ = false;
   bool wifi_connected_ = false;
   bool wifi_internet_unavailable_ = false;
 };

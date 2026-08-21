@@ -277,6 +277,7 @@ struct CitViewState {
   bool keyboard_test_owns_expansion = false;
   bool keyboard_test_key_received = false;
   bool keyboard_test_hidden = false;
+  bool keyboard_expansion_nfc_test_hidden = false;
   bool cit_rows_rebuild_pending = false;
   EdgeBackSwipeState test_edge_back_swipe = {};
   bool test_page_closing = false;
@@ -287,7 +288,7 @@ void ShowCitList(CitViewState* state);
 bool ShowCitTest(CitViewState* state, size_t index);
 void RefreshCitRows(CitViewState* state);
 bool RebuildCitRows(CitViewState* state);
-void RefreshKeyboardTestAvailability(CitViewState* state);
+void RefreshKeyboardExpansionTestAvailability(CitViewState* state);
 void SetCitRowsClickable(CitViewState* state, bool enabled);
 void TestPageEdgeBackEventCallback(lv_event_t* event);
 void ScreenColorOverlayEventCallback(lv_event_t* event);
@@ -1033,6 +1034,39 @@ void CloseUnavailableKeyboardTest(CitViewState* state) {
   state->keyboard_test_hidden = true;
   state->cit_rows_rebuild_pending = true;
   DefocusSharedKeyboardTextAreas();
+  ShowCitList(state);
+}
+
+/**
+ * @brief 判断键盘扩展及其 ST25R3916 是否可用于 NFC 测试
+ * @param state CIT 页面状态
+ * @return 扩展已启用且 NFC 芯片就绪返回 true，否则返回 false
+ */
+bool IsKeyboardExpansionNfcReady(CitViewState* state) {
+  if (state == nullptr || state->keyboard_expansion == nullptr ||
+      state->nfc == nullptr ||
+      !app::GetKeyboardExpansionPreferences().enabled) {
+    return false;
+  }
+
+  hal::KeyboardExpansionStatus status;
+  return state->keyboard_expansion->ReadKeyboardExpansionStatus(&status) &&
+         status.state == hal::KeyboardExpansionState::kReady &&
+         status.st25r3916 ==
+             hal::KeyboardExpansionComponentState::kReady;
+}
+
+/**
+ * @brief 退出已失去键盘扩展硬件的 NFC 测试并重建 CIT 列表
+ * @param state CIT 页面状态
+ */
+void CloseUnavailableKeyboardExpansionNfcTest(CitViewState* state) {
+  if (state == nullptr || state->keyboard_expansion_nfc_test_hidden) {
+    return;
+  }
+
+  state->keyboard_expansion_nfc_test_hidden = true;
+  state->cit_rows_rebuild_pending = true;
   ShowCitList(state);
 }
 
@@ -2186,13 +2220,20 @@ void FormatNfcIdentifier(
  * @param state CIT 页面状态
  * @param entry 当前测试项
  */
-void RefreshAirPeripheralTestData(
+void RefreshPeripheralTestData(
     CitViewState* state, const app::CitTestEntry& entry) {
   if (state == nullptr || state->test_data_label == nullptr) {
     return;
   }
   char text[768] = {};
   if (IsEntryId(entry, "nfc")) {
+    if (state->keyboard_expansion != nullptr &&
+        !IsKeyboardExpansionNfcReady(state)) {
+      lv_label_set_text(state->test_data_label,
+          "ST25R3916 NFC data:\nstatus: keyboard expansion disconnected");
+      CloseUnavailableKeyboardExpansionNfcTest(state);
+      return;
+    }
     hal::NfcStatus nfc_status;
     const bool status_valid =
         state->nfc != nullptr && state->nfc->ReadNfcStatus(&nfc_status);
@@ -2485,7 +2526,7 @@ void RefreshActiveTestData(CitViewState* state) {
 
   if (IsEntryId(*entry, "nfc") || IsEntryId(*entry, "infrared") ||
       IsEntryId(*entry, "cellular")) {
-    RefreshAirPeripheralTestData(state, *entry);
+    RefreshPeripheralTestData(state, *entry);
     return;
   }
 
@@ -2577,7 +2618,7 @@ void RefreshActiveTestData(CitViewState* state) {
  */
 void CitRefreshTimerCallback(lv_timer_t* timer) {
   auto* state = static_cast<CitViewState*>(lv_timer_get_user_data(timer));
-  RefreshKeyboardTestAvailability(state);
+  RefreshKeyboardExpansionTestAvailability(state);
   RefreshCitRows(state);
   RefreshActiveTestData(state);
 }
@@ -3122,7 +3163,7 @@ void GenericStartButtonEventCallback(lv_event_t* event) {
     if (state->infrared_last_transmit_succeeded) {
       ++state->infrared_transmit_success_count;
     }
-    RefreshAirPeripheralTestData(state, *entry);
+    RefreshPeripheralTestData(state, *entry);
     return;
   }
   if (IsEntryId(*entry, "vibration")) {
@@ -4039,7 +4080,7 @@ bool AddKeyboardContent(lv_obj_t* content, CitViewState* state) {
  * @param entry 测试项
  * @return 页面创建成功返回 true
  */
-bool AddAirPeripheralContent(
+bool AddPeripheralContent(
     lv_obj_t* content, CitViewState* state, const app::CitTestEntry& entry) {
   if (state == nullptr) {
     return false;
@@ -4052,7 +4093,11 @@ bool AddAirPeripheralContent(
 
   bool started = false;
   if (IsEntryId(entry, "nfc")) {
-    started = state->nfc != nullptr && state->nfc->SetNfcPollingEnabled(true);
+    const bool expansion_nfc_ready =
+        state->keyboard_expansion == nullptr ||
+        IsKeyboardExpansionNfcReady(state);
+    started = expansion_nfc_ready && state->nfc != nullptr &&
+              state->nfc->SetNfcPollingEnabled(true);
   } else if (IsEntryId(entry, "cellular")) {
     state->cellular_start_pending = false;
     state->cellular_start_failed = false;
@@ -4075,7 +4120,7 @@ bool AddAirPeripheralContent(
         state->test_data_label, "hardware data:\nstatus: start failed");
     return true;
   }
-  RefreshAirPeripheralTestData(state, entry);
+  RefreshPeripheralTestData(state, entry);
   return true;
 }
 
@@ -4112,7 +4157,7 @@ bool AddInfraredContent(
   if (state->infrared != nullptr) {
     state->infrared->SetInfraredReceiverEnabled(true);
   }
-  RefreshAirPeripheralTestData(state, entry);
+  RefreshPeripheralTestData(state, entry);
   return true;
 }
 
@@ -4176,7 +4221,7 @@ bool PopulateTestContent(
     return AddInfraredContent(content, state, entry);
   }
   if (IsEntryId(entry, "nfc") || IsEntryId(entry, "cellular")) {
-    return AddAirPeripheralContent(content, state, entry);
+    return AddPeripheralContent(content, state, entry);
   }
   return AddPlainDataContent(content, entry);
 }
@@ -4434,18 +4479,30 @@ bool AddCitRows(
   }
 
   bool keyboard_expansion_ready = false;
+  bool keyboard_expansion_nfc_ready = false;
   if (state->keyboard_expansion != nullptr &&
       app::GetKeyboardExpansionPreferences().enabled) {
     hal::KeyboardExpansionStatus status;
-    keyboard_expansion_ready =
-        state->keyboard_expansion->ReadKeyboardExpansionStatus(&status) &&
-        status.state == hal::KeyboardExpansionState::kReady;
+    if (state->keyboard_expansion->ReadKeyboardExpansionStatus(&status)) {
+      keyboard_expansion_ready =
+          status.state == hal::KeyboardExpansionState::kReady;
+      keyboard_expansion_nfc_ready = keyboard_expansion_ready &&
+          status.st25r3916 ==
+              hal::KeyboardExpansionComponentState::kReady;
+    }
   }
   const bool show_keyboard_expansion_test =
       keyboard_expansion_ready && !state->keyboard_test_hidden;
+  const bool show_nfc_test = state->nfc != nullptr &&
+      (state->keyboard_expansion == nullptr ||
+          keyboard_expansion_nfc_ready) &&
+      !state->keyboard_expansion_nfc_test_hidden;
   for (size_t i = 0; i < catalog.entry_count; ++i) {
     const app::CitTestEntry& entry = catalog.entries[i];
     if (IsEntryId(entry, "keyboard") && !show_keyboard_expansion_test) {
+      continue;
+    }
+    if (IsEntryId(entry, "nfc") && !show_nfc_test) {
       continue;
     }
     state->test_statuses[state->row_count] = app::CitTestStatus::kPending;
@@ -4503,21 +4560,25 @@ bool RebuildCitRows(CitViewState* state) {
 }
 
 /**
- * @brief 根据键盘扩展开关和连接状态刷新 CIT 键盘测试入口
+ * @brief 根据键盘扩展开关和连接状态刷新 CIT 扩展测试入口
  * @param state CIT 页面状态
  */
-void RefreshKeyboardTestAvailability(CitViewState* state) {
+void RefreshKeyboardExpansionTestAvailability(CitViewState* state) {
   if (state == nullptr || state->list_page == nullptr ||
       state->test_page != nullptr || state->test_page_closing) {
     return;
   }
 
   bool keyboard_test_row_exists = false;
+  bool nfc_test_row_exists = false;
   for (size_t i = 0; i < state->row_count; ++i) {
     if (state->rows[i].entry != nullptr &&
         IsEntryId(*state->rows[i].entry, "keyboard")) {
       keyboard_test_row_exists = true;
-      break;
+    }
+    if (state->rows[i].entry != nullptr &&
+        IsEntryId(*state->rows[i].entry, "nfc")) {
+      nfc_test_row_exists = true;
     }
   }
 
@@ -4529,15 +4590,20 @@ void RefreshKeyboardTestAvailability(CitViewState* state) {
         state->keyboard_expansion->ReadKeyboardExpansionStatus(&status) &&
         status.state == hal::KeyboardExpansionState::kReady;
   }
-  const bool should_show = ready;
-  if (keyboard_test_row_exists == should_show) {
+  const bool should_show_keyboard_test = ready;
+  const bool should_show_nfc_test = state->nfc != nullptr &&
+      (state->keyboard_expansion == nullptr ||
+          IsKeyboardExpansionNfcReady(state));
+  if (keyboard_test_row_exists == should_show_keyboard_test &&
+      nfc_test_row_exists == should_show_nfc_test) {
     return;
   }
 
-  state->keyboard_test_hidden = !should_show;
+  state->keyboard_test_hidden = !should_show_keyboard_test;
+  state->keyboard_expansion_nfc_test_hidden = !should_show_nfc_test;
   if (!RebuildCitRows(state)) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Refresh CIT keyboard test availability failed\n");
+        "Refresh CIT keyboard expansion test availability failed\n");
   }
 }
 

@@ -776,6 +776,7 @@ TDisplayP4Device::TDisplayP4Device()
       tool_(std::make_unique<cpp_bus_driver::Tool>()) {
   wifi_.scan_results_mutex = xSemaphoreCreateMutex();
   radio_.mutex = xSemaphoreCreateMutex();
+  nfc_.mutex = xSemaphoreCreateMutex();
 }
 
 bool TDisplayP4Device::InitializeTouchInterrupt() {
@@ -952,6 +953,11 @@ void TDisplayP4Device::RecordKeyboardInputReadFailure() {
 }
 
 bool TDisplayP4Device::InitDevice() {
+  if (nfc_.mutex == nullptr) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Create T-Display-P4 NFC synchronization resource failed\n");
+    return false;
+  }
   const bool result =
       driver_.Init(lilygo_device_driver::TDisplayP4Driver::InitMode::kAsync);
   if (!result) {
@@ -1032,6 +1038,11 @@ bool TDisplayP4Device::StartKeyboardExpansionScan() {
 
 bool TDisplayP4Device::DeinitializeKeyboardExpansionHardware(
     KeyboardExpansionState final_state) {
+  if (!SetNfcPollingEnabled(false)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Stop keyboard expansion NFC polling failed\n");
+    return false;
+  }
   if (!WaitForKeyboardExpansionTask()) {
     return false;
   }
@@ -5757,6 +5768,7 @@ bool TDisplayP4Device::PrepareForPowerOff() {
   if (radio_.active || radio_.transmitting) {
     result &= DeactivateRadio();
   }
+  result &= SetNfcPollingEnabled(false);
   result &= SetGpsEnabled(false);
   result &= SetImuEnabled(false);
   result &= SetEthernetEnabled(false);
@@ -5776,6 +5788,7 @@ bool TDisplayP4Device::WaitForPowerOffTasks() {
                                camera_preview_.task_active.load() ||
                                ethernet_.init_task_running.load() ||
                                keyboard_expansion_.task_running.load() ||
+                               nfc_.task_active.load() ||
                                wifi_.init_task_running.load() ||
                                wifi_.scan_task_running.load() ||
                                wifi_.connect_task_running.load();

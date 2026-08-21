@@ -495,6 +495,11 @@ class UiManager final {
   void UpdateWifiStatus(const hal::WifiStatus& status);
 
   /**
+   * @brief 根据键盘扩展状态刷新状态栏键盘图标
+   */
+  void UpdateKeyboardExpansionStatus();
+
+  /**
    * @brief 创建主屏 app 图标网格
    * @param parent 父对象
    * @return 创建成功返回对象指针，否则返回 nullptr

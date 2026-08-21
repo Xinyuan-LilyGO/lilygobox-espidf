@@ -328,8 +328,8 @@ void SetKeyboardExpansionScanning(
   }
 }
 
-void SetKeyboardBacklightControlsVisible(
-    SettingsViewState* state, bool visible) {
+void SetKeyboardBacklightControlsState(
+    SettingsViewState* state, bool visible, bool enabled) {
   if (state == nullptr || state->keyboard_backlight_controls == nullptr) {
     return;
   }
@@ -339,6 +339,17 @@ void SetKeyboardBacklightControlsVisible(
   } else {
     lv_obj_add_flag(
         state->keyboard_backlight_controls, LV_OBJ_FLAG_HIDDEN);
+  }
+  lv_obj_set_style_opa(state->keyboard_backlight_controls,
+      enabled ? LV_OPA_COVER : LV_OPA_50, LV_PART_MAIN);
+  if (state->keyboard_backlight_slider == nullptr) {
+    return;
+  }
+  if (enabled) {
+    lv_obj_remove_state(
+        state->keyboard_backlight_slider, LV_STATE_DISABLED);
+  } else {
+    lv_obj_add_state(state->keyboard_backlight_slider, LV_STATE_DISABLED);
   }
 }
 
@@ -516,7 +527,7 @@ void KeyboardExpansionRefreshTimerCallback(lv_timer_t* timer) {
       StopKeyboardExpansionRefreshTimer(state);
       SetKeyboardExpansionSwitchChecked(state, true);
       SetKeyboardExpansionScanning(state, false);
-      SetKeyboardBacklightControlsVisible(state, false);
+      SetKeyboardBacklightControlsState(state, true, false);
       RefreshSharedKeyboardVisibility();
       hal::KeyboardExpansionStatus failure_status;
       failure_status.state =
@@ -537,7 +548,7 @@ void KeyboardExpansionRefreshTimerCallback(lv_timer_t* timer) {
 
   if (status.state == hal::KeyboardExpansionState::kReady) {
     SetKeyboardExpansionSwitchChecked(state, true);
-    SetKeyboardBacklightControlsVisible(state, true);
+    SetKeyboardBacklightControlsState(state, true, true);
     SaveKeyboardExpansionEnabledPreference(true);
     RefreshSharedKeyboardVisibility();
     return;
@@ -545,7 +556,8 @@ void KeyboardExpansionRefreshTimerCallback(lv_timer_t* timer) {
 
   SetKeyboardExpansionSwitchChecked(
       state, app::GetKeyboardExpansionPreferences().enabled);
-  SetKeyboardBacklightControlsVisible(state, false);
+  SetKeyboardBacklightControlsState(state,
+      app::GetKeyboardExpansionPreferences().enabled, false);
   RefreshSharedKeyboardVisibility();
   if (status.state == hal::KeyboardExpansionState::kDisabled) {
     return;
@@ -566,6 +578,7 @@ void KeyboardExpansionPageDeleteEventCallback(lv_event_t* event) {
   ClosePromptDialog(&state->keyboard_expansion_prompt);
   state->keyboard_expansion_switch = nullptr;
   state->keyboard_backlight_controls = nullptr;
+  state->keyboard_backlight_slider = nullptr;
 }
 
 /**
@@ -592,7 +605,7 @@ void KeyboardExpansionSwitchChangedEventCallback(lv_event_t* event) {
     }
     SetKeyboardExpansionSwitchChecked(state, false);
     SetKeyboardExpansionScanning(state, false);
-    SetKeyboardBacklightControlsVisible(state, false);
+    SetKeyboardBacklightControlsState(state, false, false);
     RefreshSharedKeyboardVisibility();
     return;
   }
@@ -601,7 +614,7 @@ void KeyboardExpansionSwitchChangedEventCallback(lv_event_t* event) {
           SetKeyboardBacklightBrightnessPercent(
               state->keyboard_backlight_brightness_percent)) {
     SetKeyboardExpansionSwitchChecked(state, false);
-    SetKeyboardBacklightControlsVisible(state, false);
+    SetKeyboardBacklightControlsState(state, false, false);
     SaveKeyboardExpansionEnabledPreference(false);
     RefreshSharedKeyboardVisibility();
     hal::KeyboardExpansionStatus failure_status;
@@ -613,7 +626,7 @@ void KeyboardExpansionSwitchChangedEventCallback(lv_event_t* event) {
   SaveKeyboardExpansionEnabledPreference(true);
   SetKeyboardExpansionSwitchChecked(state, true);
   SetKeyboardExpansionScanning(state, true);
-  SetKeyboardBacklightControlsVisible(state, false);
+  SetKeyboardBacklightControlsState(state, true, false);
   StopKeyboardExpansionRefreshTimer(state);
   state->keyboard_expansion_refresh_timer = lv_timer_create(
       KeyboardExpansionRefreshTimerCallback,
@@ -622,7 +635,7 @@ void KeyboardExpansionSwitchChangedEventCallback(lv_event_t* event) {
     state->keyboard_expansion_scan_pending = false;
     SetKeyboardExpansionSwitchChecked(state, false);
     SetKeyboardExpansionScanning(state, false);
-    SetKeyboardBacklightControlsVisible(state, false);
+    SetKeyboardBacklightControlsState(state, false, false);
     SaveKeyboardExpansionEnabledPreference(false);
     RefreshSharedKeyboardVisibility();
     hal::KeyboardExpansionStatus failure_status;
@@ -699,6 +712,7 @@ bool BuildKeyboardExpansionContent(lv_obj_t* body, SettingsViewState* state) {
   }
   lv_obj_t* backlight_slider =
       lv_obj_get_child(controls, lv_obj_get_child_count(controls) - 1);
+  state->keyboard_backlight_slider = backlight_slider;
   if (backlight_slider != nullptr) {
     lv_obj_add_event_cb(backlight_slider,
         KeyboardBacklightSliderReleasedEventCallback,
@@ -707,9 +721,10 @@ bool BuildKeyboardExpansionContent(lv_obj_t* body, SettingsViewState* state) {
         KeyboardBacklightSliderReleasedEventCallback,
         LV_EVENT_PRESS_LOST, state);
   }
-  if (status.state != hal::KeyboardExpansionState::kReady) {
-    lv_obj_add_flag(controls, LV_OBJ_FLAG_HIDDEN);
-  }
+  SetKeyboardBacklightControlsState(state,
+      state->keyboard_expansion_enabled,
+      state->keyboard_expansion_enabled &&
+          status.state == hal::KeyboardExpansionState::kReady);
   if (status.state == hal::KeyboardExpansionState::kScanning) {
     state->keyboard_expansion_scan_pending = false;
     SetKeyboardExpansionScanning(state, true);
@@ -828,7 +843,8 @@ void RefreshKeyboardExpansionSettings(SettingsViewState* state) {
   SetKeyboardExpansionSwitchChecked(state,
       app::GetKeyboardExpansionPreferences().enabled);
   SetKeyboardExpansionScanning(state, scanning);
-  SetKeyboardBacklightControlsVisible(state, ready);
+  const bool enabled = app::GetKeyboardExpansionPreferences().enabled;
+  SetKeyboardBacklightControlsState(state, enabled, enabled && ready);
 }
 
 }  // namespace lilygo_box::ui

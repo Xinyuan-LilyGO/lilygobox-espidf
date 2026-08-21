@@ -29,6 +29,7 @@ extern const lv_font_t lvgl_font_material_symbols_fill_56;
 extern const lv_font_t lvgl_font_material_symbols_outline_44;
 extern const lv_font_t lvgl_font_material_symbols_outline_56;
 extern const lv_font_t lvgl_font_material_symbols_outline_w200_46;
+extern const lv_font_t lvgl_font_material_symbols_outline_w300_38;
 
 #ifdef __cplusplus
 }

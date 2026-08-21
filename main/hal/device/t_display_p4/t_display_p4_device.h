@@ -38,6 +38,7 @@ class TDisplayP4Device final : public ScreenProvider,
                                public RtcProvider,
                                public RadioProvider,
                                public KeyboardExpansionProvider,
+                               public NfcProvider,
                                public EthernetProvider,
                                public WifiProvider,
                                public StorageProvider,
@@ -567,6 +568,20 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ReadKeyboardExpansionStatus(
       KeyboardExpansionStatus* status) const override;
 
+  /**
+   * @brief 启动或停止键盘扩展 ST25R3916 NFC 后台发现
+   * @param enabled true 启动轮询，false 停止轮询并关闭射频场
+   * @return 请求成功接受或目标状态已经满足返回 true
+   */
+  bool SetNfcPollingEnabled(bool enabled) override;
+
+  /**
+   * @brief 非阻塞读取键盘扩展 ST25R3916 轮询和最近卡片状态
+   * @param status NFC 状态输出地址
+   * @return 状态读取成功返回 true，否则返回 false
+   */
+  bool ReadNfcStatus(NfcStatus* status) override;
+
  private:
   enum class CameraStartupAttemptResult : uint8_t {
     kSuccess,
@@ -588,6 +603,8 @@ class TDisplayP4Device final : public ScreenProvider,
   static constexpr UBaseType_t kKeyboardExpansionTaskPriority = 1;
   static constexpr uint8_t kKeyboardExpansionDisconnectFailureThreshold = 3;
   static constexpr uint32_t kKeyboardExpansionConnectionDebounceMs = 50;
+  static constexpr uint32_t kNfcPollingTaskStackBytes = 6 * 1024;
+  static constexpr UBaseType_t kNfcPollingTaskPriority = 3;
 
   /**
    * @brief 初始化 XL9535 汇总中断对应的 ESP32-P4 GPIO
@@ -662,6 +679,17 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 超时前退出返回 true，否则返回 false
    */
   bool WaitForKeyboardExpansionTask();
+
+  /**
+   * @brief 键盘扩展 ST25R3916 NFC 轮询任务入口
+   * @param context 设备对象指针
+   */
+  static void NfcPollingTaskEntry(void* context);
+
+  /**
+   * @brief 执行键盘扩展 ST25R3916 NFC 发现和卡片状态维护
+   */
+  void RunNfcPollingTask();
 
   /**
    * @brief 等待异步屏幕初始化进入可用状态
@@ -1343,6 +1371,16 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<uint32_t> scan_generation{0};
   };
 
+  struct NfcState {
+    // 保护 NFC 状态快照，RFAL 调用只由轮询任务执行。
+    SemaphoreHandle_t mutex = nullptr;
+    // NFC 轮询任务是否仍占用键盘扩展 ST25R3916。
+    std::atomic<bool> task_active{false};
+    // 是否请求轮询任务停止并关闭射频场。
+    std::atomic<bool> stop_requested{false};
+    NfcStatus status;
+  };
+
   lilygo_device_driver::TDisplayP4Driver& driver_;
   std::unique_ptr<cpp_bus_driver::Tool> tool_;
   UsbStorageManager usb_storage_manager_;
@@ -1373,6 +1411,8 @@ class TDisplayP4Device final : public ScreenProvider,
   RadioState radio_;
   // 可选键盘扩展的异步扫描和逐器件状态。
   KeyboardExpansionRuntimeState keyboard_expansion_;
+  // 键盘扩展 ST25R3916 的 CIT 轮询状态。
+  NfcState nfc_;
   std::atomic<bool> imu_enabled_{false};
   bool gps_running_ = false;
   GpsStatus gps_status_;
