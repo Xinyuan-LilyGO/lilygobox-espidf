@@ -32,6 +32,7 @@ enum class KeyboardKey : uint8_t {
   kEscape,
   kBackspace,
   kEnter,
+  kLineBreak,
   kNext,
   kPrevious,
   kUp,

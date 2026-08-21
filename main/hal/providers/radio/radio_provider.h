@@ -72,6 +72,52 @@ struct LoraRadioConfig {
   bool rx_boosted = true;
 };
 
+struct GfskRadioConfig {
+  // GFSK 中心频率，单位为 Hz。
+  uint32_t frequency_hz = 868000000;
+  // 空中数据速率，单位为 bit/s。
+  uint32_t data_rate_bps = 4800;
+  // FSK 单边频偏，单位为 Hz。
+  uint32_t frequency_deviation_hz = 5000;
+  // 接收滤波带宽，单位为 Hz。
+  uint32_t receive_bandwidth_hz = radio::kCc1101ReceiveBandwidthsHz[0];
+  // 前导码长度，单位为 bit。
+  uint16_t preamble_length_bits = 32;
+  // 16 位同步字。
+  uint16_t sync_word = 0x12AD;
+  // 发射功率，单位为 dBm。
+  int8_t output_power_dbm = 10;
+  // 是否启用硬件 CRC。
+  bool crc_enabled = true;
+  // 是否启用数据白化。
+  bool whitening_enabled = false;
+  // 是否启用卷积编码 FEC。
+  bool fec_enabled = false;
+};
+
+struct EnhancedShockBurstRadioConfig {
+  // 2.4 GHz 信道号，实际频率为 2400 MHz + channel。
+  uint8_t channel = 0;
+  // 空中数据速率，支持 250000、1000000 和 2000000 bit/s。
+  uint32_t data_rate_bps = 250000;
+  // 3～5 字节空中地址，低 address_width 字节有效。
+  uint64_t address = 0xE7E7E7E7E7ULL;
+  // 空中地址宽度，单位为字节。
+  uint8_t address_width = 5;
+  // 发射功率，支持 -18、-12、-6 和 0 dBm。
+  int8_t output_power_dbm = 0;
+  // CRC 长度，支持 8 和 16 bit。
+  uint8_t crc_length_bits = 16;
+  // 自动重发次数，范围为 0～15。
+  uint8_t retransmit_count = 3;
+  // 自动重发间隔，单位为 us，范围为 250～4000，步进为 250。
+  uint16_t retransmit_delay_us = 750;
+  // 是否使用 Enhanced ShockBurst 自动应答；广播模式默认不等待接收端应答。
+  bool auto_ack_enabled = false;
+  // 是否使用动态负载长度。
+  bool dynamic_payload_enabled = false;
+};
+
 struct RadioConfig {
   // Radio 配置的稳定 ID，用于关联异步事件。
   uint32_t client_token = 0;
@@ -83,6 +129,10 @@ struct RadioConfig {
   radio::AntennaType antenna = radio::AntennaType::kInternal;
   // LoRa 协议参数。
   LoraRadioConfig lora;
+  // CC1101 GFSK 协议参数。
+  GfskRadioConfig gfsk;
+  // nRF24L01 Enhanced ShockBurst 协议参数。
+  EnhancedShockBurstRadioConfig enhanced_shock_burst;
 };
 
 struct RadioFrequencyBand {
@@ -142,6 +192,10 @@ struct RadioEvent {
   int8_t rssi_dbm = 0;
   // 接收数据包的信噪比。
   int8_t snr_db = 0;
+  // 当前芯片是否提供可量化的 RSSI。
+  bool rssi_valid = true;
+  // 当前芯片是否提供可量化的 SNR。
+  bool snr_valid = true;
 };
 
 class RadioProvider {
@@ -169,6 +223,16 @@ class RadioProvider {
   virtual bool DeactivateRadio() = 0;
 
   /**
+   * @brief 停止指定配置对应的射频会话
+   * @param client_token 配置稳定 ID，0 表示停止全部会话
+   * @return 停止成功或射频硬件无需处理时返回 true
+   */
+  virtual bool DeactivateRadio(uint32_t client_token) {
+    (void)client_token;
+    return DeactivateRadio();
+  }
+
+  /**
    * @brief 启动一条可与异步完成事件准确关联的射频发送
    * @param data 待发送数据
    * @param size 数据长度
@@ -177,6 +241,20 @@ class RadioProvider {
    */
   virtual bool SendRadio(
       const uint8_t* data, size_t size, uint64_t request_token) = 0;
+
+  /**
+   * @brief 使用指定配置对应的射频会话发送数据
+   * @param client_token 配置稳定 ID
+   * @param data 待发送数据
+   * @param size 数据长度
+   * @param request_token 发送请求唯一序号
+   * @return 发送命令成功启动时返回 true
+   */
+  virtual bool SendRadio(uint32_t client_token, const uint8_t* data,
+      size_t size, uint64_t request_token) {
+    (void)client_token;
+    return SendRadio(data, size, request_token);
+  }
 
   /**
    * @brief 非阻塞轮询射频收发完成、接收数据和芯片错误事件
@@ -191,6 +269,18 @@ class RadioProvider {
    * @return 状态读取成功时返回 true
    */
   virtual bool ReadRadioStatus(RadioStatus* status) = 0;
+
+  /**
+   * @brief 读取指定配置对应的射频会话状态
+   * @param client_token 配置稳定 ID
+   * @param status 射频状态输出地址
+   * @return 状态读取成功时返回 true
+   */
+  virtual bool ReadRadioStatus(
+      uint32_t client_token, RadioStatus* status) {
+    (void)client_token;
+    return ReadRadioStatus(status);
+  }
 };
 
 }  // namespace lilygo_box::hal

@@ -57,6 +57,8 @@ constexpr size_t kMessageTypeOffset = 22;
 constexpr size_t kDeliveryOffset = 23;
 constexpr size_t kRssiOffset = 24;
 constexpr size_t kSnrOffset = 25;
+// 0 保持兼容旧记录；bit0 和 bit1 分别表示 RSSI、SNR 不可用。
+constexpr size_t kUnavailableSignalMetricsOffset = 26;
 constexpr size_t kTimeOffset = 28;
 constexpr size_t kTextOffset = kTimeOffset + kRadioChatTimeCapacity;
 constexpr size_t kChecksumOffset = kTextOffset + kRadioChatTextCapacity;
@@ -283,6 +285,9 @@ bool EncodeRecord(const RadioChatMessage& message, DiskRecord* record) {
   (*record)[kDeliveryOffset] = static_cast<uint8_t>(message.delivery);
   (*record)[kRssiOffset] = static_cast<uint8_t>(message.rssi_dbm);
   (*record)[kSnrOffset] = static_cast<uint8_t>(message.snr_db);
+  (*record)[kUnavailableSignalMetricsOffset] =
+      static_cast<uint8_t>((message.rssi_valid ? 0 : 0x01) |
+          (message.snr_valid ? 0 : 0x02));
   std::memcpy(record->data() + kTimeOffset, message.time,
       kRadioChatTimeCapacity);
   std::memcpy(record->data() + kTextOffset, message.text, text_length);
@@ -325,6 +330,10 @@ bool DecodeRecord(const DiskRecord& record, RadioChatMessage* message) {
   message->delivery = delivery;
   message->rssi_dbm = static_cast<int8_t>(record[kRssiOffset]);
   message->snr_db = static_cast<int8_t>(record[kSnrOffset]);
+  message->rssi_valid =
+      (record[kUnavailableSignalMetricsOffset] & 0x01) == 0;
+  message->snr_valid =
+      (record[kUnavailableSignalMetricsOffset] & 0x02) == 0;
   std::memcpy(message->time, record.data() + kTimeOffset,
       kRadioChatTimeCapacity);
   message->time[kRadioChatTimeCapacity - 1] = '\0';

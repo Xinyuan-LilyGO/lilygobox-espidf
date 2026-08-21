@@ -14,6 +14,7 @@
 #include <new>
 
 #include "app/storage/input_method_storage.h"
+#include "hal/lvgl_port.h"
 #include "hal/providers/keyboard_expansion_provider.h"
 #include "ui/haptic_feedback.h"
 
@@ -473,6 +474,12 @@ void TextAreaKeyboardPreprocessEventCallback(lv_event_t* event) {
 
     PlayUiHapticFeedback();
     const uint32_t key = lv_event_get_key(event);
+    if (key == hal::LvglPort::kLineBreakKey) {
+      lv_textarea_add_char(text_area, '\n');
+      lv_event_stop_bubbling(event);
+      lv_event_stop_processing(event);
+      return;
+    }
     if (key == LV_KEY_UP || key == LV_KEY_DOWN || key == LV_KEY_LEFT ||
         key == LV_KEY_RIGHT) {
       // 方向键仅由当前输入框处理，避免继续冒泡导致父容器滚动。

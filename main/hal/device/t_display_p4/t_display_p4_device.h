@@ -335,27 +335,34 @@ class TDisplayP4Device final : public ScreenProvider,
   bool WriteRtcUnixTime(int64_t unix_time) override;
 
   /**
-   * @brief 读取板载 SX1262 支持的射频协议、频段和负载能力
+   * @brief 读取板载及键盘扩展射频芯片的协议、频段和负载能力
    * @param capabilities 射频能力输出地址
    * @return 能力信息读取成功时返回 true
    */
   bool ReadRadioCapabilities(RadioCapabilities* capabilities) override;
 
   /**
-   * @brief 配置板载 SX1262 并启动指定射频会话的连续接收
+   * @brief 配置目标物理芯片并启动指定射频会话的连续接收
    * @param config 待激活的射频配置
    * @return 配置成功且连续接收已启动时返回 true
    */
   bool ActivateRadio(const RadioConfig& config) override;
 
   /**
-   * @brief 停止当前射频会话并将板载 SX1262 切换到待机状态
-   * @return 停止成功或 SX1262 无需处理时返回 true
+   * @brief 停止全部射频会话
+   * @return 全部会话停止成功时返回 true
    */
   bool DeactivateRadio() override;
 
   /**
-   * @brief 使用板载 SX1262 启动一条可关联异步事件的射频发送
+   * @brief 停止指定配置对应的射频会话
+   * @param client_token 配置稳定 ID，0 表示停止全部会话
+   * @return 会话停止成功时返回 true
+   */
+  bool DeactivateRadio(uint32_t client_token) override;
+
+  /**
+   * @brief 使用唯一活动会话启动一条可关联异步事件的射频发送
    * @param data 待发送数据
    * @param size 数据长度
    * @param request_token 调用方提供的发送请求唯一序号
@@ -365,18 +372,38 @@ class TDisplayP4Device final : public ScreenProvider,
       const uint8_t* data, size_t size, uint64_t request_token) override;
 
   /**
-   * @brief 非阻塞轮询板载 SX1262 的收发和芯片错误事件
+   * @brief 使用指定配置对应的射频会话发送数据
+   * @param client_token 配置稳定 ID
+   * @param data 待发送数据
+   * @param size 数据长度
+   * @param request_token 发送请求唯一序号
+   * @return 发送命令成功启动时返回 true
+   */
+  bool SendRadio(uint32_t client_token, const uint8_t* data,
+      size_t size, uint64_t request_token) override;
+
+  /**
+   * @brief 非阻塞轮询全部活动射频会话的收发和芯片错误事件
    * @param event 射频事件输出地址，无事件时类型保持为 kNone
    * @return 轮询及必要的硬件状态处理成功时返回 true
    */
   bool PollRadioEvent(RadioEvent* event) override;
 
   /**
-   * @brief 读取板载 SX1262 的会话、硬件和发送状态
+   * @brief 读取唯一活动射频会话的硬件和发送状态
    * @param status 射频状态输出地址
    * @return 状态读取成功时返回 true
    */
   bool ReadRadioStatus(RadioStatus* status) override;
+
+  /**
+   * @brief 读取指定配置对应的射频会话状态
+   * @param client_token 配置稳定 ID
+   * @param status 射频状态输出地址
+   * @return 状态读取成功时返回 true
+   */
+  bool ReadRadioStatus(
+      uint32_t client_token, RadioStatus* status) override;
 
   bool SetImuEnabled(bool enabled) override;
   bool ReadImuStatus(ImuStatus* status) override;
@@ -1332,13 +1359,51 @@ class TDisplayP4Device final : public ScreenProvider,
     int64_t transmit_deadline_us = 0;
     // 当前激活配置的 LoRa 调制和数据包参数。
     LoraRadioConfig lora_config;
-    // SX1262 是否处于连续接收或发送会话。
+    // 当前激活配置的 CC1101 GFSK 参数。
+    GfskRadioConfig gfsk_config;
+    // 当前激活配置的 nRF24L01 Enhanced ShockBurst 参数。
+    EnhancedShockBurstRadioConfig enhanced_shock_burst_config;
+    // 当前激活的物理射频芯片。
+    radio::ChipType chip = radio::ChipType::kUnknown;
+    // 当前激活的空中协议。
+    radio::ProtocolType protocol = radio::ProtocolType::kUnknown;
+    // 阻塞式扩展射频发送完成后交给非阻塞轮询发布的事件。
+    RadioEvent pending_event;
+    // CC1101 GDO0 是否已经注册数据包结束下降沿监听。
+    bool receive_interrupt_initialized = false;
+    // CC1101 GDO0 是否已经报告完整数据包结束。
+    std::atomic<bool> receive_interrupt_pending{false};
+    // 当前芯片是否处于连续接收或发送会话。
     bool active = false;
-    // SX1262 是否正在执行发送命令。
+    // 当前芯片是否正在执行发送命令。
     bool transmitting = false;
     // 最近一次芯片操作是否需要重新激活配置。
     bool chip_error = false;
   };
+
+  RadioState* FindRadioState(uint32_t client_token);
+  RadioState* RadioStateForChip(radio::ChipType chip);
+
+  /**
+   * @brief 启用 CC1101 完整数据包结束下降沿监听
+   * @return 监听启用成功或已经启用返回 true，否则返回 false
+   */
+  bool InitializeCc1101ReceiveInterrupt();
+
+  /**
+   * @brief 停止 CC1101 数据包结束中断监听
+   * @return 监听关闭成功或尚未启用返回 true，否则返回 false
+   */
+  bool DeinitializeCc1101ReceiveInterrupt();
+
+  /**
+   * @brief 记录 CC1101 完整数据包结束信号
+   * @param context 当前设备对象
+   */
+  static void Cc1101ReceiveInterruptHandler(void* context);
+  bool DeactivateRadioState(RadioState* state);
+  bool PollRadioState(RadioState* state, RadioEvent* event);
+  bool ReadRadioStateStatus(RadioState* state, RadioStatus* status);
 
   static constexpr int kDefaultKeyboardBacklightBrightnessPercent = 10;
 
@@ -1407,8 +1472,11 @@ class TDisplayP4Device final : public ScreenProvider,
   WifiState wifi_;
   // WiFi 获取时间测试状态，保存测试流程和进入前配置
   WifiTimeTestState wifi_time_test_;
-  // Radio 会话状态，单芯片只允许一个活动配置。
+  // 板载射频和两颗键盘扩展射频分别维护会话，同一芯片仅保留一条配置。
   RadioState radio_;
+  RadioState cc1101_radio_;
+  RadioState nrf24l01_radio_;
+  uint8_t radio_poll_index_ = 0;
   // 可选键盘扩展的异步扫描和逐器件状态。
   KeyboardExpansionRuntimeState keyboard_expansion_;
   // 键盘扩展 ST25R3916 的 CIT 轮询状态。

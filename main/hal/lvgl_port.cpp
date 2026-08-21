@@ -674,6 +674,8 @@ uint32_t LvglPort::KeyboardEventToLvglKey(
       return LV_KEY_BACKSPACE;
     case KeyboardKey::kEnter:
       return LV_KEY_ENTER;
+    case KeyboardKey::kLineBreak:
+      return kLineBreakKey;
     case KeyboardKey::kNext:
       return LV_KEY_NEXT;
     case KeyboardKey::kPrevious:

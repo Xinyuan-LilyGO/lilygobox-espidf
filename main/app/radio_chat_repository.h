@@ -68,6 +68,10 @@ struct RadioChatMessage {
   int8_t rssi_dbm = 0;
   // 接收信噪比，发送消息和系统消息保持为 0。
   int8_t snr_db = 0;
+  // 接收芯片是否能够提供可量化的 RSSI。
+  bool rssi_valid = true;
+  // 接收芯片是否能够提供可量化的 SNR。
+  bool snr_valid = true;
 };
 
 struct RadioChatProfileSummary {

@@ -2,7 +2,7 @@
  * @Description: Radio 射频控制应用页面实现
  * @Author: LILYGO_L
  * @Date: 2026-07-12 00:00:00
- * @LastEditTime: 2026-07-30 18:00:00
+ * @LastEditTime: 2026-08-21 16:15:55
  * @License: GPL 3.0
  */
 #include "ui/views/radio_view.h"
@@ -119,6 +119,7 @@ constexpr lv_style_selector_t kProfileSwitchCheckedIndicatorSelector =
 constexpr uint32_t kActivationRetryPeriodMs = 2000;
 constexpr uint32_t kActivationRetrySlowPeriodMs = 10000;
 constexpr uint8_t kActivationFastRetryCount = 5;
+constexpr uint32_t kRadioCapabilitiesRefreshPeriodMs = 500;
 constexpr uint32_t kRadioCommandTaskStackBytes = 8 * 1024;
 constexpr UBaseType_t kRadioCommandTaskPriority = tskIDLE_PRIORITY;
 constexpr uint32_t kRadioShutdownPollMs = 20;
@@ -164,6 +165,28 @@ struct RadioModuleItem {
 };
 
 constexpr size_t kRadioModuleCapacity = app::kRadioProfileCapacity;
+constexpr size_t kAddOutputPowerOptionCapacity = 8;
+constexpr int8_t kCc1101OutputPowers[] = {
+    -30, -20, -15, -10, 0, 5, 7, 10};
+constexpr const char* kCc1101OutputPowerNames[] = {
+    "-30", "-20", "-15", "-10", "0", "5", "7", "10"};
+constexpr uint16_t kCc1101PreambleLengths[] = {
+    16, 24, 32, 48, 64, 96, 128, 192};
+constexpr const char* kCc1101PreambleLengthNames[] = {
+    "16", "24", "32", "48", "64", "96", "128", "192"};
+constexpr const char* kCc1101ReceiveBandwidthNames[] = {
+    "58.036", "67.708", "81.250", "101.563",
+    "116.071", "135.417", "162.500", "203.125",
+    "232.143", "270.833", "325.000", "406.250",
+    "464.286", "541.667", "650.000", "812.500"};
+static_assert(std::size(kCc1101ReceiveBandwidthNames) ==
+    std::size(radio::kCc1101ReceiveBandwidthsHz));
+constexpr int8_t kNrf24l01OutputPowers[] = {-18, -12, -6, 0};
+constexpr const char* kNrf24l01OutputPowerNames[] = {
+    "-18", "-12", "-6", "0"};
+constexpr uint32_t kNrf24l01DataRates[] = {
+    250000, 1000000, 2000000};
+constexpr const char* kNrf24l01DataRateNames[] = {"250K", "1M", "2M"};
 using app::RadioChatDeliveryState;
 using app::RadioChatMessage;
 using app::RadioChatMessageType;
@@ -231,14 +254,15 @@ struct RadioShutdownJob {
 struct RadioViewState {
   AppViewConfig config;
   hal::RadioCapabilities capabilities;
-  // 由定时器单次读取并供整帧界面复用的射频状态。
-  hal::RadioStatus radio_status;
+  // 按配置索引保存各物理芯片会话的最近状态。
+  hal::RadioStatus radio_statuses[kRadioModuleCapacity] = {};
   lv_obj_t* root = nullptr;
   lv_obj_t* detail_page = nullptr;
   lv_obj_t* app_settings_page = nullptr;
   lv_obj_t* profile_settings_page = nullptr;
   lv_obj_t* profile_settings_active_switch = nullptr;
   lv_obj_t* profile_settings_name_label = nullptr;
+  lv_obj_t* profile_settings_chip_label = nullptr;
   lv_obj_t* profile_settings_header_status_label = nullptr;
   lv_obj_t* profile_name_edit_page = nullptr;
   lv_obj_t* profile_name_edit_text_area = nullptr;
@@ -267,9 +291,20 @@ struct RadioViewState {
   lv_obj_t* add_power_input = nullptr;
   lv_obj_t* add_preamble_input = nullptr;
   lv_obj_t* add_sync_word_input = nullptr;
+  lv_obj_t* add_data_rate_input = nullptr;
+  lv_obj_t* add_frequency_deviation_input = nullptr;
+  lv_obj_t* add_address_input = nullptr;
+  lv_obj_t* add_address_width_input = nullptr;
+  lv_obj_t* add_crc_length_input = nullptr;
+  lv_obj_t* add_retransmit_count_input = nullptr;
+  lv_obj_t* add_retransmit_delay_input = nullptr;
   lv_obj_t* add_crc_switch = nullptr;
   lv_obj_t* add_iq_switch = nullptr;
   lv_obj_t* add_rx_boost_switch = nullptr;
+  lv_obj_t* add_whitening_switch = nullptr;
+  lv_obj_t* add_fec_switch = nullptr;
+  lv_obj_t* add_auto_ack_switch = nullptr;
+  lv_obj_t* add_dynamic_payload_switch = nullptr;
   lv_obj_t* add_external_antenna_switch = nullptr;
   lv_obj_t* add_active_switch = nullptr;
   lv_obj_t* add_action_area = nullptr;
@@ -285,12 +320,18 @@ struct RadioViewState {
   lv_obj_t* detail_chat_timeline = nullptr;
   lv_obj_t* detail_status_label = nullptr;
   lv_obj_t* detail_title_label = nullptr;
+  lv_obj_t* detail_chip_label = nullptr;
   lv_timer_t* radio_timer = nullptr;
   lv_obj_t* add_chip_buttons[hal::kRadioCapabilityCapacity] = {};
   lv_obj_t* add_protocol_buttons[hal::kRadioCapabilityCapacity] = {};
   lv_obj_t* add_sf_buttons[8] = {};
   lv_obj_t* add_bandwidth_buttons[7] = {};
   lv_obj_t* add_coding_rate_buttons[4] = {};
+  lv_obj_t* add_output_power_buttons[kAddOutputPowerOptionCapacity] = {};
+  lv_obj_t* add_preamble_buttons[std::size(kCc1101PreambleLengths)] = {};
+  lv_obj_t* add_receive_bandwidth_buttons[
+      std::size(radio::kCc1101ReceiveBandwidthsHz)] = {};
+  lv_obj_t* add_data_rate_buttons[std::size(kNrf24l01DataRates)] = {};
   NavigationDrawerState drawer;
   EdgeBackSwipeState selection_edge_swipe = {};
   EdgeBackSwipeState detail_edge_swipe = {};
@@ -310,8 +351,9 @@ struct RadioViewState {
   app::RadioPreferences preferences;
   // 正在后台执行的唯一射频硬件命令。
   std::shared_ptr<RadioCommandJob> radio_command_job;
-  // 等待当前发送结束后应用的最后一份控制配置。
-  hal::RadioConfig pending_control_config;
+  // 等待当前发送或控制命令结束后依次执行的多芯片控制请求。
+  hal::RadioConfig pending_control_configs[kRadioModuleCapacity] = {};
+  RadioCommandType pending_control_types[kRadioModuleCapacity] = {};
   size_t module_count = 0;
   // rendered_chat_messages 中当前有效布局数量。
   size_t rendered_chat_count = 0;
@@ -326,24 +368,24 @@ struct RadioViewState {
   int selected_add_sf = kDefaultSpreadingFactorIndex;
   int selected_add_bandwidth = 1;
   int selected_add_coding_rate = 0;
+  int selected_add_output_power = 0;
+  int selected_add_preamble = 0;
+  int selected_add_receive_bandwidth = 0;
+  int selected_add_data_rate = 0;
   size_t detail_index = kRadioModuleCapacity;
   size_t profile_settings_index = kRadioModuleCapacity;
   size_t editing_index = kRadioModuleCapacity;
   // 单项删除确认期间使用配置 ID，避免列表索引变化后删错配置。
   uint32_t pending_delete_profile_id = 0;
   uint32_t last_activation_retry_tick = 0;
+  uint32_t last_capabilities_refresh_tick = 0;
   // 自动发送计时仅绑定当前启用配置，切换配置后重新开始一个完整周期。
-  uint32_t auto_send_profile_id = 0;
-  uint32_t auto_send_last_tick = 0;
+  uint32_t auto_send_last_ticks[kRadioModuleCapacity] = {};
   uint8_t activation_retry_count = 0;
-  // 合并后的激活或停用命令类型。
-  RadioCommandType pending_control_type = RadioCommandType::kActivate;
-  // 是否存在等待硬件空闲的控制命令。
-  bool pending_control_command = false;
+  size_t pending_control_count = 0;
   // 发送启动后到收到完成事件前保持为 true。
   bool transmit_in_flight = false;
-  // radio_status 是否为最近一次成功读取的结果。
-  bool radio_status_available = false;
+  bool radio_status_available[kRadioModuleCapacity] = {};
   // 被子页面遮挡期间是否有会话摘要等待刷新。
   bool module_list_dirty = false;
   // 聊天页被上层页面遮挡时延后执行的自动滚动请求。
@@ -383,6 +425,10 @@ enum class RadioAddOptionGroup {
   kSpreadingFactor,
   kBandwidth,
   kCodingRate,
+  kOutputPower,
+  kPreamble,
+  kReceiveBandwidth,
+  kDataRate,
 };
 
 struct RadioAddOptionAction {
@@ -399,12 +445,30 @@ void RefreshModuleListIfVisible(RadioViewState* state);
 void ResetRenderedChatState(RadioViewState* state);
 void CloseSelectionMode(RadioViewState* state);
 bool ShowAddModulePage(RadioViewState* state);
+void CloseAddModulePage(RadioViewState* state);
 bool ShowModuleSettings(RadioViewState* state, size_t index,
     bool from_detail);
 bool ShowRadioSettingsPage(RadioViewState* state);
 bool ShowProfileSettingsPage(RadioViewState* state, size_t index);
 bool ShowProfileDeleteConfirmation(RadioViewState* state, size_t index);
 bool ShowProfileNameEditPage(RadioViewState* state);
+bool RebuildAddModuleForm(RadioViewState* state);
+void ResetAddModuleFormPointers(RadioViewState* state);
+void SetAddKeyboardVisible(
+    RadioViewState* state, lv_obj_t* input, bool visible);
+/**
+ * @brief 解析文本输入框中的无符号 64 位整数
+ * @param input 文本输入框
+ * @param base 数字进制
+ * @param minimum 最小允许值
+ * @param maximum 最大允许值
+ * @param value 解析结果输出
+ * @return 文本完整且数值位于范围内时返回 true
+ */
+bool ParseTextAreaUint64(lv_obj_t* input, int base, uint64_t minimum,
+    uint64_t maximum, uint64_t* value);
+bool IsAddGfskFormComplete(const RadioViewState* state);
+bool IsAddEnhancedShockBurstFormComplete(const RadioViewState* state);
 /**
  * @brief 显示当前射频配置的自动发送设置页面
  * @param state Radio 页面状态
@@ -546,6 +610,30 @@ hal::RadioConfig ToRadioConfig(const app::RadioProfile& profile) {
           .invert_iq = profile.invert_iq,
           .rx_boosted = profile.rx_boosted,
       },
+      .gfsk = {
+          .frequency_hz = profile.frequency_hz,
+          .data_rate_bps = profile.gfsk_data_rate_bps,
+          .frequency_deviation_hz = profile.gfsk_frequency_deviation_hz,
+          .receive_bandwidth_hz = profile.gfsk_receive_bandwidth_hz,
+          .preamble_length_bits = profile.preamble_length,
+          .sync_word = profile.gfsk_sync_word,
+          .output_power_dbm = profile.output_power_dbm,
+          .crc_enabled = profile.crc_enabled,
+          .whitening_enabled = profile.gfsk_whitening_enabled,
+          .fec_enabled = profile.gfsk_fec_enabled,
+      },
+      .enhanced_shock_burst = {
+          .channel = profile.esb_channel,
+          .data_rate_bps = profile.esb_data_rate_bps,
+          .address = profile.esb_address,
+          .address_width = profile.esb_address_width,
+          .output_power_dbm = profile.output_power_dbm,
+          .crc_length_bits = profile.esb_crc_length_bits,
+          .retransmit_count = profile.esb_retransmit_count,
+          .retransmit_delay_us = profile.esb_retransmit_delay_us,
+          .auto_ack_enabled = profile.esb_auto_ack_enabled,
+          .dynamic_payload_enabled = profile.esb_dynamic_payload_enabled,
+      },
   };
 }
 
@@ -555,17 +643,25 @@ const char* ChipDisplayName(radio::ChipType chip) {
       return "SX1262";
     case radio::ChipType::kLr1121:
       return "LR1121";
+    case radio::ChipType::kCc1101:
+      return "CC1101";
+    case radio::ChipType::kNrf24l01:
+      return "nRF24L01";
     default:
       return "Unknown chip";
   }
 }
 
 const char* ChipShortName(radio::ChipType chip) {
-  switch ( chip) {
+  switch (chip) {
     case radio::ChipType::kSx1262:
       return "SX";
-    case radio::ChipType::kLr1121 :
+    case radio::ChipType::kLr1121:
       return "LR";
+    case radio::ChipType::kCc1101:
+      return "CC";
+    case radio::ChipType::kNrf24l01:
+      return "nRF";
     default:
       return "Radio";
   }
@@ -575,6 +671,10 @@ const char* ProtocolDisplayName(radio::ProtocolType protocol) {
   switch (protocol) {
     case radio::ProtocolType::kLora:
       return "LoRa";
+    case radio::ProtocolType::kGfsk:
+      return "GFSK";
+    case radio::ProtocolType::kEnhancedShockBurst:
+      return "Enhanced ShockBurst";
     default:
       return "Unknown protocol";
   }
@@ -621,6 +721,22 @@ bool AreProfileSettingsEqual(
          lhs.crc_enabled == rhs.crc_enabled &&
          lhs.invert_iq == rhs.invert_iq &&
          lhs.rx_boosted == rhs.rx_boosted &&
+         lhs.gfsk_data_rate_bps == rhs.gfsk_data_rate_bps &&
+         lhs.gfsk_frequency_deviation_hz ==
+             rhs.gfsk_frequency_deviation_hz &&
+         lhs.gfsk_receive_bandwidth_hz == rhs.gfsk_receive_bandwidth_hz &&
+         lhs.gfsk_sync_word == rhs.gfsk_sync_word &&
+         lhs.gfsk_whitening_enabled == rhs.gfsk_whitening_enabled &&
+         lhs.gfsk_fec_enabled == rhs.gfsk_fec_enabled &&
+         lhs.esb_channel == rhs.esb_channel &&
+         lhs.esb_data_rate_bps == rhs.esb_data_rate_bps &&
+         lhs.esb_address == rhs.esb_address &&
+         lhs.esb_address_width == rhs.esb_address_width &&
+         lhs.esb_crc_length_bits == rhs.esb_crc_length_bits &&
+         lhs.esb_retransmit_count == rhs.esb_retransmit_count &&
+         lhs.esb_retransmit_delay_us == rhs.esb_retransmit_delay_us &&
+         lhs.esb_auto_ack_enabled == rhs.esb_auto_ack_enabled &&
+         lhs.esb_dynamic_payload_enabled == rhs.esb_dynamic_payload_enabled &&
          lhs.antenna == rhs.antenna;
 }
 
@@ -646,6 +762,28 @@ bool IsProfileSupported(
 }
 
 /**
+ * @brief 获取指定配置当前允许的最大负载长度
+ * @param state Radio 页面状态
+ * @param profile 射频配置
+ * @return 能力可用时返回最大字节数，否则返回 0
+ */
+size_t MaximumPayloadSizeForProfile(
+    const RadioViewState* state, const app::RadioProfile& profile) {
+  if (state == nullptr) {
+    return 0;
+  }
+  for (size_t index = 0; index < state->capabilities.count; ++index) {
+    const hal::RadioCapability& capability =
+        state->capabilities.entries[index];
+    if (capability.chip == profile.chip &&
+        capability.protocol == profile.protocol) {
+      return capability.maximum_payload_size;
+    }
+  }
+  return 0;
+}
+
+/**
  * @brief 获取当前设备首选的射频能力
  * @param state 射频页面状态
  * @return 能力可用时返回指针，否则返回 nullptr
@@ -655,7 +793,11 @@ const hal::RadioCapability* PrimaryRadioCapability(
   if (state == nullptr || state->capabilities.count == 0) {
     return nullptr;
   }
-  return &state->capabilities.entries[0];
+  const size_t index = state->selected_add_chip >= 0
+      ? static_cast<size_t>(state->selected_add_chip)
+      : 0;
+  return &state->capabilities.entries[
+      std::min(index, state->capabilities.count - 1)];
 }
 
 /**
@@ -681,6 +823,43 @@ void ApplyPrimaryRadioCapability(
 radio::ChipType AddProfileChip(const RadioViewState* state) {
   const hal::RadioCapability* capability = PrimaryRadioCapability(state);
   return capability == nullptr ? radio::ChipType::kSx1262 : capability->chip;
+}
+
+/**
+ * @brief 获取当前芯片支持的离散发射功率数量
+ * @param state 射频页面状态
+ * @return 发射功率选项数量
+ */
+size_t AddProfileOutputPowerCount(const RadioViewState* state) {
+  switch (AddProfileChip(state)) {
+    case radio::ChipType::kCc1101:
+      return std::size(kCc1101OutputPowers);
+    case radio::ChipType::kNrf24l01:
+      return std::size(kNrf24l01OutputPowers);
+    default:
+      return 0;
+  }
+}
+
+/**
+ * @brief 获取当前芯片指定索引的离散发射功率
+ * @param state 射频页面状态
+ * @param index 发射功率选项索引
+ * @return 发射功率，索引无效时返回 0 dBm
+ */
+int8_t AddProfileOutputPower(const RadioViewState* state, size_t index) {
+  switch (AddProfileChip(state)) {
+    case radio::ChipType::kCc1101:
+      return index < std::size(kCc1101OutputPowers)
+          ? kCc1101OutputPowers[index]
+          : 0;
+    case radio::ChipType::kNrf24l01:
+      return index < std::size(kNrf24l01OutputPowers)
+          ? kNrf24l01OutputPowers[index]
+          : 0;
+    default:
+      return 0;
+  }
 }
 
 /**
@@ -764,10 +943,11 @@ bool IsProfileActivationPending(
   if (state == nullptr || profile_id == 0) {
     return false;
   }
-  if (state->pending_control_command &&
-      state->pending_control_type == RadioCommandType::kActivate &&
-      state->pending_control_config.client_token == profile_id) {
-    return true;
+  for (size_t index = 0; index < state->pending_control_count; ++index) {
+    if (state->pending_control_types[index] == RadioCommandType::kActivate &&
+        state->pending_control_configs[index].client_token == profile_id) {
+      return true;
+    }
   }
   return state->radio_command_job != nullptr &&
       state->radio_command_job->type == RadioCommandType::kActivate &&
@@ -792,18 +972,19 @@ RadioComposerMode GetRadioComposerMode(
   if (!IsProfileSupported(state, profile)) {
     return RadioComposerMode::kUnsupported;
   }
-  if (profile.id != state->preferences.active_profile_id) {
+  if (!profile.active) {
     return RadioComposerMode::kInactive;
   }
   if (IsProfileActivationPending(state, profile.id)) {
     return RadioComposerMode::kActivating;
   }
-  if (!state->radio_status_available ||
-      state->radio_status.state == hal::RadioLinkState::kChipError) {
+  if (!state->radio_status_available[index] ||
+      state->radio_statuses[index].state ==
+          hal::RadioLinkState::kChipError) {
     return RadioComposerMode::kChipError;
   }
-  if (state->radio_status.state == hal::RadioLinkState::kActive &&
-      state->radio_status.active_client_token == profile.id) {
+  if (state->radio_statuses[index].state == hal::RadioLinkState::kActive &&
+      state->radio_statuses[index].active_client_token == profile.id) {
     return RadioComposerMode::kActive;
   }
   return RadioComposerMode::kChipError;
@@ -987,6 +1168,7 @@ void DetailCloseCompletedCallback(lv_anim_t* animation) {
     state->detail_chat_timeline = nullptr;
     state->detail_status_label = nullptr;
     state->detail_title_label = nullptr;
+    state->detail_chip_label = nullptr;
     state->detail_index = kRadioModuleCapacity;
     state->detail_edge_swipe = EdgeBackSwipeState();
     state->detail_closing = false;
@@ -1025,6 +1207,7 @@ void CloseModuleDetail(RadioViewState* state) {
     state->detail_chat_timeline = nullptr;
     state->detail_status_label = nullptr;
     state->detail_title_label = nullptr;
+    state->detail_chip_label = nullptr;
     state->detail_index = kRadioModuleCapacity;
     state->detail_edge_swipe = EdgeBackSwipeState();
     state->detail_closing = false;
@@ -1196,18 +1379,28 @@ void DrawUserChatMessage(lv_layer_t* layer, int timeline_x,
 
   const int status_y = row_y + rendered.status_y;
   if (!outgoing) {
+    if (!message->rssi_valid && !message->snr_valid) {
+      DrawChatText(layer, message->time, kSecondaryTextColor, Font22(),
+          timeline_x + 28, status_y, 180, 30,
+          LV_TEXT_ALIGN_LEFT, false, LV_TEXT_FLAG_EXPAND);
+      return;
+    }
     char rssi[32] = {};
     char snr[32] = {};
-    std::snprintf(rssi, sizeof(rssi), "RSSI %d dBm",
-        static_cast<int>(message->rssi_dbm));
-    std::snprintf(snr, sizeof(snr), "SNR %+d",
-        static_cast<int>(message->snr_db));
-    DrawChatText(layer, rssi, kSecondaryTextColor, Font22(),
-        timeline_x + 28, status_y, 176, 30,
-        LV_TEXT_ALIGN_LEFT, true, LV_TEXT_FLAG_EXPAND);
-    DrawChatText(layer, snr, kSecondaryTextColor, Font22(),
-        timeline_x + 220, status_y, 120, 30,
-        LV_TEXT_ALIGN_LEFT, true, LV_TEXT_FLAG_EXPAND);
+    if (message->rssi_valid) {
+      std::snprintf(rssi, sizeof(rssi), "RSSI %d dBm",
+          static_cast<int>(message->rssi_dbm));
+      DrawChatText(layer, rssi, kSecondaryTextColor, Font22(),
+          timeline_x + 28, status_y, 176, 30,
+          LV_TEXT_ALIGN_LEFT, true, LV_TEXT_FLAG_EXPAND);
+    }
+    if (message->snr_valid) {
+      std::snprintf(snr, sizeof(snr), "SNR %+d",
+          static_cast<int>(message->snr_db));
+      DrawChatText(layer, snr, kSecondaryTextColor, Font22(),
+          timeline_x + 220, status_y, 120, 30,
+          LV_TEXT_ALIGN_LEFT, true, LV_TEXT_FLAG_EXPAND);
+    }
     DrawChatText(layer, message->time, kSecondaryTextColor, Font22(),
         timeline_x + 28, status_y + 28, 180, 30,
         LV_TEXT_ALIGN_LEFT, false, LV_TEXT_FLAG_EXPAND);
@@ -1361,7 +1554,10 @@ bool LayoutChatMessage(RadioViewState* state,
       ? state->config.width - rendered.content_width - 28
       : 28;
   rendered.status_y = rendered.content_height + 8;
-  rendered.height = rendered.status_y + (outgoing ? 48 : 76);
+  const bool signal_metrics_available =
+      message.rssi_valid || message.snr_valid;
+  rendered.height = rendered.status_y +
+      (outgoing || !signal_metrics_available ? 48 : 76);
   *output = rendered;
   return true;
 }
@@ -2045,10 +2241,11 @@ void RadioCommandTaskEntry(void* context) {
         job->success = job->provider->ActivateRadio(job->config);
         break;
       case RadioCommandType::kDeactivate:
-        job->success = job->provider->DeactivateRadio();
+        job->success = job->provider->DeactivateRadio(
+            job->config.client_token);
         break;
       case RadioCommandType::kSend:
-        job->success = job->provider->SendRadio(
+        job->success = job->provider->SendRadio(job->config.client_token,
             job->payload, job->payload_size, job->request_token);
         break;
     }
@@ -2071,9 +2268,6 @@ bool StartRadioCommand(RadioViewState* state,
     return false;
   }
   state->radio_command_job = job;
-  if (job->type != RadioCommandType::kSend) {
-    state->radio_status_available = false;
-  }
   auto* task_context =
       new (std::nothrow) std::shared_ptr<RadioCommandJob>(job);
   if (task_context != nullptr &&
@@ -2091,27 +2285,33 @@ bool StartRadioCommand(RadioViewState* state,
 }
 
 /**
- * @brief 在射频空闲后启动最后一次配置或停用请求
+ * @brief 在射频空闲后启动队首配置或停用请求
  * @param state Radio 页面状态
  * @return 后台命令已进入执行状态时返回 true
  */
 bool StartPendingRadioControlCommand(RadioViewState* state) {
-  if (state == nullptr || !state->pending_control_command ||
+  if (state == nullptr || state->pending_control_count == 0 ||
       state->radio_command_job != nullptr || state->transmit_in_flight ||
       state->config.radio == nullptr) {
     return false;
   }
   auto job = std::make_shared<RadioCommandJob>();
   job->provider = state->config.radio;
-  job->type = state->pending_control_type;
-  job->config = state->pending_control_config;
-  state->pending_control_command = false;
+  job->type = state->pending_control_types[0];
+  job->config = state->pending_control_configs[0];
+  for (size_t index = 1; index < state->pending_control_count; ++index) {
+    state->pending_control_types[index - 1] =
+        state->pending_control_types[index];
+    state->pending_control_configs[index - 1] =
+        state->pending_control_configs[index];
+  }
+  --state->pending_control_count;
   StartRadioCommand(state, job);
   return true;
 }
 
 /**
- * @brief 合并并异步执行 Radio 激活或停用请求
+ * @brief 排队并异步执行 Radio 激活或停用请求
  * @param state Radio 页面状态
  * @param type 激活或停用命令类型
  * @param config 激活配置，停用命令可传默认配置
@@ -2121,9 +2321,14 @@ void QueueRadioControlCommand(RadioViewState* state,
   if (state == nullptr || state->config.radio == nullptr) {
     return;
   }
-  state->pending_control_type = type;
-  state->pending_control_config = config;
-  state->pending_control_command = true;
+  if (state->pending_control_count >= kRadioModuleCapacity) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Radio control queue is full\n");
+    return;
+  }
+  state->pending_control_types[state->pending_control_count] = type;
+  state->pending_control_configs[state->pending_control_count] = config;
+  ++state->pending_control_count;
   StartPendingRadioControlCommand(state);
   UpdateDetailStatus(state);
 }
@@ -2140,12 +2345,13 @@ bool StartRadioSendCommand(
   if (state == nullptr || state->config.radio == nullptr || length == 0 ||
       length > hal::kRadioPayloadCapacity ||
       state->radio_command_job != nullptr ||
-      state->pending_control_command || state->transmit_in_flight) {
+      state->pending_control_count != 0 || state->transmit_in_flight) {
     return false;
   }
   auto job = std::make_shared<RadioCommandJob>();
   job->provider = state->config.radio;
   job->type = RadioCommandType::kSend;
+  job->config.client_token = message.profile_id;
   job->payload_size = length;
   job->request_token = message.sequence;
   std::memcpy(job->payload, message.text, length);
@@ -2187,13 +2393,21 @@ bool FinishRadioCommand(RadioViewState* state) {
     }
     MarkModuleListDirty(state);
   } else if (job->type != RadioCommandType::kSend) {
-    state->radio_status_available = false;
+    const size_t profile_index = FindProfileIndex(
+        state, job->config.client_token);
+    if (profile_index < state->module_count) {
+      state->radio_status_available[profile_index] = false;
+    }
     if (job->success && job->type == RadioCommandType::kActivate) {
       state->activation_retry_count = 0;
+      state->last_activation_retry_tick =
+          lv_tick_get() - kActivationRetryPeriodMs;
     }
     if (job->type == RadioCommandType::kDeactivate) {
-      state->radio_status = hal::RadioStatus();
-      state->radio_status_available = job->success;
+      if (profile_index < state->module_count) {
+        state->radio_statuses[profile_index] = hal::RadioStatus();
+        state->radio_status_available[profile_index] = job->success;
+      }
       UpdateDetailStatus(state);
       RefreshProfileSettingsPage(state);
       MarkModuleListDirty(state);
@@ -2212,18 +2426,30 @@ bool FinishRadioCommand(RadioViewState* state) {
  */
 bool TryStartNextPendingMessage(RadioViewState* state) {
   if (state == nullptr || state->config.radio == nullptr ||
-      state->preferences.active_profile_id == 0 ||
       state->radio_command_job != nullptr ||
-      state->pending_control_command || state->transmit_in_flight) {
+      state->pending_control_count != 0 || state->transmit_in_flight) {
     return false;
   }
   RadioChatMessage message;
-  if (!app::GetRadioChatRepository().GetOldestPending(
-          state->preferences.active_profile_id, &message)) {
+  size_t profile_index = state->module_count;
+  for (size_t index = 0; index < state->module_count; ++index) {
+    const app::RadioProfile& profile = state->preferences.profiles[index];
+    if (profile.active &&
+        app::GetRadioChatRepository().GetOldestPending(
+            profile.id, &message)) {
+      profile_index = index;
+      break;
+    }
+  }
+  if (profile_index >= state->module_count) {
     return false;
   }
   const size_t length = std::strlen(message.text);
-  if (length == 0 || length > hal::kRadioPayloadCapacity) {
+  const size_t maximum_payload_size = profile_index < state->module_count
+      ? MaximumPayloadSizeForProfile(
+          state, state->preferences.profiles[profile_index])
+      : 0;
+  if (length == 0 || length > maximum_payload_size) {
     app::GetRadioChatRepository().UpdateDelivery(
         message.sequence, RadioChatDeliveryState::kFailed);
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
@@ -2249,34 +2475,38 @@ bool TryStartNextPendingMessage(RadioViewState* state) {
  */
 bool TryQueueAutomaticMessage(RadioViewState* state) {
   if (state == nullptr || state->config.radio == nullptr ||
-      state->preferences.active_profile_id == 0 ||
       state->radio_command_job != nullptr ||
-      state->pending_control_command || state->transmit_in_flight ||
-      !state->radio_status_available ||
-      state->radio_status.state != hal::RadioLinkState::kActive ||
-      state->radio_status.transmitting) {
+      state->pending_control_count != 0 || state->transmit_in_flight) {
     return false;
   }
-  const size_t index = FindProfileIndex(
-      state, state->preferences.active_profile_id);
+  const uint32_t now = lv_tick_get();
+  size_t index = state->module_count;
+  for (size_t candidate = 0; candidate < state->module_count; ++candidate) {
+    const app::RadioProfile& profile =
+        state->preferences.profiles[candidate];
+    if (!profile.active || !profile.auto_send_enabled ||
+        profile.auto_send_text[0] == '\0' ||
+        !state->radio_status_available[candidate] ||
+        state->radio_statuses[candidate].state !=
+            hal::RadioLinkState::kActive ||
+        state->radio_statuses[candidate].transmitting) {
+      continue;
+    }
+    if (state->auto_send_last_ticks[candidate] == 0) {
+      state->auto_send_last_ticks[candidate] = now;
+      continue;
+    }
+    if (now - state->auto_send_last_ticks[candidate] >=
+        profile.auto_send_interval_ms) {
+      index = candidate;
+      break;
+    }
+  }
   if (index >= state->module_count) {
     return false;
   }
   const app::RadioProfile& profile = state->preferences.profiles[index];
-  if (!profile.auto_send_enabled || profile.auto_send_text[0] == '\0') {
-    state->auto_send_profile_id = 0;
-    return false;
-  }
-  const uint32_t now = lv_tick_get();
-  if (state->auto_send_profile_id != profile.id) {
-    state->auto_send_profile_id = profile.id;
-    state->auto_send_last_tick = now;
-    return false;
-  }
-  if (now - state->auto_send_last_tick < profile.auto_send_interval_ms) {
-    return false;
-  }
-  state->auto_send_last_tick = now;
+  state->auto_send_last_ticks[index] = now;
 
   RadioChatMessage message;
   message.profile_id = profile.id;
@@ -2301,6 +2531,82 @@ bool TryQueueAutomaticMessage(RadioViewState* state) {
 }
 
 /**
+ * @brief 判断两组射频能力是否完全一致
+ * @param lhs 第一组射频能力
+ * @param rhs 第二组射频能力
+ * @return 能力内容一致时返回 true
+ */
+bool RadioCapabilitiesEqual(
+    const hal::RadioCapabilities& lhs, const hal::RadioCapabilities& rhs) {
+  if (lhs.count != rhs.count ||
+      lhs.supports_external_antenna != rhs.supports_external_antenna) {
+    return false;
+  }
+  for (size_t index = 0; index < lhs.count; ++index) {
+    const hal::RadioCapability& left = lhs.entries[index];
+    const hal::RadioCapability& right = rhs.entries[index];
+    if (left.chip != right.chip || left.protocol != right.protocol ||
+        left.maximum_payload_size != right.maximum_payload_size ||
+        left.frequency_band_count != right.frequency_band_count) {
+      return false;
+    }
+    for (size_t band_index = 0;
+         band_index < left.frequency_band_count; ++band_index) {
+      if (left.frequency_bands[band_index].minimum_hz !=
+              right.frequency_bands[band_index].minimum_hz ||
+          left.frequency_bands[band_index].maximum_hz !=
+              right.frequency_bands[band_index].maximum_hz) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+/**
+ * @brief 周期刷新可热插拔的射频能力并恢复可用配置
+ * @param state Radio 页面状态
+ */
+void RefreshRadioCapabilities(RadioViewState* state) {
+  if (state == nullptr || state->config.radio == nullptr) {
+    return;
+  }
+  const uint32_t now = lv_tick_get();
+  if (now - state->last_capabilities_refresh_tick <
+      kRadioCapabilitiesRefreshPeriodMs) {
+    return;
+  }
+  state->last_capabilities_refresh_tick = now;
+  hal::RadioCapabilities capabilities;
+  if (!state->config.radio->ReadRadioCapabilities(&capabilities)) {
+    return;
+  }
+  capabilities.count = std::min(
+      capabilities.count, hal::kRadioCapabilityCapacity);
+  for (size_t index = 0; index < capabilities.count; ++index) {
+    capabilities.entries[index].frequency_band_count = std::min(
+        capabilities.entries[index].frequency_band_count,
+        hal::kRadioFrequencyBandCapacity);
+  }
+  if (RadioCapabilitiesEqual(state->capabilities, capabilities)) {
+    return;
+  }
+  state->capabilities = capabilities;
+  if (state->add_page != nullptr) {
+    CloseAddModulePage(state);
+  }
+  UpdateDetailStatus(state);
+  RefreshProfileSettingsPage(state);
+  MarkModuleListDirty(state);
+  for (size_t index = 0; index < state->module_count; ++index) {
+    const app::RadioProfile& profile = state->preferences.profiles[index];
+    if (profile.active && IsProfileSupported(state, profile)) {
+      state->radio_status_available[index] = false;
+    }
+  }
+}
+
+/**
  * @brief 轮询射频事件并仅在发送空闲时处理聊天存储
  * @param timer Radio 页面定时器
  */
@@ -2309,59 +2615,77 @@ void RadioTimerCallback(lv_timer_t* timer) {
   if (state == nullptr) {
     return;
   }
+  RefreshRadioCapabilities(state);
   if (!FinishRadioCommand(state) || state->radio_command_job != nullptr) {
     return;
   }
-  if (state->config.radio == nullptr ||
-      state->preferences.active_profile_id == 0) {
+  if (state->config.radio == nullptr) {
     return;
   }
-  hal::RadioStatus status;
-  const bool status_available = state->config.radio->ReadRadioStatus(&status);
-  const bool status_changed =
-      state->radio_status_available != status_available ||
-      (status_available &&
-          (state->radio_status.state != status.state ||
-              state->radio_status.active_client_token !=
-                  status.active_client_token ||
-              state->radio_status.hardware_ready != status.hardware_ready ||
-              state->radio_status.transmitting != status.transmitting));
-  state->radio_status_available = status_available;
-  if (status_available) {
-    state->radio_status = status;
+  bool any_active_profile = false;
+  bool any_status_available = false;
+  bool any_transmitting = false;
+  bool status_changed = false;
+  size_t retry_index = state->module_count;
+  const bool use_fast_retry =
+      state->activation_retry_count < kActivationFastRetryCount;
+  const uint32_t retry_period_ms = use_fast_retry
+      ? kActivationRetryPeriodMs
+      : kActivationRetrySlowPeriodMs;
+  for (size_t index = 0; index < state->module_count; ++index) {
+    const app::RadioProfile& profile = state->preferences.profiles[index];
+    if (!profile.active) {
+      continue;
+    }
+    any_active_profile = true;
+    hal::RadioStatus status;
+    const bool available = state->config.radio->ReadRadioStatus(
+        profile.id, &status);
+    status_changed |= state->radio_status_available[index] != available ||
+        (available &&
+            (state->radio_statuses[index].state != status.state ||
+                state->radio_statuses[index].active_client_token !=
+                    status.active_client_token ||
+                state->radio_statuses[index].hardware_ready !=
+                    status.hardware_ready ||
+                state->radio_statuses[index].transmitting !=
+                    status.transmitting));
+    state->radio_status_available[index] = available;
+    if (available) {
+      state->radio_statuses[index] = status;
+      any_status_available = true;
+      any_transmitting |= status.transmitting;
+    }
+    if ((!available || status.state == hal::RadioLinkState::kChipError) &&
+        retry_index >= state->module_count &&
+        IsProfileSupported(state, profile)) {
+      retry_index = index;
+    }
+  }
+  if (!any_active_profile) {
+    return;
   }
   if (status_changed) {
     UpdateDetailStatus(state);
     RefreshProfileSettingsPage(state);
     MarkModuleListDirty(state);
   }
-  const bool use_fast_retry =
-      state->activation_retry_count < kActivationFastRetryCount;
-  const uint32_t retry_period_ms = use_fast_retry
-      ? kActivationRetryPeriodMs
-      : kActivationRetrySlowPeriodMs;
-  if (status_available && status.state == hal::RadioLinkState::kChipError &&
-      lv_tick_get() - state->last_activation_retry_tick >=
-          retry_period_ms) {
-    const size_t retry_index =
-        FindProfileIndex(state, state->preferences.active_profile_id);
+  if (retry_index < state->module_count &&
+      lv_tick_get() - state->last_activation_retry_tick >= retry_period_ms) {
     state->last_activation_retry_tick = lv_tick_get();
     if (state->activation_retry_count < UINT8_MAX) {
       ++state->activation_retry_count;
     }
-    if (retry_index < state->module_count &&
-        IsProfileSupported(state, state->preferences.profiles[retry_index])) {
-      QueueRadioControlCommand(state, RadioCommandType::kActivate,
-          ToRadioConfig(state->preferences.profiles[retry_index]));
-      return;
-    }
-  } else if (status_available && status.state == hal::RadioLinkState::kActive) {
+    QueueRadioControlCommand(state, RadioCommandType::kActivate,
+        ToRadioConfig(state->preferences.profiles[retry_index]));
+    return;
+  } else if (retry_index >= state->module_count) {
     state->activation_retry_count = 0;
   }
   hal::RadioEvent event;
   const bool poll_succeeded = state->config.radio->PollRadioEvent(&event);
   if (event.type == hal::RadioEventType::kNone) {
-    if (!poll_succeeded || !status_available || status.transmitting) {
+    if (!poll_succeeded || !any_status_available || any_transmitting) {
       return;
     }
     if (!TryStartNextPendingMessage(state)) {
@@ -2424,6 +2748,8 @@ void RadioTimerCallback(lv_timer_t* timer) {
     message.delivery = RadioChatDeliveryState::kReceived;
     message.rssi_dbm = event.rssi_dbm;
     message.snr_db = event.snr_db;
+    message.rssi_valid = event.rssi_valid;
+    message.snr_valid = event.snr_valid;
     FormatCurrentTime(state, message.time, sizeof(message.time));
     FormatPacketText(event, message.text, sizeof(message.text));
     if (app::GetRadioChatRepository().Append(message) != 0) {
@@ -2466,15 +2792,9 @@ bool CreateNearMeIcon(lv_obj_t* parent) {
 
 /**
  * @brief 校验聊天输入并启动可追踪的异步射频发送
- * @param event LVGL 点击事件
+ * @param state 射频页面状态
  */
-void DetailSendClickedEventCallback(lv_event_t* event) {
-  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
-    return;
-  }
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
-  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
+void SendDetailMessage(RadioViewState* state) {
   if (state == nullptr || state->detail_input == nullptr ||
       state->detail_index >= state->module_count) {
     return;
@@ -2498,12 +2818,10 @@ void DetailSendClickedEventCallback(lv_event_t* event) {
         static_cast<unsigned>(hal::kRadioPayloadCapacity));
     return;
   }
-  if (profile.id != state->preferences.active_profile_id) {
+  if (!profile.active) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Radio message rejected: profile is inactive, profile=%lu, "
-        "active=%lu\n",
-        static_cast<unsigned long>(profile.id),
-        static_cast<unsigned long>(state->preferences.active_profile_id));
+        "Radio message rejected: profile is inactive, profile=%lu\n",
+        static_cast<unsigned long>(profile.id));
     return;
   }
   if (state->config.radio == nullptr) {
@@ -2541,6 +2859,30 @@ void DetailSendClickedEventCallback(lv_event_t* event) {
         static_cast<unsigned long>(message_done_ms - started_ms),
         static_cast<unsigned long>(summary_done_ms - message_done_ms),
         static_cast<unsigned long>(finished_ms - summary_done_ms));
+  }
+}
+
+/**
+ * @brief 处理聊天发送按钮点击事件
+ * @param event LVGL 点击事件
+ */
+void DetailSendClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
+  const bool keep_input_active = state != nullptr &&
+      state->detail_keyboard != nullptr && state->detail_input != nullptr &&
+      lv_keyboard_get_textarea(state->detail_keyboard) ==
+          state->detail_input;
+  SendDetailMessage(state);
+  if (keep_input_active) {
+    lv_keyboard_set_textarea(state->detail_keyboard, state->detail_input);
+    if (ShouldShowSharedKeyboard()) {
+      lv_obj_remove_flag(state->detail_keyboard, LV_OBJ_FLAG_HIDDEN);
+    }
   }
 }
 
@@ -2846,7 +3188,13 @@ bool CreateChatComposer(lv_obj_t* page, RadioViewState* state) {
     return false;
   }
   lv_obj_add_flag(input, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_textarea_set_one_line(input, true);
+  lv_textarea_set_one_line(input, false);
+  const size_t maximum_payload_size = state->detail_index < state->module_count
+      ? MaximumPayloadSizeForProfile(
+          state, state->preferences.profiles[state->detail_index])
+      : hal::kRadioPayloadCapacity;
+  lv_textarea_set_max_length(input, static_cast<uint32_t>(
+      std::max<size_t>(1, maximum_payload_size)));
   lv_obj_set_size(input, state->config.width - 142, kAddInputHeight);
   lv_obj_set_pos(input, 20, state->config.height - 89);
   lv_textarea_set_placeholder_text(input, "Enter a message to send...");
@@ -2880,6 +3228,7 @@ bool CreateChatComposer(lv_obj_t* page, RadioViewState* state) {
     return false;
   }
   lv_obj_add_flag(send, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_remove_flag(send, LV_OBJ_FLAG_CLICK_FOCUSABLE);
   lv_obj_set_size(send, 66, 66);
   lv_obj_set_pos(send, state->config.width - 98,
       state->config.height - 87);
@@ -2989,6 +3338,7 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
   state->detail_chat_body = nullptr;
   state->detail_chat_timeline = nullptr;
   state->detail_title_label = nullptr;
+  state->detail_chip_label = nullptr;
   state->detail_edge_swipe = EdgeBackSwipeState();
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
@@ -3027,10 +3377,10 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
         avatar, lv_color_hex(item.color), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(avatar, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(avatar, 0, LV_PART_MAIN);
-    lv_obj_t* chip = CreateLabel(
+    state->detail_chip_label = CreateLabel(
         avatar, item.short_name, 0xFFFFFF, Font22());
-    if (chip != nullptr) {
-      lv_obj_center(chip);
+    if (state->detail_chip_label != nullptr) {
+      lv_obj_center(state->detail_chip_label);
     }
   }
   lv_obj_t* header_action = lv_button_create(page);
@@ -3066,6 +3416,7 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
   if (chat_body == nullptr) {
     lv_obj_delete(page);
     state->detail_page = nullptr;
+    state->detail_chip_label = nullptr;
     state->detail_opening = false;
     return false;
   }
@@ -3090,6 +3441,7 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
   if (timeline == nullptr) {
     lv_obj_delete(page);
     state->detail_page = nullptr;
+    state->detail_chip_label = nullptr;
     state->detail_chat_body = nullptr;
     state->detail_opening = false;
     return false;
@@ -3118,6 +3470,7 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
     state->detail_chat_jump_button = nullptr;
     state->detail_chat_body = nullptr;
     state->detail_chat_timeline = nullptr;
+    state->detail_chip_label = nullptr;
     state->detail_opening = false;
     return false;
   }
@@ -3864,22 +4217,31 @@ bool SetProfileActiveState(
     return false;
   }
   app::RadioProfile& profile = state->preferences.profiles[index];
-  const bool currently_active =
-      state->preferences.active_profile_id == profile.id;
+  const bool currently_active = profile.active;
   if (active == currently_active) {
     return true;
   }
-  FailPendingMessages(state, state->preferences.active_profile_id);
   state->activation_retry_count = 0;
   state->last_activation_retry_tick = lv_tick_get();
   if (active) {
-    state->preferences.active_profile_id = profile.id;
+    for (size_t candidate = 0; candidate < state->module_count; ++candidate) {
+      app::RadioProfile& other = state->preferences.profiles[candidate];
+      if (candidate != index && other.active && other.chip == profile.chip) {
+        FailPendingMessages(state, other.id);
+        other.active = false;
+        state->radio_status_available[candidate] = false;
+      }
+    }
+    profile.active = true;
     QueueRadioControlCommand(state, RadioCommandType::kActivate,
         ToRadioConfig(profile));
   } else {
-    state->preferences.active_profile_id = 0;
+    profile.active = false;
+    FailPendingMessages(state, profile.id);
+    hal::RadioConfig deactivate_config;
+    deactivate_config.client_token = profile.id;
     QueueRadioControlCommand(state, RadioCommandType::kDeactivate,
-        hal::RadioConfig());
+        deactivate_config);
   }
   app::UpdateRadioPreferences(state->preferences);
   UpdateDetailStatus(state);
@@ -4251,6 +4613,7 @@ void ResetProfileSettingsReferences(RadioViewState* state) {
   state->profile_settings_page = nullptr;
   state->profile_settings_active_switch = nullptr;
   state->profile_settings_name_label = nullptr;
+  state->profile_settings_chip_label = nullptr;
   state->profile_settings_header_status_label = nullptr;
   state->profile_settings_index = kRadioModuleCapacity;
   state->profile_settings_edge_swipe = EdgeBackSwipeState();
@@ -4307,6 +4670,10 @@ void RefreshProfileSettingsPage(RadioViewState* state) {
   }
   const size_t index = state->profile_settings_index;
   const app::RadioProfile& profile = state->preferences.profiles[index];
+  if (state->profile_settings_chip_label != nullptr) {
+    SetLabelTextIfChanged(state->profile_settings_chip_label,
+        ChipShortName(profile.chip));
+  }
   if (state->profile_settings_name_label != nullptr) {
     if (SetLabelTextIfChanged(
             state->profile_settings_name_label, profile.name)) {
@@ -4324,8 +4691,7 @@ void RefreshProfileSettingsPage(RadioViewState* state) {
         status_color, LV_PART_MAIN);
   }
   if (state->profile_settings_active_switch != nullptr) {
-    const bool active =
-        state->preferences.active_profile_id == profile.id;
+    const bool active = profile.active;
     if (active) {
       lv_obj_add_state(
           state->profile_settings_active_switch, LV_STATE_CHECKED);
@@ -4739,7 +5105,7 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
       avatar, lv_color_hex(item.color), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(avatar, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(avatar, 0, LV_PART_MAIN);
-  lv_obj_t* avatar_text = CreateLabel(
+  state->profile_settings_chip_label = CreateLabel(
       avatar, item.short_name, kOnPrimaryColor, Font36());
 
   lv_obj_t* name_action = lv_button_create(body);
@@ -4776,14 +5142,14 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
   const char* status = ProfileStatusText(state, index);
   state->profile_settings_header_status_label = CreateLabel(
       body, status, ProfileStatusColor(status), Font24());
-  if (avatar_text == nullptr ||
+  if (state->profile_settings_chip_label == nullptr ||
       state->profile_settings_name_label == nullptr ||
       state->profile_settings_header_status_label == nullptr) {
     ResetProfileSettingsReferences(state);
     lv_obj_delete(page);
     return false;
   }
-  lv_obj_center(avatar_text);
+  lv_obj_center(state->profile_settings_chip_label);
   UpdateProfileSettingsNameLayout(state);
   lv_obj_set_pos(
       state->profile_settings_header_status_label, 170, 94);
@@ -4831,8 +5197,7 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
   lv_obj_add_event_cb(state->profile_settings_active_switch,
       ProfileSettingsActiveChangedEventCallback,
       LV_EVENT_VALUE_CHANGED, state);
-  if (!IsProfileSupported(state, profile) &&
-      state->preferences.active_profile_id != profile.id) {
+  if (!IsProfileSupported(state, profile) && !profile.active) {
     lv_obj_add_state(
         state->profile_settings_active_switch, LV_STATE_DISABLED);
   }
@@ -4858,15 +5223,15 @@ void DeleteSelectedProfiles(RadioViewState* state) {
   }
   app::RadioPreferences next = state->preferences;
   size_t write_index = 0;
+  bool deleted_active_profile = false;
   for (size_t read_index = 0;
        read_index < state->module_count; ++read_index) {
     if (state->selected_modules[read_index]) {
       app::GetRadioChatRepository().RemoveProfile(next.profiles[read_index].id);
-      if (next.profiles[read_index].id == next.active_profile_id) {
-        FailPendingMessages(state, next.active_profile_id);
-        next.active_profile_id = 0;
-        QueueRadioControlCommand(state, RadioCommandType::kDeactivate,
-            hal::RadioConfig());
+      if (next.profiles[read_index].active) {
+        const uint32_t active_id = next.profiles[read_index].id;
+        FailPendingMessages(state, active_id);
+        deleted_active_profile = true;
       }
       continue;
     }
@@ -4874,6 +5239,10 @@ void DeleteSelectedProfiles(RadioViewState* state) {
     ++write_index;
   }
   next.profile_count = write_index;
+  if (deleted_active_profile) {
+    QueueRadioControlCommand(state, RadioCommandType::kDeactivate,
+        hal::RadioConfig());
+  }
   for (size_t index = write_index; index < kRadioModuleCapacity; ++index) {
     next.profiles[index] = app::RadioProfile{};
   }
@@ -4906,11 +5275,12 @@ void DeleteProfileById(RadioViewState* state, uint32_t profile_id) {
 
   app::RadioPreferences next = state->preferences;
   app::GetRadioChatRepository().RemoveProfile(profile_id);
-  if (next.active_profile_id == profile_id) {
+  if (next.profiles[index].active) {
     FailPendingMessages(state, profile_id);
-    next.active_profile_id = 0;
+    hal::RadioConfig deactivate_config;
+    deactivate_config.client_token = profile_id;
     QueueRadioControlCommand(state, RadioCommandType::kDeactivate,
-        hal::RadioConfig());
+        deactivate_config);
   }
   for (size_t read_index = index + 1;
        read_index < next.profile_count; ++read_index) {
@@ -5217,7 +5587,9 @@ void UpdateAddOptionSelection(RadioViewState* state) {
     return;
   }
   UpdateOptionButtonGroup(
-      state->add_chip_buttons, 1, state->selected_add_chip);
+      state->add_chip_buttons,
+      static_cast<int>(state->capabilities.count),
+      state->selected_add_chip);
   UpdateOptionButtonGroup(
       state->add_protocol_buttons, 1, state->selected_add_protocol);
   UpdateOptionButtonGroup(
@@ -5227,6 +5599,18 @@ void UpdateAddOptionSelection(RadioViewState* state) {
       state->selected_add_bandwidth);
   UpdateOptionButtonGroup(state->add_coding_rate_buttons, 4,
       state->selected_add_coding_rate);
+  UpdateOptionButtonGroup(state->add_output_power_buttons,
+      static_cast<int>(AddProfileOutputPowerCount(state)),
+      state->selected_add_output_power);
+  UpdateOptionButtonGroup(state->add_preamble_buttons,
+      static_cast<int>(std::size(kCc1101PreambleLengths)),
+      state->selected_add_preamble);
+  UpdateOptionButtonGroup(state->add_receive_bandwidth_buttons,
+      static_cast<int>(std::size(radio::kCc1101ReceiveBandwidthsHz)),
+      state->selected_add_receive_bandwidth);
+  UpdateOptionButtonGroup(state->add_data_rate_buttons,
+      static_cast<int>(std::size(kNrf24l01DataRates)),
+      state->selected_add_data_rate);
 }
 
 /**
@@ -5293,7 +5677,7 @@ bool IsAddFrequencyValid(const RadioViewState* state) {
  */
 bool IsAddBandwidthValid(const RadioViewState* state) {
   if (state == nullptr ||
-             state->add_frequency_input == nullptr ||
+      state->add_frequency_input == nullptr ||
       state->selected_add_bandwidth < 0 ||
       static_cast<size_t>(state->selected_add_bandwidth) >=
           AddProfileBandwidthCount(state)) {
@@ -5419,7 +5803,17 @@ bool ParseTextAreaLong(lv_obj_t* input, int base, long minimum,
  * @return 发射功率有效返回 true
  */
 bool IsAddOutputPowerValid(const RadioViewState* state) {
-  if (state == nullptr || state->add_frequency_input == nullptr) {
+  if (state == nullptr) {
+    return false;
+  }
+  const radio::ChipType chip = AddProfileChip(state);
+  if (chip == radio::ChipType::kCc1101 ||
+      chip == radio::ChipType::kNrf24l01) {
+    return state->selected_add_output_power >= 0 &&
+           static_cast<size_t>(state->selected_add_output_power) <
+               AddProfileOutputPowerCount(state);
+  }
+  if (state->add_frequency_input == nullptr) {
     return false;
   }
   const char* frequency_text = lv_textarea_get_text(state->add_frequency_input);
@@ -5470,8 +5864,43 @@ void UpdateAddInputErrorStyles(RadioViewState* state) {
     return;
   }
   long parsed_value = 0;
-  const bool power_valid = IsAddOutputPowerValid(
-      state);
+  uint64_t parsed_address = 0;
+  const radio::ChipType chip = AddProfileChip(state);
+  if (chip == radio::ChipType::kCc1101) {
+    UpdateAddTextAreaErrorStyle(
+        state->add_frequency_input, IsAddFrequencyValid(state));
+    long data_rate = 0;
+    UpdateAddTextAreaErrorStyle(state->add_data_rate_input,
+        ParseTextAreaLong(state->add_data_rate_input,
+            10, 600, 250000, &data_rate));
+    UpdateAddTextAreaErrorStyle(state->add_frequency_deviation_input,
+        ParseTextAreaLong(state->add_frequency_deviation_input,
+            10, 1600, 380000, &parsed_value));
+    UpdateAddTextAreaErrorStyle(state->add_sync_word_input,
+        ParseTextAreaLong(state->add_sync_word_input,
+            16, 0, 65535, &parsed_value));
+    return;
+  }
+  if (chip == radio::ChipType::kNrf24l01) {
+    long retry_delay = 0;
+    const bool retry_delay_valid = ParseTextAreaLong(
+        state->add_retransmit_delay_input, 10, 250, 4000, &retry_delay) &&
+        retry_delay % 250 == 0;
+    UpdateAddTextAreaErrorStyle(
+        state->add_frequency_input,
+        ParseTextAreaLong(state->add_frequency_input,
+            10, 2400, 2525, &parsed_value));
+    UpdateAddTextAreaErrorStyle(state->add_address_input,
+        ParseTextAreaUint64(state->add_address_input, 16, 1,
+            0xFFFFFFFFFFULL, &parsed_address));
+    UpdateAddTextAreaErrorStyle(state->add_retransmit_count_input,
+        ParseTextAreaLong(state->add_retransmit_count_input,
+            10, 0, 15, &parsed_value));
+    UpdateAddTextAreaErrorStyle(
+        state->add_retransmit_delay_input, retry_delay_valid);
+    return;
+  }
+  const bool power_valid = IsAddOutputPowerValid(state);
   const bool preamble_valid = ParseTextAreaLong(
       state->add_preamble_input, 10, 1, 65535, &parsed_value);
   const bool sync_word_valid = ParseTextAreaLong(
@@ -5494,15 +5923,6 @@ bool IsAddModuleFormComplete(const RadioViewState* state) {
   }
   const bool editing = state->editing_index < state->module_count;
   if ((!editing && state->add_name_input == nullptr) ||
-      state->add_frequency_input == nullptr ||
-      state->add_power_input == nullptr ||
-      state->add_preamble_input == nullptr ||
-      state->add_sync_word_input == nullptr ||
-      state->add_crc_switch == nullptr ||
-      state->add_iq_switch == nullptr ||
-      state->add_rx_boost_switch == nullptr ||
-      (state->capabilities.supports_external_antenna &&
-      state->add_external_antenna_switch == nullptr) ||
       (!editing && state->add_active_switch == nullptr) ||
       (state->editing_index >= state->module_count &&
        state->module_count >= kRadioModuleCapacity)) {
@@ -5511,13 +5931,31 @@ bool IsAddModuleFormComplete(const RadioViewState* state) {
   const char* profile_name = editing
       ? nullptr
       : lv_textarea_get_text(state->add_name_input);
+  if (!editing && (profile_name == nullptr || profile_name[0] == '\0')) {
+    return false;
+  }
+  const radio::ChipType chip = AddProfileChip(state);
+  if (chip == radio::ChipType::kCc1101) {
+    return IsAddGfskFormComplete(state);
+  }
+  if (chip == radio::ChipType::kNrf24l01) {
+    return IsAddEnhancedShockBurstFormComplete(state);
+  }
+  if (state->add_frequency_input == nullptr ||
+      state->add_power_input == nullptr ||
+      state->add_preamble_input == nullptr ||
+      state->add_sync_word_input == nullptr ||
+      state->add_crc_switch == nullptr || state->add_iq_switch == nullptr ||
+      state->add_rx_boost_switch == nullptr ||
+      (state->capabilities.supports_external_antenna &&
+          state->add_external_antenna_switch == nullptr)) {
+    return false;
+  }
   const char* frequency =
       lv_textarea_get_text(state->add_frequency_input);
   long preamble = 0;
   long sync_word = 0;
-  return (editing ||
-             (profile_name != nullptr && profile_name[0] != '\0')) &&
-         frequency != nullptr && frequency[0] != '\0' &&
+  return frequency != nullptr && frequency[0] != '\0' &&
          IsAddFrequencyValid(state) && IsAddBandwidthValid(state) &&
          IsAddOutputPowerValid(state) &&
          ParseTextAreaLong(state->add_preamble_input, 10, 1, 65535,
@@ -5525,13 +5963,13 @@ bool IsAddModuleFormComplete(const RadioViewState* state) {
          ParseTextAreaLong(state->add_sync_word_input, 16, 0, 255,
              &sync_word) &&
          state->selected_add_chip >= 0 &&
-         state->selected_add_chip == 0 &&
+         static_cast<size_t>(state->selected_add_chip) <
+             state->capabilities.count &&
          state->selected_add_protocol >= 0 &&
          state->selected_add_protocol == 0 && state->selected_add_sf >= 0 &&
          state->selected_add_sf < 8 &&
          state->selected_add_bandwidth >= 0 &&
-         static_cast<size_t>(
-         state->selected_add_bandwidth) <
+         static_cast<size_t>(state->selected_add_bandwidth) <
              AddProfileBandwidthCount(state) &&
          state->selected_add_coding_rate >= 0 &&
          state->selected_add_coding_rate < 4;
@@ -5588,16 +6026,33 @@ void AddOptionClickedEventCallback(lv_event_t* event) {
   if (action == nullptr || action->state == nullptr) {
     return;
   }
+  SetAddKeyboardVisible(action->state, nullptr, false);
   if (action->group == RadioAddOptionGroup::kChip) {
+    if (action->state->selected_add_chip == action->index) {
+      return;
+    }
     action->state->selected_add_chip = action->index;
+    action->state->selected_add_protocol = 0;
+    lv_async_call([](void* context) {
+      RebuildAddModuleForm(static_cast<RadioViewState*>(context));
+    }, action->state);
+    return;
   } else if (action->group == RadioAddOptionGroup::kProtocol) {
     action->state->selected_add_protocol = action->index;
   } else if (action->group == RadioAddOptionGroup::kSpreadingFactor) {
     action->state->selected_add_sf = action->index;
   } else if (action->group == RadioAddOptionGroup::kBandwidth) {
     action->state->selected_add_bandwidth = action->index;
-  } else {
+  } else if (action->group == RadioAddOptionGroup::kCodingRate) {
     action->state->selected_add_coding_rate = action->index;
+  } else if (action->group == RadioAddOptionGroup::kOutputPower) {
+    action->state->selected_add_output_power = action->index;
+  } else if (action->group == RadioAddOptionGroup::kPreamble) {
+    action->state->selected_add_preamble = action->index;
+  } else if (action->group == RadioAddOptionGroup::kReceiveBandwidth) {
+    action->state->selected_add_receive_bandwidth = action->index;
+  } else if (action->group == RadioAddOptionGroup::kDataRate) {
+    action->state->selected_add_data_rate = action->index;
   }
   UpdateAddOptionSelection(action->state);
   UpdateAddSubmitButton(action->state);
@@ -5650,6 +6105,25 @@ void SetAddKeyboardVisible(
 }
 
 /**
+ * @brief 根据自动应答状态更新动态负载选项
+ * @param state Radio 页面状态
+ */
+void UpdateEnhancedShockBurstDependencyControls(RadioViewState* state) {
+  if (state == nullptr || state->add_auto_ack_switch == nullptr ||
+      state->add_dynamic_payload_switch == nullptr) {
+    return;
+  }
+  if (lv_obj_has_state(state->add_auto_ack_switch, LV_STATE_CHECKED)) {
+    lv_obj_remove_state(
+        state->add_dynamic_payload_switch, LV_STATE_DISABLED);
+    return;
+  }
+  lv_obj_remove_state(
+      state->add_dynamic_payload_switch, LV_STATE_CHECKED);
+  lv_obj_add_state(state->add_dynamic_payload_switch, LV_STATE_DISABLED);
+}
+
+/**
  * @brief 处理添加模块输入框状态和内容变化事件
  * @param event LVGL 事件对象
  */
@@ -5657,10 +6131,14 @@ void AddInputEventCallback(lv_event_t* event) {
   auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   const lv_event_code_t code = lv_event_get_code(event);
   if (code == LV_EVENT_VALUE_CHANGED) {
-    if (state != nullptr &&
-        lv_event_get_target_obj(event) == state->add_frequency_input) {
-      NormalizeAddBandwidthSelection(state);
-      UpdateAddBandwidthOptionLayout(state);
+    if (state != nullptr) {
+      if (lv_event_get_target_obj(event) == state->add_frequency_input) {
+        NormalizeAddBandwidthSelection(state);
+        UpdateAddBandwidthOptionLayout(state);
+      } else if (lv_event_get_target_obj(event) ==
+                 state->add_auto_ack_switch) {
+        UpdateEnhancedShockBurstDependencyControls(state);
+      }
     }
     UpdateAddSubmitButton(state);
     return;
@@ -5705,6 +6183,7 @@ void AddPageCloseCompletedCallback(lv_anim_t* animation) {
   state->add_keyboard = nullptr;
   state->add_submit_button = nullptr;
   state->add_submit_label = nullptr;
+  ResetAddModuleFormPointers(state);
   state->add_edge_swipe = EdgeBackSwipeState();
   state->editing_index = kRadioModuleCapacity;
   state->add_submitting = false;
@@ -5746,6 +6225,7 @@ void CloseAddModulePage(RadioViewState* state) {
     state->add_keyboard = nullptr;
     state->add_submit_button = nullptr;
     state->add_submit_label = nullptr;
+    ResetAddModuleFormPointers(state);
     state->add_edge_swipe = EdgeBackSwipeState();
     state->editing_index = kRadioModuleCapacity;
     state->add_submitting = false;
@@ -5821,8 +6301,6 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
   const size_t index = editing
       ? state->editing_index
       : state->module_count;
-  const uint32_t previous_active_profile_id =
-      state->preferences.active_profile_id;
   app::RadioProfile profile = editing
       ? state->preferences.profiles[index]
       : app::RadioProfile{};
@@ -5836,40 +6314,107 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
     CopyBoundedString(profile.name, sizeof(profile.name),
         lv_textarea_get_text(state->add_name_input));
   }
-  const char* frequency_text = lv_textarea_get_text(
-      state->add_frequency_input);
-  const double frequency_mhz = std::strtod(
-      frequency_text, nullptr);
-  long output_power = 0;
-  long preamble = 0;
-  long sync_word = 0;
-  ParseTextAreaLong(state->add_power_input, 10, -9, 22,
-      &output_power);
-  ParseTextAreaLong(state->add_preamble_input, 10, 1, 65535,
-      &preamble);
-  ParseTextAreaLong(state->add_sync_word_input, 16, 0, 255,
-      &sync_word);
-  profile.frequency_hz = static_cast<uint32_t>(
-      frequency_mhz * 1000000.0 + 0.5);
-  profile.bandwidth_hz =
-      AddProfileBandwidth(state,state->selected_add_bandwidth);
-  profile.preamble_length = static_cast<uint16_t>(preamble);
-  profile.spreading_factor = static_cast<uint8_t>(
-      state->selected_add_sf + 5);
-  profile.coding_rate_denominator = static_cast<uint8_t>(
-      state->selected_add_coding_rate + 5);
-  profile.sync_word = static_cast<uint8_t>(sync_word);
-  profile.output_power_dbm = static_cast<int8_t>(output_power);
-  profile.crc_enabled = lv_obj_has_state(
-      state->add_crc_switch, LV_STATE_CHECKED);
-  profile.invert_iq = lv_obj_has_state(
-      state->add_iq_switch, LV_STATE_CHECKED);
-  profile.rx_boosted = lv_obj_has_state(
-      state->add_rx_boost_switch, LV_STATE_CHECKED);
-  profile.antenna = state->add_external_antenna_switch != nullptr && lv_obj_has_state(
-      state->add_external_antenna_switch, LV_STATE_CHECKED)
-      ? radio::AntennaType::kExternal
-      : radio::AntennaType::kInternal;
+  if (profile.protocol == radio::ProtocolType::kGfsk ||
+      profile.protocol == radio::ProtocolType::kEnhancedShockBurst) {
+    profile.output_power_dbm = AddProfileOutputPower(
+        state, static_cast<size_t>(state->selected_add_output_power));
+  } else {
+    long output_power = 0;
+    ParseTextAreaLong(state->add_power_input, 10, -9, 22, &output_power);
+    profile.output_power_dbm = static_cast<int8_t>(output_power);
+  }
+  profile.antenna = radio::AntennaType::kInternal;
+  if (profile.protocol == radio::ProtocolType::kGfsk) {
+    const double frequency_mhz = std::strtod(
+        lv_textarea_get_text(state->add_frequency_input), nullptr);
+    long data_rate = 0;
+    long deviation = 0;
+    long sync_word = 0;
+    ParseTextAreaLong(state->add_data_rate_input,
+        10, 600, 250000, &data_rate);
+    ParseTextAreaLong(state->add_frequency_deviation_input,
+        10, 1600, 380000, &deviation);
+    ParseTextAreaLong(
+        state->add_sync_word_input, 16, 0, 65535, &sync_word);
+    profile.frequency_hz = static_cast<uint32_t>(
+        frequency_mhz * 1000000.0 + 0.5);
+    profile.gfsk_data_rate_bps = static_cast<uint32_t>(data_rate);
+    profile.gfsk_frequency_deviation_hz =
+        static_cast<uint32_t>(deviation);
+    profile.gfsk_receive_bandwidth_hz =
+        radio::kCc1101ReceiveBandwidthsHz[
+            state->selected_add_receive_bandwidth];
+    profile.preamble_length = kCc1101PreambleLengths[
+        state->selected_add_preamble];
+    profile.gfsk_sync_word = static_cast<uint16_t>(sync_word);
+    profile.crc_enabled = lv_obj_has_state(
+        state->add_crc_switch, LV_STATE_CHECKED);
+    profile.gfsk_whitening_enabled = lv_obj_has_state(
+        state->add_whitening_switch, LV_STATE_CHECKED);
+    if (state->add_fec_switch != nullptr) {
+      profile.gfsk_fec_enabled = lv_obj_has_state(
+          state->add_fec_switch, LV_STATE_CHECKED);
+    }
+  } else if (profile.protocol ==
+             radio::ProtocolType::kEnhancedShockBurst) {
+    long frequency_mhz = 0;
+    long retransmit_count = 0;
+    long retransmit_delay = 0;
+    uint64_t address = 0;
+    ParseTextAreaLong(
+        state->add_frequency_input, 10, 2400, 2525, &frequency_mhz);
+    ParseTextAreaUint64(state->add_address_input,
+        16, 1, 0xFFFFFFFFFFULL, &address);
+    ParseTextAreaLong(state->add_retransmit_count_input,
+        10, 0, 15, &retransmit_count);
+    ParseTextAreaLong(state->add_retransmit_delay_input,
+        10, 250, 4000, &retransmit_delay);
+    profile.esb_channel = static_cast<uint8_t>(frequency_mhz - 2400);
+    profile.frequency_hz =
+        static_cast<uint32_t>(frequency_mhz) * 1000000U;
+    profile.esb_data_rate_bps =
+        kNrf24l01DataRates[state->selected_add_data_rate];
+    profile.esb_address = address;
+    profile.esb_retransmit_count =
+        static_cast<uint8_t>(retransmit_count);
+    profile.esb_retransmit_delay_us =
+        static_cast<uint16_t>(retransmit_delay);
+    profile.esb_auto_ack_enabled = lv_obj_has_state(
+        state->add_auto_ack_switch, LV_STATE_CHECKED);
+    profile.esb_dynamic_payload_enabled =
+        profile.esb_auto_ack_enabled && lv_obj_has_state(
+            state->add_dynamic_payload_switch, LV_STATE_CHECKED);
+  } else {
+    const char* frequency_text = lv_textarea_get_text(
+        state->add_frequency_input);
+    const double frequency_mhz = std::strtod(frequency_text, nullptr);
+    long preamble = 0;
+    long sync_word = 0;
+    ParseTextAreaLong(state->add_preamble_input, 10, 1, 65535,
+        &preamble);
+    ParseTextAreaLong(state->add_sync_word_input, 16, 0, 255,
+        &sync_word);
+    profile.frequency_hz = static_cast<uint32_t>(
+        frequency_mhz * 1000000.0 + 0.5);
+    profile.bandwidth_hz =
+        AddProfileBandwidth(state, state->selected_add_bandwidth);
+    profile.preamble_length = static_cast<uint16_t>(preamble);
+    profile.spreading_factor = static_cast<uint8_t>(
+        state->selected_add_sf + 5);
+    profile.coding_rate_denominator = static_cast<uint8_t>(
+        state->selected_add_coding_rate + 5);
+    profile.sync_word = static_cast<uint8_t>(sync_word);
+    profile.crc_enabled = lv_obj_has_state(
+        state->add_crc_switch, LV_STATE_CHECKED);
+    profile.invert_iq = lv_obj_has_state(
+        state->add_iq_switch, LV_STATE_CHECKED);
+    profile.rx_boosted = lv_obj_has_state(
+        state->add_rx_boost_switch, LV_STATE_CHECKED);
+    profile.antenna = state->add_external_antenna_switch != nullptr &&
+        lv_obj_has_state(state->add_external_antenna_switch, LV_STATE_CHECKED)
+        ? radio::AntennaType::kExternal
+        : radio::AntennaType::kInternal;
+  }
   const bool settings_changed = editing &&
       !AreProfileSettingsEqual(previous_profile, profile);
   state->preferences.profiles[index] = profile;
@@ -5880,15 +6425,39 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
       state->add_active_switch, LV_STATE_CHECKED);
   const uint32_t form_done_ms = lv_tick_get();
   const bool requires_reconfigure = editing && settings_changed &&
-      previous_active_profile_id == profile.id;
+      profile.active;
   if (activate_new_profile) {
-    FailPendingMessages(state, previous_active_profile_id);
-    state->preferences.active_profile_id = profile.id;
+    for (size_t candidate = 0;
+         candidate < state->preferences.profile_count; ++candidate) {
+      app::RadioProfile& other = state->preferences.profiles[candidate];
+      if (candidate != index && other.active && other.chip == profile.chip) {
+        FailPendingMessages(state, other.id);
+        other.active = false;
+        state->radio_status_available[candidate] = false;
+      }
+    }
+    profile.active = true;
+    state->preferences.profiles[index].active = true;
     state->activation_retry_count = 0;
     state->last_activation_retry_tick = lv_tick_get();
     QueueRadioControlCommand(state, RadioCommandType::kActivate,
         ToRadioConfig(profile));
   } else if (requires_reconfigure) {
+    if (previous_profile.chip != profile.chip) {
+      hal::RadioConfig deactivate_config;
+      deactivate_config.client_token = previous_profile.id;
+      QueueRadioControlCommand(state, RadioCommandType::kDeactivate,
+          deactivate_config);
+      for (size_t candidate = 0;
+           candidate < state->preferences.profile_count; ++candidate) {
+        app::RadioProfile& other = state->preferences.profiles[candidate];
+        if (candidate != index && other.active && other.chip == profile.chip) {
+          FailPendingMessages(state, other.id);
+          other.active = false;
+          state->radio_status_available[candidate] = false;
+        }
+      }
+    }
     FailPendingMessages(state, profile.id);
     state->activation_retry_count = 0;
     state->last_activation_retry_tick = lv_tick_get();
@@ -5910,9 +6479,14 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
   RefreshProfileSettingsPage(state);
   CloseSelectionMode(state);
   const uint32_t data_done_ms = lv_tick_get();
-  if (state->detail_title_label != nullptr &&
-      state->detail_index == index) {
-    SetLabelTextIfChanged(state->detail_title_label, profile.name);
+  if (state->detail_index == index) {
+    if (state->detail_title_label != nullptr) {
+      SetLabelTextIfChanged(state->detail_title_label, profile.name);
+    }
+    if (state->detail_chip_label != nullptr) {
+      SetLabelTextIfChanged(
+          state->detail_chip_label, ChipShortName(profile.chip));
+    }
     RenderChatMessages(state);
   }
   const uint32_t detail_done_ms = lv_tick_get();
@@ -6059,6 +6633,49 @@ lv_obj_t* CreateAddTextArea(lv_obj_t* parent, RadioViewState* state,
       input, AddInputEventCallback, LV_EVENT_ALL, state);
   AddEdgeBackSwipeEvents(input, AddPageEdgeBackEventCallback, state);
   return input;
+}
+
+/**
+ * @brief 为十六进制输入框创建与 LoRa 参数一致的 0x 前缀
+ * @param parent 输入框父对象
+ * @param state Radio 页面状态
+ * @param input 十六进制输入框
+ * @param y 输入框顶部坐标
+ * @return 前缀创建成功返回 true，否则返回 false
+ */
+bool CreateAddHexPrefix(lv_obj_t* parent, RadioViewState* state,
+    lv_obj_t* input, int y) {
+  if (parent == nullptr || state == nullptr || input == nullptr) {
+    return false;
+  }
+  constexpr int kSideMargin = 28;
+  constexpr int kPrefixWidth = 72;
+  constexpr int kInputGap = 12;
+  const int input_x = kSideMargin + kPrefixWidth + kInputGap;
+  lv_obj_set_x(input, input_x);
+  lv_obj_set_width(input, state->config.width - input_x - kSideMargin);
+
+  lv_obj_t* prefix = lv_obj_create(parent);
+  if (prefix == nullptr) {
+    return false;
+  }
+  lv_obj_remove_flag(prefix, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(prefix, kPrefixWidth, kAddInputHeight);
+  lv_obj_set_pos(prefix, kSideMargin, y);
+  lv_obj_set_style_bg_color(
+      prefix, lv_color_hex(kSurfaceContainerHighColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(prefix, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(prefix, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(prefix, 22, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(prefix, 0, LV_PART_MAIN);
+  lv_obj_t* label = CreateLabel(
+      prefix, "0x", kSecondaryTextColor, Font22());
+  if (label == nullptr) {
+    lv_obj_delete(prefix);
+    return false;
+  }
+  lv_obj_center(label);
+  return true;
 }
 
 lv_obj_t* CreateAddSwitchRow(lv_obj_t* parent, RadioViewState* state,
@@ -6441,8 +7058,8 @@ void AutoSendSaveClickedEventCallback(lv_event_t* event) {
       sizeof(profile.auto_send_text), text);
   profile.auto_send_interval_ms = static_cast<uint32_t>(interval);
   app::UpdateRadioPreferences(state->preferences);
-  if (profile.id == state->preferences.active_profile_id) {
-    state->auto_send_profile_id = 0;
+  if (profile.active) {
+    state->auto_send_last_ticks[state->profile_settings_index] = 0;
   }
   AppendSystemMessage(
       state, state->profile_settings_index, kSettingsChangedMessage);
@@ -6630,6 +7247,514 @@ bool ShowAutoSendSettingsPage(RadioViewState* state) {
   return true;
 }
 
+bool ParseTextAreaUint64(lv_obj_t* input, int base, uint64_t minimum,
+    uint64_t maximum, uint64_t* value) {
+  if (input == nullptr || value == nullptr) {
+    return false;
+  }
+  const char* text = lv_textarea_get_text(input);
+  if (text == nullptr || text[0] == '\0') {
+    return false;
+  }
+  char* end = nullptr;
+  const unsigned long long parsed = std::strtoull(text, &end, base);
+  if (end == nullptr || end[0] != '\0' || parsed < minimum ||
+      parsed > maximum) {
+    return false;
+  }
+  *value = static_cast<uint64_t>(parsed);
+  return true;
+}
+
+/**
+ * @brief 校验 CC1101 GFSK 配置表单
+ * @param state Radio 页面状态
+ * @return 所有参数有效时返回 true
+ */
+bool IsAddGfskFormComplete(const RadioViewState* state) {
+  long data_rate = 0;
+  long value = 0;
+  return IsAddFrequencyValid(state) && IsAddOutputPowerValid(state) &&
+         ParseTextAreaLong(
+             state->add_data_rate_input, 10, 600, 250000, &data_rate) &&
+         ParseTextAreaLong(state->add_frequency_deviation_input,
+             10, 1600, 380000, &value) &&
+         state->selected_add_receive_bandwidth >= 0 &&
+         static_cast<size_t>(state->selected_add_receive_bandwidth) <
+             std::size(radio::kCc1101ReceiveBandwidthsHz) &&
+         state->selected_add_preamble >= 0 &&
+         static_cast<size_t>(state->selected_add_preamble) <
+             std::size(kCc1101PreambleLengths) &&
+         ParseTextAreaLong(
+             state->add_sync_word_input, 16, 0, 65535, &value) &&
+         state->add_crc_switch != nullptr &&
+         state->add_whitening_switch != nullptr;
+}
+
+/**
+ * @brief 校验 nRF24L01 Enhanced ShockBurst 配置表单
+ * @param state Radio 页面状态
+ * @return 所有参数有效时返回 true
+ */
+bool IsAddEnhancedShockBurstFormComplete(const RadioViewState* state) {
+  if (state == nullptr) {
+    return false;
+  }
+  long retransmit_count = 0;
+  long retransmit_delay = 0;
+  long value = 0;
+  uint64_t address = 0;
+  uint8_t address_width = 5;
+  if (state->editing_index < state->module_count) {
+    address_width = state->preferences.profiles[
+        state->editing_index].esb_address_width;
+  }
+  if (!IsAddOutputPowerValid(state) ||
+      !ParseTextAreaLong(
+          state->add_frequency_input, 10, 2400, 2525, &value) ||
+      state->selected_add_data_rate < 0 ||
+      static_cast<size_t>(state->selected_add_data_rate) >=
+          std::size(kNrf24l01DataRates) ||
+      !ParseTextAreaUint64(state->add_address_input, 16, 1,
+          0xFFFFFFFFFFULL, &address) ||
+      !ParseTextAreaLong(
+          state->add_retransmit_count_input, 10, 0, 15,
+          &retransmit_count) ||
+      !ParseTextAreaLong(state->add_retransmit_delay_input,
+          10, 250, 4000, &retransmit_delay) ||
+      retransmit_delay % 250 != 0 ||
+      address >= (1ULL << (static_cast<uint32_t>(address_width) * 8)) ||
+      state->add_auto_ack_switch == nullptr ||
+      state->add_dynamic_payload_switch == nullptr) {
+    return false;
+  }
+  const bool auto_ack_enabled = lv_obj_has_state(
+      state->add_auto_ack_switch, LV_STATE_CHECKED);
+  const bool dynamic_payload_enabled = lv_obj_has_state(
+      state->add_dynamic_payload_switch, LV_STATE_CHECKED);
+  return (!dynamic_payload_enabled || auto_ack_enabled) &&
+         (kNrf24l01DataRates[state->selected_add_data_rate] != 250000 ||
+             !auto_ack_enabled ||
+             retransmit_count == 0 || retransmit_delay >= 500);
+}
+
+/**
+ * @brief 根据芯片和协议能力应用默认射频参数
+ * @param capability 当前选择的射频能力
+ * @param profile 待更新配置
+ */
+void ApplyRadioCapabilityDefaults(const hal::RadioCapability& capability,
+    app::RadioProfile* profile) {
+  if (profile == nullptr) {
+    return;
+  }
+  profile->chip = capability.chip;
+  profile->protocol = capability.protocol;
+  profile->antenna = radio::AntennaType::kInternal;
+  if (capability.protocol == radio::ProtocolType::kGfsk) {
+    profile->frequency_hz = 868000000;
+    profile->output_power_dbm = 10;
+    profile->preamble_length = 32;
+    profile->crc_enabled = true;
+    profile->gfsk_data_rate_bps = 4800;
+    profile->gfsk_frequency_deviation_hz = 5000;
+    profile->gfsk_receive_bandwidth_hz =
+        radio::kCc1101ReceiveBandwidthsHz[0];
+    profile->gfsk_sync_word = 0x12AD;
+    profile->gfsk_whitening_enabled = false;
+    profile->gfsk_fec_enabled = false;
+  } else if (capability.protocol ==
+             radio::ProtocolType::kEnhancedShockBurst) {
+    profile->frequency_hz = 2400000000U;
+    profile->output_power_dbm = 0;
+    profile->esb_channel = 0;
+    profile->esb_data_rate_bps = 250000;
+    profile->esb_address = 0xE7E7E7E7E7ULL;
+    profile->esb_address_width = 5;
+    profile->esb_crc_length_bits = 16;
+    profile->esb_retransmit_count = 3;
+    profile->esb_retransmit_delay_us = 750;
+    profile->esb_auto_ack_enabled = false;
+    profile->esb_dynamic_payload_enabled = false;
+  }
+}
+
+/**
+ * @brief 创建芯片和协议选择区域
+ * @param body 表单滚动区域
+ * @param state Radio 页面状态
+ * @param profile 当前表单配置
+ * @param content_offset 新建配置使用的纵向偏移
+ * @return 创建成功返回 true
+ */
+bool CreateAddChipAndProtocolOptions(lv_obj_t* body, RadioViewState* state,
+    const app::RadioProfile& profile, int content_offset) {
+  if (!CreateAddParameterTitle(body, "RADIO CHIP", 8 + content_offset)) {
+    return false;
+  }
+  constexpr int kOptionGap = 10;
+  const int option_area_width = state->config.width - 56;
+  const size_t capability_count = state->capabilities.count;
+  const int chip_width = capability_count == 0
+      ? option_area_width
+      : (option_area_width -
+            static_cast<int>(capability_count - 1) * kOptionGap) /
+            static_cast<int>(capability_count);
+  for (size_t index = 0; index < capability_count; ++index) {
+    const char* chip_name =
+        ChipDisplayName(state->capabilities.entries[index].chip);
+    int button_width = chip_width;
+    if (capability_count == 1) {
+      lv_point_t text_size = {};
+      lv_text_get_size(&text_size, chip_name, Font22(), 0, 0,
+          LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
+      constexpr int kHorizontalPadding = 28;
+      button_width = std::min(option_area_width,
+          static_cast<int>(text_size.x) + 2 * kHorizontalPadding);
+    }
+    state->add_chip_buttons[index] = CreateAddOptionButton(body, state,
+        RadioAddOptionGroup::kChip, static_cast<int>(index),
+        chip_name,
+        28 + static_cast<int>(index) * (chip_width + kOptionGap),
+        44 + content_offset, button_width, 62);
+    if (state->add_chip_buttons[index] == nullptr) {
+      return false;
+    }
+  }
+  if (!CreateAddParameterTitle(body, "PROTOCOL", 134 + content_offset)) {
+    return false;
+  }
+  state->add_protocol_buttons[0] = CreateAddOptionButton(body, state,
+      RadioAddOptionGroup::kProtocol, 0,
+      ProtocolDisplayName(profile.protocol), 28, 170 + content_offset,
+      profile.protocol == radio::ProtocolType::kEnhancedShockBurst
+          ? 280
+          : 140,
+      62);
+  return state->add_protocol_buttons[0] != nullptr;
+}
+
+/**
+ * @brief 创建 GFSK 或 Enhanced ShockBurst 参数表单
+ * @param state Radio 页面状态
+ * @param profile 当前表单配置
+ * @return 创建成功返回 true
+ */
+bool CreateNonLoraAddModuleContent(RadioViewState* state,
+    const app::RadioProfile& profile) {
+  lv_obj_t* body = state->add_body;
+  const bool editing = state->editing_index < state->module_count;
+  const int content_offset = editing ? 0 : kAddProfileNameSectionHeight;
+  if (body == nullptr) {
+    return false;
+  }
+  state->add_name_input = nullptr;
+  if (!editing) {
+    if (!CreateAddParameterTitle(body, "PROFILE NAME", 8)) {
+      return false;
+    }
+    state->add_name_input = CreateAddTextArea(body, state,
+        "Profile name", "", 44, app::kRadioProfileNameCapacity - 1);
+    if (state->add_name_input == nullptr) {
+      return false;
+    }
+    lv_textarea_set_accepted_chars(
+        state->add_name_input, kProfileNameAcceptedChars);
+  }
+  if (!CreateAddChipAndProtocolOptions(
+          body, state, profile, content_offset)) {
+    return false;
+  }
+
+  char value[24] = {};
+  constexpr int kFirstTitleY = 262;
+  constexpr int kRowPitch = 138;
+  constexpr int kSwitchPitch = kAddSwitchRowHeight + kAddSwitchRowGap;
+  int row = 0;
+  int additional_content_height = 0;
+  const auto create_integer_input = [&](const char* title,
+                                        const char* placeholder,
+                                        uint64_t number,
+                                        int maximum_length) -> lv_obj_t* {
+    const int title_y = kFirstTitleY + row * kRowPitch +
+        additional_content_height + content_offset;
+    ++row;
+    std::snprintf(value, sizeof(value), "%llu",
+        static_cast<unsigned long long>(number));
+    if (!CreateAddParameterTitle(body, title, title_y)) {
+      return nullptr;
+    }
+    lv_obj_t* input = CreateAddTextArea(body, state, placeholder, value,
+        title_y + 36, maximum_length);
+    if (input != nullptr) {
+      lv_textarea_set_accepted_chars(input, kIntegerAcceptedChars);
+    }
+    return input;
+  };
+  const auto create_option_row = [&](const char* title,
+                                     RadioAddOptionGroup group,
+                                     lv_obj_t** buttons,
+                                     const char* const* names,
+                                     size_t count,
+                                     size_t column_count) -> bool {
+    if (buttons == nullptr || names == nullptr || count == 0 ||
+        column_count == 0) {
+      return false;
+    }
+    const int title_y = kFirstTitleY + row * kRowPitch +
+        additional_content_height + content_offset;
+    ++row;
+    if (!CreateAddParameterTitle(body, title, title_y)) {
+      return false;
+    }
+    constexpr int kOptionLeft = 28;
+    constexpr int kOptionGap = 10;
+    const int option_area_width = state->config.width - 56;
+    const size_t visible_column_count = std::min(count, column_count);
+    const int option_width = (option_area_width -
+        static_cast<int>(visible_column_count - 1) * kOptionGap) /
+        static_cast<int>(visible_column_count);
+    for (size_t index = 0; index < count; ++index) {
+      const size_t option_row = index / column_count;
+      const size_t option_column = index % column_count;
+      buttons[index] = CreateAddOptionButton(body, state, group,
+          static_cast<int>(index), names[index],
+          kOptionLeft + static_cast<int>(option_column) *
+              (option_width + kOptionGap),
+          title_y + 36 + static_cast<int>(option_row) * 68,
+          option_width, 62);
+      if (buttons[index] == nullptr) {
+        return false;
+      }
+    }
+    const size_t option_row_count =
+        (count + column_count - 1) / column_count;
+    additional_content_height +=
+        static_cast<int>(option_row_count - 1) * 68;
+    return true;
+  };
+  state->add_active_switch = nullptr;
+  const auto create_active_switch = [&](int y) -> bool {
+    if (editing) {
+      return true;
+    }
+    state->add_active_switch = CreateAddSwitchRow(body, state,
+        "Active profile", "Only one profile can use the radio chip",
+        y, true);
+    return state->add_active_switch != nullptr;
+  };
+
+  if (profile.protocol == radio::ProtocolType::kGfsk) {
+    std::snprintf(value, sizeof(value), "%.3f",
+        static_cast<double>(profile.frequency_hz) / 1000000.0);
+    if (!CreateAddParameterTitle(body, "WORKING FREQUENCY (MHz)",
+            kFirstTitleY + content_offset)) {
+      return false;
+    }
+    state->add_frequency_input = CreateAddTextArea(body, state,
+        "Frequency", value, kFirstTitleY + 36 + content_offset,
+        kFrequencyInputMaximumLength);
+    ++row;
+    if (state->add_frequency_input == nullptr) {
+      return false;
+    }
+    lv_textarea_set_accepted_chars(
+        state->add_frequency_input, kFrequencyAcceptedChars);
+    state->add_data_rate_input = create_integer_input(
+        "DATA RATE (bit/s)", "4800", profile.gfsk_data_rate_bps, 6);
+    state->add_frequency_deviation_input = create_integer_input(
+        "FREQUENCY DEVIATION (Hz)", "5000",
+        profile.gfsk_frequency_deviation_hz, 6);
+    state->selected_add_receive_bandwidth = 0;
+    uint32_t smallest_bandwidth_difference = UINT32_MAX;
+    for (size_t index = 0;
+         index < std::size(radio::kCc1101ReceiveBandwidthsHz); ++index) {
+      const uint32_t bandwidth = radio::kCc1101ReceiveBandwidthsHz[index];
+      const uint32_t difference = profile.gfsk_receive_bandwidth_hz > bandwidth
+          ? profile.gfsk_receive_bandwidth_hz - bandwidth
+          : bandwidth - profile.gfsk_receive_bandwidth_hz;
+      if (difference < smallest_bandwidth_difference) {
+        smallest_bandwidth_difference = difference;
+        state->selected_add_receive_bandwidth = static_cast<int>(index);
+      }
+    }
+    if (!create_option_row("RECEIVE BANDWIDTH (kHz)",
+            RadioAddOptionGroup::kReceiveBandwidth,
+            state->add_receive_bandwidth_buttons,
+            kCc1101ReceiveBandwidthNames,
+            std::size(kCc1101ReceiveBandwidthNames), 4)) {
+      return false;
+    }
+    state->selected_add_output_power =
+        static_cast<int>(std::size(kCc1101OutputPowers) - 1);
+    for (size_t index = 0; index < std::size(kCc1101OutputPowers); ++index) {
+      if (profile.output_power_dbm == kCc1101OutputPowers[index]) {
+        state->selected_add_output_power = static_cast<int>(index);
+        break;
+      }
+    }
+    if (!create_option_row("TX POWER (dBm)",
+            RadioAddOptionGroup::kOutputPower,
+            state->add_output_power_buttons,
+            kCc1101OutputPowerNames,
+            std::size(kCc1101OutputPowerNames), 4)) {
+      return false;
+    }
+    state->selected_add_preamble = 2;
+    for (size_t index = 0;
+         index < std::size(kCc1101PreambleLengths); ++index) {
+      if (profile.preamble_length == kCc1101PreambleLengths[index]) {
+        state->selected_add_preamble = static_cast<int>(index);
+        break;
+      }
+    }
+    state->add_preamble_input = nullptr;
+    if (!create_option_row("PREAMBLE LENGTH (bit)",
+            RadioAddOptionGroup::kPreamble,
+            state->add_preamble_buttons,
+            kCc1101PreambleLengthNames,
+            std::size(kCc1101PreambleLengthNames), 4)) {
+      return false;
+    }
+    const int sync_title_y =
+        kFirstTitleY + row * kRowPitch + additional_content_height +
+        content_offset;
+    ++row;
+    std::snprintf(value, sizeof(value), "%04X", profile.gfsk_sync_word);
+    if (!CreateAddParameterTitle(body, "SYNC WORD (HEX)", sync_title_y)) {
+      return false;
+    }
+    state->add_sync_word_input = CreateAddTextArea(body, state,
+        "12AD", value, sync_title_y + 36, 4);
+    if (state->add_sync_word_input != nullptr) {
+      lv_textarea_set_accepted_chars(
+          state->add_sync_word_input, kHexAcceptedChars);
+    }
+    if (!CreateAddHexPrefix(body, state, state->add_sync_word_input,
+            sync_title_y + 36)) {
+      return false;
+    }
+    const int switches_y =
+        kFirstTitleY + row * kRowPitch + additional_content_height +
+        content_offset;
+    int switch_row = 0;
+    if (!create_active_switch(switches_y)) {
+      return false;
+    }
+    if (!editing) {
+      ++switch_row;
+    }
+    state->add_crc_switch = CreateAddSwitchRow(body, state,
+        "CRC", "Reject damaged GFSK packets",
+        switches_y + switch_row++ * kSwitchPitch,
+        profile.crc_enabled);
+    state->add_whitening_switch = CreateAddSwitchRow(body, state,
+        "Data whitening", "Enable only when the peer also uses whitening",
+        switches_y + switch_row * kSwitchPitch,
+        profile.gfsk_whitening_enabled);
+    // FEC 属于少用高级参数，保留底层配置和存储兼容但不占用常用界面。
+    state->add_fec_switch = nullptr;
+  } else {
+    state->add_frequency_input = create_integer_input(
+        "WORKING FREQUENCY (MHz)", "2400",
+        2400U + profile.esb_channel, 4);
+    state->selected_add_data_rate = 0;
+    for (size_t index = 0; index < std::size(kNrf24l01DataRates); ++index) {
+      if (profile.esb_data_rate_bps == kNrf24l01DataRates[index]) {
+        state->selected_add_data_rate = static_cast<int>(index);
+        break;
+      }
+    }
+    state->add_data_rate_input = nullptr;
+    if (!create_option_row("DATA RATE",
+            RadioAddOptionGroup::kDataRate,
+            state->add_data_rate_buttons,
+            kNrf24l01DataRateNames,
+            std::size(kNrf24l01DataRateNames), 3)) {
+      return false;
+    }
+    const int address_title_y =
+        kFirstTitleY + row * kRowPitch + additional_content_height +
+        content_offset;
+    ++row;
+    std::snprintf(value, sizeof(value), "%010llX",
+        static_cast<unsigned long long>(profile.esb_address));
+    if (!CreateAddParameterTitle(body, "ADDRESS (HEX)", address_title_y)) {
+      return false;
+    }
+    state->add_address_input = CreateAddTextArea(body, state,
+        "E7E7E7E7E7", value, address_title_y + 36, 10);
+    if (state->add_address_input != nullptr) {
+      lv_textarea_set_accepted_chars(
+          state->add_address_input, kHexAcceptedChars);
+    }
+    if (!CreateAddHexPrefix(body, state, state->add_address_input,
+            address_title_y + 36)) {
+      return false;
+    }
+    // 地址宽度和 CRC 长度使用 Enhanced ShockBurst 常用默认值，
+    // 仍保留在配置结构中以兼容已有配置。
+    state->add_address_width_input = nullptr;
+    state->selected_add_output_power =
+        static_cast<int>(std::size(kNrf24l01OutputPowers) - 1);
+    for (size_t index = 0; index < std::size(kNrf24l01OutputPowers); ++index) {
+      if (profile.output_power_dbm == kNrf24l01OutputPowers[index]) {
+        state->selected_add_output_power = static_cast<int>(index);
+        break;
+      }
+    }
+    if (!create_option_row("TX POWER (dBm)",
+            RadioAddOptionGroup::kOutputPower,
+            state->add_output_power_buttons,
+            kNrf24l01OutputPowerNames,
+            std::size(kNrf24l01OutputPowerNames), 4)) {
+      return false;
+    }
+    state->add_crc_length_input = nullptr;
+    state->add_retransmit_count_input = create_integer_input(
+        "RETRANSMIT COUNT", "3", profile.esb_retransmit_count, 2);
+    state->add_retransmit_delay_input = create_integer_input(
+        "RETRANSMIT DELAY (us)", "750",
+        profile.esb_retransmit_delay_us, 4);
+    const int switches_y =
+        kFirstTitleY + row * kRowPitch + additional_content_height +
+        content_offset;
+    int switch_row = 0;
+    if (!create_active_switch(switches_y)) {
+      return false;
+    }
+    if (!editing) {
+      ++switch_row;
+    }
+    state->add_auto_ack_switch = CreateAddSwitchRow(body, state,
+        "Auto acknowledgment", "Use Enhanced ShockBurst ACK and retries",
+        switches_y + switch_row++ * kSwitchPitch,
+        profile.esb_auto_ack_enabled);
+    state->add_dynamic_payload_switch = CreateAddSwitchRow(body, state,
+        "Dynamic payload", "Transmit only the bytes used by each message",
+        switches_y + switch_row * kSwitchPitch,
+        profile.esb_dynamic_payload_enabled);
+    UpdateEnhancedShockBurstDependencyControls(state);
+  }
+  UpdateAddOptionSelection(state);
+  const bool common_ready = IsAddOutputPowerValid(state) &&
+      (editing || state->add_active_switch != nullptr);
+  if (profile.protocol == radio::ProtocolType::kGfsk) {
+    return common_ready && state->add_frequency_input != nullptr &&
+        state->add_data_rate_input != nullptr &&
+        state->add_frequency_deviation_input != nullptr &&
+        state->add_sync_word_input != nullptr &&
+        state->add_crc_switch != nullptr &&
+        state->add_whitening_switch != nullptr;
+  }
+  return common_ready && state->add_frequency_input != nullptr &&
+      state->add_address_input != nullptr &&
+      state->add_retransmit_count_input != nullptr &&
+      state->add_retransmit_delay_input != nullptr &&
+      state->add_auto_ack_switch != nullptr &&
+      state->add_dynamic_payload_switch != nullptr;
+}
+
 /**
  * @brief 创建添加模块页面的参数内容
  * @param state 射频页面状态
@@ -6638,10 +7763,21 @@ bool ShowAutoSendSettingsPage(RadioViewState* state) {
 bool CreateAddModuleContent(RadioViewState* state) {
   lv_obj_t* body = state->add_body;
   const bool editing = state->editing_index < state->module_count;
-  const int content_offset = editing ? 0 : kAddProfileNameSectionHeight; app::RadioProfile profile = editing
+  const int content_offset = editing ? 0 : kAddProfileNameSectionHeight;
+  app::RadioProfile profile = editing
       ? state->preferences.profiles[state->editing_index]
       : app::RadioProfile{};
-  ApplyPrimaryRadioCapability(state, &profile);
+  const hal::RadioCapability* capability = PrimaryRadioCapability(state);
+  if (capability == nullptr) {
+    return false;
+  }
+  if (!editing || profile.chip != capability->chip ||
+      profile.protocol != capability->protocol) {
+    ApplyRadioCapabilityDefaults(*capability, &profile);
+  }
+  if (profile.protocol != radio::ProtocolType::kLora) {
+    return CreateNonLoraAddModuleContent(state, profile);
+  }
   char frequency[16] = {};
   char power[8] = {};
   char preamble[12] = {};
@@ -6670,27 +7806,10 @@ bool CreateAddModuleContent(RadioViewState* state) {
     lv_textarea_set_accepted_chars(
         state->add_name_input, kProfileNameAcceptedChars);
   }
-  if (!CreateAddParameterTitle(body, "Radio CHIP", 8 + content_offset)) {
-    return false;
-  }
-
   const int option_gap = 10;
   const int option_area_width = state->config.width - 56;
-  state->add_chip_buttons[0] = CreateAddOptionButton(body, state,
-      RadioAddOptionGroup::kChip, 0,
-      ChipDisplayName(profile.chip), 28, 44 + content_offset, 150, 62);
-  if (state->add_chip_buttons[0] == nullptr) {
-    return false;
-  }
-
-  if (!CreateAddParameterTitle(body, "PROTOCOL", 134 + content_offset)) {
-    return false;
-  }
-  state->add_protocol_buttons[0] = CreateAddOptionButton(body, state,
-      RadioAddOptionGroup::kProtocol, 0,
-      ProtocolDisplayName(profile.protocol), 28, 170 + content_offset,
-      116, 62);
-  if (state->add_protocol_buttons[0] == nullptr) {
+  if (!CreateAddChipAndProtocolOptions(
+          body, state, profile, content_offset)) {
     return false;
   }
 
@@ -6755,13 +7874,16 @@ bool CreateAddModuleContent(RadioViewState* state) {
   }
   const size_t bandwidth_count = AddProfileBandwidthCount(state);
   const int bandwidth_option_width =
-      (option_area_width - static_cast<int>(bandwidth_count - 1)* option_gap) /
+      (option_area_width -
+          static_cast<int>(bandwidth_count - 1) * option_gap) /
       static_cast<int>(bandwidth_count);
   for (size_t index = 0; index < bandwidth_count; ++index) {
     state->add_bandwidth_buttons[index] = CreateAddOptionButton(
-        body, state, RadioAddOptionGroup::kBandwidth, static_cast<int>( index),
-        AddProfileBandwidthName(state,index),
-        28 + static_cast<int>( index) * (bandwidth_option_width + option_gap), 618 + content_offset, bandwidth_option_width, 60);
+        body, state, RadioAddOptionGroup::kBandwidth,
+        static_cast<int>(index), AddProfileBandwidthName(state, index),
+        28 + static_cast<int>(index) *
+            (bandwidth_option_width + option_gap),
+        618 + content_offset, bandwidth_option_width, 60);
     if (state->add_bandwidth_buttons[index] == nullptr) {
       return false;
     }
@@ -6816,50 +7938,34 @@ bool CreateAddModuleContent(RadioViewState* state) {
   }
   lv_textarea_set_accepted_chars(state->add_sync_word_input,
       kHexAcceptedChars);
-  constexpr int kSyncWordSideMargin = 28;
-  constexpr int kSyncWordPrefixWidth = 72;
-  constexpr int kSyncWordInputGap = 12;
-  const int sync_word_input_x = kSyncWordSideMargin +
-      kSyncWordPrefixWidth + kSyncWordInputGap;
-  lv_obj_set_width(state->add_sync_word_input,
-      state->config.width - sync_word_input_x - kSyncWordSideMargin);
-  lv_obj_set_x(state->add_sync_word_input, sync_word_input_x);
-
-  lv_obj_t* prefix = lv_obj_create(body);
-  if (prefix == nullptr) {
+  if (!CreateAddHexPrefix(body, state, state->add_sync_word_input,
+          1150 + content_offset)) {
     return false;
   }
-  lv_obj_remove_flag(prefix, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(prefix, kSyncWordPrefixWidth, 62);
-  lv_obj_set_pos(
-      prefix, kSyncWordSideMargin, 1154 + content_offset);
-  lv_obj_set_style_bg_color(prefix,
-      lv_color_hex(kSurfaceContainerHighColor), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(prefix, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(prefix, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(prefix, 22, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(prefix, 0, LV_PART_MAIN);
-  lv_obj_t* prefix_label = CreateLabel(
-      prefix, "0x", kSecondaryTextColor, Font22());
-  if (prefix_label == nullptr) {
-    return false;
-  }
-  lv_obj_center(prefix_label);
 
   const int switch_rows_top = 1258 + content_offset;
   constexpr int kSwitchRowPitch =
       kAddSwitchRowHeight + kAddSwitchRowGap;
   int switch_row_index = 0;
+  state->add_active_switch = nullptr;
+  if (!editing) {
+    state->add_active_switch = CreateAddSwitchRow(body, state,
+        "Active profile",
+        "Only one profile can use the radio chip",
+        switch_rows_top + switch_row_index++ * kSwitchRowPitch, true);
+  }
   state->add_external_antenna_switch = nullptr;
   if (state->capabilities.supports_external_antenna) {
-  state->add_external_antenna_switch = CreateAddSwitchRow(body, state,
-      "External antenna", "Enable the external antenna", switch_rows_top + switch_row_index * kSwitchRowPitch,
-      profile.antenna == radio::AntennaType::kExternal);
+    state->add_external_antenna_switch = CreateAddSwitchRow(body, state,
+        "External antenna", "Enable the external antenna",
+        switch_rows_top + switch_row_index * kSwitchRowPitch,
+        profile.antenna == radio::AntennaType::kExternal);
     ++switch_row_index;
   }
   state->add_crc_switch = CreateAddSwitchRow(body, state,
       "CRC", "Reject damaged LoRa packets",
-      switch_rows_top + switch_row_index++ * kSwitchRowPitch, profile.crc_enabled);
+      switch_rows_top + switch_row_index++ * kSwitchRowPitch,
+      profile.crc_enabled);
   state->add_iq_switch = CreateAddSwitchRow(body, state,
       "Invert IQ", "Enable only when the peer also inverts IQ",
       switch_rows_top + switch_row_index++ * kSwitchRowPitch,
@@ -6868,24 +7974,154 @@ bool CreateAddModuleContent(RadioViewState* state) {
       "RX boost", "Higher receive sensitivity",
       switch_rows_top + switch_row_index++ * kSwitchRowPitch,
       profile.rx_boosted);
-  state->add_active_switch = nullptr;
-  if (!editing) {
-    state->add_active_switch = CreateAddSwitchRow(body, state,
-        "Active profile",
-        "Only one profile can use the radio chip",
-        switch_rows_top + switch_row_index * kSwitchRowPitch, true);
-  }
   if (state->add_crc_switch == nullptr ||
       state->add_iq_switch == nullptr ||
       state->add_rx_boost_switch == nullptr ||
       (state->capabilities.supports_external_antenna &&
-      state->add_external_antenna_switch == nullptr) ||
+          state->add_external_antenna_switch == nullptr) ||
       (!editing && state->add_active_switch == nullptr)) {
     return false;
   }
   NormalizeAddBandwidthSelection(state);
   UpdateAddBandwidthOptionLayout(state);
   UpdateAddOptionSelection(state);
+  return true;
+}
+
+/**
+ * @brief 清空添加模块表单中的控件引用
+ * @param state Radio 页面状态
+ */
+void ResetAddModuleFormPointers(RadioViewState* state) {
+  state->add_name_input = nullptr;
+  state->add_frequency_input = nullptr;
+  state->add_power_input = nullptr;
+  state->add_preamble_input = nullptr;
+  state->add_sync_word_input = nullptr;
+  state->add_data_rate_input = nullptr;
+  state->add_frequency_deviation_input = nullptr;
+  state->add_address_input = nullptr;
+  state->add_address_width_input = nullptr;
+  state->add_crc_length_input = nullptr;
+  state->add_retransmit_count_input = nullptr;
+  state->add_retransmit_delay_input = nullptr;
+  state->add_crc_switch = nullptr;
+  state->add_iq_switch = nullptr;
+  state->add_rx_boost_switch = nullptr;
+  state->add_whitening_switch = nullptr;
+  state->add_fec_switch = nullptr;
+  state->add_auto_ack_switch = nullptr;
+  state->add_dynamic_payload_switch = nullptr;
+  state->add_external_antenna_switch = nullptr;
+  state->add_active_switch = nullptr;
+  for (lv_obj_t*& button : state->add_chip_buttons) {
+    button = nullptr;
+  }
+  for (lv_obj_t*& button : state->add_protocol_buttons) {
+    button = nullptr;
+  }
+  for (lv_obj_t*& button : state->add_sf_buttons) {
+    button = nullptr;
+  }
+  for (lv_obj_t*& button : state->add_bandwidth_buttons) {
+    button = nullptr;
+  }
+  for (lv_obj_t*& button : state->add_coding_rate_buttons) {
+    button = nullptr;
+  }
+  for (lv_obj_t*& button : state->add_output_power_buttons) {
+    button = nullptr;
+  }
+  for (lv_obj_t*& button : state->add_preamble_buttons) {
+    button = nullptr;
+  }
+  for (lv_obj_t*& button : state->add_receive_bandwidth_buttons) {
+    button = nullptr;
+  }
+  for (lv_obj_t*& button : state->add_data_rate_buttons) {
+    button = nullptr;
+  }
+}
+
+/**
+ * @brief 创建共享键盘并绑定当前协议的所有输入框
+ * @param state Radio 页面状态
+ * @return 创建和绑定成功时返回 true
+ */
+bool CreateAddModuleKeyboard(RadioViewState* state) {
+  if (state == nullptr || state->add_page == nullptr) {
+    return false;
+  }
+  SharedKeyboardConfig keyboard_config;
+  keyboard_config.width = state->config.width;
+  keyboard_config.height =
+      state->config.height * kAddKeyboardHeightPercent / 100;
+  state->add_keyboard = CreateSharedKeyboard(
+      state->add_page, keyboard_config);
+  if (state->add_keyboard == nullptr) {
+    return false;
+  }
+  const auto attach = [&](lv_obj_t* input,
+                          const char* accepted_chars) -> bool {
+    return input == nullptr || AttachSharedKeyboardToTextArea(
+        state->add_keyboard, input, accepted_chars);
+  };
+  const bool editing = state->editing_index < state->module_count;
+  const bool result =
+      (editing || attach(state->add_name_input, kProfileNameAcceptedChars)) &&
+      attach(state->add_frequency_input, kFrequencyAcceptedChars) &&
+      attach(state->add_power_input, "-0123456789") &&
+      attach(state->add_preamble_input, kIntegerAcceptedChars) &&
+      attach(state->add_sync_word_input, kHexAcceptedChars) &&
+      attach(state->add_data_rate_input, kIntegerAcceptedChars) &&
+      attach(state->add_frequency_deviation_input, kIntegerAcceptedChars) &&
+      attach(state->add_address_input, kHexAcceptedChars) &&
+      attach(state->add_address_width_input, kIntegerAcceptedChars) &&
+      attach(state->add_crc_length_input, kIntegerAcceptedChars) &&
+      attach(state->add_retransmit_count_input, kIntegerAcceptedChars) &&
+      attach(state->add_retransmit_delay_input, kIntegerAcceptedChars);
+  if (!result) {
+    lv_obj_delete(state->add_keyboard);
+    state->add_keyboard = nullptr;
+    return false;
+  }
+  lv_obj_add_flag(state->add_keyboard, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  AddEdgeBackSwipeEvents(
+      state->add_keyboard, AddPageEdgeBackEventCallback, state);
+  return true;
+}
+
+/**
+ * @brief 芯片切换后按对应协议重新创建参数表单
+ * @param state Radio 页面状态
+ * @return 表单和共享键盘重建成功时返回 true
+ */
+bool RebuildAddModuleForm(RadioViewState* state) {
+  if (state == nullptr || state->add_body == nullptr ||
+      state->add_page == nullptr || state->add_closing) {
+    return false;
+  }
+  char profile_name[app::kRadioProfileNameCapacity] = {};
+  if (state->add_name_input != nullptr) {
+    CopyBoundedString(profile_name, sizeof(profile_name),
+        lv_textarea_get_text(state->add_name_input));
+  }
+  lv_obj_clean(state->add_body);
+  if (state->add_keyboard != nullptr) {
+    lv_obj_delete(state->add_keyboard);
+    state->add_keyboard = nullptr;
+  }
+  ResetAddModuleFormPointers(state);
+  if (!CreateAddModuleContent(state)) {
+    return false;
+  }
+  if (state->add_name_input != nullptr) {
+    lv_textarea_set_text(state->add_name_input, profile_name);
+  }
+  if (!CreateAddModuleKeyboard(state)) {
+    return false;
+  }
+  UpdateAddSubmitButton(state);
   return true;
 }
 
@@ -6914,7 +8150,7 @@ bool CreateAddModuleHeader(lv_obj_t* page, RadioViewState* state) {
   lv_obj_align(icon_label, LV_ALIGN_CENTER, -4, 0);
   lv_obj_t* title = CreateLabel(
       page, state->editing_index < state->module_count
-          ? "Radio profile"
+          ? "Radio settings"
           : "Add Radio profile",
       kMainTextColor, Font32());
   if (title == nullptr) {
@@ -6997,40 +8233,45 @@ bool ShowAddModulePage(RadioViewState* state) {
   }
   state->selected_add_chip = 0;
   state->selected_add_protocol = 0;
-  const bool editing = state->editing_index < state->module_count; app::RadioProfile profile = editing
+  const bool editing = state->editing_index < state->module_count;
+  app::RadioProfile profile = editing
       ? state->preferences.profiles[state->editing_index]
       : app::RadioProfile{};
-  ApplyPrimaryRadioCapability(state, &profile);
+  if (editing) {
+    bool capability_found = false;
+    for (size_t capability_index = 0;
+         capability_index < state->capabilities.count; ++capability_index) {
+      const hal::RadioCapability& capability =
+          state->capabilities.entries[capability_index];
+      if (capability.chip == profile.chip &&
+          capability.protocol == profile.protocol) {
+        state->selected_add_chip = static_cast<int>(capability_index);
+        capability_found = true;
+        break;
+      }
+    }
+    if (!capability_found) {
+      state->editing_index = kRadioModuleCapacity;
+      return false;
+    }
+  } else {
+    ApplyPrimaryRadioCapability(state, &profile);
+  }
   state->selected_add_sf = editing
       ? std::clamp(static_cast<int>(profile.spreading_factor) - 5, 0, 7)
       : kDefaultSpreadingFactorIndex;
   state->selected_add_bandwidth = 1;
   for (size_t index = 0; index < AddProfileBandwidthCount(state); ++index) {
-    if (profile.bandwidth_hz == AddProfileBandwidth(state,index)) {
-      state->selected_add_bandwidth = static_cast<int>( index);
+    if (profile.bandwidth_hz == AddProfileBandwidth(state, index)) {
+      state->selected_add_bandwidth = static_cast<int>(index);
     }
   }
   state->selected_add_coding_rate = std::clamp(
       static_cast<int>(profile.coding_rate_denominator) - 5, 0, 3);
   state->add_submitting = false;
   state->add_closing = false;
-  state->add_name_input = nullptr;
   state->add_edge_swipe = EdgeBackSwipeState();
-  for (lv_obj_t*& button : state->add_chip_buttons) {
-    button = nullptr;
-  }
-  for (lv_obj_t*& button : state->add_protocol_buttons) {
-    button = nullptr;
-  }
-  for (lv_obj_t*& button : state->add_sf_buttons) {
-    button = nullptr;
-  }
-  for (lv_obj_t*& button : state->add_bandwidth_buttons) {
-    button = nullptr;
-  }
-  for (lv_obj_t*& button : state->add_coding_rate_buttons) {
-    button = nullptr;
-  }
+  ResetAddModuleFormPointers(state);
 
   lv_obj_t* page = lv_obj_create(state->root);
   if (page == nullptr) {
@@ -7087,23 +8328,7 @@ bool ShowAddModulePage(RadioViewState* state) {
     return false;
   }
 
-  SharedKeyboardConfig keyboard_config;
-  keyboard_config.width = state->config.width;
-  keyboard_config.height =
-      state->config.height * kAddKeyboardHeightPercent / 100;
-  state->add_keyboard = CreateSharedKeyboard(page, keyboard_config);
-  if (state->add_keyboard == nullptr ||
-      (!editing && !AttachSharedKeyboardToTextArea(state->add_keyboard,
-          state->add_name_input, kProfileNameAcceptedChars)) ||
-      !AttachSharedKeyboardToTextArea(state->add_keyboard,
-          state->add_frequency_input, kFrequencyAcceptedChars) ||
-      !AttachSharedKeyboardToTextArea(state->add_keyboard,
-          state->add_power_input, "-0123456789") ||
-      !AttachSharedKeyboardToTextArea(state->add_keyboard,
-          state->add_preamble_input, kIntegerAcceptedChars) ||
-      !AttachSharedKeyboardToTextArea(state->add_keyboard,
-          state->add_sync_word_input,
-          kHexAcceptedChars)) {
+  if (!CreateAddModuleKeyboard(state)) {
     lv_obj_delete(page);
     state->add_page = nullptr;
     state->add_body = nullptr;
@@ -7111,9 +8336,6 @@ bool ShowAddModulePage(RadioViewState* state) {
     state->add_keyboard = nullptr;
     return false;
   }
-  lv_obj_add_flag(state->add_keyboard, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  AddEdgeBackSwipeEvents(
-      state->add_keyboard, AddPageEdgeBackEventCallback, state);
   EnableEdgeBackSwipeEventBubble(page);
   if (!StartSlideLeftWindowTransition(page, state->config.width,
       kAnimationMs, state, nullptr)) {
@@ -7246,23 +8468,35 @@ lv_obj_t* CreateRadioView(lv_obj_t* parent, const app::AppEntry& app_entry,
     if (config.radio->ReadRadioCapabilities(&state->capabilities)) {
       state->capabilities.count = std::min(
           state->capabilities.count, hal::kRadioCapabilityCapacity);
+      for (size_t index = 0; index < state->capabilities.count; ++index) {
+        state->capabilities.entries[index].frequency_band_count = std::min(
+            state->capabilities.entries[index].frequency_band_count,
+            hal::kRadioFrequencyBandCapacity);
+      }
     }
   }
   app::GetRadioPreferences(&state->preferences);
   app::RadioChatRepository& chat_repository = app::GetRadioChatRepository();
   chat_repository.Initialize();
-  chat_repository.TouchProfile(state->preferences.active_profile_id);
+  for (size_t index = 0;
+       index < state->preferences.profile_count; ++index) {
+    if (state->preferences.profiles[index].active) {
+      chat_repository.TouchProfile(state->preferences.profiles[index].id);
+    }
+  }
   if (!LoadCurrentChatProfiles(state)) {
     SyncModuleItems(state);
   }
-  const size_t active_index = FindProfileIndex(
-      state, state->preferences.active_profile_id);
-  if (config.radio != nullptr && active_index < state->module_count &&
-      IsProfileSupported(
-          state, state->preferences.profiles[active_index])) {
-    state->last_activation_retry_tick = lv_tick_get();
-    QueueRadioControlCommand(state, RadioCommandType::kActivate,
-        ToRadioConfig(state->preferences.profiles[active_index]));
+  if (config.radio != nullptr) {
+    for (size_t index = 0; index < state->module_count; ++index) {
+      const app::RadioProfile& profile = state->preferences.profiles[index];
+      if (profile.active && IsProfileSupported(state, profile)) {
+        state->last_activation_retry_tick = lv_tick_get();
+        QueueRadioControlCommand(state, RadioCommandType::kActivate,
+            ToRadioConfig(profile));
+        break;
+      }
+    }
   }
   lv_obj_t* root = lv_obj_create(parent);
   if (root == nullptr) {

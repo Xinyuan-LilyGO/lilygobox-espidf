@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <iterator>
 #include <memory>
 #include <new>
 #include <string>
@@ -143,7 +144,7 @@ KeyboardKey ToKeyboardKey(
     case KeyCode::kBackspace:
       return KeyboardKey::kBackspace;
     case KeyCode::kEnter:
-      return KeyboardKey::kEnter;
+      return shift_pressed ? KeyboardKey::kLineBreak : KeyboardKey::kEnter;
     case KeyCode::kTab:
       return shift_pressed ? KeyboardKey::kPrevious : KeyboardKey::kNext;
     case KeyCode::kUp:
@@ -769,6 +770,209 @@ bool CalculateLoraTransmitTiming(const LoraRadioConfig& config,
   return true;
 }
 
+/**
+ * @brief 将公共 GFSK 参数转换为 CC1101 驱动配置
+ * @param source 公共 GFSK 参数
+ * @param target CC1101 驱动配置输出
+ * @return 参数有效时返回 true
+ */
+bool BuildCc1101Config(const GfskRadioConfig& source,
+    cpp_bus_driver::Cc1101::Config* target) {
+  if (target == nullptr || source.frequency_hz == 0 ||
+      source.data_rate_bps == 0 || source.frequency_deviation_hz == 0 ||
+      source.receive_bandwidth_hz == 0 ||
+      source.preamble_length_bits == 0) {
+    return false;
+  }
+  *target = cpp_bus_driver::Cc1101::Config{};
+  target->frequency_mhz = static_cast<double>(source.frequency_hz) / 1000000.0;
+  target->data_rate_kbaud =
+      static_cast<double>(source.data_rate_bps) / 1000.0;
+  target->frequency_deviation_khz =
+      static_cast<double>(source.frequency_deviation_hz) / 1000.0;
+  target->receive_bandwidth_khz =
+      static_cast<double>(source.receive_bandwidth_hz) / 1000.0;
+  target->output_power_dbm = source.output_power_dbm;
+  target->preamble_length_bits = source.preamble_length_bits;
+  target->sync_word_high = static_cast<uint8_t>(source.sync_word >> 8);
+  target->sync_word_low = static_cast<uint8_t>(source.sync_word);
+  target->modulation = cpp_bus_driver::Cc1101::Modulation::kGfsk;
+  target->encoding = source.whitening_enabled
+      ? cpp_bus_driver::Cc1101::Encoding::kWhitening
+      : cpp_bus_driver::Cc1101::Encoding::kNrz;
+  target->maximum_packet_length = 60;
+  target->packet_length_mode = source.fec_enabled
+      ? cpp_bus_driver::Cc1101::PacketLengthMode::kFixed
+      : cpp_bus_driver::Cc1101::PacketLengthMode::kVariable;
+  target->crc_enabled = source.crc_enabled;
+  target->crc_autoflush = source.crc_enabled;
+  target->append_status = true;
+  target->fec_enabled = source.fec_enabled;
+  return true;
+}
+
+/**
+ * @brief 根据中心频率选择键盘扩展板上的 CC1101 射频通路
+ * @param frequency_hz 中心频率，单位为 Hz
+ * @param rf_switch 射频开关输出
+ * @return 频率属于板级支持频段时返回 true
+ */
+bool SelectCc1101RfSwitch(uint32_t frequency_hz,
+    lilygo_device_driver::TDisplayP4Driver::Cc1101RfSwitch* rf_switch) {
+  if (rf_switch == nullptr) {
+    return false;
+  }
+  if (frequency_hz >= 300000000U && frequency_hz <= 348000000U) {
+    *rf_switch = lilygo_device_driver::TDisplayP4Driver::
+        Cc1101RfSwitch::k315Mhz;
+    return true;
+  }
+  if (frequency_hz >= 387000000U && frequency_hz <= 464000000U) {
+    *rf_switch = lilygo_device_driver::TDisplayP4Driver::
+        Cc1101RfSwitch::k434Mhz;
+    return true;
+  }
+  if (frequency_hz >= 779000000U && frequency_hz <= 928000000U) {
+    *rf_switch = lilygo_device_driver::TDisplayP4Driver::
+        Cc1101RfSwitch::k868_915Mhz;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * @brief 将空中数据速率转换为 nRF24L01 驱动枚举
+ * @param data_rate_bps 空中数据速率，单位为 bit/s
+ * @param data_rate 驱动数据速率输出
+ * @return 速率受芯片支持时返回 true
+ */
+bool SelectNrf24l01DataRate(uint32_t data_rate_bps,
+    cpp_bus_driver::Nrf24l01x::DataRate* data_rate) {
+  if (data_rate == nullptr) {
+    return false;
+  }
+  switch (data_rate_bps) {
+    case 250000:
+      *data_rate = cpp_bus_driver::Nrf24l01x::DataRate::k250Kbps;
+      return true;
+    case 1000000:
+      *data_rate = cpp_bus_driver::Nrf24l01x::DataRate::k1Mbps;
+      return true;
+    case 2000000:
+      *data_rate = cpp_bus_driver::Nrf24l01x::DataRate::k2Mbps;
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * @brief 将发射功率转换为 nRF24L01 驱动枚举
+ * @param output_power_dbm 发射功率，单位为 dBm
+ * @param output_power 驱动发射功率输出
+ * @return 功率受芯片支持时返回 true
+ */
+bool SelectNrf24l01OutputPower(int8_t output_power_dbm,
+    cpp_bus_driver::Nrf24l01x::OutputPower* output_power) {
+  if (output_power == nullptr) {
+    return false;
+  }
+  switch (output_power_dbm) {
+    case -18:
+      *output_power = cpp_bus_driver::Nrf24l01x::OutputPower::kMinus18Dbm;
+      return true;
+    case -12:
+      *output_power = cpp_bus_driver::Nrf24l01x::OutputPower::kMinus12Dbm;
+      return true;
+    case -6:
+      *output_power = cpp_bus_driver::Nrf24l01x::OutputPower::kMinus6Dbm;
+      return true;
+    case 0:
+      *output_power = cpp_bus_driver::Nrf24l01x::OutputPower::kZeroDbm;
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * @brief 获取 nRF24L01 发射结果的日志说明
+ * @param result nRF24L01 发射结果
+ * @return 静态结果说明
+ */
+const char* Nrf24l01TransmitResultName(
+    cpp_bus_driver::Nrf24l01x::TransmitResult result) {
+  using TransmitResult = cpp_bus_driver::Nrf24l01x::TransmitResult;
+  switch (result) {
+    case TransmitResult::kSuccess:
+      return "success";
+    case TransmitResult::kMaximumRetransmit:
+      return "maximum retransmit";
+    case TransmitResult::kTimeout:
+      return "timeout";
+    case TransmitResult::kInvalidArgument:
+      return "invalid argument";
+    case TransmitResult::kBusError:
+      return "bus or GPIO error";
+  }
+  return "unknown";
+}
+
+/**
+ * @brief 将公共 Enhanced ShockBurst 参数转换为 nRF24L01 驱动配置
+ * @param source 公共 Enhanced ShockBurst 参数
+ * @param target nRF24L01 驱动配置输出
+ * @return 参数有效时返回 true
+ */
+bool BuildNrf24l01Config(const EnhancedShockBurstRadioConfig& source,
+    cpp_bus_driver::Nrf24l01x::Config* target) {
+  cpp_bus_driver::Nrf24l01x::DataRate data_rate;
+  cpp_bus_driver::Nrf24l01x::OutputPower output_power;
+  if (target == nullptr || source.channel > 125 ||
+      source.address_width < 3 || source.address_width > 5 ||
+      (source.crc_length_bits != 8 && source.crc_length_bits != 16) ||
+      (source.dynamic_payload_enabled && !source.auto_ack_enabled) ||
+      source.retransmit_count > 15 || source.retransmit_delay_us < 250 ||
+      source.retransmit_delay_us > 4000 ||
+      source.retransmit_delay_us % 250 != 0 ||
+      !SelectNrf24l01DataRate(source.data_rate_bps, &data_rate) ||
+      !SelectNrf24l01OutputPower(source.output_power_dbm, &output_power)) {
+    return false;
+  }
+  *target = cpp_bus_driver::Nrf24l01x::Config{};
+  target->operation_mode =
+      cpp_bus_driver::Nrf24l01x::OperationMode::kPrimaryReceiver;
+  target->power_mode = cpp_bus_driver::Nrf24l01x::PowerMode::kPowerUp;
+  target->crc_mode = source.crc_length_bits == 16
+      ? cpp_bus_driver::Nrf24l01x::CrcMode::k16Bit
+      : cpp_bus_driver::Nrf24l01x::CrcMode::k8Bit;
+  target->output_power = output_power;
+  target->data_rate = data_rate;
+  target->address_width = static_cast<cpp_bus_driver::Nrf24l01x::AddressWidth>(
+      source.address_width);
+  target->rf_channel = source.channel;
+  target->retransmit_count = source.retransmit_count;
+  target->retransmit_delay_us = source.retransmit_delay_us;
+  target->enabled_pipe_mask = 0x01;
+  target->auto_ack_pipe_mask = source.auto_ack_enabled ? 0x01 : 0;
+  target->dynamic_payload_enabled = source.dynamic_payload_enabled;
+  target->dynamic_payload_pipe_mask =
+      source.dynamic_payload_enabled && source.auto_ack_enabled ? 0x01 : 0;
+  target->rx_payload_width[0] = source.dynamic_payload_enabled ? 0 : 32;
+  return true;
+}
+
+/**
+ * @brief 按 nRF24L01 寄存器写入顺序编码五字节地址
+ * @param address 数值形式的空中地址
+ * @param output 五字节地址输出
+ */
+void EncodeNrf24l01Address(uint64_t address, uint8_t* output) {
+  for (size_t index = 0; index < 5; ++index) {
+    output[index] = static_cast<uint8_t>(address >> (index * 8));
+  }
+}
+
 }  // namespace
 
 TDisplayP4Device::TDisplayP4Device()
@@ -776,6 +980,8 @@ TDisplayP4Device::TDisplayP4Device()
       tool_(std::make_unique<cpp_bus_driver::Tool>()) {
   wifi_.scan_results_mutex = xSemaphoreCreateMutex();
   radio_.mutex = xSemaphoreCreateMutex();
+  cc1101_radio_.mutex = xSemaphoreCreateMutex();
+  nrf24l01_radio_.mutex = xSemaphoreCreateMutex();
   nfc_.mutex = xSemaphoreCreateMutex();
 }
 
@@ -1038,19 +1244,54 @@ bool TDisplayP4Device::StartKeyboardExpansionScan() {
 
 bool TDisplayP4Device::DeinitializeKeyboardExpansionHardware(
     KeyboardExpansionState final_state) {
+  const KeyboardExpansionState previous_state =
+      keyboard_expansion_.state.load();
+  RadioState* extension_states[] = {&cc1101_radio_, &nrf24l01_radio_};
+  for (RadioState* state : extension_states) {
+    if (state->mutex == nullptr ||
+        xSemaphoreTake(state->mutex, pdMS_TO_TICKS(2000)) != pdTRUE) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Wait for keyboard expansion Radio session failed\n");
+      return false;
+    }
+    const bool active = state->active;
+    const uint32_t client_token = state->active_client_token;
+    const radio::ChipType chip = state->chip;
+    const radio::ProtocolType protocol = state->protocol;
+    xSemaphoreGive(state->mutex);
+    if (!active) {
+      continue;
+    }
+    if (!DeactivateRadio(client_token)) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Stop keyboard expansion Radio session failed\n");
+      return false;
+    }
+    if (xSemaphoreTake(state->mutex, pdMS_TO_TICKS(2000)) != pdTRUE) {
+      return false;
+    }
+    // 保留逻辑激活项，让扩展板重新连接后由 Radio 页面自动恢复会话。
+    state->active_client_token = client_token;
+    state->chip = chip;
+    state->protocol = protocol;
+    state->chip_error = true;
+    xSemaphoreGive(state->mutex);
+  }
+  // 先停止发布键盘和扩展射频能力，避免清理过程中重新排队硬件操作。
+  keyboard_expansion_.state.store(final_state);
   if (!SetNfcPollingEnabled(false)) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Stop keyboard expansion NFC polling failed\n");
+    keyboard_expansion_.state.store(
+        KeyboardExpansionState::kComponentFailure);
     return false;
   }
   if (!WaitForKeyboardExpansionTask()) {
+    keyboard_expansion_.state.store(
+        KeyboardExpansionState::kComponentFailure);
     return false;
   }
 
-  const KeyboardExpansionState previous_state =
-      keyboard_expansion_.state.load();
-  // 先停止向 LVGL 发布键盘事件，再释放中断和芯片资源。
-  keyboard_expansion_.state.store(final_state);
   const bool interrupt_deinitialized =
       DeinitializeKeyboardExpansionInterrupt();
   const auto deinit_mode =
@@ -5140,78 +5381,317 @@ bool TDisplayP4Device::ReadRadioCapabilities(RadioCapabilities* capabilities) {
   };
   capability.frequency_band_count = 1;
   capabilities->count = 1;
+  if (keyboard_expansion_.state.load() == KeyboardExpansionState::kReady &&
+      driver_.IsCc1101Ready()) {
+    RadioCapability& cc1101 = capabilities->entries[capabilities->count++];
+    cc1101.chip = radio::ChipType::kCc1101;
+    cc1101.protocol = radio::ProtocolType::kGfsk;
+    cc1101.maximum_payload_size = 60;
+    cc1101.frequency_bands[0] = {
+        .minimum_hz = 300000000U,
+        .maximum_hz = 348000000U,
+    };
+    cc1101.frequency_bands[1] = {
+        .minimum_hz = 387000000U,
+        .maximum_hz = 464000000U,
+    };
+    cc1101.frequency_bands[2] = {
+        .minimum_hz = 779000000U,
+        .maximum_hz = 928000000U,
+    };
+    cc1101.frequency_band_count = 3;
+  }
+  if (keyboard_expansion_.state.load() == KeyboardExpansionState::kReady &&
+      driver_.IsNrf24l01Ready()) {
+    RadioCapability& nrf24l01 =
+        capabilities->entries[capabilities->count++];
+    nrf24l01.chip = radio::ChipType::kNrf24l01;
+    nrf24l01.protocol = radio::ProtocolType::kEnhancedShockBurst;
+    nrf24l01.maximum_payload_size =
+        cpp_bus_driver::Nrf24l01x::kMaximumPayloadLength;
+    nrf24l01.frequency_bands[0] = {
+        .minimum_hz = 2400000000U,
+        .maximum_hz = 2525000000U,
+    };
+    nrf24l01.frequency_band_count = 1;
+  }
   capabilities->supports_external_antenna = true;
   return true;
 }
 
+bool TDisplayP4Device::InitializeCc1101ReceiveInterrupt() {
+  if (cc1101_radio_.receive_interrupt_initialized) {
+    return true;
+  }
+  if (tool_ == nullptr || !driver_.IsCc1101Ready()) {
+    return false;
+  }
+
+  cc1101_radio_.receive_interrupt_pending.store(
+      false, std::memory_order_relaxed);
+  if (!tool_->InitGpioInterrupt(keyboard_gpio::t_mix_rf::cc1101::kGdo0,
+          cpp_bus_driver::Tool::InterruptMode::kFalling,
+          Cc1101ReceiveInterruptHandler, this,
+          cpp_bus_driver::Tool::GpioStatus::kDisable)) {
+    return false;
+  }
+  cc1101_radio_.receive_interrupt_initialized = true;
+  return true;
+}
+
+bool TDisplayP4Device::DeinitializeCc1101ReceiveInterrupt() {
+  cc1101_radio_.receive_interrupt_pending.store(
+      false, std::memory_order_relaxed);
+  if (!cc1101_radio_.receive_interrupt_initialized) {
+    return true;
+  }
+
+  const bool result = tool_ != nullptr && tool_->DeinitGpioInterrupt(
+      keyboard_gpio::t_mix_rf::cc1101::kGdo0);
+  cc1101_radio_.receive_interrupt_initialized = false;
+  cc1101_radio_.receive_interrupt_pending.store(
+      false, std::memory_order_relaxed);
+  return result;
+}
+
+void TDisplayP4Device::Cc1101ReceiveInterruptHandler(void* context) {
+  if (context == nullptr) {
+    return;
+  }
+  auto* device = static_cast<TDisplayP4Device*>(context);
+  device->cc1101_radio_.receive_interrupt_pending.store(
+      true, std::memory_order_release);
+}
+
+TDisplayP4Device::RadioState* TDisplayP4Device::RadioStateForChip(
+    radio::ChipType chip) {
+  switch (chip) {
+    case radio::ChipType::kSx1262:
+    case radio::ChipType::kLr1121:
+      return &radio_;
+    case radio::ChipType::kCc1101:
+      return &cc1101_radio_;
+    case radio::ChipType::kNrf24l01:
+      return &nrf24l01_radio_;
+    default:
+      return nullptr;
+  }
+}
+
+TDisplayP4Device::RadioState* TDisplayP4Device::FindRadioState(
+    uint32_t client_token) {
+  if (client_token == 0) {
+    return nullptr;
+  }
+  RadioState* states[] = {&radio_, &cc1101_radio_, &nrf24l01_radio_};
+  for (RadioState* state : states) {
+    if (state->active_client_token == client_token) {
+      return state;
+    }
+  }
+  return nullptr;
+}
+
 bool TDisplayP4Device::ActivateRadio(const RadioConfig& config) {
-  if (radio_.mutex == nullptr ||
-      xSemaphoreTake(radio_.mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
+  RadioState* state = RadioStateForChip(config.chip);
+  if (state == nullptr) {
+    return false;
+  }
+  if (state->mutex == nullptr ||
+      xSemaphoreTake(state->mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Radio activate failed: mutex unavailable, profile=%lu\n",
         static_cast<unsigned long>(config.client_token));
     return false;
   }
-  usp_cpp_bus_driver::Sx126x::LoraConfig driver_config;
-  const bool antenna_supported =
-      config.antenna == radio::AntennaType::kInternal ||
-      config.antenna == radio::AntennaType::kExternal;
-  bool result = config.chip == radio::ChipType::kSx1262 &&
-                config.protocol == radio::ProtocolType::kLora &&
-                antenna_supported &&
-                BuildSx1262Config(config.lora, &driver_config);
-  if (result) {
-    auto* antenna_switch = driver_.chip().xl9535.get();
-    const uint8_t antenna_level =
-        config.antenna == radio::AntennaType::kExternal ? 0 : 1;
-    result = driver_.IsXl9535Ready() && antenna_switch != nullptr &&
-             antenna_switch->GpioWrite(
-                 gpio::xl9535::kSky13453Vctl, antenna_level);
+  bool previous_session_stopped = true;
+  if (state->active && state->chip == radio::ChipType::kCc1101) {
+    previous_session_stopped &= DeinitializeCc1101ReceiveInterrupt();
   }
-  if (result && driver_.SetSx1262OperatingMode(
-                    lilygo_device_driver::TDisplayP4Driver::
-                        Sx1262OperatingMode::kStandby)) {
-    auto* radio = driver_.chip().sx1262.get();
-    result = radio != nullptr && radio->Configure(driver_config) &&
-             radio->StartReceive();
-  } else {
-    result = false;
+  if (state->active) {
+    if (state->chip == radio::ChipType::kSx1262 &&
+        driver_.IsSx1262Ready()) {
+      auto* radio = driver_.chip().sx1262.get();
+      previous_session_stopped = radio != nullptr &&
+          radio->Invoke(sx126x_set_standby, SX126X_STANDBY_CFG_RC) ==
+              SX126X_STATUS_OK;
+    } else if (state->chip == radio::ChipType::kCc1101 &&
+               driver_.IsCc1101Ready()) {
+      auto* radio = driver_.chip().cc1101.get();
+      previous_session_stopped &= radio != nullptr && radio->Standby() &&
+          driver_.SetCc1101OperatingMode(
+              lilygo_device_driver::TDisplayP4Driver::
+                  Cc1101OperatingMode::kSleep);
+    } else if (state->chip == radio::ChipType::kNrf24l01 &&
+               driver_.IsNrf24l01Ready()) {
+      auto* radio = driver_.chip().nrf24l01.get();
+      previous_session_stopped = radio != nullptr && radio->StopReceive() &&
+          driver_.SetNrf24l01OperatingMode(
+              lilygo_device_driver::TDisplayP4Driver::
+                  Nrf24l01OperatingMode::kSleep);
+    }
   }
-  if (!result) {
-    driver_.SetSx1262OperatingMode(
-        lilygo_device_driver::TDisplayP4Driver::Sx1262OperatingMode::kSleep);
+  if (!previous_session_stopped) {
+    state->active = false;
+    state->transmitting = false;
+    state->chip_error = true;
+    xSemaphoreGive(state->mutex);
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Radio activate failed: previous session could not stop\n");
+    return false;
   }
-  radio_.active = result;
-  radio_.transmitting = false;
-  radio_.chip_error = !result;
-  radio_.active_client_token = config.client_token;
-  radio_.transmit_request_token = 0;
-  radio_.transmit_deadline_us = 0;
-  radio_.lora_config = config.lora;
-  xSemaphoreGive(radio_.mutex);
+  bool result = false;
+  if (config.chip == radio::ChipType::kSx1262 &&
+      config.protocol == radio::ProtocolType::kLora) {
+    usp_cpp_bus_driver::Sx126x::LoraConfig driver_config;
+    const bool antenna_supported =
+        config.antenna == radio::AntennaType::kInternal ||
+        config.antenna == radio::AntennaType::kExternal;
+    result = antenna_supported && BuildSx1262Config(
+        config.lora, &driver_config);
+    if (result) {
+      auto* antenna_switch = driver_.chip().xl9535.get();
+      const uint8_t antenna_level =
+          config.antenna == radio::AntennaType::kExternal ? 0 : 1;
+      result = driver_.IsXl9535Ready() && antenna_switch != nullptr &&
+               antenna_switch->GpioWrite(
+                   gpio::xl9535::kSky13453Vctl, antenna_level);
+    }
+    if (result) {
+      result = driver_.SetSx1262OperatingMode(
+          lilygo_device_driver::TDisplayP4Driver::
+              Sx1262OperatingMode::kStandby);
+    }
+    if (result) {
+      auto* radio = driver_.chip().sx1262.get();
+      result = radio != nullptr && radio->Configure(driver_config) &&
+               radio->StartReceive();
+    }
+    if (!result) {
+      driver_.SetSx1262OperatingMode(
+          lilygo_device_driver::TDisplayP4Driver::
+              Sx1262OperatingMode::kSleep);
+    }
+  } else if (config.chip == radio::ChipType::kCc1101 &&
+             config.protocol == radio::ProtocolType::kGfsk &&
+             config.antenna == radio::AntennaType::kInternal &&
+             keyboard_expansion_.state.load() ==
+                 KeyboardExpansionState::kReady) {
+    cpp_bus_driver::Cc1101::Config driver_config;
+    lilygo_device_driver::TDisplayP4Driver::Cc1101RfSwitch rf_switch;
+    result = driver_.IsCc1101Ready() &&
+             BuildCc1101Config(config.gfsk, &driver_config) &&
+             SelectCc1101RfSwitch(config.gfsk.frequency_hz, &rf_switch) &&
+             driver_.SetCc1101RfSwitch(rf_switch) &&
+             driver_.SetCc1101OperatingMode(
+                 lilygo_device_driver::TDisplayP4Driver::
+                     Cc1101OperatingMode::kStandby);
+    if (result) {
+      auto* radio = driver_.chip().cc1101.get();
+      result = radio != nullptr && radio->Configure(driver_config);
+      if (result) {
+        result = InitializeCc1101ReceiveInterrupt();
+      }
+      if (result) {
+        cc1101_radio_.receive_interrupt_pending.store(
+            false, std::memory_order_relaxed);
+        result = radio->StartReceive();
+      }
+    }
+    if (!result) {
+      DeinitializeCc1101ReceiveInterrupt();
+      driver_.SetCc1101OperatingMode(
+          lilygo_device_driver::TDisplayP4Driver::
+              Cc1101OperatingMode::kSleep);
+    }
+  } else if (config.chip == radio::ChipType::kNrf24l01 &&
+             config.protocol ==
+                 radio::ProtocolType::kEnhancedShockBurst &&
+             config.antenna == radio::AntennaType::kInternal &&
+             keyboard_expansion_.state.load() ==
+                 KeyboardExpansionState::kReady) {
+    cpp_bus_driver::Nrf24l01x::Config driver_config;
+    result = driver_.IsNrf24l01Ready() && BuildNrf24l01Config(
+        config.enhanced_shock_burst, &driver_config) &&
+        driver_.SetNrf24l01OperatingMode(
+            lilygo_device_driver::TDisplayP4Driver::
+                Nrf24l01OperatingMode::kStandby);
+    if (result) {
+      uint8_t address[5] = {};
+      EncodeNrf24l01Address(
+          config.enhanced_shock_burst.address, address);
+      auto* radio = driver_.chip().nrf24l01.get();
+      const size_t address_width =
+          config.enhanced_shock_burst.address_width;
+      result = radio != nullptr && radio->Configure(driver_config) &&
+               radio->SetAddress(cpp_bus_driver::Nrf24l01x::Address::kPipe0,
+                   address, address_width) &&
+               radio->SetAddress(
+                   cpp_bus_driver::Nrf24l01x::Address::kTransmit,
+                   address, address_width) &&
+               radio->StartReceive();
+    }
+    if (!result) {
+      driver_.SetNrf24l01OperatingMode(
+          lilygo_device_driver::TDisplayP4Driver::
+              Nrf24l01OperatingMode::kSleep);
+    }
+  }
+  state->active = result;
+  state->transmitting = false;
+  state->chip_error = !result;
+  state->active_client_token = config.client_token;
+  state->transmit_request_token = 0;
+  state->transmit_deadline_us = 0;
+  state->lora_config = config.lora;
+  state->gfsk_config = config.gfsk;
+  state->enhanced_shock_burst_config = config.enhanced_shock_burst;
+  state->chip = config.chip;
+  state->protocol = config.protocol;
+  state->pending_event = RadioEvent();
+  xSemaphoreGive(state->mutex);
   LogMessage(result ? LogLevel::kDebug : LogLevel::kError, __FILE__, __LINE__,
-      "Radio activate %s: profile=%lu, frequency=%lu Hz, SF=%u, "
-      "bandwidth=%lu Hz, antenna=%s\n",
+      "Radio activate %s: profile=%lu, chip=%u, protocol=%u\n",
       result ? "succeeded" : "failed",
       static_cast<unsigned long>(config.client_token),
-      static_cast<unsigned long>(config.lora.frequency_hz),
-      static_cast<unsigned>(config.lora.spreading_factor),
-      static_cast<unsigned long>(config.lora.bandwidth_hz),
-      config.antenna == radio::AntennaType::kExternal ? "RF2" : "RF1");
+      static_cast<unsigned>(config.chip),
+      static_cast<unsigned>(config.protocol));
   return result;
 }
 
 bool TDisplayP4Device::DeactivateRadio() {
-  if (radio_.mutex == nullptr ||
-      xSemaphoreTake(radio_.mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
+  bool result = true;
+  RadioState* states[] = {&radio_, &cc1101_radio_, &nrf24l01_radio_};
+  for (RadioState* state : states) {
+    if (state->active || state->active_client_token != 0) {
+      result &= DeactivateRadioState(state);
+    }
+  }
+  return result;
+}
+
+bool TDisplayP4Device::DeactivateRadio(uint32_t client_token) {
+  if (client_token == 0) {
+    return DeactivateRadio();
+  }
+  RadioState* state = FindRadioState(client_token);
+  return state != nullptr && DeactivateRadioState(state);
+}
+
+bool TDisplayP4Device::DeactivateRadioState(RadioState* state) {
+  if (state->mutex == nullptr ||
+      xSemaphoreTake(state->mutex, pdMS_TO_TICKS(2000)) != pdTRUE) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Radio deactivate failed: mutex unavailable\n");
     return false;
   }
   bool result = true;
-  if (driver_.IsSx1262Ready()) {
+  if (state->chip == radio::ChipType::kCc1101) {
+    result &= DeinitializeCc1101ReceiveInterrupt();
+  }
+  if (state->chip == radio::ChipType::kSx1262 && driver_.IsSx1262Ready()) {
     auto* radio = driver_.chip().sx1262.get();
-    if (radio_.active) {
+    if (state->active) {
       result = radio != nullptr &&
                radio->Invoke(sx126x_set_standby, SX126X_STANDBY_CFG_RC) ==
                    SX126X_STATUS_OK &&
@@ -5220,14 +5700,37 @@ bool TDisplayP4Device::DeactivateRadio() {
     result &= driver_.SetSx1262OperatingMode(
         lilygo_device_driver::TDisplayP4Driver::
             Sx1262OperatingMode::kStandby);
+  } else if (state->chip == radio::ChipType::kCc1101 &&
+             keyboard_expansion_.state.load() ==
+                 KeyboardExpansionState::kReady &&
+             driver_.IsCc1101Ready()) {
+    auto* radio = driver_.chip().cc1101.get();
+    result &= radio != nullptr && radio->Standby() && radio->FlushRx() &&
+              radio->FlushTx();
+    result &= driver_.SetCc1101OperatingMode(
+        lilygo_device_driver::TDisplayP4Driver::
+            Cc1101OperatingMode::kSleep);
+  } else if (state->chip == radio::ChipType::kNrf24l01 &&
+             keyboard_expansion_.state.load() ==
+                 KeyboardExpansionState::kReady &&
+             driver_.IsNrf24l01Ready()) {
+    auto* radio = driver_.chip().nrf24l01.get();
+    result = radio != nullptr && radio->StopReceive() && radio->FlushRx() &&
+             radio->FlushTx();
+    result &= driver_.SetNrf24l01OperatingMode(
+        lilygo_device_driver::TDisplayP4Driver::
+            Nrf24l01OperatingMode::kSleep);
   }
-  radio_.active = false;
-  radio_.transmitting = false;
-  radio_.chip_error = !result;
-  radio_.active_client_token = 0;
-  radio_.transmit_request_token = 0;
-  radio_.transmit_deadline_us = 0;
-  xSemaphoreGive(radio_.mutex);
+  state->active = false;
+  state->transmitting = false;
+  state->chip_error = !result;
+  state->active_client_token = 0;
+  state->transmit_request_token = 0;
+  state->transmit_deadline_us = 0;
+  state->chip = radio::ChipType::kUnknown;
+  state->protocol = radio::ProtocolType::kUnknown;
+  state->pending_event = RadioEvent();
+  xSemaphoreGive(state->mutex);
   LogMessage(result ? LogLevel::kInfo : LogLevel::kError, __FILE__, __LINE__,
       "Radio deactivate %s\n", result ? "succeeded" : "failed");
   return result;
@@ -5235,6 +5738,27 @@ bool TDisplayP4Device::DeactivateRadio() {
 
 bool TDisplayP4Device::SendRadio(
     const uint8_t* data, size_t size, uint64_t request_token) {
+  RadioState* selected = nullptr;
+  RadioState* states[] = {&radio_, &cc1101_radio_, &nrf24l01_radio_};
+  for (RadioState* state : states) {
+    if (!state->active) {
+      continue;
+    }
+    if (selected != nullptr) {
+      return false;
+    }
+    selected = state;
+  }
+  return selected != nullptr && SendRadio(
+      selected->active_client_token, data, size, request_token);
+}
+
+bool TDisplayP4Device::SendRadio(uint32_t client_token,
+    const uint8_t* data, size_t size, uint64_t request_token) {
+  RadioState* state = FindRadioState(client_token);
+  if (state == nullptr) {
+    return false;
+  }
   if (data == nullptr || size == 0 || size > kRadioPayloadCapacity ||
       request_token == 0) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
@@ -5243,66 +5767,134 @@ bool TDisplayP4Device::SendRadio(
         static_cast<unsigned>(size));
     return false;
   }
-  if (radio_.mutex == nullptr ||
-      xSemaphoreTake(radio_.mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
+  if (state->mutex == nullptr ||
+      xSemaphoreTake(state->mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Radio send rejected: radio is busy, message=%lu\n",
         static_cast<unsigned long>(static_cast<uint32_t>(request_token)));
     return false;
   }
-  if (!radio_.active) {
+  if (!state->active) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Radio send rejected: profile %lu is inactive, message=%lu\n",
-        static_cast<unsigned long>(radio_.active_client_token),
+        static_cast<unsigned long>(state->active_client_token),
         static_cast<unsigned long>(static_cast<uint32_t>(request_token)));
-    xSemaphoreGive(radio_.mutex);
+    xSemaphoreGive(state->mutex);
     return false;
   }
-  if (radio_.transmitting) {
+  if (state->transmitting) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Radio send rejected: message %lu is still transmitting, "
         "new message=%lu\n",
         static_cast<unsigned long>(
-            static_cast<uint32_t>(radio_.transmit_request_token)),
+            static_cast<uint32_t>(state->transmit_request_token)),
         static_cast<unsigned long>(static_cast<uint32_t>(request_token)));
-    xSemaphoreGive(radio_.mutex);
+    xSemaphoreGive(state->mutex);
     return false;
   }
-  if (!driver_.IsSx1262Ready()) {
-    radio_.chip_error = true;
-    LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Radio send rejected: SX1262 is unavailable, message=%lu\n",
-        static_cast<unsigned long>(static_cast<uint32_t>(request_token)));
-    xSemaphoreGive(radio_.mutex);
-    return false;
+  bool result = false;
+  bool send_failure_is_chip_error = true;
+  uint32_t estimated_time_ms = 0;
+  if (state->chip == radio::ChipType::kSx1262 &&
+      state->protocol == radio::ProtocolType::kLora &&
+      driver_.IsSx1262Ready()) {
+    LoraTransmitTiming timing;
+    if (CalculateLoraTransmitTiming(state->lora_config, size, &timing)) {
+      auto* radio = driver_.chip().sx1262.get();
+      result = radio != nullptr && radio->StartTransmit(
+          data, size, timing.hardware_timeout_ms);
+      if (result) {
+        state->transmit_deadline_us = esp_timer_get_time() +
+            static_cast<int64_t>(timing.watchdog_timeout_ms) * 1000;
+        estimated_time_ms = timing.time_on_air_ms;
+      }
+    }
+  } else if (state->chip == radio::ChipType::kCc1101 &&
+             state->protocol == radio::ProtocolType::kGfsk &&
+             driver_.IsCc1101Ready() && size <= 60) {
+    auto* radio = driver_.chip().cc1101.get();
+    std::array<uint8_t, 60> fixed_payload = {};
+    const uint8_t* transmit_data = data;
+    size_t transmit_size = size;
+    if (state->gfsk_config.fec_enabled) {
+      std::copy_n(data, size, fixed_payload.begin());
+      transmit_data = fixed_payload.data();
+      transmit_size = fixed_payload.size();
+    }
+    state->receive_interrupt_pending.store(
+        false, std::memory_order_relaxed);
+    const bool transmitted = radio != nullptr &&
+        radio->Transmit(transmit_data, transmit_size);
+    // GDO0 在发送结束时也会产生下降沿，重新进入 RX 前丢弃该通知。
+    state->receive_interrupt_pending.store(
+        false, std::memory_order_relaxed);
+    const bool receive_restarted = radio != nullptr && radio->StartReceive();
+    result = transmitted && receive_restarted;
+    send_failure_is_chip_error = !receive_restarted;
+  } else if (state->chip == radio::ChipType::kNrf24l01 &&
+             state->protocol ==
+                 radio::ProtocolType::kEnhancedShockBurst &&
+             driver_.IsNrf24l01Ready() &&
+             size <= cpp_bus_driver::Nrf24l01x::kMaximumPayloadLength) {
+    auto* radio = driver_.chip().nrf24l01.get();
+    if (radio != nullptr) {
+      std::array<uint8_t,
+          cpp_bus_driver::Nrf24l01x::kMaximumPayloadLength> fixed_payload = {};
+      const uint8_t* transmit_data = data;
+      size_t transmit_size = size;
+      if (!state->enhanced_shock_burst_config.dynamic_payload_enabled) {
+        std::copy_n(data, size, fixed_payload.begin());
+        transmit_data = fixed_payload.data();
+        transmit_size = fixed_payload.size();
+      }
+      const cpp_bus_driver::Nrf24l01x::TransmitResult transmit_result =
+          radio->Transmit(transmit_data, transmit_size, false, 250);
+      result = transmit_result ==
+          cpp_bus_driver::Nrf24l01x::TransmitResult::kSuccess;
+      if (result) {
+        result = radio->StartReceive();
+      } else {
+        const bool receive_restarted = radio->StartReceive();
+        send_failure_is_chip_error =
+            transmit_result ==
+                cpp_bus_driver::Nrf24l01x::TransmitResult::kBusError ||
+            transmit_result ==
+                cpp_bus_driver::Nrf24l01x::TransmitResult::kInvalidArgument ||
+            !receive_restarted;
+        LogMessage(LogLevel::kError, __FILE__, __LINE__,
+            "nRF24L01 transmit failed: result=%s, auto_ack=%s, "
+            "channel=%u, data_rate=%lu, receive_recovery=%s\n",
+            Nrf24l01TransmitResultName(transmit_result),
+            state->enhanced_shock_burst_config.auto_ack_enabled
+                ? "enabled"
+                : "disabled",
+            static_cast<unsigned>(
+                state->enhanced_shock_burst_config.channel),
+            static_cast<unsigned long>(
+                state->enhanced_shock_burst_config.data_rate_bps),
+            receive_restarted ? "succeeded" : "failed");
+      }
+    }
   }
-  LoraTransmitTiming timing;
-  if (!CalculateLoraTransmitTiming(radio_.lora_config, size, &timing)) {
-    LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Radio send rejected: invalid LoRa timing, message=%lu, "
-        "size=%u bytes\n",
-        static_cast<unsigned long>(static_cast<uint32_t>(request_token)),
-        static_cast<unsigned>(size));
-    xSemaphoreGive(radio_.mutex);
-    return false;
+  state->transmitting = result;
+  state->chip_error = !result && send_failure_is_chip_error;
+  state->transmit_request_token = result ? request_token : 0;
+  if (result && state->chip != radio::ChipType::kSx1262) {
+    state->pending_event = RadioEvent();
+    state->pending_event.type = RadioEventType::kTransmitComplete;
+    state->pending_event.client_token = state->active_client_token;
+    state->pending_event.request_token = request_token;
   }
-  auto* radio = driver_.chip().sx1262.get();
-  const bool result = radio != nullptr && radio->StartTransmit(data, size,
-                                              timing.hardware_timeout_ms);
-  radio_.transmitting = result;
-  radio_.chip_error = !result;
-  radio_.transmit_request_token = result ? request_token : 0;
-  radio_.transmit_deadline_us =
-      result ? esp_timer_get_time() +
-                   static_cast<int64_t>(timing.watchdog_timeout_ms) * 1000
-             : 0;
-  const uint32_t profile_id = radio_.active_client_token;
-  xSemaphoreGive(radio_.mutex);
+  if (!result) {
+    state->transmit_deadline_us = 0;
+  }
+  const uint32_t profile_id = state->active_client_token;
+  xSemaphoreGive(state->mutex);
   if (result) {
     LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
         "Radio send started: profile %lu, %u bytes, estimated %lu ms\n",
         static_cast<unsigned long>(profile_id), static_cast<unsigned>(size),
-        static_cast<unsigned long>(timing.time_on_air_ms));
+        static_cast<unsigned long>(estimated_time_ms));
   } else {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Radio send start failed: profile=%lu, message=%lu, size=%u bytes\n",
@@ -5318,46 +5910,172 @@ bool TDisplayP4Device::PollRadioEvent(RadioEvent* event) {
     return false;
   }
   *event = RadioEvent();
-  if (radio_.mutex == nullptr ||
-      xSemaphoreTake(radio_.mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
+  RadioState* states[] = {&radio_, &cc1101_radio_, &nrf24l01_radio_};
+  bool result = true;
+  for (size_t offset = 0; offset < std::size(states); ++offset) {
+    const size_t index = (radio_poll_index_ + offset) % std::size(states);
+    RadioEvent candidate;
+    const bool poll_result = PollRadioState(states[index], &candidate);
+    result &= poll_result;
+    if (candidate.type != RadioEventType::kNone) {
+      *event = candidate;
+      radio_poll_index_ = static_cast<uint8_t>(
+          (index + 1) % std::size(states));
+      return poll_result;
+    }
+  }
+  radio_poll_index_ = static_cast<uint8_t>(
+      (radio_poll_index_ + 1) % std::size(states));
+  return result;
+}
+
+bool TDisplayP4Device::PollRadioState(
+    RadioState* state, RadioEvent* event) {
+  if (event == nullptr) {
+    return false;
+  }
+  *event = RadioEvent();
+  if (state->mutex == nullptr ||
+      xSemaphoreTake(state->mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Radio event poll failed: mutex unavailable\n");
     return false;
   }
-  event->client_token = radio_.active_client_token;
-  event->request_token = radio_.transmit_request_token;
-  if (!radio_.active) {
-    xSemaphoreGive(radio_.mutex);
+  event->client_token = state->active_client_token;
+  event->request_token = state->transmit_request_token;
+  if (!state->active) {
+    xSemaphoreGive(state->mutex);
     return true;
   }
-  if (!driver_.IsSx1262Ready()) {
-    radio_.active = false;
-    radio_.transmitting = false;
-    radio_.chip_error = true;
+  if (state->pending_event.type != RadioEventType::kNone) {
+    *event = state->pending_event;
+    state->pending_event = RadioEvent();
+    state->transmitting = false;
+    state->transmit_request_token = 0;
+    xSemaphoreGive(state->mutex);
+    return true;
+  }
+  const bool hardware_ready =
+      (state->chip == radio::ChipType::kSx1262 &&
+          driver_.IsSx1262Ready()) ||
+      (state->chip == radio::ChipType::kCc1101 &&
+          keyboard_expansion_.state.load() ==
+              KeyboardExpansionState::kReady &&
+          driver_.IsCc1101Ready()) ||
+      (state->chip == radio::ChipType::kNrf24l01 &&
+          keyboard_expansion_.state.load() ==
+              KeyboardExpansionState::kReady &&
+          driver_.IsNrf24l01Ready());
+  if (!hardware_ready) {
+    if (state->chip == radio::ChipType::kCc1101) {
+      DeinitializeCc1101ReceiveInterrupt();
+    }
+    state->active = false;
+    state->transmitting = false;
+    state->chip_error = true;
     event->type = RadioEventType::kChipError;
     event->failure_reason = RadioFailureReason::kHardwareUnavailable;
-    radio_.transmit_request_token = 0;
-    radio_.transmit_deadline_us = 0;
-    xSemaphoreGive(radio_.mutex);
+    state->transmit_request_token = 0;
+    state->transmit_deadline_us = 0;
+    xSemaphoreGive(state->mutex);
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Radio event failed: SX1262 is unavailable, profile=%lu, message=%lu\n",
+        "Radio event failed: chip is unavailable, profile=%lu, message=%lu\n",
         static_cast<unsigned long>(event->client_token),
         static_cast<unsigned long>(
             static_cast<uint32_t>(event->request_token)));
     return false;
   }
 
+  if (state->chip == radio::ChipType::kCc1101) {
+    if (!state->receive_interrupt_pending.exchange(
+            false, std::memory_order_acq_rel)) {
+      xSemaphoreGive(state->mutex);
+      return true;
+    }
+    auto* radio = driver_.chip().cc1101.get();
+    cpp_bus_driver::Cc1101::PacketMetrics metrics;
+    size_t received = 0;
+    const bool packet_received = radio != nullptr &&
+        radio->ReadReceivedPacket(event->payload, 60, &received, &metrics);
+    const bool receive_restarted = radio != nullptr && radio->StartReceive();
+    state->active = receive_restarted;
+    state->chip_error = !receive_restarted;
+    if (!receive_restarted) {
+      event->type = RadioEventType::kChipError;
+      event->failure_reason = RadioFailureReason::kReceiveRestartFailed;
+    } else if (packet_received) {
+      if (state->gfsk_config.fec_enabled) {
+        while (received > 0 && event->payload[received - 1] == 0) {
+          --received;
+        }
+      }
+      event->type = RadioEventType::kPacketReceived;
+      event->payload_size = received;
+      event->rssi_dbm = static_cast<int8_t>(std::clamp(
+          metrics.rssi_dbm, -128.0F, 127.0F));
+      event->snr_db = 0;
+      event->rssi_valid = true;
+      event->snr_valid = false;
+    }
+    xSemaphoreGive(state->mutex);
+    return receive_restarted;
+  }
+
+  if (state->chip == radio::ChipType::kNrf24l01) {
+    auto* radio = driver_.chip().nrf24l01.get();
+    bool fifo_empty = true;
+    if (radio == nullptr || !radio->RxFifoEmpty(&fifo_empty)) {
+      state->active = false;
+      state->chip_error = true;
+      event->type = RadioEventType::kChipError;
+      event->failure_reason = RadioFailureReason::kIrqReadFailed;
+      xSemaphoreGive(state->mutex);
+      return false;
+    }
+    if (!fifo_empty) {
+      size_t received = 0;
+      const bool received_ok = radio->ReadRxPayload(
+          event->payload, cpp_bus_driver::Nrf24l01x::kMaximumPayloadLength,
+          &received);
+      bool fifo_empty_after_read = true;
+      const bool status_ok = received_ok &&
+          radio->RxFifoEmpty(&fifo_empty_after_read) &&
+          (!fifo_empty_after_read || radio->ClearIrqFlag(
+              cpp_bus_driver::Nrf24l01x::IrqSource::kRxDataReady));
+      if (status_ok) {
+        if (!state->enhanced_shock_burst_config.dynamic_payload_enabled) {
+          while (received > 0 && event->payload[received - 1] == 0) {
+            --received;
+          }
+        }
+        event->type = RadioEventType::kPacketReceived;
+        event->payload_size = received;
+        event->rssi_valid = false;
+        event->snr_valid = false;
+      } else {
+        state->active = false;
+        state->chip_error = true;
+        event->type = RadioEventType::kChipError;
+        event->failure_reason = RadioFailureReason::kIrqClearFailed;
+      }
+      xSemaphoreGive(state->mutex);
+      return status_ok;
+    }
+    xSemaphoreGive(state->mutex);
+    return true;
+  }
+
   auto* radio = driver_.chip().sx1262.get();
   sx126x_irq_mask_t irq_mask = SX126X_IRQ_NONE;
   if (radio == nullptr || !radio->GetIrqStatus(irq_mask)) {
-    radio_.active = false;
-    radio_.transmitting = false;
-    radio_.chip_error = true;
+    state->active = false;
+    state->transmitting = false;
+    state->chip_error = true;
     event->type = RadioEventType::kChipError;
     event->failure_reason = RadioFailureReason::kIrqReadFailed;
-    radio_.transmit_request_token = 0;
-    radio_.transmit_deadline_us = 0;
-    xSemaphoreGive(radio_.mutex);
+    state->transmit_request_token = 0;
+    state->transmit_deadline_us = 0;
+    xSemaphoreGive(state->mutex);
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Radio event failed: cannot read IRQ, profile=%lu, message=%lu\n",
         static_cast<unsigned long>(event->client_token),
@@ -5366,17 +6084,17 @@ bool TDisplayP4Device::PollRadioEvent(RadioEvent* event) {
     return false;
   }
   if (irq_mask == SX126X_IRQ_NONE) {
-    if (radio_.transmitting && radio_.transmit_deadline_us > 0 &&
-        esp_timer_get_time() >= radio_.transmit_deadline_us) {
+    if (state->transmitting && state->transmit_deadline_us > 0 &&
+        esp_timer_get_time() >= state->transmit_deadline_us) {
       const bool recovered = radio->StartReceive();
-      radio_.transmitting = false;
-      radio_.active = recovered;
-      radio_.chip_error = !recovered;
-      radio_.transmit_request_token = 0;
-      radio_.transmit_deadline_us = 0;
+      state->transmitting = false;
+      state->active = recovered;
+      state->chip_error = !recovered;
+      state->transmit_request_token = 0;
+      state->transmit_deadline_us = 0;
       event->type = RadioEventType::kTransmitFailed;
       event->failure_reason = RadioFailureReason::kSoftwareTimeout;
-      xSemaphoreGive(radio_.mutex);
+      xSemaphoreGive(state->mutex);
       LogMessage(LogLevel::kError, __FILE__, __LINE__,
           "Radio send failed: software timeout, profile=%lu, message=%lu, "
           "receive recovery=%s\n",
@@ -5386,7 +6104,7 @@ bool TDisplayP4Device::PollRadioEvent(RadioEvent* event) {
           recovered ? "succeeded" : "failed");
       return recovered;
     }
-    xSemaphoreGive(radio_.mutex);
+    xSemaphoreGive(state->mutex);
     return true;
   }
 
@@ -5406,14 +6124,14 @@ bool TDisplayP4Device::PollRadioEvent(RadioEvent* event) {
   };
   bool result = radio->ClearIrqStatus(irq_mask);
   if (!result) {
-    radio_.active = false;
-    radio_.transmitting = false;
-    radio_.chip_error = true;
-    radio_.transmit_request_token = 0;
-    radio_.transmit_deadline_us = 0;
+    state->active = false;
+    state->transmitting = false;
+    state->chip_error = true;
+    state->transmit_request_token = 0;
+    state->transmit_deadline_us = 0;
     event->type = RadioEventType::kChipError;
     event->failure_reason = RadioFailureReason::kIrqClearFailed;
-    xSemaphoreGive(radio_.mutex);
+    xSemaphoreGive(state->mutex);
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Radio event failed: cannot clear IRQ %s, message=%lu\n",
         irq_text_for_log(),
@@ -5421,13 +6139,13 @@ bool TDisplayP4Device::PollRadioEvent(RadioEvent* event) {
             static_cast<uint32_t>(event->request_token)));
     return false;
   }
-  if (radio_.transmitting && (tx_done || timed_out)) {
-    radio_.transmitting = false;
-    radio_.transmit_request_token = 0;
-    radio_.transmit_deadline_us = 0;
+  if (state->transmitting && (tx_done || timed_out)) {
+    state->transmitting = false;
+    state->transmit_request_token = 0;
+    state->transmit_deadline_us = 0;
     const bool receive_restarted = radio->StartReceive();
-    radio_.active = receive_restarted;
-    radio_.chip_error = !receive_restarted;
+    state->active = receive_restarted;
+    state->chip_error = !receive_restarted;
     if (timed_out) {
       event->type = RadioEventType::kTransmitFailed;
       event->failure_reason = RadioFailureReason::kHardwareTimeout;
@@ -5458,7 +6176,7 @@ bool TDisplayP4Device::PollRadioEvent(RadioEvent* event) {
           static_cast<unsigned long>(
               static_cast<uint32_t>(event->request_token)));
     }
-  } else if (radio_.transmitting) {
+  } else if (state->transmitting) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Radio send ignored unrelated IRQ %s, message=%lu\n",
         irq_text_for_log(),
@@ -5485,17 +6203,17 @@ bool TDisplayP4Device::PollRadioEvent(RadioEvent* event) {
   }
 
   if (!result) {
-    radio_.active = false;
-    radio_.transmitting = false;
-    radio_.chip_error = true;
+    state->active = false;
+    state->transmitting = false;
+    state->chip_error = true;
     if (event->type != RadioEventType::kTransmitComplete) {
       event->type = RadioEventType::kChipError;
     }
     if (event->failure_reason == RadioFailureReason::kNone) {
       event->failure_reason = RadioFailureReason::kReceiveRestartFailed;
     }
-    radio_.transmit_request_token = 0;
-    radio_.transmit_deadline_us = 0;
+    state->transmit_request_token = 0;
+    state->transmit_deadline_us = 0;
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Radio event processing failed: profile=%lu, message=%lu, IRQ=%s\n",
         static_cast<unsigned long>(event->client_token),
@@ -5503,26 +6221,67 @@ bool TDisplayP4Device::PollRadioEvent(RadioEvent* event) {
             static_cast<uint32_t>(event->request_token)),
         irq_text_for_log());
   }
-  xSemaphoreGive(radio_.mutex);
+  xSemaphoreGive(state->mutex);
   return result;
 }
 
 bool TDisplayP4Device::ReadRadioStatus(RadioStatus* status) {
-  if (status == nullptr || radio_.mutex == nullptr ||
-      xSemaphoreTake(radio_.mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
+  RadioState* selected = nullptr;
+  RadioState* states[] = {&radio_, &cc1101_radio_, &nrf24l01_radio_};
+  for (RadioState* state : states) {
+    if (!state->active && state->active_client_token == 0) {
+      continue;
+    }
+    if (selected != nullptr) {
+      return false;
+    }
+    selected = state;
+  }
+  return selected != nullptr && ReadRadioStateStatus(selected, status);
+}
+
+bool TDisplayP4Device::ReadRadioStatus(
+    uint32_t client_token, RadioStatus* status) {
+  return ReadRadioStateStatus(FindRadioState(client_token), status);
+}
+
+bool TDisplayP4Device::ReadRadioStateStatus(
+    RadioState* state, RadioStatus* status) {
+  if (state == nullptr || status == nullptr || state->mutex == nullptr ||
+      xSemaphoreTake(state->mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
     return false;
   }
-  status->hardware_ready = driver_.IsSx1262Ready();
-  status->transmitting = radio_.transmitting;
-  status->active_client_token = radio_.active_client_token;
-  if (radio_.chip_error || (radio_.active && !status->hardware_ready)) {
+  *status = RadioStatus();
+  switch (state->chip) {
+    case radio::ChipType::kSx1262:
+      status->hardware_ready = driver_.IsSx1262Ready();
+      break;
+    case radio::ChipType::kCc1101:
+      status->hardware_ready =
+          keyboard_expansion_.state.load() ==
+              KeyboardExpansionState::kReady &&
+          driver_.IsCc1101Ready();
+      break;
+    case radio::ChipType::kNrf24l01:
+      status->hardware_ready =
+          keyboard_expansion_.state.load() ==
+              KeyboardExpansionState::kReady &&
+          driver_.IsNrf24l01Ready();
+      break;
+    default:
+      status->hardware_ready = false;
+      break;
+  }
+  status->transmitting = state->transmitting;
+  status->active_client_token = state->active_client_token;
+  if (state->chip_error || (state->active && !status->hardware_ready)) {
     status->state = RadioLinkState::kChipError;
-  } else if (radio_.active) {
+  } else if (state->active) {
     status->state = RadioLinkState::kActive;
   } else {
     status->state = RadioLinkState::kInactive;
   }
-  xSemaphoreGive(radio_.mutex);
+  xSemaphoreGive(state->mutex);
   return true;
 }
 
@@ -5736,6 +6495,40 @@ bool TDisplayP4Device::ExitDeviceSleep(bool deep_sleep) {
     keyboard_state_restored &= SetKeyboardExpansionLed(
         KeyboardExpansionLed::kLed1,
         keyboard_expansion_.caps_lock_enabled.load());
+    RadioState* extension_states[] = {&cc1101_radio_, &nrf24l01_radio_};
+    for (RadioState* state : extension_states) {
+      if (!state->active || state->mutex == nullptr ||
+          xSemaphoreTake(state->mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
+        continue;
+      }
+      if (state->chip == radio::ChipType::kCc1101 &&
+          driver_.IsCc1101Ready()) {
+        auto* radio = driver_.chip().cc1101.get();
+        bool restored = driver_.SetCc1101OperatingMode(
+            lilygo_device_driver::TDisplayP4Driver::
+                Cc1101OperatingMode::kStandby) &&
+            radio != nullptr && InitializeCc1101ReceiveInterrupt();
+        if (restored) {
+          state->receive_interrupt_pending.store(
+              false, std::memory_order_relaxed);
+          restored = radio->StartReceive();
+        }
+        state->chip_error = !restored;
+        state->active = restored;
+        keyboard_state_restored &= restored;
+      } else if (state->chip == radio::ChipType::kNrf24l01 &&
+                 driver_.IsNrf24l01Ready()) {
+        auto* radio = driver_.chip().nrf24l01.get();
+        const bool restored = driver_.SetNrf24l01OperatingMode(
+            lilygo_device_driver::TDisplayP4Driver::
+                Nrf24l01OperatingMode::kStandby) &&
+            radio != nullptr && radio->StartReceive();
+        state->chip_error = !restored;
+        state->active = restored;
+        keyboard_state_restored &= restored;
+      }
+      xSemaphoreGive(state->mutex);
+    }
     if (!keyboard_state_restored) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Restore keyboard expansion state failed\n");
@@ -5765,7 +6558,9 @@ bool TDisplayP4Device::PrepareForPowerOff() {
       camera_preview_.initialized.load()) {
     result &= StopCameraPreview();
   }
-  if (radio_.active || radio_.transmitting) {
+  if (radio_.active || radio_.transmitting || cc1101_radio_.active ||
+      cc1101_radio_.transmitting || nrf24l01_radio_.active ||
+      nrf24l01_radio_.transmitting) {
     result &= DeactivateRadio();
   }
   result &= SetNfcPollingEnabled(false);

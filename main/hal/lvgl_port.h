@@ -26,6 +26,11 @@ namespace lilygo_box::hal {
 
 class LvglPort final {
  public:
+  /**
+   * @brief 输入桥接层用于区分 Shift + Enter 与普通 Enter 的换行键值
+   */
+  static constexpr uint32_t kLineBreakKey = '\r';
+
   using KeyboardInputEventCallback =
       std::function<void(const KeyboardInputEvent& event)>;
 

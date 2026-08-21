@@ -899,6 +899,8 @@ const char* GetKeyboardTestKeyName(hal::KeyboardKey key) {
       return "Backspace";
     case hal::KeyboardKey::kEnter:
       return "Enter";
+    case hal::KeyboardKey::kLineBreak:
+      return "Shift + Enter";
     case hal::KeyboardKey::kNext:
       return "Tab";
     case hal::KeyboardKey::kPrevious:
