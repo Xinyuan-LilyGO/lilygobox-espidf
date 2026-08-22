@@ -597,7 +597,24 @@ bool Application::Init() {
     return false;
   }
 
-  app::InitStorage();
+  hal::RadioCapabilities radio_capabilities;
+  radio::ChipType primary_radio_chip = radio::ChipType::kUnknown;
+  if (device_provider_context_.radio != nullptr &&
+      device_provider_context_.radio->ReadRadioCapabilities(
+          &radio_capabilities)) {
+    for (size_t index = 0; index < radio_capabilities.count; ++index) {
+      const radio::ChipType chip = radio_capabilities.entries[index].chip;
+      if (chip == radio::ChipType::kSx1262 ||
+          chip == radio::ChipType::kLr2021 ||
+          chip == radio::ChipType::kLr1121) {
+        primary_radio_chip = chip;
+        break;
+      }
+    }
+  }
+  app::InitStorage(
+      device_provider_context_.capabilities.supported_radio_chips,
+      primary_radio_chip);
   if (!app::NetworkMonitor::Instance().Initialize(
           device_provider_context_.wifi)) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,

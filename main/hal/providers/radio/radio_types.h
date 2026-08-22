@@ -14,10 +14,18 @@ namespace lilygo_box::radio {
 enum class ChipType : uint8_t {
   kUnknown = 0,
   kSx1262 = 1,
-  kLr1121 = 2,
-  kCc1101 = 3,
-  kNrf24l01 = 4,
+  kLr2021 = 2,
+  kLr1121 = 3,
+  kCc1101 = 4,
+  kNrf24l01 = 5,
 };
+
+using ChipMask = uint32_t;
+
+constexpr ChipMask ChipMaskFor(ChipType chip) {
+  const uint8_t value = static_cast<uint8_t>(chip);
+  return value == 0 || value >= 32 ? 0U : (1U << value);
+}
 
 enum class ProtocolType : uint8_t {
   kUnknown = 0,

@@ -804,6 +804,8 @@ const char* ChipDisplayName(radio::ChipType chip) {
   switch (chip) {
     case radio::ChipType::kSx1262:
       return "SX1262";
+    case radio::ChipType::kLr2021:
+      return "LR2021";
     case radio::ChipType::kLr1121:
       return "LR1121";
     case radio::ChipType::kCc1101:
@@ -819,6 +821,8 @@ const char* ChipShortName(radio::ChipType chip) {
   switch (chip) {
     case radio::ChipType::kSx1262:
       return "SX";
+    case radio::ChipType::kLr2021:
+      return "LR";
     case radio::ChipType::kLr1121:
       return "LR";
     case radio::ChipType::kCc1101:

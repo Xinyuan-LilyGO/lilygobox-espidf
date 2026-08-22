@@ -7,12 +7,17 @@
  */
 #pragma once
 
+#include "hal/providers/radio/radio_types.h"
+
 namespace lilygo_box::app {
 
 /**
  * @brief 初始化存储协调器并将 NVS 偏好和 Radio 聊天记录加载到 RAM
+ * @param supported_radio_chips 当前板型允许持久化的可选射频芯片
+ * @param primary_radio_chip 自动识别到的主射频芯片
  */
-void InitStorage();
+void InitStorage(radio::ChipMask supported_radio_chips,
+    radio::ChipType primary_radio_chip);
 
 /**
  * @brief 判断是否存在尚未写入 NVS 或 LittleFS 的 RAM 修改

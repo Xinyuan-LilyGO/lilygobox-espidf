@@ -54,6 +54,7 @@
 #include "esp_wifi_remote.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "examples/radio_hal/lr20xx_pa_pwr_cfg.h"
 #include "linux/videodev2.h"
 
 namespace lilygo_box::hal {
@@ -1378,6 +1379,108 @@ bool TDisplayP4Device::UpdateKeyboardExpansionDisconnectionState() {
   }
   return true;
 }
+
+namespace {
+
+struct Lr2021PaTableEntry {
+  int8_t half_power;
+  uint8_t pa_duty_cycle;
+  uint8_t pa_lf_slices;
+};
+
+constexpr Lr2021PaTableEntry kLr2021PaTable[] = LR20XX_PA_LF_CFG_TABLE;
+
+bool BuildLr2021Config(const LoraRadioConfig& source, uint8_t payload_size,
+    usp_cpp_bus_driver::Lr20xx::LoraConfig* target) {
+  if (target == nullptr || source.frequency_hz < 150000000U ||
+      source.frequency_hz > 960000000U || source.preamble_length == 0 ||
+      source.output_power_dbm < -9 || source.output_power_dbm > 22) {
+    return false;
+  }
+  lr20xx_radio_lora_bw_t bandwidth;
+  switch (source.bandwidth_hz) {
+    case 62500:
+      bandwidth = LR20XX_RADIO_LORA_BW_62;
+      break;
+    case 125000:
+      bandwidth = LR20XX_RADIO_LORA_BW_125;
+      break;
+    case 250000:
+      bandwidth = LR20XX_RADIO_LORA_BW_250;
+      break;
+    case 500000:
+      bandwidth = LR20XX_RADIO_LORA_BW_500;
+      break;
+    default:
+      return false;
+  }
+  if (source.spreading_factor < 5 || source.spreading_factor > 12 ||
+      source.coding_rate_denominator < 5 ||
+      source.coding_rate_denominator > 8) {
+    return false;
+  }
+  const size_t power_index =
+      static_cast<size_t>(source.output_power_dbm + 10);
+  if (power_index >= std::size(kLr2021PaTable)) {
+    return false;
+  }
+  const Lr2021PaTableEntry& power = kLr2021PaTable[power_index];
+  *target = usp_cpp_bus_driver::Lr20xx::LoraConfig{};
+  target->frequency_hz = source.frequency_hz;
+  target->modulation.sf = static_cast<lr20xx_radio_lora_sf_t>(
+      source.spreading_factor);
+  target->modulation.bw = bandwidth;
+  target->modulation.cr = static_cast<lr20xx_radio_lora_cr_t>(
+      source.coding_rate_denominator - 4);
+  target->modulation.ppm = ShouldEnableLoraLdro(source)
+      ? LR20XX_RADIO_LORA_PPM_1_4
+      : LR20XX_RADIO_LORA_NO_PPM;
+  target->packet.preamble_len_in_symb = source.preamble_length;
+  target->packet.pkt_mode = LR20XX_RADIO_LORA_PKT_EXPLICIT;
+  target->packet.pld_len_in_bytes = payload_size;
+  target->packet.crc = source.crc_enabled
+      ? LR20XX_RADIO_LORA_CRC_ENABLED
+      : LR20XX_RADIO_LORA_CRC_DISABLED;
+  target->packet.iq = source.invert_iq
+      ? LR20XX_RADIO_LORA_IQ_INVERTED
+      : LR20XX_RADIO_LORA_IQ_STANDARD;
+  target->sync_word = source.sync_word;
+  target->rx_path = LR20XX_RADIO_COMMON_RX_PATH_LF;
+  target->rx_boost_mode = source.rx_boosted
+      ? LR20XX_RADIO_COMMON_RX_PATH_BOOST_MODE_7
+      : LR20XX_RADIO_COMMON_RX_PATH_BOOST_MODE_NONE;
+  target->pa = {
+      .pa_sel = LR20XX_RADIO_COMMON_PA_SEL_LF,
+      .pa_lf_mode = LR20XX_RADIO_COMMON_PA_LF_MODE_FSM,
+      .pa_lf_duty_cycle = power.pa_duty_cycle,
+      .pa_lf_slices = power.pa_lf_slices,
+      .pa_hf_duty_cycle = 16,
+  };
+  target->output_power_half_dbm = power.half_power;
+  target->ramp_time = LR20XX_RADIO_COMMON_RAMP_48_US;
+  return true;
+}
+
+constexpr lr20xx_system_irq_mask_t kLr2021RadioIrqMask =
+    LR20XX_SYSTEM_IRQ_TX_DONE | LR20XX_SYSTEM_IRQ_RX_DONE |
+    LR20XX_SYSTEM_IRQ_TIMEOUT | LR20XX_SYSTEM_IRQ_CRC_ERROR |
+    LR20XX_SYSTEM_IRQ_LEN_ERROR | LR20XX_SYSTEM_IRQ_LORA_HEADER_ERROR |
+    LR20XX_SYSTEM_IRQ_ERROR | LR20XX_SYSTEM_IRQ_CMD_ERROR;
+
+bool StartLr2021Receive(usp_cpp_bus_driver::Lr20xx* radio,
+    const LoraRadioConfig& config) {
+  usp_cpp_bus_driver::Lr20xx::LoraConfig driver_config;
+  return radio != nullptr &&
+      BuildLr2021Config(config, UINT8_MAX, &driver_config) &&
+      radio->Configure(driver_config) &&
+      radio->Invoke(lr20xx_system_clear_irq_status,
+          LR20XX_SYSTEM_IRQ_ALL_MASK) == LR20XX_STATUS_OK &&
+      radio->Invoke(lr20xx_system_set_dio_irq_cfg, LR20XX_SYSTEM_DIO_11,
+          kLr2021RadioIrqMask) == LR20XX_STATUS_OK &&
+      radio->StartReceive(0);
+}
+
+}  // namespace
 
 bool TDisplayP4Device::UpdateKeyboardExpansionConnection(
     bool* scan_started) {
@@ -5420,16 +5523,29 @@ bool TDisplayP4Device::ReadRadioCapabilities(RadioCapabilities* capabilities) {
     return false;
   }
   *capabilities = RadioCapabilities();
-  RadioCapability& capability = capabilities->entries[0];
-  capability.chip = radio::ChipType::kSx1262;
-  capability.protocol = radio::ProtocolType::kLora;
-  capability.maximum_payload_size = kRadioPayloadCapacity;
-  capability.frequency_bands[0] = {
-      .minimum_hz = 150000000U,
-      .maximum_hz = 960000000U,
-  };
-  capability.frequency_band_count = 1;
-  capabilities->count = 1;
+  radio::ChipType primary_chip = radio::ChipType::kUnknown;
+  switch (driver_.radio_type()) {
+    case device::RadioType::kSx1262:
+      primary_chip = radio::ChipType::kSx1262;
+      break;
+    case device::RadioType::kLr2021:
+      primary_chip = radio::ChipType::kLr2021;
+      break;
+    case device::RadioType::kUnknown:
+      break;
+  }
+  if (primary_chip != radio::ChipType::kUnknown) {
+    RadioCapability& capability =
+        capabilities->entries[capabilities->count++];
+    capability.chip = primary_chip;
+    capability.protocol = radio::ProtocolType::kLora;
+    capability.maximum_payload_size = kRadioPayloadCapacity;
+    capability.frequency_bands[0] = {
+        .minimum_hz = 150000000U,
+        .maximum_hz = 960000000U,
+    };
+    capability.frequency_band_count = 1;
+  }
   if (keyboard_expansion_.state.load() == KeyboardExpansionState::kReady &&
       driver_.IsCc1101Ready()) {
     RadioCapability& cc1101 = capabilities->entries[capabilities->count++];
@@ -5516,7 +5632,7 @@ TDisplayP4Device::RadioState* TDisplayP4Device::RadioStateForChip(
     radio::ChipType chip) {
   switch (chip) {
     case radio::ChipType::kSx1262:
-    case radio::ChipType::kLr1121:
+    case radio::ChipType::kLr2021:
       return &radio_;
     case radio::ChipType::kCc1101:
       return &cc1101_radio_;
@@ -5543,7 +5659,17 @@ TDisplayP4Device::RadioState* TDisplayP4Device::FindRadioState(
 
 bool TDisplayP4Device::ActivateRadio(const RadioConfig& config) {
   RadioState* state = RadioStateForChip(config.chip);
-  if (state == nullptr) {
+  const bool primary_chip_matches =
+      (config.chip == radio::ChipType::kSx1262 &&
+           driver_.radio_type() ==
+               device::RadioType::kSx1262) ||
+          (config.chip == radio::ChipType::kLr2021 &&
+              driver_.radio_type() ==
+                  device::RadioType::kLr2021);
+  const bool expansion_chip_matches =
+      config.chip == radio::ChipType::kCc1101 ||
+      config.chip == radio::ChipType::kNrf24l01;
+  if (state == nullptr || (!primary_chip_matches && !expansion_chip_matches)) {
     return false;
   }
   if (state->mutex == nullptr ||
@@ -5564,6 +5690,16 @@ bool TDisplayP4Device::ActivateRadio(const RadioConfig& config) {
       previous_session_stopped = radio != nullptr &&
           radio->Invoke(sx126x_set_standby, SX126X_STANDBY_CFG_RC) ==
               SX126X_STATUS_OK;
+    } else if (state->chip == radio::ChipType::kLr2021 &&
+               driver_.IsLr2021Ready()) {
+      auto* radio = driver_.chip().lr2021.get();
+      previous_session_stopped = radio != nullptr &&
+          radio->Invoke(lr20xx_system_set_dio_irq_cfg,
+              LR20XX_SYSTEM_DIO_11, LR20XX_SYSTEM_IRQ_NONE) ==
+              LR20XX_STATUS_OK &&
+          driver_.SetLr2021OperatingMode(
+              lilygo_device_driver::TDisplayP4Driver::
+                  Lr2021OperatingMode::kStandby);
     } else if (state->chip == radio::ChipType::kCc1101 &&
                driver_.IsCc1101Ready()) {
       auto* radio = driver_.chip().cc1101.get();
@@ -5620,6 +5756,34 @@ bool TDisplayP4Device::ActivateRadio(const RadioConfig& config) {
       driver_.SetSx1262OperatingMode(
           lilygo_device_driver::TDisplayP4Driver::
               Sx1262OperatingMode::kSleep);
+    }
+  } else if (config.chip == radio::ChipType::kLr2021 &&
+             config.protocol == radio::ProtocolType::kLora) {
+    const bool antenna_supported =
+        config.antenna == radio::AntennaType::kInternal ||
+        config.antenna == radio::AntennaType::kExternal;
+    result = antenna_supported && driver_.IsLr2021Ready();
+    if (result) {
+      auto* antenna_switch = driver_.chip().xl9535.get();
+      const uint8_t antenna_level =
+          config.antenna == radio::AntennaType::kExternal ? 0 : 1;
+      result = driver_.IsXl9535Ready() && antenna_switch != nullptr &&
+          antenna_switch->GpioWrite(
+              gpio::xl9535::kSky13453Vctl, antenna_level);
+    }
+    if (result) {
+      result = driver_.SetLr2021OperatingMode(
+          lilygo_device_driver::TDisplayP4Driver::
+              Lr2021OperatingMode::kStandby);
+    }
+    if (result) {
+      result = StartLr2021Receive(
+          driver_.chip().lr2021.get(), config.lora);
+    }
+    if (!result) {
+      driver_.SetLr2021OperatingMode(
+          lilygo_device_driver::TDisplayP4Driver::
+              Lr2021OperatingMode::kSleep);
     }
   } else if (config.chip == radio::ChipType::kCc1101 &&
              config.protocol == radio::ProtocolType::kGfsk &&
@@ -5749,6 +5913,20 @@ bool TDisplayP4Device::DeactivateRadioState(RadioState* state) {
     result &= driver_.SetSx1262OperatingMode(
         lilygo_device_driver::TDisplayP4Driver::
             Sx1262OperatingMode::kStandby);
+  } else if (state->chip == radio::ChipType::kLr2021 &&
+             driver_.IsLr2021Ready()) {
+    auto* radio = driver_.chip().lr2021.get();
+    if (state->active) {
+      result = radio != nullptr &&
+          radio->Invoke(lr20xx_system_set_dio_irq_cfg,
+              LR20XX_SYSTEM_DIO_11, LR20XX_SYSTEM_IRQ_NONE) ==
+              LR20XX_STATUS_OK &&
+          radio->Invoke(lr20xx_system_clear_irq_status,
+              LR20XX_SYSTEM_IRQ_ALL_MASK) == LR20XX_STATUS_OK;
+    }
+    result &= driver_.SetLr2021OperatingMode(
+        lilygo_device_driver::TDisplayP4Driver::
+            Lr2021OperatingMode::kStandby);
   } else if (state->chip == radio::ChipType::kCc1101 &&
              keyboard_expansion_.state.load() ==
                  KeyboardExpansionState::kReady &&
@@ -5858,6 +6036,26 @@ bool TDisplayP4Device::SendRadio(uint32_t client_token,
         estimated_time_ms = timing.time_on_air_ms;
       }
     }
+  } else if (state->chip == radio::ChipType::kLr2021 &&
+             state->protocol == radio::ProtocolType::kLora &&
+             driver_.IsLr2021Ready()) {
+    LoraTransmitTiming timing;
+    usp_cpp_bus_driver::Lr20xx::LoraConfig driver_config;
+    if (CalculateLoraTransmitTiming(state->lora_config, size, &timing) &&
+        BuildLr2021Config(state->lora_config, static_cast<uint8_t>(size),
+            &driver_config)) {
+      auto* radio = driver_.chip().lr2021.get();
+      result = radio != nullptr && radio->Configure(driver_config) &&
+          radio->Invoke(lr20xx_system_clear_irq_status,
+              LR20XX_SYSTEM_IRQ_ALL_MASK) == LR20XX_STATUS_OK &&
+          radio->WriteBuffer(data, size) &&
+          radio->StartTransmit(timing.hardware_timeout_ms);
+      if (result) {
+        state->transmit_deadline_us = esp_timer_get_time() +
+            static_cast<int64_t>(timing.watchdog_timeout_ms) * 1000;
+        estimated_time_ms = timing.time_on_air_ms;
+      }
+    }
   } else if (state->chip == radio::ChipType::kCc1101 &&
              state->protocol == radio::ProtocolType::kGfsk &&
              driver_.IsCc1101Ready() && size <= 60) {
@@ -5928,7 +6126,8 @@ bool TDisplayP4Device::SendRadio(uint32_t client_token,
   state->transmitting = result;
   state->chip_error = !result && send_failure_is_chip_error;
   state->transmit_request_token = result ? request_token : 0;
-  if (result && state->chip != radio::ChipType::kSx1262) {
+  if (result && state->chip != radio::ChipType::kSx1262 &&
+      state->chip != radio::ChipType::kLr2021) {
     state->pending_event = RadioEvent();
     state->pending_event.type = RadioEventType::kTransmitComplete;
     state->pending_event.client_token = state->active_client_token;
@@ -6007,6 +6206,8 @@ bool TDisplayP4Device::PollRadioState(
   const bool hardware_ready =
       (state->chip == radio::ChipType::kSx1262 &&
           driver_.IsSx1262Ready()) ||
+      (state->chip == radio::ChipType::kLr2021 &&
+          driver_.IsLr2021Ready()) ||
       (state->chip == radio::ChipType::kCc1101 &&
           keyboard_expansion_.state.load() ==
               KeyboardExpansionState::kReady &&
@@ -6112,6 +6313,115 @@ bool TDisplayP4Device::PollRadioState(
     }
     xSemaphoreGive(state->mutex);
     return true;
+  }
+
+  if (state->chip == radio::ChipType::kLr2021) {
+    auto* radio = driver_.chip().lr2021.get();
+    lr20xx_system_irq_mask_t irq_mask = LR20XX_SYSTEM_IRQ_NONE;
+    if (radio == nullptr ||
+        radio->Invoke(lr20xx_system_get_and_clear_irq_status, &irq_mask) !=
+            LR20XX_STATUS_OK) {
+      state->active = false;
+      state->transmitting = false;
+      state->chip_error = true;
+      event->type = RadioEventType::kChipError;
+      event->failure_reason = RadioFailureReason::kIrqReadFailed;
+      state->transmit_request_token = 0;
+      state->transmit_deadline_us = 0;
+      xSemaphoreGive(state->mutex);
+      return false;
+    }
+    if (irq_mask == LR20XX_SYSTEM_IRQ_NONE) {
+      if (state->transmitting && state->transmit_deadline_us > 0 &&
+          esp_timer_get_time() >= state->transmit_deadline_us) {
+        const bool recovered = StartLr2021Receive(radio, state->lora_config);
+        state->transmitting = false;
+        state->active = recovered;
+        state->chip_error = !recovered;
+        state->transmit_request_token = 0;
+        state->transmit_deadline_us = 0;
+        event->type = RadioEventType::kTransmitFailed;
+        event->failure_reason = RadioFailureReason::kSoftwareTimeout;
+        xSemaphoreGive(state->mutex);
+        return recovered;
+      }
+      xSemaphoreGive(state->mutex);
+      return true;
+    }
+
+    const bool timed_out =
+        (irq_mask & LR20XX_SYSTEM_IRQ_TIMEOUT) != 0;
+    const bool tx_done =
+        (irq_mask & LR20XX_SYSTEM_IRQ_TX_DONE) != 0;
+    const bool rx_done =
+        (irq_mask & LR20XX_SYSTEM_IRQ_RX_DONE) != 0;
+    const bool receive_error =
+        (irq_mask & (LR20XX_SYSTEM_IRQ_CRC_ERROR |
+            LR20XX_SYSTEM_IRQ_LEN_ERROR |
+            LR20XX_SYSTEM_IRQ_LORA_HEADER_ERROR)) != 0;
+    const bool chip_error =
+        (irq_mask &
+            (LR20XX_SYSTEM_IRQ_ERROR | LR20XX_SYSTEM_IRQ_CMD_ERROR)) != 0;
+    bool result = !chip_error;
+    if (state->transmitting && (tx_done || timed_out)) {
+      state->transmitting = false;
+      state->transmit_request_token = 0;
+      state->transmit_deadline_us = 0;
+      const bool receive_restarted =
+          StartLr2021Receive(radio, state->lora_config);
+      state->active = receive_restarted;
+      state->chip_error = !receive_restarted;
+      event->type = timed_out ? RadioEventType::kTransmitFailed
+                              : RadioEventType::kTransmitComplete;
+      event->failure_reason = timed_out
+          ? RadioFailureReason::kHardwareTimeout
+          : (receive_restarted ? RadioFailureReason::kNone
+                               : RadioFailureReason::kReceiveRestartFailed);
+      result = receive_restarted;
+    } else if (state->transmitting) {
+      result = true;
+    } else if (rx_done && !receive_error && !chip_error) {
+      uint16_t received_size = 0;
+      lr20xx_radio_lora_packet_status_t metrics = {};
+      result = radio->Invoke(lr20xx_radio_common_get_rx_packet_length,
+                   &received_size) == LR20XX_STATUS_OK &&
+          received_size > 0 && received_size <= kRadioPayloadCapacity &&
+          radio->ReadBuffer(event->payload, received_size) &&
+          radio->Invoke(lr20xx_radio_lora_get_packet_status, &metrics) ==
+              LR20XX_STATUS_OK &&
+          StartLr2021Receive(radio, state->lora_config);
+      if (result) {
+        event->type = RadioEventType::kPacketReceived;
+        event->payload_size = received_size;
+        const int16_t rssi_dbm = metrics.rssi_pkt_in_dbm -
+            static_cast<int16_t>(metrics.rssi_pkt_half_dbm_count) / 2;
+        event->rssi_dbm = static_cast<int8_t>(
+            std::clamp<int16_t>(rssi_dbm, INT8_MIN, INT8_MAX));
+        event->snr_db = static_cast<int8_t>(metrics.snr_pkt_raw / 4);
+        event->rssi_valid = true;
+        event->snr_valid = true;
+      }
+    } else {
+      result = !chip_error &&
+          StartLr2021Receive(radio, state->lora_config);
+    }
+    if (!result) {
+      state->active = false;
+      state->transmitting = false;
+      state->chip_error = true;
+      state->transmit_request_token = 0;
+      state->transmit_deadline_us = 0;
+      if (event->type == RadioEventType::kNone) {
+        event->type = RadioEventType::kChipError;
+      }
+      if (event->failure_reason == RadioFailureReason::kNone) {
+        event->failure_reason = chip_error
+            ? RadioFailureReason::kHardwareUnavailable
+            : RadioFailureReason::kReceiveRestartFailed;
+      }
+    }
+    xSemaphoreGive(state->mutex);
+    return result;
   }
 
   auto* radio = driver_.chip().sx1262.get();
@@ -6304,6 +6614,9 @@ bool TDisplayP4Device::ReadRadioStateStatus(
   switch (state->chip) {
     case radio::ChipType::kSx1262:
       status->hardware_ready = driver_.IsSx1262Ready();
+      break;
+    case radio::ChipType::kLr2021:
+      status->hardware_ready = driver_.IsLr2021Ready();
       break;
     case radio::ChipType::kCc1101:
       status->hardware_ready =

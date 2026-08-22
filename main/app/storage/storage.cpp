@@ -432,7 +432,8 @@ void RequestLittleFsStorageFlush(bool urgent) {
   }
 }
 
-void InitStorage() {
+void InitStorage(radio::ChipMask supported_radio_chips,
+    radio::ChipType primary_radio_chip) {
   if (!EnsureStorageCoordinatorInitialized()) {
     return;
   }
@@ -447,7 +448,7 @@ void InitStorage() {
   InitFirstBootCache();
   InitHapticCache();
   InitMusicCache();
-  InitRadioCache();
+  InitRadioCache(supported_radio_chips, primary_radio_chip);
   InitSoundCache();
   InitWifiCache();
   InitOtgCache();

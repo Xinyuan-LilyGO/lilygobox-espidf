@@ -102,9 +102,12 @@ struct RadioPreferences {
 };
 
 /**
- * @brief 从 NVS 初始化 Radio 配置长期 RAM 缓存
+ * @brief 从 NVS 初始化当前设备支持的 Radio 配置长期 RAM 缓存
+ * @param supported_chips 当前板型允许持久化的可选射频芯片
+ * @param primary_chip 自动识别到的主射频芯片
  */
-void InitRadioCache();
+void InitRadioCache(
+    radio::ChipMask supported_chips, radio::ChipType primary_chip);
 
 /**
  * @brief 从长期 RAM 缓存读取 Radio 配置
