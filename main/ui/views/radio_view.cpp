@@ -7692,7 +7692,7 @@ void ApplyRadioCapabilityDefaults(const hal::RadioCapability& capability,
     profile->esb_address = 0xE7E7E7E7E7ULL;
     profile->esb_address_width = 5;
     profile->esb_crc_length_bits = 16;
-    profile->esb_retransmit_count = 3;
+    profile->esb_retransmit_count = 0;
     profile->esb_retransmit_delay_us = 750;
     profile->esb_auto_ack_enabled = false;
     profile->esb_dynamic_payload_enabled = false;
@@ -8279,7 +8279,8 @@ bool CreateAddModuleContent(RadioViewState* state) {
   state->add_external_antenna_switch = nullptr;
   if (state->capabilities.supports_external_antenna) {
     state->add_external_antenna_switch = CreateAddSwitchRow(body, state,
-        "External antenna", "Enable the external antenna",
+        "External antenna",
+        "Enabling without an external antenna may cause permanent damage",
         switch_rows_top + switch_row_index * kSwitchRowPitch,
         profile.antenna == radio::AntennaType::kExternal);
     ++switch_row_index;

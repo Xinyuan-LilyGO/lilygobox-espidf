@@ -109,7 +109,7 @@ struct EnhancedShockBurstRadioConfig {
   // CRC 长度，支持 8 和 16 bit。
   uint8_t crc_length_bits = 16;
   // 自动重发次数，范围为 0～15。
-  uint8_t retransmit_count = 3;
+  uint8_t retransmit_count = 0;
   // 自动重发间隔，单位为 us，范围为 250～4000，步进为 250。
   uint16_t retransmit_delay_us = 750;
   // 是否使用 Enhanced ShockBurst 自动应答；广播模式默认不等待接收端应答。

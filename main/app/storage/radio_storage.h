@@ -75,7 +75,7 @@ struct RadioProfile {
   // nRF24L01 CRC 长度，单位为 bit。
   uint8_t esb_crc_length_bits = 16;
   // nRF24L01 自动重发次数。
-  uint8_t esb_retransmit_count = 3;
+  uint8_t esb_retransmit_count = 0;
   // nRF24L01 自动重发间隔，单位为 us。
   uint16_t esb_retransmit_delay_us = 750;
   // nRF24L01 是否启用自动应答；广播模式默认不等待接收端应答。
