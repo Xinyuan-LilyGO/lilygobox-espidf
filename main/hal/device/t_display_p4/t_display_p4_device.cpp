@@ -2,7 +2,7 @@
  * @Description: T-Display-P4 设备初始化与硬件 Provider 适配实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-08-08 13:32:57
+ * @LastEditTime: 2026-08-22 16:00:46
  * @License: GPL 3.0
  */
 #include "hal/device/t_display_p4/t_display_p4_device.h"
@@ -1077,6 +1077,8 @@ bool TDisplayP4Device::InitializeKeyboardInputInterrupt() {
 
   keyboard_expansion_.input_interrupt_pending.store(
       false, std::memory_order_relaxed);
+  keyboard_expansion_.disconnection_check_pending.store(
+      false, std::memory_order_relaxed);
   if (!tool_->InitGpioInterrupt(keyboard_gpio::tca8418::kInt,
           cpp_bus_driver::Tool::InterruptMode::kFalling,
           KeyboardInputInterruptHandler, this,
@@ -1089,6 +1091,8 @@ bool TDisplayP4Device::InitializeKeyboardInputInterrupt() {
   if (!tool_->GpioRead(keyboard_gpio::tca8418::kInt)) {
     keyboard_expansion_.input_interrupt_pending.store(
         true, std::memory_order_release);
+    keyboard_expansion_.disconnection_check_pending.store(
+        true, std::memory_order_release);
   }
   return true;
 }
@@ -1099,6 +1103,8 @@ bool TDisplayP4Device::DeinitializeKeyboardExpansionInterrupt() {
         false, std::memory_order_relaxed);
     keyboard_expansion_.input_interrupt_pending.store(
         false, std::memory_order_relaxed);
+    keyboard_expansion_.disconnection_check_pending.store(
+        false, std::memory_order_relaxed);
     return true;
   }
 
@@ -1107,6 +1113,8 @@ bool TDisplayP4Device::DeinitializeKeyboardExpansionInterrupt() {
   keyboard_expansion_.connection_interrupt_pending.store(
       false, std::memory_order_relaxed);
   keyboard_expansion_.input_interrupt_pending.store(
+      false, std::memory_order_relaxed);
+  keyboard_expansion_.disconnection_check_pending.store(
       false, std::memory_order_relaxed);
   return result;
 }
@@ -1129,6 +1137,8 @@ void TDisplayP4Device::KeyboardInputInterruptHandler(void* context) {
   }
   auto* device = static_cast<TDisplayP4Device*>(context);
   device->keyboard_expansion_.input_interrupt_pending.store(
+      true, std::memory_order_release);
+  device->keyboard_expansion_.disconnection_check_pending.store(
       true, std::memory_order_release);
 }
 
@@ -1328,6 +1338,45 @@ bool TDisplayP4Device::DeinitializeKeyboardExpansionHardware(
 bool TDisplayP4Device::DisableKeyboardExpansion() {
   return DeinitializeKeyboardExpansionHardware(
       KeyboardExpansionState::kDisabled);
+}
+
+bool TDisplayP4Device::UpdateKeyboardExpansionDisconnectionState() {
+  if (keyboard_expansion_.state.load() != KeyboardExpansionState::kReady ||
+      !keyboard_expansion_.interrupt_initialized.load(
+          std::memory_order_acquire) ||
+      !keyboard_expansion_.disconnection_check_pending.exchange(
+          false, std::memory_order_acq_rel)) {
+    return true;
+  }
+  if (tool_ == nullptr || !driver_.IsTca8418Ready() ||
+      driver_.chip().tca8418 == nullptr) {
+    return false;
+  }
+
+  // 扩展板上的 INT 空闲时由外部上拉保持高电平，拔出后由主板内部
+  // 下拉保持低电平。下降沿也可能来自正常按键，因此需要通过一次
+  // TCA8418 通信确认，不能仅根据 GPIO 电平判定扩展已断开。
+  if (tool_->GpioRead(keyboard_gpio::tca8418::kInt)) {
+    keyboard_expansion_.consecutive_read_failures.store(0);
+    return true;
+  }
+  if (driver_.chip().tca8418->GetFingerCount() != UINT8_MAX) {
+    keyboard_expansion_.consecutive_read_failures.store(0);
+    // 锁屏时按键事件可能暂时不被 LVGL 消费，INT 会持续为低。保留低频
+    // 复查，确保此后直接拔出扩展板时仍能发现通信已经中断。
+    if (!tool_->GpioRead(keyboard_gpio::tca8418::kInt)) {
+      keyboard_expansion_.disconnection_check_pending.store(
+          true, std::memory_order_release);
+    }
+    return true;
+  }
+
+  RecordKeyboardInputReadFailure();
+  if (keyboard_expansion_.state.load() == KeyboardExpansionState::kReady) {
+    keyboard_expansion_.disconnection_check_pending.store(
+        true, std::memory_order_release);
+  }
+  return true;
 }
 
 bool TDisplayP4Device::UpdateKeyboardExpansionConnection(
@@ -6444,6 +6493,7 @@ bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
       }
     }
     const bool keyboard_expansion_slept =
+        keyboard_expansion_.state.load() != KeyboardExpansionState::kReady ||
         driver_.SetKeyboardExpansionOperatingMode(
             lilygo_device_driver::TDisplayP4Driver::
                 KeyboardExpansionOperatingMode::kSleep);
@@ -6456,7 +6506,11 @@ bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
       driver_.chip().hi8561_touch->SetGestureWakeEnabled(false);
       touch_gesture_wake_enabled_ = false;
     }
-    return screen_slept && keyboard_expansion_slept;
+    if (!keyboard_expansion_slept) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Sleep keyboard expansion failed; continue sleeping the screen\n");
+    }
+    return screen_slept;
   }
 
   const bool
@@ -6490,11 +6544,12 @@ bool TDisplayP4Device::ExitDeviceSleep(bool deep_sleep) {
     return false;
   }
   if (keyboard_expansion_.state.load() == KeyboardExpansionState::kReady) {
-    bool keyboard_state_restored = SetKeyboardBacklightBrightnessPercent(
+    bool keyboard_controls_restored = SetKeyboardBacklightBrightnessPercent(
         keyboard_expansion_.backlight_brightness_percent.load());
-    keyboard_state_restored &= SetKeyboardExpansionLed(
+    keyboard_controls_restored &= SetKeyboardExpansionLed(
         KeyboardExpansionLed::kLed1,
         keyboard_expansion_.caps_lock_enabled.load());
+    bool keyboard_state_restored = keyboard_controls_restored;
     RadioState* extension_states[] = {&cc1101_radio_, &nrf24l01_radio_};
     for (RadioState* state : extension_states) {
       if (!state->active || state->mutex == nullptr ||
@@ -6531,8 +6586,8 @@ bool TDisplayP4Device::ExitDeviceSleep(bool deep_sleep) {
     }
     if (!keyboard_state_restored) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Restore keyboard expansion state failed\n");
-      return false;
+          "Restore keyboard expansion state failed; "
+          "continue waking the screen\n");
     }
   }
   return true;

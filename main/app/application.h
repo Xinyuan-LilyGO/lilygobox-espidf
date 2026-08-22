@@ -197,6 +197,12 @@ class Application final {
   void RequestScreenLock();
 
   /**
+   * @brief 等待键盘扩展连接更新和扫描事务结束
+   * @return 事务在限定时间内结束时返回 true，否则返回 false
+   */
+  bool WaitForKeyboardExpansionConnectionIdle();
+
+  /**
    * @brief 立即进入锁屏熄屏状态
    * @return 锁屏成功返回 true，否则返回 false
    */
@@ -324,6 +330,10 @@ class Application final {
   std::atomic<int> current_screen_brightness_percent_{90};
   std::atomic<ScreenLockState> screen_lock_state_{ScreenLockState::kUnlocked};
   std::atomic<bool> screen_lock_requested_{false};
+  // 锁屏页面创建到锁屏状态发布期间禁止显示普通提示框。
+  std::atomic<bool> screen_lock_transition_in_progress_{false};
+  // 连接更新可能同步清理扩展硬件；锁屏转换等待该事务结束后再休眠。
+  std::atomic<bool> keyboard_expansion_connection_update_in_progress_{false};
   // 仅在驱动确认物理面板已完整熄屏后保持为 true。
   std::atomic<bool> screen_off_confirmed_{false};
   // 防止重启与关机流程并发进入最终熄屏和存储事务。
@@ -345,10 +355,12 @@ class Application final {
   bool otg_hardware_enabled_ = false;
   // 最近一次确认外部电源移除时的系统节拍。
   TickType_t otg_external_power_removed_tick_ = 0;
-  // 键盘扩展扫描任务仍在进行。
-  bool keyboard_expansion_scan_pending_ = false;
+  // 键盘扩展扫描任务仍在进行，由主循环与锁屏任务共同读取。
+  std::atomic<bool> keyboard_expansion_scan_pending_{false};
   // 键盘扩展不可用后等待系统主界面显示一次连接提示。
   bool keyboard_expansion_unavailable_notice_pending_ = false;
+  // 同一次物理断开只刷新一次状态并生成一次通知。
+  bool keyboard_expansion_disconnection_handled_ = false;
   // 避免连接监听异常期间重复输出相同警告。
   bool keyboard_expansion_connection_update_failed_ = false;
 };

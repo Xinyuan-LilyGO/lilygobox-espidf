@@ -107,6 +107,12 @@ class KeyboardExpansionProvider {
   virtual bool DisableKeyboardExpansion() = 0;
 
   /**
+   * @brief 根据待处理的键盘中断更新扩展断开状态
+   * @return 检查无需执行或状态更新完成时返回 true，否则返回 false
+   */
+  virtual bool UpdateKeyboardExpansionDisconnectionState() = 0;
+
+  /**
    * @brief 处理键盘扩展连接变化并在重新连接后启动扫描
    * @param scan_started 自动重连扫描已启动时写入 true
    * @return 连接监听和所需状态转换成功返回 true，否则返回 false

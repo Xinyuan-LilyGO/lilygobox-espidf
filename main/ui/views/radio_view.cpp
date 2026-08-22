@@ -115,10 +115,6 @@ constexpr uint32_t kProfileSwitchAnimationMs = 180;
 constexpr lv_style_selector_t kProfileSwitchCheckedIndicatorSelector =
     static_cast<lv_style_selector_t>(LV_PART_INDICATOR) |
     static_cast<lv_style_selector_t>(LV_STATE_CHECKED);
-// Radio 芯片异常时先快速恢复，持续失败后降低重试频率但不永久停止。
-constexpr uint32_t kActivationRetryPeriodMs = 2000;
-constexpr uint32_t kActivationRetrySlowPeriodMs = 10000;
-constexpr uint8_t kActivationFastRetryCount = 5;
 constexpr uint32_t kRadioCapabilitiesRefreshPeriodMs = 500;
 constexpr uint32_t kRadioCommandTaskStackBytes = 8 * 1024;
 constexpr UBaseType_t kRadioCommandTaskPriority = tskIDLE_PRIORITY;
@@ -134,6 +130,94 @@ constexpr char kProfileNameAcceptedChars[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_. ";
 constexpr char kProfileCreatedMessage[] = "Radio profile created";
 constexpr char kSettingsChangedMessage[] = "Settings changed";
+
+enum class RadioActivationState {
+  kNone,
+  kPending,
+  kInitializationFailed,
+  kChipError,
+  kHardwareUnavailable,
+};
+
+/**
+ * @brief 保存本次运行期间各 Radio 配置的初始化状态
+ *
+ * 页面重建后仍保留真正的初始化失败和芯片错误，防止重新进入页面成为
+ * 隐藏重试入口。硬件暂时不可用单独记录，重新接入后允许自动初始化一次。
+ */
+class RadioActivationRegistry {
+ public:
+  RadioActivationState GetState(uint32_t profile_id) {
+    RadioActivationState state = RadioActivationState::kNone;
+    portENTER_CRITICAL(&lock_);
+    for (size_t index = 0; index < entry_count_; ++index) {
+      if (entries_[index].profile_id == profile_id) {
+        state = entries_[index].state;
+        break;
+      }
+    }
+    portEXIT_CRITICAL(&lock_);
+    return state;
+  }
+
+  void SetState(uint32_t profile_id, RadioActivationState state) {
+    if (profile_id == 0) {
+      return;
+    }
+    portENTER_CRITICAL(&lock_);
+    for (size_t index = 0; index < entry_count_; ++index) {
+      if (entries_[index].profile_id != profile_id) {
+        continue;
+      }
+      if (state == RadioActivationState::kNone) {
+        for (size_t next = index + 1; next < entry_count_; ++next) {
+          entries_[next - 1] = entries_[next];
+        }
+        --entry_count_;
+      } else {
+        entries_[index].state = state;
+      }
+      portEXIT_CRITICAL(&lock_);
+      return;
+    }
+    if (state != RadioActivationState::kNone &&
+        entry_count_ < std::size(entries_)) {
+      entries_[entry_count_++] = {
+          .profile_id = profile_id,
+          .state = state,
+      };
+    }
+    portEXIT_CRITICAL(&lock_);
+  }
+
+ private:
+  struct Entry {
+    uint32_t profile_id = 0;
+    RadioActivationState state = RadioActivationState::kNone;
+  };
+
+  Entry entries_[app::kRadioProfileCapacity] = {};
+  size_t entry_count_ = 0;
+  portMUX_TYPE lock_ = portMUX_INITIALIZER_UNLOCKED;
+};
+
+RadioActivationRegistry& GetRadioActivationRegistry() {
+  static RadioActivationRegistry registry;
+  return registry;
+}
+
+bool IsProfileActivationBlocked(uint32_t profile_id) {
+  const RadioActivationState state =
+      GetRadioActivationRegistry().GetState(profile_id);
+  return state == RadioActivationState::kPending ||
+      state == RadioActivationState::kInitializationFailed ||
+      state == RadioActivationState::kChipError;
+}
+
+void SetProfileActivationState(
+    uint32_t profile_id, RadioActivationState state) {
+  GetRadioActivationRegistry().SetState(profile_id, state);
+}
 
 /**
  * @brief 将字符串安全复制到固定长度缓冲区
@@ -378,11 +462,9 @@ struct RadioViewState {
   size_t editing_index = kRadioModuleCapacity;
   // 单项删除确认期间使用配置 ID，避免列表索引变化后删错配置。
   uint32_t pending_delete_profile_id = 0;
-  uint32_t last_activation_retry_tick = 0;
   uint32_t last_capabilities_refresh_tick = 0;
   // 自动发送计时仅绑定当前启用配置，切换配置后重新开始一个完整周期。
   uint32_t auto_send_last_ticks[kRadioModuleCapacity] = {};
-  uint8_t activation_retry_count = 0;
   size_t pending_control_count = 0;
   // 发送启动后到收到完成事件前保持为 true。
   bool transmit_in_flight = false;
@@ -673,6 +755,50 @@ hal::RadioConfig ToRadioConfig(const app::RadioProfile& profile) {
   };
 }
 
+bool RadioConfigsEqual(
+    const hal::RadioConfig& lhs, const hal::RadioConfig& rhs) {
+  return lhs.client_token == rhs.client_token && lhs.chip == rhs.chip &&
+      lhs.protocol == rhs.protocol && lhs.antenna == rhs.antenna &&
+      lhs.lora.frequency_hz == rhs.lora.frequency_hz &&
+      lhs.lora.bandwidth_hz == rhs.lora.bandwidth_hz &&
+      lhs.lora.preamble_length == rhs.lora.preamble_length &&
+      lhs.lora.spreading_factor == rhs.lora.spreading_factor &&
+      lhs.lora.coding_rate_denominator == rhs.lora.coding_rate_denominator &&
+      lhs.lora.sync_word == rhs.lora.sync_word &&
+      lhs.lora.output_power_dbm == rhs.lora.output_power_dbm &&
+      lhs.lora.crc_enabled == rhs.lora.crc_enabled &&
+      lhs.lora.invert_iq == rhs.lora.invert_iq &&
+      lhs.lora.rx_boosted == rhs.lora.rx_boosted &&
+      lhs.gfsk.frequency_hz == rhs.gfsk.frequency_hz &&
+      lhs.gfsk.data_rate_bps == rhs.gfsk.data_rate_bps &&
+      lhs.gfsk.frequency_deviation_hz == rhs.gfsk.frequency_deviation_hz &&
+      lhs.gfsk.receive_bandwidth_hz == rhs.gfsk.receive_bandwidth_hz &&
+      lhs.gfsk.preamble_length_bits == rhs.gfsk.preamble_length_bits &&
+      lhs.gfsk.sync_word == rhs.gfsk.sync_word &&
+      lhs.gfsk.output_power_dbm == rhs.gfsk.output_power_dbm &&
+      lhs.gfsk.crc_enabled == rhs.gfsk.crc_enabled &&
+      lhs.gfsk.whitening_enabled == rhs.gfsk.whitening_enabled &&
+      lhs.gfsk.fec_enabled == rhs.gfsk.fec_enabled &&
+      lhs.enhanced_shock_burst.channel == rhs.enhanced_shock_burst.channel &&
+      lhs.enhanced_shock_burst.data_rate_bps ==
+          rhs.enhanced_shock_burst.data_rate_bps &&
+      lhs.enhanced_shock_burst.address == rhs.enhanced_shock_burst.address &&
+      lhs.enhanced_shock_burst.address_width ==
+          rhs.enhanced_shock_burst.address_width &&
+      lhs.enhanced_shock_burst.output_power_dbm ==
+          rhs.enhanced_shock_burst.output_power_dbm &&
+      lhs.enhanced_shock_burst.crc_length_bits ==
+          rhs.enhanced_shock_burst.crc_length_bits &&
+      lhs.enhanced_shock_burst.retransmit_count ==
+          rhs.enhanced_shock_burst.retransmit_count &&
+      lhs.enhanced_shock_burst.retransmit_delay_us ==
+          rhs.enhanced_shock_burst.retransmit_delay_us &&
+      lhs.enhanced_shock_burst.auto_ack_enabled ==
+          rhs.enhanced_shock_burst.auto_ack_enabled &&
+      lhs.enhanced_shock_burst.dynamic_payload_enabled ==
+          rhs.enhanced_shock_burst.dynamic_payload_enabled;
+}
+
 const char* ChipDisplayName(radio::ChipType chip) {
   switch (chip) {
     case radio::ChipType::kSx1262:
@@ -791,6 +917,32 @@ bool IsProfileSupported(
     if (capability.chip == profile.chip &&
         capability.protocol == profile.protocol &&
         IsFrequencySupported(capability, profile.frequency_hz)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool IsRadioConfigSupported(const hal::RadioCapabilities& capabilities,
+    const hal::RadioConfig& config) {
+  if (config.antenna == radio::AntennaType::kExternal &&
+      !capabilities.supports_external_antenna) {
+    return false;
+  }
+  const uint32_t frequency_hz =
+      config.protocol == radio::ProtocolType::kEnhancedShockBurst
+      ? static_cast<uint32_t>(2400U + config.enhanced_shock_burst.channel) *
+          1000000U
+      : (config.protocol == radio::ProtocolType::kGfsk
+            ? config.gfsk.frequency_hz
+            : config.lora.frequency_hz);
+  const size_t capability_count = std::min(
+      capabilities.count, hal::kRadioCapabilityCapacity);
+  for (size_t index = 0; index < capability_count; ++index) {
+    const hal::RadioCapability& capability = capabilities.entries[index];
+    if (capability.chip == config.chip &&
+        capability.protocol == config.protocol &&
+        IsFrequencySupported(capability, frequency_hz)) {
       return true;
     }
   }
@@ -949,6 +1101,22 @@ size_t FindProfileIndex(const RadioViewState* state, uint32_t profile_id) {
     }
   }
   return kRadioModuleCapacity;
+}
+
+void RecordProfileChipError(
+    RadioViewState* state, uint32_t profile_id) {
+  if (state == nullptr || profile_id == 0 ||
+      GetRadioActivationRegistry().GetState(profile_id) ==
+          RadioActivationState::kPending) {
+    return;
+  }
+  const size_t profile_index = FindProfileIndex(state, profile_id);
+  const bool hardware_available = profile_index < state->module_count &&
+      IsProfileSupported(
+          state, state->preferences.profiles[profile_index]);
+  SetProfileActivationState(profile_id,
+      hardware_available ? RadioActivationState::kChipError
+                         : RadioActivationState::kHardwareUnavailable);
 }
 
 void FormatCurrentTime(const RadioViewState* state, char* output,
@@ -1154,6 +1322,18 @@ void RadioViewDeleteEventCallback(lv_event_t* event) {
   if (state != nullptr && state->radio_timer != nullptr) {
     lv_timer_delete(state->radio_timer);
     state->radio_timer = nullptr;
+  }
+  if (state != nullptr) {
+    // 页面销毁后尚未启动的队列项会随状态一起释放，不能把它们继续标记
+    // 为正在初始化。已经进入 worker 的命令由 worker 发布最终状态。
+    for (size_t index = 0; index < state->pending_control_count; ++index) {
+      if (state->pending_control_types[index] ==
+          RadioCommandType::kActivate) {
+        SetProfileActivationState(
+            state->pending_control_configs[index].client_token,
+            RadioActivationState::kNone);
+      }
+    }
   }
   if (state != nullptr && state->config.radio != nullptr) {
     auto* shutdown_job = new (std::nothrow) RadioShutdownJob{
@@ -2273,9 +2453,37 @@ void RadioCommandTaskEntry(void* context) {
   delete shared_job;
   if (job->provider != nullptr) {
     switch (job->type) {
-      case RadioCommandType::kActivate:
+      case RadioCommandType::kActivate: {
         job->success = job->provider->ActivateRadio(job->config);
+        RadioActivationState activation_state =
+            RadioActivationState::kNone;
+        if (!job->success) {
+          hal::RadioCapabilities capabilities;
+          activation_state = RadioActivationState::kInitializationFailed;
+          if (job->provider->ReadRadioCapabilities(&capabilities) &&
+              !IsRadioConfigSupported(capabilities, job->config)) {
+            activation_state = RadioActivationState::kHardwareUnavailable;
+          }
+        }
+        // 页面退出或配置删除后，旧任务的结果不能污染已不存在或已修改
+        // 的配置。profile ID 单调递增，回绕前再用完整配置进行二次确认。
+        app::RadioPreferences preferences;
+        if (app::GetRadioPreferences(&preferences)) {
+          for (size_t index = 0; index < preferences.profile_count; ++index) {
+            if (preferences.profiles[index].id != job->config.client_token) {
+              continue;
+            }
+            const hal::RadioConfig current_config =
+                ToRadioConfig(preferences.profiles[index]);
+            if (RadioConfigsEqual(current_config, job->config)) {
+              SetProfileActivationState(
+                  job->config.client_token, activation_state);
+            }
+            break;
+          }
+        }
         break;
+      }
       case RadioCommandType::kDeactivate:
         job->success = job->provider->DeactivateRadio(
             job->config.client_token);
@@ -2314,6 +2522,10 @@ bool StartRadioCommand(RadioViewState* state,
   }
   delete task_context;
   job->success = false;
+  if (job->type == RadioCommandType::kActivate) {
+    SetProfileActivationState(job->config.client_token,
+        RadioActivationState::kInitializationFailed);
+  }
   job->completed.store(true, std::memory_order_release);
   LogMessage(LogLevel::kError, __FILE__, __LINE__,
       "Radio command task could not be created\n");
@@ -2361,6 +2573,11 @@ void QueueRadioControlCommand(RadioViewState* state,
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Radio control queue is full\n");
     return;
+  }
+  if (type == RadioCommandType::kActivate) {
+    // 页面重建期间也能识别尚未完成的初始化，避免并发访问同一芯片。
+    SetProfileActivationState(
+        config.client_token, RadioActivationState::kPending);
   }
   state->pending_control_types[state->pending_control_count] = type;
   state->pending_control_configs[state->pending_control_count] = config;
@@ -2434,20 +2651,16 @@ bool FinishRadioCommand(RadioViewState* state) {
     if (profile_index < state->module_count) {
       state->radio_status_available[profile_index] = false;
     }
-    if (job->success && job->type == RadioCommandType::kActivate) {
-      state->activation_retry_count = 0;
-      state->last_activation_retry_tick =
-          lv_tick_get() - kActivationRetryPeriodMs;
+    if (job->type == RadioCommandType::kDeactivate &&
+        profile_index < state->module_count) {
+      state->radio_statuses[profile_index] = hal::RadioStatus();
+      state->radio_status_available[profile_index] = job->success;
     }
-    if (job->type == RadioCommandType::kDeactivate) {
-      if (profile_index < state->module_count) {
-        state->radio_statuses[profile_index] = hal::RadioStatus();
-        state->radio_status_available[profile_index] = job->success;
-      }
-      UpdateDetailStatus(state);
-      RefreshProfileSettingsPage(state);
-      MarkModuleListDirty(state);
-    }
+    // 激活失败后也必须立即退出 Activating 状态，让聊天页重新显示
+    // 可点击的 Retry initialization；后续是否再检测只由用户决定。
+    UpdateDetailStatus(state);
+    RefreshProfileSettingsPage(state);
+    MarkModuleListDirty(state);
   }
   if (!state->transmit_in_flight) {
     StartPendingRadioControlCommand(state);
@@ -2627,19 +2840,47 @@ void RefreshRadioCapabilities(RadioViewState* state) {
   if (RadioCapabilitiesEqual(state->capabilities, capabilities)) {
     return;
   }
+  bool was_supported[kRadioModuleCapacity] = {};
+  for (size_t index = 0; index < state->module_count; ++index) {
+    was_supported[index] =
+        IsProfileSupported(state, state->preferences.profiles[index]);
+  }
   state->capabilities = capabilities;
   if (state->add_page != nullptr) {
     CloseAddModulePage(state);
   }
+  for (size_t index = 0; index < state->module_count; ++index) {
+    const app::RadioProfile& profile = state->preferences.profiles[index];
+    if (!profile.active) {
+      continue;
+    }
+    const bool supported = IsProfileSupported(state, profile);
+    state->radio_status_available[index] = false;
+    if (!supported) {
+      const RadioActivationState activation_state =
+          GetRadioActivationRegistry().GetState(profile.id);
+      if (activation_state != RadioActivationState::kPending) {
+        SetProfileActivationState(
+            profile.id, RadioActivationState::kHardwareUnavailable);
+      }
+      continue;
+    }
+    if (was_supported[index]) {
+      continue;
+    }
+    if (GetRadioActivationRegistry().GetState(profile.id) ==
+        RadioActivationState::kHardwareUnavailable) {
+      SetProfileActivationState(profile.id, RadioActivationState::kNone);
+    }
+    if (!IsProfileActivationBlocked(profile.id) &&
+        !IsProfileActivationPending(state, profile.id)) {
+      QueueRadioControlCommand(state, RadioCommandType::kActivate,
+          ToRadioConfig(profile));
+    }
+  }
   UpdateDetailStatus(state);
   RefreshProfileSettingsPage(state);
   MarkModuleListDirty(state);
-  for (size_t index = 0; index < state->module_count; ++index) {
-    const app::RadioProfile& profile = state->preferences.profiles[index];
-    if (profile.active && IsProfileSupported(state, profile)) {
-      state->radio_status_available[index] = false;
-    }
-  }
 }
 
 /**
@@ -2662,12 +2903,6 @@ void RadioTimerCallback(lv_timer_t* timer) {
   bool any_status_available = false;
   bool any_transmitting = false;
   bool status_changed = false;
-  size_t retry_index = state->module_count;
-  const bool use_fast_retry =
-      state->activation_retry_count < kActivationFastRetryCount;
-  const uint32_t retry_period_ms = use_fast_retry
-      ? kActivationRetryPeriodMs
-      : kActivationRetrySlowPeriodMs;
   for (size_t index = 0; index < state->module_count; ++index) {
     const app::RadioProfile& profile = state->preferences.profiles[index];
     if (!profile.active) {
@@ -2691,11 +2926,9 @@ void RadioTimerCallback(lv_timer_t* timer) {
       state->radio_statuses[index] = status;
       any_status_available = true;
       any_transmitting |= status.transmitting;
-    }
-    if ((!available || status.state == hal::RadioLinkState::kChipError) &&
-        retry_index >= state->module_count &&
-        IsProfileSupported(state, profile)) {
-      retry_index = index;
+      if (status.state == hal::RadioLinkState::kChipError) {
+        RecordProfileChipError(state, profile.id);
+      }
     }
   }
   if (!any_active_profile) {
@@ -2705,18 +2938,6 @@ void RadioTimerCallback(lv_timer_t* timer) {
     UpdateDetailStatus(state);
     RefreshProfileSettingsPage(state);
     MarkModuleListDirty(state);
-  }
-  if (retry_index < state->module_count &&
-      lv_tick_get() - state->last_activation_retry_tick >= retry_period_ms) {
-    state->last_activation_retry_tick = lv_tick_get();
-    if (state->activation_retry_count < UINT8_MAX) {
-      ++state->activation_retry_count;
-    }
-    QueueRadioControlCommand(state, RadioCommandType::kActivate,
-        ToRadioConfig(state->preferences.profiles[retry_index]));
-    return;
-  } else if (retry_index >= state->module_count) {
-    state->activation_retry_count = 0;
   }
   hal::RadioEvent event;
   const bool poll_succeeded = state->config.radio->PollRadioEvent(&event);
@@ -2744,6 +2965,7 @@ void RadioTimerCallback(lv_timer_t* timer) {
           event.request_token, delivery);
     }
     if (event.type == hal::RadioEventType::kChipError) {
+      RecordProfileChipError(state, profile_id);
       app::GetRadioChatRepository().FailPending(profile_id);
     }
     if (event.type == hal::RadioEventType::kTransmitComplete) {
@@ -3037,8 +3259,7 @@ void DetailComposerActionClickedEventCallback(lv_event_t* event) {
     return;
   }
   const app::RadioProfile& profile = state->preferences.profiles[index];
-  state->activation_retry_count = 0;
-  state->last_activation_retry_tick = lv_tick_get();
+  SetProfileActivationState(profile.id, RadioActivationState::kNone);
   QueueRadioControlCommand(state, RadioCommandType::kActivate,
       ToRadioConfig(profile));
   RefreshProfileSettingsPage(state);
@@ -4257,8 +4478,6 @@ bool SetProfileActiveState(
   if (active == currently_active) {
     return true;
   }
-  state->activation_retry_count = 0;
-  state->last_activation_retry_tick = lv_tick_get();
   if (active) {
     for (size_t candidate = 0; candidate < state->module_count; ++candidate) {
       app::RadioProfile& other = state->preferences.profiles[candidate];
@@ -4269,6 +4488,7 @@ bool SetProfileActiveState(
       }
     }
     profile.active = true;
+    SetProfileActivationState(profile.id, RadioActivationState::kNone);
     QueueRadioControlCommand(state, RadioCommandType::kActivate,
         ToRadioConfig(profile));
   } else {
@@ -5263,6 +5483,8 @@ void DeleteSelectedProfiles(RadioViewState* state) {
   for (size_t read_index = 0;
        read_index < state->module_count; ++read_index) {
     if (state->selected_modules[read_index]) {
+      SetProfileActivationState(next.profiles[read_index].id,
+          RadioActivationState::kNone);
       app::GetRadioChatRepository().RemoveProfile(next.profiles[read_index].id);
       if (next.profiles[read_index].active) {
         const uint32_t active_id = next.profiles[read_index].id;
@@ -5310,6 +5532,7 @@ void DeleteProfileById(RadioViewState* state, uint32_t profile_id) {
   }
 
   app::RadioPreferences next = state->preferences;
+  SetProfileActivationState(profile_id, RadioActivationState::kNone);
   app::GetRadioChatRepository().RemoveProfile(profile_id);
   if (next.profiles[index].active) {
     FailPendingMessages(state, profile_id);
@@ -6396,6 +6619,8 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
     if (profile.id == 0) {
       profile.id = state->preferences.next_profile_id++;
     }
+    // ID 回绕或旧配置删除后重新使用 ID 时，不继承旧配置的失败锁存。
+    SetProfileActivationState(profile.id, RadioActivationState::kNone);
     CopyBoundedString(profile.name, sizeof(profile.name),
         lv_textarea_get_text(state->add_name_input));
   }
@@ -6504,6 +6729,9 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
   }
   const bool settings_changed = editing &&
       !AreProfileSettingsEqual(previous_profile, profile);
+  if (settings_changed) {
+    SetProfileActivationState(profile.id, RadioActivationState::kNone);
+  }
   state->preferences.profiles[index] = profile;
   if (!editing) {
     ++state->preferences.profile_count;
@@ -6513,6 +6741,7 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
   const uint32_t form_done_ms = lv_tick_get();
   const bool requires_reconfigure = editing && settings_changed &&
       profile.active;
+  bool preferences_persisted = false;
   if (activate_new_profile) {
     for (size_t candidate = 0;
          candidate < state->preferences.profile_count; ++candidate) {
@@ -6525,8 +6754,11 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
     }
     profile.active = true;
     state->preferences.profiles[index].active = true;
-    state->activation_retry_count = 0;
-    state->last_activation_retry_tick = lv_tick_get();
+    SetProfileActivationState(profile.id, RadioActivationState::kNone);
+    // 先持久化最终配置，再启动异步检测，保证任务结果能按完整配置身份
+    // 校验，不会把新配置误认为已删除或已修改的旧请求。
+    preferences_persisted =
+        app::UpdateRadioPreferences(state->preferences);
     QueueRadioControlCommand(state, RadioCommandType::kActivate,
         ToRadioConfig(profile));
   } else if (requires_reconfigure) {
@@ -6546,13 +6778,18 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
       }
     }
     FailPendingMessages(state, profile.id);
-    state->activation_retry_count = 0;
-    state->last_activation_retry_tick = lv_tick_get();
+    SetProfileActivationState(profile.id, RadioActivationState::kNone);
+    preferences_persisted =
+        app::UpdateRadioPreferences(state->preferences);
     QueueRadioControlCommand(state, RadioCommandType::kActivate,
         ToRadioConfig(profile));
   }
   const uint32_t command_done_ms = lv_tick_get();
-  app::UpdateRadioPreferences(state->preferences);
+  if (!preferences_persisted &&
+      !app::UpdateRadioPreferences(state->preferences)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Persist Radio settings failed\n");
+  }
   if (!editing) {
     AppendSystemMessage(state, index, kProfileCreatedMessage);
   } else if (settings_changed) {
@@ -8574,11 +8811,24 @@ lv_obj_t* CreateRadioView(lv_obj_t* parent, const app::AppEntry& app_entry,
   if (config.radio != nullptr) {
     for (size_t index = 0; index < state->module_count; ++index) {
       const app::RadioProfile& profile = state->preferences.profiles[index];
-      if (profile.active && IsProfileSupported(state, profile)) {
-        state->last_activation_retry_tick = lv_tick_get();
+      if (!profile.active) {
+        continue;
+      }
+      if (!IsProfileSupported(state, profile)) {
+        if (GetRadioActivationRegistry().GetState(profile.id) !=
+            RadioActivationState::kPending) {
+          SetProfileActivationState(
+              profile.id, RadioActivationState::kHardwareUnavailable);
+        }
+        continue;
+      }
+      if (GetRadioActivationRegistry().GetState(profile.id) ==
+          RadioActivationState::kHardwareUnavailable) {
+        SetProfileActivationState(profile.id, RadioActivationState::kNone);
+      }
+      if (!IsProfileActivationBlocked(profile.id)) {
         QueueRadioControlCommand(state, RadioCommandType::kActivate,
             ToRadioConfig(profile));
-        break;
       }
     }
   }

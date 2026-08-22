@@ -558,6 +558,12 @@ class TDisplayP4Device final : public ScreenProvider,
   bool DisableKeyboardExpansion() override;
 
   /**
+   * @brief 根据待处理的键盘中断更新扩展断开状态
+   * @return 检查无需执行或状态更新完成时返回 true，否则返回 false
+   */
+  bool UpdateKeyboardExpansionDisconnectionState() override;
+
+  /**
    * @brief 处理键盘扩展连接变化并在重新连接后启动扫描
    * @param scan_started 自动重连扫描已启动时写入 true
    * @return 连接监听和所需状态转换成功返回 true，否则返回 false
@@ -1432,6 +1438,8 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<bool> connection_interrupt_pending{false};
     std::atomic<TickType_t> connection_interrupt_tick{0};
     std::atomic<bool> input_interrupt_pending{false};
+    // 按键中断发生后由应用任务确认 TCA8418 是否仍可通信。
+    std::atomic<bool> disconnection_check_pending{false};
     std::atomic<bool> task_running{false};
     std::atomic<uint32_t> scan_generation{0};
   };
