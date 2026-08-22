@@ -1802,7 +1802,8 @@ lv_obj_t* UiManager::CreateClockGroup(lv_obj_t* parent) {
   lv_obj_align(group, LV_ALIGN_TOP_LEFT, kHorizontalPadding,
       ClockTop(screen_width, screen_height));
 
-  lv_obj_t* time_label = CreateLabel(group, "09:15", lv_color_hex(0xFFFFFF));
+  lv_obj_t* time_label =
+      CreateLabel(group, clock_time_text_, lv_color_hex(0xFFFFFF));
   if (time_label == nullptr) {
     lv_obj_delete(group);
     return nullptr;
@@ -1813,7 +1814,7 @@ lv_obj_t* UiManager::CreateClockGroup(lv_obj_t* parent) {
   lv_obj_align(time_label, LV_ALIGN_TOP_LEFT, 0, 0);
 
   lv_obj_t* date_label =
-      CreateLabel(group, "June 21th", lv_color_hex(0xFFFFFF));
+      CreateLabel(group, home_date_text_, lv_color_hex(0xFFFFFF));
   if (date_label == nullptr) {
     lv_obj_delete(group);
     return nullptr;
@@ -1823,7 +1824,8 @@ lv_obj_t* UiManager::CreateClockGroup(lv_obj_t* parent) {
   lv_obj_set_style_text_opa(date_label, 220, LV_PART_MAIN);
   lv_obj_align(date_label, LV_ALIGN_TOP_LEFT, 10, 110);
 
-  lv_obj_t* week_label = CreateLabel(group, "Sat", lv_color_hex(0xFFFFFF));
+  lv_obj_t* week_label =
+      CreateLabel(group, home_week_text_, lv_color_hex(0xFFFFFF));
   if (week_label == nullptr) {
     lv_obj_delete(group);
     return nullptr;
