@@ -30,6 +30,7 @@
 #include "ui/input/press_cancel.h"
 #include "ui/theme/theme_provider.h"
 #include "ui/widgets/navigation_drawer.h"
+#include "ui/widgets/prompt/prompt_status.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -44,9 +45,6 @@ constexpr uint32_t kPressedColor = theme::LightNeutralTheme().state_layer;
 constexpr uint32_t kSelectedStorageColor =
     theme::LightNeutralTheme().action_container_pressed;
 constexpr uint32_t kActionColor = theme::LightNeutralTheme().action;
-constexpr uint32_t kActionTextColor = theme::LightNeutralTheme().on_action;
-constexpr uint32_t kStatusIconBackgroundColor =
-    theme::LightNeutralTheme().action_container;
 constexpr int kHeaderTop = 68;
 constexpr int kHeaderSidePadding = 28;
 constexpr int kHeaderTitleX = 112;
@@ -938,39 +936,20 @@ bool CreateEmptyDirectoryContent(lv_obj_t* parent, FilesViewState* state) {
   if (state == nullptr) {
     return false;
   }
-  lv_obj_t* group = lv_obj_create(parent);
+  PromptStatusConfig config;
+  config.width = state->config.width;
+  config.height = 184;
+  config.icon = icon::kFolderOpen;
+  config.icon_font = FilesFillIconFont56();
+  config.title = "This folder is empty";
+  config.title_font = Font28();
+  config.title_color = kPrimaryTextColor;
+  config.title_top = 122;
+  lv_obj_t* group = CreatePromptStatus(parent, config);
   if (group == nullptr) {
     return false;
   }
-  MakeTransparent(group);
-  lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(group, state->config.width, 184);
   lv_obj_set_pos(group, 0, kStorageListTop + 74);
-
-  lv_obj_t* icon_background = lv_obj_create(group);
-  if (icon_background == nullptr) {
-    return false;
-  }
-  lv_obj_remove_flag(icon_background, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(icon_background, 96, 96);
-  lv_obj_set_style_radius(icon_background, 48, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      icon_background, lv_color_hex(kStatusIconBackgroundColor), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(icon_background, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(icon_background, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(icon_background, 0, LV_PART_MAIN);
-  lv_obj_align(icon_background, LV_ALIGN_TOP_MID, 0, 0);
-
-  lv_obj_t* icon_label = CreateMaterialIcon(icon_background, icon::kFolderOpen,
-                                            lv_color_hex(kActionColor));
-  if (icon_label != nullptr) {
-    lv_obj_center(icon_label);
-  }
-  lv_obj_t* message = CreateLabel(group, "This folder is empty",
-                                  lv_color_hex(kPrimaryTextColor), Font28());
-  if (message != nullptr) {
-    lv_obj_align(message, LV_ALIGN_TOP_MID, 0, 122);
-  }
   return true;
 }
 
@@ -1022,44 +1001,6 @@ bool CreateStorageListContent(lv_obj_t* parent, FilesViewState* state,
     y += kStorageRowHeight;
   }
   return true;
-}
-
-/**
- * @brief 创建主要操作按钮
- * @param parent 父对象
- * @param text 按钮文本
- * @param width 按钮宽度
- * @param callback 点击事件回调
- * @param user_data 事件用户数据
- * @return 创建成功返回按钮对象，否则返回 nullptr
- */
-lv_obj_t* CreatePrimaryActionButton(lv_obj_t* parent, const char* text,
-                                    int width, lv_event_cb_t callback,
-                                    void* user_data) {
-  lv_obj_t* button = lv_button_create(parent);
-  if (button == nullptr) {
-    return nullptr;
-  }
-  lv_obj_remove_style_all(button);
-  lv_obj_add_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_size(button, width, 64);
-  lv_obj_set_style_bg_color(button, lv_color_hex(kActionColor), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      button, lv_color_hex(theme::LightNeutralTheme().action_pressed),
-      LV_STATE_PRESSED);
-  lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
-  lv_obj_set_style_radius(button, 32, LV_PART_MAIN);
-  lv_obj_set_style_radius(button, 32, LV_STATE_PRESSED);
-  if (callback != nullptr) {
-    lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, user_data);
-  }
-  lv_obj_t* label =
-      CreateLabel(button, text, lv_color_hex(kActionTextColor), Font24());
-  if (label != nullptr) {
-    lv_obj_center(label);
-  }
-  return button;
 }
 
 /**
@@ -1115,40 +1056,20 @@ void RenderScanningContent(FilesViewState* state) {
   ClearContent(state);
   SetHeader(state, FilesHeaderTitle(state), "Scanning SD card");
 
-  lv_obj_t* group = lv_obj_create(state->content);
-  if (group == nullptr) {
-    return;
-  }
-  MakeTransparent(group);
-  lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(group, state->config.width, 180);
+  PromptStatusConfig config;
+  config.width = state->config.width;
+  config.height = 180;
+  config.visual = PromptStatusVisual::kSpinner;
+  config.title = "Looking for an SD card...";
+  config.title_font = Font28();
+  config.title_color = kPrimaryTextColor;
+  config.title_top = 96;
+  config.message = "Keep the card inserted while scanning";
+  config.message_font = Font22();
+  config.message_color = kSecondaryTextColor;
+  config.message_top = 138;
+  lv_obj_t* group = CreatePromptStatus(state->content, config);
   PositionFilesStatusGroup(group, state, kScanningGroupOffsetY);
-
-  lv_obj_t* spinner = lv_spinner_create(group);
-  if (spinner != nullptr) {
-    lv_obj_set_size(spinner, 68, 68);
-    lv_spinner_set_anim_params(spinner, 850, 250);
-    lv_obj_set_style_arc_color(
-        spinner,
-        lv_color_hex(theme::LightNeutralTheme().surface_container_high),
-        LV_PART_MAIN);
-    lv_obj_set_style_arc_color(spinner, lv_color_hex(kActionColor),
-                               LV_PART_INDICATOR);
-    lv_obj_set_style_arc_width(spinner, 7, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(spinner, 7, LV_PART_INDICATOR);
-    lv_obj_align(spinner, LV_ALIGN_TOP_MID, 0, 0);
-  }
-
-  lv_obj_t* message = CreateLabel(group, "Looking for an SD card...",
-                                  lv_color_hex(kPrimaryTextColor), Font28());
-  if (message != nullptr) {
-    lv_obj_align(message, LV_ALIGN_TOP_MID, 0, 96);
-  }
-  lv_obj_t* hint = CreateLabel(group, "Keep the card inserted while scanning",
-                               lv_color_hex(kSecondaryTextColor), Font22());
-  if (hint != nullptr) {
-    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 138);
-  }
   EnableEdgeBackSwipeEventBubble(state->content);
 }
 
@@ -1164,53 +1085,23 @@ void RenderNoStorageContent(FilesViewState* state) {
   state->current_path.clear();
   SetHeader(state, FilesHeaderTitle(state), "No SD card");
 
-  lv_obj_t* group = lv_obj_create(state->content);
-  if (group == nullptr) {
-    return;
-  }
-  MakeTransparent(group);
-  lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(group, state->config.width, 280);
+  PromptStatusConfig config;
+  config.width = state->config.width;
+  config.height = 280;
+  config.icon = icon::kSdStorage;
+  config.icon_font = FilesFillIconFont56();
+  config.title = "SD card not found";
+  config.title_font = Font28();
+  config.title_color = kPrimaryTextColor;
+  config.message = "Insert a card and scan again.";
+  config.message_font = Font22();
+  config.message_color = kSecondaryTextColor;
+  config.button_text = "Scan again";
+  config.button_font = Font24();
+  config.button_callback = RefreshStorageClickedEventCallback;
+  config.button_user_data = state;
+  lv_obj_t* group = CreatePromptStatus(state->content, config);
   PositionFilesStatusGroup(group, state, kNoStorageGroupOffsetY);
-
-  lv_obj_t* icon_background = lv_obj_create(group);
-  if (icon_background != nullptr) {
-    lv_obj_remove_flag(icon_background, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(icon_background, 96, 96);
-    lv_obj_set_style_radius(icon_background, 48, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(icon_background,
-                              lv_color_hex(kStatusIconBackgroundColor),
-                              LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(icon_background, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_width(icon_background, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(icon_background, 0, LV_PART_MAIN);
-    lv_obj_align(icon_background, LV_ALIGN_TOP_MID, 0, 0);
-    lv_obj_t* icon_label = CreateMaterialIcon(
-        icon_background, icon::kSdStorage, lv_color_hex(kActionColor),
-        FilesFillIconFont56());
-    if (icon_label != nullptr) {
-      lv_obj_center(icon_label);
-    }
-  }
-
-  lv_obj_t* message = CreateLabel(group, "SD card not found",
-                                  lv_color_hex(kPrimaryTextColor), Font28());
-  if (message != nullptr) {
-    lv_obj_align(message, LV_ALIGN_TOP_MID, 0, 112);
-  }
-  lv_obj_t* hint = CreateLabel(group, "Insert a card and scan again.",
-                               lv_color_hex(kSecondaryTextColor), Font22());
-  if (hint != nullptr) {
-    lv_obj_set_width(hint, state->config.width - 80);
-    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
-    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 150);
-  }
-  lv_obj_t* refresh = CreatePrimaryActionButton(
-      group, "Scan again", 196, RefreshStorageClickedEventCallback, state);
-  if (refresh != nullptr) {
-    lv_obj_align(refresh, LV_ALIGN_TOP_MID, 0, 190);
-  }
   EnableEdgeBackSwipeEventBubble(state->content);
 }
 

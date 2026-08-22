@@ -34,6 +34,7 @@
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/widgets/navigation_drawer.h"
 #include "ui/widgets/prompt/prompt_dialog.h"
+#include "ui/widgets/prompt/prompt_status.h"
 #include "ui/widgets/shared_keyboard.h"
 
 namespace lilygo_box::ui {
@@ -64,6 +65,8 @@ constexpr uint32_t kDeleteActionColor = 0xE53935;
 constexpr uint32_t kWarningColor = 0x8A4F00;
 constexpr int kHeaderTop = 68;
 constexpr int kListTop = 154;
+constexpr int kEmptyStatusGroupOffsetY = -100;
+constexpr int kStatusGroupTopGap = 24;
 constexpr int kRowHeight = 104;
 constexpr int kProfileStatusIndicatorSize = 22;
 constexpr int kAnimationMs = 240;
@@ -4259,6 +4262,24 @@ void EmptyAddProfileClickedEventCallback(lv_event_t* event) {
 }
 
 /**
+ * @brief 根据屏幕方向定位 Radio 空状态提示
+ * @param group 状态提示容器
+ * @param state Radio 页面状态
+ */
+void PositionRadioPromptStatus(
+    lv_obj_t* group, const RadioViewState* state) {
+  if (group == nullptr || state == nullptr || state->module_list == nullptr) {
+    return;
+  }
+  if (state->config.height > state->config.width) {
+    lv_obj_align(
+        group, LV_ALIGN_CENTER, 0, kEmptyStatusGroupOffsetY);
+    return;
+  }
+  lv_obj_set_pos(group, 0, kStatusGroupTopGap);
+}
+
+/**
  * @brief 创建 Radio 主界面的空配置引导内容
  * @param state Radio 页面状态
  * @return 创建成功返回 true，否则返回 false
@@ -4267,88 +4288,34 @@ bool CreateEmptyRadioContent(RadioViewState* state) {
   if (state == nullptr || state->module_list == nullptr) {
     return false;
   }
-  lv_obj_t* group = lv_obj_create(state->module_list);
+  PromptStatusConfig config;
+  config.width = state->config.width;
+  config.height = 280;
+  config.icon = icon::kSettingsInputAntenna;
+  config.icon_font = FillIconFont56();
+  config.icon_background_color = kSurfaceContainerColor;
+  config.icon_color = kPrimaryColor;
+  config.title = "No Radio profiles";
+  config.title_font = Font28();
+  config.title_color = kMainTextColor;
+  config.message =
+      "Tap Add profile or use the + button in the bottom-right.";
+  config.message_font = Font22();
+  config.message_color = kSecondaryTextColor;
+  config.horizontal_padding = 48;
+  config.button_text = "Add profile";
+  config.button_font = Font24();
+  config.button_width = 220;
+  config.button_background_color = kPrimaryColor;
+  config.button_pressed_color = kPrimaryPressedColor;
+  config.button_text_color = kOnPrimaryColor;
+  config.button_callback = EmptyAddProfileClickedEventCallback;
+  config.button_user_data = state;
+  lv_obj_t* group = CreatePromptStatus(state->module_list, config);
   if (group == nullptr) {
     return false;
   }
-  const auto fail = [group]() {
-    lv_obj_delete(group);
-    return false;
-  };
-  lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(group, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_flag(group, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_size(group, state->config.width, 280);
-  lv_obj_align(group, LV_ALIGN_CENTER, 0, -100);
-  lv_obj_set_style_bg_opa(group, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_border_width(group, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(group, 0, LV_PART_MAIN);
-
-  lv_obj_t* icon_surface = lv_obj_create(group);
-  if (icon_surface == nullptr) {
-    return fail();
-  }
-  lv_obj_remove_flag(icon_surface, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(icon_surface, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(icon_surface, 96, 96);
-  lv_obj_align(icon_surface, LV_ALIGN_TOP_MID, 0, 0);
-  lv_obj_set_style_radius(icon_surface, 48, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(icon_surface,
-      lv_color_hex(kSurfaceContainerColor), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(icon_surface, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(icon_surface, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(icon_surface, 0, LV_PART_MAIN);
-  lv_obj_t* status_icon = CreateLabel(icon_surface,
-      icon::kSettingsInputAntenna, kPrimaryColor, FillIconFont56());
-  if (status_icon == nullptr) {
-    return fail();
-  }
-  lv_obj_center(status_icon);
-
-  lv_obj_t* title = CreateLabel(
-      group, "No Radio profiles", kMainTextColor, Font28());
-  if (title == nullptr) {
-    return fail();
-  }
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 112);
-
-  lv_obj_t* hint = CreateLabel(group,
-      "Tap Add profile or use the + button in the bottom-right.",
-      kSecondaryTextColor, Font22());
-  if (hint == nullptr) {
-    return fail();
-  }
-  lv_obj_set_width(hint, state->config.width - 96);
-  lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-  lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
-  lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 150);
-
-  lv_obj_t* add_button = lv_button_create(group);
-  if (add_button == nullptr) {
-    return fail();
-  }
-  lv_obj_add_flag(add_button, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_size(add_button, 220, 64);
-  lv_obj_align(add_button, LV_ALIGN_TOP_MID, 0, 214);
-  lv_obj_set_style_radius(add_button, 32, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      add_button, lv_color_hex(kPrimaryColor), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      add_button, lv_color_hex(kPrimaryPressedColor), LV_STATE_PRESSED);
-  lv_obj_set_style_bg_opa(add_button, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(add_button, 0, LV_PART_MAIN);
-  lv_obj_set_style_shadow_width(add_button, 0, LV_PART_MAIN);
-  if (!AddPressCancelOnLeave(add_button)) {
-    return fail();
-  }
-  lv_obj_add_event_cb(add_button, EmptyAddProfileClickedEventCallback,
-      LV_EVENT_CLICKED, state);
-  lv_obj_t* add_label = CreateLabel(
-      add_button, "Add profile", kOnPrimaryColor, Font24());
-  if (add_label == nullptr) {
-    return fail();
-  }
-  lv_obj_center(add_label);
+  PositionRadioPromptStatus(group, state);
   return true;
 }
 

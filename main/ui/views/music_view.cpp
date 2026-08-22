@@ -38,6 +38,7 @@
 #include "ui/views/files_view.h"
 #include "ui/widgets/navigation_drawer.h"
 #include "ui/widgets/prompt/prompt_dialog.h"
+#include "ui/widgets/prompt/prompt_status.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -89,7 +90,6 @@ constexpr UBaseType_t kMusicScanTaskPriority = 2;
 constexpr int kMusicEmptyGroupOffsetY = -100;
 constexpr int kMusicScanningGroupOffsetY = -48;
 constexpr int kMusicStatusGroupTopGap = 24;
-constexpr int kMusicStatusIconSize = 96;
 
 constexpr int kMusicFolderOptionCount = 8;
 
@@ -1157,38 +1157,6 @@ lv_obj_t* CreateArtwork(lv_obj_t* parent, int size, int radius) {
 }
 
 /**
- * @brief 创建音乐空状态使用的圆形状态图标
- * @param parent 父对象
- * @param icon_text Material Symbols 图标文本
- * @return 创建成功返回图标容器，否则返回 nullptr
- */
-lv_obj_t* CreateMusicStatusIcon(lv_obj_t* parent, const char* icon_text) {
-  if (parent == nullptr || icon_text == nullptr) {
-    return nullptr;
-  }
-  lv_obj_t* background = lv_obj_create(parent);
-  if (background == nullptr) {
-    return nullptr;
-  }
-  lv_obj_remove_flag(background, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(background, kMusicStatusIconSize, kMusicStatusIconSize);
-  lv_obj_set_style_radius(
-      background, kMusicStatusIconSize / 2, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      background, lv_color_hex(kSecondaryContainerColor), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(background, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(background, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(background, 0, LV_PART_MAIN);
-
-  lv_obj_t* icon_label = CreateLabel(background, icon_text,
-      lv_color_hex(kPrimaryColor), MaterialFillIconFont56());
-  if (icon_label != nullptr) {
-    lv_obj_center(icon_label);
-  }
-  return background;
-}
-
-/**
  * @brief 创建播放详情页
  * @param state 音乐视图状态
  * @return 创建成功返回 true，否则返回 false
@@ -1597,59 +1565,38 @@ bool CreateEmptyMusicContent(lv_obj_t* parent, MusicViewState* state) {
   if (state == nullptr) {
     return false;
   }
-  lv_obj_t* group = lv_obj_create(parent);
+  const bool storage_available =
+      state->session != nullptr && state->session->storage_was_mounted;
+  PromptStatusConfig config;
+  config.width = state->config.width;
+  config.height = 280;
+  config.icon = storage_available ? icon::kMusic : icon::kSdStorage;
+  config.icon_font = MaterialFillIconFont56();
+  config.icon_background_color = kSecondaryContainerColor;
+  config.icon_color = kPrimaryColor;
+  config.title =
+      storage_available ? "No music found" : "Storage device not found";
+  config.title_font = Font28();
+  config.title_color = kMainTextColor;
+  config.message = storage_available
+                       ? "Add a music source or scan again."
+                       : "Insert a storage device and scan again.";
+  config.message_font = Font22();
+  config.message_color = kSecondaryTextColor;
+  config.button_text = storage_available ? "Scan Music" : "Scan again";
+  config.button_font = Font24();
+  config.button_width = 230;
+  config.button_height = 62;
+  config.button_background_color = kPrimaryColor;
+  config.button_pressed_color = kPrimaryColor;
+  config.button_text_color = 0xFFFFFF;
+  config.button_callback = RefreshMusicClickedEventCallback;
+  config.button_user_data = state;
+  lv_obj_t* group = CreatePromptStatus(parent, config);
   if (group == nullptr) {
     return false;
   }
-  MakeTransparent(group);
-  lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(group, state->config.width, 280);
   PositionMusicStatusGroup(group, state, kMusicEmptyGroupOffsetY);
-
-  const bool storage_available =
-      state->session != nullptr && state->session->storage_was_mounted;
-  lv_obj_t* status_icon = CreateMusicStatusIcon(
-      group, storage_available ? icon::kMusic : icon::kSdStorage);
-  if (status_icon != nullptr) {
-    lv_obj_align(status_icon, LV_ALIGN_TOP_MID, 0, 0);
-  }
-
-  lv_obj_t* message = CreateLabel(group,
-      storage_available ? "No music found" : "Storage device not found",
-      lv_color_hex(kMainTextColor), Font28());
-  if (message != nullptr) {
-    lv_obj_align(message, LV_ALIGN_TOP_MID, 0, 112);
-  }
-  lv_obj_t* hint = CreateLabel(group,
-      storage_available ? "Add a music source or scan again."
-                        : "Insert a storage device and scan again.",
-      lv_color_hex(kSecondaryTextColor), Font22());
-  if (hint != nullptr) {
-    lv_obj_set_width(hint, state->config.width - 80);
-    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
-    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 150);
-  }
-  lv_obj_t* scan_button = lv_button_create(group);
-  if (scan_button == nullptr) {
-    return false;
-  }
-  lv_obj_set_size(scan_button, 230, 62);
-  lv_obj_set_style_radius(scan_button, 31, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(scan_button, lv_color_hex(kPrimaryColor),
-      LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(scan_button, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(scan_button, 0, LV_PART_MAIN);
-  lv_obj_set_style_shadow_width(scan_button, 0, LV_PART_MAIN);
-  lv_obj_align(scan_button, LV_ALIGN_TOP_MID, 0, 190);
-  lv_obj_add_event_cb(scan_button, RefreshMusicClickedEventCallback,
-      LV_EVENT_CLICKED, state);
-  lv_obj_t* scan_label = CreateLabel(scan_button,
-      storage_available ? "Scan Music" : "Scan again",
-      lv_color_hex(0xFFFFFF), Font24());
-  if (scan_label != nullptr) {
-    lv_obj_center(scan_label);
-  }
   EnableEdgeBackSwipeEventBubble(parent);
   return true;
 }
@@ -1759,42 +1706,25 @@ bool RenderMusicScanningContent(MusicViewState* state) {
   lv_obj_scroll_to_y(state->library_content, 0, LV_ANIM_OFF);
   state->track_actions.clear();
 
-  lv_obj_t* group = lv_obj_create(state->library_content);
+  PromptStatusConfig config;
+  config.width = state->config.width;
+  config.height = 250;
+  config.visual = PromptStatusVisual::kSpinner;
+  config.spinner_track_color = kSecondaryContainerColor;
+  config.spinner_indicator_color = kPrimaryColor;
+  config.title = "Scanning music files...";
+  config.title_font = Font28();
+  config.title_color = kMainTextColor;
+  config.title_top = 96;
+  config.message = "Reading MP3 files from selected folders";
+  config.message_font = Font22();
+  config.message_color = kSecondaryTextColor;
+  config.message_top = 138;
+  lv_obj_t* group = CreatePromptStatus(state->library_content, config);
   if (group == nullptr) {
     return false;
   }
-  MakeTransparent(group);
-  lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(group, state->config.width, 250);
   PositionMusicStatusGroup(group, state, kMusicScanningGroupOffsetY);
-
-  lv_obj_t* spinner = lv_spinner_create(group);
-  if (spinner != nullptr) {
-    lv_obj_set_size(spinner, 68, 68);
-    lv_spinner_set_anim_params(spinner, 850, 250);
-    lv_obj_set_style_arc_color(spinner,
-        lv_color_hex(kSecondaryContainerColor), LV_PART_MAIN);
-    lv_obj_set_style_arc_color(
-        spinner, lv_color_hex(kPrimaryColor), LV_PART_INDICATOR);
-    lv_obj_set_style_arc_width(spinner, 7, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(spinner, 7, LV_PART_INDICATOR);
-    lv_obj_align(spinner, LV_ALIGN_TOP_MID, 0, 0);
-  }
-
-  lv_obj_t* message = CreateLabel(group, "Scanning music files...",
-      lv_color_hex(kMainTextColor), Font28());
-  if (message != nullptr) {
-    lv_obj_align(message, LV_ALIGN_TOP_MID, 0, 96);
-  }
-  lv_obj_t* hint = CreateLabel(group,
-      "Reading MP3 files from selected folders",
-      lv_color_hex(kSecondaryTextColor), Font22());
-  if (hint != nullptr) {
-    lv_obj_set_width(hint, state->config.width - 80);
-    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
-    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 138);
-  }
   EnableEdgeBackSwipeEventBubble(state->library_content);
   return true;
 }

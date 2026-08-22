@@ -18,10 +18,10 @@
 #include "esp_heap_caps.h"
 
 #include "hal/providers/camera_provider.h"
-#include "ui/input/press_cancel.h"
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/theme/theme_provider.h"
+#include "ui/widgets/prompt/prompt_status.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -31,7 +31,6 @@ constexpr uint32_t kBackgroundColor = 0x000000;
 constexpr uint32_t kPrimaryTextColor = 0xFFFFFF;
 constexpr uint32_t kSecondaryTextColor = 0xBDBDBD;
 constexpr uint32_t kActionColor = theme::LightNeutralTheme().action;
-constexpr uint32_t kActionTextColor = theme::LightNeutralTheme().on_action;
 constexpr int kScanningGroupOffsetY = 0;
 constexpr int kErrorGroupOffsetY = 0;
 
@@ -70,16 +69,7 @@ struct CameraViewState {
  * @brief 获取页面使用的 Google Sans 字体
  */
 const lv_font_t* Font22() { return &lvgl_font_google_sans_flex_22; }
-const lv_font_t* Font24() { return &lvgl_font_google_sans_flex_24; }
 const lv_font_t* Font28() { return &lvgl_font_google_sans_flex_28; }
-
-/**
- * @brief 获取 56 号填充 Material Symbols 字体
- * @return 字体指针
- */
-const lv_font_t* MaterialFillIconFont56() {
-  return &lvgl_font_material_symbols_fill_56;
-}
 
 /**
  * @brief 将对象设置为透明无边框容器
@@ -94,111 +84,24 @@ void MakeTransparent(lv_obj_t* object) {
   lv_obj_set_style_pad_all(object, 0, LV_PART_MAIN);
 }
 
-/**
- * @brief 创建文本标签
- * @param parent 父对象
- * @param text 显示文本
- * @param color 文本颜色
- * @param font 文本字体
- * @return 创建成功返回对象指针，否则返回 nullptr
- */
-lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color,
-    const lv_font_t* font) {
-  lv_obj_t* label = lv_label_create(parent);
-  if (label == nullptr) {
-    return nullptr;
-  }
-  lv_label_set_text(label, text == nullptr ? "" : text);
-  lv_obj_set_style_text_color(label, color, LV_PART_MAIN);
-  lv_obj_set_style_text_font(label, font, LV_PART_MAIN);
-  return label;
-}
-
-/**
- * @brief 创建 Material Symbols 图标标签
- * @param parent 父对象
- * @param symbol 图标字符
- * @param color 图标颜色
- * @return 创建成功返回对象指针，否则返回 nullptr
- */
-lv_obj_t* CreateMaterialIcon(
-    lv_obj_t* parent, const char* symbol, lv_color_t color) {
-  lv_obj_t* icon_label =
-      CreateLabel(parent, symbol, color, MaterialFillIconFont56());
-  if (icon_label != nullptr) {
-    lv_obj_set_style_text_align(
-        icon_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-  }
-  return icon_label;
-}
-
 void RetryCameraClickedEventCallback(lv_event_t* event);
 
 /**
- * @brief 创建主要操作按钮
- * @param parent 父对象
- * @param text 按钮文本
- * @param callback 点击回调
- * @param user_data 回调上下文
- * @return 创建成功返回对象指针，否则返回 nullptr
- */
-lv_obj_t* CreatePrimaryActionButton(lv_obj_t* parent, const char* text,
-    lv_event_cb_t callback, void* user_data) {
-  lv_obj_t* button = lv_button_create(parent);
-  if (button == nullptr) {
-    return nullptr;
-  }
-  lv_obj_remove_style_all(button);
-  lv_obj_add_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_size(button, 196, 64);
-  lv_obj_set_style_bg_color(
-      button, lv_color_hex(kActionColor), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(button,
-      lv_color_hex(theme::LightNeutralTheme().action_pressed),
-      LV_STATE_PRESSED);
-  lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
-  lv_obj_set_style_radius(button, 32, LV_PART_MAIN);
-  lv_obj_set_style_radius(button, 32, LV_STATE_PRESSED);
-  if (!AddPressCancelOnLeave(button)) {
-    lv_obj_delete(button);
-    return nullptr;
-  }
-  lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, user_data);
-
-  lv_obj_t* label = CreateLabel(
-      button, text, lv_color_hex(kActionTextColor), Font24());
-  if (label != nullptr) {
-    lv_obj_center(label);
-  }
-  return button;
-}
-
-/**
- * @brief 创建居中的状态内容容器
+ * @brief 定位摄像头页面状态提示
  * @param state 摄像头页面状态
- * @param height 容器高度
+ * @param group 状态提示容器
  * @param offset_y 垂直偏移
- * @return 创建成功返回对象指针，否则返回 nullptr
  */
-lv_obj_t* CreateStatusGroup(
-    CameraViewState* state, int height, int offset_y) {
-  if (state == nullptr || state->status_layer == nullptr) {
-    return nullptr;
+void PositionCameraPromptStatus(
+    CameraViewState* state, lv_obj_t* group, int offset_y) {
+  if (state == nullptr || group == nullptr) {
+    return;
   }
-  lv_obj_t* group = lv_obj_create(state->status_layer);
-  if (group == nullptr) {
-    return nullptr;
-  }
-  MakeTransparent(group);
-  lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_flag(group, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_size(group, state->width, height);
+  const int height = lv_obj_get_height(group);
   const int centered_top = (state->height - height) / 2 + offset_y;
   const int maximum_top = std::max(0, state->height - height);
   const int group_top = std::min(std::max(centered_top, 0), maximum_top);
   lv_obj_align(group, LV_ALIGN_TOP_MID, 0, group_top);
-  return group;
 }
 
 /**
@@ -233,39 +136,23 @@ void RenderCameraScanning(CameraViewState* state) {
   lv_obj_remove_flag(state->status_layer, LV_OBJ_FLAG_HIDDEN);
   lv_obj_clean(state->status_layer);
 
-  lv_obj_t* group =
-      CreateStatusGroup(state, 180, kScanningGroupOffsetY);
-  if (group == nullptr) {
-    return;
-  }
-  lv_obj_t* spinner = lv_spinner_create(group);
-  if (spinner != nullptr) {
-    lv_obj_set_size(spinner, 68, 68);
-    lv_spinner_set_anim_params(spinner, 850, 250);
-    lv_obj_set_style_arc_color(spinner,
-        lv_color_hex(theme::LightNeutralTheme().surface_container_high),
-        LV_PART_MAIN);
-    lv_obj_set_style_arc_color(
-        spinner, lv_color_hex(kActionColor), LV_PART_INDICATOR);
-    lv_obj_set_style_arc_width(spinner, 7, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(spinner, 7, LV_PART_INDICATOR);
-    lv_obj_align(spinner, LV_ALIGN_TOP_MID, 0, 0);
-  }
-
-  lv_obj_t* message = CreateLabel(group, "Looking for a camera...",
-      lv_color_hex(kPrimaryTextColor), Font28());
-  if (message != nullptr) {
-    lv_obj_align(message, LV_ALIGN_TOP_MID, 0, 96);
-  }
-  lv_obj_t* hint = CreateLabel(group,
-      "Keep the camera connected while scanning",
-      lv_color_hex(kSecondaryTextColor), Font22());
-  if (hint != nullptr) {
-    lv_obj_set_width(hint, state->width - 80);
-    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
-    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 138);
-  }
+  PromptStatusConfig config;
+  config.width = state->width;
+  config.height = 180;
+  config.visual = PromptStatusVisual::kSpinner;
+  config.spinner_track_color =
+      theme::LightNeutralTheme().surface_container_high;
+  config.spinner_indicator_color = kActionColor;
+  config.title = "Looking for a camera...";
+  config.title_font = Font28();
+  config.title_color = kPrimaryTextColor;
+  config.title_top = 96;
+  config.message = "Keep the camera connected while scanning";
+  config.message_font = Font22();
+  config.message_color = kSecondaryTextColor;
+  config.message_top = 138;
+  lv_obj_t* group = CreatePromptStatus(state->status_layer, config);
+  PositionCameraPromptStatus(state, group, kScanningGroupOffsetY);
 }
 
 /**
@@ -296,37 +183,26 @@ void RenderCameraError(CameraViewState* state, CameraError error) {
   lv_obj_remove_flag(state->status_layer, LV_OBJ_FLAG_HIDDEN);
   lv_obj_clean(state->status_layer);
 
-  lv_obj_t* group = CreateStatusGroup(state, 300, kErrorGroupOffsetY);
-  if (group == nullptr) {
-    return;
-  }
-  lv_obj_t* icon_label =
-      CreateMaterialIcon(group, icon::kCamera, lv_color_hex(kActionColor));
-  if (icon_label != nullptr) {
-    lv_obj_align(icon_label, LV_ALIGN_TOP_MID, 0, 20);
-  }
-
-  lv_obj_t* message = CreateLabel(group, "Camera unavailable",
-      lv_color_hex(kPrimaryTextColor), Font28());
-  if (message != nullptr) {
-    lv_obj_align(message, LV_ALIGN_TOP_MID, 0, 100);
-  }
   char hint_text[128] = {};
   std::snprintf(hint_text, sizeof(hint_text), "%s: %s",
       diagnostic_error.code, diagnostic_error.text);
-  lv_obj_t* hint = CreateLabel(group, hint_text,
-      lv_color_hex(kSecondaryTextColor), Font22());
-  if (hint != nullptr) {
-    lv_obj_set_width(hint, state->width - 80);
-    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
-    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 140);
-  }
-  lv_obj_t* retry = CreatePrimaryActionButton(
-      group, "Retry", RetryCameraClickedEventCallback, state);
-  if (retry != nullptr) {
-    lv_obj_align(retry, LV_ALIGN_TOP_MID, 0, 200);
-  }
+  PromptStatusConfig config;
+  config.width = state->width;
+  config.height = 300;
+  config.icon = icon::kCamera;
+  config.icon_font = &lvgl_font_material_symbols_fill_56;
+  config.title = "Camera unavailable";
+  config.title_font = Font28();
+  config.title_color = kPrimaryTextColor;
+  config.message = hint_text;
+  config.message_font = Font22();
+  config.message_color = kSecondaryTextColor;
+  config.button_text = "Retry";
+  config.button_font = &lvgl_font_google_sans_flex_24;
+  config.button_callback = RetryCameraClickedEventCallback;
+  config.button_user_data = state;
+  lv_obj_t* group = CreatePromptStatus(state->status_layer, config);
+  PositionCameraPromptStatus(state, group, kErrorGroupOffsetY);
 }
 
 /**
