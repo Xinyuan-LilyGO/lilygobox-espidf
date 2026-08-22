@@ -56,6 +56,7 @@ constexpr uint32_t kDisabledContainerColor = 0xE4E1E6;
 constexpr uint32_t kDisabledTextColor = 0xA7A2AA;
 constexpr uint32_t kSendSuccessColor = 0x2E7D32;
 constexpr uint32_t kSendFailureColor = 0xBA1A1A;
+constexpr uint32_t kUnreadBadgeColor = 0xBA1A1A;
 constexpr uint32_t kActiveIndicatorColor = 0x23A55A;
 constexpr uint32_t kInactiveIndicatorColor = 0xC7C5CC;
 constexpr uint32_t kInputErrorColor = 0xBA1A1A;
@@ -4206,7 +4207,7 @@ bool CreateModuleRow(lv_obj_t* parent, const RadioModuleItem& item,
       lv_obj_align(unread, LV_ALIGN_TOP_RIGHT, -28, 54);
       lv_obj_set_style_radius(unread, 16, LV_PART_MAIN);
       lv_obj_set_style_bg_color(unread,
-          lv_color_hex(kSendSuccessColor), LV_PART_MAIN);
+          lv_color_hex(kUnreadBadgeColor), LV_PART_MAIN);
       lv_obj_set_style_bg_opa(unread, LV_OPA_COVER, LV_PART_MAIN);
       lv_obj_set_style_border_width(unread, 0, LV_PART_MAIN);
       lv_obj_set_style_pad_all(unread, 0, LV_PART_MAIN);
