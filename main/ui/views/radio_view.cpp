@@ -125,7 +125,8 @@ constexpr UBaseType_t kRadioCommandTaskPriority = tskIDLE_PRIORITY;
 constexpr uint32_t kRadioShutdownPollMs = 20;
 // UI 回调超过该时间才记录回归日志，正常路径只读取 LVGL 毫秒 tick。
 constexpr uint32_t kSlowRadioUiThresholdMs = 80;
-constexpr int kFrequencyInputMaximumLength = 10;
+constexpr int kFrequencyInputMaximumLength = 11;
+constexpr int kFrequencyDecimalPlaces = 6;
 constexpr char kFrequencyAcceptedChars[] = "0123456789.";
 constexpr char kIntegerAcceptedChars[] = "0123456789";
 constexpr char kHexAcceptedChars[] = "0123456789abcdefABCDEF";
@@ -5685,6 +5686,8 @@ bool IsBandwidthValidForFrequency(
          bandwidth_hz == 250000 || bandwidth_hz == 500000;
 }
 
+bool IsFrequencyInputPrecisionValid(const char* text);
+
 /**
  * @brief 校验添加模块页面中输入的工作频率
  * @param state 射频页面状态
@@ -5695,7 +5698,8 @@ bool IsAddFrequencyValid(const RadioViewState* state) {
     return false;
   }
   const char* text = lv_textarea_get_text(state->add_frequency_input);
-  if (text == nullptr || text[0] == '\0') {
+  if (text == nullptr || text[0] == '\0' ||
+      !IsFrequencyInputPrecisionValid(text)) {
     return false;
   }
   char* end = nullptr;
@@ -6160,12 +6164,57 @@ void UpdateEnhancedShockBurstDependencyControls(RadioViewState* state) {
 }
 
 /**
+ * @brief 判断频率文本是否符合最多六位 MHz 小数的输入格式
+ * @param text 待检查文本
+ * @return 格式符合返回 true
+ */
+bool IsFrequencyInputPrecisionValid(const char* text) {
+  if (text == nullptr) {
+    return false;
+  }
+  const char* decimal_point = std::strchr(text, '.');
+  if (decimal_point == nullptr) {
+    return true;
+  }
+  return std::strchr(decimal_point + 1, '.') == nullptr &&
+         std::strlen(decimal_point + 1) <= kFrequencyDecimalPlaces;
+}
+
+/**
  * @brief 处理添加模块输入框状态和内容变化事件
  * @param event LVGL 事件对象
  */
 void AddInputEventCallback(lv_event_t* event) {
   auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   const lv_event_code_t code = lv_event_get_code(event);
+  lv_obj_t* target = lv_event_get_target_obj(event);
+  if (code == LV_EVENT_INSERT && state != nullptr &&
+      target == state->add_frequency_input) {
+    const char* text = lv_textarea_get_text(target);
+    const char* inserted_text =
+        static_cast<const char*>(lv_event_get_param(event));
+    if (text == nullptr || inserted_text == nullptr ||
+        inserted_text[0] == LV_KEY_DEL) {
+      return;
+    }
+    const size_t text_length = std::strlen(text);
+    const size_t inserted_length = std::strlen(inserted_text);
+    const size_t cursor_position = std::min(
+        static_cast<size_t>(lv_textarea_get_cursor_pos(target)), text_length);
+    char candidate[kFrequencyInputMaximumLength + 2] = {};
+    if (text_length + inserted_length >= sizeof(candidate)) {
+      lv_textarea_set_insert_replace(target, "");
+      return;
+    }
+    std::memcpy(candidate, text, cursor_position);
+    std::memcpy(candidate + cursor_position, inserted_text, inserted_length);
+    std::memcpy(candidate + cursor_position + inserted_length,
+        text + cursor_position, text_length - cursor_position + 1);
+    if (!IsFrequencyInputPrecisionValid(candidate)) {
+      lv_textarea_set_insert_replace(target, "");
+    }
+    return;
+  }
   if (code == LV_EVENT_VALUE_CHANGED) {
     if (state != nullptr) {
       if (lv_event_get_target_obj(event) == state->add_frequency_input) {
@@ -7578,7 +7627,7 @@ bool CreateNonLoraAddModuleContent(RadioViewState* state,
   };
 
   if (profile.protocol == radio::ProtocolType::kGfsk) {
-    std::snprintf(value, sizeof(value), "%.3f",
+    std::snprintf(value, sizeof(value), "%.6f",
         static_cast<double>(profile.frequency_hz) / 1000000.0);
     if (!CreateAddParameterTitle(body, "WORKING FREQUENCY (MHz)",
             kFirstTitleY + content_offset)) {
@@ -7817,7 +7866,7 @@ bool CreateAddModuleContent(RadioViewState* state) {
   char power[8] = {};
   char preamble[12] = {};
   char sync_word[3] = {};
-  std::snprintf(frequency, sizeof(frequency), "%.3f",
+  std::snprintf(frequency, sizeof(frequency), "%.6f",
       static_cast<double>(profile.frequency_hz) / 1000000.0);
   std::snprintf(power, sizeof(power), "%d",
       static_cast<int>(profile.output_power_dbm));
