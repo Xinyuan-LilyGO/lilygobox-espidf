@@ -93,7 +93,6 @@ class SystemStatusCache final {
   hal::RtcStatus rtc_status_ = {};
   hal::BatteryManagementStatus battery_management_status_ = {};
   hal::WifiStatus wifi_status_ = {};
-  uint32_t refresh_count_ = 0;
   bool rtc_status_valid_ = false;
   bool battery_management_status_valid_ = false;
   bool wifi_status_valid_ = false;

@@ -53,6 +53,15 @@ class Application final {
     kShowPowerMenu,
   };
 
+  // 由系统状态变化触发的用户活动原因。
+  enum class SystemActivityReason : uint8_t {
+    kNone,
+    kChargingStarted,
+    kChargingStopped,
+    kKeyboardConnected,
+    kKeyboardDisconnected,
+  };
+
   /**
    * @brief 显示电池启动提示并等待完整画面传输到屏幕
    * @param icon 图标文本
@@ -121,6 +130,60 @@ class Application final {
    * @brief 在启动页结束后显示键盘扩展不可用提示
    */
   void ShowPendingKeyboardExpansionUnavailableNotice();
+
+  /**
+   * @brief 处理状态栏缓存发布的电池管理状态
+   * @param status 最新有效电池状态
+   */
+  void HandleBatteryManagementStatusUpdate(
+      const hal::BatteryManagementStatus& status);
+
+  /**
+   * @brief 请求锁屏任务处理一次系统活动
+   * @param reason 系统状态变化原因
+   *
+   * 正常亮屏时重置自动锁屏计时，预熄屏时恢复亮度，熄屏时唤醒锁屏。
+   */
+  void RequestSystemActivity(SystemActivityReason reason);
+
+  /**
+   * @brief 取出一个待处理的系统活动请求
+   * @return 待处理原因；没有请求时返回 kNone
+   */
+  SystemActivityReason ConsumeSystemActivity();
+
+  /**
+   * @brief 在屏幕转换期间确认待处理的键盘扩展中断是否为真实拔出
+   * @return 驱动已经确认键盘扩展断开时返回 true
+   */
+  bool ConfirmKeyboardExpansionDisconnectionForScreenTransition();
+
+  /**
+   * @brief 取出屏幕转换活动并补充确认真实键盘拔出
+   * @return 已确认的系统活动原因；没有活动时返回 kNone
+   */
+  SystemActivityReason ConsumeScreenTransitionActivity();
+
+  /**
+   * @brief 获取系统活动原因的日志名称
+   * @param reason 系统状态变化原因
+   * @return 静态原因名称
+   */
+  static const char* SystemActivityReasonName(SystemActivityReason reason);
+
+  /**
+   * @brief 应用一次已经确认的屏幕活动
+   * @param last_touch_ms 正常界面自动锁屏计时
+   * @param lock_screen_last_interaction_ms 锁屏界面熄屏计时
+   * @param restore_brightness_percent 非负时恢复到指定亮度
+   * @return 所需的唤醒或亮度恢复操作成功时返回 true
+   *
+   * 触摸手势与系统状态变化共用此最终处理，但触摸识别仍由调用方完成。
+   */
+  bool ApplyScreenActivity(
+      uint32_t* last_touch_ms,
+      uint32_t* lock_screen_last_interaction_ms,
+      int restore_brightness_percent = -1);
 
   /**
    * @brief 启动后自动连接 WLAN 的后台任务入口
@@ -231,7 +294,9 @@ class Application final {
    * @brief 锁屏页面亮屏态下按超时流程重新进入休眠
    * @return 进入休眠成功返回 true，否则返回 false
    */
-  bool SleepAwakeLockScreenWithTimeout();
+  bool SleepAwakeLockScreenWithTimeout(
+      uint32_t* last_touch_ms,
+      uint32_t* lock_screen_last_interaction_ms);
 
   /**
    * @brief 立即熄灭当前亮屏的锁屏页面
@@ -343,6 +408,17 @@ class Application final {
   // 由电源键轮询任务写入，由锁屏任务交换取走。
   std::atomic<PowerButtonAction> pending_power_button_action_{
       PowerButtonAction::kNone};
+  // 主循环只投递系统活动，计时和屏幕状态统一由锁屏任务串行处理。
+  std::atomic<SystemActivityReason> pending_system_activity_reason_{
+      SystemActivityReason::kNone};
+  // 预熄屏任务已直接应用拔出活动时，主循环只补做状态栏和提示刷新。
+  std::atomic<bool> keyboard_expansion_disconnection_activity_reported_{
+      false};
+  // 状态栏电池缓存首次更新只建立充电状态基准，不生成系统活动。
+  std::atomic<bool> battery_charging_state_known_{false};
+  std::atomic<bool> battery_charging_{false};
+  // UI 状态刷新任务只投递低电量事件，关机仍由应用主循环串行执行。
+  std::atomic<bool> battery_depleted_pending_{false};
   // 物理电源键调出的操作页显示期间，暂停锁屏页手势处理。
   std::atomic<bool> physical_power_menu_active_{false};
   // 当前是否由持久关机状态进入一次性的关机充电界面。

@@ -45,7 +45,6 @@ constexpr uint32_t kStartupWifiAutoConnectWaitMs = 15 * 1000;
 constexpr uint32_t kStartupWifiAutoConnectPollMs = 200;
 constexpr uint32_t kWifiAutoConnectIdleMs = 2 * 1000;
 constexpr uint32_t kWifiAutoConnectFailureRetryMs = 30 * 1000;
-constexpr uint32_t kBatteryMonitorPeriodMs = 1000;
 constexpr uint32_t kOtgMonitorPeriodMs = 200;
 constexpr uint32_t kOtgRestoreDelayMs = 500;
 constexpr uint32_t kStartupWifiAutoConnectTaskStackBytes = 8 * 1024;
@@ -583,6 +582,10 @@ bool Application::Init() {
   ui_manager_.SetScreenLockCallback([this]() { RequestScreenLock(); });
   ui_manager_.SetScreenBrightnessCallback(
       [this](int percent) { return ApplyScreenBrightness(percent); });
+  ui_manager_.SetBatteryManagementStatusCallback(
+      [this](const hal::BatteryManagementStatus& status) {
+        HandleBatteryManagementStatusUpdate(status);
+      });
   ui_manager_.SetSystemPowerCallbacks(
       [this]() { RestartDevice(); }, [this]() { PowerOffDevice(); });
 
@@ -944,7 +947,6 @@ bool Application::StartStartupScreen() {
 }
 
 void Application::Run() {
-  TickType_t last_battery_monitor_tick = xTaskGetTickCount();
   while (true) {
     vTaskDelay(pdMS_TO_TICKS(kOtgMonitorPeriodMs));
     if (power_action_in_progress_.load()) {
@@ -957,23 +959,27 @@ void Application::Run() {
     UpdateKeyboardExpansionConnection();
     ShowPendingKeyboardExpansionUnavailableNotice();
 
-    const TickType_t current_tick = xTaskGetTickCount();
-    if (current_tick - last_battery_monitor_tick <
-        pdMS_TO_TICKS(kBatteryMonitorPeriodMs)) {
-      continue;
-    }
-    last_battery_monitor_tick = current_tick;
-
-    int charge_percent = 0;
-    if (device_provider_context_.battery_management != nullptr &&
-        device_provider_context_.battery_management->ReadBatteryLevel(
-            &charge_percent) &&
-        charge_percent == 0) {
+    if (battery_depleted_pending_.exchange(false)) {
       LogMessage(LogLevel::kError, __FILE__, __LINE__,
           "Battery depleted; powering off device\n");
       PowerOffDevice();
     }
   }
+}
+
+void Application::HandleBatteryManagementStatusUpdate(
+    const hal::BatteryManagementStatus& status) {
+  const bool previous_charging = battery_charging_.exchange(status.charging);
+  const bool charging_state_known =
+      battery_charging_state_known_.exchange(true);
+  if (charging_state_known && previous_charging != status.charging) {
+    RequestSystemActivity(
+        status.charging
+            ? SystemActivityReason::kChargingStarted
+            : SystemActivityReason::kChargingStopped);
+  }
+  battery_depleted_pending_.store(
+      status.pack_present && status.charge_percent == 0);
 }
 
 void Application::UpdateKeyboardExpansionScan() {
@@ -997,6 +1003,7 @@ void Application::UpdateKeyboardExpansionScan() {
   }
   keyboard_expansion_scan_pending_ = false;
   keyboard_expansion_disconnection_handled_ = false;
+  keyboard_expansion_disconnection_activity_reported_.store(false);
   if (status.state == hal::KeyboardExpansionState::kReady) {
     keyboard_expansion_unavailable_notice_pending_ = false;
     lvgl_port_.Lock();
@@ -1018,12 +1025,17 @@ void Application::UpdateKeyboardExpansionScan() {
 
 void Application::HandleKeyboardExpansionDisconnection() {
   if (keyboard_expansion_scan_pending_ ||
-      device_provider_context_.keyboard_expansion == nullptr) {
+      device_provider_context_.keyboard_expansion == nullptr ||
+      screen_lock_transition_in_progress_.load()) {
     return;
   }
 
   if (screen_lock_state_.load() != ScreenLockState::kUnlocked) {
-    keyboard_expansion_connection_update_in_progress_.store(true);
+    bool update_expected = false;
+    if (!keyboard_expansion_connection_update_in_progress_.
+            compare_exchange_strong(update_expected, true)) {
+      return;
+    }
     if (screen_lock_transition_in_progress_.load()) {
       keyboard_expansion_connection_update_in_progress_.store(false);
       return;
@@ -1039,12 +1051,16 @@ void Application::HandleKeyboardExpansionDisconnection() {
   }
   if (status.state != hal::KeyboardExpansionState::kDisconnected) {
     keyboard_expansion_disconnection_handled_ = false;
+    keyboard_expansion_disconnection_activity_reported_.store(false);
     return;
   }
   if (keyboard_expansion_disconnection_handled_) {
     return;
   }
   keyboard_expansion_disconnection_handled_ = true;
+  if (!keyboard_expansion_disconnection_activity_reported_.exchange(true)) {
+    RequestSystemActivity(SystemActivityReason::kKeyboardDisconnected);
+  }
 
   keyboard_expansion_unavailable_notice_pending_ = true;
   lvgl_port_.Lock();
@@ -1061,10 +1077,18 @@ void Application::UpdateKeyboardExpansionConnection() {
     return;
   }
 
-  // 面板完全熄灭时只保留连接中断，避免扩展初始化后点亮背光；锁屏
-  // 页面已经点亮时允许像解锁状态一样完成识别并刷新状态栏。连接事务
+  // 面板完全熄灭时只读取连接中断并请求锁屏亮屏，避免提前初始化扩展
+  // 并点亮键盘背光；锁屏页面亮起后再完成识别和状态栏刷新。连接事务
   // 与所有熄屏入口握手，保证扫描完成后再统一让扩展和面板进入睡眠。
-  keyboard_expansion_connection_update_in_progress_.store(true);
+  if (device_provider_context_.keyboard_expansion->
+          HasKeyboardExpansionConnectionChangePending()) {
+    RequestSystemActivity(SystemActivityReason::kKeyboardConnected);
+  }
+  bool update_expected = false;
+  if (!keyboard_expansion_connection_update_in_progress_.
+          compare_exchange_strong(update_expected, true)) {
+    return;
+  }
   if (screen_lock_state_.load() == ScreenLockState::kAsleep ||
       screen_lock_transition_in_progress_.load()) {
     keyboard_expansion_connection_update_in_progress_.store(false);
@@ -1096,6 +1120,115 @@ void Application::UpdateKeyboardExpansionConnection() {
     ui_manager_.RefreshActiveSettingsKeyboardExpansion();
     lvgl_port_.Unlock();
   }
+}
+
+void Application::RequestSystemActivity(SystemActivityReason reason) {
+  if (reason == SystemActivityReason::kNone ||
+      power_action_in_progress_.load()) {
+    return;
+  }
+  pending_system_activity_reason_.store(reason);
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "System activity requested (reason: %s)\n",
+      SystemActivityReasonName(reason));
+}
+
+Application::SystemActivityReason Application::ConsumeSystemActivity() {
+  return pending_system_activity_reason_.exchange(
+      SystemActivityReason::kNone);
+}
+
+bool Application::ConfirmKeyboardExpansionDisconnectionForScreenTransition() {
+  hal::KeyboardExpansionProvider* keyboard_expansion =
+      device_provider_context_.keyboard_expansion;
+  if (keyboard_expansion == nullptr ||
+      keyboard_expansion_scan_pending_.load() ||
+      !screen_lock_transition_in_progress_.load()) {
+    return false;
+  }
+
+  hal::KeyboardExpansionStatus status;
+  if (keyboard_expansion->ReadKeyboardExpansionStatus(&status) &&
+      status.state == hal::KeyboardExpansionState::kDisconnected) {
+    return true;
+  }
+  if (!lvgl_port_.IsInputBlocked() ||
+      !keyboard_expansion->
+          HasKeyboardExpansionDisconnectionCheckPending()) {
+    return false;
+  }
+
+  bool update_expected = false;
+  if (!keyboard_expansion_connection_update_in_progress_.
+          compare_exchange_strong(update_expected, true)) {
+    return false;
+  }
+
+  bool disconnected = false;
+  if (keyboard_expansion->UpdateKeyboardExpansionDisconnectionState()) {
+    disconnected = keyboard_expansion->ReadKeyboardExpansionStatus(&status) &&
+        status.state == hal::KeyboardExpansionState::kDisconnected;
+  }
+  keyboard_expansion_connection_update_in_progress_.store(false);
+  return disconnected;
+}
+
+Application::SystemActivityReason
+Application::ConsumeScreenTransitionActivity() {
+  SystemActivityReason activity_reason = ConsumeSystemActivity();
+  if (activity_reason != SystemActivityReason::kNone ||
+      !ConfirmKeyboardExpansionDisconnectionForScreenTransition()) {
+    return activity_reason;
+  }
+
+  keyboard_expansion_disconnection_activity_reported_.store(true);
+  return SystemActivityReason::kKeyboardDisconnected;
+}
+
+const char* Application::SystemActivityReasonName(
+    SystemActivityReason reason) {
+  switch (reason) {
+    case SystemActivityReason::kChargingStarted:
+      return "charging started";
+    case SystemActivityReason::kChargingStopped:
+      return "charging stopped";
+    case SystemActivityReason::kKeyboardConnected:
+      return "keyboard connected";
+    case SystemActivityReason::kKeyboardDisconnected:
+      return "keyboard disconnected";
+    case SystemActivityReason::kNone:
+      return "none";
+  }
+  return "unknown";
+}
+
+bool Application::ApplyScreenActivity(
+    uint32_t* last_touch_ms,
+    uint32_t* lock_screen_last_interaction_ms,
+    int restore_brightness_percent) {
+  if (last_touch_ms == nullptr ||
+      lock_screen_last_interaction_ms == nullptr) {
+    return false;
+  }
+
+  const uint32_t activity_ms = static_cast<uint32_t>(
+      xTaskGetTickCount() * portTICK_PERIOD_MS);
+  *last_touch_ms = activity_ms;
+  *lock_screen_last_interaction_ms = activity_ms;
+
+  bool result = true;
+  const ScreenLockState screen_lock_state = screen_lock_state_.load();
+  if (screen_lock_state == ScreenLockState::kAsleep) {
+    result = WakeScreenFromLock();
+  } else if (restore_brightness_percent >= 0) {
+    result = FadeScreenBrightnessTo(
+        restore_brightness_percent, kScreenLockFadeMs);
+    if (screen_lock_state != ScreenLockState::kUnlocked) {
+      screen_lock_state_.store(ScreenLockState::kAwake);
+    }
+    lvgl_port_.SetInputBlocked(false);
+  }
+  return result;
 }
 
 void Application::ShowPendingKeyboardExpansionUnavailableNotice() {
@@ -1422,6 +1555,7 @@ void Application::RunScreenLockTask() {
         portTICK_PERIOD_MS);
     if (power_action_in_progress_.load()) {
       pending_power_button_action_.store(PowerButtonAction::kNone);
+      pending_system_activity_reason_.store(SystemActivityReason::kNone);
       vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
       continue;
     }
@@ -1487,6 +1621,30 @@ void Application::RunScreenLockTask() {
       if (!recovery_performed) {
         sleep_double_tap_recognizer.Reset();
       }
+    }
+    const SystemActivityReason activity_reason = ConsumeSystemActivity();
+    if (activity_reason != SystemActivityReason::kNone) {
+      const ScreenLockState activity_screen_lock_state =
+          screen_lock_state_.load();
+      LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+          "System activity applied (reason: %s, screen state: %u)\n",
+          SystemActivityReasonName(activity_reason),
+          static_cast<unsigned int>(activity_screen_lock_state));
+      const bool screen_activity_applied = ApplyScreenActivity(
+          &last_touch_ms, &lock_screen_last_interaction_ms);
+      if (activity_screen_lock_state == ScreenLockState::kAsleep) {
+        wake_double_tap_recognizer.Reset();
+        sleep_double_tap_recognizer.Reset();
+        unlock_touch_active = false;
+        unlock_drag_ready = false;
+        discard_transition_touch_until_release = false;
+        if (screen_activity_applied) {
+          observed_screen_lock_state = ScreenLockState::kAwake;
+          screen_wake_input_armed = true;
+        }
+      }
+      vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
+      continue;
     }
     hal::TouchPoint point;
     if (ui_manager_.IsFirstBootWelcomeActive()) {
@@ -1596,7 +1754,8 @@ void Application::RunScreenLockTask() {
                 "Lock screen wake requested (source: %s)\n",
                 firmware_double_tap_detected ? "firmware gesture"
                                              : "software double tap");
-            const bool screen_woke = WakeScreenFromLock();
+            const bool screen_woke = ApplyScreenActivity(
+                &last_touch_ms, &lock_screen_last_interaction_ms);
             wake_double_tap_recognizer.Reset();
             if (screen_woke) {
               // 唤醒在第二次按下阶段完成时，丢弃同一触摸剩余的抬手事件。
@@ -1604,8 +1763,6 @@ void Application::RunScreenLockTask() {
                   event == DoubleTapEvent::kSecondPressConfirmed;
               sleep_double_tap_recognizer.Reset();
               ui::PlayUiHapticFeedback();
-              last_touch_ms = now_ms;
-              lock_screen_last_interaction_ms = now_ms;
             } else {
               sleep_double_tap_recognizer.Reset();
               discard_transition_touch_until_release = true;
@@ -1643,7 +1800,8 @@ void Application::RunScreenLockTask() {
         sleep_double_tap_recognizer.Reset();
       }
       if (touched) {
-        lock_screen_last_interaction_ms = now_ms;
+        ApplyScreenActivity(
+            &last_touch_ms, &lock_screen_last_interaction_ms);
         if (!unlock_touch_active) {
           unlock_touch_start = point;
           unlock_touch_active = true;
@@ -1679,8 +1837,8 @@ void Application::RunScreenLockTask() {
             lvgl_port_.Unlock();
             vTaskDelay(pdMS_TO_TICKS(kScreenUnlockAnimationWaitMs));
             UnlockScreen();
-            last_touch_ms = static_cast<uint32_t>(xTaskGetTickCount() *
-                portTICK_PERIOD_MS);
+            ApplyScreenActivity(
+                &last_touch_ms, &lock_screen_last_interaction_ms);
             unlock_touch_active = false;
             unlock_drag_ready = false;
             vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
@@ -1707,7 +1865,8 @@ void Application::RunScreenLockTask() {
               }
               wake_double_tap_recognizer.Reset();
               sleep_double_tap_recognizer.Reset();
-              lock_screen_last_interaction_ms = now_ms;
+              ApplyScreenActivity(
+                  &last_touch_ms, &lock_screen_last_interaction_ms);
             }
           }
         }
@@ -1718,10 +1877,13 @@ void Application::RunScreenLockTask() {
         const uint32_t lock_screen_dim_start_ms =
             kAwakeLockScreenSleepTimeoutMs - kScreenLockSleepConfirmMs;
         if (lock_screen_idle_ms >= lock_screen_dim_start_ms) {
-          const bool screen_slept = SleepAwakeLockScreenWithTimeout();
+          const bool screen_slept = SleepAwakeLockScreenWithTimeout(
+              &last_touch_ms, &lock_screen_last_interaction_ms);
           if (!screen_slept) {
-            lock_screen_last_interaction_ms = static_cast<uint32_t>(
+            const uint32_t activity_ms = static_cast<uint32_t>(
                 xTaskGetTickCount() * portTICK_PERIOD_MS);
+            last_touch_ms = activity_ms;
+            lock_screen_last_interaction_ms = activity_ms;
           }
           wake_double_tap_recognizer.Reset();
           sleep_double_tap_recognizer.Reset();
@@ -1738,7 +1900,8 @@ void Application::RunScreenLockTask() {
     sleep_double_tap_recognizer.Reset();
     discard_transition_touch_until_release = false;
     if (ReadScreenTouchWhileAwake(&point)) {
-      last_touch_ms = now_ms;
+      ApplyScreenActivity(
+          &last_touch_ms, &lock_screen_last_interaction_ms);
       vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
       continue;
     }
@@ -1770,6 +1933,17 @@ void Application::RunScreenLockTask() {
         app::kUserDisplayBrightnessMinPercent;
     bool fade_canceled = false;
     bool screen_access_interrupted = false;
+    SystemActivityReason transition_activity_reason =
+        ConsumeScreenTransitionActivity();
+    if (transition_activity_reason != SystemActivityReason::kNone) {
+      LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+          "System activity canceled screen dimming (reason: %s)\n",
+          SystemActivityReasonName(transition_activity_reason));
+      ApplyScreenActivity(
+          &last_touch_ms, &lock_screen_last_interaction_ms);
+      screen_lock_transition_in_progress_.store(false);
+      continue;
+    }
     lvgl_port_.SetInputBlocked(true);
     if (!FadeScreenBrightnessTo(target_brightness, kScreenLockFadeMs)) {
       lvgl_port_.SetInputBlocked(false);
@@ -1783,6 +1957,17 @@ void Application::RunScreenLockTask() {
     while (static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) -
                confirm_start_ms <
            sleep_confirm_ms) {
+      transition_activity_reason = ConsumeScreenTransitionActivity();
+      if (transition_activity_reason != SystemActivityReason::kNone) {
+        LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+            "System activity restored screen brightness (reason: %s)\n",
+            SystemActivityReasonName(transition_activity_reason));
+        ApplyScreenActivity(&last_touch_ms,
+            &lock_screen_last_interaction_ms, start_brightness);
+        screen_lock_transition_in_progress_.store(false);
+        fade_canceled = true;
+        break;
+      }
       bool touch_access_available = false;
       const bool touched = ReadScreenTouchWhileAwake(
           &point, &touch_access_available);
@@ -1791,11 +1976,9 @@ void Application::RunScreenLockTask() {
         break;
       }
       if (touched) {
-        FadeScreenBrightnessTo(start_brightness, kScreenLockFadeMs);
-        lvgl_port_.SetInputBlocked(false);
+        ApplyScreenActivity(&last_touch_ms,
+            &lock_screen_last_interaction_ms, start_brightness);
         screen_lock_transition_in_progress_.store(false);
-        last_touch_ms = static_cast<uint32_t>(xTaskGetTickCount() *
-            portTICK_PERIOD_MS);
         fade_canceled = true;
         break;
       }
@@ -1812,6 +1995,17 @@ void Application::RunScreenLockTask() {
       continue;
     }
 
+    transition_activity_reason = ConsumeScreenTransitionActivity();
+    if (transition_activity_reason != SystemActivityReason::kNone) {
+      LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+          "System activity canceled automatic screen lock (reason: %s)\n",
+          SystemActivityReasonName(transition_activity_reason));
+      ApplyScreenActivity(&last_touch_ms,
+          &lock_screen_last_interaction_ms, start_brightness);
+      screen_lock_transition_in_progress_.store(false);
+      continue;
+    }
+
     if (!WaitForKeyboardExpansionConnectionIdle()) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Cancel automatic screen lock because keyboard expansion "
@@ -1820,6 +2014,16 @@ void Application::RunScreenLockTask() {
       lvgl_port_.SetInputBlocked(false);
       screen_lock_transition_in_progress_.store(false);
       last_touch_ms = now_ms;
+      continue;
+    }
+    transition_activity_reason = ConsumeScreenTransitionActivity();
+    if (transition_activity_reason != SystemActivityReason::kNone) {
+      LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+          "System activity canceled screen sleep (reason: %s)\n",
+          SystemActivityReasonName(transition_activity_reason));
+      ApplyScreenActivity(&last_touch_ms,
+          &lock_screen_last_interaction_ms, start_brightness);
+      screen_lock_transition_in_progress_.store(false);
       continue;
     }
     if (EnterScreenLockSleep()) {
@@ -2146,7 +2350,9 @@ void Application::PowerOffDevice() {
   }
 }
 
-bool Application::SleepAwakeLockScreenWithTimeout() {
+bool Application::SleepAwakeLockScreenWithTimeout(
+    uint32_t* last_touch_ms,
+    uint32_t* lock_screen_last_interaction_ms) {
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
   if (screen == nullptr) {
     return false;
@@ -2162,6 +2368,15 @@ bool Application::SleepAwakeLockScreenWithTimeout() {
   }
 
   const app::DisplayPreferences preferences = LoadDisplayPreferencesOrDefault();
+  SystemActivityReason activity_reason = ConsumeScreenTransitionActivity();
+  if (activity_reason != SystemActivityReason::kNone) {
+    LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+        "System activity canceled lock-screen dimming (reason: %s)\n",
+        SystemActivityReasonName(activity_reason));
+    ApplyScreenActivity(last_touch_ms, lock_screen_last_interaction_ms);
+    screen_lock_transition_in_progress_.store(false);
+    return false;
+  }
   const int target_brightness =
       app::kUserDisplayBrightnessMinPercent;
   if (!FadeScreenBrightnessTo(target_brightness, kScreenLockFadeMs)) {
@@ -2175,6 +2390,16 @@ bool Application::SleepAwakeLockScreenWithTimeout() {
   while (static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) -
              confirm_start_ms <
          kScreenLockSleepConfirmMs) {
+    activity_reason = ConsumeScreenTransitionActivity();
+    if (activity_reason != SystemActivityReason::kNone) {
+      LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+          "System activity restored lock-screen brightness (reason: %s)\n",
+          SystemActivityReasonName(activity_reason));
+      ApplyScreenActivity(last_touch_ms, lock_screen_last_interaction_ms,
+          preferences.brightness_percent);
+      screen_lock_transition_in_progress_.store(false);
+      return false;
+    }
     hal::TouchPoint point;
     bool touch_access_available = false;
     const bool touched = ReadScreenTouchWhileAwake(
@@ -2187,13 +2412,23 @@ bool Application::SleepAwakeLockScreenWithTimeout() {
       return false;
     }
     if (touched) {
-      FadeScreenBrightnessTo(
-          preferences.brightness_percent, kScreenLockFadeMs);
-      screen_lock_state_.store(ScreenLockState::kAwake);
+      ApplyScreenActivity(last_touch_ms, lock_screen_last_interaction_ms,
+          preferences.brightness_percent);
       screen_lock_transition_in_progress_.store(false);
       return false;
     }
     vTaskDelay(pdMS_TO_TICKS(kScreenTouchPollMs));
+  }
+
+  activity_reason = ConsumeScreenTransitionActivity();
+  if (activity_reason != SystemActivityReason::kNone) {
+    LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+        "System activity canceled lock-screen sleep (reason: %s)\n",
+        SystemActivityReasonName(activity_reason));
+    ApplyScreenActivity(last_touch_ms, lock_screen_last_interaction_ms,
+        preferences.brightness_percent);
+    screen_lock_transition_in_progress_.store(false);
+    return false;
   }
 
   if (!EnterScreenSleep()) {

@@ -564,11 +564,23 @@ class TDisplayP4Device final : public ScreenProvider,
   bool UpdateKeyboardExpansionDisconnectionState() override;
 
   /**
+   * @brief 判断是否存在尚未执行的键盘扩展断开确认
+   * @return 存在待确认的键盘中断时返回 true
+   */
+  bool HasKeyboardExpansionDisconnectionCheckPending() const override;
+
+  /**
    * @brief 处理键盘扩展连接变化并在重新连接后启动扫描
    * @param scan_started 自动重连扫描已启动时写入 true
    * @return 连接监听和所需状态转换成功返回 true，否则返回 false
    */
   bool UpdateKeyboardExpansionConnection(bool* scan_started) override;
+
+  /**
+   * @brief 判断键盘扩展连接中断是否仍待应用层处理
+   * @return 存在待处理连接信号时返回 true
+   */
+  bool HasKeyboardExpansionConnectionChangePending() const override;
 
   /**
    * @brief 设置键盘背光期望亮度

@@ -1341,6 +1341,11 @@ bool TDisplayP4Device::DisableKeyboardExpansion() {
       KeyboardExpansionState::kDisabled);
 }
 
+bool TDisplayP4Device::HasKeyboardExpansionDisconnectionCheckPending() const {
+  return keyboard_expansion_.disconnection_check_pending.load(
+      std::memory_order_acquire);
+}
+
 bool TDisplayP4Device::UpdateKeyboardExpansionDisconnectionState() {
   if (keyboard_expansion_.state.load() != KeyboardExpansionState::kReady ||
       !keyboard_expansion_.interrupt_initialized.load(
@@ -1534,6 +1539,11 @@ bool TDisplayP4Device::UpdateKeyboardExpansionConnection(
     *scan_started = started;
   }
   return started;
+}
+
+bool TDisplayP4Device::HasKeyboardExpansionConnectionChangePending() const {
+  return keyboard_expansion_.connection_interrupt_pending.load(
+      std::memory_order_acquire);
 }
 
 bool TDisplayP4Device::SetKeyboardBacklightBrightnessPercent(int percent) {

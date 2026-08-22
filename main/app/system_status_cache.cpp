@@ -19,8 +19,6 @@
 namespace lilygo_box::app {
 namespace {
 
-constexpr uint32_t kBatteryRefreshIntervalTicks = 2;
-constexpr uint32_t kWifiRefreshIntervalTicks = 3;
 constexpr std::time_t kValidNetworkUnixTime = 1700000000;
 constexpr int kRtcReadAttempts = 3;
 constexpr uint32_t kRtcReadRetryIntervalMs = 10;
@@ -157,7 +155,6 @@ void SystemStatusCache::Init(
   rtc_status_ = hal::RtcStatus();
   battery_management_status_ = hal::BatteryManagementStatus();
   wifi_status_ = hal::WifiStatus();
-  refresh_count_ = 0;
   rtc_status_valid_ = false;
   battery_management_status_valid_ = false;
   wifi_status_valid_ = false;
@@ -252,6 +249,7 @@ bool SystemStatusCache::RefreshBattery() {
 
   hal::BatteryManagementStatus status;
   if (!battery_management_->ReadBatteryManagementStatus(&status) || !status.ready) {
+    battery_management_status_valid_ = false;
     return false;
   }
 
@@ -280,14 +278,8 @@ bool SystemStatusCache::RefreshWifi() {
 
 void SystemStatusCache::RefreshSystemStatus() {
   RefreshClock();
-
-  if (refresh_count_ % kBatteryRefreshIntervalTicks == 0) {
-    RefreshBattery();
-  }
-  if (refresh_count_ % kWifiRefreshIntervalTicks == 0) {
-    RefreshWifi();
-  }
-  ++refresh_count_;
+  RefreshBattery();
+  RefreshWifi();
 }
 
 }  // namespace lilygo_box::app

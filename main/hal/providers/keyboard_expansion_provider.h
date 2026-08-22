@@ -113,11 +113,23 @@ class KeyboardExpansionProvider {
   virtual bool UpdateKeyboardExpansionDisconnectionState() = 0;
 
   /**
+   * @brief 判断是否存在尚未执行的键盘扩展断开确认
+   * @return 存在待确认的键盘中断时返回 true
+   */
+  virtual bool HasKeyboardExpansionDisconnectionCheckPending() const = 0;
+
+  /**
    * @brief 处理键盘扩展连接变化并在重新连接后启动扫描
    * @param scan_started 自动重连扫描已启动时写入 true
    * @return 连接监听和所需状态转换成功返回 true，否则返回 false
    */
   virtual bool UpdateKeyboardExpansionConnection(bool* scan_started) = 0;
+
+  /**
+   * @brief 判断是否收到尚未处理的键盘扩展连接信号
+   * @return 存在待处理连接变化时返回 true
+   */
+  virtual bool HasKeyboardExpansionConnectionChangePending() const = 0;
 
   /**
    * @brief 设置键盘背光期望亮度

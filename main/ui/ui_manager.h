@@ -118,6 +118,13 @@ class UiManager final {
   void SetScreenBrightnessCallback(std::function<bool(int)> callback);
 
   /**
+   * @brief 设置电池管理状态更新回调
+   * @param callback 每次状态栏取得有效电池状态后调用
+   */
+  void SetBatteryManagementStatusCallback(
+      std::function<void(const hal::BatteryManagementStatus&)> callback);
+
+  /**
    * @brief 在屏幕右上侧显示音量快捷浮层
    * @param volume_percent 当前音量百分比
    * @param callback 音量变化回调，第二个参数表示是否保存最终值
@@ -618,6 +625,8 @@ class UiManager final {
   std::function<void(bool visible)> active_view_lock_screen_callback_;
   std::function<void()> screen_lock_callback_;
   std::function<bool(int)> screen_brightness_callback_;
+  std::function<void(const hal::BatteryManagementStatus&)>
+      battery_management_status_callback_;
   std::function<void()> restart_device_callback_;
   std::function<void()> power_off_device_callback_;
   EdgeBackSwipeState app_back_swipe_ = {};

@@ -1288,6 +1288,16 @@ void UiManager::SetScreenBrightnessCallback(
   screen_brightness_callback_ = std::move(callback);
 }
 
+void UiManager::SetBatteryManagementStatusCallback(
+    std::function<void(const hal::BatteryManagementStatus&)> callback) {
+  battery_management_status_callback_ = std::move(callback);
+  if (battery_management_status_callback_ &&
+      system_status_cache_.battery_management_status_valid()) {
+    battery_management_status_callback_(
+        system_status_cache_.battery_management_status());
+  }
+}
+
 bool UiManager::ShowVolumeOverlay(int volume_percent,
     VolumeOverlay::VolumeChangeCallback callback) {
   if (root_screen_ == nullptr) {
@@ -1855,19 +1865,7 @@ void UiManager::RefreshSystemStatus() {
 }
 
 void UiManager::RefreshSystemStatusNow() {
-  system_status_cache_.RefreshClock();
-  system_status_cache_.RefreshBattery();
-  if (system_status_cache_.rtc_status_valid()) {
-    UpdateClockLabels(system_status_cache_.rtc_status());
-  }
-  if (system_status_cache_.battery_management_status_valid()) {
-    UpdateBatteryStatus(system_status_cache_.battery_management_status());
-  }
-  system_status_cache_.RefreshWifi();
-  if (system_status_cache_.wifi_status_valid()) {
-    UpdateWifiStatus(system_status_cache_.wifi_status());
-  }
-  UpdateKeyboardExpansionStatus();
+  RefreshSystemStatus();
 }
 
 void UiManager::UpdateClockLabels(const hal::RtcStatus& status) {
@@ -1916,6 +1914,9 @@ void UiManager::UpdateClockLabels(const hal::RtcStatus& status) {
 
 void UiManager::UpdateBatteryStatus(const hal::BatteryManagementStatus& status) {
   status_bar_.SetBatteryStatus(status.charge_percent, status.charging);
+  if (battery_management_status_callback_) {
+    battery_management_status_callback_(status);
+  }
 }
 
 void UiManager::UpdateWifiStatus(const hal::WifiStatus& status) {
