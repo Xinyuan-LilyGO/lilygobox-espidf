@@ -255,6 +255,18 @@ struct RadioModuleItem {
 
 constexpr size_t kRadioModuleCapacity = app::kRadioProfileCapacity;
 constexpr size_t kAddOutputPowerOptionCapacity = 8;
+constexpr const char* kLr2021BandwidthNames[] = {
+    "31.25", "41.67", "62.5", "83.34", "101.563", "125",
+    "203", "250", "406", "500", "812", "1000"};
+constexpr const char* kLr2021CodingRateNames[] = {
+    "4/5", "4/6", "4/7", "4/8", "LI 4/5", "LI 4/6", "LI 4/8",
+    "LI-C 4/6", "LI-C 4/8"};
+constexpr const char* kLr2021RxBoostModeNames[] = {
+    "Off", "1", "2", "3", "4", "5", "6", "7"};
+static_assert(std::size(radio::kLr2021BandwidthsHz) ==
+    std::size(kLr2021BandwidthNames));
+static_assert(std::size(radio::kLr2021CodingRates) ==
+    std::size(kLr2021CodingRateNames));
 constexpr int8_t kCc1101OutputPowers[] = {
     -30, -20, -15, -10, 0, 5, 7, 10};
 constexpr const char* kCc1101OutputPowerNames[] = {
@@ -414,8 +426,11 @@ struct RadioViewState {
   lv_obj_t* add_chip_buttons[hal::kRadioCapabilityCapacity] = {};
   lv_obj_t* add_protocol_buttons[hal::kRadioCapabilityCapacity] = {};
   lv_obj_t* add_sf_buttons[8] = {};
-  lv_obj_t* add_bandwidth_buttons[7] = {};
-  lv_obj_t* add_coding_rate_buttons[4] = {};
+  lv_obj_t* add_bandwidth_buttons[
+      std::size(radio::kLr2021BandwidthsHz)] = {};
+  lv_obj_t* add_coding_rate_buttons[
+      std::size(radio::kLr2021CodingRates)] = {};
+  lv_obj_t* add_rx_boost_buttons[8] = {};
   lv_obj_t* add_output_power_buttons[kAddOutputPowerOptionCapacity] = {};
   lv_obj_t* add_preamble_buttons[std::size(kCc1101PreambleLengths)] = {};
   lv_obj_t* add_receive_bandwidth_buttons[
@@ -457,6 +472,7 @@ struct RadioViewState {
   int selected_add_sf = kDefaultSpreadingFactorIndex;
   int selected_add_bandwidth = 1;
   int selected_add_coding_rate = 0;
+  int selected_add_rx_boost_mode = 7;
   int selected_add_output_power = 0;
   int selected_add_preamble = 0;
   int selected_add_receive_bandwidth = 0;
@@ -512,6 +528,7 @@ enum class RadioAddOptionGroup {
   kSpreadingFactor,
   kBandwidth,
   kCodingRate,
+  kRxBoost,
   kOutputPower,
   kPreamble,
   kReceiveBandwidth,
@@ -726,11 +743,13 @@ hal::RadioConfig ToRadioConfig(const app::RadioProfile& profile) {
           .preamble_length = profile.preamble_length,
           .spreading_factor = profile.spreading_factor,
           .coding_rate_denominator = profile.coding_rate_denominator,
+          .lr2021_coding_rate = profile.lr2021_coding_rate,
           .sync_word = profile.sync_word,
           .output_power_dbm = profile.output_power_dbm,
           .crc_enabled = profile.crc_enabled,
           .invert_iq = profile.invert_iq,
           .rx_boosted = profile.rx_boosted,
+          .lr2021_rx_boost_mode = profile.lr2021_rx_boost_mode,
       },
       .gfsk = {
           .frequency_hz = profile.frequency_hz,
@@ -768,11 +787,13 @@ bool RadioConfigsEqual(
       lhs.lora.preamble_length == rhs.lora.preamble_length &&
       lhs.lora.spreading_factor == rhs.lora.spreading_factor &&
       lhs.lora.coding_rate_denominator == rhs.lora.coding_rate_denominator &&
+      lhs.lora.lr2021_coding_rate == rhs.lora.lr2021_coding_rate &&
       lhs.lora.sync_word == rhs.lora.sync_word &&
       lhs.lora.output_power_dbm == rhs.lora.output_power_dbm &&
       lhs.lora.crc_enabled == rhs.lora.crc_enabled &&
       lhs.lora.invert_iq == rhs.lora.invert_iq &&
       lhs.lora.rx_boosted == rhs.lora.rx_boosted &&
+      lhs.lora.lr2021_rx_boost_mode == rhs.lora.lr2021_rx_boost_mode &&
       lhs.gfsk.frequency_hz == rhs.gfsk.frequency_hz &&
       lhs.gfsk.data_rate_bps == rhs.gfsk.data_rate_bps &&
       lhs.gfsk.frequency_deviation_hz == rhs.gfsk.frequency_deviation_hz &&
@@ -886,11 +907,13 @@ bool AreProfileSettingsEqual(
          lhs.preamble_length == rhs.preamble_length &&
          lhs.spreading_factor == rhs.spreading_factor &&
          lhs.coding_rate_denominator == rhs.coding_rate_denominator &&
+         lhs.lr2021_coding_rate == rhs.lr2021_coding_rate &&
          lhs.sync_word == rhs.sync_word &&
          lhs.output_power_dbm == rhs.output_power_dbm &&
          lhs.crc_enabled == rhs.crc_enabled &&
          lhs.invert_iq == rhs.invert_iq &&
          lhs.rx_boosted == rhs.rx_boosted &&
+         lhs.lr2021_rx_boost_mode == rhs.lr2021_rx_boost_mode &&
          lhs.gfsk_data_rate_bps == rhs.gfsk_data_rate_bps &&
          lhs.gfsk_frequency_deviation_hz ==
              rhs.gfsk_frequency_deviation_hz &&
@@ -1064,7 +1087,14 @@ int8_t AddProfileOutputPower(const RadioViewState* state, size_t index) {
  * @return 带宽选项数量
  */
 size_t AddProfileBandwidthCount(const RadioViewState* state) {
-  return AddProfileChip(state) == radio::ChipType::kLr1121 ? 7 : 4;
+  switch (AddProfileChip(state)) {
+    case radio::ChipType::kLr2021:
+      return std::size(radio::kLr2021BandwidthsHz);
+    case radio::ChipType::kLr1121:
+      return 7;
+    default:
+      return 4;
+  }
 }
 
 /**
@@ -1077,6 +1107,11 @@ uint32_t AddProfileBandwidth(const RadioViewState* state, size_t index) {
   constexpr uint32_t kSx1262Bandwidths[] = {62500, 125000, 250000, 500000};
   constexpr uint32_t kLr1121Bandwidths[] = {
       62500, 125000, 200000, 250000, 400000, 500000, 800000};
+  if (AddProfileChip(state) == radio::ChipType::kLr2021) {
+    return index < std::size(radio::kLr2021BandwidthsHz)
+        ? radio::kLr2021BandwidthsHz[index]
+        : 0;
+  }
   if (AddProfileChip(state) == radio::ChipType::kLr1121) {
     return index < std::size(kLr1121Bandwidths) ? kLr1121Bandwidths[index] : 0;
   }
@@ -1093,10 +1128,44 @@ const char* AddProfileBandwidthName(const RadioViewState* state, size_t index) {
   constexpr const char* kSx1262Names[] = {"62.5", "125", "250", "500"};
   constexpr const char* kLr1121Names[] = {
       "62.5", "125", "200", "250", "400", "500", "800"};
+  if (AddProfileChip(state) == radio::ChipType::kLr2021) {
+    return index < std::size(kLr2021BandwidthNames)
+        ? kLr2021BandwidthNames[index]
+        : "";
+  }
   if (AddProfileChip(state) == radio::ChipType::kLr1121) {
     return index < std::size(kLr1121Names) ? kLr1121Names[index] : "";
   }
   return index < std::size(kSx1262Names) ? kSx1262Names[index] : "";
+}
+
+size_t AddProfileCodingRateCount(const RadioViewState* state) {
+  return AddProfileChip(state) == radio::ChipType::kLr2021
+      ? std::size(radio::kLr2021CodingRates)
+      : 4;
+}
+
+radio::Lr2021CodingRate AddProfileLr2021CodingRate(
+    const RadioViewState* state, size_t index) {
+  if (AddProfileChip(state) != radio::ChipType::kLr2021 ||
+      index >= std::size(radio::kLr2021CodingRates)) {
+    return radio::Lr2021CodingRate::kStandard4_5;
+  }
+  return radio::kLr2021CodingRates[index];
+}
+
+const char* AddProfileCodingRateName(
+    const RadioViewState* state, size_t index) {
+  constexpr const char* kStandardCodingRateNames[] = {
+      "4/5", "4/6", "4/7", "4/8"};
+  if (AddProfileChip(state) == radio::ChipType::kLr2021) {
+    return index < std::size(kLr2021CodingRateNames)
+        ? kLr2021CodingRateNames[index]
+        : "";
+  }
+  return index < std::size(kStandardCodingRateNames)
+      ? kStandardCodingRateNames[index]
+      : "";
 }
 
 size_t FindProfileIndex(const RadioViewState* state, uint32_t profile_id) {
@@ -5828,8 +5897,11 @@ void UpdateAddOptionSelection(RadioViewState* state) {
   UpdateOptionButtonGroup(state->add_bandwidth_buttons,
       static_cast<int>(AddProfileBandwidthCount(state)),
       state->selected_add_bandwidth);
-  UpdateOptionButtonGroup(state->add_coding_rate_buttons, 4,
+  UpdateOptionButtonGroup(state->add_coding_rate_buttons,
+      static_cast<int>(AddProfileCodingRateCount(state)),
       state->selected_add_coding_rate);
+  UpdateOptionButtonGroup(state->add_rx_boost_buttons, 8,
+      state->selected_add_rx_boost_mode);
   UpdateOptionButtonGroup(state->add_output_power_buttons,
       static_cast<int>(AddProfileOutputPowerCount(state)),
       state->selected_add_output_power);
@@ -5870,6 +5942,11 @@ bool IsFrequencyValidForCapability(
  */
 bool IsBandwidthValidForFrequency(
     radio::ChipType chip, double frequency_mhz, uint32_t bandwidth_hz) {
+  if (chip == radio::ChipType::kLr2021) {
+    const uint32_t frequency_hz =
+        static_cast<uint32_t>(frequency_mhz * 1000000.0 + 0.5);
+    return radio::IsLr2021BandwidthSupported(frequency_hz, bandwidth_hz);
+  }
   const bool high_frequency = chip == radio::ChipType::kLr1121 &&
                               frequency_mhz >= 2400.0 &&
                               frequency_mhz <= 2500.0;
@@ -5947,11 +6024,26 @@ void NormalizeAddBandwidthSelection(RadioViewState* state) {
           PrimaryRadioCapability(state), frequency_mhz)) {
     return;
   }
-  const bool high_frequency =
-      AddProfileChip(state) == radio::ChipType::kLr1121 &&
-      frequency_mhz >= 2400.0;
-  // LR1121 列表中 200 kHz 为索引 2，Sub-GHz 默认 125 kHz 为索引 1。
-  state->selected_add_bandwidth = high_frequency ? 2 : 1;
+  const radio::ChipType chip = AddProfileChip(state);
+  const bool lr1121_high_frequency =
+      chip == radio::ChipType::kLr1121 && frequency_mhz >= 2400.0;
+  const uint32_t default_bandwidth_hz =
+      lr1121_high_frequency ? 200000U : 125000U;
+  int compatible_bandwidth_index = -1;
+  for (size_t index = 0; index < AddProfileBandwidthCount(state); ++index) {
+    const uint32_t bandwidth_hz = AddProfileBandwidth(state, index);
+    if (!IsBandwidthValidForFrequency(chip, frequency_mhz, bandwidth_hz)) {
+      continue;
+    }
+    if (compatible_bandwidth_index < 0) {
+      compatible_bandwidth_index = static_cast<int>(index);
+    }
+    if (bandwidth_hz == default_bandwidth_hz) {
+      compatible_bandwidth_index = static_cast<int>(index);
+      break;
+    }
+  }
+  state->selected_add_bandwidth = compatible_bandwidth_index;
   UpdateAddOptionSelection(state);
 }
 
@@ -5973,7 +6065,7 @@ void UpdateAddBandwidthOptionLayout(RadioViewState* state) {
   }
 
   const size_t option_count = AddProfileBandwidthCount(state);
-  bool option_visible[hal::kRadioCapabilityCapacity] = {};
+  bool option_visible[std::size(radio::kLr2021BandwidthsHz)] = {};
   size_t visible_count = 0;
   for (size_t index = 0; index < option_count; ++index) {
     option_visible[index] = IsBandwidthValidForFrequency(
@@ -5984,16 +6076,29 @@ void UpdateAddBandwidthOptionLayout(RadioViewState* state) {
     }
   }
   if (visible_count == 0) {
+    for (size_t index = 0; index < option_count; ++index) {
+      if (state->add_bandwidth_buttons[index] != nullptr) {
+        lv_obj_add_flag(
+            state->add_bandwidth_buttons[index], LV_OBJ_FLAG_HIDDEN);
+      }
+    }
     return;
   }
 
   constexpr int kOptionLeft = 28;
   constexpr int kOptionGap = 10;
   const int option_area_width = state->config.width - 56;
+  const size_t column_count = AddProfileChip(state) ==
+          radio::ChipType::kLr2021
+      ? 4
+      : visible_count;
   const int option_width =
       (option_area_width -
-          static_cast<int>(visible_count - 1) * kOptionGap) /
-      static_cast<int>(visible_count);
+          static_cast<int>(column_count - 1) * kOptionGap) /
+      static_cast<int>(column_count);
+  const int first_row_y = state->add_bandwidth_buttons[0] == nullptr
+      ? 0
+      : lv_obj_get_y(state->add_bandwidth_buttons[0]);
   size_t visible_index = 0;
   for (size_t index = 0; index < option_count; ++index) {
     lv_obj_t* button = state->add_bandwidth_buttons[index];
@@ -6005,8 +6110,11 @@ void UpdateAddBandwidthOptionLayout(RadioViewState* state) {
       continue;
     }
     lv_obj_remove_flag(button, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_x(button, kOptionLeft +
-        static_cast<int>(visible_index) * (option_width + kOptionGap));
+    const size_t column = visible_index % column_count;
+    const size_t row = visible_index / column_count;
+    lv_obj_set_pos(button,
+        kOptionLeft + static_cast<int>(column) * (option_width + kOptionGap),
+        first_row_y + static_cast<int>(row) * 70);
     lv_obj_set_width(button, option_width);
     ++visible_index;
   }
@@ -6057,9 +6165,13 @@ bool IsAddOutputPowerValid(const RadioViewState* state) {
   const bool lr1121_hf = AddProfileChip(state) == radio::ChipType::kLr1121 &&
                          end != nullptr && end[0] == '\0' &&
                          frequency_mhz >= 2400.0;
+  const bool lr2021_hf = AddProfileChip(state) == radio::ChipType::kLr2021 &&
+                         end != nullptr && end[0] == '\0' &&
+                         frequency_mhz >= 2400.0;
   long output_power = 0;
-  return ParseTextAreaLong(
-      state->add_power_input, 10, -9, lr1121_hf ? 13 : 22, &output_power);
+  return ParseTextAreaLong(state->add_power_input, 10,
+      lr2021_hf ? -19 : -9, lr2021_hf ? 5 : (lr1121_hf ? 13 : 22),
+      &output_power);
 }
 
 /**
@@ -6176,12 +6288,13 @@ bool IsAddModuleFormComplete(const RadioViewState* state) {
   if (chip == radio::ChipType::kNrf24l01) {
     return IsAddEnhancedShockBurstFormComplete(state);
   }
+  const bool lr2021 = chip == radio::ChipType::kLr2021;
   if (state->add_frequency_input == nullptr ||
       state->add_power_input == nullptr ||
       state->add_preamble_input == nullptr ||
       state->add_sync_word_input == nullptr ||
       state->add_crc_switch == nullptr || state->add_iq_switch == nullptr ||
-      state->add_rx_boost_switch == nullptr ||
+      (!lr2021 && state->add_rx_boost_switch == nullptr) ||
       (state->capabilities.supports_external_antenna &&
           state->add_external_antenna_switch == nullptr)) {
     return false;
@@ -6207,7 +6320,10 @@ bool IsAddModuleFormComplete(const RadioViewState* state) {
          static_cast<size_t>(state->selected_add_bandwidth) <
              AddProfileBandwidthCount(state) &&
          state->selected_add_coding_rate >= 0 &&
-         state->selected_add_coding_rate < 4;
+         static_cast<size_t>(state->selected_add_coding_rate) <
+             AddProfileCodingRateCount(state) &&
+         (!lr2021 || (state->selected_add_rx_boost_mode >= 0 &&
+             state->selected_add_rx_boost_mode <= 7));
 }
 
 /**
@@ -6280,6 +6396,8 @@ void AddOptionClickedEventCallback(lv_event_t* event) {
     action->state->selected_add_bandwidth = action->index;
   } else if (action->group == RadioAddOptionGroup::kCodingRate) {
     action->state->selected_add_coding_rate = action->index;
+  } else if (action->group == RadioAddOptionGroup::kRxBoost) {
+    action->state->selected_add_rx_boost_mode = action->index;
   } else if (action->group == RadioAddOptionGroup::kOutputPower) {
     action->state->selected_add_output_power = action->index;
   } else if (action->group == RadioAddOptionGroup::kPreamble) {
@@ -6685,15 +6803,32 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
     profile.preamble_length = static_cast<uint16_t>(preamble);
     profile.spreading_factor = static_cast<uint8_t>(
         state->selected_add_sf + 5);
-    profile.coding_rate_denominator = static_cast<uint8_t>(
-        state->selected_add_coding_rate + 5);
+    if (profile.chip == radio::ChipType::kLr2021) {
+      profile.lr2021_coding_rate = AddProfileLr2021CodingRate(
+          state, state->selected_add_coding_rate);
+      profile.coding_rate_denominator =
+          radio::Lr2021CodingRateDenominator(
+              profile.lr2021_coding_rate);
+    } else {
+      profile.coding_rate_denominator = static_cast<uint8_t>(
+          state->selected_add_coding_rate + 5);
+      profile.lr2021_coding_rate = static_cast<radio::Lr2021CodingRate>(
+          profile.coding_rate_denominator - 4);
+    }
     profile.sync_word = static_cast<uint8_t>(sync_word);
     profile.crc_enabled = lv_obj_has_state(
         state->add_crc_switch, LV_STATE_CHECKED);
     profile.invert_iq = lv_obj_has_state(
         state->add_iq_switch, LV_STATE_CHECKED);
-    profile.rx_boosted = lv_obj_has_state(
-        state->add_rx_boost_switch, LV_STATE_CHECKED);
+    if (profile.chip == radio::ChipType::kLr2021) {
+      profile.lr2021_rx_boost_mode = static_cast<uint8_t>(
+          state->selected_add_rx_boost_mode);
+      profile.rx_boosted = profile.lr2021_rx_boost_mode != 0;
+    } else {
+      profile.rx_boosted = lv_obj_has_state(
+          state->add_rx_boost_switch, LV_STATE_CHECKED);
+      profile.lr2021_rx_boost_mode = profile.rx_boosted ? 7 : 0;
+    }
     profile.antenna = state->add_external_antenna_switch != nullptr &&
         lv_obj_has_state(state->add_external_antenna_switch, LV_STATE_CHECKED)
         ? radio::AntennaType::kExternal
@@ -7667,6 +7802,20 @@ void ApplyRadioCapabilityDefaults(const hal::RadioCapability& capability,
     profile->esb_retransmit_delay_us = 750;
     profile->esb_auto_ack_enabled = false;
     profile->esb_dynamic_payload_enabled = false;
+  } else {
+    profile->frequency_hz = 868000000U;
+    profile->bandwidth_hz = 125000U;
+    profile->preamble_length = 8;
+    profile->spreading_factor = 7;
+    profile->coding_rate_denominator = 5;
+    profile->lr2021_coding_rate =
+        radio::Lr2021CodingRate::kStandard4_5;
+    profile->sync_word = 0x12;
+    profile->output_power_dbm = 22;
+    profile->crc_enabled = true;
+    profile->invert_iq = false;
+    profile->rx_boosted = true;
+    profile->lr2021_rx_boost_mode = 7;
   }
 }
 
@@ -8165,43 +8314,91 @@ bool CreateAddModuleContent(RadioViewState* state) {
       body, "BANDWIDTH (kHz)", 582 + content_offset)) {
     return false;
   }
+  const bool lr2021 = profile.chip == radio::ChipType::kLr2021;
   const size_t bandwidth_count = AddProfileBandwidthCount(state);
+  const size_t bandwidth_column_count = lr2021 ? 4 : bandwidth_count;
   const int bandwidth_option_width =
       (option_area_width -
-          static_cast<int>(bandwidth_count - 1) * option_gap) /
-      static_cast<int>(bandwidth_count);
+          static_cast<int>(bandwidth_column_count - 1) * option_gap) /
+      static_cast<int>(bandwidth_column_count);
   for (size_t index = 0; index < bandwidth_count; ++index) {
+    const size_t column = index % bandwidth_column_count;
+    const size_t row = index / bandwidth_column_count;
     state->add_bandwidth_buttons[index] = CreateAddOptionButton(
         body, state, RadioAddOptionGroup::kBandwidth,
         static_cast<int>(index), AddProfileBandwidthName(state, index),
-        28 + static_cast<int>(index) *
+        28 + static_cast<int>(column) *
             (bandwidth_option_width + option_gap),
-        618 + content_offset, bandwidth_option_width, 60);
+        618 + content_offset + static_cast<int>(row) * 70,
+        bandwidth_option_width, 60);
     if (state->add_bandwidth_buttons[index] == nullptr) {
       return false;
     }
   }
 
-  if (!CreateAddParameterTitle(body, "CODING RATE", 710 + content_offset)) {
+  const int lr2021_bandwidth_extra = lr2021 ? 140 : 0;
+  const int coding_title_y =
+      710 + content_offset + lr2021_bandwidth_extra;
+  if (!CreateAddParameterTitle(body, "CODING RATE", coding_title_y)) {
     return false;
   }
-  const char* coding_names[] = {"4/5", "4/6", "4/7", "4/8"};
-  for (int index = 0; index < 4; ++index) {
+  const size_t coding_rate_count = AddProfileCodingRateCount(state);
+  const size_t coding_column_count = lr2021 ? 3 : coding_rate_count;
+  const int coding_option_width =
+      (option_area_width -
+          static_cast<int>(coding_column_count - 1) * option_gap) /
+      static_cast<int>(coding_column_count);
+  for (size_t index = 0; index < coding_rate_count; ++index) {
+    const size_t column = index % coding_column_count;
+    const size_t row = index / coding_column_count;
     state->add_coding_rate_buttons[index] = CreateAddOptionButton(
-        body, state, RadioAddOptionGroup::kCodingRate, index,
-        coding_names[index],
-        28 + index * (option_width + option_gap), 746 + content_offset,
-        option_width, 60);
+        body, state, RadioAddOptionGroup::kCodingRate,
+        static_cast<int>(index), AddProfileCodingRateName(state, index),
+        28 + static_cast<int>(column) *
+            (coding_option_width + option_gap),
+        coding_title_y + 36 + static_cast<int>(row) * 70,
+        coding_option_width, 60);
     if (state->add_coding_rate_buttons[index] == nullptr) {
       return false;
     }
   }
 
-  if (!CreateAddParameterTitle(body, "TX POWER", 838 + content_offset)) {
+  const int lr2021_coding_extra = lr2021 ? 140 : 0;
+  const int lr2021_option_extra =
+      lr2021_bandwidth_extra + lr2021_coding_extra;
+  constexpr int kLr2021RxBoostSectionHeight = 198;
+  state->add_rx_boost_switch = nullptr;
+  if (lr2021) {
+    const int rx_boost_title_y =
+        838 + content_offset + lr2021_option_extra;
+    if (!CreateAddParameterTitle(body, "RX BOOST MODE", rx_boost_title_y)) {
+      return false;
+    }
+    const int rx_boost_option_width =
+        (option_area_width - 3 * option_gap) / 4;
+    for (int index = 0; index < 8; ++index) {
+      const int column = index % 4;
+      const int row = index / 4;
+      state->add_rx_boost_buttons[index] = CreateAddOptionButton(
+          body, state, RadioAddOptionGroup::kRxBoost, index,
+          kLr2021RxBoostModeNames[index],
+          28 + column * (rx_boost_option_width + option_gap),
+          rx_boost_title_y + 36 + row * 70, rx_boost_option_width, 60);
+      if (state->add_rx_boost_buttons[index] == nullptr) {
+        return false;
+      }
+    }
+  }
+  const int following_content_extra =
+      lr2021_option_extra +
+      (lr2021 ? kLr2021RxBoostSectionHeight : 0);
+  if (!CreateAddParameterTitle(
+      body, "TX POWER", 838 + content_offset + following_content_extra)) {
     return false;
   }
   state->add_power_input = CreateAddTextArea(
-      body, state, "Output power", power, 874 + content_offset, 3);
+      body, state, "Output power", power,
+      874 + content_offset + following_content_extra, 3);
   if (state->add_power_input == nullptr) {
     return false;
   }
@@ -8209,11 +8406,13 @@ bool CreateAddModuleContent(RadioViewState* state) {
       state->add_power_input, "-0123456789");
 
   if (!CreateAddParameterTitle(
-      body, "PREAMBLE LENGTH", 976 + content_offset)) {
+      body, "PREAMBLE LENGTH",
+      976 + content_offset + following_content_extra)) {
     return false;
   }
   state->add_preamble_input = CreateAddTextArea(
-      body, state, "Preamble symbols", preamble, 1012 + content_offset, 5);
+      body, state, "Preamble symbols", preamble,
+      1012 + content_offset + following_content_extra, 5);
   if (state->add_preamble_input == nullptr) {
     return false;
   }
@@ -8221,22 +8420,25 @@ bool CreateAddModuleContent(RadioViewState* state) {
       state->add_preamble_input, kIntegerAcceptedChars);
 
   if (!CreateAddParameterTitle(
-      body, "SYNC WORD (HEX)", 1114 + content_offset)) {
+      body, "SYNC WORD (HEX)",
+      1114 + content_offset + following_content_extra)) {
     return false;
   }
   state->add_sync_word_input = CreateAddTextArea(
-      body, state, "12", sync_word, 1150 + content_offset, 2);
+      body, state, "12", sync_word,
+      1150 + content_offset + following_content_extra, 2);
   if (state->add_sync_word_input == nullptr) {
     return false;
   }
   lv_textarea_set_accepted_chars(state->add_sync_word_input,
       kHexAcceptedChars);
   if (!CreateAddHexPrefix(body, state, state->add_sync_word_input,
-          1150 + content_offset)) {
+          1150 + content_offset + following_content_extra)) {
     return false;
   }
 
-  const int switch_rows_top = 1258 + content_offset;
+  const int switch_rows_top =
+      1258 + content_offset + following_content_extra;
   constexpr int kSwitchRowPitch =
       kAddSwitchRowHeight + kAddSwitchRowGap;
   int switch_row_index = 0;
@@ -8264,13 +8466,15 @@ bool CreateAddModuleContent(RadioViewState* state) {
       "Invert IQ", "Enable only when the peer also inverts IQ",
       switch_rows_top + switch_row_index++ * kSwitchRowPitch,
       profile.invert_iq);
-  state->add_rx_boost_switch = CreateAddSwitchRow(body, state,
-      "RX boost", "Higher receive sensitivity",
-      switch_rows_top + switch_row_index++ * kSwitchRowPitch,
-      profile.rx_boosted);
+  if (!lr2021) {
+    state->add_rx_boost_switch = CreateAddSwitchRow(body, state,
+        "RX boost", "Higher receive sensitivity",
+        switch_rows_top + switch_row_index++ * kSwitchRowPitch,
+        profile.rx_boosted);
+  }
   if (state->add_crc_switch == nullptr ||
       state->add_iq_switch == nullptr ||
-      state->add_rx_boost_switch == nullptr ||
+      (!lr2021 && state->add_rx_boost_switch == nullptr) ||
       (state->capabilities.supports_external_antenna &&
           state->add_external_antenna_switch == nullptr) ||
       (!editing && state->add_active_switch == nullptr)) {
@@ -8321,6 +8525,9 @@ void ResetAddModuleFormPointers(RadioViewState* state) {
     button = nullptr;
   }
   for (lv_obj_t*& button : state->add_coding_rate_buttons) {
+    button = nullptr;
+  }
+  for (lv_obj_t*& button : state->add_rx_boost_buttons) {
     button = nullptr;
   }
   for (lv_obj_t*& button : state->add_output_power_buttons) {
@@ -8562,6 +8769,20 @@ bool ShowAddModulePage(RadioViewState* state) {
   }
   state->selected_add_coding_rate = std::clamp(
       static_cast<int>(profile.coding_rate_denominator) - 5, 0, 3);
+  if (profile.chip == radio::ChipType::kLr2021) {
+    for (size_t index = 0;
+         index < std::size(radio::kLr2021CodingRates); ++index) {
+      if (profile.lr2021_coding_rate ==
+          radio::kLr2021CodingRates[index]) {
+        state->selected_add_coding_rate = static_cast<int>(index);
+        break;
+      }
+    }
+    state->selected_add_rx_boost_mode =
+        std::min<int>(profile.lr2021_rx_boost_mode, 7);
+  } else {
+    state->selected_add_rx_boost_mode = profile.rx_boosted ? 7 : 0;
+  }
   state->add_submitting = false;
   state->add_closing = false;
   state->add_edge_swipe = EdgeBackSwipeState();

@@ -1461,56 +1461,163 @@ bool TDisplayP4Device::UpdateKeyboardExpansionDisconnectionState() {
 
 namespace {
 
-struct Lr2021PaTableEntry {
+struct Lr2021LfPaTableEntry {
   int8_t half_power;
   uint8_t pa_duty_cycle;
   uint8_t pa_lf_slices;
 };
 
-constexpr Lr2021PaTableEntry kLr2021PaTable[] = LR20XX_PA_LF_CFG_TABLE;
+struct Lr2021HfPaTableEntry {
+  int8_t half_power;
+  uint8_t pa_hf_duty_cycle;
+};
 
-bool BuildLr2021Config(const LoraRadioConfig& source, uint8_t payload_size,
-    usp_cpp_bus_driver::Lr20xx::LoraConfig* target) {
-  if (target == nullptr || source.frequency_hz < 150000000U ||
-      source.frequency_hz > 960000000U || source.preamble_length == 0 ||
-      source.output_power_dbm < -9 || source.output_power_dbm > 22) {
+constexpr Lr2021LfPaTableEntry kLr2021Pa915MhzTable[] = {
+    {44, 7, 6}, {42, 7, 7}, {41, 6, 6}, {39, 6, 6}, {38, 5, 6},
+    {36, 5, 6}, {36, 4, 4}, {33, 5, 4}, {34, 4, 2}, {31, 4, 3},
+    {30, 5, 1}, {32, 2, 2}, {32, 2, 1},
+};
+
+constexpr Lr2021LfPaTableEntry kLr2021Pa490MhzTable[] = {
+    {40, 7, 7}, {38, 7, 7}, {36, 7, 6}, {34, 7, 6}, {32, 7, 6},
+    {31, 7, 4}, {31, 6, 4}, {29, 7, 2}, {30, 5, 3}, {29, 5, 2},
+    {31, 4, 2},
+};
+
+constexpr Lr2021HfPaTableEntry kLr2021Pa2445MhzTable[] = {
+    {24, 16}, {24, 26}, {24, 30}, {22, 30}, {21, 31},
+    {18, 30}, {16, 30}, {15, 31}, {10, 25}, {8, 25},
+    {7, 28}, {6, 30}, {4, 30},
+};
+
+static_assert(std::size(kLr2021Pa915MhzTable) == 13);
+static_assert(std::size(kLr2021Pa490MhzTable) == 11);
+static_assert(std::size(kLr2021Pa2445MhzTable) == 13);
+
+bool SelectLr2021Bandwidth(
+    uint32_t bandwidth_hz, lr20xx_radio_lora_bw_t* bandwidth) {
+  if (bandwidth == nullptr) {
     return false;
   }
-  lr20xx_radio_lora_bw_t bandwidth;
-  switch (source.bandwidth_hz) {
+  switch (bandwidth_hz) {
+    case 31250:
+      *bandwidth = LR20XX_RADIO_LORA_BW_31;
+      return true;
+    case 41670:
+      *bandwidth = LR20XX_RADIO_LORA_BW_41;
+      return true;
     case 62500:
-      bandwidth = LR20XX_RADIO_LORA_BW_62;
-      break;
+      *bandwidth = LR20XX_RADIO_LORA_BW_62;
+      return true;
+    case 83340:
+      *bandwidth = LR20XX_RADIO_LORA_BW_83;
+      return true;
+    case 101563:
+      *bandwidth = LR20XX_RADIO_LORA_BW_101;
+      return true;
     case 125000:
-      bandwidth = LR20XX_RADIO_LORA_BW_125;
-      break;
+      *bandwidth = LR20XX_RADIO_LORA_BW_125;
+      return true;
+    case 203000:
+      *bandwidth = LR20XX_RADIO_LORA_BW_203;
+      return true;
     case 250000:
-      bandwidth = LR20XX_RADIO_LORA_BW_250;
-      break;
+      *bandwidth = LR20XX_RADIO_LORA_BW_250;
+      return true;
+    case 406000:
+      *bandwidth = LR20XX_RADIO_LORA_BW_406;
+      return true;
     case 500000:
-      bandwidth = LR20XX_RADIO_LORA_BW_500;
-      break;
+      *bandwidth = LR20XX_RADIO_LORA_BW_500;
+      return true;
+    case 812000:
+      *bandwidth = LR20XX_RADIO_LORA_BW_812;
+      return true;
+    case 1000000:
+      *bandwidth = LR20XX_RADIO_LORA_BW_1000;
+      return true;
     default:
       return false;
   }
-  if (source.spreading_factor < 5 || source.spreading_factor > 12 ||
-      source.coding_rate_denominator < 5 ||
-      source.coding_rate_denominator > 8) {
+}
+
+bool SelectLr2021Power(const LoraRadioConfig& source,
+    lr20xx_radio_common_pa_cfg_t* pa, int8_t* output_power_half_dbm) {
+  if (pa == nullptr || output_power_half_dbm == nullptr) {
     return false;
   }
-  const size_t power_index =
-      static_cast<size_t>(source.output_power_dbm + 10);
-  if (power_index >= std::size(kLr2021PaTable)) {
+  const bool high_frequency = source.frequency_hz >= 1600000000U;
+  if (high_frequency) {
+    if (source.output_power_dbm < -19 || source.output_power_dbm > 5) {
+      return false;
+    }
+    const int8_t table_power = std::max<int8_t>(source.output_power_dbm, 0);
+    const Lr2021HfPaTableEntry& power =
+        kLr2021Pa2445MhzTable[12 - table_power];
+    *pa = {
+        .pa_sel = LR20XX_RADIO_COMMON_PA_SEL_HF,
+        .pa_lf_mode = LR20XX_RADIO_COMMON_PA_LF_MODE_FSM,
+        .pa_lf_duty_cycle = 7,
+        .pa_lf_slices = 6,
+        .pa_hf_duty_cycle = power.pa_hf_duty_cycle,
+    };
+    *output_power_half_dbm = source.output_power_dbm < 0
+        ? static_cast<int8_t>(source.output_power_dbm * 2)
+        : power.half_power;
+    return true;
+  }
+  if (source.output_power_dbm < -9 || source.output_power_dbm > 22) {
     return false;
   }
-  const Lr2021PaTableEntry& power = kLr2021PaTable[power_index];
+  const bool low_band = source.frequency_hz < 700000000U;
+  const int8_t minimum_table_power = 10;
+  const int8_t maximum_table_power = low_band ? 20 : 22;
+  const int8_t table_power = std::clamp<int8_t>(
+      source.output_power_dbm, minimum_table_power, maximum_table_power);
+  const Lr2021LfPaTableEntry& power = low_band
+      ? kLr2021Pa490MhzTable[20 - table_power]
+      : kLr2021Pa915MhzTable[22 - table_power];
+  *pa = {
+      .pa_sel = LR20XX_RADIO_COMMON_PA_SEL_LF,
+      .pa_lf_mode = LR20XX_RADIO_COMMON_PA_LF_MODE_FSM,
+      .pa_lf_duty_cycle = power.pa_duty_cycle,
+      .pa_lf_slices = power.pa_lf_slices,
+      .pa_hf_duty_cycle = 16,
+  };
+  *output_power_half_dbm =
+      source.output_power_dbm < minimum_table_power ||
+          source.output_power_dbm > maximum_table_power
+      ? static_cast<int8_t>(source.output_power_dbm * 2)
+      : power.half_power;
+  return true;
+}
+
+bool BuildLr2021Config(const LoraRadioConfig& source, uint8_t payload_size,
+    usp_cpp_bus_driver::Lr20xx::LoraConfig* target) {
+  if (target == nullptr ||
+      !radio::IsLr2021BandwidthSupported(
+          source.frequency_hz, source.bandwidth_hz) ||
+      source.preamble_length == 0 || source.lr2021_rx_boost_mode > 7) {
+    return false;
+  }
+  lr20xx_radio_lora_bw_t bandwidth;
+  lr20xx_radio_common_pa_cfg_t pa = {};
+  int8_t output_power_half_dbm = 0;
+  const uint8_t coding_rate =
+      static_cast<uint8_t>(source.lr2021_coding_rate);
+  if (!SelectLr2021Bandwidth(source.bandwidth_hz, &bandwidth) ||
+      !SelectLr2021Power(source, &pa, &output_power_half_dbm) ||
+      source.spreading_factor < 5 || source.spreading_factor > 12 ||
+      !radio::IsLr2021CodingRate(source.lr2021_coding_rate)) {
+    return false;
+  }
   *target = usp_cpp_bus_driver::Lr20xx::LoraConfig{};
   target->frequency_hz = source.frequency_hz;
   target->modulation.sf = static_cast<lr20xx_radio_lora_sf_t>(
       source.spreading_factor);
   target->modulation.bw = bandwidth;
-  target->modulation.cr = static_cast<lr20xx_radio_lora_cr_t>(
-      source.coding_rate_denominator - 4);
+  target->modulation.cr =
+      static_cast<lr20xx_radio_lora_cr_t>(coding_rate);
   target->modulation.ppm = ShouldEnableLoraLdro(source)
       ? LR20XX_RADIO_LORA_PPM_1_4
       : LR20XX_RADIO_LORA_NO_PPM;
@@ -1524,18 +1631,14 @@ bool BuildLr2021Config(const LoraRadioConfig& source, uint8_t payload_size,
       ? LR20XX_RADIO_LORA_IQ_INVERTED
       : LR20XX_RADIO_LORA_IQ_STANDARD;
   target->sync_word = source.sync_word;
-  target->rx_path = LR20XX_RADIO_COMMON_RX_PATH_LF;
-  target->rx_boost_mode = source.rx_boosted
-      ? LR20XX_RADIO_COMMON_RX_PATH_BOOST_MODE_7
-      : LR20XX_RADIO_COMMON_RX_PATH_BOOST_MODE_NONE;
-  target->pa = {
-      .pa_sel = LR20XX_RADIO_COMMON_PA_SEL_LF,
-      .pa_lf_mode = LR20XX_RADIO_COMMON_PA_LF_MODE_FSM,
-      .pa_lf_duty_cycle = power.pa_duty_cycle,
-      .pa_lf_slices = power.pa_lf_slices,
-      .pa_hf_duty_cycle = 16,
-  };
-  target->output_power_half_dbm = power.half_power;
+  target->rx_path = source.frequency_hz >= 1600000000U
+      ? LR20XX_RADIO_COMMON_RX_PATH_HF
+      : LR20XX_RADIO_COMMON_RX_PATH_LF;
+  target->rx_boost_mode =
+      static_cast<lr20xx_radio_common_rx_path_boost_mode_t>(
+          source.lr2021_rx_boost_mode);
+  target->pa = pa;
+  target->output_power_half_dbm = output_power_half_dbm;
   target->ramp_time = LR20XX_RADIO_COMMON_RAMP_48_US;
   return true;
 }
@@ -5638,6 +5741,13 @@ bool TDisplayP4Device::ReadRadioCapabilities(RadioCapabilities* capabilities) {
         .maximum_hz = 960000000U,
     };
     capability.frequency_band_count = 1;
+    if (primary_chip == radio::ChipType::kLr2021) {
+      capability.frequency_bands[1] = {
+          .minimum_hz = 2400000000U,
+          .maximum_hz = 2500000000U,
+      };
+      capability.frequency_band_count = 2;
+    }
   }
   if (keyboard_expansion_.state.load() == KeyboardExpansionState::kReady &&
       driver_.IsCc1101Ready()) {

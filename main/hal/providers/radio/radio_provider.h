@@ -60,6 +60,9 @@ struct LoraRadioConfig {
   uint8_t spreading_factor = 7;
   // LoRa 编码率分母，对应 4/5～4/8。
   uint8_t coding_rate_denominator = 5;
+  // LR2021 专用编码率，支持标准、长交织和长交织卷积编码。
+  radio::Lr2021CodingRate lr2021_coding_rate =
+      radio::Lr2021CodingRate::kStandard4_5;
   // LoRa 网络同步字。
   uint8_t sync_word = 0x12;
   // 射频芯片发射功率，单位为 dBm。
@@ -70,6 +73,8 @@ struct LoraRadioConfig {
   bool invert_iq = false;
   // 是否使用射频芯片增强接收模式。
   bool rx_boosted = true;
+  // LR2021 专用接收增强档位，0 表示关闭，1～7 表示对应增强模式。
+  uint8_t lr2021_rx_boost_mode = 7;
 };
 
 struct GfskRadioConfig {
