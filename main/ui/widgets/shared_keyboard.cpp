@@ -30,6 +30,7 @@ constexpr uint32_t kKeyboardPressedKeyColor = 0xD4D4D4;
 constexpr uint32_t kKeyboardTextColor = 0x202020;
 constexpr uint32_t kKeyboardSpecialKeyColor = 0xC9CDD4;
 constexpr int kTextAreaActivationDragThreshold = 12;
+constexpr uint32_t kTextAreaScrollAnimationDurationMs = 1;
 constexpr size_t kMaximumSharedKeyboardCount = 16;
 
 hal::KeyboardExpansionProvider* g_physical_keyboard_provider = nullptr;
@@ -458,6 +459,14 @@ void TextAreaKeyboardPreprocessEventCallback(lv_event_t* event) {
     return;
   }
 
+  if (code == LV_EVENT_SCROLL_BEGIN) {
+    auto* animation = static_cast<lv_anim_t*>(lv_event_get_param(event));
+    if (animation != nullptr) {
+      lv_anim_set_duration(animation, kTextAreaScrollAnimationDurationMs);
+    }
+    return;
+  }
+
   lv_obj_t* text_area = lv_event_get_target_obj(event);
   if (text_area == nullptr || binding->keyboard == nullptr) {
     return;
@@ -652,6 +661,8 @@ bool AttachSharedKeyboardToTextArea(
   if (keyboard == nullptr || text_area == nullptr) {
     return false;
   }
+
+  lv_obj_set_scrollbar_mode(text_area, LV_SCROLLBAR_MODE_OFF);
 
   auto* binding = new (std::nothrow) TextAreaKeyboardBinding();
   if (binding == nullptr) {

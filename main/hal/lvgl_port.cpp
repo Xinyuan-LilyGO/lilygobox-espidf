@@ -22,6 +22,8 @@
 namespace lilygo_box::hal {
 namespace {
 
+constexpr uint16_t kKeyboardRepeatIntervalMs = 50;
+
 /**
  * @brief 判断触摸点坐标是否落在当前屏幕有效范围内。
  * @param point 触摸点信息。
@@ -109,6 +111,8 @@ bool LvglPort::Init(
   lv_indev_set_user_data(input_device_, this);
   lv_indev_set_read_cb(input_device_, TouchReadCallback);
   lv_indev_set_display(input_device_, lvgl_display_);
+  lv_indev_set_long_press_repeat_time(
+      input_device_, kKeyboardRepeatIntervalMs);
 
   if (keyboard_ != nullptr) {
     keyboard_group_ = lv_group_create();
@@ -122,6 +126,8 @@ bool LvglPort::Init(
     lv_indev_set_read_cb(keyboard_input_device_, KeyboardReadCallback);
     lv_indev_set_display(keyboard_input_device_, lvgl_display_);
     lv_indev_set_group(keyboard_input_device_, keyboard_group_);
+    lv_indev_set_long_press_repeat_time(
+        keyboard_input_device_, kKeyboardRepeatIntervalMs);
   }
 
   const ScreenProviderDisplayCallbacks display_callbacks = {

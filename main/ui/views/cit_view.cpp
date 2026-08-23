@@ -4012,7 +4012,7 @@ bool AddKeyboardContent(lv_obj_t* content, CitViewState* state) {
   lv_obj_set_style_radius(
       text_area, kKeyboardTestTextAreaRadius, LV_PART_MAIN);
   lv_obj_set_style_pad_all(text_area, 20, LV_PART_MAIN);
-  lv_obj_set_scrollbar_mode(text_area, LV_SCROLLBAR_MODE_AUTO);
+  lv_obj_set_scrollbar_mode(text_area, LV_SCROLLBAR_MODE_OFF);
   AddEdgeBackSwipeEvents(text_area, TestPageEdgeBackEventCallback, state);
 
   if (state->test_page == nullptr) {
