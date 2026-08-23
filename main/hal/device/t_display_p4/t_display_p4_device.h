@@ -558,6 +558,18 @@ class TDisplayP4Device final : public ScreenProvider,
   bool DisableKeyboardExpansion() override;
 
   /**
+   * @brief 让键盘扩展进入锁屏休眠并保留物理插拔检测
+   * @return 键盘扫描、背光和扩展器件完成休眠时返回 true
+   */
+  bool SuspendKeyboardExpansionForScreenLock() override;
+
+  /**
+   * @brief 在屏幕真正解锁后恢复键盘扩展
+   * @return 按键扫描、背光和活动扩展器件恢复成功时返回 true
+   */
+  bool ResumeKeyboardExpansionAfterScreenUnlock() override;
+
+  /**
    * @brief 根据待处理的键盘中断更新扩展断开状态
    * @return 检查无需执行或状态更新完成时返回 true，否则返回 false
    */
@@ -699,6 +711,18 @@ class TDisplayP4Device final : public ScreenProvider,
    * @brief 记录键盘总线读取失败并执行有限次断开确认
    */
   void RecordKeyboardInputReadFailure();
+
+  /**
+   * @brief 恢复键盘扩展背光、指示灯和活动扩展器件
+   * @return 所需状态全部恢复成功时返回 true
+   */
+  bool RestoreKeyboardExpansionOperatingState();
+
+  /**
+   * @brief 对已初始化的键盘扩展应用锁屏休眠状态
+   * @return 矩阵扫描、背光和扩展器件完成休眠时返回 true
+   */
+  bool ApplyKeyboardExpansionScreenLockSleep();
 
   /**
    * @brief 释放键盘扩展硬件并发布指定的最终状态
@@ -1445,6 +1469,8 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<bool> shift_pressed{false};
     std::atomic<bool> function_pressed{false};
     std::atomic<bool> caps_lock_enabled{false};
+    // 锁屏期间停止矩阵扫描，直到真正解锁后才恢复。
+    std::atomic<bool> screen_lock_suspended{false};
     std::atomic<uint8_t> consecutive_read_failures{0};
     std::atomic<bool> interrupt_initialized{false};
     std::atomic<bool> connection_interrupt_pending{false};

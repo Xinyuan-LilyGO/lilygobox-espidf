@@ -561,7 +561,6 @@ bool Application::Init() {
     LogMessage(LogLevel::kError, __FILE__, __LINE__, "Init failed\n");
     return false;
   }
-
   result = ui_manager_.Init(screen, &lvgl_port_,
       device_provider_context_.capabilities,
       device_provider_context_.diagnostics,
@@ -1006,6 +1005,12 @@ void Application::UpdateKeyboardExpansionScan() {
   keyboard_expansion_disconnection_activity_reported_.store(false);
   if (status.state == hal::KeyboardExpansionState::kReady) {
     keyboard_expansion_unavailable_notice_pending_ = false;
+    if (screen_lock_state_.load() != ScreenLockState::kUnlocked &&
+        !device_provider_context_.keyboard_expansion->
+            SuspendKeyboardExpansionForScreenLock()) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Suspend reconnected keyboard expansion on lock screen failed\n");
+    }
     lvgl_port_.Lock();
     ui_manager_.CloseKeyboardExpansionUnavailablePrompt();
     ui_manager_.RefreshActiveSettingsKeyboardExpansion();
@@ -1153,6 +1158,7 @@ bool Application::ConfirmKeyboardExpansionDisconnectionForScreenTransition() {
     return true;
   }
   if (!lvgl_port_.IsInputBlocked() ||
+      lvgl_port_.IsKeyboardInputAllowedWhileBlocked() ||
       !keyboard_expansion->
           HasKeyboardExpansionDisconnectionCheckPending()) {
     return false;
@@ -1176,9 +1182,16 @@ bool Application::ConfirmKeyboardExpansionDisconnectionForScreenTransition() {
 Application::SystemActivityReason
 Application::ConsumeScreenTransitionActivity() {
   SystemActivityReason activity_reason = ConsumeSystemActivity();
-  if (activity_reason != SystemActivityReason::kNone ||
-      !ConfirmKeyboardExpansionDisconnectionForScreenTransition()) {
+  const bool keyboard_input_activity =
+      lvgl_port_.ConsumeKeyboardInputActivity();
+  if (activity_reason != SystemActivityReason::kNone) {
     return activity_reason;
+  }
+  if (keyboard_input_activity) {
+    return SystemActivityReason::kKeyboardInput;
+  }
+  if (!ConfirmKeyboardExpansionDisconnectionForScreenTransition()) {
+    return SystemActivityReason::kNone;
   }
 
   keyboard_expansion_disconnection_activity_reported_.store(true);
@@ -1196,6 +1209,8 @@ const char* Application::SystemActivityReasonName(
       return "keyboard connected";
     case SystemActivityReason::kKeyboardDisconnected:
       return "keyboard disconnected";
+    case SystemActivityReason::kKeyboardInput:
+      return "keyboard input";
     case SystemActivityReason::kNone:
       return "none";
   }
@@ -1556,6 +1571,7 @@ void Application::RunScreenLockTask() {
     if (power_action_in_progress_.load()) {
       pending_power_button_action_.store(PowerButtonAction::kNone);
       pending_system_activity_reason_.store(SystemActivityReason::kNone);
+      lvgl_port_.ConsumeKeyboardInputActivity();
       vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
       continue;
     }
@@ -1621,6 +1637,11 @@ void Application::RunScreenLockTask() {
       if (!recovery_performed) {
         sleep_double_tap_recognizer.Reset();
       }
+    }
+    if (lvgl_port_.ConsumeKeyboardInputActivity() &&
+        screen_lock_state_.load() != ScreenLockState::kAsleep) {
+      last_touch_ms = now_ms;
+      lock_screen_last_interaction_ms = now_ms;
     }
     const SystemActivityReason activity_reason = ConsumeSystemActivity();
     if (activity_reason != SystemActivityReason::kNone) {
@@ -1944,7 +1965,7 @@ void Application::RunScreenLockTask() {
       screen_lock_transition_in_progress_.store(false);
       continue;
     }
-    lvgl_port_.SetInputBlocked(true);
+    lvgl_port_.SetInputBlocked(true, true);
     if (!FadeScreenBrightnessTo(target_brightness, kScreenLockFadeMs)) {
       lvgl_port_.SetInputBlocked(false);
       screen_lock_transition_in_progress_.store(false);
@@ -2026,6 +2047,7 @@ void Application::RunScreenLockTask() {
       screen_lock_transition_in_progress_.store(false);
       continue;
     }
+    lvgl_port_.SetInputBlocked(true);
     if (EnterScreenLockSleep()) {
       screen_lock_state_.store(ScreenLockState::kAsleep);
     } else {
@@ -2179,10 +2201,21 @@ bool Application::EnterScreenLockSleep() {
     return false;
   }
 
+  if (device_provider_context_.keyboard_expansion != nullptr &&
+      !device_provider_context_.keyboard_expansion->
+          SuspendKeyboardExpansionForScreenLock()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Suspend keyboard expansion for screen lock failed\n");
+  }
+
   lvgl_port_.Lock();
   const bool lock_screen_shown = ui_manager_.ShowLockScreen();
   lvgl_port_.Unlock();
   if (!lock_screen_shown) {
+    if (device_provider_context_.keyboard_expansion != nullptr) {
+      device_provider_context_.keyboard_expansion->
+          ResumeKeyboardExpansionAfterScreenUnlock();
+    }
     return false;
   }
 
@@ -2198,6 +2231,10 @@ bool Application::EnterScreenLockSleep() {
     lvgl_port_.Lock();
     ui_manager_.HideLockScreen();
     lvgl_port_.Unlock();
+    if (device_provider_context_.keyboard_expansion != nullptr) {
+      device_provider_context_.keyboard_expansion->
+          ResumeKeyboardExpansionAfterScreenUnlock();
+    }
     return false;
   }
   return true;
@@ -2639,6 +2676,13 @@ bool Application::RestoreScreenAfterSleep() {
 }
 
 void Application::UnlockScreen() {
+  if (device_provider_context_.keyboard_expansion != nullptr &&
+      !device_provider_context_.keyboard_expansion->
+          ResumeKeyboardExpansionAfterScreenUnlock()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Restore keyboard expansion after screen unlock failed\n");
+  }
+  lvgl_port_.ConsumeKeyboardInputActivity();
   lvgl_port_.Lock();
   ui_manager_.HideLockScreen();
   lvgl_port_.Unlock();

@@ -53,13 +53,14 @@ class Application final {
     kShowPowerMenu,
   };
 
-  // 由系统状态变化触发的用户活动原因。
+  // 屏幕活动原因，包含系统状态变化和亮屏状态下的实体键盘输入。
   enum class SystemActivityReason : uint8_t {
     kNone,
     kChargingStarted,
     kChargingStopped,
     kKeyboardConnected,
     kKeyboardDisconnected,
+    kKeyboardInput,
   };
 
   /**

@@ -107,6 +107,18 @@ class KeyboardExpansionProvider {
   virtual bool DisableKeyboardExpansion() = 0;
 
   /**
+   * @brief 让键盘扩展进入锁屏休眠并保留物理插拔检测
+   * @return 键盘扫描、背光和扩展器件完成休眠时返回 true
+   */
+  virtual bool SuspendKeyboardExpansionForScreenLock() = 0;
+
+  /**
+   * @brief 在屏幕真正解锁后恢复键盘扩展
+   * @return 按键扫描、背光和活动扩展器件恢复成功时返回 true
+   */
+  virtual bool ResumeKeyboardExpansionAfterScreenUnlock() = 0;
+
+  /**
    * @brief 根据待处理的键盘中断更新扩展断开状态
    * @return 检查无需执行或状态更新完成时返回 true，否则返回 false
    */

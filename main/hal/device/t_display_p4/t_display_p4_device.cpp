@@ -1341,6 +1341,80 @@ bool TDisplayP4Device::DisableKeyboardExpansion() {
       KeyboardExpansionState::kDisabled);
 }
 
+bool TDisplayP4Device::SuspendKeyboardExpansionForScreenLock() {
+  keyboard_expansion_.screen_lock_suspended.store(true);
+  if (keyboard_expansion_.task_running.load() &&
+      !WaitForKeyboardExpansionTask()) {
+    return false;
+  }
+  if (keyboard_expansion_.state.load() != KeyboardExpansionState::kReady) {
+    return true;
+  }
+
+  return ApplyKeyboardExpansionScreenLockSleep();
+}
+
+bool TDisplayP4Device::ApplyKeyboardExpansionScreenLockSleep() {
+  bool result = driver_.IsTca8418Ready() &&
+      driver_.chip().tca8418 != nullptr;
+  if (result) {
+    auto* keyboard = driver_.chip().tca8418.get();
+    result &= keyboard->SetInterruptEnable(0);
+    result &= keyboard->SetKeypadPins(0);
+    result &= keyboard->ClearEventFifo();
+  }
+  keyboard_expansion_.input_interrupt_pending.store(
+      false, std::memory_order_relaxed);
+  keyboard_expansion_.disconnection_check_pending.store(
+      false, std::memory_order_relaxed);
+  keyboard_expansion_.shift_pressed.store(false);
+  keyboard_expansion_.function_pressed.store(false);
+  keyboard_expansion_.consecutive_read_failures.store(0);
+  result &= driver_.SetKeyboardExpansionOperatingMode(
+      lilygo_device_driver::TDisplayP4Driver::
+          KeyboardExpansionOperatingMode::kSleep);
+  return result;
+}
+
+bool TDisplayP4Device::ResumeKeyboardExpansionAfterScreenUnlock() {
+  if (!keyboard_expansion_.screen_lock_suspended.load()) {
+    return true;
+  }
+  if (keyboard_expansion_.task_running.load() &&
+      !WaitForKeyboardExpansionTask()) {
+    return false;
+  }
+  if (keyboard_expansion_.state.load() != KeyboardExpansionState::kReady) {
+    keyboard_expansion_.screen_lock_suspended.store(false);
+    return true;
+  }
+
+  bool input_restored = driver_.IsTca8418Ready() &&
+      driver_.chip().tca8418 != nullptr;
+  if (input_restored) {
+    auto* keyboard = driver_.chip().tca8418.get();
+    input_restored &= keyboard->ClearEventFifo();
+    input_restored &= keyboard->SetKeypadScanWindow(0, 0,
+        keyboard_device::tca8418::kKeypadScanWidth,
+        keyboard_device::tca8418::kKeypadScanHeight);
+    input_restored &= keyboard->ClearEventFifo();
+    input_restored &= keyboard->SetIrqGpioMode(
+        cpp_bus_driver::Tca8418::IrqMask::kKeyEvents);
+  }
+  keyboard_expansion_.input_interrupt_pending.store(
+      false, std::memory_order_relaxed);
+  keyboard_expansion_.disconnection_check_pending.store(
+      false, std::memory_order_relaxed);
+  keyboard_expansion_.shift_pressed.store(false);
+  keyboard_expansion_.function_pressed.store(false);
+  keyboard_expansion_.consecutive_read_failures.store(0);
+  if (!input_restored) {
+    return false;
+  }
+  keyboard_expansion_.screen_lock_suspended.store(false);
+  return RestoreKeyboardExpansionOperatingState();
+}
+
 bool TDisplayP4Device::HasKeyboardExpansionDisconnectionCheckPending() const {
   return keyboard_expansion_.disconnection_check_pending.load(
       std::memory_order_acquire);
@@ -1599,6 +1673,7 @@ bool TDisplayP4Device::SetKeyboardExpansionLed(
 
 bool TDisplayP4Device::ReadKeyboardInputEvent(KeyboardInputEvent* event) {
   if (event == nullptr || tool_ == nullptr ||
+      keyboard_expansion_.screen_lock_suspended.load() ||
       keyboard_expansion_.state.load() != KeyboardExpansionState::kReady ||
       !driver_.IsTca8418Ready() || driver_.chip().tca8418 == nullptr) {
     return false;
@@ -1721,9 +1796,11 @@ void TDisplayP4Device::KeyboardExpansionScanTaskEntry(void* context) {
 
 void TDisplayP4Device::RunKeyboardExpansionScanTask() {
   const bool initialized = driver_.InitKeyboardExpansion();
+  const bool keep_screen_lock_suspended =
+      keyboard_expansion_.screen_lock_suspended.load();
   const int backlight_brightness_percent =
       keyboard_expansion_.backlight_brightness_percent.load();
-  const bool backlight_applied = !initialized ||
+  const bool backlight_applied = !initialized || keep_screen_lock_suspended ||
       SetKeyboardBacklightBrightnessPercent(backlight_brightness_percent);
 
   const auto component_state = [](bool ready) {
@@ -1761,6 +1838,12 @@ void TDisplayP4Device::RunKeyboardExpansionScanTask() {
       !InitializeKeyboardInputInterrupt()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize keyboard input interrupt failed; using polling fallback\n");
+  }
+  if (state == KeyboardExpansionState::kReady &&
+      keep_screen_lock_suspended &&
+      !ApplyKeyboardExpansionScreenLockSleep()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Keep keyboard expansion asleep after locked scan failed\n");
   }
   keyboard_expansion_.state.store(state);
   keyboard_expansion_.scan_generation.fetch_add(1);
@@ -6846,6 +6929,53 @@ bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
   return driver_.PrepareDriversForPowerOff();
 }
 
+bool TDisplayP4Device::RestoreKeyboardExpansionOperatingState() {
+  if (keyboard_expansion_.state.load() != KeyboardExpansionState::kReady) {
+    return true;
+  }
+
+  bool keyboard_state_restored = SetKeyboardBacklightBrightnessPercent(
+      keyboard_expansion_.backlight_brightness_percent.load());
+  keyboard_state_restored &= SetKeyboardExpansionLed(
+      KeyboardExpansionLed::kLed1,
+      keyboard_expansion_.caps_lock_enabled.load());
+  RadioState* extension_states[] = {&cc1101_radio_, &nrf24l01_radio_};
+  for (RadioState* state : extension_states) {
+    if (!state->active || state->mutex == nullptr ||
+        xSemaphoreTake(state->mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
+      continue;
+    }
+    if (state->chip == radio::ChipType::kCc1101 &&
+        driver_.IsCc1101Ready()) {
+      auto* radio = driver_.chip().cc1101.get();
+      bool restored = driver_.SetCc1101OperatingMode(
+          lilygo_device_driver::TDisplayP4Driver::
+              Cc1101OperatingMode::kStandby) &&
+          radio != nullptr && InitializeCc1101ReceiveInterrupt();
+      if (restored) {
+        state->receive_interrupt_pending.store(
+            false, std::memory_order_relaxed);
+        restored = radio->StartReceive();
+      }
+      state->chip_error = !restored;
+      state->active = restored;
+      keyboard_state_restored &= restored;
+    } else if (state->chip == radio::ChipType::kNrf24l01 &&
+               driver_.IsNrf24l01Ready()) {
+      auto* radio = driver_.chip().nrf24l01.get();
+      const bool restored = driver_.SetNrf24l01OperatingMode(
+          lilygo_device_driver::TDisplayP4Driver::
+              Nrf24l01OperatingMode::kStandby) &&
+          radio != nullptr && radio->StartReceive();
+      state->chip_error = !restored;
+      state->active = restored;
+      keyboard_state_restored &= restored;
+    }
+    xSemaphoreGive(state->mutex);
+  }
+  return keyboard_state_restored;
+}
+
 bool TDisplayP4Device::ExitDeviceSleep(bool deep_sleep) {
   if (deep_sleep) {
     return false;
@@ -6866,52 +6996,11 @@ bool TDisplayP4Device::ExitDeviceSleep(bool deep_sleep) {
   if (!WaitForScreenReady()) {
     return false;
   }
-  if (keyboard_expansion_.state.load() == KeyboardExpansionState::kReady) {
-    bool keyboard_controls_restored = SetKeyboardBacklightBrightnessPercent(
-        keyboard_expansion_.backlight_brightness_percent.load());
-    keyboard_controls_restored &= SetKeyboardExpansionLed(
-        KeyboardExpansionLed::kLed1,
-        keyboard_expansion_.caps_lock_enabled.load());
-    bool keyboard_state_restored = keyboard_controls_restored;
-    RadioState* extension_states[] = {&cc1101_radio_, &nrf24l01_radio_};
-    for (RadioState* state : extension_states) {
-      if (!state->active || state->mutex == nullptr ||
-          xSemaphoreTake(state->mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
-        continue;
-      }
-      if (state->chip == radio::ChipType::kCc1101 &&
-          driver_.IsCc1101Ready()) {
-        auto* radio = driver_.chip().cc1101.get();
-        bool restored = driver_.SetCc1101OperatingMode(
-            lilygo_device_driver::TDisplayP4Driver::
-                Cc1101OperatingMode::kStandby) &&
-            radio != nullptr && InitializeCc1101ReceiveInterrupt();
-        if (restored) {
-          state->receive_interrupt_pending.store(
-              false, std::memory_order_relaxed);
-          restored = radio->StartReceive();
-        }
-        state->chip_error = !restored;
-        state->active = restored;
-        keyboard_state_restored &= restored;
-      } else if (state->chip == radio::ChipType::kNrf24l01 &&
-                 driver_.IsNrf24l01Ready()) {
-        auto* radio = driver_.chip().nrf24l01.get();
-        const bool restored = driver_.SetNrf24l01OperatingMode(
-            lilygo_device_driver::TDisplayP4Driver::
-                Nrf24l01OperatingMode::kStandby) &&
-            radio != nullptr && radio->StartReceive();
-        state->chip_error = !restored;
-        state->active = restored;
-        keyboard_state_restored &= restored;
-      }
-      xSemaphoreGive(state->mutex);
-    }
-    if (!keyboard_state_restored) {
-      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Restore keyboard expansion state failed; "
-          "continue waking the screen\n");
-    }
+  if (!keyboard_expansion_.screen_lock_suspended.load() &&
+      !RestoreKeyboardExpansionOperatingState()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Restore keyboard expansion state failed; "
+        "continue waking the screen\n");
   }
   return true;
 }

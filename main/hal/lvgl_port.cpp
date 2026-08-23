@@ -173,6 +173,17 @@ void LvglPort::SetKeyboardInputEventCallback(
   keyboard_input_event_callback_ = std::move(callback);
 }
 
+bool LvglPort::ConsumeKeyboardInputActivity() {
+  return keyboard_input_activity_pending_.exchange(false);
+}
+
+bool LvglPort::IsKeyboardInputAllowedWhileBlocked() const {
+  return input_blocked_.load(std::memory_order_acquire) &&
+      keyboard_input_allowed_while_blocked_.load(
+          std::memory_order_acquire) &&
+      sleep_input_block_count_.load(std::memory_order_acquire) == 0;
+}
+
 bool LvglPort::ActiveInputEdgeTouch() {
   lv_indev_t* indev = lv_indev_active();
   if (indev == nullptr) {
@@ -183,7 +194,9 @@ bool LvglPort::ActiveInputEdgeTouch() {
   return self != nullptr && self->active_edge_touch_flag_;
 }
 
-void LvglPort::SetInputBlocked(bool blocked) {
+void LvglPort::SetInputBlocked(bool blocked, bool allow_keyboard_input) {
+  keyboard_input_allowed_while_blocked_.store(
+      blocked && allow_keyboard_input);
   input_blocked_.store(blocked);
   active_edge_touch_flag_ = false;
   pending_edge_touch_flag_ = false;
@@ -706,7 +719,8 @@ void LvglPort::KeyboardReadCallback(
   data->state = self->active_keyboard_key_id_ == 0
       ? LV_INDEV_STATE_RELEASED
       : LV_INDEV_STATE_PRESSED;
-  if (self->IsInputBlocked()) {
+  if (self->IsInputBlocked() &&
+      !self->IsKeyboardInputAllowedWhileBlocked()) {
     self->active_keyboard_key_id_ = 0;
     self->active_lvgl_key_ = 0;
     data->key = 0;
@@ -728,6 +742,10 @@ void LvglPort::KeyboardReadCallback(
     return;
   }
   data->continue_reading = true;
+  if (event.pressed) {
+    self->keyboard_input_activity_pending_.store(
+        true, std::memory_order_release);
+  }
   if (self->keyboard_input_event_callback_) {
     self->keyboard_input_event_callback_(event);
   }

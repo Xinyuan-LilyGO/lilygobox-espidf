@@ -63,6 +63,18 @@ class LvglPort final {
   void SetKeyboardInputEventCallback(KeyboardInputEventCallback callback);
 
   /**
+   * @brief 取出一个待处理的实体键盘按下活动
+   * @return 自上次调用后读取到有效按键按下时返回 true
+   */
+  bool ConsumeKeyboardInputActivity();
+
+  /**
+   * @brief 判断输入屏蔽期间是否仍允许实体键盘读取
+   * @return 当前允许实体键盘继续读取时返回 true
+   */
+  bool IsKeyboardInputAllowedWhileBlocked() const;
+
+  /**
    * @brief 判断当前 LVGL 输入是否带有硬件边缘触摸标志。
    * @return 当前输入来自硬件边缘触摸检测返回 true，否则返回 false。
    */
@@ -75,10 +87,11 @@ class LvglPort final {
   lv_display_t* lvgl_display() const { return lvgl_display_; }
 
   /**
-   * @brief 设置 LVGL 指针输入是否屏蔽
-   * @param blocked true 表示屏蔽触摸输入，false 表示恢复输入
+   * @brief 设置 LVGL 输入是否屏蔽
+   * @param blocked true 表示屏蔽输入，false 表示恢复输入
+   * @param allow_keyboard_input 屏蔽期间是否继续读取实体键盘
    */
-  void SetInputBlocked(bool blocked);
+  void SetInputBlocked(bool blocked, bool allow_keyboard_input = false);
 
   /**
    * @brief 判断 LVGL 指针输入是否已被屏蔽
@@ -316,6 +329,9 @@ class LvglPort final {
   // 专用 LVGL 任务句柄，用于在恢复刷新时立即唤醒渲染循环。
   TaskHandle_t task_handle_ = nullptr;
   std::atomic<bool> input_blocked_{false};
+  // 自动渐暗期间允许实体键盘继续输入并取消本次锁屏。
+  std::atomic<bool> keyboard_input_allowed_while_blocked_{false};
+  std::atomic<bool> keyboard_input_activity_pending_{false};
   // 多个熄屏所有者共享的输入屏蔽引用数。
   std::atomic<uint32_t> sleep_input_block_count_{0};
   // 多个熄屏所有者共享的 LVGL 硬件刷新暂停引用数。
