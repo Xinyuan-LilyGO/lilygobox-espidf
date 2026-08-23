@@ -105,6 +105,7 @@ constexpr int kStartupBatteryFillOffsetY = 0;
 constexpr int kStartupBatteryFillRadius = 2;
 constexpr int kKeyboardExpansionPromptSideMargin = 34;
 constexpr int kKeyboardExpansionPromptHeight = 312;
+constexpr int kKeyboardExpansionPromptLandscapeHeight = 280;
 constexpr int kKeyboardExpansionPromptRadius = 48;
 constexpr int kKeyboardExpansionPromptInnerPadding = 32;
 constexpr int kKeyboardExpansionPromptButtonHeight = 74;
@@ -1086,7 +1087,9 @@ bool UiManager::ShowKeyboardExpansionUnavailablePrompt() {
   config.screen_height = LayoutHeight();
   config.dialog_width =
       config.screen_width - 2 * kKeyboardExpansionPromptSideMargin;
-  config.dialog_height = kKeyboardExpansionPromptHeight;
+  config.dialog_height = config.screen_width > config.screen_height
+      ? kKeyboardExpansionPromptLandscapeHeight
+      : kKeyboardExpansionPromptHeight;
   config.dialog_radius = kKeyboardExpansionPromptRadius;
   config.inner_padding = kKeyboardExpansionPromptInnerPadding;
   config.header_height = 78;
