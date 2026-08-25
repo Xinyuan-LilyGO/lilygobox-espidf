@@ -23,28 +23,34 @@ constexpr int kActivationEdgeWidth = 1;
 // GT9895 首个有效边缘坐标的实测偏移约为 8 px。仅保留一倍余量，
 // 避免扩大到屏幕键盘和页面两侧的正常控件区域。
 constexpr int kHardwareHintActivationWidth = 16;
-constexpr int kMinimumVisibleWidth = kActivationEdgeWidth;
-constexpr int kIndicatorDiameter = 104;
-constexpr int kMaximumVisibleWidth = kIndicatorDiameter * 2 / 5;
-constexpr int kIconOuterEdgeOffset = 4;
-constexpr int kFullRevealDistance =
-    kMaximumVisibleWidth - kMinimumVisibleWidth;
+constexpr int kDefaultConfirmDistance = 40;
+constexpr int kPassthroughMinEdgeWidth = 36;
+constexpr int kPassthroughMaxEdgeWidth = 76;
+constexpr int kPassthroughEdgeWidthDivisor = 9;
+constexpr int kPassthroughIndicatorStartDistance = 18;
+constexpr int kPassthroughConfirmDistance = 90;
+constexpr int kPassthroughMaximumVerticalOffset = 140;
+constexpr int kIndicatorMinimumDiameter = 96;
+constexpr int kIndicatorMaximumDiameter = 132;
+constexpr int kIndicatorVisibleDivisor = 3;
+constexpr uint32_t kIndicatorFadeDurationMs = 120;
 constexpr uint32_t kIndicatorColor = 0x202020;
 constexpr uint32_t kIconColor = 0xFFFFFF;
-constexpr lv_opa_t kMinimumOpacity = 150;
-constexpr lv_opa_t kMaximumOpacity = 230;
+constexpr lv_opa_t kIndicatorMaximumOpacity = 238;
 
-lv_obj_t* g_clip = nullptr;
-lv_obj_t* g_circle = nullptr;
+lv_obj_t* g_indicator = nullptr;
 lv_obj_t* g_icon = nullptr;
+lv_opa_t g_indicator_opacity = LV_OPA_TRANSP;
 hal::LvglPort* g_lvgl_port = nullptr;
 EdgeSwipeBackCallback g_back_callback;
+bool g_passthrough_mode = false;
 
 struct EdgeSwipeIndicatorState {
   lv_point_t start_point = {};
   int inward_distance = 0;
   bool pointer_pressed = false;
   bool tracking = false;
+  bool active = false;
   bool back_committed = false;
   bool from_left_edge = false;
   bool from_right_edge = false;
@@ -64,6 +70,23 @@ int ClampInt(int value, int minimum, int maximum) {
 }
 
 /**
+ * @brief 计算整数绝对值
+ * @param value 原始值
+ * @return 绝对值
+ */
+int AbsInt(int value) { return value < 0 ? -value : value; }
+
+/**
+ * @brief 计算输入透传模式的边缘起始宽度
+ * @param screen_width 当前显示宽度
+ * @return 边缘手势起始宽度
+ */
+int PassthroughEdgeWidth(int screen_width) {
+  return ClampInt(screen_width / kPassthroughEdgeWidthDivisor,
+      kPassthroughMinEdgeWidth, kPassthroughMaxEdgeWidth);
+}
+
+/**
  * @brief 计算触摸点从起始屏幕边缘向内移动的距离
  * @param state 当前边缘滑动状态
  * @param point 当前触摸坐标
@@ -80,11 +103,46 @@ int InwardDistance(const EdgeSwipeIndicatorState& state, lv_point_t point) {
 }
 
 /**
- * @brief 确保边缘滑动指示器及其子对象已经创建
- * @return 所有指示器对象可用时返回 true，否则返回 false
+ * @brief 设置返回圆及图标透明度
+ * @param object 返回圆对象
+ * @param value 透明度数值
+ */
+void SetIndicatorOpacity(void* object, int32_t value) {
+  if (object == nullptr) {
+    return;
+  }
+
+  g_indicator_opacity = static_cast<lv_opa_t>(
+      ClampInt(static_cast<int>(value), 0, LV_OPA_COVER));
+  auto* indicator = static_cast<lv_obj_t*>(object);
+  lv_obj_set_style_opa(
+      indicator, g_indicator_opacity, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(
+      indicator, g_indicator_opacity, LV_PART_MAIN);
+  if (g_icon != nullptr) {
+    lv_obj_set_style_text_opa(
+        g_icon, g_indicator_opacity, LV_PART_MAIN);
+  }
+}
+
+/**
+ * @brief 返回圆淡出完成后隐藏对象
+ * @param animation LVGL 动画对象
+ */
+void IndicatorFadeCompletedCallback(lv_anim_t* animation) {
+  auto* indicator =
+      static_cast<lv_obj_t*>(lv_anim_get_user_data(animation));
+  if (indicator != nullptr) {
+    lv_obj_add_flag(indicator, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+/**
+ * @brief 确保边缘返回圆已经创建
+ * @return 返回圆和图标可用时返回 true，否则返回 false
  */
 bool EnsureIndicator() {
-  if (g_clip != nullptr && g_circle != nullptr && g_icon != nullptr) {
+  if (g_indicator != nullptr && g_icon != nullptr) {
     return true;
   }
 
@@ -93,41 +151,28 @@ bool EnsureIndicator() {
     return false;
   }
 
-  g_clip = lv_obj_create(layer);
-  if (g_clip == nullptr) {
+  g_indicator = lv_obj_create(layer);
+  if (g_indicator == nullptr) {
     return false;
   }
-  lv_obj_remove_flag(g_clip, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(g_clip, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_flag(g_clip, LV_OBJ_FLAG_IGNORE_LAYOUT);
-  lv_obj_add_flag(g_clip, LV_OBJ_FLAG_FLOATING);
-  lv_obj_add_flag(g_clip, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_set_style_bg_opa(g_clip, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_border_width(g_clip, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(g_clip, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(g_clip, 0, LV_PART_MAIN);
-
-  g_circle = lv_obj_create(g_clip);
-  if (g_circle == nullptr) {
-    lv_obj_delete(g_clip);
-    g_clip = nullptr;
-    return false;
-  }
-  lv_obj_remove_flag(g_circle, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(g_circle, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_flag(g_circle, LV_OBJ_FLAG_IGNORE_LAYOUT);
+  lv_obj_remove_flag(g_indicator, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(g_indicator, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(g_indicator, LV_OBJ_FLAG_IGNORE_LAYOUT);
+  lv_obj_add_flag(g_indicator, LV_OBJ_FLAG_FLOATING);
+  lv_obj_add_flag(g_indicator, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_style_bg_color(
-      g_circle, lv_color_hex(kIndicatorColor), LV_PART_MAIN);
-  lv_obj_set_style_border_width(g_circle, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(g_circle, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(g_circle, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-  lv_obj_set_style_clip_corner(g_circle, true, LV_PART_MAIN);
+      g_indicator, lv_color_hex(kIndicatorColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(g_indicator, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(g_indicator, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(g_indicator, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(
+      g_indicator, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_opa(g_indicator, LV_OPA_TRANSP, LV_PART_MAIN);
 
-  g_icon = lv_label_create(g_circle);
+  g_icon = lv_label_create(g_indicator);
   if (g_icon == nullptr) {
-    lv_obj_delete(g_clip);
-    g_clip = nullptr;
-    g_circle = nullptr;
+    lv_obj_delete(g_indicator);
+    g_indicator = nullptr;
     return false;
   }
   lv_obj_remove_flag(g_icon, LV_OBJ_FLAG_SCROLLABLE);
@@ -137,16 +182,42 @@ bool EnsureIndicator() {
   lv_obj_set_style_text_font(
       g_icon, &lvgl_font_material_symbols_fill_32, LV_PART_MAIN);
   lv_obj_set_style_text_align(g_icon, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_set_style_text_opa(g_icon, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_label_set_text(g_icon, icon::kChevronRight);
   return true;
 }
 
 /**
- * @brief 隐藏边缘滑动指示器
+ * @brief 隐藏边缘返回圆
+ * @param animated 是否播放淡出动画
  */
-void HideIndicator() {
-  if (g_clip != nullptr) {
-    lv_obj_add_flag(g_clip, LV_OBJ_FLAG_HIDDEN);
+void HideIndicator(bool animated) {
+  if (g_indicator == nullptr) {
+    return;
+  }
+
+  lv_anim_delete(g_indicator, SetIndicatorOpacity);
+  if (!animated || g_indicator_opacity == LV_OPA_TRANSP ||
+      lv_obj_has_flag(g_indicator, LV_OBJ_FLAG_HIDDEN)) {
+    SetIndicatorOpacity(g_indicator, LV_OPA_TRANSP);
+    lv_obj_add_flag(g_indicator, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+
+  lv_anim_t animation;
+  lv_anim_init(&animation);
+  lv_anim_set_var(&animation, g_indicator);
+  lv_anim_set_user_data(&animation, g_indicator);
+  lv_anim_set_values(
+      &animation, g_indicator_opacity, LV_OPA_TRANSP);
+  lv_anim_set_duration(&animation, kIndicatorFadeDurationMs);
+  lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
+  lv_anim_set_exec_cb(&animation, SetIndicatorOpacity);
+  lv_anim_set_completed_cb(
+      &animation, IndicatorFadeCompletedCallback);
+  if (lv_anim_start(&animation) == nullptr) {
+    SetIndicatorOpacity(g_indicator, LV_OPA_TRANSP);
+    lv_obj_add_flag(g_indicator, LV_OBJ_FLAG_HIDDEN);
   }
 }
 
@@ -164,17 +235,18 @@ void ExecuteBackCallback(void* /*user_data*/) {
  * @brief 根据向内移动距离更新返回提交状态并触发触觉反馈
  * @param state 当前边缘滑动状态
  * @param inward_distance 向屏幕内部移动的像素距离
+ * @param confirm_distance 确认返回所需距离
  */
 void UpdateBackCommitState(
-    EdgeSwipeIndicatorState* state, int inward_distance) {
+    EdgeSwipeIndicatorState* state, int inward_distance,
+    int confirm_distance) {
   if (state == nullptr) {
     return;
   }
 
   state->inward_distance = std::max(0, inward_distance);
   const bool was_committed = state->back_committed;
-  state->back_committed =
-      state->inward_distance >= kFullRevealDistance;
+  state->back_committed = state->inward_distance >= confirm_distance;
   if (state->back_committed && !was_committed) {
     PlayUiHapticFeedback();
   }
@@ -185,42 +257,47 @@ void UpdateBackCommitState(
  * @param state 当前边缘滑动状态
  * @param screen_width 当前显示宽度
  * @param point 当前触摸坐标
+ * @param reveal_distance 返回圆完全展开所需距离
  */
 void UpdateIndicator(const EdgeSwipeIndicatorState& state,
-    int screen_width, lv_point_t point) {
-  if (!EnsureIndicator() || screen_width <= 0) {
+    int screen_width, lv_point_t point, int reveal_distance) {
+  if (!EnsureIndicator() || screen_width <= 0 || reveal_distance <= 0) {
     return;
   }
 
-  const int distance = std::max(0, InwardDistance(state, point));
-  const int visible_width = ClampInt(
-      kMinimumVisibleWidth + distance,
-      kMinimumVisibleWidth, kMaximumVisibleWidth);
-  const int opacity = ClampInt(
-      kMinimumOpacity + distance * 2, kMinimumOpacity, kMaximumOpacity);
+  lv_anim_delete(g_indicator, SetIndicatorOpacity);
+  const int distance = ClampInt(
+      InwardDistance(state, point), 0, reveal_distance);
+  const int progress = distance * 1000 / reveal_distance;
+  const int diameter = kIndicatorMinimumDiameter +
+      (kIndicatorMaximumDiameter - kIndicatorMinimumDiameter) *
+          progress / 1000;
+  const int visible_width =
+      diameter * progress / 1000 / kIndicatorVisibleDivisor;
+  const int opacity =
+      static_cast<int>(kIndicatorMaximumOpacity) * progress / 1000;
 
   int layer_height = lv_obj_get_height(lv_layer_top());
   if (layer_height <= 0) {
     layer_height = lv_obj_get_height(lv_screen_active());
   }
-  const int center_y = ClampInt(
-      state.start_point.y, kIndicatorDiameter / 2,
-      std::max(kIndicatorDiameter / 2,
-          layer_height - kIndicatorDiameter / 2));
-  const int clip_x = state.from_left_edge ? 0 : screen_width - visible_width;
-  const int circle_x = state.from_left_edge
-      ? visible_width - kIndicatorDiameter
+  const int maximum_y = layer_height > diameter
+      ? layer_height - diameter
       : 0;
+  const int y = ClampInt(
+      state.start_point.y - diameter / 2, 0, maximum_y);
+  const int x = state.from_left_edge
+      ? -(diameter - visible_width)
+      : screen_width - visible_width;
+  const int icon_offset = state.from_left_edge
+      ? (diameter - visible_width) / 2
+      : -(diameter - visible_width) / 2;
 
-  lv_obj_set_size(g_clip, visible_width, kIndicatorDiameter);
-  lv_obj_set_pos(
-      g_clip, clip_x, center_y - kIndicatorDiameter / 2);
-  lv_obj_set_size(g_circle, kIndicatorDiameter, kIndicatorDiameter);
-  lv_obj_set_pos(g_circle, circle_x, 0);
-  lv_obj_set_style_bg_opa(
-      g_circle, static_cast<lv_opa_t>(opacity), LV_PART_MAIN);
-  lv_obj_set_style_text_opa(
-      g_icon, static_cast<lv_opa_t>(opacity), LV_PART_MAIN);
+  lv_obj_remove_flag(g_indicator, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_move_to_index(g_indicator, -1);
+  lv_obj_set_size(g_indicator, diameter, diameter);
+  lv_obj_set_pos(g_indicator, x, y);
+  SetIndicatorOpacity(g_indicator, opacity);
 
   lv_obj_update_layout(g_icon);
   lv_obj_set_style_transform_pivot_x(
@@ -229,16 +306,78 @@ void UpdateIndicator(const EdgeSwipeIndicatorState& state,
       g_icon, lv_obj_get_height(g_icon) / 2, LV_PART_MAIN);
   lv_obj_set_style_transform_rotation(
       g_icon, state.from_left_edge ? 0 : 1800, LV_PART_MAIN);
-  const int icon_offset =
-      state.from_left_edge ? -kIconOuterEdgeOffset : kIconOuterEdgeOffset;
-  const int icon_center_x = visible_width / 2 - circle_x + icon_offset;
-  lv_obj_set_pos(g_icon,
-      icon_center_x - lv_obj_get_width(g_icon) / 2,
-      kIndicatorDiameter / 2 - lv_obj_get_height(g_icon) / 2);
+  lv_obj_align(g_icon, LV_ALIGN_CENTER, icon_offset, 0);
+  lv_obj_invalidate(g_indicator);
+}
 
-  lv_obj_remove_flag(g_clip, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_move_to_index(g_clip, -1);
-  lv_obj_invalidate(g_clip);
+/**
+ * @brief 观察边缘手势并将触摸输入继续交给 LVGL 控件
+ * @param input_state LVGL 指针输入状态
+ * @param point 已转换到当前显示方向的触摸坐标
+ * @param hardware_edge_hint 硬件是否提供了有效的边缘触摸提示
+ * @param screen_width 当前显示宽度
+ */
+void ObservePassthroughPointerInput(lv_indev_state_t input_state,
+    lv_point_t point, bool hardware_edge_hint, int screen_width) {
+  if (input_state != LV_INDEV_STATE_PRESSED) {
+    const bool should_navigate_back =
+        g_state.tracking && g_state.active && g_state.back_committed;
+    g_state = {};
+    HideIndicator(true);
+    if (should_navigate_back) {
+      lv_async_call(ExecuteBackCallback, nullptr);
+    }
+    return;
+  }
+
+  if (screen_width <= 0) {
+    return;
+  }
+
+  if (!g_state.pointer_pressed) {
+    g_state.pointer_pressed = true;
+    g_state.start_point = point;
+    const int edge_width = PassthroughEdgeWidth(screen_width);
+    g_state.from_left_edge = point.x <= edge_width;
+    g_state.from_right_edge = point.x >= screen_width - edge_width;
+    if (hardware_edge_hint && !g_state.from_left_edge &&
+        !g_state.from_right_edge) {
+      g_state.from_left_edge = point.x < screen_width / 2;
+      g_state.from_right_edge = !g_state.from_left_edge;
+    }
+    g_state.tracking = g_state.from_left_edge || g_state.from_right_edge;
+    HideIndicator(false);
+    return;
+  }
+
+  if (!g_state.tracking) {
+    return;
+  }
+
+  const int inward_distance = InwardDistance(g_state, point);
+  const int vertical_distance = point.y - g_state.start_point.y;
+  if (!g_state.active) {
+    if (AbsInt(vertical_distance) > kPassthroughMaximumVerticalOffset) {
+      g_state.tracking = false;
+      HideIndicator(true);
+      return;
+    }
+    if (inward_distance <= kPassthroughIndicatorStartDistance ||
+        inward_distance < AbsInt(vertical_distance)) {
+      HideIndicator(false);
+      return;
+    }
+    g_state.active = true;
+  }
+
+  UpdateBackCommitState(
+      &g_state, inward_distance, kPassthroughConfirmDistance);
+  if (inward_distance >= 0) {
+    UpdateIndicator(g_state, screen_width, point,
+        kPassthroughConfirmDistance);
+  } else {
+    HideIndicator(false);
+  }
 }
 
 /**
@@ -250,12 +389,18 @@ void UpdateIndicator(const EdgeSwipeIndicatorState& state,
  */
 bool InterceptPointerInput(lv_indev_state_t input_state, lv_point_t point,
     bool hardware_edge_hint) {
+  if (g_passthrough_mode && input_state != LV_INDEV_STATE_PRESSED) {
+    ObservePassthroughPointerInput(
+        input_state, point, hardware_edge_hint, 0);
+    return false;
+  }
+
   if (input_state != LV_INDEV_STATE_PRESSED) {
     const bool was_tracking = g_state.tracking;
     const bool should_navigate_back =
         g_state.tracking && g_state.back_committed;
     g_state = {};
-    HideIndicator();
+    HideIndicator(true);
     if (should_navigate_back) {
       lv_async_call(ExecuteBackCallback, nullptr);
     }
@@ -272,6 +417,12 @@ bool InterceptPointerInput(lv_indev_state_t input_state, lv_point_t point,
     return false;
   }
 
+  if (g_passthrough_mode) {
+    ObservePassthroughPointerInput(
+        input_state, point, hardware_edge_hint, screen_width);
+    return false;
+  }
+
   if (!g_state.pointer_pressed) {
     g_state.pointer_pressed = true;
     g_state.start_point = point;
@@ -281,17 +432,16 @@ bool InterceptPointerInput(lv_indev_state_t input_state, lv_point_t point,
     g_state.from_left_edge = point.x < activation_width;
     g_state.from_right_edge = point.x >= screen_width - activation_width;
     g_state.tracking = g_state.from_left_edge || g_state.from_right_edge;
+    g_state.active = g_state.tracking;
     if (g_state.tracking) {
-      // 部分触摸固件会在物理边缘先给出硬件提示，却把首个有效坐标
-      // 推迟到边缘内侧。硬件提示只扩大候选区并将软件起点补回物理
-      // 边缘；动画距离、完整展开和松手返回仍全部由有效坐标决定。
       if (hardware_edge_hint) {
         g_state.start_point.x =
             g_state.from_left_edge ? 0 : screen_width - 1;
       }
-      UpdateBackCommitState(
-          &g_state, InwardDistance(g_state, point));
-      UpdateIndicator(g_state, screen_width, point);
+      UpdateBackCommitState(&g_state,
+          InwardDistance(g_state, point), kDefaultConfirmDistance);
+      UpdateIndicator(
+          g_state, screen_width, point, kDefaultConfirmDistance);
     }
     return g_state.tracking;
   }
@@ -301,11 +451,13 @@ bool InterceptPointerInput(lv_indev_state_t input_state, lv_point_t point,
   }
 
   const int inward_distance = InwardDistance(g_state, point);
-  UpdateBackCommitState(&g_state, inward_distance);
+  UpdateBackCommitState(
+      &g_state, inward_distance, kDefaultConfirmDistance);
   if (inward_distance >= 0) {
-    UpdateIndicator(g_state, screen_width, point);
+    UpdateIndicator(
+        g_state, screen_width, point, kDefaultConfirmDistance);
   } else {
-    HideIndicator();
+    HideIndicator(false);
   }
   return true;
 }
@@ -327,8 +479,9 @@ void InitializeEdgeSwipeIndicator(hal::LvglPort* lvgl_port,
     g_lvgl_port->SetPointerInputInterceptor({});
   }
 
+  g_passthrough_mode = false;
   g_state = {};
-  HideIndicator();
+  HideIndicator(false);
   g_lvgl_port = lvgl_port;
   if (g_lvgl_port == nullptr) {
     return;
@@ -336,6 +489,19 @@ void InitializeEdgeSwipeIndicator(hal::LvglPort* lvgl_port,
 
   EnsureIndicator();
   g_lvgl_port->SetPointerInputInterceptor(InterceptPointerInput);
+}
+
+/**
+ * @brief 设置是否使用不拦截 LVGL 控件输入的边缘手势模式
+ * @param enabled true 透传控件输入，false 拦截边缘手势输入
+ */
+void SetEdgeSwipePassthroughMode(bool enabled) {
+  if (g_passthrough_mode == enabled) {
+    return;
+  }
+  g_passthrough_mode = enabled;
+  g_state = {};
+  HideIndicator(false);
 }
 
 }  // namespace lilygo_box::ui

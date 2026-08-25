@@ -18,6 +18,7 @@
 #include "esp_heap_caps.h"
 
 #include "hal/providers/camera_provider.h"
+#include "ui/input/edge_swipe_indicator.h"
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/theme/theme_provider.h"
@@ -450,6 +451,8 @@ void CameraViewDeleteEventCallback(lv_event_t* event) {
     return;
   }
 
+  SetEdgeSwipePassthroughMode(false);
+
   if (state->refresh_timer != nullptr) {
     lv_timer_delete(state->refresh_timer);
     state->refresh_timer = nullptr;
@@ -552,6 +555,7 @@ lv_obj_t* CreateCameraView(lv_obj_t* parent, const app::AppEntry& app_entry,
     return nullptr;
   }
 
+  SetEdgeSwipePassthroughMode(true);
   RenderCameraScanning(state);
   StartCameraScan(state);
   CameraRefreshTimerCallback(state->refresh_timer);

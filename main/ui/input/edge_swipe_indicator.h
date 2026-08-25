@@ -2,7 +2,7 @@
  * @Description: 全局边缘滑动指示器接口
  * @Author: LILYGO_L
  * @Date: 2026-08-24 00:00:00
- * @LastEditTime: 2026-08-24 00:00:00
+ * @LastEditTime: 2026-08-25 15:25:56
  * @License: GPL 3.0
  */
 #pragma once
@@ -24,5 +24,11 @@ using EdgeSwipeBackCallback = std::function<void()>;
  */
 void InitializeEdgeSwipeIndicator(hal::LvglPort* lvgl_port,
     EdgeSwipeBackCallback back_callback);
+
+/**
+ * @brief 设置是否使用不拦截 LVGL 控件输入的边缘手势模式
+ * @param enabled true 透传控件输入，false 拦截边缘手势输入
+ */
+void SetEdgeSwipePassthroughMode(bool enabled);
 
 }  // namespace lilygo_box::ui
