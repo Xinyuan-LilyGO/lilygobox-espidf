@@ -50,36 +50,29 @@ inline constexpr uint32_t kLr2021BandwidthsHz[] = {
     31250, 41670, 62500, 83340, 101563, 125000,
     203000, 250000, 406000, 500000, 812000, 1000000};
 
+constexpr bool IsLr2021FrequencySupported(uint32_t frequency_hz) {
+  const bool low_frequency =
+      frequency_hz >= 150000000U && frequency_hz <= 960000000U;
+  const bool high_frequency =
+      frequency_hz >= 2400000000U && frequency_hz <= 2500000000U;
+  return low_frequency || high_frequency;
+}
+
+constexpr uint32_t GetLr2021MaximumBandwidthHz(uint32_t frequency_hz) {
+  if (!IsLr2021FrequencySupported(frequency_hz)) {
+    return 0;
+  }
+  return frequency_hz < 434000000U ? 500000U : 1000000U;
+}
+
 constexpr bool IsLr2021BandwidthSupported(
     uint32_t frequency_hz, uint32_t bandwidth_hz) {
-  bool supported_bandwidth = false;
   for (const uint32_t candidate : kLr2021BandwidthsHz) {
     if (bandwidth_hz == candidate) {
-      supported_bandwidth = true;
-      break;
+      return bandwidth_hz <= GetLr2021MaximumBandwidthHz(frequency_hz);
     }
   }
-  if (!supported_bandwidth) {
-    return false;
-  }
-
-  constexpr uint64_t kLr2021LfMinimumHz = 150000000ULL;
-  constexpr uint64_t kLr2021LfMaximumHz = 960000000ULL;
-  constexpr uint64_t kLr2021HfMinimumHz = 2400000000ULL;
-  constexpr uint64_t kLr2021HfMaximumHz = 2500000000ULL;
-  const uint64_t center_frequency_twice =
-      static_cast<uint64_t>(frequency_hz) * 2ULL;
-  const bool inside_lf_band =
-      center_frequency_twice >=
-          kLr2021LfMinimumHz * 2ULL + bandwidth_hz &&
-      center_frequency_twice <=
-          kLr2021LfMaximumHz * 2ULL - bandwidth_hz;
-  const bool inside_hf_band =
-      center_frequency_twice >=
-          kLr2021HfMinimumHz * 2ULL + bandwidth_hz &&
-      center_frequency_twice <=
-          kLr2021HfMaximumHz * 2ULL - bandwidth_hz;
-  return inside_lf_band || inside_hf_band;
+  return false;
 }
 
 inline constexpr Lr2021CodingRate kLr2021CodingRates[] = {

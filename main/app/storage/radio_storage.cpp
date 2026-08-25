@@ -128,9 +128,7 @@ bool HasProfileIdBefore(
 bool IsSupportedBandwidth(
     radio::ChipType chip, uint32_t frequency_hz, uint32_t bandwidth_hz) {
   if (chip == radio::ChipType::kLr2021) {
-    return std::find(std::begin(radio::kLr2021BandwidthsHz),
-               std::end(radio::kLr2021BandwidthsHz), bandwidth_hz) !=
-           std::end(radio::kLr2021BandwidthsHz);
+    return radio::IsLr2021BandwidthSupported(frequency_hz, bandwidth_hz);
   }
   const bool common_bandwidth = bandwidth_hz == 62500 || bandwidth_hz == 125000 ||
       bandwidth_hz == 250000 || bandwidth_hz == 500000;
@@ -183,15 +181,15 @@ bool IsSupportedFrequency(radio::ChipType chip, uint32_t frequency_hz) {
   if (chip == radio::ChipType::kNrf24l01) {
     return frequency_hz >= 2400000000U && frequency_hz <= 2525000000U;
   }
+  if (chip == radio::ChipType::kLr2021) {
+    return radio::IsLr2021FrequencySupported(frequency_hz);
+  }
   const bool sub_ghz =
       frequency_hz >= 150000000U && frequency_hz <= 960000000U;
-  const bool lr2021_hf = chip == radio::ChipType::kLr2021 &&
-                         frequency_hz >= 2400000000U &&
-                         frequency_hz <= 2500000000U;
   const bool lr1121_hf = chip == radio::ChipType::kLr1121 &&
                          frequency_hz >= 2400000000U &&
                          frequency_hz <= 2500000000U;
-  return sub_ghz || lr2021_hf || lr1121_hf;
+  return sub_ghz || lr1121_hf;
 }
 
 /**
