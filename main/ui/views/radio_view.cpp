@@ -1120,7 +1120,7 @@ uint32_t AddProfileBandwidth(const RadioViewState* state, size_t index) {
 const char* AddProfileBandwidthName(const RadioViewState* state, size_t index) {
   constexpr const char* kSx1262Names[] = {"62.5", "125", "250", "500"};
   constexpr const char* kLr1121Names[] = {
-      "62.5", "125", "200", "250", "400", "500", "800"};
+      "62.5", "125", "203", "250", "406", "500", "812"};
   if (AddProfileChip(state) == radio::ChipType::kLr2021) {
     return index < std::size(kLr2021BandwidthNames)
         ? kLr2021BandwidthNames[index]
