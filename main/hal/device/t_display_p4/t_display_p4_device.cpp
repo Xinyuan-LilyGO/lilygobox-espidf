@@ -3664,8 +3664,12 @@ CameraError TDisplayP4Device::GetCameraPreviewError() const {
   return camera_preview_.error.load();
 }
 
-bool TDisplayP4Device::StopCameraPreview() {
+void TDisplayP4Device::RequestCameraPreviewStop() {
   camera_preview_.stop_requested.store(true);
+}
+
+bool TDisplayP4Device::StopCameraPreview() {
+  RequestCameraPreviewStop();
   // 不在这里发 VIDIOC_STREAMOFF — 让 RunCameraPreviewTask 退出时由
   // DeinitializeCameraPreview 统一处理，避免与正在运行的 DQBUF/PPA 产生 I2C
   // 竞态

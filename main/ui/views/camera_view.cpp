@@ -32,7 +32,7 @@ constexpr uint32_t kPrimaryTextColor = 0xFFFFFF;
 constexpr uint32_t kSecondaryTextColor = 0xBDBDBD;
 constexpr uint32_t kActionColor = theme::LightNeutralTheme().action;
 constexpr int kPortraitPromptGroupOffsetY = -176;
-constexpr int kLandscapePromptGroupOffsetY = 0;
+constexpr int kLandscapePromptGroupOffsetY = -72;
 
 enum class CameraContentState : uint8_t {
   kScanning,
@@ -56,6 +56,7 @@ struct CameraViewState {
   CameraError displayed_error = CameraError::kNone;
   bool lock_screen_paused = false;
   bool preview_started = false;
+  bool dismiss_stop_requested = false;
   int width = 0;
   int height = 0;
   uint32_t last_sequence = 0;
@@ -95,12 +96,19 @@ void PositionCameraPromptStatus(CameraViewState* state, lv_obj_t* group) {
   if (state == nullptr || group == nullptr) {
     return;
   }
-  const int offset_y = state->height > state->width
-                           ? kPortraitPromptGroupOffsetY
-                           : kLandscapePromptGroupOffsetY;
+  lv_display_t* display = lv_obj_get_display(group);
+  const int display_width = display == nullptr
+      ? state->width
+      : lv_display_get_horizontal_resolution(display);
+  const int display_height = display == nullptr
+      ? state->height
+      : lv_display_get_vertical_resolution(display);
+  const int offset_y = display_width > display_height
+      ? kLandscapePromptGroupOffsetY
+      : kPortraitPromptGroupOffsetY;
   const int height = lv_obj_get_height(group);
-  const int centered_top = (state->height - height) / 2 + offset_y;
-  const int maximum_top = std::max(0, state->height - height);
+  const int centered_top = (display_height - height) / 2 + offset_y;
+  const int maximum_top = std::max(0, display_height - height);
   const int group_top = std::min(std::max(centered_top, 0), maximum_top);
   lv_obj_align(group, LV_ALIGN_TOP_MID, 0, group_top);
 }
@@ -450,7 +458,11 @@ void CameraViewDeleteEventCallback(lv_event_t* event) {
     state->set_lock_screen_visibility_callback(nullptr);
   }
   if (state->camera != nullptr) {
-    state->camera->StopCameraPreview();
+    if (state->dismiss_stop_requested) {
+      state->camera->RequestCameraPreviewStop();
+    } else {
+      state->camera->StopCameraPreview();
+    }
   }
   if (state->frame_buffer != nullptr) {
     heap_caps_free(state->frame_buffer);
@@ -502,6 +514,7 @@ lv_obj_t* CreateCameraView(lv_obj_t* parent, const app::AppEntry& app_entry,
   state->set_status_bar_text_color = config.set_status_bar_text_color;
   state->set_lock_screen_visibility_callback =
       config.set_lock_screen_visibility_callback;
+  lv_obj_set_user_data(container, state);
   lv_obj_add_event_cb(
       container, CameraViewDeleteEventCallback, LV_EVENT_DELETE, state);
 
@@ -543,6 +556,21 @@ lv_obj_t* CreateCameraView(lv_obj_t* parent, const app::AppEntry& app_entry,
   StartCameraScan(state);
   CameraRefreshTimerCallback(state->refresh_timer);
   return container;
+}
+
+void PrepareCameraViewForDismiss(lv_obj_t* camera_view) {
+  if (camera_view == nullptr) {
+    return;
+  }
+  auto* state =
+      static_cast<CameraViewState*>(lv_obj_get_user_data(camera_view));
+  if (state == nullptr || state->container != camera_view) {
+    return;
+  }
+  state->dismiss_stop_requested = true;
+  if (state->camera != nullptr) {
+    state->camera->RequestCameraPreviewStop();
+  }
 }
 
 }  // namespace lilygo_box::ui

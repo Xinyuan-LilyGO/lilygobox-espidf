@@ -40,6 +40,11 @@ class CameraProvider {
   virtual CameraError GetCameraPreviewError() const = 0;
 
   /**
+   * @brief 请求后台停止摄像头预览但不等待任务退出
+   */
+  virtual void RequestCameraPreviewStop() = 0;
+
+  /**
    * @brief 停止摄像头预览
    * @return 停止成功或已经停止返回 true，否则返回 false
    */

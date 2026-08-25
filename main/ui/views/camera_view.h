@@ -23,4 +23,10 @@ namespace lilygo_box::ui {
 lv_obj_t* CreateCameraView(lv_obj_t* parent, const app::AppEntry& app_entry,
     const AppViewConfig& config);
 
+/**
+ * @brief 准备立即关闭摄像头页面并异步停止后台预览
+ * @param camera_view 摄像头页面对象
+ */
+void PrepareCameraViewForDismiss(lv_obj_t* camera_view);
+
 }  // namespace lilygo_box::ui

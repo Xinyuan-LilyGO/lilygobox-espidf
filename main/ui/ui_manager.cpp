@@ -24,6 +24,7 @@
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/resources/images/image_assets.h"
+#include "ui/views/camera_view.h"
 #include "ui/views/first_boot_welcome_view.h"
 #include "ui/views/lock_screen_view.h"
 #include "ui/views/power_menu_view.h"
@@ -2724,6 +2725,9 @@ bool UiManager::ShowAppView(const app::AppEntry& app_entry) {
 }
 
 void UiManager::ShowLauncher() {
+  const bool dismissing_camera =
+      active_app_entry_ != nullptr && active_app_entry_->id != nullptr &&
+      std::strcmp(active_app_entry_->id, "camera") == 0;
   active_app_entry_ = nullptr;
   if (active_view_container_ == nullptr || root_screen_ == nullptr ||
       launcher_container_ == nullptr) {
@@ -2738,6 +2742,9 @@ void UiManager::ShowLauncher() {
   }
 
   active_view_lock_screen_callback_ = nullptr;
+  if (dismissing_camera) {
+    PrepareCameraViewForDismiss(active_view_container_);
+  }
   lv_obj_delete(active_view_container_);
   active_view_container_ = nullptr;
   lv_obj_remove_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
