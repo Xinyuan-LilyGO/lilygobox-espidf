@@ -29,6 +29,11 @@ constexpr uint32_t kNfcTaskStopPollMs = 20;
 
 }  // namespace
 
+/**
+ * @brief 启动或停止键盘扩展 ST25R3916 NFC 后台轮询
+ * @param enabled true 启动轮询，false 停止轮询
+ * @return 目标状态已满足或切换成功返回 true
+ */
 bool TDisplayP4Device::SetNfcPollingEnabled(bool enabled) {
   if (!enabled) {
     nfc_.stop_requested.store(true);
@@ -82,6 +87,11 @@ bool TDisplayP4Device::SetNfcPollingEnabled(bool enabled) {
   return true;
 }
 
+/**
+ * @brief 读取键盘扩展 ST25R3916 NFC 当前状态
+ * @param status NFC 状态输出地址
+ * @return 状态读取成功返回 true
+ */
 bool TDisplayP4Device::ReadNfcStatus(NfcStatus* status) {
   if (status == nullptr || nfc_.mutex == nullptr ||
       xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
@@ -99,6 +109,10 @@ bool TDisplayP4Device::ReadNfcStatus(NfcStatus* status) {
   return true;
 }
 
+/**
+ * @brief 进入键盘扩展 ST25R3916 NFC 后台轮询任务
+ * @param context TDisplayP4Device 实例指针
+ */
 void TDisplayP4Device::NfcPollingTaskEntry(void* context) {
   auto* self = static_cast<TDisplayP4Device*>(context);
   if (self != nullptr) {
@@ -107,6 +121,9 @@ void TDisplayP4Device::NfcPollingTaskEntry(void* context) {
   vTaskDelete(nullptr);
 }
 
+/**
+ * @brief 执行 NFC 发现、卡片状态更新和退出清理
+ */
 void TDisplayP4Device::RunNfcPollingTask() {
   auto* const nfc_driver = driver_.chip().st25r3916.get();
   const bool activated =

@@ -70,13 +70,17 @@ constexpr int kStatusGroupTopGap = 24;
 constexpr int kRowHeight = 104;
 constexpr int kProfileStatusIndicatorSize = 22;
 constexpr int kAnimationMs = 240;
-constexpr int kDeletePromptHeight = 312;
 constexpr int kDeletePromptSideMargin = 34;
 constexpr int kDeletePromptBottomMargin = 32;
 constexpr int kDeletePromptRadius = 48;
 constexpr int kDeletePromptInnerPadding = 32;
 constexpr int kDeletePromptButtonGap = 20;
 constexpr int kDeletePromptButtonHeight = 74;
+constexpr int kDeletePromptButtonRadius = 24;
+constexpr int kDeletePromptTitleTop = 34;
+constexpr int kDeletePromptTitleHeight = 42;
+constexpr int kDeletePromptTitleMessageGap = 8;
+constexpr int kDeletePromptMessageButtonGap = 16;
 constexpr int kProfileNameActionX = 158;
 constexpr int kProfileNameActionRightMargin = 18;
 constexpr int kProfileNameActionHeight = 58;
@@ -101,6 +105,7 @@ constexpr int kChatJumpButtonRightMargin = 24;
 constexpr int kChatJumpButtonBottomGap = 16;
 constexpr int kChatJumpButtonHiddenOffset = 12;
 constexpr uint32_t kChatJumpAnimationMs = 180;
+constexpr int kChatSignalMetricGap = 14;
 // Font22 英文系统提示的保守字宽估算，避免保存回调同步遍历字体。
 constexpr int kSystemMessageGlyphWidthEstimate = 13;
 constexpr int kAddSwitchRowHeight = 108;
@@ -1655,18 +1660,29 @@ void DrawUserChatMessage(lv_layer_t* layer, int timeline_x,
     }
     char rssi[32] = {};
     char snr[32] = {};
+    const int signal_metrics_x = timeline_x + 28;
+    int next_signal_metric_x = signal_metrics_x;
     if (message->rssi_valid) {
       std::snprintf(rssi, sizeof(rssi), "RSSI %d dBm",
           static_cast<int>(message->rssi_dbm));
+      lv_point_t rssi_size = {};
+      lv_text_get_size(&rssi_size, rssi, Font22(), 0, 0,
+          LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
+      const int rssi_width = std::max(1, static_cast<int>(rssi_size.x));
       DrawChatText(layer, rssi, kSecondaryTextColor, Font22(),
-          timeline_x + 28, status_y, 176, 30,
+          next_signal_metric_x, status_y, rssi_width, 30,
           LV_TEXT_ALIGN_LEFT, true, LV_TEXT_FLAG_EXPAND);
+      next_signal_metric_x += rssi_width + kChatSignalMetricGap;
     }
     if (message->snr_valid) {
       std::snprintf(snr, sizeof(snr), "SNR %+d",
           static_cast<int>(message->snr_db));
+      lv_point_t snr_size = {};
+      lv_text_get_size(&snr_size, snr, Font22(), 0, 0,
+          LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
+      const int snr_width = std::max(1, static_cast<int>(snr_size.x));
       DrawChatText(layer, snr, kSecondaryTextColor, Font22(),
-          timeline_x + 220, status_y, 120, 30,
+          next_signal_metric_x, status_y, snr_width, 30,
           LV_TEXT_ALIGN_LEFT, true, LV_TEXT_FLAG_EXPAND);
     }
     DrawChatText(layer, message->time, kSecondaryTextColor, Font22(),
@@ -5550,7 +5566,15 @@ bool ShowRadioDeletePrompt(RadioViewState* state, const char* title,
   config.screen_height = state->config.height;
   config.dialog_width =
       state->config.width - 2 * kDeletePromptSideMargin;
-  config.dialog_height = kDeletePromptHeight;
+  const int content_width =
+      config.dialog_width - 2 * kDeletePromptInnerPadding;
+  lv_point_t message_size = {};
+  lv_text_get_size(&message_size, message, Font24(), 0, 0,
+      content_width, LV_TEXT_FLAG_NONE);
+  config.dialog_height = kDeletePromptTitleTop +
+      kDeletePromptTitleHeight + kDeletePromptTitleMessageGap +
+      static_cast<int>(message_size.y) + kDeletePromptMessageButtonGap +
+      kDeletePromptButtonHeight + kDeletePromptInnerPadding;
   config.dialog_radius = kDeletePromptRadius;
   config.inner_padding = kDeletePromptInnerPadding;
   config.header_height = 0;
@@ -5558,6 +5582,7 @@ bool ShowRadioDeletePrompt(RadioViewState* state, const char* title,
   config.action_height =
       kDeletePromptInnerPadding + kDeletePromptButtonHeight;
   config.action_button_height = kDeletePromptButtonHeight;
+  config.action_button_radius = kDeletePromptButtonRadius;
   config.action_button_gap = kDeletePromptButtonGap;
   config.action_bottom_padding = kDeletePromptInnerPadding;
   config.bottom_margin = kDeletePromptBottomMargin;
@@ -5586,14 +5611,16 @@ bool ShowRadioDeletePrompt(RadioViewState* state, const char* title,
     ClosePromptDialog(&state->delete_dialog);
     return false;
   }
-  const int content_width =
-      config.dialog_width - 2 * kDeletePromptInnerPadding;
-  lv_obj_set_size(title_label, content_width, 42);
-  lv_obj_set_pos(title_label, kDeletePromptInnerPadding, 34);
+  lv_obj_set_size(
+      title_label, content_width, kDeletePromptTitleHeight);
+  lv_obj_set_pos(
+      title_label, kDeletePromptInnerPadding, kDeletePromptTitleTop);
   lv_obj_set_style_text_align(
       title_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_set_width(message_label, content_width);
-  lv_obj_set_pos(message_label, kDeletePromptInnerPadding, 78);
+  lv_obj_set_pos(message_label, kDeletePromptInnerPadding,
+      kDeletePromptTitleTop + kDeletePromptTitleHeight +
+          kDeletePromptTitleMessageGap);
   lv_label_set_long_mode(message_label, LV_LABEL_LONG_WRAP);
   lv_obj_set_style_text_align(
       message_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);

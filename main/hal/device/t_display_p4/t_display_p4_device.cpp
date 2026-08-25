@@ -2,7 +2,7 @@
  * @Description: T-Display-P4 设备初始化与硬件 Provider 适配实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-08-22 16:00:46
+ * @LastEditTime: 2026-08-25 16:40:19
  * @License: GPL 3.0
  */
 #include "hal/device/t_display_p4/t_display_p4_device.h"
@@ -350,6 +350,7 @@ void FormatRadioIrqMask(uint16_t irq_mask, char* output, size_t output_size) {
   size_t used = 0;
   bool has_name = false;
 
+  // 追加一个 IRQ 名称并维护输出缓冲区的已用长度。
   const auto append_name = [&](const char* name) {
     const int result = std::snprintf(output + used, output_size - used,
         "%s%s", has_name ? " | " : "", name);
@@ -444,6 +445,11 @@ ppa_srm_rotation_angle_t ToCameraPreviewPpaRotation(int angle) {
   }
 }
 
+/**
+ * @brief 将屏幕亮度百分比限制到硬件支持范围
+ * @param percent 待限制的亮度百分比
+ * @return 限制到 0～100 后的亮度百分比
+ */
 int ClampScreenBrightnessPercent(int percent) {
   return std::clamp(
       percent, kScreenBrightnessMinPercent, kScreenBrightnessMaxPercent);
@@ -472,11 +478,21 @@ cpp_bus_driver::Pwm::DutyCycle ScreenBrightnessPercentToHi8561DutyCycle(
   };
 }
 
+/**
+ * @brief 将屏幕亮度百分比转换为 RM69A10 亮度值
+ * @param clamped_percent 已限制到 0～100 的亮度百分比
+ * @return RM69A10 亮度寄存器值
+ */
 uint8_t ScreenBrightnessPercentToRm69a10Value(int clamped_percent) {
   return static_cast<uint8_t>(
       clamped_percent * kRm69a10BrightnessMax / kScreenBrightnessMaxPercent);
 }
 
+/**
+ * @brief 将键盘背光百分比转换为 SY7200A PWM 占空比
+ * @param percent 键盘背光亮度百分比
+ * @return SY7200A PWM 占空比
+ */
 cpp_bus_driver::Pwm::DutyCycle
 KeyboardBacklightBrightnessPercentToSy7200aDutyCycle(int percent) {
   return {
@@ -487,6 +503,12 @@ KeyboardBacklightBrightnessPercentToSy7200aDutyCycle(int percent) {
   };
 }
 
+/**
+ * @brief 将百分比转换为指定上限的 8 位数值
+ * @param percent 待转换的百分比
+ * @param max_value 输出数值上限
+ * @return 限制到 0～100 后按比例计算的数值
+ */
 uint8_t PercentToUint8Value(int percent, uint8_t max_value) {
   const int clamped_percent = std::clamp(percent, 0, 100);
   return static_cast<uint8_t>(clamped_percent * max_value / 100);
@@ -549,6 +571,12 @@ bool IsFiveGWifiChannel(int channel) {
   return channel > 14;
 }
 
+/**
+ * @brief 设置 WiFi 协处理器复位电源电平
+ * @param user_data TDisplayP4Driver 实例指针
+ * @param level 目标电平
+ * @return ESP-IDF 操作结果
+ */
 esp_err_t SetWifiCoprocessorResetLevel(void* user_data, bool level) {
   auto* driver =
       static_cast<lilygo_device_driver::TDisplayP4Driver*>(user_data);
@@ -558,6 +586,12 @@ esp_err_t SetWifiCoprocessorResetLevel(void* user_data, bool level) {
   return driver->SetEsp32c6PowerEnabled(level) ? ESP_OK : ESP_FAIL;
 }
 
+/**
+ * @brief 将应用层 LoRa 带宽转换为 SX1262 枚举
+ * @param bandwidth_hz 带宽，单位为 Hz
+ * @param bandwidth SX1262 带宽枚举输出地址
+ * @return 带宽受支持返回 true
+ */
 bool SelectLoraBandwidth(uint32_t bandwidth_hz,
     sx126x_lora_bw_t* bandwidth) {
   if (bandwidth == nullptr) {
@@ -651,6 +685,12 @@ bool SelectLoraCodingRate(
   }
 }
 
+/**
+ * @brief 根据中心频率选择 SX1262 镜像校准频率范围
+ * @param frequency_hz 中心频率，单位为 Hz
+ * @param minimum_mhz 校准范围下限输出，单位为 MHz
+ * @param maximum_mhz 校准范围上限输出，单位为 MHz
+ */
 void SelectImageCalibration(uint32_t frequency_hz,
     uint16_t* minimum_mhz, uint16_t* maximum_mhz) {
   const uint32_t frequency_mhz = frequency_hz / 1000000;
@@ -1506,6 +1546,12 @@ static_assert(std::size(kLr2021Pa915MhzTable) == 13);
 static_assert(std::size(kLr2021Pa490MhzTable) == 11);
 static_assert(std::size(kLr2021Pa2445MhzTable) == 13);
 
+/**
+ * @brief 将应用层 LoRa 带宽转换为 LR2021 枚举
+ * @param bandwidth_hz 带宽，单位为 Hz
+ * @param bandwidth LR2021 带宽枚举输出地址
+ * @return 带宽受支持返回 true
+ */
 bool SelectLr2021Bandwidth(
     uint32_t bandwidth_hz, lr20xx_radio_lora_bw_t* bandwidth) {
   if (bandwidth == nullptr) {
@@ -1553,6 +1599,13 @@ bool SelectLr2021Bandwidth(
   }
 }
 
+/**
+ * @brief 根据频率和目标功率选择 LR2021 PA 参数
+ * @param source 应用层 LoRa 配置
+ * @param pa LR2021 PA 配置输出地址
+ * @param output_power_half_dbm 半 dBm 单位的发射功率输出地址
+ * @return 频率和功率受支持返回 true
+ */
 bool SelectLr2021Power(const LoraRadioConfig& source,
     lr20xx_radio_common_pa_cfg_t* pa, int8_t* output_power_half_dbm) {
   if (pa == nullptr || output_power_half_dbm == nullptr) {
@@ -1604,6 +1657,32 @@ bool SelectLr2021Power(const LoraRadioConfig& source,
   return true;
 }
 
+/**
+ * @brief 创建 LR2021 LoRa 数据包参数
+ * @param source 应用层 LoRa 配置
+ * @param payload_size 数据包负载长度
+ * @return LR2021 LoRa 数据包参数
+ */
+lr20xx_radio_lora_pkt_params_t MakeLr2021PacketConfig(
+    const LoraRadioConfig& source, uint8_t payload_size) {
+  return {
+      .preamble_len_in_symb = source.preamble_length,
+      .pkt_mode = LR20XX_RADIO_LORA_PKT_EXPLICIT,
+      .pld_len_in_bytes = payload_size,
+      .crc = source.crc_enabled ? LR20XX_RADIO_LORA_CRC_ENABLED
+                                : LR20XX_RADIO_LORA_CRC_DISABLED,
+      .iq = source.invert_iq ? LR20XX_RADIO_LORA_IQ_INVERTED
+                             : LR20XX_RADIO_LORA_IQ_STANDARD,
+  };
+}
+
+/**
+ * @brief 校验应用层 LoRa 参数并转换为 LR2021 驱动配置
+ * @param source 应用层 LoRa 配置
+ * @param payload_size 数据包负载长度
+ * @param target LR2021 驱动配置输出地址
+ * @return 参数有效且转换成功返回 true
+ */
 bool BuildLr2021Config(const LoraRadioConfig& source, uint8_t payload_size,
     usp_cpp_bus_driver::Lr20xx::LoraConfig* target) {
   if (target == nullptr ||
@@ -1633,15 +1712,7 @@ bool BuildLr2021Config(const LoraRadioConfig& source, uint8_t payload_size,
   target->modulation.ppm = ShouldEnableLoraLdro(source)
       ? LR20XX_RADIO_LORA_PPM_1_4
       : LR20XX_RADIO_LORA_NO_PPM;
-  target->packet.preamble_len_in_symb = source.preamble_length;
-  target->packet.pkt_mode = LR20XX_RADIO_LORA_PKT_EXPLICIT;
-  target->packet.pld_len_in_bytes = payload_size;
-  target->packet.crc = source.crc_enabled
-      ? LR20XX_RADIO_LORA_CRC_ENABLED
-      : LR20XX_RADIO_LORA_CRC_DISABLED;
-  target->packet.iq = source.invert_iq
-      ? LR20XX_RADIO_LORA_IQ_INVERTED
-      : LR20XX_RADIO_LORA_IQ_STANDARD;
+  target->packet = MakeLr2021PacketConfig(source, payload_size);
   target->sync_word = source.sync_word;
   target->rx_path = source.frequency_hz >= 1600000000U
       ? LR20XX_RADIO_COMMON_RX_PATH_HF
@@ -1658,10 +1729,32 @@ bool BuildLr2021Config(const LoraRadioConfig& source, uint8_t payload_size,
 constexpr lr20xx_system_irq_mask_t kLr2021RadioIrqMask =
     LR20XX_SYSTEM_IRQ_TX_DONE | LR20XX_SYSTEM_IRQ_RX_DONE |
     LR20XX_SYSTEM_IRQ_TIMEOUT | LR20XX_SYSTEM_IRQ_CRC_ERROR |
-    LR20XX_SYSTEM_IRQ_LEN_ERROR | LR20XX_SYSTEM_IRQ_LORA_HEADER_ERROR |
-    LR20XX_SYSTEM_IRQ_ERROR | LR20XX_SYSTEM_IRQ_CMD_ERROR;
+    LR20XX_SYSTEM_IRQ_LEN_ERROR | LR20XX_SYSTEM_IRQ_LORA_HEADER_ERROR;
 
+/**
+ * @brief 清空 LR2021 RX FIFO 并启动单包接收
+ * @param radio LR2021 驱动实例
+ * @param config 应用层 LoRa 配置
+ * @return 接收启动成功返回 true
+ */
 bool StartLr2021Receive(usp_cpp_bus_driver::Lr20xx* radio,
+    const LoraRadioConfig& config) {
+  const lr20xx_radio_lora_pkt_params_t packet_config =
+      MakeLr2021PacketConfig(config, UINT8_MAX);
+  return radio != nullptr &&
+      radio->Invoke(lr20xx_radio_fifo_clear_rx) == LR20XX_STATUS_OK &&
+      radio->Invoke(lr20xx_radio_lora_set_packet_params, &packet_config) ==
+          LR20XX_STATUS_OK &&
+      radio->StartReceive(0);
+}
+
+/**
+ * @brief 完整配置 LR2021 LoRa 接收参数和 DIO11 IRQ 后启动接收
+ * @param radio LR2021 驱动实例
+ * @param config 应用层 LoRa 配置
+ * @return 配置和接收启动成功返回 true
+ */
+bool ConfigureLr2021Receive(usp_cpp_bus_driver::Lr20xx* radio,
     const LoraRadioConfig& config) {
   usp_cpp_bus_driver::Lr20xx::LoraConfig driver_config;
   return radio != nullptr &&
@@ -1671,7 +1764,7 @@ bool StartLr2021Receive(usp_cpp_bus_driver::Lr20xx* radio,
           LR20XX_SYSTEM_IRQ_ALL_MASK) == LR20XX_STATUS_OK &&
       radio->Invoke(lr20xx_system_set_dio_irq_cfg, LR20XX_SYSTEM_DIO_11,
           kLr2021RadioIrqMask) == LR20XX_STATUS_OK &&
-      radio->StartReceive(0);
+      StartLr2021Receive(radio, config);
 }
 
 }  // namespace
@@ -1918,6 +2011,7 @@ void TDisplayP4Device::RunKeyboardExpansionScanTask() {
   const bool backlight_applied = !initialized || keep_screen_lock_suspended ||
       SetKeyboardBacklightBrightnessPercent(backlight_brightness_percent);
 
+  // 将各扩展芯片的初始化结果统一转换为对外组件状态。
   const auto component_state = [](bool ready) {
     return ready ? KeyboardExpansionComponentState::kReady
                  : KeyboardExpansionComponentState::kFailed;
@@ -4982,6 +5076,7 @@ void TDisplayP4Device::RunWifiConnectTask() {
   std::snprintf(ssid, sizeof(ssid), "%s", wifi_.connect_ssid);
   std::snprintf(password, sizeof(password), "%s", wifi_.connect_password);
 
+  // 统一记录连接错误并结束异步连接任务。
   const auto finish = [this](esp_err_t error) {
     if (error != ESP_OK) {
       SetWifiFailure(error);
@@ -5390,6 +5485,7 @@ int TDisplayP4Device::StartWifiSntp() {
   wifi_time_test_.sntp_sync_monotonic_ms.store(0);
   wifi_time_test_.synced.store(false);
   WifiTimeSyncOwner().store(this);
+  // 将 SNTP 回调结果提交给当前测试实例并安排 RTC 同步。
   esp_sntp_set_time_sync_notification_cb([](struct timeval* time_value) {
     auto* owner = WifiTimeSyncOwner().load();
     if (owner == nullptr || time_value == nullptr) {
@@ -6048,7 +6144,7 @@ bool TDisplayP4Device::ActivateRadio(const RadioConfig& config) {
               Lr2021OperatingMode::kStandby);
     }
     if (result) {
-      result = StartLr2021Receive(
+      result = ConfigureLr2021Receive(
           driver_.chip().lr2021.get(), config.lora);
     }
     if (!result) {
@@ -6316,9 +6412,12 @@ bool TDisplayP4Device::SendRadio(uint32_t client_token,
         BuildLr2021Config(state->lora_config, static_cast<uint8_t>(size),
             &driver_config)) {
       auto* radio = driver_.chip().lr2021.get();
-      result = radio != nullptr && radio->Configure(driver_config) &&
+      result = radio != nullptr &&
           radio->Invoke(lr20xx_system_clear_irq_status,
               LR20XX_SYSTEM_IRQ_ALL_MASK) == LR20XX_STATUS_OK &&
+          radio->Invoke(lr20xx_radio_fifo_clear_tx) == LR20XX_STATUS_OK &&
+          radio->Invoke(lr20xx_radio_lora_set_packet_params,
+              &driver_config.packet) == LR20XX_STATUS_OK &&
           radio->WriteBuffer(data, size) &&
           radio->StartTransmit(timing.hardware_timeout_ms);
       if (result) {
@@ -6588,10 +6687,16 @@ bool TDisplayP4Device::PollRadioState(
 
   if (state->chip == radio::ChipType::kLr2021) {
     auto* radio = driver_.chip().lr2021.get();
+    auto* io_expander = driver_.chip().xl9535.get();
     lr20xx_system_irq_mask_t irq_mask = LR20XX_SYSTEM_IRQ_NONE;
-    if (radio == nullptr ||
-        radio->Invoke(lr20xx_system_get_and_clear_irq_status, &irq_mask) !=
-            LR20XX_STATUS_OK) {
+    const uint8_t dio1_level =
+        io_expander == nullptr
+            ? UINT8_MAX
+            : io_expander->GpioRead(gpio::xl9535::kRadioDio1);
+    if (radio == nullptr || dio1_level == UINT8_MAX ||
+        (dio1_level == 1 &&
+            radio->Invoke(lr20xx_system_get_and_clear_irq_status,
+                &irq_mask) != LR20XX_STATUS_OK)) {
       state->active = false;
       state->transmitting = false;
       state->chip_error = true;
@@ -6605,7 +6710,10 @@ bool TDisplayP4Device::PollRadioState(
     if (irq_mask == LR20XX_SYSTEM_IRQ_NONE) {
       if (state->transmitting && state->transmit_deadline_us > 0 &&
           esp_timer_get_time() >= state->transmit_deadline_us) {
-        const bool recovered = StartLr2021Receive(radio, state->lora_config);
+        const bool recovered =
+            radio->Invoke(lr20xx_system_clear_irq_status,
+                LR20XX_SYSTEM_IRQ_ALL_MASK) == LR20XX_STATUS_OK &&
+            StartLr2021Receive(radio, state->lora_config);
         state->transmitting = false;
         state->active = recovered;
         state->chip_error = !recovered;
@@ -6630,10 +6738,7 @@ bool TDisplayP4Device::PollRadioState(
         (irq_mask & (LR20XX_SYSTEM_IRQ_CRC_ERROR |
             LR20XX_SYSTEM_IRQ_LEN_ERROR |
             LR20XX_SYSTEM_IRQ_LORA_HEADER_ERROR)) != 0;
-    const bool chip_error =
-        (irq_mask &
-            (LR20XX_SYSTEM_IRQ_ERROR | LR20XX_SYSTEM_IRQ_CMD_ERROR)) != 0;
-    bool result = !chip_error;
+    bool result = true;
     if (state->transmitting && (tx_done || timed_out)) {
       state->transmitting = false;
       state->transmit_request_token = 0;
@@ -6642,28 +6747,27 @@ bool TDisplayP4Device::PollRadioState(
           StartLr2021Receive(radio, state->lora_config);
       state->active = receive_restarted;
       state->chip_error = !receive_restarted;
-      event->type = timed_out ? RadioEventType::kTransmitFailed
-                              : RadioEventType::kTransmitComplete;
-      event->failure_reason = timed_out
-          ? RadioFailureReason::kHardwareTimeout
-          : (receive_restarted ? RadioFailureReason::kNone
-                               : RadioFailureReason::kReceiveRestartFailed);
+      event->type = tx_done ? RadioEventType::kTransmitComplete
+                            : RadioEventType::kTransmitFailed;
+      event->failure_reason = tx_done
+          ? (receive_restarted ? RadioFailureReason::kNone
+                               : RadioFailureReason::kReceiveRestartFailed)
+          : RadioFailureReason::kHardwareTimeout;
       result = receive_restarted;
     } else if (state->transmitting) {
       result = true;
-    } else if (rx_done && !receive_error && !chip_error) {
-      uint16_t received_size = 0;
+    } else if (rx_done && !receive_error) {
       lr20xx_radio_lora_packet_status_t metrics = {};
-      result = radio->Invoke(lr20xx_radio_common_get_rx_packet_length,
-                   &received_size) == LR20XX_STATUS_OK &&
-          received_size > 0 && received_size <= kRadioPayloadCapacity &&
-          radio->ReadBuffer(event->payload, received_size) &&
+      const bool packet_read =
           radio->Invoke(lr20xx_radio_lora_get_packet_status, &metrics) ==
               LR20XX_STATUS_OK &&
-          StartLr2021Receive(radio, state->lora_config);
-      if (result) {
+          metrics.packet_length_bytes > 0 &&
+          metrics.packet_length_bytes <= kRadioPayloadCapacity &&
+          radio->ReadBuffer(event->payload, metrics.packet_length_bytes);
+      result = StartLr2021Receive(radio, state->lora_config);
+      if (packet_read && result) {
         event->type = RadioEventType::kPacketReceived;
-        event->payload_size = received_size;
+        event->payload_size = metrics.packet_length_bytes;
         const int16_t rssi_dbm = metrics.rssi_pkt_in_dbm -
             static_cast<int16_t>(metrics.rssi_pkt_half_dbm_count) / 2;
         event->rssi_dbm = static_cast<int8_t>(
@@ -6673,8 +6777,7 @@ bool TDisplayP4Device::PollRadioState(
         event->snr_valid = true;
       }
     } else {
-      result = !chip_error &&
-          StartLr2021Receive(radio, state->lora_config);
+      result = StartLr2021Receive(radio, state->lora_config);
     }
     if (!result) {
       state->active = false;
@@ -6686,9 +6789,7 @@ bool TDisplayP4Device::PollRadioState(
         event->type = RadioEventType::kChipError;
       }
       if (event->failure_reason == RadioFailureReason::kNone) {
-        event->failure_reason = chip_error
-            ? RadioFailureReason::kHardwareUnavailable
-            : RadioFailureReason::kReceiveRestartFailed;
+        event->failure_reason = RadioFailureReason::kReceiveRestartFailed;
       }
     }
     xSemaphoreGive(state->mutex);
