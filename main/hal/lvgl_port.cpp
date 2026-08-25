@@ -676,18 +676,24 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
         point, self->screen_->ScreenWidth(), self->screen_->ScreenHeight());
     if (!valid_point) {
       self->active_edge_touch_flag_ = false;
+      const bool had_last_touch =
+          self->has_last_touch_point_.load(std::memory_order_acquire);
+      if (had_last_touch) {
+        // 无坐标报告出现在一次有效触摸之后时表示释放，不得重新武装
+        // 边缘提示，否则普通点击会被延长并可能阻止自动锁屏。
+        self->pending_edge_touch_flag_ = false;
+        self->pending_edge_touch_time_ms_ = 0;
+        data->state = LV_INDEV_STATE_REL;
+        data->point = self->last_touch_point_;
+        NotifyPointerInput(self, data);
+        self->has_last_touch_point_ = false;
+        return;
+      }
       if (point.edge_touch_flag) {
         self->pending_edge_touch_flag_ = true;
         self->pending_edge_touch_time_ms_ = now_ms;
       }
-      if (self->has_last_touch_point_.load(std::memory_order_acquire)) {
-        self->active_edge_touch_flag_ = point.edge_touch_flag ||
-            self->pending_edge_touch_flag_.load(std::memory_order_acquire);
-        data->state = LV_INDEV_STATE_PR;
-        data->point = self->last_touch_point_;
-      } else {
-        data->state = LV_INDEV_STATE_REL;
-      }
+      data->state = LV_INDEV_STATE_REL;
       NotifyPointerInput(self, data);
       return;
     }

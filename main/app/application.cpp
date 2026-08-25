@@ -2728,7 +2728,17 @@ bool Application::ReadScreenTouchWhileAwake(
   if (access_available != nullptr) {
     *access_available = can_access && touch_access_available;
   }
-  return touched;
+  if (!touched) {
+    return false;
+  }
+
+  // 硬件边缘提示允许使用无效坐标衔接后续触摸，但它不代表用户已经
+  // 触碰屏幕。锁屏活动只接受真实坐标或明确的固件手势，避免无坐标
+  // 提示不断取消自动锁屏或在熄屏后触发错误唤醒。
+  return IsScreenTouchPointValid(*point,
+             device_provider_context_.screen->ScreenWidth(),
+             device_provider_context_.screen->ScreenHeight()) ||
+         point->gesture != hal::TouchGesture::kNone;
 }
 
 bool Application::ReadScreenTouchWhileSleeping(

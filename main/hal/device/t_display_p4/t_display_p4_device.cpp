@@ -2697,9 +2697,15 @@ bool TDisplayP4Device::ReadScreenTouch(TouchPoint* point) {
   }
   // GT9895 在物理左右边缘可能先产生硬件中断而暂不提供有效坐标。
   // 该中断只作为应用层边缘手势候选提示，不能单独触发返回操作。
+  // GT9895 的 INT 是通用触摸通知，不能把每次中断都解释为边缘触摸。
+  // 只有收到中断但固件暂时没有提供坐标时，才将其作为边缘候选提示；
+  // 普通有效坐标必须继续交给 LVGL，否则屏幕边缘控件会全部失效。
   const bool hardware_edge_hint = frame.edge_touch ||
       (driver_.screen_type() == device::ScreenType::kRm69a10 &&
-          touch_interrupt_received);
+          touch_interrupt_received &&
+          (read_status == cpp_bus_driver::TouchReadStatus::kNoData ||
+              (read_status == cpp_bus_driver::TouchReadStatus::kSuccess &&
+                  frame.contact_count == 0)));
   if (read_status != cpp_bus_driver::TouchReadStatus::kSuccess) {
     if (!hardware_edge_hint ||
         read_status != cpp_bus_driver::TouchReadStatus::kNoData) {
@@ -2722,7 +2728,7 @@ bool TDisplayP4Device::ReadScreenTouch(TouchPoint* point) {
   point->y = contact.y;
   point->pressure =
       static_cast<uint8_t>(std::min<uint16_t>(contact.pressure, UINT8_MAX));
-  point->edge_touch_flag = hardware_edge_hint;
+  point->edge_touch_flag = frame.edge_touch;
   return true;
 }
 
@@ -2756,9 +2762,14 @@ bool TDisplayP4Device::ReadScreenTouchPoints(
       return false;
   }
 
+  // GT9895 的通用触摸中断只有在缺少有效坐标时才可作为边缘候选提示。
+  // 有效触摸不能携带这个提示，避免全局手势抢占边缘页面控件。
   const bool hardware_edge_hint = frame.edge_touch ||
       (driver_.screen_type() == device::ScreenType::kRm69a10 &&
-          touch_interrupt_received);
+          touch_interrupt_received &&
+          (read_status == cpp_bus_driver::TouchReadStatus::kNoData ||
+              (read_status == cpp_bus_driver::TouchReadStatus::kSuccess &&
+                  frame.contact_count == 0)));
   if (read_status != cpp_bus_driver::TouchReadStatus::kSuccess) {
     if (!hardware_edge_hint ||
         read_status != cpp_bus_driver::TouchReadStatus::kNoData) {
@@ -2776,7 +2787,7 @@ bool TDisplayP4Device::ReadScreenTouchPoints(
     points[i].y = contact.y;
     points[i].pressure =
         static_cast<uint8_t>(std::min<uint16_t>(contact.pressure, UINT8_MAX));
-    points[i].edge_touch_flag = hardware_edge_hint;
+    points[i].edge_touch_flag = frame.edge_touch;
   }
   *point_count = count;
   if (*point_count == 0 && hardware_edge_hint) {

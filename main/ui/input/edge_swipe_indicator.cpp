@@ -2,7 +2,7 @@
  * @Description: 全局边缘滑动指示器实现
  * @Author: LILYGO_L
  * @Date: 2026-05-12 22:15:00
- * @LastEditTime: 2026-08-24 18:12:40
+ * @LastEditTime: 2026-08-25 11:26:42
  * @License: GPL 3.0
  */
 #include "ui/input/edge_swipe_indicator.h"
@@ -20,7 +20,9 @@ namespace lilygo_box::ui {
 namespace {
 
 constexpr int kActivationEdgeWidth = 1;
-constexpr int kHardwareHintActivationWidth = 48;
+// GT9895 首个有效边缘坐标的实测偏移约为 8 px。仅保留一倍余量，
+// 避免扩大到屏幕键盘和页面两侧的正常控件区域。
+constexpr int kHardwareHintActivationWidth = 16;
 constexpr int kMinimumVisibleWidth = kActivationEdgeWidth;
 constexpr int kIndicatorDiameter = 104;
 constexpr int kMaximumVisibleWidth = kIndicatorDiameter * 2 / 5;
