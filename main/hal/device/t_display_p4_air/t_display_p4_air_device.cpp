@@ -675,21 +675,26 @@ void FormatRadioIrqMask(
       static_cast<unsigned long>(irq_mask));
 }
 
-// 当前接收 SNTP 同步回调的设备实例
-std::atomic<TDisplayP4AirDevice*> g_wifi_time_sync_owner{nullptr};
+/**
+ * @brief 获取当前接收 SNTP 时间同步回调的设备实例
+ * @return 保存回调目标设备的原子指针
+ */
+std::atomic<TDisplayP4AirDevice*>& WifiTimeSyncOwner() {
+  static std::atomic<TDisplayP4AirDevice*> owner{nullptr};
+  return owner;
+}
 
 /**
- * @brief 将触摸点标记为屏幕边缘手势
- * @param point 待更新的触摸点
+ * @brief 将触摸点设置为仅包含硬件边缘提示的无坐标样本
+ * @param point 待设置的触摸点
  */
-void SetEdgeTouchPoint(TouchPoint* point) {
+void SetHardwareEdgeTouchPoint(TouchPoint* point) {
   if (point == nullptr) {
     return;
   }
-  point->id = 0;
+  *point = TouchPoint();
   point->x = -1;
   point->y = -1;
-  point->pressure = 0;
   point->edge_touch_flag = true;
 }
 
@@ -1993,7 +1998,7 @@ void TDisplayP4AirDevice::StopWifiInternetCheck() {
   }
   esp_sntp_set_time_sync_notification_cb(nullptr);
   TDisplayP4AirDevice* owner = this;
-  g_wifi_time_sync_owner.compare_exchange_strong(owner, nullptr);
+  WifiTimeSyncOwner().compare_exchange_strong(owner, nullptr);
   if (esp_sntp_enabled()) {
     esp_sntp_stop();
   }
@@ -2309,7 +2314,7 @@ bool TDisplayP4AirDevice::ReadScreenTouch(TouchPoint* point) {
     if (!frame.edge_touch) {
       return false;
     }
-    SetEdgeTouchPoint(point);
+    SetHardwareEdgeTouchPoint(point);
     return true;
   }
 
@@ -2357,10 +2362,22 @@ bool TDisplayP4AirDevice::ReadScreenTouchPoints(
   }
   *point_count = count;
   if (*point_count == 0 && frame.edge_touch) {
-    SetEdgeTouchPoint(&points[0]);
+    SetHardwareEdgeTouchPoint(&points[0]);
     *point_count = 1;
   }
   return *point_count > 0;
+}
+
+/**
+ * @brief 判断当前显示方向是否支持 HI8561 硬件边缘触摸提示
+ * @param display_rotation_angle 显示旋转角度
+ * @return HI8561 硬件边缘提示可用时返回 true
+ */
+bool TDisplayP4AirDevice::SupportsHardwareEdgeTouchHint(
+    int /*display_rotation_angle*/) const {
+  // HI8561 会在物理上下左右四边上报专用边缘触摸标记，因此所有
+  // 软件旋转方向都允许用硬件提示提前武装边缘返回手势。
+  return true;
 }
 
 bool TDisplayP4AirDevice::SupportsTouchInterrupt() const {
@@ -5631,9 +5648,9 @@ int TDisplayP4AirDevice::StartWifiSntp() {
   wifi_time_test_.sntp_unix_time.store(0);
   wifi_time_test_.sntp_sync_monotonic_ms.store(0);
   wifi_time_test_.synced.store(false);
-  g_wifi_time_sync_owner.store(this);
+  WifiTimeSyncOwner().store(this);
   esp_sntp_set_time_sync_notification_cb([](struct timeval* time_value) {
-    auto* owner = g_wifi_time_sync_owner.load();
+    auto* owner = WifiTimeSyncOwner().load();
     if (owner == nullptr || time_value == nullptr) {
       return;
     }

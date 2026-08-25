@@ -10,7 +10,6 @@
 #include <cstdint>
 
 #include "lvgl.h"
-#include "ui/input/edge_back_gesture.h"
 #include "ui/theme/theme_provider.h"
 
 namespace lilygo_box::ui {
@@ -28,7 +27,6 @@ struct PromptDialogState {
   lv_obj_t* cancel_button_label = nullptr;
   lv_obj_t* confirm_button = nullptr;
   lv_obj_t* confirm_button_label = nullptr;
-  EdgeBackSwipeState edge_swipe = {};
   PromptDialogActionCallback cancel_callback = nullptr;
   PromptDialogActionCallback confirm_callback = nullptr;
   void* callback_context = nullptr;

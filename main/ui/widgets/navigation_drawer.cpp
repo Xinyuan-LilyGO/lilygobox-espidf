@@ -7,7 +7,7 @@
  */
 #include "ui/widgets/navigation_drawer.h"
 
-#include "ui/input/edge_back_gesture.h"
+#include "ui/input/back_navigation_controller.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -57,7 +57,6 @@ void CloseCompletedCallback(lv_anim_t* animation) {
     state->overlay = nullptr;
     state->panel = nullptr;
     state->panel_width = 0;
-    state->edge_swipe = EdgeBackSwipeState();
     lv_obj_delete(overlay);
   }
 }
@@ -76,24 +75,6 @@ void OverlayClickedEventCallback(lv_event_t* event) {
       lv_event_get_user_data(event)));
 }
 
-/**
- * @brief 处理导航抽屉边缘返回手势
- * @param event LVGL 事件对象
- */
-void EdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<NavigationDrawerState*>(
-      lv_event_get_user_data(event));
-  if (state == nullptr) {
-    return;
-  }
-  lv_event_stop_bubbling(event);
-  if (HandleEdgeBackSwipeEvent(event, state->config.screen_width,
-                               &state->edge_swipe)) {
-    CloseNavigationDrawer(state);
-    lv_event_stop_processing(event);
-  }
-}
-
 }  // namespace
 
 lv_obj_t* OpenNavigationDrawer(lv_obj_t* parent,
@@ -109,7 +90,6 @@ lv_obj_t* OpenNavigationDrawer(lv_obj_t* parent,
   }
   state->config = config;
   state->overlay = overlay;
-  state->edge_swipe = EdgeBackSwipeState();
   lv_obj_set_size(overlay, config.screen_width, config.screen_height);
   lv_obj_set_style_bg_color(overlay, lv_color_hex(config.scrim_color),
                             LV_PART_MAIN);
@@ -120,7 +100,13 @@ lv_obj_t* OpenNavigationDrawer(lv_obj_t* parent,
   lv_obj_remove_flag(overlay, LV_OBJ_FLAG_EVENT_BUBBLE);
   lv_obj_add_event_cb(overlay, OverlayClickedEventCallback,
                       LV_EVENT_CLICKED, state);
-  AddEdgeBackSwipeEvents(overlay, EdgeBackEventCallback, state);
+  if (!RegisterBackNavigationHandler(overlay, [state]() {
+        CloseNavigationDrawer(state);
+      })) {
+    state->overlay = nullptr;
+    lv_obj_delete(overlay);
+    return nullptr;
+  }
 
   const int drawer_width =
       config.screen_width * config.width_percent / 100;
@@ -143,7 +129,6 @@ lv_obj_t* OpenNavigationDrawer(lv_obj_t* parent,
   lv_obj_set_scroll_dir(panel, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(panel, LV_SCROLLBAR_MODE_ACTIVE);
   lv_obj_remove_flag(panel, LV_OBJ_FLAG_EVENT_BUBBLE);
-  AddEdgeBackSwipeEvents(panel, EdgeBackEventCallback, state);
 
   lv_obj_t* title = CreateLabel(panel, config.title,
       config.primary_text_color, config.title_font);
@@ -185,7 +170,6 @@ void CloseNavigationDrawer(NavigationDrawerState* state) {
     lv_obj_t* overlay = state->overlay;
     state->overlay = nullptr;
     state->panel_width = 0;
-    state->edge_swipe = EdgeBackSwipeState();
     lv_obj_delete(overlay);
     return;
   }

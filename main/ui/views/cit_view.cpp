@@ -35,8 +35,7 @@
 #include "hal/lvgl_port.h"
 #include "hal/providers/providers.h"
 #include "ui/animation/transition_animation.h"
-#include "ui/input/app_view_gesture_flags.h"
-#include "ui/input/edge_back_gesture.h"
+#include "ui/input/back_navigation_controller.h"
 #include "ui/input/press_cancel.h"
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
@@ -96,7 +95,6 @@ constexpr lv_style_selector_t kSwitchCheckedIndicatorSelector =
     static_cast<lv_style_selector_t>(LV_STATE_CHECKED);
 constexpr size_t kTouchTraceMaxPointCount = 100;
 constexpr size_t kTouchDisplayPointCount = 10;
-constexpr uint32_t kGestureSuppressTimeoutMs = 500;
 constexpr uint32_t kPageSlideAnimationMs = 180;
 constexpr uint32_t kMicrophoneNeedleAnimationMs = 80;
 constexpr uint32_t kCitBackgroundColor = 0xFF7F58;
@@ -126,6 +124,7 @@ constexpr std::array<uint32_t, 5> kScreenColorTestColors = {
 };
 
 struct CitViewState;
+void ShowCitList(CitViewState* state);
 
 /**
  * @brief IMU 后台任务发布给 UI 的不可变采样快照
@@ -279,7 +278,6 @@ struct CitViewState {
   bool keyboard_test_hidden = false;
   bool keyboard_expansion_nfc_test_hidden = false;
   bool cit_rows_rebuild_pending = false;
-  EdgeBackSwipeState test_edge_back_swipe = {};
   bool test_page_closing = false;
   lv_timer_t* refresh_timer = nullptr;
 };
@@ -290,9 +288,7 @@ void RefreshCitRows(CitViewState* state);
 bool RebuildCitRows(CitViewState* state);
 void RefreshKeyboardExpansionTestAvailability(CitViewState* state);
 void SetCitRowsClickable(CitViewState* state, bool enabled);
-void TestPageEdgeBackEventCallback(lv_event_t* event);
 void ScreenColorOverlayEventCallback(lv_event_t* event);
-void ScreenColorOverlayEdgeBackEventCallback(lv_event_t* event);
 
 /**
  * @brief 设置对象的文本颜色和字体
@@ -354,34 +350,6 @@ lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color,
 bool IsEntryId(const app::CitTestEntry& entry, const char* id);
 
 /**
- * @brief 清除临时屏蔽桌面手势的标记
- * @param timer LVGL 定时器
- */
-void ClearSuppressLauncherGestureTimerCallback(lv_timer_t* timer) {
-  auto* app_view = static_cast<lv_obj_t*>(lv_timer_get_user_data(timer));
-  if (app_view != nullptr && lv_obj_is_valid(app_view)) {
-    lv_obj_remove_flag(app_view, kSuppressNextLauncherGestureFlag);
-  }
-}
-
-/**
- * @brief 临时屏蔽下一次桌面返回手势
- * @param app_view 应用根对象
- */
-void SuppressNextLauncherGesture(lv_obj_t* app_view) {
-  if (app_view == nullptr) {
-    return;
-  }
-
-  lv_obj_add_flag(app_view, kSuppressNextLauncherGestureFlag);
-  lv_timer_t* timer = lv_timer_create(ClearSuppressLauncherGestureTimerCallback,
-      kGestureSuppressTimeoutMs, app_view);
-  if (timer != nullptr) {
-    lv_timer_set_repeat_count(timer, 1);
-  }
-}
-
-/**
  * @brief 设置麦克风测试指针数值
  * @param context CIT 页面状态
  * @param value 指针数值
@@ -396,19 +364,6 @@ void SetMicrophoneNeedleValue(void* context, int32_t value) {
   state->microphone_display_level = value;
   lv_scale_set_line_needle_value(
       state->microphone_scale, state->microphone_needle, 150, value);
-}
-
-/**
- * @brief 恢复 CIT 列表页面的手势处理
- * @param state CIT 页面状态
- */
-void RestoreCitListGestures(CitViewState* state) {
-  if (state == nullptr || state->root == nullptr) {
-    return;
-  }
-
-  lv_obj_remove_flag(state->root, kBlockLauncherGestureFlag);
-  lv_obj_add_flag(state->root, LV_OBJ_FLAG_GESTURE_BUBBLE);
 }
 
 /**
@@ -434,7 +389,6 @@ void HideScreenColorOverlay(CitViewState* state) {
   if (state->screen_color_overlay != nullptr) {
     lv_obj_add_flag(state->screen_color_overlay, LV_OBJ_FLAG_HIDDEN);
   }
-  state->test_edge_back_swipe = EdgeBackSwipeState();
   SetCitStatusBarVisible(state, true);
 }
 
@@ -823,7 +777,6 @@ void ClearTestPageState(CitViewState* state) {
   state->keyboard_test_owns_expansion = false;
   state->keyboard_test_key_received = false;
   state->pending_test_index = app::kMaxCitTestEntryCount;
-  state->test_edge_back_swipe = EdgeBackSwipeState();
   state->test_page_closing = false;
 }
 
@@ -850,7 +803,6 @@ void FinishTestPageClose(CitViewState* state) {
           "Rebuild CIT rows after keyboard disconnection failed\n");
     }
   }
-  RestoreCitListGestures(state);
   RefreshCitRows(state);
 
   if (next_index < state->row_count) {
@@ -2833,26 +2785,6 @@ void TestFailButtonEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 处理测试页面的边缘返回事件
- * @param event LVGL 事件
- */
-void TestPageEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<CitViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->test_page == nullptr ||
-      !HandleEdgeBackSwipeEvent(
-          event, state->width, &state->test_edge_back_swipe)) {
-    return;
-  }
-
-  if (state->root != nullptr) {
-    SuppressNextLauncherGesture(state->root);
-  }
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
-  ShowCitList(state);
-}
-
-/**
  * @brief 读取当前触摸点在轨迹绘制区域内的坐标
  * @param state CIT 页面状态
  * @param local_point 局部坐标输出地址
@@ -3062,37 +2994,21 @@ bool ShowScreenColorOverlay(CitViewState* state) {
     lv_obj_set_style_pad_all(overlay, 0, LV_PART_MAIN);
     lv_obj_add_event_cb(
         overlay, ScreenColorOverlayEventCallback, LV_EVENT_CLICKED, state);
-    AddEdgeBackSwipeEvents(
-        overlay, ScreenColorOverlayEdgeBackEventCallback, state);
+    if (!RegisterBackNavigationHandler(overlay, [state]() {
+          HideScreenColorOverlay(state);
+        })) {
+      lv_obj_delete(overlay);
+      state->screen_color_overlay = nullptr;
+      return false;
+    }
   }
 
   state->screen_color_index = 0;
-  state->test_edge_back_swipe = EdgeBackSwipeState();
   UpdateScreenColorOverlayColor(state);
   lv_obj_remove_flag(state->screen_color_overlay, LV_OBJ_FLAG_HIDDEN);
   lv_obj_move_to_index(state->screen_color_overlay, -1);
   SetCitStatusBarVisible(state, false);
   return true;
-}
-
-/**
- * @brief 处理屏幕颜色测试浮层的边缘返回事件
- * @param event LVGL 事件
- */
-void ScreenColorOverlayEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<CitViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr ||
-      !HandleEdgeBackSwipeEvent(
-          event, state->width, &state->test_edge_back_swipe)) {
-    return;
-  }
-
-  if (state->root != nullptr) {
-    SuppressNextLauncherGesture(state->root);
-  }
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
-  HideScreenColorOverlay(state);
 }
 
 /**
@@ -3246,7 +3162,6 @@ lv_obj_t* CreateTestActionButton(lv_obj_t* parent, const char* text,
     return nullptr;
   }
   lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, state);
-  AddEdgeBackSwipeEvents(button, TestPageEdgeBackEventCallback, state);
   AddTouchTraceEventCallbacks(button, state);
 
   lv_obj_t* label =
@@ -3289,7 +3204,6 @@ lv_obj_t* CreateCenterButton(lv_obj_t* parent, const char* text,
   if (callback != nullptr) {
     lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, state);
   }
-  AddEdgeBackSwipeEvents(button, TestPageEdgeBackEventCallback, state);
 
   lv_obj_t* label =
       CreateLabel(button, text, lv_color_hex(kStartButtonTextColor), Font28());
@@ -3314,7 +3228,6 @@ lv_obj_t* CreateTestButtonBar(lv_obj_t* parent, CitViewState* state) {
   }
 
   lv_obj_remove_flag(button_bar, LV_OBJ_FLAG_SCROLLABLE);
-  AddEdgeBackSwipeEvents(button_bar, TestPageEdgeBackEventCallback, state);
   AddTouchTraceEventCallbacks(button_bar, state);
   lv_obj_set_size(button_bar, LV_PCT(100), kTestButtonBarHeight);
   lv_obj_align(button_bar, LV_ALIGN_BOTTOM_MID, 0, 0);
@@ -4013,7 +3926,6 @@ bool AddKeyboardContent(lv_obj_t* content, CitViewState* state) {
       text_area, kKeyboardTestTextAreaRadius, LV_PART_MAIN);
   lv_obj_set_style_pad_all(text_area, 20, LV_PART_MAIN);
   lv_obj_set_scrollbar_mode(text_area, LV_SCROLLBAR_MODE_OFF);
-  AddEdgeBackSwipeEvents(text_area, TestPageEdgeBackEventCallback, state);
 
   if (state->test_page == nullptr) {
     return false;
@@ -4031,8 +3943,6 @@ bool AddKeyboardContent(lv_obj_t* content, CitViewState* state) {
   }
   lv_obj_add_flag(
       state->keyboard_test_screen_keyboard, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  AddEdgeBackSwipeEvents(state->keyboard_test_screen_keyboard,
-      TestPageEdgeBackEventCallback, state);
 
   state->keyboard_test_active = true;
   if (state->lvgl_port != nullptr) {
@@ -4273,8 +4183,6 @@ bool ShowCitTest(CitViewState* state, size_t index) {
                                             : kCitRefreshPeriodMs);
   }
 
-  lv_obj_add_flag(state->root, kBlockLauncherGestureFlag);
-  lv_obj_remove_flag(state->root, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
   lv_obj_t* page = lv_obj_create(state->root);
   if (page == nullptr) {
@@ -4282,9 +4190,13 @@ bool ShowCitTest(CitViewState* state, size_t index) {
   }
   state->test_page = page;
   state->test_page_closing = false;
-  state->test_edge_back_swipe = EdgeBackSwipeState();
+  if (!RegisterBackNavigationHandler(page, [state]() {
+        ShowCitList(state);
+      })) {
+    DeleteTestPage(state);
+    return false;
+  }
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
-  AddEdgeBackSwipeEvents(page, TestPageEdgeBackEventCallback, state);
   lv_obj_set_size(page, LV_PCT(100), LV_PCT(100));
   lv_obj_set_pos(page, state->width, 0);
   lv_obj_set_style_bg_color(
@@ -4312,7 +4224,6 @@ bool ShowCitTest(CitViewState* state, size_t index) {
   }
   state->test_content = content;
   SetTestContentVerticalScrollEnabled(content, true);
-  AddEdgeBackSwipeEvents(content, TestPageEdgeBackEventCallback, state);
   lv_obj_set_size(
       content, LV_PCT(100), state->height - kListTop - kTestButtonBarHeight);
   lv_obj_set_style_bg_color(
@@ -4340,7 +4251,6 @@ bool ShowCitTest(CitViewState* state, size_t index) {
     lv_obj_move_to_index(state->touch_trace_surface, -1);
   }
 
-  EnableEdgeBackSwipeEventBubble(page);
   if (!StartSlideLeftWindowTransition(
           page, state->width, kPageSlideAnimationMs, state, nullptr)) {
     lv_obj_set_x(page, 0);
@@ -4361,7 +4271,6 @@ void ShowCitList(CitViewState* state) {
     lv_obj_remove_flag(state->list_page, LV_OBJ_FLAG_HIDDEN);
   }
   if (state->test_page == nullptr) {
-    RestoreCitListGestures(state);
     SetCitRowsClickable(state, true);
     return;
   }
@@ -4543,7 +4452,6 @@ bool RebuildCitRows(CitViewState* state) {
   if (!AddCitRows(state->list_page, app::GetCitTestCatalog(), state)) {
     return false;
   }
-  EnableEdgeBackSwipeEventBubble(state->list_page);
 
   for (size_t i = 0; i < state->row_count; ++i) {
     const app::CitTestEntry* entry = state->rows[i].entry;
@@ -4649,7 +4557,6 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
   state->height = config.height;
   state->test_statuses.fill(app::CitTestStatus::kPending);
   lv_obj_add_event_cb(container, CitViewDeleteCallback, LV_EVENT_DELETE, state);
-  AddEdgeBackSwipeEvents(container, TestPageEdgeBackEventCallback, state);
 
   lv_obj_remove_flag(container, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_color(

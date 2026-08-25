@@ -19,8 +19,7 @@
 #include "hal/providers/keyboard_expansion_provider.h"
 #include "ui/app_view_factory.h"
 #include "ui/haptic_feedback.h"
-#include "ui/input/app_view_gesture_flags.h"
-#include "ui/input/edge_back_gesture.h"
+#include "ui/input/edge_swipe_indicator.h"
 #include "ui/input/press_cancel.h"
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
@@ -931,7 +930,9 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   lv_obj_set_style_bg_color(root_screen_, lv_color_hex(0xE2E2E2), LV_PART_MAIN);
   lv_obj_set_style_border_width(root_screen_, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(root_screen_, 0, LV_PART_MAIN);
-  AddEdgeBackSwipeEvents(root_screen_, AppBackSwipeEventCallback, this);
+  InitializeEdgeSwipeIndicator(lvgl_port_, [this]() {
+    HandleEdgeSwipeBackRequest();
+  });
   lv_obj_add_event_cb(root_screen_, RootLayoutRefreshEventCallback,
       LV_EVENT_SIZE_CHANGED, this);
   lv_obj_add_event_cb(root_screen_, RootLayoutRefreshEventCallback,
@@ -1468,37 +1469,32 @@ void UiManager::BackButtonEventCallback(lv_event_t* event) {
   }
 }
 
-void UiManager::AppBackSwipeEventCallback(lv_event_t* event) {
-  auto* self = static_cast<UiManager*>(lv_event_get_user_data(event));
-  if (self == nullptr || self->active_view_container_ == nullptr ||
-      self->screen_ == nullptr) {
+/**
+ * @brief 处理全局边缘滑动产生的返回请求
+ */
+void UiManager::HandleEdgeSwipeBackRequest() {
+  if (startup_screen_ != nullptr || first_boot_welcome_screen_ != nullptr ||
+      lock_screen_ != nullptr) {
     return;
   }
 
-  if (!HandleEdgeBackSwipeEvent(
-          event, self->LayoutWidth(), &self->app_back_swipe_)) {
+  if (IsPromptDialogVisible(&keyboard_expansion_unavailable_prompt_)) {
+    if (keyboard_expansion_unavailable_prompt_.cancel_callback != nullptr) {
+      keyboard_expansion_unavailable_prompt_.cancel_callback(
+          keyboard_expansion_unavailable_prompt_.callback_context);
+    }
+    CloseKeyboardExpansionUnavailablePrompt();
     return;
   }
 
-  if (lv_obj_has_flag(
-          self->active_view_container_, kBlockLauncherGestureFlag)) {
-    lv_event_stop_bubbling(event);
-    lv_event_stop_processing(event);
+  if (power_menu_ != nullptr) {
+    HidePowerMenu();
     return;
   }
 
-  if (lv_obj_has_flag(
-          self->active_view_container_, kSuppressNextLauncherGestureFlag)) {
-    lv_obj_remove_flag(
-        self->active_view_container_, kSuppressNextLauncherGestureFlag);
-    lv_event_stop_bubbling(event);
-    lv_event_stop_processing(event);
-    return;
+  if (active_view_container_ != nullptr) {
+    ShowLauncher();
   }
-
-  self->ShowLauncher();
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
 }
 
 void UiManager::PageScrollEventCallback(lv_event_t* event) {
@@ -2700,10 +2696,6 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
 
   lv_obj_set_pos(active_view_container_, 0, 0);
   lv_obj_set_size(active_view_container_, LayoutWidth(), LayoutHeight());
-  app_back_swipe_ = EdgeBackSwipeState();
-  EnableEdgeBackSwipeEventBubble(active_view_container_);
-  AddEdgeBackSwipeEvents(
-      active_view_container_, AppBackSwipeEventCallback, this);
   status_bar_.MoveToTop();
   return true;
 }
@@ -2727,14 +2719,12 @@ bool UiManager::ShowAppView(const app::AppEntry& app_entry) {
     active_view_lock_screen_callback_ = nullptr;
     return false;
   }
-  app_back_swipe_ = EdgeBackSwipeState();
   lv_obj_add_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
   return true;
 }
 
 void UiManager::ShowLauncher() {
   active_app_entry_ = nullptr;
-  app_back_swipe_ = EdgeBackSwipeState();
   if (active_view_container_ == nullptr || root_screen_ == nullptr ||
       launcher_container_ == nullptr) {
     if (launcher_container_ != nullptr) {

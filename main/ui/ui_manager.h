@@ -18,7 +18,6 @@
 #include "hal/providers/rtc_provider.h"
 #include "hal/providers/screen_provider.h"
 #include "lvgl.h"
-#include "ui/input/edge_back_gesture.h"
 #include "ui/theme/theme_provider.h"
 #include "ui/widgets/prompt/prompt_dialog.h"
 #include "ui/widgets/status_bar.h"
@@ -303,10 +302,9 @@ class UiManager final {
   static void BackButtonEventCallback(lv_event_t* event);
 
   /**
-   * @brief 处理 launcher 和 app 页面手势事件
-   * @param event LVGL 事件对象
+   * @brief 处理全局边缘滑动产生的返回请求
    */
-  static void AppBackSwipeEventCallback(lv_event_t* event);
+  void HandleEdgeSwipeBackRequest();
 
   /**
    * @brief 处理 launcher 页面滚动事件
@@ -629,7 +627,6 @@ class UiManager final {
       battery_management_status_callback_;
   std::function<void()> restart_device_callback_;
   std::function<void()> power_off_device_callback_;
-  EdgeBackSwipeState app_back_swipe_ = {};
   lv_timer_t* system_status_refresh_timer_ = nullptr;
   app::SystemStatusCache system_status_cache_;
   theme::ThemeProvider theme_provider_;

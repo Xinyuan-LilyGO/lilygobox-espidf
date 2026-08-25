@@ -11,7 +11,6 @@
 
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
-#include "ui/input/app_view_gesture_flags.h"
 #include "ui/input/press_cancel.h"
 
 namespace lilygo_box::ui {
@@ -203,19 +202,6 @@ lv_obj_t* CreateDivider(lv_obj_t* parent, int width) {
   lv_obj_set_style_radius(divider, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(divider, 0, LV_PART_MAIN);
   return divider;
-}
-
-/**
- * @brief 恢复设置主列表的页面切换手势
- * @param state 设置页面状态
- */
-void RestoreSettingsListGestures(SettingsViewState* state) {
-  if (state == nullptr || state->root == nullptr) {
-    return;
-  }
-
-  lv_obj_remove_flag(state->root, kBlockLauncherGestureFlag);
-  lv_obj_add_flag(state->root, LV_OBJ_FLAG_GESTURE_BUBBLE);
 }
 
 /**

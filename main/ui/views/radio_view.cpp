@@ -28,7 +28,7 @@
 #include "hal/providers/radio/radio_provider.h"
 #include "hal/providers/rtc_provider.h"
 #include "ui/animation/transition_animation.h"
-#include "ui/input/edge_back_gesture.h"
+#include "ui/input/back_navigation_controller.h"
 #include "ui/input/press_cancel.h"
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
@@ -437,13 +437,6 @@ struct RadioViewState {
       std::size(radio::kCc1101ReceiveBandwidthsHz)] = {};
   lv_obj_t* add_data_rate_buttons[std::size(kNrf24l01DataRates)] = {};
   NavigationDrawerState drawer;
-  EdgeBackSwipeState selection_edge_swipe = {};
-  EdgeBackSwipeState detail_edge_swipe = {};
-  EdgeBackSwipeState app_settings_edge_swipe = {};
-  EdgeBackSwipeState profile_settings_edge_swipe = {};
-  EdgeBackSwipeState profile_name_edit_edge_swipe = {};
-  EdgeBackSwipeState auto_send_edge_swipe = {};
-  EdgeBackSwipeState add_edge_swipe = {};
   RadioModuleItem modules[kRadioModuleCapacity] = {};
   // 当前聊天页面最多保留 32 条轻量布局记录。
   RenderedRadioChatMessage
@@ -1463,7 +1456,6 @@ void DetailCloseCompletedCallback(lv_anim_t* animation) {
     state->detail_title_label = nullptr;
     state->detail_chip_label = nullptr;
     state->detail_index = kRadioModuleCapacity;
-    state->detail_edge_swipe = EdgeBackSwipeState();
     state->detail_closing = false;
     ResetRenderedChatState(state);
     lv_obj_delete(page);
@@ -1502,7 +1494,6 @@ void CloseModuleDetail(RadioViewState* state) {
     state->detail_title_label = nullptr;
     state->detail_chip_label = nullptr;
     state->detail_index = kRadioModuleCapacity;
-    state->detail_edge_swipe = EdgeBackSwipeState();
     state->detail_closing = false;
     ResetRenderedChatState(state);
     lv_obj_delete(page);
@@ -1519,22 +1510,6 @@ void DetailBackClickedEventCallback(lv_event_t* event) {
     CloseModuleDetail(
         static_cast<RadioViewState*>(lv_event_get_user_data(event)));
   }
-}
-
-/**
- * @brief 处理射频模块详情页边缘返回手势
- * @param event LVGL 事件对象
- */
-void DetailEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->detail_page == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, state->config.width,
-          &state->detail_edge_swipe)) {
-    return;
-  }
-  CloseModuleDetail(state);
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
 }
 
 void DetailHeaderClickedEventCallback(lv_event_t* event) {
@@ -3623,8 +3598,6 @@ bool CreateChatComposer(lv_obj_t* page, RadioViewState* state) {
     return false;
   }
   lv_obj_add_flag(state->detail_keyboard, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  AddEdgeBackSwipeEvents(state->detail_keyboard,
-      DetailEdgeBackEventCallback, state);
   UpdateChatComposerState(state);
   return true;
 }
@@ -3673,7 +3646,6 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
   state->detail_chat_timeline = nullptr;
   state->detail_title_label = nullptr;
   state->detail_chip_label = nullptr;
-  state->detail_edge_swipe = EdgeBackSwipeState();
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(page, state->config.width, state->config.height);
@@ -3682,7 +3654,6 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
-  AddEdgeBackSwipeEvents(page, DetailEdgeBackEventCallback, state);
   lv_obj_t* back = lv_button_create(page);
   if (back == nullptr) {
     lv_obj_delete(page);
@@ -3808,10 +3779,15 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
     state->detail_opening = false;
     return false;
   }
-  EnableEdgeBackSwipeEventBubble(page);
   StartSlideLeftWindowTransition(
       page, state->config.width, kAnimationMs, nullptr, nullptr);
   state->detail_opening = false;
+  if (!RegisterBackNavigationHandler(page, [state]() {
+        CloseModuleDetail(state);
+      })) {
+    CloseModuleDetail(state);
+    return false;
+  }
   return true;
 }
 
@@ -3866,7 +3842,6 @@ void ModuleRowLongPressedEventCallback(lv_event_t* event) {
     return;
   }
   action->long_press_handled = true;
-  action->state->selection_edge_swipe = EdgeBackSwipeState();
   action->state->selection_mode = true;
   action->state->selected_modules[action->index] = true;
   RenderHeader(action->state);
@@ -3885,7 +3860,6 @@ void RadioSettingsCloseCompletedCallback(lv_anim_t* animation) {
   lv_obj_t* page = state->app_settings_page;
   state->app_settings_page = nullptr;
   state->app_settings_closing = false;
-  state->app_settings_edge_swipe = EdgeBackSwipeState();
   lv_obj_delete(page);
 }
 
@@ -3907,7 +3881,6 @@ void CloseRadioSettingsPage(RadioViewState* state) {
   lv_obj_t* page = state->app_settings_page;
   state->app_settings_page = nullptr;
   state->app_settings_closing = false;
-  state->app_settings_edge_swipe = EdgeBackSwipeState();
   lv_obj_delete(page);
 }
 
@@ -3916,22 +3889,6 @@ void RadioSettingsBackClickedEventCallback(lv_event_t* event) {
     CloseRadioSettingsPage(
         static_cast<RadioViewState*>(lv_event_get_user_data(event)));
   }
-}
-
-/**
- * @brief 处理 Radio 设置页面边缘返回手势
- * @param event LVGL 事件对象
- */
-void RadioSettingsEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->app_settings_page == nullptr ||
-      !HandleEdgeBackSwipeEvent(
-          event, state->config.width, &state->app_settings_edge_swipe)) {
-    return;
-  }
-  CloseRadioSettingsPage(state);
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
 }
 
 /**
@@ -4029,7 +3986,6 @@ bool ShowRadioSettingsPage(RadioViewState* state) {
   }
   state->app_settings_page = page;
   state->app_settings_closing = false;
-  state->app_settings_edge_swipe = EdgeBackSwipeState();
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(page, state->config.width, state->config.height);
@@ -4040,7 +3996,6 @@ bool ShowRadioSettingsPage(RadioViewState* state) {
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
-  AddEdgeBackSwipeEvents(page, RadioSettingsEdgeBackEventCallback, state);
   if (!CreateRadioSettingsHeader(page, state)) {
     lv_obj_delete(page);
     state->app_settings_page = nullptr;
@@ -4055,11 +4010,16 @@ bool ShowRadioSettingsPage(RadioViewState* state) {
     state->app_settings_page = nullptr;
     return false;
   }
-  EnableEdgeBackSwipeEventBubble(page);
   if (!StartSlideLeftWindowTransition(
           page, state->config.width, kAnimationMs, state, nullptr)) {
     lv_obj_delete(page);
     state->app_settings_page = nullptr;
+    return false;
+  }
+  if (!RegisterBackNavigationHandler(page, [state]() {
+        CloseRadioSettingsPage(state);
+      })) {
+    CloseRadioSettingsPage(state);
     return false;
   }
   return true;
@@ -4401,7 +4361,6 @@ bool RenderModuleList(RadioViewState* state) {
   if (state->module_count == 0) {
     const bool rendered = CreateEmptyRadioContent(state);
     if (rendered) {
-      EnableEdgeBackSwipeEventBubble(state->module_list);
     }
     state->module_list_dirty = !rendered;
     return rendered;
@@ -4414,7 +4373,6 @@ bool RenderModuleList(RadioViewState* state) {
       return false;
     }
   }
-  EnableEdgeBackSwipeEventBubble(state->module_list);
   state->module_list_dirty = false;
   return true;
 }
@@ -4470,29 +4428,11 @@ void CloseSelectionMode(RadioViewState* state) {
     return;
   }
   state->selection_mode = false;
-  state->selection_edge_swipe = EdgeBackSwipeState();
   for (bool& selected : state->selected_modules) {
     selected = false;
   }
   RenderHeader(state);
   MarkModuleListDirty(state);
-}
-
-/**
- * @brief 处理 Radio 主界面多选状态下的左右边缘滑动
- * @param event LVGL 事件对象
- */
-void SelectionEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || !state->selection_mode ||
-      !HandleEdgeBackSwipeEvent(event, state->config.width,
-          &state->selection_edge_swipe)) {
-    return;
-  }
-
-  CloseSelectionMode(state);
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
 }
 
 void SelectionCloseClickedEventCallback(lv_event_t* event) {
@@ -4558,7 +4498,6 @@ void ResetProfileNameEditReferences(RadioViewState* state) {
   state->profile_name_edit_page = nullptr;
   state->profile_name_edit_text_area = nullptr;
   state->profile_name_edit_keyboard = nullptr;
-  state->profile_name_edit_edge_swipe = EdgeBackSwipeState();
   state->profile_name_edit_closing = false;
 }
 
@@ -4597,23 +4536,6 @@ void CloseProfileNameEditPage(RadioViewState* state, bool animated) {
   lv_obj_t* page = state->profile_name_edit_page;
   ResetProfileNameEditReferences(state);
   lv_obj_delete(page);
-}
-
-/**
- * @brief 处理射频配置名称编辑页边缘返回手势
- * @param event LVGL 事件对象
- */
-void ProfileNameEditEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->profile_name_edit_page == nullptr ||
-      state->profile_name_edit_closing ||
-      !HandleEdgeBackSwipeEvent(event, state->config.width,
-          &state->profile_name_edit_edge_swipe)) {
-    return;
-  }
-  CloseProfileNameEditPage(state, true);
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
 }
 
 /**
@@ -4803,7 +4725,6 @@ bool ShowProfileNameEditPage(RadioViewState* state) {
   state->profile_name_edit_text_area = nullptr;
   state->profile_name_edit_keyboard = nullptr;
   state->profile_name_edit_closing = false;
-  state->profile_name_edit_edge_swipe = EdgeBackSwipeState();
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(page, state->config.width, state->config.height);
@@ -4814,7 +4735,6 @@ bool ShowProfileNameEditPage(RadioViewState* state) {
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
-  AddEdgeBackSwipeEvents(page, ProfileNameEditEdgeBackEventCallback, state);
   lv_obj_add_event_cb(page, ProfileNameEditBackgroundClickedEventCallback,
       LV_EVENT_CLICKED, state);
 
@@ -4845,8 +4765,6 @@ bool ShowProfileNameEditPage(RadioViewState* state) {
   }
   state->profile_name_edit_text_area = text_area;
   lv_obj_add_flag(text_area, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  AddEdgeBackSwipeEvents(
-      text_area, ProfileNameEditEdgeBackEventCallback, state);
   lv_obj_set_size(text_area,
       state->config.width - 2 * kProfileNameEditTextAreaSide,
       kProfileNameEditTextAreaHeight);
@@ -4888,11 +4806,14 @@ bool ShowProfileNameEditPage(RadioViewState* state) {
   }
   lv_obj_add_flag(
       state->profile_name_edit_keyboard, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  AddEdgeBackSwipeEvents(state->profile_name_edit_keyboard,
-      ProfileNameEditEdgeBackEventCallback, state);
-  EnableEdgeBackSwipeEventBubble(page);
   if (!StartSlideLeftWindowTransition(page, state->config.width,
       kAnimationMs, state, nullptr)) {
+    CloseProfileNameEditPage(state, false);
+    return false;
+  }
+  if (!RegisterBackNavigationHandler(page, [state]() {
+        CloseProfileNameEditPage(state, true);
+      })) {
     CloseProfileNameEditPage(state, false);
     return false;
   }
@@ -4913,7 +4834,6 @@ void ResetProfileSettingsReferences(RadioViewState* state) {
   state->profile_settings_chip_label = nullptr;
   state->profile_settings_header_status_label = nullptr;
   state->profile_settings_index = kRadioModuleCapacity;
-  state->profile_settings_edge_swipe = EdgeBackSwipeState();
   state->profile_settings_closing = false;
 }
 
@@ -5055,22 +4975,6 @@ void ProfileSettingsBackClickedEventCallback(lv_event_t* event) {
     CloseProfileSettingsPage(
         static_cast<RadioViewState*>(lv_event_get_user_data(event)));
   }
-}
-
-/**
- * @brief 处理射频配置资料页边缘返回手势
- * @param event LVGL 事件对象
- */
-void ProfileSettingsEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->profile_settings_page == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, state->config.width,
-          &state->profile_settings_edge_swipe)) {
-    return;
-  }
-  CloseProfileSettingsPage(state);
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
 }
 
 /**
@@ -5327,7 +5231,6 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
   state->profile_settings_page = page;
   state->profile_settings_index = index;
   state->profile_settings_closing = false;
-  state->profile_settings_edge_swipe = EdgeBackSwipeState();
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(page, state->config.width, state->config.height);
@@ -5338,7 +5241,6 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
-  AddEdgeBackSwipeEvents(page, ProfileSettingsEdgeBackEventCallback, state);
 
   lv_obj_t* back = lv_button_create(page);
   if (back == nullptr) {
@@ -5500,11 +5402,16 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
   }
 
   RefreshProfileSettingsPage(state);
-  EnableEdgeBackSwipeEventBubble(page);
   if (!StartSlideLeftWindowTransition(
       page, state->config.width, kAnimationMs, state, nullptr)) {
     ResetProfileSettingsReferences(state);
     lv_obj_delete(page);
+    return false;
+  }
+  if (!RegisterBackNavigationHandler(page, [state]() {
+        CloseProfileSettingsPage(state);
+      })) {
+    CloseProfileSettingsPage(state);
     return false;
   }
   return true;
@@ -5798,9 +5705,19 @@ bool RenderHeader(RadioViewState* state) {
   }
 
   const size_t selected_count = SelectedModuleCount(state);
-  if (CreateHeaderIconButton(state->header_area, icon::kClose, 14, 64,
-          OutlineIconFont44(), SelectionCloseClickedEventCallback,
-          state) == nullptr) {
+  lv_obj_t* close = CreateHeaderIconButton(state->header_area,
+      icon::kClose, 14, 64, OutlineIconFont44(),
+      SelectionCloseClickedEventCallback, state);
+  if (close == nullptr) {
+    return false;
+  }
+  if (!RegisterConditionalBackNavigationHandler(state->root, [state]() {
+        if (state == nullptr || !state->selection_mode) {
+          return false;
+        }
+        CloseSelectionMode(state);
+        return true;
+      })) {
     return false;
   }
   char count_text[12] = {};
@@ -6582,7 +6499,6 @@ void AddPageCloseCompletedCallback(lv_anim_t* animation) {
   state->add_submit_button = nullptr;
   state->add_submit_label = nullptr;
   ResetAddModuleFormPointers(state);
-  state->add_edge_swipe = EdgeBackSwipeState();
   state->editing_index = kRadioModuleCapacity;
   state->add_submitting = false;
   state->add_closing = false;
@@ -6624,7 +6540,6 @@ void CloseAddModulePage(RadioViewState* state) {
     state->add_submit_button = nullptr;
     state->add_submit_label = nullptr;
     ResetAddModuleFormPointers(state);
-    state->add_edge_swipe = EdgeBackSwipeState();
     state->editing_index = kRadioModuleCapacity;
     state->add_submitting = false;
     state->add_closing = false;
@@ -6643,22 +6558,6 @@ void AddPageBackClickedEventCallback(lv_event_t* event) {
     CloseAddModulePage(
         static_cast<RadioViewState*>(lv_event_get_user_data(event)));
   }
-}
-
-/**
- * @brief 处理添加模块页面边缘返回手势
- * @param event LVGL 事件对象
- */
-void AddPageEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->add_page == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, state->config.width,
-          &state->add_edge_swipe)) {
-    return;
-  }
-  CloseAddModulePage(state);
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
 }
 
 /**
@@ -7062,7 +6961,6 @@ lv_obj_t* CreateAddTextArea(lv_obj_t* parent, RadioViewState* state,
   }
   lv_obj_add_event_cb(
       input, AddInputEventCallback, LV_EVENT_ALL, state);
-  AddEdgeBackSwipeEvents(input, AddPageEdgeBackEventCallback, state);
   return input;
 }
 
@@ -7165,7 +7063,6 @@ lv_obj_t* CreateAddSwitchRow(lv_obj_t* parent, RadioViewState* state,
   }
   lv_obj_add_event_cb(
       toggle, AddInputEventCallback, LV_EVENT_VALUE_CHANGED, state);
-  AddEdgeBackSwipeEvents(toggle, AddPageEdgeBackEventCallback, state);
   return toggle;
 }
 
@@ -7184,7 +7081,6 @@ void ResetAutoSendReferences(RadioViewState* state) {
   state->auto_send_interval_area = nullptr;
   state->auto_send_action_area = nullptr;
   state->auto_send_keyboard = nullptr;
-  state->auto_send_edge_swipe = EdgeBackSwipeState();
   state->auto_send_closing = false;
 }
 
@@ -7234,23 +7130,6 @@ void AutoSendBackClickedEventCallback(lv_event_t* event) {
     CloseAutoSendSettingsPage(
         static_cast<RadioViewState*>(lv_event_get_user_data(event)), true);
   }
-}
-
-/**
- * @brief 处理自动发送设置页面边缘返回手势
- * @param event LVGL 事件对象
- */
-void AutoSendEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->auto_send_page == nullptr ||
-      state->auto_send_closing ||
-      !HandleEdgeBackSwipeEvent(event, state->config.width,
-          &state->auto_send_edge_swipe)) {
-    return;
-  }
-  CloseAutoSendSettingsPage(state, true);
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
 }
 
 /**
@@ -7384,7 +7263,6 @@ lv_obj_t* CreateAutoSendTextArea(lv_obj_t* parent, RadioViewState* state,
   }
   lv_obj_add_event_cb(
       input, AutoSendInputEventCallback, LV_EVENT_ALL, state);
-  AddEdgeBackSwipeEvents(input, AutoSendEdgeBackEventCallback, state);
   return input;
 }
 
@@ -7447,7 +7325,6 @@ lv_obj_t* CreateAutoSendSwitch(
   if (checked) {
     lv_obj_add_state(toggle, LV_STATE_CHECKED);
   }
-  AddEdgeBackSwipeEvents(toggle, AutoSendEdgeBackEventCallback, state);
   return toggle;
 }
 
@@ -7521,7 +7398,6 @@ bool ShowAutoSendSettingsPage(RadioViewState* state) {
   }
   state->auto_send_page = page;
   state->auto_send_closing = false;
-  state->auto_send_edge_swipe = EdgeBackSwipeState();
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(page, state->config.width, state->config.height);
@@ -7532,7 +7408,6 @@ bool ShowAutoSendSettingsPage(RadioViewState* state) {
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
-  AddEdgeBackSwipeEvents(page, AutoSendEdgeBackEventCallback, state);
 
   lv_obj_t* back = lv_button_create(page);
   if (back == nullptr) {
@@ -7576,7 +7451,6 @@ bool ShowAutoSendSettingsPage(RadioViewState* state) {
   lv_obj_add_flag(body, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_add_event_cb(body, AutoSendBackgroundClickedEventCallback,
       LV_EVENT_CLICKED, state);
-  AddEdgeBackSwipeEvents(body, AutoSendEdgeBackEventCallback, state);
 
   if (!CreateAddParameterTitle(body, "SEND TEXT", 8)) {
     CloseAutoSendSettingsPage(state, false);
@@ -7667,11 +7541,14 @@ bool ShowAutoSendSettingsPage(RadioViewState* state) {
   }
   lv_obj_add_flag(
       state->auto_send_keyboard, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  AddEdgeBackSwipeEvents(state->auto_send_keyboard,
-      AutoSendEdgeBackEventCallback, state);
-  EnableEdgeBackSwipeEventBubble(page);
   if (!StartSlideLeftWindowTransition(page, state->config.width,
       kAnimationMs, state, nullptr)) {
+    CloseAutoSendSettingsPage(state, false);
+    return false;
+  }
+  if (!RegisterBackNavigationHandler(page, [state]() {
+        CloseAutoSendSettingsPage(state, true);
+      })) {
     CloseAutoSendSettingsPage(state, false);
     return false;
   }
@@ -8587,8 +8464,6 @@ bool CreateAddModuleKeyboard(RadioViewState* state) {
     return false;
   }
   lv_obj_add_flag(state->add_keyboard, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  AddEdgeBackSwipeEvents(
-      state->add_keyboard, AddPageEdgeBackEventCallback, state);
   return true;
 }
 
@@ -8785,7 +8660,6 @@ bool ShowAddModulePage(RadioViewState* state) {
   }
   state->add_submitting = false;
   state->add_closing = false;
-  state->add_edge_swipe = EdgeBackSwipeState();
   ResetAddModuleFormPointers(state);
 
   lv_obj_t* page = lv_obj_create(state->root);
@@ -8805,7 +8679,6 @@ bool ShowAddModulePage(RadioViewState* state) {
   lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
   lv_obj_add_event_cb(page, AddPageBackgroundClickedEventCallback,
       LV_EVENT_CLICKED, state);
-  AddEdgeBackSwipeEvents(page, AddPageEdgeBackEventCallback, state);
 
   if (!CreateAddModuleHeader(page, state)) {
     lv_obj_delete(page);
@@ -8831,8 +8704,6 @@ bool ShowAddModulePage(RadioViewState* state) {
   lv_obj_add_flag(state->add_body, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_add_event_cb(state->add_body,
       AddPageBackgroundClickedEventCallback, LV_EVENT_CLICKED, state);
-  AddEdgeBackSwipeEvents(
-      state->add_body, AddPageEdgeBackEventCallback, state);
 
   if (!CreateAddModuleContent(state) ||
       !CreateAddModuleActionArea(page, state)) {
@@ -8851,7 +8722,6 @@ bool ShowAddModulePage(RadioViewState* state) {
     state->add_keyboard = nullptr;
     return false;
   }
-  EnableEdgeBackSwipeEventBubble(page);
   if (!StartSlideLeftWindowTransition(page, state->config.width,
       kAnimationMs, state, nullptr)) {
     lv_obj_delete(page);
@@ -8859,6 +8729,12 @@ bool ShowAddModulePage(RadioViewState* state) {
     state->add_body = nullptr;
     state->add_name_input = nullptr;
     state->add_keyboard = nullptr;
+    return false;
+  }
+  if (!RegisterBackNavigationHandler(page, [state]() {
+        CloseAddModulePage(state);
+      })) {
+    CloseAddModulePage(state);
     return false;
   }
   return true;
@@ -9042,7 +8918,6 @@ lv_obj_t* CreateRadioView(lv_obj_t* parent, const app::AppEntry& app_entry,
   lv_obj_set_style_pad_all(root, 0, LV_PART_MAIN);
   lv_obj_add_event_cb(
       root, RadioViewDeleteEventCallback, LV_EVENT_DELETE, state);
-  AddEdgeBackSwipeEvents(root, SelectionEdgeBackEventCallback, state);
   if (config.set_status_bar_visible) {
     config.set_status_bar_visible(true);
   }

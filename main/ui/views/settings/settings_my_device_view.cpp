@@ -17,8 +17,6 @@
 #include "hal/lvgl_port.h"
 #include "hal/providers/screen_provider.h"
 #include "ui/animation/transition_animation.h"
-#include "ui/input/app_view_gesture_flags.h"
-#include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/views/settings/settings_basic_view_common.h"
@@ -196,7 +194,6 @@ void DeviceNameEditCloseCompletedCallback(lv_anim_t* animation) {
   state->name_edit_text_area = nullptr;
   state->name_edit_keyboard = nullptr;
   state->name_edit_closing = false;
-  state->name_edit_swipe = EdgeBackSwipeState();
   lv_obj_delete(page);
 }
 
@@ -224,7 +221,6 @@ void CloseDeviceNameEditPage(SettingsViewState* state, bool animated) {
   state->name_edit_text_area = nullptr;
   state->name_edit_keyboard = nullptr;
   state->name_edit_closing = false;
-  state->name_edit_swipe = EdgeBackSwipeState();
   lv_obj_delete(page);
 }
 
@@ -243,9 +239,7 @@ void MyDeviceCloseCompletedCallback(lv_anim_t* animation) {
   state->detail_page = nullptr;
   state->device_name_value_label = nullptr;
   state->detail_closing = false;
-  state->detail_swipe = EdgeBackSwipeState();
   lv_obj_delete(detail_page);
-  RestoreSettingsListGestures(state);
 }
 
 /**
@@ -281,9 +275,7 @@ void CloseMyDevicePage(SettingsViewState* state, bool animated) {
   state->detail_page = nullptr;
   state->device_name_value_label = nullptr;
   state->detail_closing = false;
-  state->detail_swipe = EdgeBackSwipeState();
   lv_obj_delete(detail_page);
-  RestoreSettingsListGestures(state);
 }
 
 /**
@@ -297,46 +289,6 @@ void MyDeviceBackClickedEventCallback(lv_event_t* event) {
 
   CloseMyDevicePage(
       static_cast<SettingsViewState*>(lv_event_get_user_data(event)), true);
-}
-
-/**
- * @brief 处理我的设备详情页边缘返回
- * @param event LVGL 事件对象
- */
-void MyDeviceEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->detail_page == nullptr ||
-      state->detail_closing || state->name_edit_page != nullptr ||
-      state->name_edit_closing || state->firmware_update_page != nullptr ||
-      state->firmware_update_closing ||
-      state->factory_reset_page != nullptr ||
-      state->factory_reset_closing || state->config.screen == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, state->config.width,
-          &state->detail_swipe)) {
-    return;
-  }
-
-  CloseMyDevicePage(state, true);
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
-}
-
-/**
- * @brief 处理设备名称编辑页边缘返回手势
- * @param event LVGL 事件对象
- */
-void DeviceNameEditSwipeEventCallback(lv_event_t* event) {
-  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->name_edit_page == nullptr ||
-      state->name_edit_closing || state->config.screen == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, state->config.width,
-          &state->name_edit_swipe)) {
-    return;
-  }
-
-  CloseDeviceNameEditPage(state, true);
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
 }
 
 /**
@@ -444,7 +396,6 @@ void ClearFactoryResetPageReferences(SettingsViewState* state) {
   state->factory_reset_seconds_remaining = 0;
   state->factory_reset_closing = false;
   state->factory_reset_started = false;
-  state->factory_reset_swipe = EdgeBackSwipeState();
 }
 
 /**
@@ -566,25 +517,6 @@ void FactoryResetBackClickedEventCallback(lv_event_t* event) {
 
   CloseFactoryResetPage(
       static_cast<SettingsViewState*>(lv_event_get_user_data(event)), true);
-}
-
-/**
- * @brief 处理恢复出厂设置警告页边缘返回
- * @param event LVGL 事件对象
- */
-void FactoryResetEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->factory_reset_page == nullptr ||
-      state->factory_reset_closing || state->factory_reset_started ||
-      state->config.screen == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, state->config.width,
-          &state->factory_reset_swipe)) {
-    return;
-  }
-
-  CloseFactoryResetPage(state, true);
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
 }
 
 bool RestoreFactoryResetScreen(const AppViewConfig& config,
@@ -856,11 +788,9 @@ bool ShowFactoryResetPage(SettingsViewState* state) {
   state->factory_reset_seconds_remaining = kFactoryResetCountdownSeconds;
   state->factory_reset_closing = false;
   state->factory_reset_started = false;
-  state->factory_reset_swipe = EdgeBackSwipeState();
 
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  AddEdgeBackSwipeEvents(page, FactoryResetEdgeBackEventCallback, state);
   lv_obj_set_size(page, config.width, config.height);
   lv_obj_set_pos(page, 0, 0);
   lv_obj_set_style_bg_color(
@@ -885,9 +815,14 @@ bool ShowFactoryResetPage(SettingsViewState* state) {
     return false;
   }
 
-  EnableEdgeBackSwipeEventBubble(page);
   if (!StartSlideLeftWindowTransition(
           page, config.width, kDetailSlideAnimationMs, state, nullptr)) {
+    CloseFactoryResetPage(state, false);
+    return false;
+  }
+  if (!RegisterBackNavigationHandler(page, [state]() {
+        CloseFactoryResetPage(state, true);
+      })) {
     CloseFactoryResetPage(state, false);
     return false;
   }
@@ -1398,8 +1333,6 @@ bool ShowMyDevicePageInternal(SettingsViewState* state) {
     return true;
   }
   if (state->detail_page != nullptr) {
-    lv_obj_add_flag(state->root, kBlockLauncherGestureFlag);
-    lv_obj_remove_flag(state->root, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_move_to_index(state->detail_page, -1);
     return true;
   }
@@ -1411,13 +1344,9 @@ bool ShowMyDevicePageInternal(SettingsViewState* state) {
   }
   state->detail_page = page;
   state->detail_closing = false;
-  state->detail_swipe = EdgeBackSwipeState();
-  lv_obj_add_flag(state->root, kBlockLauncherGestureFlag);
-  lv_obj_remove_flag(state->root, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  AddEdgeBackSwipeEvents(page, MyDeviceEdgeBackEventCallback, state);
   lv_obj_set_size(page, config.width, config.height);
   lv_obj_set_pos(page, 0, 0);
   lv_obj_set_style_bg_color(
@@ -1445,7 +1374,6 @@ bool ShowMyDevicePageInternal(SettingsViewState* state) {
   lv_obj_add_flag(body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(body, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLL_ELASTIC);
-  AddEdgeBackSwipeEvents(body, MyDeviceEdgeBackEventCallback, state);
 
   app::CurrentDeviceInfoSnapshot device_info;
   if (!app::ReadCurrentDeviceInfoSnapshot(config.device_info, &device_info)) {
@@ -1465,9 +1393,14 @@ bool ShowMyDevicePageInternal(SettingsViewState* state) {
     return false;
   }
 
-  EnableEdgeBackSwipeEventBubble(page);
   if (!StartSlideLeftWindowTransition(
           page, config.width, kDetailSlideAnimationMs, state, nullptr)) {
+    CloseMyDevicePage(state, false);
+    return false;
+  }
+  if (!RegisterBackNavigationHandler(page, [state]() {
+        CloseMyDevicePage(state, true);
+      })) {
     CloseMyDevicePage(state, false);
     return false;
   }
@@ -1523,7 +1456,6 @@ bool CreateDeviceNameEditContent(
   }
   state->name_edit_text_area = text_area;
   lv_obj_add_flag(text_area, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  AddEdgeBackSwipeEvents(text_area, DeviceNameEditSwipeEventCallback, state);
   lv_obj_set_size(text_area, config.width - 2 * kNameEditTextAreaSide,
       kNameEditTextAreaHeight);
   lv_obj_align(text_area, LV_ALIGN_TOP_LEFT, kNameEditTextAreaSide,
@@ -1557,7 +1489,6 @@ bool CreateDeviceNameEditContent(
   }
   state->name_edit_keyboard = keyboard;
   lv_obj_add_flag(keyboard, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  AddEdgeBackSwipeEvents(keyboard, DeviceNameEditSwipeEventCallback, state);
 
   return AttachSharedKeyboardToTextArea(
       keyboard, text_area, kDeviceNameAcceptedChars);
@@ -1589,10 +1520,8 @@ bool ShowDeviceNameEditPage(SettingsViewState* state) {
   state->name_edit_page = page;
   state->name_edit_text_area = nullptr;
   state->name_edit_closing = false;
-  state->name_edit_swipe = EdgeBackSwipeState();
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  AddEdgeBackSwipeEvents(page, DeviceNameEditSwipeEventCallback, state);
   lv_obj_add_event_cb(
       page, DeviceNameEditKeyboardDismissEventCallback, LV_EVENT_CLICKED,
       state);
@@ -1611,9 +1540,14 @@ bool ShowDeviceNameEditPage(SettingsViewState* state) {
     return false;
   }
 
-  EnableEdgeBackSwipeEventBubble(page);
   if (!StartSlideLeftWindowTransition(
           page, config.width, kDetailSlideAnimationMs, state, nullptr)) {
+    CloseDeviceNameEditPage(state, false);
+    return false;
+  }
+  if (!RegisterBackNavigationHandler(page, [state]() {
+        CloseDeviceNameEditPage(state, true);
+      })) {
     CloseDeviceNameEditPage(state, false);
     return false;
   }

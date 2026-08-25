@@ -11,7 +11,6 @@
 #include <cstdint>
 
 #include "lvgl.h"
-#include "ui/input/edge_back_gesture.h"
 #include "ui/theme/theme_provider.h"
 
 namespace lilygo_box::ui {
@@ -37,8 +36,6 @@ struct PromptSelectSheetOptionAction {
 struct PromptSelectSheetState {
   lv_obj_t* overlay = nullptr;
   lv_obj_t* sheet = nullptr;
-  // 选择提示栏内部使用的边缘返回手势状态。
-  EdgeBackSwipeState edge_swipe = {};
   PromptSelectSheetOptionAction actions[kPromptSelectSheetMaxOptions] = {};
 };
 

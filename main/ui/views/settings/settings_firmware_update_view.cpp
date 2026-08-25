@@ -13,8 +13,6 @@
 
 #include "app/firmware_update_manager.h"
 #include "ui/animation/transition_animation.h"
-#include "ui/input/app_view_gesture_flags.h"
-#include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/widgets/brand_icon.h"
@@ -181,7 +179,6 @@ void ClearFirmwareUpdateReferences(SettingsViewState* state) {
   state->firmware_update_closing = false;
   state->firmware_update_page_index = 0;
   state->firmware_update_auto_show_new_page = false;
-  state->firmware_update_swipe = EdgeBackSwipeState();
 }
 
 /**
@@ -216,28 +213,6 @@ void FirmwareUpdateBackClickedEventCallback(lv_event_t* event) {
   }
 
   CloseFirmwareUpdatePage(state, true);
-}
-
-/**
- * @brief 处理固件更新页面边缘滑动返回事件
- * @param event LVGL 事件对象
- */
-void FirmwareUpdateEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
-  const bool install_choice_required =
-      GetFirmwareUpdateSnapshot().stage ==
-      app::FirmwareUpdateStage::kReadyToInstall;
-  if (state == nullptr || state->firmware_update_page == nullptr ||
-      state->firmware_update_closing || install_choice_required ||
-      state->config.screen == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, state->config.width,
-          &state->firmware_update_swipe)) {
-    return;
-  }
-
-  CloseFirmwareUpdatePage(state, true);
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
 }
 
 /**
@@ -1212,7 +1187,6 @@ bool CreateFirmwareUpdateBody(
   lv_obj_set_style_anim_duration(body, 120, LV_PART_MAIN);
   lv_obj_add_event_cb(body, FirmwareUpdatePageScrollEventCallback,
       LV_EVENT_SCROLL_END, state);
-  AddEdgeBackSwipeEvents(body, FirmwareUpdateEdgeBackEventCallback, state);
 
   const int content_width = FirmwareUpdateContentWidth(width);
   const int content_left = (width - content_width) / 2;
@@ -1437,7 +1411,6 @@ void ClearFirmwareUpdateLogReferences(SettingsViewState* state) {
   state->firmware_update_log_page = nullptr;
   state->firmware_update_log_body = nullptr;
   state->firmware_update_log_closing = false;
-  state->firmware_update_log_swipe = EdgeBackSwipeState();
 }
 
 /**
@@ -1483,23 +1456,6 @@ void FirmwareUpdateLogBackClickedEventCallback(lv_event_t* event) {
   }
   CloseFirmwareUpdateLogPage(
       static_cast<SettingsViewState*>(lv_event_get_user_data(event)), true);
-}
-
-/**
- * @brief 处理固件版本日志页面边缘返回手势
- * @param event LVGL 事件对象
- */
-void FirmwareUpdateLogEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->firmware_update_log_page == nullptr ||
-      state->firmware_update_log_closing || state->config.screen == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, state->config.width,
-          &state->firmware_update_log_swipe)) {
-    return;
-  }
-  CloseFirmwareUpdateLogPage(state, true);
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
 }
 
 /**
@@ -1706,7 +1662,6 @@ bool CreateFirmwareUpdateLogBody(lv_obj_t* page, SettingsViewState* state,
   lv_obj_add_flag(body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(body, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLL_ELASTIC);
-  AddEdgeBackSwipeEvents(body, FirmwareUpdateLogEdgeBackEventCallback, state);
 
   const app::FirmwareUpdateSnapshot snapshot =
       GetFirmwareUpdateSnapshot();
@@ -1738,10 +1693,8 @@ bool ShowFirmwareUpdateLogPage(SettingsViewState* state) {
   }
   state->firmware_update_log_page = page;
   state->firmware_update_log_closing = false;
-  state->firmware_update_log_swipe = EdgeBackSwipeState();
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  AddEdgeBackSwipeEvents(page, FirmwareUpdateLogEdgeBackEventCallback, state);
   lv_obj_set_size(page, config.width, config.height);
   lv_obj_set_pos(page, 0, 0);
   lv_obj_set_style_bg_color(
@@ -1759,9 +1712,14 @@ bool ShowFirmwareUpdateLogPage(SettingsViewState* state) {
     CloseFirmwareUpdateLogPage(state, false);
     return false;
   }
-  EnableEdgeBackSwipeEventBubble(page);
   if (!StartSlideLeftWindowTransition(
           page, config.width, kDetailSlideAnimationMs, state, nullptr)) {
+    CloseFirmwareUpdateLogPage(state, false);
+    return false;
+  }
+  if (!RegisterBackNavigationHandler(page, [state]() {
+        CloseFirmwareUpdateLogPage(state, true);
+      })) {
     CloseFirmwareUpdateLogPage(state, false);
     return false;
   }
@@ -1956,13 +1914,9 @@ bool ShowFirmwareUpdatePage(SettingsViewState* state) {
   }
   state->firmware_update_page = page;
   state->firmware_update_closing = false;
-  state->firmware_update_swipe = EdgeBackSwipeState();
-  lv_obj_add_flag(state->root, kBlockLauncherGestureFlag);
-  lv_obj_remove_flag(state->root, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  AddEdgeBackSwipeEvents(page, FirmwareUpdateEdgeBackEventCallback, state);
   lv_obj_set_size(page, config.width, config.height);
   lv_obj_set_pos(page, 0, 0);
   lv_obj_set_style_bg_color(
@@ -1982,7 +1936,6 @@ bool ShowFirmwareUpdatePage(SettingsViewState* state) {
     return false;
   }
 
-  EnableEdgeBackSwipeEventBubble(page);
   if (!StartSlideLeftWindowTransition(
           page, config.width, kDetailSlideAnimationMs, state, nullptr)) {
     CloseFirmwareUpdatePage(state, false);
@@ -1997,6 +1950,12 @@ bool ShowFirmwareUpdatePage(SettingsViewState* state) {
   state->firmware_update_auto_show_new_page =
       app::FirmwareUpdateManager::Instance().RequestCheck();
   RefreshFirmwareUpdateView(state);
+  if (!RegisterBackNavigationHandler(page, [state]() {
+        CloseFirmwareUpdatePage(state, true);
+      })) {
+    CloseFirmwareUpdatePage(state, false);
+    return false;
+  }
   return true;
 }
 

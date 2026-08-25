@@ -9,7 +9,7 @@
 
 #include <algorithm>
 
-#include "ui/input/edge_back_gesture.h"
+#include "ui/input/back_navigation_controller.h"
 #include "ui/input/press_cancel.h"
 #include "ui/widgets/prompt/prompt_sheet.h"
 
@@ -28,27 +28,7 @@ void ClosePromptSelectSheetImmediately(PromptSelectSheetState* state) {
   lv_obj_t* overlay = state->overlay;
   state->overlay = nullptr;
   state->sheet = nullptr;
-  state->edge_swipe = EdgeBackSwipeState();
   lv_obj_delete(overlay);
-}
-
-/**
- * @brief 处理选择提示栏的边缘返回手势
- * @param event LVGL 事件对象
- */
-void PromptSelectEdgeBackEventCallback(lv_event_t* event) {
-  auto* state =
-      static_cast<PromptSelectSheetState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->overlay == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, lv_obj_get_width(state->overlay),
-          &state->edge_swipe)) {
-    return;
-  }
-
-  ClosePromptSelectSheet(state);
-  state->edge_swipe = EdgeBackSwipeState();
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
 }
 
 /**
@@ -216,7 +196,6 @@ void ClosePromptSelectSheet(PromptSelectSheetState* state) {
   lv_obj_t* sheet = state->sheet;
   state->overlay = nullptr;
   state->sheet = nullptr;
-  state->edge_swipe = EdgeBackSwipeState();
   if (!AnimatePromptSheetOut(overlay, sheet, 160)) {
     lv_obj_delete(overlay);
   }
@@ -261,10 +240,14 @@ bool ShowPromptSelectSheet(
     return false;
   }
   config.state->overlay = overlay;
+  if (!RegisterBackNavigationHandler(overlay, [state = config.state]() {
+        ClosePromptSelectSheet(state);
+      })) {
+    ClosePromptSelectSheetImmediately(config.state);
+    return false;
+  }
   lv_obj_add_event_cb(overlay, PromptSelectOverlayClickedEventCallback,
       LV_EVENT_CLICKED, config.state);
-  AddEdgeBackSwipeEvents(overlay, PromptSelectEdgeBackEventCallback,
-      config.state);
 
   lv_obj_t* sheet = CreatePromptSheet(overlay, sheet_config);
   if (sheet == nullptr) {
@@ -274,8 +257,6 @@ bool ShowPromptSelectSheet(
   config.state->sheet = sheet;
   lv_obj_add_event_cb(sheet, PromptSelectSheetClickedEventCallback,
       LV_EVENT_CLICKED, config.state);
-  AddEdgeBackSwipeEvents(sheet, PromptSelectEdgeBackEventCallback,
-      config.state);
 
   lv_obj_t* title = CreatePromptSheetLabel(sheet, config.title,
       config.primary_text_color, config.title_font);
@@ -349,7 +330,6 @@ bool ShowPromptSelectSheet(
   }
 
   AnimatePromptSheetIn(sheet, sheet_config, config.animation_ms);
-  EnableEdgeBackSwipeEventBubble(overlay);
   return true;
 }
 

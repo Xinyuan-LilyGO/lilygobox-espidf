@@ -18,8 +18,6 @@
 #include "hal/providers/screen_provider.h"
 #include "ui/animation/transition_animation.h"
 #include "ui/resources/fonts/icon_assets.h"
-#include "ui/input/app_view_gesture_flags.h"
-#include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"
 #include "ui/views/settings/settings_basic_view_common.h"
 #include "ui/widgets/prompt/prompt_sheet.h"
@@ -309,14 +307,12 @@ void WifiCloseCompletedCallback(lv_anim_t* animation) {
   state->wifi_connected_signal_icon = nullptr;
   state->wifi_refresh_icon = nullptr;
   state->wifi_closing = false;
-  state->wifi_swipe = EdgeBackSwipeState();
   if (state->wifi_refresh_timer != nullptr) {
     lv_timer_delete(state->wifi_refresh_timer);
     state->wifi_refresh_timer = nullptr;
   }
   lv_obj_delete(page);
   UpdateSettingsWifiValue(state);
-  RestoreSettingsListGestures(state);
 }
 
 void CloseWifiPage(SettingsViewState* state, bool animated) {
@@ -356,14 +352,12 @@ void CloseWifiPage(SettingsViewState* state, bool animated) {
   state->wifi_connected_signal_icon = nullptr;
   state->wifi_refresh_icon = nullptr;
   state->wifi_closing = false;
-  state->wifi_swipe = EdgeBackSwipeState();
   if (state->wifi_refresh_timer != nullptr) {
     lv_timer_delete(state->wifi_refresh_timer);
     state->wifi_refresh_timer = nullptr;
   }
   lv_obj_delete(page);
   UpdateSettingsWifiValue(state);
-  RestoreSettingsListGestures(state);
 }
 
 /**
@@ -377,24 +371,6 @@ void WifiBackClickedEventCallback(lv_event_t* event) {
 
   CloseWifiPage(
       static_cast<SettingsViewState*>(lv_event_get_user_data(event)), true);
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
-}
-
-/**
- * @brief 处理 WLAN 页面边缘返回手势
- * @param event LVGL 事件对象
- */
-void WifiEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->wifi_page == nullptr ||
-      state->wifi_closing || state->config.screen == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, state->config.width,
-          &state->wifi_swipe)) {
-    return;
-  }
-
-  CloseWifiPage(state, true);
   lv_event_stop_bubbling(event);
   lv_event_stop_processing(event);
 }
@@ -418,7 +394,6 @@ void SyncWifiSubPageTop(SettingsViewState* state) {
     }
   }
   state->wifi_sub_closing = false;
-  state->wifi_sub_swipe = EdgeBackSwipeState();
 }
 
 /**
@@ -539,25 +514,6 @@ void CloseWifiModal(SettingsViewState* state) {
   }
 }
 
-/**
- * @brief 处理 WLAN 连接底部弹窗的边缘返回手势
- * @param event LVGL 事件对象
- */
-void WifiModalEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->wifi_modal_overlay == nullptr ||
-      state->config.screen == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, state->config.width,
-          &state->wifi_swipe)) {
-    return;
-  }
-
-  CloseWifiModal(state);
-  state->wifi_swipe = EdgeBackSwipeState();
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
-}
-
 void ResetWifiConnectionState(SettingsViewState* state) {
   if (state == nullptr) {
     return;
@@ -578,24 +534,6 @@ void WifiSubBackClickedEventCallback(lv_event_t* event) {
   }
   CloseWifiSubPage(
       static_cast<SettingsViewState*>(lv_event_get_user_data(event)), true);
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
-}
-
-/**
- * @brief 处理 WLAN 子页面边缘返回手势
- * @param event LVGL 事件对象
- */
-void WifiSubEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->wifi_sub_page == nullptr ||
-      state->wifi_sub_closing || state->config.screen == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, state->config.width,
-          &state->wifi_sub_swipe)) {
-    return;
-  }
-
-  CloseWifiSubPage(state, true);
   lv_event_stop_bubbling(event);
   lv_event_stop_processing(event);
 }
@@ -1883,11 +1821,6 @@ bool CreateWifiOptionRow(lv_obj_t* parent, SettingsViewState* state,
   if (!AddPressCancelOnLeave(row)) {
     return false;
   }
-  AddEdgeBackSwipeEvents(row,
-      state != nullptr && state->wifi_sub_page != nullptr
-          ? WifiSubEdgeBackEventCallback
-          : WifiEdgeBackEventCallback,
-      state);
   if (std::strcmp(text, "Advanced settings") == 0) {
     lv_obj_add_event_cb(row, WifiAdvancedClickedEventCallback,
         LV_EVENT_CLICKED, state);
@@ -1969,7 +1902,6 @@ bool CreateWifiConnectedCard(lv_obj_t* parent, SettingsViewState* state,
     lv_obj_add_event_cb(card, WifiConnectionCardRetryClickedEventCallback,
         LV_EVENT_CLICKED, state);
   }
-  AddEdgeBackSwipeEvents(card, WifiEdgeBackEventCallback, state);
 
   lv_obj_t* wifi_icon = CreateLabel(card, WifiSignalIconForRssi(rssi),
       lv_color_hex(text_color), MaterialIconFont32());
@@ -2082,11 +2014,6 @@ bool CreateWifiNetworkRow(lv_obj_t* parent, SettingsViewState* state,
   if (!AddPressCancelOnLeave(row)) {
     return false;
   }
-  AddEdgeBackSwipeEvents(row,
-      state != nullptr && state->wifi_sub_page != nullptr
-          ? WifiSubEdgeBackEventCallback
-          : WifiEdgeBackEventCallback,
-      state);
   WifiNetworkAction* action =
       ReserveWifiNetworkAction(state, ssid, secure, show_tag, rssi, password,
           saved);
@@ -2166,7 +2093,6 @@ bool CreateWifiSavedManageRow(
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
-  AddEdgeBackSwipeEvents(row, WifiSubEdgeBackEventCallback, state);
 
   lv_obj_t* name =
       CreateLabel(row, ssid, lv_color_hex(kPrimaryTextColor), Font32());
@@ -2200,7 +2126,6 @@ bool CreateWifiSavedManageRow(
   if (!AddPressCancelOnLeave(button)) {
     return false;
   }
-  AddEdgeBackSwipeEvents(button, WifiSubEdgeBackEventCallback, state);
   WifiNetworkAction* action = ReserveWifiSavedDeleteAction(state, ssid);
   if (action != nullptr) {
     lv_obj_add_event_cb(button, WifiSavedNetworkDeleteClickedEventCallback,
@@ -2234,7 +2159,6 @@ bool CreateWifiRefreshButton(
   lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
   lv_obj_add_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(button, 54, 54);
-  AddEdgeBackSwipeEvents(button, WifiEdgeBackEventCallback, state);
   lv_obj_add_event_cb(button, WifiRefreshButtonClickedEventCallback,
       LV_EVENT_CLICKED, state);
   lv_obj_set_pos(button, width - kWifiSidePadding - 54, y);
@@ -2378,7 +2302,6 @@ lv_obj_t* CreateWifiSubBody(lv_obj_t* page, SettingsViewState* state) {
   lv_obj_add_flag(body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(body, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLL_ELASTIC);
-  AddEdgeBackSwipeEvents(body, WifiSubEdgeBackEventCallback, state);
   return body;
 }
 
@@ -2408,10 +2331,8 @@ bool ShowWifiSubPage(SettingsViewState* state, const char* title,
   ++state->wifi_sub_page_count;
   state->wifi_sub_page = page;
   state->wifi_sub_closing = false;
-  state->wifi_sub_swipe = EdgeBackSwipeState();
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  AddEdgeBackSwipeEvents(page, WifiSubEdgeBackEventCallback, state);
   lv_obj_set_size(page, state->config.width, state->config.height);
   lv_obj_set_pos(page, 0, 0);
   lv_obj_set_style_bg_color(page, lv_color_hex(kBackgroundColor),
@@ -2431,9 +2352,14 @@ bool ShowWifiSubPage(SettingsViewState* state, const char* title,
     return false;
   }
 
-  EnableEdgeBackSwipeEventBubble(page);
   if (!StartSlideLeftWindowTransition(page, state->config.width,
           kDetailSlideAnimationMs, state, nullptr)) {
+    CloseWifiSubPage(state, false);
+    return false;
+  }
+  if (!RegisterBackNavigationHandler(page, [state]() {
+        CloseWifiSubPage(state, true);
+      })) {
     CloseWifiSubPage(state, false);
     return false;
   }
@@ -2873,7 +2799,15 @@ bool ShowWifiConnectSheet(SettingsViewState* state,
   state->wifi_modal_overlay = overlay;
   lv_obj_add_event_cb(overlay, WifiModalCancelClickedEventCallback,
       LV_EVENT_CLICKED, state);
-  AddEdgeBackSwipeEvents(overlay, WifiModalEdgeBackEventCallback, state);
+  if (!RegisterBackNavigationHandler(overlay, [state]() {
+        if (state != nullptr) {
+          state->wifi_connection_retry_ready = false;
+        }
+        CloseWifiModal(state);
+      })) {
+    CloseWifiModalImmediately(state);
+    return false;
+  }
 
   lv_obj_t* sheet = CreatePromptSheet(overlay, sheet_config);
   if (sheet == nullptr) {
@@ -2883,7 +2817,6 @@ bool ShowWifiConnectSheet(SettingsViewState* state,
   state->wifi_modal_sheet = sheet;
   lv_obj_add_event_cb(sheet, WifiModalContentClickedEventCallback,
       LV_EVENT_CLICKED, state);
-  AddEdgeBackSwipeEvents(sheet, WifiModalEdgeBackEventCallback, state);
 
   lv_obj_t* title = CreateLabel(sheet, action.ssid,
       lv_color_hex(kPrimaryTextColor), Font32());
@@ -2936,7 +2869,6 @@ bool ShowWifiConnectSheet(SettingsViewState* state,
     lv_textarea_set_text(text_area, "");
     ApplySettingsTextAreaStyle(
         text_area, Font28(), kWifiPasswordInputHeight);
-    AddEdgeBackSwipeEvents(text_area, WifiModalEdgeBackEventCallback, state);
 
     SharedKeyboardConfig keyboard_config;
     keyboard_config.width = state->config.width;
@@ -2951,7 +2883,6 @@ bool ShowWifiConnectSheet(SettingsViewState* state,
     lv_obj_add_flag(keyboard, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_add_event_cb(keyboard, WifiModalContentClickedEventCallback,
         LV_EVENT_CLICKED, state);
-    AddEdgeBackSwipeEvents(keyboard, WifiModalEdgeBackEventCallback, state);
     lv_obj_add_event_cb(text_area, WifiPasswordTextAreaEventCallback,
         LV_EVENT_ALL, state);
     if (!AttachSharedKeyboardToTextArea(
@@ -2990,7 +2921,6 @@ bool ShowWifiConnectSheet(SettingsViewState* state,
   UpdateWifiConnectButtonState(state);
 
   AnimatePromptSheetIn(sheet, sheet_config, kDetailSlideAnimationMs);
-  EnableEdgeBackSwipeEventBubble(overlay);
   return true;
 }
 
@@ -3028,7 +2958,12 @@ bool ShowWifiDeleteNetworkSheet(SettingsViewState* state, const char* ssid,
   state->wifi_modal_overlay = overlay;
   lv_obj_add_event_cb(overlay, WifiModalCancelClickedEventCallback,
       LV_EVENT_CLICKED, state);
-  AddEdgeBackSwipeEvents(overlay, WifiModalEdgeBackEventCallback, state);
+  if (!RegisterBackNavigationHandler(overlay, [state]() {
+        CloseWifiModal(state);
+      })) {
+    CloseWifiModalImmediately(state);
+    return false;
+  }
 
   lv_obj_t* sheet = CreatePromptSheet(overlay, sheet_config);
   if (sheet == nullptr) {
@@ -3038,7 +2973,6 @@ bool ShowWifiDeleteNetworkSheet(SettingsViewState* state, const char* ssid,
   state->wifi_modal_sheet = sheet;
   lv_obj_add_event_cb(sheet, WifiModalContentClickedEventCallback,
       LV_EVENT_CLICKED, state);
-  AddEdgeBackSwipeEvents(sheet, WifiModalEdgeBackEventCallback, state);
 
   lv_obj_t* title = CreatePromptSheetLabel(sheet, "Delete network",
       kPrimaryTextColor, Font32());
@@ -3081,7 +3015,6 @@ bool ShowWifiDeleteNetworkSheet(SettingsViewState* state, const char* ssid,
   }
 
   AnimatePromptSheetIn(sheet, sheet_config, kDetailSlideAnimationMs);
-  EnableEdgeBackSwipeEventBubble(overlay);
   return true;
 }
 
@@ -3375,8 +3308,6 @@ bool ShowWifiPageInternal(SettingsViewState* state) {
     return true;
   }
   if (state->wifi_page != nullptr) {
-    lv_obj_add_flag(state->root, kBlockLauncherGestureFlag);
-    lv_obj_remove_flag(state->root, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_move_to_index(state->wifi_page, -1);
     return true;
   }
@@ -3396,7 +3327,6 @@ bool ShowWifiPageInternal(SettingsViewState* state) {
   state->wifi_connected_signal_icon = nullptr;
   state->wifi_refresh_icon = nullptr;
   state->wifi_closing = false;
-  state->wifi_swipe = EdgeBackSwipeState();
   state->wifi_action_count = 0;
   state->wifi_saved_delete_action_count = 0;
   state->wifi_refresh_key = 0;
@@ -3407,12 +3337,9 @@ bool ShowWifiPageInternal(SettingsViewState* state) {
   if (state->wifi_enabled_requested) {
     RequestWifiScan(state, true);
   }
-  lv_obj_add_flag(state->root, kBlockLauncherGestureFlag);
-  lv_obj_remove_flag(state->root, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  AddEdgeBackSwipeEvents(page, WifiEdgeBackEventCallback, state);
   lv_obj_set_size(page, config.width, config.height);
   lv_obj_set_pos(page, 0, 0);
   lv_obj_set_style_bg_color(page, lv_color_hex(kBackgroundColor),
@@ -3440,7 +3367,6 @@ bool ShowWifiPageInternal(SettingsViewState* state) {
   lv_obj_add_flag(body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(body, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLL_ELASTIC);
-  AddEdgeBackSwipeEvents(body, WifiEdgeBackEventCallback, state);
   state->wifi_body = body;
 
   if (!CreateWifiPageContent(body, state, config)) {
@@ -3454,9 +3380,14 @@ bool ShowWifiPageInternal(SettingsViewState* state) {
     return false;
   }
 
-  EnableEdgeBackSwipeEventBubble(page);
   if (!StartSlideLeftWindowTransition(
           page, config.width, kDetailSlideAnimationMs, state, nullptr)) {
+    CloseWifiPage(state, false);
+    return false;
+  }
+  if (!RegisterBackNavigationHandler(page, [state]() {
+        CloseWifiPage(state, true);
+      })) {
     CloseWifiPage(state, false);
     return false;
   }

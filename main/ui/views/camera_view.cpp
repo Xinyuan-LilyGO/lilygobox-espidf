@@ -31,8 +31,8 @@ constexpr uint32_t kBackgroundColor = 0x000000;
 constexpr uint32_t kPrimaryTextColor = 0xFFFFFF;
 constexpr uint32_t kSecondaryTextColor = 0xBDBDBD;
 constexpr uint32_t kActionColor = theme::LightNeutralTheme().action;
-constexpr int kScanningGroupOffsetY = 0;
-constexpr int kErrorGroupOffsetY = 0;
+constexpr int kPortraitPromptGroupOffsetY = -176;
+constexpr int kLandscapePromptGroupOffsetY = 0;
 
 enum class CameraContentState : uint8_t {
   kScanning,
@@ -90,13 +90,14 @@ void RetryCameraClickedEventCallback(lv_event_t* event);
  * @brief 定位摄像头页面状态提示
  * @param state 摄像头页面状态
  * @param group 状态提示容器
- * @param offset_y 垂直偏移
  */
-void PositionCameraPromptStatus(
-    CameraViewState* state, lv_obj_t* group, int offset_y) {
+void PositionCameraPromptStatus(CameraViewState* state, lv_obj_t* group) {
   if (state == nullptr || group == nullptr) {
     return;
   }
+  const int offset_y = state->height > state->width
+                           ? kPortraitPromptGroupOffsetY
+                           : kLandscapePromptGroupOffsetY;
   const int height = lv_obj_get_height(group);
   const int centered_top = (state->height - height) / 2 + offset_y;
   const int maximum_top = std::max(0, state->height - height);
@@ -152,7 +153,7 @@ void RenderCameraScanning(CameraViewState* state) {
   config.message_color = kSecondaryTextColor;
   config.message_top = 138;
   lv_obj_t* group = CreatePromptStatus(state->status_layer, config);
-  PositionCameraPromptStatus(state, group, kScanningGroupOffsetY);
+  PositionCameraPromptStatus(state, group);
 }
 
 /**
@@ -202,7 +203,7 @@ void RenderCameraError(CameraViewState* state, CameraError error) {
   config.button_callback = RetryCameraClickedEventCallback;
   config.button_user_data = state;
   lv_obj_t* group = CreatePromptStatus(state->status_layer, config);
-  PositionCameraPromptStatus(state, group, kErrorGroupOffsetY);
+  PositionCameraPromptStatus(state, group);
 }
 
 /**

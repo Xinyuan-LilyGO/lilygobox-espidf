@@ -23,6 +23,7 @@ struct TouchPoint {
   int16_t x = 0;
   int16_t y = 0;
   uint8_t pressure = 0;
+  // 触摸控制器报告了边缘触摸，但当前样本可能尚无有效坐标。
   bool edge_touch_flag = false;
   TouchGesture gesture = TouchGesture::kNone;
 };
@@ -93,6 +94,16 @@ class ScreenProvider {
    */
   virtual bool ReadScreenTouchPoints(
       TouchPoint* points, size_t max_points, size_t* point_count);
+
+  /**
+   * @brief 判断当前显示旋转方向是否可使用硬件边缘触摸提示
+   * @param display_rotation_angle 显示旋转角度，须为 0/90/180/270
+   * @return 硬件提示经过设备验证且适用于当前方向时返回 true
+   */
+  virtual bool SupportsHardwareEdgeTouchHint(
+      int /*display_rotation_angle*/) const {
+    return false;
+  }
 
   /**
    * @brief 判断当前设备是否提供触摸报告中断通知

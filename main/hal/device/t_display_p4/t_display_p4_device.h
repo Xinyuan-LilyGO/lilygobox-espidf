@@ -288,6 +288,14 @@ class TDisplayP4Device final : public ScreenProvider,
       TouchPoint* points, size_t max_points, size_t* point_count) override;
 
   /**
+   * @brief 判断当前旋转方向是否可使用触摸控制器的硬件边缘提示
+   * @param display_rotation_angle 显示旋转角度
+   * @return 当前屏幕和方向支持硬件提示时返回 true
+   */
+  bool SupportsHardwareEdgeTouchHint(
+      int display_rotation_angle) const override;
+
+  /**
    * @brief 判断是否已启用板载触摸中断通知
    * @return 触摸中断可用返回 true，否则返回 false
    */

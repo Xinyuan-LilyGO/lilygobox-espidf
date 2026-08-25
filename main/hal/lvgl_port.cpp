@@ -2,7 +2,7 @@
  * @Description: LVGL 显示刷新、触摸读取与任务循环实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-17 17:57:58
+ * @LastEditTime: 2026-08-24 09:50:51
  * @License: GPL 3.0
  */
 #include "hal/lvgl_port.h"
@@ -23,6 +23,7 @@ namespace lilygo_box::hal {
 namespace {
 
 constexpr uint16_t kKeyboardRepeatIntervalMs = 50;
+constexpr int64_t kHardwareEdgeHintLifetimeMs = 200;
 
 /**
  * @brief 判断触摸点坐标是否落在当前屏幕有效范围内。
@@ -47,6 +48,24 @@ ppa_srm_rotation_angle_t ToPpaRotation(lv_display_rotation_t rotation) {
       return PPA_SRM_ROTATION_ANGLE_270;
     default:
       return PPA_SRM_ROTATION_ANGLE_0;
+  }
+}
+
+/**
+ * @brief 将 LVGL 显示旋转枚举转换为角度
+ * @param rotation LVGL 显示旋转枚举
+ * @return 对应的 0、90、180 或 270 度角度值
+ */
+int DisplayRotationAngle(lv_display_rotation_t rotation) {
+  switch (rotation) {
+    case LV_DISPLAY_ROTATION_90:
+      return 90;
+    case LV_DISPLAY_ROTATION_180:
+      return 180;
+    case LV_DISPLAY_ROTATION_270:
+      return 270;
+    default:
+      return 0;
   }
 }
 
@@ -179,6 +198,15 @@ void LvglPort::SetKeyboardInputEventCallback(
   keyboard_input_event_callback_ = std::move(callback);
 }
 
+/**
+ * @brief 设置 LVGL 控件处理前的已旋转指针输入拦截器
+ * @param interceptor 指针输入拦截器，空回调表示停止拦截
+ */
+void LvglPort::SetPointerInputInterceptor(
+    PointerInputInterceptor interceptor) {
+  pointer_input_interceptor_ = std::move(interceptor);
+}
+
 bool LvglPort::ConsumeKeyboardInputActivity() {
   return keyboard_input_activity_pending_.exchange(false);
 }
@@ -190,22 +218,13 @@ bool LvglPort::IsKeyboardInputAllowedWhileBlocked() const {
       sleep_input_block_count_.load(std::memory_order_acquire) == 0;
 }
 
-bool LvglPort::ActiveInputEdgeTouch() {
-  lv_indev_t* indev = lv_indev_active();
-  if (indev == nullptr) {
-    return false;
-  }
-
-  auto* self = static_cast<LvglPort*>(lv_indev_get_user_data(indev));
-  return self != nullptr && self->active_edge_touch_flag_;
-}
-
 void LvglPort::SetInputBlocked(bool blocked, bool allow_keyboard_input) {
   keyboard_input_allowed_while_blocked_.store(
       blocked && allow_keyboard_input);
   input_blocked_.store(blocked);
   active_edge_touch_flag_ = false;
   pending_edge_touch_flag_ = false;
+  pending_edge_touch_time_ms_ = 0;
   has_last_touch_point_ = false;
   portENTER_CRITICAL(&touch_cache_lock_);
   cached_touch_point_count_ = 0;
@@ -224,6 +243,7 @@ void LvglPort::SetTouchReadMode(TouchReadMode mode) {
 
   active_edge_touch_flag_ = false;
   pending_edge_touch_flag_ = false;
+  pending_edge_touch_time_ms_ = 0;
   has_last_touch_point_ = false;
   portENTER_CRITICAL(&touch_cache_lock_);
   cached_touch_point_count_ = 0;
@@ -252,10 +272,6 @@ bool LvglPort::ReadTouch(TouchPoint* point, bool* access_available) {
     *point = cached_touch_points_[0];
   }
   portEXIT_CRITICAL(&touch_cache_lock_);
-  if (touched) {
-    point->edge_touch_flag =
-        active_edge_touch_flag_.load(std::memory_order_acquire);
-  }
   return touched;
 }
 
@@ -314,6 +330,7 @@ void LvglPort::AcquireSleepInputBlock() {
   sleep_input_block_count_.fetch_add(1, std::memory_order_acq_rel);
   active_edge_touch_flag_ = false;
   pending_edge_touch_flag_ = false;
+  pending_edge_touch_time_ms_ = 0;
   has_last_touch_point_ = false;
   portENTER_CRITICAL(&touch_cache_lock_);
   cached_touch_point_count_ = 0;
@@ -551,15 +568,26 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
     return;
   }
 
+  const int64_t now_ms = esp_timer_get_time() / 1000;
+  const int64_t pending_edge_time_ms =
+      self->pending_edge_touch_time_ms_.load(std::memory_order_acquire);
+  if (pending_edge_time_ms > 0 &&
+      now_ms - pending_edge_time_ms > kHardwareEdgeHintLifetimeMs) {
+    self->pending_edge_touch_flag_ = false;
+    self->pending_edge_touch_time_ms_ = 0;
+  }
+
   if (self->input_blocked_.load() ||
       self->sleep_input_block_count_.load(std::memory_order_acquire) > 0) {
     self->active_edge_touch_flag_ = false;
     self->pending_edge_touch_flag_ = false;
+    self->pending_edge_touch_time_ms_ = 0;
     self->has_last_touch_point_ = false;
     portENTER_CRITICAL(&self->touch_cache_lock_);
     self->cached_touch_point_count_ = 0;
     portEXIT_CRITICAL(&self->touch_cache_lock_);
     data->state = LV_INDEV_STATE_REL;
+    NotifyPointerInput(self, data);
     return;
   }
 
@@ -578,10 +606,7 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
       for (size_t i = 0; i < sampled_point_count; ++i) {
         const TouchPoint& sampled_point = sampled_points[i];
         edge_touch = edge_touch || sampled_point.edge_touch_flag;
-        const bool edge_only_point =
-            sampled_point.id == 0 && sampled_point.edge_touch_flag;
-        if (edge_only_point ||
-            !IsValidTouchPoint(sampled_point, self->screen_->ScreenWidth(),
+        if (!IsValidTouchPoint(sampled_point, self->screen_->ScreenWidth(),
                 self->screen_->ScreenHeight())) {
           continue;
         }
@@ -593,10 +618,8 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
       point.edge_touch_flag = point.edge_touch_flag || edge_touch;
       result = true;
     } else if (edge_touch) {
-      point.id = 0;
       point.x = -1;
       point.y = -1;
-      point.pressure = 0;
       point.edge_touch_flag = true;
       result = true;
     } else {
@@ -607,11 +630,13 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
     if (self->IsInputBlocked() || self->IsDisplayFlushPaused()) {
       self->active_edge_touch_flag_ = false;
       self->pending_edge_touch_flag_ = false;
+      self->pending_edge_touch_time_ms_ = 0;
       self->has_last_touch_point_ = false;
       portENTER_CRITICAL(&self->touch_cache_lock_);
       self->cached_touch_point_count_ = 0;
       portEXIT_CRITICAL(&self->touch_cache_lock_);
       data->state = LV_INDEV_STATE_REL;
+      NotifyPointerInput(self, data);
       return;
     }
     if (self->has_last_touch_point_.load(std::memory_order_acquire)) {
@@ -620,6 +645,7 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
     } else {
       data->state = LV_INDEV_STATE_REL;
     }
+    NotifyPointerInput(self, data);
     return;
   }
 
@@ -638,8 +664,10 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
   if (!input_available) {
     self->active_edge_touch_flag_ = false;
     self->pending_edge_touch_flag_ = false;
+    self->pending_edge_touch_time_ms_ = 0;
     self->has_last_touch_point_ = false;
     data->state = LV_INDEV_STATE_REL;
+    NotifyPointerInput(self, data);
     return;
   }
 
@@ -647,25 +675,27 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
     const bool valid_point = IsValidTouchPoint(
         point, self->screen_->ScreenWidth(), self->screen_->ScreenHeight());
     if (!valid_point) {
+      self->active_edge_touch_flag_ = false;
       if (point.edge_touch_flag) {
         self->pending_edge_touch_flag_ = true;
+        self->pending_edge_touch_time_ms_ = now_ms;
       }
-      if (!self->has_last_touch_point_) {
+      if (self->has_last_touch_point_.load(std::memory_order_acquire)) {
+        self->active_edge_touch_flag_ = point.edge_touch_flag ||
+            self->pending_edge_touch_flag_.load(std::memory_order_acquire);
+        data->state = LV_INDEV_STATE_PR;
+        data->point = self->last_touch_point_;
+      } else {
         data->state = LV_INDEV_STATE_REL;
-        return;
       }
-
-      self->active_edge_touch_flag_ = self->active_edge_touch_flag_ ||
-                                      self->pending_edge_touch_flag_ ||
-                                      point.edge_touch_flag;
-      data->state = LV_INDEV_STATE_PR;
-      data->point = self->last_touch_point_;
+      NotifyPointerInput(self, data);
       return;
     }
 
-    self->active_edge_touch_flag_ =
-        point.edge_touch_flag || self->pending_edge_touch_flag_;
-    self->pending_edge_touch_flag_ = false;
+    self->active_edge_touch_flag_ = point.edge_touch_flag ||
+        self->pending_edge_touch_flag_.exchange(
+            false, std::memory_order_acq_rel);
+    self->pending_edge_touch_time_ms_ = 0;
     self->last_touch_point_.x = point.x;
     self->last_touch_point_.y = point.y;
     self->has_last_touch_point_.store(true, std::memory_order_release);
@@ -673,13 +703,53 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
     data->state = LV_INDEV_STATE_PR;
     data->point.x = point.x;
     data->point.y = point.y;
+    NotifyPointerInput(self, data);
     return;
   }
 
+  const bool had_last_touch =
+      self->has_last_touch_point_.load(std::memory_order_acquire);
+  if (had_last_touch) {
+    data->point = self->last_touch_point_;
+  }
   self->active_edge_touch_flag_ = false;
-  self->pending_edge_touch_flag_ = false;
-  self->has_last_touch_point_ = false;
+  if (had_last_touch) {
+    self->pending_edge_touch_flag_ = false;
+    self->pending_edge_touch_time_ms_ = 0;
+  }
   data->state = LV_INDEV_STATE_REL;
+  NotifyPointerInput(self, data);
+  self->has_last_touch_point_ = false;
+}
+
+/**
+ * @brief 将本次已旋转的指针输入转发给输入拦截器
+ * @param self LVGL 端口实例
+ * @param data 本次指针输入数据
+ */
+void LvglPort::NotifyPointerInput(
+    LvglPort* self, const lv_indev_data_t* data) {
+  if (self == nullptr || data == nullptr ||
+      !self->pointer_input_interceptor_) {
+    return;
+  }
+
+  lv_point_t point = {};
+  if (data->state == LV_INDEV_STATE_PRESSED) {
+    point = data->point;
+    lv_display_rotate_point(self->lvgl_display_, &point);
+  }
+  const int rotation_angle =
+      DisplayRotationAngle(lv_display_get_rotation(self->lvgl_display_));
+  const bool hardware_edge_hint =
+      self->active_edge_touch_flag_.load(std::memory_order_acquire) &&
+      self->screen_ != nullptr &&
+      self->screen_->SupportsHardwareEdgeTouchHint(rotation_angle);
+  if (self->pointer_input_interceptor_(
+          data->state, point, hardware_edge_hint) &&
+      self->input_device_ != nullptr) {
+    lv_indev_wait_release(self->input_device_);
+  }
 }
 
 uint32_t LvglPort::KeyboardEventToLvglKey(

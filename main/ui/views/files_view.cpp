@@ -24,10 +24,10 @@
 #include "esp_vfs_fat.h"
 #include "hal/providers/storage_provider.h"
 #include "ui/animation/transition_animation.h"
+#include "ui/input/back_navigation_controller.h"
+#include "ui/input/press_cancel.h"
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
-#include "ui/input/edge_back_gesture.h"
-#include "ui/input/press_cancel.h"
 #include "ui/theme/theme_provider.h"
 #include "ui/widgets/navigation_drawer.h"
 #include "ui/widgets/prompt/prompt_status.h"
@@ -82,7 +82,6 @@ struct FilesViewState {
   NavigationDrawerState drawer;
   lv_timer_t* storage_retry_timer = nullptr;
   lv_timer_t* storage_monitor_timer = nullptr;
-  EdgeBackSwipeState directory_swipe;
   std::string current_path;
   FolderPickerViewConfig picker_config;
   // 当前文件列表正在浏览的存储设备。
@@ -1070,7 +1069,6 @@ void RenderScanningContent(FilesViewState* state) {
   config.message_top = 138;
   lv_obj_t* group = CreatePromptStatus(state->content, config);
   PositionFilesStatusGroup(group, state, kScanningGroupOffsetY);
-  EnableEdgeBackSwipeEventBubble(state->content);
 }
 
 /**
@@ -1102,7 +1100,6 @@ void RenderNoStorageContent(FilesViewState* state) {
   config.button_user_data = state;
   lv_obj_t* group = CreatePromptStatus(state->content, config);
   PositionFilesStatusGroup(group, state, kNoStorageGroupOffsetY);
-  EnableEdgeBackSwipeEventBubble(state->content);
 }
 
 bool RenderDirectoryContent(FilesViewState* state, const std::string& path) {
@@ -1127,7 +1124,6 @@ bool RenderDirectoryContent(FilesViewState* state, const std::string& path) {
   if (!CreateStorageListContent(state->content, state, entries)) {
     return false;
   }
-  EnableEdgeBackSwipeEventBubble(state->content);
   return true;
 }
 
@@ -1387,52 +1383,6 @@ void StartStorageDiscovery(FilesViewState* state) {
       lv_timer_create(StorageRetryTimerCallback, kStorageRetryPeriodMs, state);
   if (state->storage_retry_timer == nullptr && IsSdCardSelected(state)) {
     RenderNoStorageContent(state);
-  }
-}
-
-/**
- * @brief 处理目录页面的边缘返回手势
- * @param event LVGL 事件对象
- */
-void DirectoryEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<FilesViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr) {
-    return;
-  }
-  if (state->folder_picker_mode) {
-    lv_event_stop_bubbling(event);
-    if (HandleEdgeBackSwipeEvent(event, state->config.width,
-                                 &state->directory_swipe)) {
-      const char* base_path_text = CurrentStorageBasePath(state);
-      if (base_path_text != nullptr && base_path_text[0] != '\0' &&
-          !state->current_path.empty() &&
-          state->current_path != base_path_text) {
-        RenderDirectoryContent(state,
-            ParentPath(state->current_path, base_path_text));
-      } else {
-        CloseFolderPicker(state);
-      }
-      lv_event_stop_processing(event);
-    }
-    return;
-  }
-  if (state->current_path.empty()) {
-    return;
-  }
-  const char* base_path_text = CurrentStorageBasePath(state);
-  if (base_path_text == nullptr || base_path_text[0] == '\0') {
-    return;
-  }
-  const std::string base_path(base_path_text);
-  if (state->current_path == base_path) {
-    return;
-  }
-
-  lv_event_stop_bubbling(event);
-  if (HandleEdgeBackSwipeEvent(event, state->config.width,
-                               &state->directory_swipe)) {
-    RenderDirectoryContent(state, ParentPath(state->current_path, base_path));
-    lv_event_stop_processing(event);
   }
 }
 
@@ -1950,7 +1900,6 @@ bool CreateHeader(lv_obj_t* parent, FilesViewState* state) {
       state->folder_picker_mode ? FolderPickerBackClickedEventCallback
                                 : MenuButtonClickedEventCallback,
       LV_EVENT_CLICKED, state);
-
   lv_obj_t* title =
       CreateLabel(parent, FilesHeaderTitle(state),
                   lv_color_hex(kPrimaryTextColor), Font36());
@@ -1970,6 +1919,30 @@ bool CreateHeader(lv_obj_t* parent, FilesViewState* state) {
     lv_label_set_long_mode(subtitle, LV_LABEL_LONG_DOT);
     lv_obj_align(subtitle, LV_ALIGN_TOP_LEFT, kHeaderTitleX, kHeaderTop + 43);
   }
+  return true;
+}
+
+/**
+ * @brief 处理文件页面当前层级的返回请求
+ * @param state 文件页面状态
+ * @return 已处理本次返回请求时返回 true，否则返回 false
+ */
+bool HandleFilesBackNavigation(FilesViewState* state) {
+  if (state == nullptr || state->root == nullptr) {
+    return false;
+  }
+  const char* base_path_text = CurrentStorageBasePath(state);
+  if (base_path_text != nullptr && base_path_text[0] != '\0') {
+    const std::string base_path(base_path_text);
+    if (!state->current_path.empty() && state->current_path != base_path) {
+      return RenderDirectoryContent(
+          state, ParentPath(state->current_path, base_path));
+    }
+  }
+  if (!state->folder_picker_mode) {
+    return false;
+  }
+  CloseFolderPicker(state);
   return true;
 }
 
@@ -2016,7 +1989,6 @@ lv_obj_t* CreateFilesViewInternal(lv_obj_t* parent,
   lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(root, LV_OBJ_FLAG_EVENT_BUBBLE);
   lv_obj_add_flag(root, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  AddEdgeBackSwipeEvents(root, DirectoryEdgeBackEventCallback, state);
   lv_obj_add_event_cb(
       root,
       [](lv_event_t* event) {
@@ -2056,6 +2028,12 @@ lv_obj_t* CreateFilesViewInternal(lv_obj_t* parent,
   lv_obj_set_pos(state->content, 0, 0);
 
   if (!CreateHeader(root, state)) {
+    lv_obj_delete(root);
+    return nullptr;
+  }
+  if (!RegisterConditionalBackNavigationHandler(root, [state]() {
+        return HandleFilesBackNavigation(state);
+      })) {
     lv_obj_delete(root);
     return nullptr;
   }

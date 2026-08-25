@@ -2,7 +2,7 @@
  * @Description: 可复用 LVGL 屏幕键盘布局与输入绑定实现
  * @Author: LILYGO_L
  * @Date: 2026-05-18 12:08:00
- * @LastEditTime: 2026-07-16 20:53:26
+ * @LastEditTime: 2026-08-24 09:21:47
  * @License: GPL 3.0
  */
 #include "ui/widgets/shared_keyboard.h"
@@ -363,6 +363,17 @@ void ConfigureSharedKeyboardMap(lv_obj_t* keyboard) {
 }
 
 /**
+ * @brief 将屏幕键盘按键统一改为松手时确认输入
+ * @param keyboard 键盘对象
+ */
+void EnableSharedKeyboardReleaseActivation(lv_obj_t* keyboard) {
+  if (keyboard != nullptr) {
+    lv_buttonmatrix_set_button_ctrl_all(
+        keyboard, LV_BUTTONMATRIX_CTRL_CLICK_TRIG);
+  }
+}
+
+/**
  * @brief 设置共享键盘的视觉样式
  * @param keyboard 键盘对象
  */
@@ -371,6 +382,8 @@ void ConfigureSharedKeyboardStyle(lv_obj_t* keyboard) {
       keyboard, lv_color_hex(kKeyboardBackgroundColor), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(keyboard, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(keyboard, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_left(keyboard, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_right(keyboard, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_row(keyboard, kKeyboardPadRow, LV_PART_MAIN);
   lv_obj_set_style_pad_column(keyboard, kKeyboardPadColumn, LV_PART_MAIN);
   lv_obj_set_style_text_font(keyboard, KeyboardFont(), LV_PART_MAIN);
@@ -425,6 +438,7 @@ void SharedKeyboardModeEventCallback(lv_event_t* event) {
       next_mode = LV_KEYBOARD_MODE_USER_4;
     }
     lv_keyboard_set_mode(keyboard, next_mode);
+    EnableSharedKeyboardReleaseActivation(keyboard);
     lv_event_stop_processing(event);
     return;
   }
@@ -436,9 +450,11 @@ void SharedKeyboardModeEventCallback(lv_event_t* event) {
   const lv_keyboard_mode_t mode = lv_keyboard_get_mode(keyboard);
   if (mode == LV_KEYBOARD_MODE_USER_1) {
     lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_USER_2);
+    EnableSharedKeyboardReleaseActivation(keyboard);
     lv_event_stop_processing(event);
   } else if (mode == LV_KEYBOARD_MODE_USER_2) {
     lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_USER_1);
+    EnableSharedKeyboardReleaseActivation(keyboard);
     lv_event_stop_processing(event);
   }
 }
@@ -647,6 +663,7 @@ lv_obj_t* CreateSharedKeyboard(
   lv_obj_align(keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
   lv_obj_add_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
   lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_USER_1);
+  EnableSharedKeyboardReleaseActivation(keyboard);
   const lv_event_code_t mode_event =
       static_cast<lv_event_code_t>(LV_EVENT_VALUE_CHANGED |
                                    LV_EVENT_PREPROCESS);

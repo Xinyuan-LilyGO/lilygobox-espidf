@@ -383,14 +383,26 @@ void FormatRadioIrqMask(uint16_t irq_mask, char* output, size_t output_size) {
       static_cast<unsigned>(irq_mask));
 }
 
-// 当前接收 SNTP 同步回调的设备实例
-std::atomic<TDisplayP4Device*> g_wifi_time_sync_owner{nullptr};
+/**
+ * @brief 获取当前接收 SNTP 时间同步回调的设备实例
+ * @return 保存回调目标设备的原子指针
+ */
+std::atomic<TDisplayP4Device*>& WifiTimeSyncOwner() {
+  static std::atomic<TDisplayP4Device*> owner{nullptr};
+  return owner;
+}
 
-void SetEdgeTouchPoint(TouchPoint* point) {
-  point->id = 0;
+/**
+ * @brief 将触摸点设置为仅包含硬件边缘提示的无坐标样本
+ * @param point 待设置的触摸点
+ */
+void SetHardwareEdgeTouchPoint(TouchPoint* point) {
+  if (point == nullptr) {
+    return;
+  }
+  *point = TouchPoint();
   point->x = -1;
   point->y = -1;
-  point->pressure = 0;
   point->edge_touch_flag = true;
 }
 
@@ -2359,7 +2371,7 @@ void TDisplayP4Device::StopWifiInternetCheck() {
   }
   esp_sntp_set_time_sync_notification_cb(nullptr);
   TDisplayP4Device* owner = this;
-  g_wifi_time_sync_owner.compare_exchange_strong(owner, nullptr);
+  WifiTimeSyncOwner().compare_exchange_strong(owner, nullptr);
   if (esp_sntp_enabled()) {
     esp_sntp_stop();
   }
@@ -2659,7 +2671,7 @@ bool TDisplayP4Device::ReadScreenTouch(TouchPoint* point) {
   }
 
   // 亮屏轮询也需要清除 XL9535 的汇总中断锁存，确保后续边沿可继续上报。
-  ConsumeTouchInterrupt();
+  const bool touch_interrupt_received = ConsumeTouchInterrupt();
 
   cpp_bus_driver::TouchFrame frame;
   cpp_bus_driver::TouchReadStatus read_status =
@@ -2683,14 +2695,24 @@ bool TDisplayP4Device::ReadScreenTouch(TouchPoint* point) {
     point->gesture = TouchGesture::kDoubleTap;
     return true;
   }
+  // GT9895 在物理左右边缘可能先产生硬件中断而暂不提供有效坐标。
+  // 该中断只作为应用层边缘手势候选提示，不能单独触发返回操作。
+  const bool hardware_edge_hint = frame.edge_touch ||
+      (driver_.screen_type() == device::ScreenType::kRm69a10 &&
+          touch_interrupt_received);
   if (read_status != cpp_bus_driver::TouchReadStatus::kSuccess) {
-    return false;
-  }
-  if (frame.contact_count == 0) {
-    if (!frame.edge_touch) {
+    if (!hardware_edge_hint ||
+        read_status != cpp_bus_driver::TouchReadStatus::kNoData) {
       return false;
     }
-    SetEdgeTouchPoint(point);
+    SetHardwareEdgeTouchPoint(point);
+    return true;
+  }
+  if (frame.contact_count == 0) {
+    if (!hardware_edge_hint) {
+      return false;
+    }
+    SetHardwareEdgeTouchPoint(point);
     return true;
   }
 
@@ -2700,7 +2722,7 @@ bool TDisplayP4Device::ReadScreenTouch(TouchPoint* point) {
   point->y = contact.y;
   point->pressure =
       static_cast<uint8_t>(std::min<uint16_t>(contact.pressure, UINT8_MAX));
-  point->edge_touch_flag = frame.edge_touch;
+  point->edge_touch_flag = hardware_edge_hint;
   return true;
 }
 
@@ -2718,7 +2740,7 @@ bool TDisplayP4Device::ReadScreenTouchPoints(
   }
 
   // 亮屏轮询也需要清除 XL9535 的汇总中断锁存，确保后续边沿可继续上报。
-  ConsumeTouchInterrupt();
+  const bool touch_interrupt_received = ConsumeTouchInterrupt();
 
   cpp_bus_driver::TouchFrame frame;
   cpp_bus_driver::TouchReadStatus read_status =
@@ -2734,8 +2756,17 @@ bool TDisplayP4Device::ReadScreenTouchPoints(
       return false;
   }
 
+  const bool hardware_edge_hint = frame.edge_touch ||
+      (driver_.screen_type() == device::ScreenType::kRm69a10 &&
+          touch_interrupt_received);
   if (read_status != cpp_bus_driver::TouchReadStatus::kSuccess) {
-    return false;
+    if (!hardware_edge_hint ||
+        read_status != cpp_bus_driver::TouchReadStatus::kNoData) {
+      return false;
+    }
+    SetHardwareEdgeTouchPoint(&points[0]);
+    *point_count = 1;
+    return true;
   }
   const size_t count = std::min<size_t>(max_points, frame.contact_count);
   for (size_t i = 0; i < count; ++i) {
@@ -2745,14 +2776,36 @@ bool TDisplayP4Device::ReadScreenTouchPoints(
     points[i].y = contact.y;
     points[i].pressure =
         static_cast<uint8_t>(std::min<uint16_t>(contact.pressure, UINT8_MAX));
-    points[i].edge_touch_flag = frame.edge_touch;
+    points[i].edge_touch_flag = hardware_edge_hint;
   }
   *point_count = count;
-  if (*point_count == 0 && frame.edge_touch) {
-    SetEdgeTouchPoint(&points[0]);
+  if (*point_count == 0 && hardware_edge_hint) {
+    SetHardwareEdgeTouchPoint(&points[0]);
     *point_count = 1;
   }
   return *point_count > 0;
+}
+
+/**
+ * @brief 判断当前屏幕及显示方向是否支持硬件边缘触摸提示
+ * @param display_rotation_angle 显示旋转角度
+ * @return 当前屏幕及方向支持硬件提示时返回 true，否则返回 false
+ */
+bool TDisplayP4Device::SupportsHardwareEdgeTouchHint(
+    int display_rotation_angle) const {
+  switch (driver_.screen_type()) {
+    case device::ScreenType::kHi8561:
+      // HI8561 会在物理上下左右四边上报专用边缘触摸标记，
+      // 因此软件旋转到任意方向时都可将其作为手势候选提示。
+      return true;
+    case device::ScreenType::kRm69a10:
+      // GT9895 当前固件只在物理左右边缘存在坐标抑制。0°/180°
+      // 竖屏时应用的返回边缘与其重合；90°/270° 横屏时应用左右边
+      // 对应物理上下边，不得使用这个提示，否则普通中断可能被误判。
+      return display_rotation_angle == 0 || display_rotation_angle == 180;
+    default:
+      return false;
+  }
 }
 
 bool TDisplayP4Device::SupportsTouchInterrupt() const {
@@ -5321,9 +5374,9 @@ int TDisplayP4Device::StartWifiSntp() {
   wifi_time_test_.sntp_unix_time.store(0);
   wifi_time_test_.sntp_sync_monotonic_ms.store(0);
   wifi_time_test_.synced.store(false);
-  g_wifi_time_sync_owner.store(this);
+  WifiTimeSyncOwner().store(this);
   esp_sntp_set_time_sync_notification_cb([](struct timeval* time_value) {
-    auto* owner = g_wifi_time_sync_owner.load();
+    auto* owner = WifiTimeSyncOwner().load();
     if (owner == nullptr || time_value == nullptr) {
       return;
     }

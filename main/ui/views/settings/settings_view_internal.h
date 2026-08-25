@@ -14,7 +14,7 @@
 #include "hal/providers/keyboard_expansion_provider.h"
 #include "hal/providers/wifi_provider.h"
 #include "lvgl.h"
-#include "ui/input/edge_back_gesture.h"
+#include "ui/input/back_navigation_controller.h"
 #include "ui/theme/theme_provider.h"
 #include "ui/views/app_view_config.h"
 #include "ui/widgets/prompt/prompt_dialog.h"
@@ -264,15 +264,6 @@ struct SettingsViewState {
       app::kWifiSavedNetworkCapacity] = {};
   // 当前弹窗正在处理的 WLAN，复制出来避免列表刷新后地址失效。
   WifiNetworkAction wifi_pending_action = {};
-  EdgeBackSwipeState detail_swipe = {};
-  EdgeBackSwipeState firmware_update_swipe = {};
-  EdgeBackSwipeState firmware_update_log_swipe = {};
-  EdgeBackSwipeState name_edit_swipe = {};
-  EdgeBackSwipeState factory_reset_swipe = {};
-  EdgeBackSwipeState wifi_swipe = {};
-  EdgeBackSwipeState wifi_sub_swipe = {};
-  EdgeBackSwipeState settings_extra_swipe = {};
-  EdgeBackSwipeState settings_nested_swipe = {};
   size_t wifi_action_count = 0;
   size_t wifi_saved_delete_action_count = 0;
   // 当前 WLAN 二级页面栈深度，wifi_sub_page 始终指向栈顶页面。
@@ -464,7 +455,6 @@ lv_obj_t* CreateDivider(lv_obj_t* parent, int width);
  * @brief 恢复设置主页的 launcher 手势
  * @param state 设置页状态
  */
-void RestoreSettingsListGestures(SettingsViewState* state);
 
 /**
  * @brief 从长期 RAM 缓存读取已保存 WLAN 凭据和用户偏好

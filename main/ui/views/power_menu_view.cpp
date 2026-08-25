@@ -9,10 +9,10 @@
 
 #include <algorithm>
 
+#include "ui/haptic_feedback.h"
+#include "ui/input/back_navigation_controller.h"
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
-#include "ui/haptic_feedback.h"
-#include "ui/input/edge_back_gesture.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -32,7 +32,6 @@ struct PowerMenuDismissState {
   std::function<void()> restart_callback;
   std::function<void()> power_off_callback;
   bool dismissed = false;
-  EdgeBackSwipeState edge_swipe = {};
 };
 
 /**
@@ -121,7 +120,7 @@ void DismissPowerMenu(PowerMenuDismissState* state) {
 }
 
 /**
- * @brief 处理关机菜单遮罩点击和左右滑动退出事件
+ * @brief 处理关机菜单遮罩点击事件
  * @param event LVGL 事件对象
  */
 void PowerMenuOverlayEventCallback(lv_event_t* event) {
@@ -131,26 +130,12 @@ void PowerMenuOverlayEventCallback(lv_event_t* event) {
     return;
   }
 
-  const lv_event_code_t code = lv_event_get_code(event);
-  if (code == LV_EVENT_CLICKED) {
-    lv_obj_t* target = lv_event_get_target_obj(event);
-    lv_obj_t* current_target = lv_event_get_current_target_obj(event);
-    if (target == current_target) {
-      lv_event_stop_bubbling(event);
-      lv_event_stop_processing(event);
-      DismissPowerMenu(state);
-    }
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-
-  if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING &&
-      code != LV_EVENT_RELEASED && code != LV_EVENT_PRESS_LOST) {
-    return;
-  }
-
+  lv_obj_t* target = lv_event_get_target_obj(event);
   lv_obj_t* current_target = lv_event_get_current_target_obj(event);
-  if (HandleEdgeBackSwipeEvent(
-          event, lv_obj_get_width(current_target), &state->edge_swipe)) {
+  if (target == current_target) {
     lv_event_stop_bubbling(event);
     lv_event_stop_processing(event);
     DismissPowerMenu(state);
@@ -165,7 +150,6 @@ void PowerMenuOverlayEventCallback(lv_event_t* event) {
 void AddDismissEvents(lv_obj_t* object, PowerMenuDismissState* state) {
   lv_obj_add_event_cb(
       object, PowerMenuOverlayEventCallback, LV_EVENT_CLICKED, state);
-  AddEdgeBackSwipeEvents(object, PowerMenuOverlayEventCallback, state);
 }
 
 /**
@@ -284,6 +268,12 @@ lv_obj_t* CreatePowerMenuView(lv_obj_t* parent,
             lv_event_get_user_data(event));
       },
       LV_EVENT_DELETE, dismiss_state);
+  if (!RegisterBackNavigationHandler(overlay, [dismiss_state]() {
+        DismissPowerMenu(dismiss_state);
+      })) {
+    lv_obj_delete(overlay);
+    return nullptr;
+  }
 
   lv_obj_t* panel = lv_obj_create(overlay);
   if (panel == nullptr) {

@@ -10,7 +10,6 @@
 #include <cstdint>
 
 #include "lvgl.h"
-#include "ui/input/edge_back_gesture.h"
 
 namespace lilygo_box::ui {
 
@@ -40,12 +39,11 @@ struct NavigationDrawerConfig {
   const lv_font_t* icon_font = nullptr;
 };
 
-// 导航抽屉运行期间的对象和手势状态。
+// 导航抽屉运行期间的对象状态。
 struct NavigationDrawerState {
   lv_obj_t* overlay = nullptr;
   lv_obj_t* panel = nullptr;
   int panel_width = 0;
-  EdgeBackSwipeState edge_swipe = {};
   NavigationDrawerConfig config = {};
 };
 

@@ -13,8 +13,6 @@
 #include "hal/providers/screen_provider.h"
 #include "ui/animation/transition_animation.h"
 #include "ui/resources/fonts/icon_assets.h"
-#include "ui/input/app_view_gesture_flags.h"
-#include "ui/input/edge_back_gesture.h"
 #include "ui/input/press_cancel.h"
 
 namespace lilygo_box::ui {
@@ -53,9 +51,7 @@ void ExtraCloseCompletedCallback(lv_anim_t* animation) {
   state->settings_extra_page = nullptr;
   state->audio_volume_slider = nullptr;
   state->settings_extra_closing = false;
-  state->settings_extra_swipe = EdgeBackSwipeState();
   lv_obj_delete(page);
-  RestoreSettingsListGestures(state);
 }
 
 /**
@@ -73,7 +69,6 @@ void NestedCloseCompletedCallback(lv_anim_t* animation) {
   lv_obj_t* page = state->settings_nested_page;
   state->settings_nested_page = nullptr;
   state->settings_nested_closing = false;
-  state->settings_nested_swipe = EdgeBackSwipeState();
   lv_obj_delete(page);
 }
 
@@ -99,9 +94,7 @@ void CloseExtraPage(SettingsViewState* state, bool animated) {
   lv_obj_t* page = state->settings_extra_page;
   state->settings_extra_page = nullptr;
   state->settings_extra_closing = false;
-  state->settings_extra_swipe = EdgeBackSwipeState();
   lv_obj_delete(page);
-  RestoreSettingsListGestures(state);
 }
 
 void CloseNestedPage(SettingsViewState* state, bool animated) {
@@ -121,7 +114,6 @@ void CloseNestedPage(SettingsViewState* state, bool animated) {
   lv_obj_t* page = state->settings_nested_page;
   state->settings_nested_page = nullptr;
   state->settings_nested_closing = false;
-  state->settings_nested_swipe = EdgeBackSwipeState();
   lv_obj_delete(page);
 }
 
@@ -147,42 +139,6 @@ void NestedBackClickedEventCallback(lv_event_t* event) {
   }
   CloseNestedPage(
       static_cast<SettingsViewState*>(lv_event_get_user_data(event)), true);
-}
-
-/**
- * @brief 处理普通设置页边缘返回手势
- * @param event LVGL 事件对象
- */
-void ExtraEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->settings_extra_page == nullptr ||
-      state->settings_extra_closing || state->config.screen == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, state->config.width,
-          &state->settings_extra_swipe)) {
-    return;
-  }
-
-  CloseExtraPage(state, true);
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
-}
-
-/**
- * @brief 处理普通设置二级页边缘返回手势
- * @param event LVGL 事件对象
- */
-void NestedEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->settings_nested_page == nullptr ||
-      state->settings_nested_closing || state->config.screen == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, state->config.width,
-          &state->settings_nested_swipe)) {
-    return;
-  }
-
-  CloseNestedPage(state, true);
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
 }
 
 /**
@@ -243,9 +199,6 @@ lv_obj_t* CreateBasicBody(
   lv_obj_add_flag(body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(body, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLL_ELASTIC);
-  AddEdgeBackSwipeEvents(body,
-      nested ? NestedEdgeBackEventCallback : ExtraEdgeBackEventCallback,
-      state);
   return body;
 }
 
@@ -313,14 +266,10 @@ bool ShowBasicPage(SettingsViewState* state, const char* title,
     return false;
   }
   state->settings_extra_page = page;
-  state->settings_extra_swipe = EdgeBackSwipeState();
   state->settings_extra_closing = false;
-  lv_obj_add_flag(state->root, kBlockLauncherGestureFlag);
-  lv_obj_remove_flag(state->root, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  AddEdgeBackSwipeEvents(page, ExtraEdgeBackEventCallback, state);
   lv_obj_set_size(page, state->config.width, state->config.height);
   lv_obj_set_pos(page, 0, 0);
   lv_obj_set_style_bg_color(page, lv_color_hex(kBackgroundColor),
@@ -340,12 +289,17 @@ bool ShowBasicPage(SettingsViewState* state, const char* title,
     return false;
   }
 
-  EnableEdgeBackSwipeEventBubble(page);
   if (ConsumeSkipPageAnimation()) {
     // 旋转恢复时跳过滑入动画，直接把页面放到最终位置
     lv_obj_set_x(page, 0);
   } else if (!StartSlideLeftWindowTransition(page, state->config.width,
           kDetailSlideAnimationMs, state, nullptr)) {
+    CloseExtraPage(state, false);
+    return false;
+  }
+  if (!RegisterBackNavigationHandler(page, [state]() {
+        CloseExtraPage(state, true);
+      })) {
     CloseExtraPage(state, false);
     return false;
   }
@@ -369,10 +323,8 @@ bool ShowNestedPage(SettingsViewState* state, const char* title,
   }
   state->settings_nested_page = page;
   state->settings_nested_closing = false;
-  state->settings_nested_swipe = EdgeBackSwipeState();
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  AddEdgeBackSwipeEvents(page, NestedEdgeBackEventCallback, state);
   lv_obj_set_size(page, state->config.width, state->config.height);
   lv_obj_set_pos(page, 0, 0);
   lv_obj_set_style_bg_color(page, lv_color_hex(kBackgroundColor),
@@ -391,9 +343,14 @@ bool ShowNestedPage(SettingsViewState* state, const char* title,
     CloseNestedPage(state, false);
     return false;
   }
-  EnableEdgeBackSwipeEventBubble(page);
   if (!StartSlideLeftWindowTransition(page, state->config.width,
           kDetailSlideAnimationMs, state, nullptr)) {
+    CloseNestedPage(state, false);
+    return false;
+  }
+  if (!RegisterBackNavigationHandler(page, [state]() {
+        CloseNestedPage(state, true);
+      })) {
     CloseNestedPage(state, false);
     return false;
   }
@@ -443,11 +400,6 @@ lv_obj_t* CreateTextRow(lv_obj_t* parent, const char* title, int y, int width,
   if (!AddPressCancelOnLeave(row)) {
     return nullptr;
   }
-  AddEdgeBackSwipeEvents(row,
-      state != nullptr && state->settings_nested_page != nullptr
-          ? NestedEdgeBackEventCallback
-          : ExtraEdgeBackEventCallback,
-      state);
   if (callback != nullptr) {
     lv_obj_add_event_cb(row, callback, LV_EVENT_CLICKED, state);
   }
@@ -520,7 +472,6 @@ bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
-  AddEdgeBackSwipeEvents(row, ExtraEdgeBackEventCallback, state);
 
   lv_obj_t* label =
       CreateLabel(row, title, lv_color_hex(kPrimaryTextColor), Font28());

@@ -9,7 +9,7 @@
 
 #include <algorithm>
 
-#include "ui/input/edge_back_gesture.h"
+#include "ui/input/back_navigation_controller.h"
 #include "ui/widgets/prompt/prompt_sheet.h"
 
 namespace lilygo_box::ui {
@@ -70,7 +70,6 @@ void CloseImmediately(PromptDialogState* state) {
   state->cancel_button_label = nullptr;
   state->confirm_button = nullptr;
   state->confirm_button_label = nullptr;
-  state->edge_swipe = EdgeBackSwipeState();
   state->slide_from_bottom = false;
   state->closing = false;
   lv_obj_delete(overlay);
@@ -178,26 +177,6 @@ void PanelClickedEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 处理提示框边缘返回手势
- * @param event LVGL 事件对象
- */
-void EdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<PromptDialogState*>(
-      lv_event_get_user_data(event));
-  if (state == nullptr || state->overlay == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, lv_obj_get_width(state->overlay),
-          &state->edge_swipe)) {
-    return;
-  }
-  if (state->cancel_callback != nullptr) {
-    state->cancel_callback(state->callback_context);
-  }
-  ClosePromptDialog(state);
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
-}
-
-/**
  * @brief 创建提示框底部取消和确认按钮
  * @param state 提示框状态
  * @param config 提示框配置
@@ -300,7 +279,6 @@ lv_obj_t* ShowPromptDialog(lv_obj_t* parent, PromptDialogState* state,
     return nullptr;
   }
   state->overlay = overlay;
-  state->edge_swipe = EdgeBackSwipeState();
   state->animation_ms = config.animation_ms;
   state->cancel_callback = config.cancel_callback;
   state->confirm_callback = config.confirm_callback;
@@ -309,7 +287,19 @@ lv_obj_t* ShowPromptDialog(lv_obj_t* parent, PromptDialogState* state,
   state->closing = false;
   lv_obj_add_event_cb(overlay, OverlayClickedEventCallback,
                       LV_EVENT_CLICKED, state);
-  AddEdgeBackSwipeEvents(overlay, EdgeBackEventCallback, state);
+  if (!RegisterBackNavigationHandler(overlay, [state]() {
+        if (state == nullptr || state->overlay == nullptr ||
+            state->closing) {
+          return;
+        }
+        if (state->cancel_callback != nullptr) {
+          state->cancel_callback(state->callback_context);
+        }
+        ClosePromptDialog(state);
+      })) {
+    CloseImmediately(state);
+    return nullptr;
+  }
 
   lv_obj_t* panel = CreatePromptSheet(overlay, sheet_config);
   if (panel == nullptr) {
@@ -327,7 +317,6 @@ lv_obj_t* ShowPromptDialog(lv_obj_t* parent, PromptDialogState* state,
   }
   lv_obj_add_event_cb(panel, PanelClickedEventCallback,
                       LV_EVENT_CLICKED, state);
-  AddEdgeBackSwipeEvents(panel, EdgeBackEventCallback, state);
 
   lv_obj_t* title = CreatePromptSheetLabel(panel, config.title,
       config.primary_text_color, config.title_font);
@@ -404,7 +393,6 @@ lv_obj_t* ShowPromptDialog(lv_obj_t* parent, PromptDialogState* state,
         config.animation_ms, nullptr, nullptr);
   }
   lv_obj_move_to_index(overlay, -1);
-  EnableEdgeBackSwipeEventBubble(overlay);
   return state->body;
 }
 
@@ -569,7 +557,6 @@ void ClosePromptDialog(PromptDialogState* state) {
     state->cancel_button_label = nullptr;
     state->confirm_button = nullptr;
     state->confirm_button_label = nullptr;
-    state->edge_swipe = EdgeBackSwipeState();
     state->slide_from_bottom = false;
     state->closing = false;
     if (!AnimatePromptSheetOut(overlay, panel, animation_ms)) {

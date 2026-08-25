@@ -30,10 +30,10 @@
 #include "hal/providers/audio_provider.h"
 #include "hal/providers/storage_provider.h"
 #include "ui/animation/transition_animation.h"
+#include "ui/input/back_navigation_controller.h"
+#include "ui/input/press_cancel.h"
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
-#include "ui/input/edge_back_gesture.h"
-#include "ui/input/press_cancel.h"
 #include "ui/theme/theme_provider.h"
 #include "ui/views/files_view.h"
 #include "ui/widgets/navigation_drawer.h"
@@ -155,8 +155,6 @@ struct MusicViewState {
   lv_obj_t* settings_page = nullptr;
   NavigationDrawerState drawer;
   PromptDialogState sources_dialog;
-  EdgeBackSwipeState player_edge_swipe;
-  EdgeBackSwipeState settings_edge_swipe;
   bool source_enabled[kMusicFolderOptionCount] = {};
   bool draft_source_enabled[kMusicFolderOptionCount] = {};
   std::array<std::string, kMusicFolderOptionCount> source_paths;
@@ -1082,23 +1080,6 @@ void PlayerBackClickedEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 处理播放页边缘返回滑动事件
- * @param event LVGL 事件对象
- */
-void PlayerEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->player_page == nullptr ||
-      !HandleEdgeBackSwipeEvent(
-          event, state->config.width, &state->player_edge_swipe)) {
-    return;
-  }
-
-  ClosePlayerPage(state);
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
-}
-
-/**
  * @brief 创建播放器圆形控制按钮
  * @param parent 父对象
  * @param text 按钮文本
@@ -1179,7 +1160,6 @@ bool CreatePlayerPage(MusicViewState* state) {
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
-  AddEdgeBackSwipeEvents(page, PlayerEdgeBackEventCallback, state);
 
   if (state->config.set_status_bar_visible) {
     state->config.set_status_bar_visible(true);
@@ -1486,8 +1466,13 @@ bool CreatePlayerPage(MusicViewState* state) {
 
   UpdateCurrentTrackLabels(state);
 
-  EnableEdgeBackSwipeEventBubble(page);
   StartVerticalSlide(page, state->config.height, 0, state, nullptr);
+  if (!RegisterBackNavigationHandler(page, [state]() {
+        ClosePlayerPage(state);
+      })) {
+    ClosePlayerPage(state);
+    return false;
+  }
   return true;
 }
 
@@ -1597,7 +1582,6 @@ bool CreateEmptyMusicContent(lv_obj_t* parent, MusicViewState* state) {
     return false;
   }
   PositionMusicStatusGroup(group, state, kMusicEmptyGroupOffsetY);
-  EnableEdgeBackSwipeEventBubble(parent);
   return true;
 }
 
@@ -1725,7 +1709,6 @@ bool RenderMusicScanningContent(MusicViewState* state) {
     return false;
   }
   PositionMusicStatusGroup(group, state, kMusicScanningGroupOffsetY);
-  EnableEdgeBackSwipeEventBubble(state->library_content);
   return true;
 }
 
@@ -1763,7 +1746,6 @@ void SettingsCloseCompletedCallback(lv_anim_t* animation) {
   lv_obj_t* page = state->settings_page;
   state->settings_page = nullptr;
   state->settings_closing = false;
-  state->settings_edge_swipe = EdgeBackSwipeState();
   lv_obj_delete(page);
 }
 
@@ -1783,7 +1765,6 @@ void CloseMusicSettingsPage(MusicViewState* state) {
     lv_obj_t* page = state->settings_page;
     state->settings_page = nullptr;
     state->settings_closing = false;
-    state->settings_edge_swipe = EdgeBackSwipeState();
     lv_obj_delete(page);
   }
 }
@@ -1798,22 +1779,6 @@ void SettingsBackClickedEventCallback(lv_event_t* event) {
   }
   CloseMusicSettingsPage(
       static_cast<MusicViewState*>(lv_event_get_user_data(event)));
-}
-
-/**
- * @brief 处理音乐设置页边缘返回手势
- * @param event LVGL 事件对象
- */
-void SettingsEdgeBackEventCallback(lv_event_t* event) {
-  auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->settings_page == nullptr ||
-      !HandleEdgeBackSwipeEvent(event, state->config.width,
-          &state->settings_edge_swipe)) {
-    return;
-  }
-  CloseMusicSettingsPage(state);
-  lv_event_stop_bubbling(event);
-  lv_event_stop_processing(event);
 }
 
 /**
@@ -2315,7 +2280,6 @@ bool RenderMusicLibrary(MusicViewState* state) {
   }
   lv_obj_set_scrollbar_mode(
       state->library_content, LV_SCROLLBAR_MODE_AUTO);
-  EnableEdgeBackSwipeEventBubble(state->library_content);
   return true;
 }
 
@@ -2676,7 +2640,6 @@ bool ShowMusicSettingsPage(MusicViewState* state) {
   }
   state->settings_page = page;
   state->settings_closing = false;
-  state->settings_edge_swipe = EdgeBackSwipeState();
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(page, state->config.width, state->config.height);
@@ -2687,7 +2650,6 @@ bool ShowMusicSettingsPage(MusicViewState* state) {
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
-  AddEdgeBackSwipeEvents(page, SettingsEdgeBackEventCallback, state);
 
   if (!CreateSettingsStyleHeader(
       page, "Music settings", SettingsBackClickedEventCallback, state)) {
@@ -2705,11 +2667,16 @@ bool ShowMusicSettingsPage(MusicViewState* state) {
     state->settings_page = nullptr;
     return false;
   }
-  EnableEdgeBackSwipeEventBubble(page);
   if (!StartSlideLeftWindowTransition(page, state->config.width,
       kSettingsAnimationMs, state, nullptr)) {
     lv_obj_delete(page);
     state->settings_page = nullptr;
+    return false;
+  }
+  if (!RegisterBackNavigationHandler(page, [state]() {
+        CloseMusicSettingsPage(state);
+      })) {
+    CloseMusicSettingsPage(state);
     return false;
   }
   return true;

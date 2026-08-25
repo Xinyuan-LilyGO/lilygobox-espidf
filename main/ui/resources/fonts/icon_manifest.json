@@ -63,6 +63,7 @@
       "output": "main/ui/resources/fonts/icons/lvgl_font_material_rounded_fill_56.c",
       "icons": [
         "Camera",
+        "FolderOpen",
         "Menu",
         "Music",
         "PowerSettingsNew",

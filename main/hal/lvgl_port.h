@@ -33,6 +33,9 @@ class LvglPort final {
 
   using KeyboardInputEventCallback =
       std::function<void(const KeyboardInputEvent& event)>;
+  using PointerInputInterceptor =
+      std::function<bool(lv_indev_state_t state, lv_point_t point,
+          bool hardware_edge_hint)>;
 
   enum class TouchReadMode : uint8_t {
     kSinglePoint,
@@ -63,6 +66,15 @@ class LvglPort final {
   void SetKeyboardInputEventCallback(KeyboardInputEventCallback callback);
 
   /**
+   * @brief 设置 LVGL 处理控件事件前的已旋转指针输入拦截回调
+   *
+   * 回调返回 true 后，本次触摸在释放前不会继续传递给页面控件。
+   *
+   * @param interceptor 指针输入拦截器，空拦截器表示停止拦截
+   */
+  void SetPointerInputInterceptor(PointerInputInterceptor interceptor);
+
+  /**
    * @brief 取出一个待处理的实体键盘按下活动
    * @return 自上次调用后读取到有效按键按下时返回 true
    */
@@ -73,12 +85,6 @@ class LvglPort final {
    * @return 当前允许实体键盘继续读取时返回 true
    */
   bool IsKeyboardInputAllowedWhileBlocked() const;
-
-  /**
-   * @brief 判断当前 LVGL 输入是否带有硬件边缘触摸标志。
-   * @return 当前输入来自硬件边缘触摸检测返回 true，否则返回 false。
-   */
-  static bool ActiveInputEdgeTouch();
 
   /**
    * @brief 获取 LVGL 显示对象
@@ -226,6 +232,13 @@ class LvglPort final {
    * @param data 输入数据输出地址
    */
   static void TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data);
+  /**
+   * @brief 在 LVGL 处理本次触摸坐标前转发已旋转的指针事件
+   * @param self LVGL 端口实例
+   * @param data 本次输入数据
+   */
+  static void NotifyPointerInput(
+      LvglPort* self, const lv_indev_data_t* data);
 
   /**
    * @brief 读取实体键盘并转换为 LVGL keypad 输入
@@ -324,6 +337,7 @@ class LvglPort final {
   lv_indev_t* keyboard_input_device_ = nullptr;
   lv_group_t* keyboard_group_ = nullptr;
   KeyboardInputEventCallback keyboard_input_event_callback_;
+  PointerInputInterceptor pointer_input_interceptor_;
   uint8_t active_keyboard_key_id_ = 0;
   uint32_t active_lvgl_key_ = 0;
   // 专用 LVGL 任务句柄，用于在恢复刷新时立即唤醒渲染循环。
@@ -350,8 +364,10 @@ class LvglPort final {
   std::atomic<bool> display_refresh_scanout_pending_{false};
   // 当前首帧的任一刷新区域是否未能提交到物理面板。
   std::atomic<bool> display_refresh_failed_{false};
+  // 硬件边缘提示只负责衔接首个有效坐标，不直接决定返回操作。
   std::atomic<bool> active_edge_touch_flag_{false};
   std::atomic<bool> pending_edge_touch_flag_{false};
+  std::atomic<int64_t> pending_edge_touch_time_ms_{0};
   std::atomic<bool> has_last_touch_point_{false};
   std::atomic<TouchReadMode> touch_read_mode_{TouchReadMode::kSinglePoint};
   // 触摸缓存由 LVGL 回调更新，其他任务只读取快照。
