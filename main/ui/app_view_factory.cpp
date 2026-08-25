@@ -11,6 +11,7 @@
 
 #include "base/logger.h"
 #include "ui/resources/fonts/font_assets.h"
+#include "ui/theme/theme_provider.h"
 #include "ui/views/camera_view.h"
 #include "ui/views/cit_view.h"
 #include "ui/views/files_view.h"
@@ -87,7 +88,9 @@ lv_obj_t* CreateBackButton(lv_obj_t* parent, const AppViewConfig& config) {
 
   lv_obj_set_size(button, kBackButtonWidth, kBackButtonHeight);
   lv_obj_set_style_radius(button, kButtonRadius, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(button, lv_color_hex(0x2D3C48), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(button,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_high),
+      LV_PART_MAIN);
   lv_obj_align(button, LV_ALIGN_BOTTOM_LEFT, 0, 0);
 
   if (config.back_callback != nullptr) {
@@ -96,7 +99,8 @@ lv_obj_t* CreateBackButton(lv_obj_t* parent, const AppViewConfig& config) {
   }
 
   lv_obj_t* label =
-      CreateLabel(button, "Back", lv_color_hex(0xF5F7FA), Font24());
+      CreateLabel(button, "Back",
+          lv_color_hex(theme::ActiveThemeColors().on_surface), Font24());
   if (label == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Create back button label failed\n");
@@ -139,7 +143,8 @@ lv_obj_t* CreatePlaceholderAppView(lv_obj_t* parent,
   }
 
   lv_obj_remove_flag(container, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(container, lv_color_hex(0x121820), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(container,
+      lv_color_hex(theme::ActiveThemeColors().surface), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(container, 245, LV_PART_MAIN);
   lv_obj_set_style_radius(container, kViewRadius, LV_PART_MAIN);
   lv_obj_set_style_border_width(container, 0, LV_PART_MAIN);
@@ -149,7 +154,8 @@ lv_obj_t* CreatePlaceholderAppView(lv_obj_t* parent,
   lv_obj_align(container, LV_ALIGN_CENTER, 0, 0);
 
   lv_obj_t* title =
-      CreateLabel(container, app_entry.title, lv_color_hex(0xF5F7FA), Font48());
+      CreateLabel(container, app_entry.title,
+          lv_color_hex(theme::ActiveThemeColors().on_surface), Font48());
   if (title == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Create placeholder app title failed, app_id=%s\n",
@@ -160,7 +166,8 @@ lv_obj_t* CreatePlaceholderAppView(lv_obj_t* parent,
   lv_obj_align(title, LV_ALIGN_TOP_LEFT, 0, 0);
 
   lv_obj_t* subtitle = CreateLabel(
-      container, app_entry.subtitle, lv_color_hex(0xAAB2BD), Font24());
+      container, app_entry.subtitle,
+      lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font24());
   if (subtitle == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Create placeholder app subtitle failed, app_id=%s\n",
@@ -171,7 +178,7 @@ lv_obj_t* CreatePlaceholderAppView(lv_obj_t* parent,
   lv_obj_align_to(subtitle, title, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 14);
 
   lv_obj_t* message = CreateLabel(container, "View implementation pending",
-      lv_color_hex(0x51D88A), Font24());
+      lv_color_hex(theme::ActiveThemeColors().action), Font24());
   if (message == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Create placeholder app message failed, app_id=%s\n",

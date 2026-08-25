@@ -180,8 +180,6 @@ lv_obj_t* CreateLockScreenView(lv_obj_t* parent,
   lv_obj_add_flag(lock_screen, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
   lv_obj_set_size(lock_screen, options.screen_width, options.screen_height);
   lv_obj_align(lock_screen, LV_ALIGN_CENTER, 0, 0);
-  lv_obj_set_style_bg_color(lock_screen, lv_color_hex(0xE2E2E2), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(lock_screen, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(lock_screen, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(lock_screen, 0, LV_PART_MAIN);
 

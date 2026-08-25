@@ -112,6 +112,8 @@ struct AppViewConfig {
   std::function<void()> request_screen_lock;
   // 请求应用层设置屏幕亮度。
   std::function<bool(int percent)> set_screen_brightness;
+  // 请求系统切换亮色或暗色主题并刷新当前应用。
+  std::function<void(bool enabled)> set_dark_theme_enabled;
   // 显示系统重新启动和关机选项。
   std::function<bool()> show_power_options;
 };

@@ -55,22 +55,22 @@ struct PromptDialogConfig {
   int action_bottom_padding = 32;
   int bottom_margin = 0;
   uint32_t dialog_color =
-      theme::LightNeutralTheme().surface_container_lowest;
-  uint32_t primary_text_color = theme::LightNeutralTheme().on_surface;
+      theme::ActiveThemeColors().surface_container_lowest;
+  uint32_t primary_text_color = theme::ActiveThemeColors().on_surface;
   uint32_t secondary_text_color =
-      theme::LightNeutralTheme().on_surface_variant;
-  uint32_t divider_color = theme::LightNeutralTheme().outline_variant;
-  uint32_t pressed_color = theme::LightNeutralTheme().state_layer;
+      theme::ActiveThemeColors().on_surface_variant;
+  uint32_t divider_color = theme::ActiveThemeColors().outline_variant;
+  uint32_t pressed_color = theme::ActiveThemeColors().state_layer;
   uint32_t cancel_background_color =
-      theme::LightNeutralTheme().button_secondary;
+      theme::ActiveThemeColors().button_secondary;
   uint32_t cancel_pressed_color =
-      theme::LightNeutralTheme().button_secondary_pressed;
+      theme::ActiveThemeColors().button_secondary_pressed;
   uint32_t cancel_text_color =
-      theme::LightNeutralTheme().on_button_secondary;
-  uint32_t confirm_background_color = theme::LightNeutralTheme().action;
+      theme::ActiveThemeColors().on_button_secondary;
+  uint32_t confirm_background_color = theme::ActiveThemeColors().action;
   uint32_t confirm_pressed_color =
-      theme::LightNeutralTheme().action_pressed;
-  uint32_t confirm_text_color = theme::LightNeutralTheme().on_action;
+      theme::ActiveThemeColors().action_pressed;
+  uint32_t confirm_text_color = theme::ActiveThemeColors().on_action;
   lv_opa_t overlay_opacity = 115;
   uint32_t animation_ms = 180;
   const char* title = nullptr;

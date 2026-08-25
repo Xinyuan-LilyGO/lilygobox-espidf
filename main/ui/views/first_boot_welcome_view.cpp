@@ -249,7 +249,7 @@ lv_obj_t* CreateFirstBootWelcomeView(
   lv_obj_set_pos(page, 0, 0);
 
   const theme::ThemeColors& colors =
-      options.colors == nullptr ? theme::LightNeutralTheme() : *options.colors;
+      options.colors == nullptr ? theme::ActiveThemeColors() : *options.colors;
   lv_obj_set_style_bg_color(page, lv_color_hex(colors.surface), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);

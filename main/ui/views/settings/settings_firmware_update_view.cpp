@@ -69,17 +69,8 @@ constexpr int kUpdatePageIndicatorStackedBottom =
     kUpdateButtonBottom + 2 * kUpdateButtonHeight +
     kUpdateActionButtonGap + 16;
 constexpr int kUpdatePageDotSize = 12;
-constexpr uint32_t kUpdateCardColor =
-    theme::LightNeutralTheme().surface_container_lowest;
-constexpr uint32_t kUpdateFeatureColor =
-    theme::LightNeutralTheme().surface_container_low;
-constexpr uint32_t kUpdateStableChannelColor =
-    theme::LightNeutralTheme().action;
 constexpr uint32_t kUpdateBetaChannelColor = 0xF5A623;
 constexpr uint32_t kUpdateAlphaChannelColor = 0xBA1A1A;
-constexpr uint32_t kUpdateCancelButtonColor = kDetailOptionPressedColor;
-constexpr uint32_t kUpdateCancelButtonPressedColor =
-    theme::LightNeutralTheme().button_secondary_pressed;
 
 /**
  * @brief 获取当前固件更新状态快照
@@ -274,7 +265,7 @@ void SetReleaseChannelLabel(lv_obj_t* label, const char* channel) {
     return;
   }
   const char* channel_text = "Stable";
-  uint32_t channel_color = kUpdateStableChannelColor;
+  uint32_t channel_color = SettingsThemeColors().action;
   if (channel != nullptr && std::strcmp(channel, "beta") == 0) {
     channel_text = "Beta";
     channel_color = kUpdateBetaChannelColor;
@@ -715,12 +706,12 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
   }
   lv_obj_set_style_bg_color(state->firmware_update_download_button,
       lv_color_hex(show_progress
-              ? theme::LightNeutralTheme().surface_container_high
-              : kDetailBlueColor),
+              ? SettingsThemeColors().surface_container_high
+              : SettingsThemeColors().action),
       LV_PART_MAIN);
   lv_obj_set_style_text_color(
       state->firmware_update_download_button_label,
-      lv_color_hex(theme::LightNeutralTheme().on_action),
+      lv_color_hex(SettingsThemeColors().on_action),
       LV_PART_MAIN);
   lv_obj_move_to_index(state->firmware_update_download_button_label, -1);
 
@@ -890,7 +881,7 @@ void FirmwareCurrentLogClickedEventCallback(lv_event_t* event) {
 bool CreateFirmwareUpdateHeader(
     lv_obj_t* parent, SettingsViewState* state, int width) {
   lv_obj_t* title = CreateLabel(
-      parent, "Firmware update", lv_color_hex(kTitleColor), Font32());
+      parent, "Firmware update", lv_color_hex(SettingsThemeColors().on_surface), Font32());
   if (title == nullptr) {
     return false;
   }
@@ -906,7 +897,7 @@ bool CreateFirmwareUpdateHeader(
   }
 
   lv_obj_t* back_icon = CreateLabel(back_button, icon::kArrowBack,
-      lv_color_hex(kDetailBackColor), MaterialIconFont44());
+      lv_color_hex(SettingsThemeColors().on_surface), MaterialIconFont44());
   if (back_icon == nullptr) {
     return false;
   }
@@ -935,7 +926,7 @@ bool CreateFirmwareBrand(lv_obj_t* card, int card_width) {
   }
 
   lv_obj_t* brand_text = CreateLabel(
-      brand_group, "LilygoBox", lv_color_hex(kPrimaryTextColor), Font48());
+      brand_group, "LilygoBox", lv_color_hex(SettingsThemeColors().on_surface), Font48());
   if (brand_text == nullptr) {
     return false;
   }
@@ -974,7 +965,7 @@ bool CreateFirmwareComponentRow(lv_obj_t* card, int y, int width,
     lv_obj_t** row_output, lv_obj_t** chip_label_output,
     lv_obj_t** version_label_output) {
   lv_obj_t* tile = CreateBox(card, width, kUpdateComponentHeight,
-      kUpdateFeatureColor, LV_OPA_COVER, 20);
+      SettingsThemeColors().surface_container_low, LV_OPA_COVER, 20);
   if (tile == nullptr) {
     return false;
   }
@@ -990,11 +981,11 @@ bool CreateFirmwareComponentRow(lv_obj_t* card, int y, int width,
       kUpdateComponentIconLeft, 0);
 
   lv_obj_t* component_title =
-      CreateLabel(tile, title, lv_color_hex(kPrimaryTextColor), Font22());
+      CreateLabel(tile, title, lv_color_hex(SettingsThemeColors().on_surface), Font22());
   lv_obj_t* component_chip =
-      CreateLabel(tile, chip, lv_color_hex(kSecondaryTextColor), Font22());
+      CreateLabel(tile, chip, lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
   lv_obj_t* component_version =
-      CreateLabel(tile, version, lv_color_hex(kSecondaryTextColor), Font22());
+      CreateLabel(tile, version, lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
   if (component_title == nullptr || component_chip == nullptr ||
       component_version == nullptr) {
     return false;
@@ -1023,7 +1014,8 @@ bool CreateFirmwareUpdateCard(
     lv_obj_t* body, SettingsViewState* state, int width) {
   const int card_width = FirmwareUpdateContentWidth(width);
   lv_obj_t* card = CreateBox(body, card_width, kUpdateCardHeight,
-      kUpdateCardColor, LV_OPA_COVER, kDetailCardRadius);
+      SettingsThemeColors().surface_container_lowest, LV_OPA_COVER,
+      kDetailCardRadius);
   if (card == nullptr) {
     return false;
   }
@@ -1055,7 +1047,7 @@ bool CreateFirmwareUpdateCard(
   }
 
   lv_obj_t* version = CreateLabel(card, "Checking...",
-      lv_color_hex(kSecondaryTextColor), Font24());
+      lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
   if (version == nullptr) {
     return discard_card();
   }
@@ -1069,9 +1061,9 @@ bool CreateFirmwareUpdateCard(
       kUpdateVersionTop);
 
   lv_obj_t* channel_label = CreateLabel(card, "Stable",
-      lv_color_hex(kUpdateStableChannelColor), Font22());
+      lv_color_hex(SettingsThemeColors().action), Font22());
   lv_obj_t* publish_time = CreateLabel(card, "Unavailable",
-      lv_color_hex(kSecondaryTextColor), Font22());
+      lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
   if (channel_label == nullptr || publish_time == nullptr) {
     return discard_card();
   }
@@ -1096,7 +1088,7 @@ bool CreateFirmwareUpdateCard(
   lv_obj_set_pos(divider, kUpdateCardPadding, kUpdateDividerTop);
 
   lv_obj_t* components_title = CreateLabel(card, "Update components",
-      lv_color_hex(kPrimaryTextColor), Font28());
+      lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (components_title == nullptr) {
     return discard_card();
   }
@@ -1130,7 +1122,7 @@ bool CreateFirmwareUpdateCard(
       second_divider, kUpdateCardPadding, kUpdateSecondDividerTop);
 
   lv_obj_t* whats_new_title = CreateLabel(card, "What's new",
-      lv_color_hex(kPrimaryTextColor), Font28());
+      lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (whats_new_title == nullptr) {
     return discard_card();
   }
@@ -1140,7 +1132,7 @@ bool CreateFirmwareUpdateCard(
 
   lv_obj_t* notes = CreateLabel(card,
       "Release notes will appear after checking.",
-      lv_color_hex(kSecondaryTextColor), Font22());
+      lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
   if (notes == nullptr) {
     return discard_card();
   }
@@ -1218,7 +1210,7 @@ bool CreateFirmwareUpdateBody(
   lv_obj_add_flag(new_page, LV_OBJ_FLAG_HIDDEN);
 
   lv_obj_t* heading = CreateLabel(new_page, "New version available",
-      lv_color_hex(kPrimaryTextColor), Font36());
+      lv_color_hex(SettingsThemeColors().on_surface), Font36());
   if (heading == nullptr) {
     return false;
   }
@@ -1258,14 +1250,14 @@ bool CreateFirmwareUpdateBody(
   lv_obj_t* brand_icon =
       CreateLilygoBoxBrandIcon(brand_group, kUpdateBrandIconSize);
   lv_obj_t* brand_text = CreateLabel(brand_group, "LilygoBox",
-      lv_color_hex(kPrimaryTextColor), Font48());
+      lv_color_hex(SettingsThemeColors().on_surface), Font48());
   if (brand_icon == nullptr || brand_text == nullptr) {
     return false;
   }
   lv_obj_set_width(brand_text, LV_SIZE_CONTENT);
 
   lv_obj_t* version = CreateLabel(brand_group, "Unknown",
-      lv_color_hex(kSecondaryTextColor), Font24());
+      lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
   if (version == nullptr) {
     return false;
   }
@@ -1279,10 +1271,10 @@ bool CreateFirmwareUpdateBody(
   lv_obj_set_size(spinner, kUpdateSpinnerSize, kUpdateSpinnerSize);
   lv_spinner_set_anim_params(spinner, 850, 250);
   lv_obj_set_style_arc_color(spinner,
-      lv_color_hex(theme::LightNeutralTheme().surface_container_high),
+      lv_color_hex(SettingsThemeColors().surface_container_high),
       LV_PART_MAIN);
   lv_obj_set_style_arc_color(spinner,
-      lv_color_hex(theme::LightNeutralTheme().action), LV_PART_INDICATOR);
+      lv_color_hex(SettingsThemeColors().action), LV_PART_INDICATOR);
   lv_obj_set_style_arc_width(spinner, 7, LV_PART_MAIN);
   lv_obj_set_style_arc_width(spinner, 7, LV_PART_INDICATOR);
   lv_obj_align(spinner, LV_ALIGN_TOP_MID, 0, kUpdateStatusSpinnerTop);
@@ -1290,10 +1282,10 @@ bool CreateFirmwareUpdateBody(
   state->firmware_update_spinner = spinner;
 
   lv_obj_t* message = CreateLabel(scan_group, "Checking for updates...",
-      lv_color_hex(kPrimaryTextColor), Font28());
+      lv_color_hex(SettingsThemeColors().on_surface), Font28());
   lv_obj_t* hint = CreateLabel(scan_group,
       "Downloading update information",
-      lv_color_hex(kSecondaryTextColor), Font22());
+      lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
   if (message == nullptr || hint == nullptr) {
     return false;
   }
@@ -1325,7 +1317,7 @@ bool CreateFirmwareUpdateBody(
       log_button, LV_ALIGN_TOP_MID, 0, kUpdateStatusLogButtonTop);
   lv_obj_set_style_bg_opa(log_button, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_bg_color(log_button,
-      lv_color_hex(kDetailOptionPressedColor), LV_STATE_PRESSED);
+      lv_color_hex(SettingsThemeColors().state_layer_strong), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(
       log_button, kDetailOptionPressedOpacity, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(log_button, 0, LV_PART_MAIN);
@@ -1350,10 +1342,10 @@ bool CreateFirmwareUpdateBody(
   lv_obj_add_flag(log_button, LV_OBJ_FLAG_HIDDEN);
 
   lv_obj_t* log_label = CreateLabel(log_button,
-      "Current version update log", lv_color_hex(kSecondaryTextColor),
+      "Current version update log", lv_color_hex(SettingsThemeColors().on_surface_variant),
       Font24());
   lv_obj_t* log_arrow = CreateLabel(log_button, icon::kChevronRight,
-      lv_color_hex(kSecondaryTextColor), MaterialIconFont32());
+      lv_color_hex(SettingsThemeColors().on_surface_variant), MaterialIconFont32());
   if (log_label == nullptr || log_arrow == nullptr) {
     return false;
   }
@@ -1387,7 +1379,7 @@ bool CreateFirmwareUpdateBody(
     lv_obj_remove_flag(dot, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_size(dot, kUpdatePageDotSize, kUpdatePageDotSize);
     lv_obj_set_style_bg_color(
-        dot, lv_color_hex(kDetailBlueColor), LV_PART_MAIN);
+        dot, lv_color_hex(SettingsThemeColors().action), LV_PART_MAIN);
     lv_obj_set_style_border_width(dot, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, LV_PART_MAIN);
     lv_obj_set_style_pad_all(dot, 0, LV_PART_MAIN);
@@ -1470,7 +1462,8 @@ void FirmwareUpdateLogBackClickedEventCallback(lv_event_t* event) {
 lv_obj_t* CreateCurrentFirmwareLogCard(lv_obj_t* body, int x, int y,
     int width, const app::FirmwareUpdateSnapshot& snapshot) {
   lv_obj_t* card = CreateBox(body, width, kUpdateCardHeight,
-      kUpdateCardColor, LV_OPA_COVER, kDetailCardRadius);
+      SettingsThemeColors().surface_container_lowest, LV_OPA_COVER,
+      kDetailCardRadius);
   if (card == nullptr) {
     return nullptr;
   }
@@ -1504,7 +1497,7 @@ lv_obj_t* CreateCurrentFirmwareLogCard(lv_obj_t* body, int x, int y,
         current_release_version);
   }
   lv_obj_t* version = CreateLabel(card, current_release,
-      lv_color_hex(kSecondaryTextColor), Font24());
+      lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
   if (version == nullptr) {
     return discard_card();
   }
@@ -1519,9 +1512,9 @@ lv_obj_t* CreateCurrentFirmwareLogCard(lv_obj_t* body, int x, int y,
   FormatPublishTimeForDisplay(snapshot.current_publish_time,
       publish_time_text, sizeof(publish_time_text));
   lv_obj_t* channel_label = CreateLabel(card, "Stable",
-      lv_color_hex(kUpdateStableChannelColor), Font22());
+      lv_color_hex(SettingsThemeColors().action), Font22());
   lv_obj_t* publish_time = CreateLabel(card, publish_time_text,
-      lv_color_hex(kSecondaryTextColor), Font22());
+      lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
   if (channel_label == nullptr || publish_time == nullptr) {
     return discard_card();
   }
@@ -1540,7 +1533,7 @@ lv_obj_t* CreateCurrentFirmwareLogCard(lv_obj_t* body, int x, int y,
   lv_obj_t* divider =
       CreateDivider(card, width - 2 * kUpdateCardPadding);
   lv_obj_t* components_title = CreateLabel(card, "Installed components",
-      lv_color_hex(kPrimaryTextColor), Font28());
+      lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (divider == nullptr || components_title == nullptr) {
     return discard_card();
   }
@@ -1575,7 +1568,7 @@ lv_obj_t* CreateCurrentFirmwareLogCard(lv_obj_t* body, int x, int y,
 
   lv_obj_t* second_divider = CreateDivider(card, component_width);
   lv_obj_t* whats_new_title = CreateLabel(card, "What's new",
-      lv_color_hex(kPrimaryTextColor), Font28());
+      lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (second_divider == nullptr || whats_new_title == nullptr) {
     return discard_card();
   }
@@ -1590,7 +1583,7 @@ lv_obj_t* CreateCurrentFirmwareLogCard(lv_obj_t* body, int x, int y,
       "No local release notes are available for this version.",
       notes_text, sizeof(notes_text));
   lv_obj_t* notes = CreateLabel(card, notes_text,
-      lv_color_hex(kSecondaryTextColor), Font22());
+      lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
   if (notes == nullptr) {
     return discard_card();
   }
@@ -1613,7 +1606,7 @@ bool CreateFirmwareUpdateLogHeader(
     lv_obj_t* page, SettingsViewState* state, int width) {
   lv_obj_t* title = CreateLabel(
       page, "Current version update log",
-      lv_color_hex(kTitleColor), Font32());
+      lv_color_hex(SettingsThemeColors().on_surface), Font32());
   if (title == nullptr) {
     return false;
   }
@@ -1627,7 +1620,7 @@ bool CreateFirmwareUpdateLogHeader(
     return false;
   }
   lv_obj_t* back_icon = CreateLabel(back_button, icon::kArrowBack,
-      lv_color_hex(kDetailBackColor), MaterialIconFont44());
+      lv_color_hex(SettingsThemeColors().on_surface), MaterialIconFont44());
   if (back_icon == nullptr) {
     return false;
   }
@@ -1698,7 +1691,7 @@ bool ShowFirmwareUpdateLogPage(SettingsViewState* state) {
   lv_obj_set_size(page, config.width, config.height);
   lv_obj_set_pos(page, 0, 0);
   lv_obj_set_style_bg_color(
-      page, lv_color_hex(kDetailBackgroundColor), LV_PART_MAIN);
+      page, lv_color_hex(SettingsThemeColors().surface_container), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
@@ -1739,14 +1732,14 @@ bool CreateFirmwareSecondaryButton(lv_obj_t* page, int width,
   lv_obj_add_flag(button, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_size(button, width, kUpdateActionButtonHeight);
   const uint32_t background_color = destructive
-      ? kUpdateCancelButtonColor
-      : theme::LightNeutralTheme().button_secondary;
+      ? SettingsThemeColors().state_layer_strong
+      : SettingsThemeColors().button_secondary;
   const uint32_t pressed_color = destructive
-      ? kUpdateCancelButtonPressedColor
-      : theme::LightNeutralTheme().button_secondary_pressed;
+      ? SettingsThemeColors().button_secondary_pressed
+      : SettingsThemeColors().button_secondary_pressed;
   const uint32_t text_color = destructive
-      ? theme::LightNeutralTheme().on_surface
-      : theme::LightNeutralTheme().on_button_secondary;
+      ? SettingsThemeColors().on_surface
+      : SettingsThemeColors().on_button_secondary;
   lv_obj_set_style_bg_color(button,
       lv_color_hex(background_color), LV_PART_MAIN);
   lv_obj_set_style_bg_color(button,
@@ -1796,12 +1789,12 @@ bool CreateDownloadUpdateButton(
   lv_obj_set_size(button, button_width, kUpdateButtonHeight);
   lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, -kUpdateButtonBottom);
   lv_obj_set_style_bg_color(
-      button, lv_color_hex(kDetailBlueColor), LV_PART_MAIN);
+      button, lv_color_hex(SettingsThemeColors().action), LV_PART_MAIN);
   lv_obj_set_style_bg_color(button,
-      lv_color_hex(theme::LightNeutralTheme().action_pressed),
+      lv_color_hex(SettingsThemeColors().action_pressed),
       LV_STATE_PRESSED);
   lv_obj_set_style_bg_color(button,
-      lv_color_hex(theme::LightNeutralTheme().outline), LV_STATE_DISABLED);
+      lv_color_hex(SettingsThemeColors().outline), LV_STATE_DISABLED);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_opa(button, LV_OPA_COVER,
@@ -1828,14 +1821,14 @@ bool CreateDownloadUpdateButton(
   lv_obj_set_size(progress_fill, 1, kUpdateButtonHeight);
   lv_obj_set_pos(progress_fill, 0, 0);
   lv_obj_set_style_bg_color(
-      progress_fill, lv_color_hex(kDetailBlueColor), LV_PART_MAIN);
+      progress_fill, lv_color_hex(SettingsThemeColors().action), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(progress_fill, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(progress_fill, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(progress_fill, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(progress_fill, 0, LV_PART_MAIN);
 
-  lv_obj_t* label = CreateLabel(
-      button, "Download firmware", lv_color_hex(0xFFFFFF), Font28());
+  lv_obj_t* label = CreateLabel(button, "Download firmware",
+      lv_color_hex(SettingsThemeColors().on_action), Font28());
   if (label == nullptr) {
     return false;
   }
@@ -1920,7 +1913,7 @@ bool ShowFirmwareUpdatePage(SettingsViewState* state) {
   lv_obj_set_size(page, config.width, config.height);
   lv_obj_set_pos(page, 0, 0);
   lv_obj_set_style_bg_color(
-      page, lv_color_hex(kDetailBackgroundColor), LV_PART_MAIN);
+      page, lv_color_hex(SettingsThemeColors().surface_container), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);

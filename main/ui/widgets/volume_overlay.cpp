@@ -13,6 +13,7 @@
 #include "ui/haptic_feedback.h"
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
+#include "ui/theme/theme_provider.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -21,10 +22,6 @@ constexpr int kPanelMinWidth = 94;
 constexpr int kPanelMaxWidth = 112;
 constexpr int kPanelMinHeight = 290;
 constexpr int kPanelMaxHeight = 380;
-constexpr int kPanelBackgroundColor = 0xB7B7B7;
-constexpr int kPanelFillColor = 0xF7F7F7;
-constexpr int kActiveIconColor = 0xA6A6A6;
-constexpr int kMutedIconColor = 0xF1F1F1;
 constexpr int kPanelCornerRadius = 28;
 constexpr int kSliderCornerRadius = kPanelCornerRadius + 1;
 constexpr int kIconLabelHeight = 72;
@@ -97,16 +94,18 @@ bool VolumeOverlay::Create(lv_obj_t* parent) {
     return false;
   }
   lv_slider_set_range(slider_, 100, 0);
-  lv_obj_set_style_bg_color(
-      slider_, lv_color_hex(kPanelFillColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(slider_,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_lowest),
+      LV_PART_MAIN);
   lv_obj_set_style_bg_opa(slider_, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(slider_, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(slider_, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(slider_, kSliderCornerRadius, LV_PART_MAIN);
   lv_obj_set_style_clip_corner(slider_, true, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(slider_, 0, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      slider_, lv_color_hex(kPanelBackgroundColor), LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(slider_,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_highest),
+      LV_PART_INDICATOR);
   lv_obj_set_style_bg_opa(slider_, LV_OPA_COVER, LV_PART_INDICATOR);
   lv_obj_set_style_radius(slider_, 0, LV_PART_INDICATOR);
   lv_obj_set_style_bg_opa(slider_, LV_OPA_TRANSP, LV_PART_KNOB);
@@ -199,7 +198,9 @@ void VolumeOverlay::UpdateVisuals() {
   const bool icon_on_fill = fill_height >= kIconLabelHeight * 3 / 4;
   if (!visual_state_initialized_ || icon_on_fill != icon_on_fill_visual_) {
     lv_obj_set_style_text_color(icon_label_,
-        lv_color_hex(icon_on_fill ? kActiveIconColor : kMutedIconColor),
+        lv_color_hex(icon_on_fill
+                ? theme::ActiveThemeColors().on_surface_variant
+                : theme::ActiveThemeColors().on_surface),
         LV_PART_MAIN);
     icon_on_fill_visual_ = icon_on_fill;
   }

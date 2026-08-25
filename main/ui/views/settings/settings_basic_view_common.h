@@ -21,11 +21,6 @@ constexpr int kBasicSwitchRowWithSubtitleHeight = 120;
 constexpr int kBasicSectionHeight = 54;
 constexpr int kBasicSwitchWidth = 78;
 constexpr int kBasicSwitchHeight = 44;
-constexpr uint32_t kBasicBlueColor = theme::LightNeutralTheme().action;
-constexpr uint32_t kBasicTextAreaColor =
-    theme::LightNeutralTheme().surface_container_high;
-constexpr uint32_t kBasicMutedColor =
-    theme::LightNeutralTheme().on_surface_variant;
 
 using SettingsContentBuilder = bool (*)(lv_obj_t*, SettingsViewState*);
 
@@ -121,6 +116,12 @@ bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,
     bool checked, lv_event_cb_t callback, SettingsViewState* state,
     bool wrap_title = false, lv_obj_t** switch_output = nullptr,
     const char* subtitle = nullptr);
+
+/**
+ * @brief 应用设置页开关的当前主题颜色
+ * @param switch_object 开关对象
+ */
+void ApplySettingsSwitchTheme(lv_obj_t* switch_object);
 
 /**
  * @brief 创建带图标的滑动条设置行

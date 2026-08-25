@@ -59,7 +59,8 @@ lv_obj_t* CreatePromptSheetOverlay(
   lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(overlay, config.screen_width, config.screen_height);
   lv_obj_set_pos(overlay, 0, 0);
-  lv_obj_set_style_bg_color(overlay, lv_color_hex(0x000000), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(overlay,
+      lv_color_hex(theme::ActiveThemeColors().scrim), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(overlay, config.overlay_opacity, LV_PART_MAIN);
   lv_obj_set_style_border_width(overlay, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(overlay, 0, LV_PART_MAIN);

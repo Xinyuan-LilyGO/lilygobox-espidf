@@ -1601,14 +1601,14 @@ bool CreateWifiHeader(lv_obj_t* parent, SettingsViewState* state) {
     return false;
   }
   lv_obj_t* back_icon = CreateLabel(back_button, icon::kArrowBack,
-      lv_color_hex(kDetailBackColor), MaterialIconFont44());
+      lv_color_hex(SettingsThemeColors().on_surface), MaterialIconFont44());
   if (back_icon == nullptr) {
     return false;
   }
   lv_obj_align(back_icon, LV_ALIGN_CENTER, kDetailBackIconOffsetX, 0);
 
   lv_obj_t* title =
-      CreateLabel(parent, "WLAN", lv_color_hex(kTitleColor), Font32());
+      CreateLabel(parent, "WLAN", lv_color_hex(SettingsThemeColors().on_surface), Font32());
   if (title == nullptr) {
     return false;
   }
@@ -1654,7 +1654,7 @@ lv_obj_t* CreateWifiCircleArrow(lv_obj_t* parent) {
   lv_obj_remove_flag(circle, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_flag(circle, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(circle, kWifiCircleButtonSize, kWifiCircleButtonSize);
-  lv_obj_set_style_bg_color(circle, lv_color_hex(kWifiControlColor),
+  lv_obj_set_style_bg_color(circle, lv_color_hex(SettingsThemeColors().surface_container),
       LV_PART_MAIN);
   lv_obj_set_style_bg_opa(circle, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(circle, 0, LV_PART_MAIN);
@@ -1662,7 +1662,7 @@ lv_obj_t* CreateWifiCircleArrow(lv_obj_t* parent) {
   lv_obj_set_style_shadow_width(circle, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(circle, 0, LV_PART_MAIN);
   lv_obj_t* arrow = CreateLabel(circle, icon::kChevronRight,
-      lv_color_hex(kWifiMutedColor), MaterialIconFont32());
+      lv_color_hex(SettingsThemeColors().outline), MaterialIconFont32());
   if (arrow == nullptr) {
     lv_obj_delete(circle);
     return nullptr;
@@ -1687,13 +1687,13 @@ lv_obj_t* CreateWifi5GTag(lv_obj_t* parent) {
   lv_obj_set_size(tag, 42, 28);
   lv_obj_set_style_bg_opa(tag, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_border_color(
-      tag, lv_color_hex(kWifiMutedColor), LV_PART_MAIN);
+      tag, lv_color_hex(SettingsThemeColors().outline), LV_PART_MAIN);
   lv_obj_set_style_border_width(tag, 2, LV_PART_MAIN);
   lv_obj_set_style_radius(tag, 7, LV_PART_MAIN);
   lv_obj_set_style_pad_all(tag, 0, LV_PART_MAIN);
 
   lv_obj_t* label =
-      CreateLabel(tag, "5G", lv_color_hex(kWifiMutedColor), Font22());
+      CreateLabel(tag, "5G", lv_color_hex(SettingsThemeColors().outline), Font22());
   if (label == nullptr) {
     lv_obj_delete(tag);
     return nullptr;
@@ -1727,7 +1727,7 @@ bool CreateWifiSwitchRow(lv_obj_t* parent, SettingsViewState* state, int y,
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
 
   lv_obj_t* title =
-      CreateLabel(row, "WLAN", lv_color_hex(kPrimaryTextColor), Font32());
+      CreateLabel(row, "WLAN", lv_color_hex(SettingsThemeColors().on_surface), Font32());
   if (title == nullptr) {
     return false;
   }
@@ -1742,10 +1742,7 @@ bool CreateWifiSwitchRow(lv_obj_t* parent, SettingsViewState* state, int y,
   lv_obj_align(switch_object, LV_ALIGN_RIGHT_MID, -kWifiSidePadding, 0);
   lv_obj_set_style_anim_duration(
       switch_object, kWifiSwitchAnimationMs, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(switch_object, lv_color_hex(kWifiBlueColor),
-                            kWifiSwitchCheckedIndicatorSelector);
-  lv_obj_set_style_bg_opa(
-      switch_object, LV_OPA_COVER, kWifiSwitchCheckedIndicatorSelector);
+  ApplySettingsSwitchTheme(switch_object);
   if (enabled) {
     lv_obj_add_state(switch_object, LV_STATE_CHECKED);
   }
@@ -1782,7 +1779,8 @@ bool CreateWifiDividerAt(lv_obj_t* parent, int y, int width) {
 bool CreateWifiSectionLabel(
     lv_obj_t* parent, const char* text, int y, int width) {
   lv_obj_t* label =
-      CreateLabel(parent, text, lv_color_hex(0x8F8EA2), Font24());
+      CreateLabel(parent, text,
+          lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
   if (label == nullptr) {
     return false;
   }
@@ -1813,7 +1811,7 @@ bool CreateWifiOptionRow(lv_obj_t* parent, SettingsViewState* state,
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      row, lv_color_hex(kPressedColor), LV_STATE_PRESSED);
+      row, lv_color_hex(SettingsThemeColors().state_layer), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, kPressedOpacity, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
@@ -1837,7 +1835,8 @@ bool CreateWifiOptionRow(lv_obj_t* parent, SettingsViewState* state,
 
   const bool delete_network = std::strcmp(text, "Delete network") == 0;
   const uint32_t label_color =
-      delete_network ? 0xE53935 : kPrimaryTextColor;
+      delete_network ? SettingsThemeColors().error
+                     : SettingsThemeColors().on_surface;
   lv_obj_t* label = CreateLabel(row, text, lv_color_hex(label_color),
       delete_network ? Font28() : Font32());
   if (label == nullptr) {
@@ -1848,7 +1847,7 @@ bool CreateWifiOptionRow(lv_obj_t* parent, SettingsViewState* state,
   lv_obj_align(label, LV_ALIGN_LEFT_MID, kWifiSidePadding, 0);
 
   lv_obj_t* arrow = CreateLabel(row, icon::kChevronRight,
-      lv_color_hex(kWifiMutedColor), MaterialIconFont32());
+      lv_color_hex(SettingsThemeColors().outline), MaterialIconFont32());
   if (arrow == nullptr) {
     return false;
   }
@@ -1874,17 +1873,19 @@ bool CreateWifiConnectedCard(lv_obj_t* parent, SettingsViewState* state,
     bool is_5g, bool secure, const char* password, int y, int width,
     bool retry_on_click) {
   const int card_width = width - 2 * kWifiSidePadding;
-  const bool blue_card = card_color == kWifiBlueColor;
-  const bool colored_card =
-      blue_card || card_color == kWifiConnectingColor;
-  const uint32_t text_color =
-      colored_card ? 0xFFFFFF : kPrimaryTextColor;
+  const bool blue_card = card_color == SettingsThemeColors().action;
+  const bool warning_card = card_color == SettingsThemeColors().warning;
+  const bool colored_card = blue_card || warning_card;
+  const uint32_t text_color = blue_card
+      ? SettingsThemeColors().on_action
+      : (warning_card ? SettingsThemeColors().on_warning
+                      : SettingsThemeColors().on_surface);
   const uint32_t subtitle_color =
-      colored_card ? (blue_card ? 0xEAF1FF : 0xFFF4E2)
-                   : kSecondaryTextColor;
+      colored_card ? text_color : SettingsThemeColors().on_surface_variant;
   const uint32_t pressed_color = colored_card
-                                     ? (blue_card ? 0x2F70E4 : 0xD88D16)
-                                     : 0xEEF3FF;
+      ? (blue_card ? SettingsThemeColors().action_pressed
+                   : SettingsThemeColors().warning_pressed)
+      : SettingsThemeColors().state_layer;
   lv_obj_t* card = CreateBox(parent, card_width, kWifiConnectedCardHeight,
       card_color, LV_OPA_COVER, kWifiConnectedCardRadius);
   if (card == nullptr) {
@@ -1938,10 +1939,10 @@ bool CreateWifiConnectedCard(lv_obj_t* parent, SettingsViewState* state,
     }
     if (colored_card) {
       lv_obj_set_style_border_color(
-          tag, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+          tag, lv_color_hex(text_color), LV_PART_MAIN);
       lv_obj_t* label = lv_obj_get_child(tag, 0);
       if (label != nullptr) {
-        lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF),
+        lv_obj_set_style_text_color(label, lv_color_hex(text_color),
             LV_PART_MAIN);
       }
     }
@@ -1950,7 +1951,7 @@ bool CreateWifiConnectedCard(lv_obj_t* parent, SettingsViewState* state,
 
   if (secure && !CreateWifiSmallLock(card, card_width - 112,
                     (kWifiConnectedCardHeight - 26) / 2,
-                    colored_card ? 0xFFFFFF : kWifiMutedColor)) {
+                    colored_card ? text_color : SettingsThemeColors().outline)) {
     return false;
   }
 
@@ -1963,11 +1964,11 @@ bool CreateWifiConnectedCard(lv_obj_t* parent, SettingsViewState* state,
   }
   if (colored_card) {
     lv_obj_set_style_bg_color(
-        arrow_circle, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+        arrow_circle, lv_color_hex(text_color), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(arrow_circle, LV_OPA_30, LV_PART_MAIN);
     lv_obj_t* arrow = lv_obj_get_child(arrow_circle, 0);
     if (arrow != nullptr) {
-      lv_obj_set_style_text_color(arrow, lv_color_hex(0xFFFFFF),
+      lv_obj_set_style_text_color(arrow, lv_color_hex(text_color),
           LV_PART_MAIN);
     }
   }
@@ -2006,7 +2007,8 @@ bool CreateWifiNetworkRow(lv_obj_t* parent, SettingsViewState* state,
   lv_obj_set_size(row, row_width, kWifiNetworkRowHeight);
   lv_obj_set_pos(row, kWifiSidePadding, y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(row, lv_color_hex(0xEDEDED), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(row,
+      lv_color_hex(SettingsThemeColors().state_layer), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(row, kWifiConnectedCardRadius, LV_PART_MAIN);
@@ -2023,7 +2025,7 @@ bool CreateWifiNetworkRow(lv_obj_t* parent, SettingsViewState* state,
   }
 
   lv_obj_t* wifi_icon = CreateLabel(row, WifiSignalIconForRssi(rssi),
-      lv_color_hex(kPrimaryTextColor), MaterialIconFont32());
+      lv_color_hex(SettingsThemeColors().on_surface), MaterialIconFont32());
   if (wifi_icon == nullptr) {
     return false;
   }
@@ -2032,7 +2034,7 @@ bool CreateWifiNetworkRow(lv_obj_t* parent, SettingsViewState* state,
 
   const int tag_reserve = show_tag ? 58 : 0;
   lv_obj_t* title =
-      CreateLabel(row, ssid, lv_color_hex(kPrimaryTextColor), Font28());
+      CreateLabel(row, ssid, lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (title == nullptr) {
     return false;
   }
@@ -2053,7 +2055,7 @@ bool CreateWifiNetworkRow(lv_obj_t* parent, SettingsViewState* state,
   }
 
   if (secure && !CreateWifiSmallLock(row, row_width - 108,
-                    (kWifiNetworkRowHeight - 26) / 2, kWifiMutedColor)) {
+                    (kWifiNetworkRowHeight - 26) / 2, SettingsThemeColors().outline)) {
     return false;
   }
 
@@ -2095,7 +2097,7 @@ bool CreateWifiSavedManageRow(
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
 
   lv_obj_t* name =
-      CreateLabel(row, ssid, lv_color_hex(kPrimaryTextColor), Font32());
+      CreateLabel(row, ssid, lv_color_hex(SettingsThemeColors().on_surface), Font32());
   if (name == nullptr) {
     return false;
   }
@@ -2114,10 +2116,11 @@ bool CreateWifiSavedManageRow(
   lv_obj_add_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(button, button_width, button_height);
   lv_obj_align(button, LV_ALIGN_RIGHT_MID, -kWifiSidePadding, 0);
-  lv_obj_set_style_bg_color(button, lv_color_hex(0xFFECEE), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(button,
+      lv_color_hex(SettingsThemeColors().error_container), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      button, lv_color_hex(0xFFD7DC), LV_STATE_PRESSED);
+      button, lv_color_hex(SettingsThemeColors().error), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(button, button_height / 2, LV_PART_MAIN);
@@ -2133,7 +2136,8 @@ bool CreateWifiSavedManageRow(
   }
 
   lv_obj_t* label =
-      CreateLabel(button, "Delete", lv_color_hex(0xE53935), Font28());
+      CreateLabel(button, "Delete",
+          lv_color_hex(SettingsThemeColors().on_error_container), Font28());
   if (label == nullptr) {
     return false;
   }
@@ -2162,11 +2166,12 @@ bool CreateWifiRefreshButton(
   lv_obj_add_event_cb(button, WifiRefreshButtonClickedEventCallback,
       LV_EVENT_CLICKED, state);
   lv_obj_set_pos(button, width - kWifiSidePadding - 54, y);
-  lv_obj_set_style_bg_color(button, lv_color_hex(kWifiControlColor),
+  lv_obj_set_style_bg_color(button, lv_color_hex(SettingsThemeColors().surface_container),
       LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      button, lv_color_hex(0xE6E7EA), LV_STATE_PRESSED);
+      button, lv_color_hex(SettingsThemeColors().state_layer_strong),
+      LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(button, 27, LV_PART_MAIN);
@@ -2177,7 +2182,7 @@ bool CreateWifiRefreshButton(
   }
 
   lv_obj_t* refresh_icon = CreateLabel(button, icon::kRefresh,
-      lv_color_hex(kPrimaryTextColor), MaterialIconFont32());
+      lv_color_hex(SettingsThemeColors().on_surface), MaterialIconFont32());
   if (refresh_icon == nullptr) {
     return false;
   }
@@ -2214,7 +2219,7 @@ bool CreateWifiNearbyHeader(
 bool CreateWifiStatusText(
     lv_obj_t* parent, const char* text, int y, int width) {
   lv_obj_t* label =
-      CreateLabel(parent, text, lv_color_hex(kSecondaryTextColor), Font24());
+      CreateLabel(parent, text, lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
   if (label == nullptr) {
     return false;
   }
@@ -2262,14 +2267,14 @@ bool CreateWifiSubHeader(
     return false;
   }
   lv_obj_t* back_icon = CreateLabel(back_button, icon::kArrowBack,
-      lv_color_hex(kDetailBackColor), MaterialIconFont44());
+      lv_color_hex(SettingsThemeColors().on_surface), MaterialIconFont44());
   if (back_icon == nullptr) {
     return false;
   }
   lv_obj_align(back_icon, LV_ALIGN_CENTER, kDetailBackIconOffsetX, 0);
 
   lv_obj_t* title_label =
-      CreateLabel(page, title, lv_color_hex(kTitleColor), Font32());
+      CreateLabel(page, title, lv_color_hex(SettingsThemeColors().on_surface), Font32());
   if (title_label == nullptr) {
     return false;
   }
@@ -2335,7 +2340,7 @@ bool ShowWifiSubPage(SettingsViewState* state, const char* title,
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(page, state->config.width, state->config.height);
   lv_obj_set_pos(page, 0, 0);
-  lv_obj_set_style_bg_color(page, lv_color_hex(kBackgroundColor),
+  lv_obj_set_style_bg_color(page, lv_color_hex(SettingsThemeColors().surface),
       LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
@@ -2420,14 +2425,14 @@ bool CreateWifiInfoRow(lv_obj_t* parent, const char* title,
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
 
   lv_obj_t* title_label =
-      CreateLabel(row, title, lv_color_hex(kPrimaryTextColor), Font28());
+      CreateLabel(row, title, lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (title_label == nullptr) {
     return false;
   }
   lv_obj_align(title_label, LV_ALIGN_LEFT_MID, kWifiSidePadding, 0);
 
   lv_obj_t* value_label =
-      CreateLabel(row, value, lv_color_hex(kSecondaryTextColor), Font24());
+      CreateLabel(row, value, lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
   if (value_label == nullptr) {
     return false;
   }
@@ -2461,7 +2466,7 @@ bool CreateWifiAutoConnectRow(
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
 
   lv_obj_t* label =
-      CreateLabel(row, "Auto connect", lv_color_hex(kPrimaryTextColor),
+      CreateLabel(row, "Auto connect", lv_color_hex(SettingsThemeColors().on_surface),
           Font28());
   if (label == nullptr) {
     return false;
@@ -2474,10 +2479,7 @@ bool CreateWifiAutoConnectRow(
   }
   lv_obj_set_size(switch_object, kWifiSwitchWidth, kWifiSwitchHeight);
   lv_obj_align(switch_object, LV_ALIGN_RIGHT_MID, -kWifiSidePadding, 0);
-  lv_obj_set_style_bg_color(switch_object, lv_color_hex(kWifiBlueColor),
-      kWifiSwitchCheckedIndicatorSelector);
-  lv_obj_set_style_bg_opa(switch_object, LV_OPA_COVER,
-      kWifiSwitchCheckedIndicatorSelector);
+  ApplySettingsSwitchTheme(switch_object);
   const app::WifiSavedNetwork* saved =
       FindSavedWifiNetworkConst(state->wifi_pending_action.ssid);
   if (saved != nullptr && saved->auto_connect) {
@@ -2634,7 +2636,8 @@ bool CreateWifiSheetButton(lv_obj_t* parent, const char* text, int x, int y,
     int width, lv_event_cb_t callback, SettingsViewState* state,
     bool primary, bool enabled) {
   const uint32_t background_color =
-      primary ? kWifiBlueColor : kWifiConnectSecondaryColor;
+      primary ? SettingsThemeColors().action
+              : SettingsThemeColors().button_secondary;
   PromptSheetButtonConfig button_config;
   button_config.text = text;
   button_config.x = x;
@@ -2643,11 +2646,14 @@ bool CreateWifiSheetButton(lv_obj_t* parent, const char* text, int x, int y,
   button_config.height = kWifiConnectButtonHeight;
   button_config.radius = 24;
   button_config.background_color = background_color;
-  button_config.disabled_background_color = kWifiConnectDisabledColor;
+  button_config.disabled_background_color = SettingsThemeColors().action_disabled;
   button_config.pressed_background_color =
-      primary ? kWifiActionPressedColor : kWifiConnectSecondaryPressedColor;
+      primary ? SettingsThemeColors().action_pressed
+              : SettingsThemeColors().button_secondary_pressed;
   button_config.pressed_opacity = LV_OPA_COVER;
-  button_config.text_color = primary ? 0xFFFFFF : kPrimaryTextColor;
+  button_config.text_color = primary
+      ? SettingsThemeColors().on_action
+      : SettingsThemeColors().on_surface;
   button_config.font = Font28();
   button_config.callback = callback;
   button_config.user_data = state;
@@ -2675,15 +2681,15 @@ void SetWifiConnectButtonEnabled(SettingsViewState* state, bool enabled) {
   if (enabled) {
     lv_obj_remove_state(state->wifi_connect_button, LV_STATE_DISABLED);
     lv_obj_set_style_bg_color(state->wifi_connect_button,
-        lv_color_hex(kWifiBlueColor), LV_PART_MAIN);
+        lv_color_hex(SettingsThemeColors().action), LV_PART_MAIN);
   } else {
     lv_obj_add_state(state->wifi_connect_button, LV_STATE_DISABLED);
     lv_obj_set_style_bg_color(state->wifi_connect_button,
-        lv_color_hex(kWifiConnectDisabledColor), LV_PART_MAIN);
+        lv_color_hex(SettingsThemeColors().action_disabled), LV_PART_MAIN);
   }
   if (state->wifi_connect_button_label != nullptr) {
     lv_obj_set_style_text_color(state->wifi_connect_button_label,
-        lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+        lv_color_hex(SettingsThemeColors().on_action), LV_PART_MAIN);
   }
 }
 
@@ -2819,7 +2825,7 @@ bool ShowWifiConnectSheet(SettingsViewState* state,
       LV_EVENT_CLICKED, state);
 
   lv_obj_t* title = CreateLabel(sheet, action.ssid,
-      lv_color_hex(kPrimaryTextColor), Font32());
+      lv_color_hex(SettingsThemeColors().on_surface), Font32());
   if (title == nullptr) {
     CloseWifiModalImmediately(state);
     return false;
@@ -2836,7 +2842,9 @@ bool ShowWifiConnectSheet(SettingsViewState* state,
       : "Connect to this open network?";
   if (subtitle[0] != '\0') {
     lv_obj_t* subtitle_label = CreateLabel(sheet, subtitle,
-        lv_color_hex(has_error ? 0xE53935 : kSecondaryTextColor), Font24());
+        lv_color_hex(has_error ? SettingsThemeColors().error
+                               : SettingsThemeColors().on_surface_variant),
+        Font24());
     if (subtitle_label == nullptr) {
       CloseWifiModalImmediately(state);
       return false;
@@ -2892,7 +2900,7 @@ bool ShowWifiConnectSheet(SettingsViewState* state,
     }
   } else {
     lv_obj_t* hint = CreateLabel(sheet, "No password required.",
-        lv_color_hex(kSecondaryTextColor), Font24());
+        lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
     if (hint == nullptr) {
       CloseWifiModalImmediately(state);
       return false;
@@ -2975,7 +2983,7 @@ bool ShowWifiDeleteNetworkSheet(SettingsViewState* state, const char* ssid,
       LV_EVENT_CLICKED, state);
 
   lv_obj_t* title = CreatePromptSheetLabel(sheet, "Delete network",
-      kPrimaryTextColor, Font32());
+      SettingsThemeColors().on_surface, Font32());
   if (title == nullptr) {
     CloseWifiModalImmediately(state);
     return false;
@@ -2985,7 +2993,7 @@ bool ShowWifiDeleteNetworkSheet(SettingsViewState* state, const char* ssid,
   lv_obj_t* message = CreatePromptSheetLabel(sheet,
       "Stop automatically connecting to this network. You may need to enter "
       "the password again.",
-      kSecondaryTextColor, Font24());
+      SettingsThemeColors().on_surface_variant, Font24());
   if (message == nullptr) {
     CloseWifiModalImmediately(state);
     return false;
@@ -3128,7 +3136,7 @@ bool CreateWifiPageContent(lv_obj_t* parent, SettingsViewState* state,
       connection_text = "Connected, no internet";
     }
     if (!CreateWifiConnectedCard(parent, state, ssid, connection_text,
-            kWifiBlueColor, card_rssi, card_is_5g, card_secure,
+            SettingsThemeColors().action, card_rssi, card_is_5g, card_secure,
             card_password, y, config.width, false)) {
       return false;
     }
@@ -3139,7 +3147,7 @@ bool CreateWifiPageContent(lv_obj_t* parent, SettingsViewState* state,
                  (state != nullptr && state->wifi_scan_on_ready))) {
     y += 10;
     if (!CreateWifiConnectedCard(parent, state, ssid, "Connecting...",
-            kWifiConnectingColor, card_rssi, card_is_5g, card_secure,
+            SettingsThemeColors().warning, card_rssi, card_is_5g, card_secure,
             card_password, y, config.width, false)) {
       return false;
     }
@@ -3149,8 +3157,8 @@ bool CreateWifiPageContent(lv_obj_t* parent, SettingsViewState* state,
              (status.start_failed || status.disconnect_reason != 0)) {
     y += 10;
     if (!CreateWifiConnectedCard(parent, state, ssid, "Connection failed",
-            0xFFECEC, card_rssi, card_is_5g, card_secure, card_password, y,
-            config.width, true)) {
+            SettingsThemeColors().error_container, card_rssi, card_is_5g,
+            card_secure, card_password, y, config.width, true)) {
       return false;
     }
     MarkShownWifiSsid(shown_ssids, &shown_ssid_count, ssid);
@@ -3283,7 +3291,7 @@ void RefreshWifiPage(SettingsViewState* state, bool force) {
     state->wifi_refresh_force = true;
     lv_obj_clean(state->wifi_body);
     lv_obj_t* error_label = CreateLabel(state->wifi_body,
-        "Unable to load WLAN settings", lv_color_hex(kSecondaryTextColor),
+        "Unable to load WLAN settings", lv_color_hex(SettingsThemeColors().on_surface_variant),
         Font24());
     if (error_label != nullptr) {
       lv_obj_center(error_label);
@@ -3342,7 +3350,7 @@ bool ShowWifiPageInternal(SettingsViewState* state) {
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(page, config.width, config.height);
   lv_obj_set_pos(page, 0, 0);
-  lv_obj_set_style_bg_color(page, lv_color_hex(kBackgroundColor),
+  lv_obj_set_style_bg_color(page, lv_color_hex(SettingsThemeColors().surface),
       LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);

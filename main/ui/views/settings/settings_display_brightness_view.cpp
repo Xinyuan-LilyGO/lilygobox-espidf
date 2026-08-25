@@ -68,9 +68,6 @@ constexpr int kScreenRotationSheetInnerPadding = 32;
 constexpr int kScreenRotationSheetHeight = 615;
 constexpr int kScreenRotationOptionTop = 155;
 constexpr int kScreenRotationOptionHeight = 78;
-constexpr uint32_t kScreenRotationSelectedColor =
-    theme::LightNeutralTheme().action_container;
-
 void ApplyPendingRotation(void* /*ctx*/) {
   if (g_lvgl_port != nullptr && g_pending_rotation_angle >= 0) {
     g_lvgl_port->SetDisplayRotation(g_pending_rotation_angle);
@@ -131,6 +128,31 @@ void BrightnessSliderChangedEventCallback(lv_event_t* event) {
 void BrightnessSliderReleasedEventCallback(lv_event_t* event) {
   SaveBrightnessPreferences(
       static_cast<SettingsViewState*>(lv_event_get_user_data(event)));
+}
+
+/**
+ * @brief 保存并应用深色主题开关状态
+ * @param event LVGL 事件对象
+ */
+void DarkThemeSwitchChangedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED) {
+    return;
+  }
+  auto* state = static_cast<SettingsViewState*>(
+      lv_event_get_user_data(event));
+  lv_obj_t* target = lv_event_get_target_obj(event);
+  if (state == nullptr || target == nullptr) {
+    return;
+  }
+
+  const bool enabled = lv_obj_has_state(target, LV_STATE_CHECKED);
+  state->dark_theme_enabled = enabled;
+  app::DisplayPreferences preferences = app::GetDisplayPreferences();
+  preferences.dark_theme_enabled = enabled;
+  app::UpdateDisplayPreferences(preferences);
+  if (state->config.set_dark_theme_enabled) {
+    state->config.set_dark_theme_enabled(enabled);
+  }
 }
 
 /**
@@ -204,12 +226,12 @@ bool ShowScreenRotationSheet(SettingsViewState* state) {
   config.option_height = kScreenRotationOptionHeight;
   config.button_height = kWifiConnectButtonHeight;
   config.button_radius = 24;
-  config.selected_color = kScreenRotationSelectedColor;
-  config.primary_text_color = kPrimaryTextColor;
-  config.secondary_text_color = kSecondaryTextColor;
-  config.selected_text_color = kBasicBlueColor;
-  config.cancel_background_color = kWifiConnectSecondaryColor;
-  config.pressed_color = kWifiConnectSecondaryPressedColor;
+  config.selected_color = SettingsThemeColors().action_container;
+  config.primary_text_color = SettingsThemeColors().on_surface;
+  config.secondary_text_color = SettingsThemeColors().on_surface_variant;
+  config.selected_text_color = SettingsThemeColors().action;
+  config.cancel_background_color = SettingsThemeColors().button_secondary;
+  config.pressed_color = SettingsThemeColors().button_secondary_pressed;
   config.pressed_opacity = kPressedOpacity;
   config.animation_ms = kDetailSlideAnimationMs;
   config.title = "Screen rotation";
@@ -266,7 +288,7 @@ bool CreateScreenRotationRow(
   lv_obj_set_size(row, width, kBasicRowHeight);
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(row, lv_color_hex(kPressedColor),
+  lv_obj_set_style_bg_color(row, lv_color_hex(SettingsThemeColors().state_layer),
       LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, kPressedOpacity, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
@@ -279,7 +301,7 @@ bool CreateScreenRotationRow(
       LV_EVENT_CLICKED, state);
 
   lv_obj_t* title = CreateLabel(row, "Screen rotation",
-      lv_color_hex(kPrimaryTextColor), Font28());
+      lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (title == nullptr) {
     return false;
   }
@@ -290,7 +312,7 @@ bool CreateScreenRotationRow(
   char value[16] = {};
   FormatScreenRotationValue(state->screen_rotation_angle, value, sizeof(value));
   lv_obj_t* value_label = CreateLabel(row, value,
-      lv_color_hex(kSecondaryTextColor), Font24());
+      lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
   if (value_label == nullptr) {
     return false;
   }
@@ -301,7 +323,7 @@ bool CreateScreenRotationRow(
       -(kBasicSidePadding + 40), 0);
 
   lv_obj_t* arrow = CreateLabel(row, icon::kChevronRight,
-      lv_color_hex(kSecondaryTextColor), MaterialIconFont32());
+      lv_color_hex(SettingsThemeColors().on_surface_variant), MaterialIconFont32());
   if (arrow == nullptr) {
     return false;
   }
@@ -333,10 +355,10 @@ bool BuildDisplayBrightnessContent(lv_obj_t* body, SettingsViewState* state) {
   lv_obj_t* brightness_slider =
       lv_obj_get_child(body, lv_obj_get_child_count(body) - 1);
   if (brightness_slider != nullptr) {
-    lv_obj_add_event_cb(brightness_slider, BrightnessSliderReleasedEventCallback,
-        LV_EVENT_RELEASED, state);
-    lv_obj_add_event_cb(brightness_slider, BrightnessSliderReleasedEventCallback,
-        LV_EVENT_PRESS_LOST, state);
+    lv_obj_add_event_cb(brightness_slider,
+        BrightnessSliderReleasedEventCallback, LV_EVENT_RELEASED, state);
+    lv_obj_add_event_cb(brightness_slider,
+        BrightnessSliderReleasedEventCallback, LV_EVENT_PRESS_LOST, state);
   }
 
   y += 118;
@@ -350,7 +372,20 @@ bool BuildDisplayBrightnessContent(lv_obj_t* body, SettingsViewState* state) {
     return false;
   }
   y += kBasicSectionHeight;
-  return CreateScreenRotationRow(body, state, y, width);
+  if (!CreateScreenRotationRow(body, state, y, width)) {
+    return false;
+  }
+  y += kBasicRowHeight + 24;
+  if (!CreateBasicDivider(body, y, width)) {
+    return false;
+  }
+  y += 32;
+  if (!CreateSectionLabel(body, "Appearance", y, width)) {
+    return false;
+  }
+  y += kBasicSectionHeight;
+  return CreateSwitchRow(body, "Dark theme", y, width,
+      state->dark_theme_enabled, DarkThemeSwitchChangedEventCallback, state);
 }
 
 }  // namespace

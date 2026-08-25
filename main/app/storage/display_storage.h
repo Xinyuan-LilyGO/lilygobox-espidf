@@ -24,6 +24,8 @@ struct DisplayPreferences {
   int screen_rotation_angle = 0;
   // 锁屏页面是否允许双击触摸屏亮屏和熄屏。
   bool lock_screen_double_tap_to_turn_screen_on_and_off = true;
+  // 系统界面是否使用深色主题。
+  bool dark_theme_enabled = false;
 };
 
 /**

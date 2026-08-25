@@ -159,14 +159,14 @@ bool CreateBasicHeader(
     return false;
   }
   lv_obj_t* back_icon = CreateLabel(back_button, icon::kArrowBack,
-      lv_color_hex(kDetailBackColor), MaterialIconFont44());
+      lv_color_hex(SettingsThemeColors().on_surface), MaterialIconFont44());
   if (back_icon == nullptr) {
     return false;
   }
   lv_obj_align(back_icon, LV_ALIGN_CENTER, kDetailBackIconOffsetX, 0);
 
   lv_obj_t* title_label =
-      CreateLabel(page, title, lv_color_hex(kTitleColor), Font32());
+      CreateLabel(page, title, lv_color_hex(SettingsThemeColors().on_surface), Font32());
   if (title_label == nullptr) {
     return false;
   }
@@ -213,11 +213,11 @@ void ApplySettingsTextAreaStyle(
   lv_obj_set_scrollbar_mode(text_area, LV_SCROLLBAR_MODE_OFF);
   lv_obj_set_style_text_font(text_area, font, LV_PART_MAIN);
   lv_obj_set_style_text_color(
-      text_area, lv_color_hex(kPrimaryTextColor), LV_PART_MAIN);
+      text_area, lv_color_hex(SettingsThemeColors().on_surface), LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      text_area, lv_color_hex(kBasicTextAreaColor), LV_PART_MAIN);
+      text_area, lv_color_hex(SettingsThemeColors().surface_container_high), LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      text_area, lv_color_hex(kBasicTextAreaColor), LV_STATE_FOCUSED);
+      text_area, lv_color_hex(SettingsThemeColors().surface_container_high), LV_STATE_FOCUSED);
   lv_obj_set_style_bg_opa(text_area, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(text_area, LV_OPA_COVER, LV_STATE_FOCUSED);
   lv_obj_set_style_border_width(text_area, 0, LV_PART_MAIN);
@@ -272,7 +272,7 @@ bool ShowBasicPage(SettingsViewState* state, const char* title,
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(page, state->config.width, state->config.height);
   lv_obj_set_pos(page, 0, 0);
-  lv_obj_set_style_bg_color(page, lv_color_hex(kBackgroundColor),
+  lv_obj_set_style_bg_color(page, lv_color_hex(SettingsThemeColors().surface),
       LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
@@ -327,7 +327,7 @@ bool ShowNestedPage(SettingsViewState* state, const char* title,
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(page, state->config.width, state->config.height);
   lv_obj_set_pos(page, 0, 0);
-  lv_obj_set_style_bg_color(page, lv_color_hex(kBackgroundColor),
+  lv_obj_set_style_bg_color(page, lv_color_hex(SettingsThemeColors().surface),
       LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
@@ -359,7 +359,7 @@ bool ShowNestedPage(SettingsViewState* state, const char* title,
 
 bool CreateSectionLabel(lv_obj_t* parent, const char* text, int y, int width) {
   lv_obj_t* label =
-      CreateLabel(parent, text, lv_color_hex(kBasicMutedColor), Font24());
+      CreateLabel(parent, text, lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
   if (label == nullptr) {
     return false;
   }
@@ -391,7 +391,7 @@ lv_obj_t* CreateTextRow(lv_obj_t* parent, const char* title, int y, int width,
   lv_obj_set_size(row, width, kBasicRowHeight);
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(row, lv_color_hex(kPressedColor),
+  lv_obj_set_style_bg_color(row, lv_color_hex(SettingsThemeColors().state_layer),
       LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, kPressedOpacity, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
@@ -405,7 +405,7 @@ lv_obj_t* CreateTextRow(lv_obj_t* parent, const char* title, int y, int width,
   }
 
   lv_obj_t* title_label =
-      CreateLabel(row, title, lv_color_hex(kPrimaryTextColor), Font28());
+      CreateLabel(row, title, lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (title_label == nullptr) {
     return nullptr;
   }
@@ -428,7 +428,7 @@ bool CreateArrowRow(lv_obj_t* parent, const char* title, const char* value,
 
   if (value != nullptr && value[0] != '\0') {
     lv_obj_t* value_label =
-        CreateLabel(row, value, lv_color_hex(kSecondaryTextColor), Font24());
+        CreateLabel(row, value, lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
     if (value_label == nullptr) {
       return false;
     }
@@ -440,7 +440,7 @@ bool CreateArrowRow(lv_obj_t* parent, const char* title, const char* value,
   }
 
   lv_obj_t* arrow = CreateLabel(row, icon::kChevronRight,
-      lv_color_hex(kSecondaryTextColor), MaterialIconFont32());
+      lv_color_hex(SettingsThemeColors().on_surface_variant), MaterialIconFont32());
   if (arrow == nullptr) {
     return false;
   }
@@ -451,6 +451,29 @@ bool CreateArrowRow(lv_obj_t* parent, const char* title, const char* value,
 bool CreateActionRow(lv_obj_t* parent, const char* title, int y, int width,
     lv_event_cb_t callback, SettingsViewState* state) {
   return CreateTextRow(parent, title, y, width, 0, callback, state) != nullptr;
+}
+
+void ApplySettingsSwitchTheme(lv_obj_t* switch_object) {
+  if (switch_object == nullptr) {
+    return;
+  }
+  constexpr lv_style_selector_t kCheckedKnobSelector =
+      static_cast<lv_style_selector_t>(LV_PART_KNOB) |
+      static_cast<lv_style_selector_t>(LV_STATE_CHECKED);
+  lv_obj_set_style_bg_color(switch_object,
+      lv_color_hex(SettingsThemeColors().surface_container_highest),
+      LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(switch_object, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(switch_object,
+      lv_color_hex(SettingsThemeColors().surface_container_lowest),
+      LV_PART_KNOB);
+  lv_obj_set_style_bg_color(switch_object,
+      lv_color_hex(SettingsThemeColors().on_action), kCheckedKnobSelector);
+  lv_obj_set_style_bg_color(switch_object,
+      lv_color_hex(SettingsThemeColors().action),
+      kWifiSwitchCheckedIndicatorSelector);
+  lv_obj_set_style_bg_opa(switch_object, LV_OPA_COVER,
+      kWifiSwitchCheckedIndicatorSelector);
 }
 
 bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,
@@ -474,7 +497,7 @@ bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
 
   lv_obj_t* label =
-      CreateLabel(row, title, lv_color_hex(kPrimaryTextColor), Font28());
+      CreateLabel(row, title, lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (label == nullptr) {
     return false;
   }
@@ -494,7 +517,7 @@ bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,
         kSwitchTitleTop);
 
     lv_obj_t* subtitle_label = CreateLabel(
-        row, subtitle, lv_color_hex(kBasicMutedColor), Font22());
+        row, subtitle, lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
     if (subtitle_label == nullptr) {
       return false;
     }
@@ -517,10 +540,7 @@ bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,
   lv_obj_align(switch_object, LV_ALIGN_RIGHT_MID, -kBasicSidePadding, 0);
   lv_obj_set_style_anim_duration(
       switch_object, kWifiSwitchAnimationMs, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(switch_object, lv_color_hex(kBasicBlueColor),
-      kWifiSwitchCheckedIndicatorSelector);
-  lv_obj_set_style_bg_opa(switch_object, LV_OPA_COVER,
-      kWifiSwitchCheckedIndicatorSelector);
+  ApplySettingsSwitchTheme(switch_object);
   if (checked) {
     lv_obj_add_state(switch_object, LV_STATE_CHECKED);
   }
@@ -538,7 +558,7 @@ bool CreateSliderRow(lv_obj_t* parent, const char* icon_text,
     const char* title, int value, int y, int width, lv_event_cb_t callback,
     SettingsViewState* state) {
   lv_obj_t* label =
-      CreateLabel(parent, title, lv_color_hex(kPrimaryTextColor), Font28());
+      CreateLabel(parent, title, lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (label == nullptr) {
     return false;
   }
@@ -548,15 +568,11 @@ bool CreateSliderRow(lv_obj_t* parent, const char* icon_text,
   constexpr int kSliderIconTopOffset = -4;
   constexpr int kSliderBarTopOffset = 48;
   constexpr int kSliderBarHeight = 38;
-  constexpr uint32_t kSliderIconColor =
-      theme::LightNeutralTheme().outline;
-  constexpr uint32_t kSliderTrackColor =
-      theme::LightNeutralTheme().surface_container_high;
   lv_obj_align(label, LV_ALIGN_TOP_LEFT,
       kSliderSidePadding + kSliderIconSize + kSliderTitleGap, y);
 
   lv_obj_t* icon_label = CreateLabel(parent, icon_text,
-      lv_color_hex(kSliderIconColor), MaterialIconFont32());
+      lv_color_hex(SettingsThemeColors().outline), MaterialIconFont32());
   if (icon_label == nullptr) {
     return false;
   }
@@ -577,11 +593,12 @@ bool CreateSliderRow(lv_obj_t* parent, const char* icon_text,
       y + kSliderBarTopOffset);
   lv_slider_set_range(slider, 0, 100);
   lv_slider_set_value(slider, value, LV_ANIM_OFF);
-  lv_obj_set_style_bg_color(slider, lv_color_hex(kSliderTrackColor),
+  lv_obj_set_style_bg_color(slider,
+      lv_color_hex(SettingsThemeColors().surface_container_high),
       LV_PART_MAIN);
   lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_radius(slider, kSliderBarHeight / 2, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(slider, lv_color_hex(kBasicBlueColor),
+  lv_obj_set_style_bg_color(slider, lv_color_hex(SettingsThemeColors().action),
       LV_PART_INDICATOR);
   lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_INDICATOR);
   lv_obj_set_style_radius(slider, 0, LV_PART_INDICATOR);

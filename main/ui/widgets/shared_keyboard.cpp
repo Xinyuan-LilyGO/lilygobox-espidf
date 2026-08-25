@@ -17,6 +17,7 @@
 #include "hal/lvgl_port.h"
 #include "hal/providers/keyboard_expansion_provider.h"
 #include "ui/haptic_feedback.h"
+#include "ui/theme/theme_provider.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -24,11 +25,6 @@ namespace {
 constexpr int kKeyboardRadius = 8;
 constexpr int kKeyboardPadRow = 8;
 constexpr int kKeyboardPadColumn = 4;
-constexpr uint32_t kKeyboardBackgroundColor = 0xE7E7E7;
-constexpr uint32_t kKeyboardKeyColor = 0xFFFFFF;
-constexpr uint32_t kKeyboardPressedKeyColor = 0xD4D4D4;
-constexpr uint32_t kKeyboardTextColor = 0x202020;
-constexpr uint32_t kKeyboardSpecialKeyColor = 0xC9CDD4;
 constexpr int kTextAreaActivationDragThreshold = 12;
 constexpr uint32_t kTextAreaScrollAnimationDurationMs = 1;
 constexpr size_t kMaximumSharedKeyboardCount = 16;
@@ -379,7 +375,7 @@ void EnableSharedKeyboardReleaseActivation(lv_obj_t* keyboard) {
  */
 void ConfigureSharedKeyboardStyle(lv_obj_t* keyboard) {
   lv_obj_set_style_bg_color(
-      keyboard, lv_color_hex(kKeyboardBackgroundColor), LV_PART_MAIN);
+      keyboard, lv_color_hex(theme::ActiveThemeColors().keyboard_background), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(keyboard, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(keyboard, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_left(keyboard, 0, LV_PART_MAIN);
@@ -388,21 +384,21 @@ void ConfigureSharedKeyboardStyle(lv_obj_t* keyboard) {
   lv_obj_set_style_pad_column(keyboard, kKeyboardPadColumn, LV_PART_MAIN);
   lv_obj_set_style_text_font(keyboard, KeyboardFont(), LV_PART_MAIN);
   lv_obj_set_style_text_color(
-      keyboard, lv_color_hex(kKeyboardTextColor), LV_PART_MAIN);
+      keyboard, lv_color_hex(theme::ActiveThemeColors().on_keyboard_key), LV_PART_MAIN);
 
   lv_obj_set_style_radius(keyboard, kKeyboardRadius, LV_PART_ITEMS);
   lv_obj_set_style_bg_color(
-      keyboard, lv_color_hex(kKeyboardKeyColor), LV_PART_ITEMS);
+      keyboard, lv_color_hex(theme::ActiveThemeColors().keyboard_key), LV_PART_ITEMS);
   lv_obj_set_style_bg_opa(keyboard, LV_OPA_COVER, LV_PART_ITEMS);
   lv_obj_set_style_border_width(keyboard, 0, LV_PART_ITEMS);
   lv_obj_set_style_text_color(
-      keyboard, lv_color_hex(kKeyboardTextColor), LV_PART_ITEMS);
+      keyboard, lv_color_hex(theme::ActiveThemeColors().on_keyboard_key), LV_PART_ITEMS);
 
   lv_obj_set_style_bg_color(
-      keyboard, lv_color_hex(kKeyboardPressedKeyColor),
+      keyboard, lv_color_hex(theme::ActiveThemeColors().keyboard_key_pressed),
       StyleSelector(LV_PART_ITEMS, LV_STATE_PRESSED));
   lv_obj_set_style_bg_color(
-      keyboard, lv_color_hex(kKeyboardSpecialKeyColor),
+      keyboard, lv_color_hex(theme::ActiveThemeColors().keyboard_special_key),
       StyleSelector(LV_PART_ITEMS, LV_STATE_CHECKED));
 }
 

@@ -99,22 +99,11 @@ constexpr uint32_t kPageSlideAnimationMs = 180;
 constexpr uint32_t kMicrophoneNeedleAnimationMs = 80;
 constexpr uint32_t kCitBackgroundColor = 0xFF7F58;
 constexpr uint32_t kCitTitleColor = 0xFFFFFF;
-constexpr uint32_t kListBackgroundColor =
-    theme::LightNeutralTheme().surface_container_low;
-constexpr uint32_t kRowPressedColor = theme::LightNeutralTheme().state_layer;
 constexpr int kRowPressedHeight = kRowHeight;
 constexpr int kRowPressedRadius = 0;
 constexpr uint32_t kReadyColor = 0x138A3D;
 constexpr uint32_t kFailedColor = 0xEE2C2C;
 constexpr uint32_t kPendingColor = 0xF28C00;
-constexpr uint32_t kPassButtonColor = theme::LightNeutralTheme().action;
-constexpr uint32_t kFailButtonColor =
-    theme::LightNeutralTheme().button_secondary;
-constexpr uint32_t kPassButtonTextColor = theme::LightNeutralTheme().on_action;
-constexpr uint32_t kFailButtonTextColor =
-    theme::LightNeutralTheme().on_button_secondary;
-constexpr uint32_t kStartButtonColor = theme::LightNeutralTheme().action;
-constexpr uint32_t kStartButtonTextColor = theme::LightNeutralTheme().on_action;
 constexpr std::array<uint32_t, 5> kScreenColorTestColors = {
     0xFF0000,
     0x00FF00,
@@ -3193,7 +3182,7 @@ lv_obj_t* CreateCenterButton(lv_obj_t* parent, const char* text,
   lv_obj_center(button);
   lv_obj_set_style_radius(button, 12, LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      button, lv_color_hex(kStartButtonColor), LV_PART_MAIN);
+      button, lv_color_hex(theme::ActiveThemeColors().action), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
@@ -3206,7 +3195,7 @@ lv_obj_t* CreateCenterButton(lv_obj_t* parent, const char* text,
   }
 
   lv_obj_t* label =
-      CreateLabel(button, text, lv_color_hex(kStartButtonTextColor), Font28());
+      CreateLabel(button, text, lv_color_hex(theme::ActiveThemeColors().on_action), Font28());
   if (label == nullptr) {
     lv_obj_delete(button);
     return nullptr;
@@ -3231,19 +3220,24 @@ lv_obj_t* CreateTestButtonBar(lv_obj_t* parent, CitViewState* state) {
   AddTouchTraceEventCallbacks(button_bar, state);
   lv_obj_set_size(button_bar, LV_PCT(100), kTestButtonBarHeight);
   lv_obj_align(button_bar, LV_ALIGN_BOTTOM_MID, 0, 0);
-  lv_obj_set_style_bg_color(
-      button_bar, lv_color_hex(kListBackgroundColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(button_bar,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_low),
+      LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button_bar, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_radius(button_bar, 0, LV_PART_MAIN);
   lv_obj_set_style_border_width(button_bar, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(button_bar, 0, LV_PART_MAIN);
 
-  if (CreateTestActionButton(button_bar, "FAIL", kFailButtonColor,
-          kFailButtonTextColor, LV_ALIGN_CENTER, -kTestButtonCenterOffset,
-          TestFailButtonEventCallback, state) == nullptr ||
-      CreateTestActionButton(button_bar, "PASS", kPassButtonColor,
-          kPassButtonTextColor, LV_ALIGN_CENTER, kTestButtonCenterOffset,
-          TestPassButtonEventCallback, state) == nullptr) {
+  if (CreateTestActionButton(button_bar, "FAIL",
+          theme::ActiveThemeColors().button_secondary,
+          theme::ActiveThemeColors().on_button_secondary, LV_ALIGN_CENTER,
+          -kTestButtonCenterOffset, TestFailButtonEventCallback,
+          state) == nullptr ||
+      CreateTestActionButton(button_bar, "PASS",
+          theme::ActiveThemeColors().action,
+          theme::ActiveThemeColors().on_action, LV_ALIGN_CENTER,
+          kTestButtonCenterOffset, TestPassButtonEventCallback,
+          state) == nullptr) {
     lv_obj_delete(button_bar);
     return nullptr;
   }
@@ -3304,7 +3298,7 @@ const char* GetTestHint(const app::CitTestEntry& entry) {
  */
 lv_obj_t* CreateDataLabel(lv_obj_t* parent, const char* text) {
   lv_obj_t* label = CreateLabel(parent, text,
-      lv_color_hex(theme::LightNeutralTheme().on_surface), Font28());
+      lv_color_hex(theme::ActiveThemeColors().on_surface), Font28());
   if (label == nullptr) {
     return nullptr;
   }
@@ -3359,7 +3353,7 @@ bool CreateTouchPointMarkers(CitViewState* state) {
     lv_obj_set_size(marker, kTouchMarkerSize, kTouchMarkerSize);
     lv_obj_set_style_radius(marker, LV_RADIUS_CIRCLE, LV_PART_MAIN);
     lv_obj_set_style_bg_color(
-        marker, lv_color_hex(kPassButtonColor), LV_PART_MAIN);
+        marker, lv_color_hex(theme::ActiveThemeColors().action), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(marker, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_color(marker, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_set_style_border_width(marker, 2, LV_PART_MAIN);
@@ -3664,7 +3658,7 @@ bool AddMicrophoneContent(lv_obj_t* content, CitViewState* state) {
   lv_scale_set_line_needle_value(scale, needle, 150, 0);
 
   lv_obj_t* label = CreateLabel(content, "microphone data:\nlevel: waiting",
-      lv_color_hex(theme::LightNeutralTheme().on_surface), Font28());
+      lv_color_hex(theme::ActiveThemeColors().on_surface), Font28());
   if (label == nullptr) {
     return false;
   }
@@ -3675,7 +3669,7 @@ bool AddMicrophoneContent(lv_obj_t* content, CitViewState* state) {
 
   lv_obj_t* switch_label =
       CreateLabel(content, "adc -> dac",
-          lv_color_hex(theme::LightNeutralTheme().on_surface), Font28());
+          lv_color_hex(theme::ActiveThemeColors().on_surface), Font28());
   if (switch_label == nullptr) {
     return false;
   }
@@ -3689,7 +3683,7 @@ bool AddMicrophoneContent(lv_obj_t* content, CitViewState* state) {
   lv_obj_set_size(switch_object, 90, 50);
   lv_obj_align(switch_object, LV_ALIGN_TOP_MID, 0, 610);
   lv_obj_set_style_bg_color(switch_object,
-      lv_color_hex(theme::LightNeutralTheme().action),
+      lv_color_hex(theme::ActiveThemeColors().action),
       kSwitchCheckedIndicatorSelector);
   lv_obj_set_style_bg_opa(
       switch_object, LV_OPA_COVER, kSwitchCheckedIndicatorSelector);
@@ -3912,12 +3906,12 @@ bool AddKeyboardContent(lv_obj_t* content, CitViewState* state) {
       text_area, "Type all supported characters here...");
   lv_obj_set_style_text_font(text_area, Font28(), LV_PART_MAIN);
   lv_obj_set_style_text_color(text_area,
-      lv_color_hex(theme::LightNeutralTheme().on_surface), LV_PART_MAIN);
+      lv_color_hex(theme::ActiveThemeColors().on_surface), LV_PART_MAIN);
   lv_obj_set_style_bg_color(text_area,
-      lv_color_hex(theme::LightNeutralTheme().surface_container_high),
+      lv_color_hex(theme::ActiveThemeColors().surface_container_high),
       LV_PART_MAIN);
   lv_obj_set_style_bg_color(text_area,
-      lv_color_hex(theme::LightNeutralTheme().surface_container_high),
+      lv_color_hex(theme::ActiveThemeColors().surface_container_high),
       LV_STATE_FOCUSED);
   lv_obj_set_style_bg_opa(text_area, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(text_area, LV_OPA_COVER, LV_STATE_FOCUSED);
@@ -4227,7 +4221,7 @@ bool ShowCitTest(CitViewState* state, size_t index) {
   lv_obj_set_size(
       content, LV_PCT(100), state->height - kListTop - kTestButtonBarHeight);
   lv_obj_set_style_bg_color(
-      content, lv_color_hex(kListBackgroundColor), LV_PART_MAIN);
+      content, lv_color_hex(theme::ActiveThemeColors().surface_container_low), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(content, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_radius(content, 0, LV_PART_MAIN);
   lv_obj_set_style_border_width(content, 0, LV_PART_MAIN);
@@ -4324,7 +4318,7 @@ lv_obj_t* CreateStatusRow(
   lv_obj_set_size(pressed_background, LV_PCT(100), kRowPressedHeight);
   lv_obj_align(pressed_background, LV_ALIGN_TOP_MID, 0, 0);
   lv_obj_set_style_bg_color(
-      pressed_background, lv_color_hex(kRowPressedColor), LV_PART_MAIN);
+      pressed_background, lv_color_hex(theme::ActiveThemeColors().state_layer), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(pressed_background, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(pressed_background, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(pressed_background, kRowPressedRadius, LV_PART_MAIN);
@@ -4598,7 +4592,7 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
   lv_obj_set_size(list, config.width, config.height - kListTop);
   lv_obj_align(list, LV_ALIGN_TOP_MID, 0, kListTop);
   lv_obj_set_style_bg_color(
-      list, lv_color_hex(kListBackgroundColor), LV_PART_MAIN);
+      list, lv_color_hex(theme::ActiveThemeColors().surface_container_low), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(list, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(list, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(list, 0, LV_PART_MAIN);

@@ -647,6 +647,7 @@ bool Application::Init() {
     }
   }
   lvgl_port_.Lock();
+  ui_manager_.ApplyThemePreference(display_preferences.dark_theme_enabled);
   lvgl_port_.SetDisplayRotation(display_preferences.screen_rotation_angle);
   lvgl_port_.Unlock();
   current_screen_brightness_percent_.store(0);

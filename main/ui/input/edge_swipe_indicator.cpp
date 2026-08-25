@@ -2,7 +2,7 @@
  * @Description: 全局边缘滑动指示器实现
  * @Author: LILYGO_L
  * @Date: 2026-05-12 22:15:00
- * @LastEditTime: 2026-08-25 11:26:42
+ * @LastEditTime: 2026-08-26 00:12:25
  * @License: GPL 3.0
  */
 #include "ui/input/edge_swipe_indicator.h"
@@ -15,14 +15,15 @@
 #include "ui/input/back_navigation_controller.h"
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
+#include "ui/theme/theme_provider.h"
 
 namespace lilygo_box::ui {
 namespace {
 
 constexpr int kActivationEdgeWidth = 1;
-// GT9895 首个有效边缘坐标的实测偏移约为 8 px。仅保留一倍余量，
+// GT9895 首个有效边缘坐标的实测偏移约为 16 px。
 // 避免扩大到屏幕键盘和页面两侧的正常控件区域。
-constexpr int kHardwareHintActivationWidth = 16;
+constexpr int kHardwareHintActivationWidth = 32;
 constexpr int kDefaultConfirmDistance = 40;
 constexpr int kPassthroughMinEdgeWidth = 36;
 constexpr int kPassthroughMaxEdgeWidth = 76;
@@ -34,8 +35,6 @@ constexpr int kIndicatorMinimumDiameter = 96;
 constexpr int kIndicatorMaximumDiameter = 132;
 constexpr int kIndicatorVisibleDivisor = 3;
 constexpr uint32_t kIndicatorFadeDurationMs = 120;
-constexpr uint32_t kIndicatorColor = 0x202020;
-constexpr uint32_t kIconColor = 0xFFFFFF;
 constexpr lv_opa_t kIndicatorMaximumOpacity = 238;
 
 lv_obj_t* g_indicator = nullptr;
@@ -143,6 +142,11 @@ void IndicatorFadeCompletedCallback(lv_anim_t* animation) {
  */
 bool EnsureIndicator() {
   if (g_indicator != nullptr && g_icon != nullptr) {
+    const theme::ThemeColors& colors = theme::ActiveThemeColors();
+    lv_obj_set_style_bg_color(g_indicator,
+        lv_color_hex(colors.surface_container_highest), LV_PART_MAIN);
+    lv_obj_set_style_text_color(
+        g_icon, lv_color_hex(colors.on_surface), LV_PART_MAIN);
     return true;
   }
 
@@ -160,8 +164,9 @@ bool EnsureIndicator() {
   lv_obj_add_flag(g_indicator, LV_OBJ_FLAG_IGNORE_LAYOUT);
   lv_obj_add_flag(g_indicator, LV_OBJ_FLAG_FLOATING);
   lv_obj_add_flag(g_indicator, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_set_style_bg_color(
-      g_indicator, lv_color_hex(kIndicatorColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(g_indicator,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_highest),
+      LV_PART_MAIN);
   lv_obj_set_style_bg_opa(g_indicator, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(g_indicator, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(g_indicator, 0, LV_PART_MAIN);
@@ -177,8 +182,8 @@ bool EnsureIndicator() {
   }
   lv_obj_remove_flag(g_icon, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(g_icon, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_style_text_color(
-      g_icon, lv_color_hex(kIconColor), LV_PART_MAIN);
+  lv_obj_set_style_text_color(g_icon,
+      lv_color_hex(theme::ActiveThemeColors().on_surface), LV_PART_MAIN);
   lv_obj_set_style_text_font(
       g_icon, &lvgl_font_material_symbols_fill_32, LV_PART_MAIN);
   lv_obj_set_style_text_align(g_icon, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);

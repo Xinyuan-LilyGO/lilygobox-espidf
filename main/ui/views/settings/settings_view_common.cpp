@@ -196,7 +196,7 @@ lv_obj_t* CreateDivider(lv_obj_t* parent, int width) {
   lv_obj_remove_flag(divider, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(divider, width, kDividerHeight);
   lv_obj_set_style_bg_color(
-      divider, lv_color_hex(kDividerColor), LV_PART_MAIN);
+      divider, lv_color_hex(SettingsThemeColors().outline_variant), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(divider, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(divider, 0, LV_PART_MAIN);

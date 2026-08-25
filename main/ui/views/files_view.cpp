@@ -35,16 +35,6 @@
 namespace lilygo_box::ui {
 namespace {
 
-constexpr uint32_t kBackgroundColor = theme::LightNeutralTheme().surface;
-constexpr uint32_t kPrimaryTextColor = theme::LightNeutralTheme().on_surface;
-constexpr uint32_t kSecondaryTextColor =
-    theme::LightNeutralTheme().on_surface_variant;
-constexpr uint32_t kIconColor = theme::LightNeutralTheme().on_surface_variant;
-constexpr uint32_t kDividerColor = theme::LightNeutralTheme().outline_variant;
-constexpr uint32_t kPressedColor = theme::LightNeutralTheme().state_layer;
-constexpr uint32_t kSelectedStorageColor =
-    theme::LightNeutralTheme().action_container_pressed;
-constexpr uint32_t kActionColor = theme::LightNeutralTheme().action;
 constexpr int kHeaderTop = 68;
 constexpr int kHeaderSidePadding = 28;
 constexpr int kHeaderTitleX = 112;
@@ -388,14 +378,14 @@ lv_obj_t* CreateIconButton(lv_obj_t* parent, const char* symbol) {
   lv_obj_add_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(button, 72, 72);
   lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(button, lv_color_hex(kPressedColor),
+  lv_obj_set_style_bg_color(button, lv_color_hex(theme::ActiveThemeColors().state_layer),
                             LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_radius(button, 36, LV_PART_MAIN);
   lv_obj_set_style_radius(button, 36, LV_STATE_PRESSED);
 
   lv_obj_t* icon_label =
-      CreateMaterialIcon(button, symbol, lv_color_hex(kPrimaryTextColor),
+      CreateMaterialIcon(button, symbol, lv_color_hex(theme::ActiveThemeColors().on_surface),
                          FilesFillIconFont56());
   if (icon_label != nullptr) {
     lv_obj_center(icon_label);
@@ -710,7 +700,7 @@ int CreateBreadcrumbItem(lv_obj_t* parent, FilesViewState* state,
   lv_obj_set_pos(item, x, 0);
   lv_obj_set_height(item, kBreadcrumbHeight);
   if (!current) {
-    lv_obj_set_style_bg_color(item, lv_color_hex(kPressedColor),
+    lv_obj_set_style_bg_color(item, lv_color_hex(theme::ActiveThemeColors().state_layer),
                               LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(item, LV_OPA_COVER, LV_STATE_PRESSED);
     lv_obj_set_style_radius(item, 20, LV_STATE_PRESSED);
@@ -726,7 +716,8 @@ int CreateBreadcrumbItem(lv_obj_t* parent, FilesViewState* state,
 
   lv_obj_t* label = CreateLabel(
       item, text,
-      lv_color_hex(current ? kPrimaryTextColor : kSecondaryTextColor),
+      lv_color_hex(current ? theme::ActiveThemeColors().on_surface
+                           : theme::ActiveThemeColors().on_surface_variant),
       Font24());
   if (label == nullptr) {
     lv_obj_set_width(item, 80);
@@ -791,7 +782,7 @@ bool CreateBreadcrumbBar(lv_obj_t* parent, FilesViewState* state,
         start, slash == std::string::npos ? std::string::npos : slash - start);
     if (!part.empty()) {
       lv_obj_t* separator = CreateMaterialIcon(
-          bar, icon::kChevronRight, lv_color_hex(kSecondaryTextColor));
+          bar, icon::kChevronRight, lv_color_hex(theme::ActiveThemeColors().on_surface_variant));
       if (separator != nullptr) {
         lv_obj_set_pos(separator, x, 8);
       }
@@ -863,7 +854,7 @@ bool CreateFileRow(lv_obj_t* parent, FilesViewState* state,
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
 
   if (entry.directory && state != nullptr) {
-    lv_obj_set_style_bg_color(row, lv_color_hex(kPressedColor),
+    lv_obj_set_style_bg_color(row, lv_color_hex(theme::ActiveThemeColors().state_layer),
                               LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
     if (!AddPressCancelOnLeave(row)) {
@@ -880,14 +871,14 @@ bool CreateFileRow(lv_obj_t* parent, FilesViewState* state,
                         context);
   }
 
-  lv_obj_t* icon_label =
-      CreateMaterialIcon(row, EntryIcon(entry), lv_color_hex(kIconColor));
+  lv_obj_t* icon_label = CreateMaterialIcon(row, EntryIcon(entry),
+      lv_color_hex(theme::ActiveThemeColors().on_surface_variant));
   if (icon_label != nullptr) {
     lv_obj_align(icon_label, LV_ALIGN_LEFT_MID, 34, 0);
   }
 
   lv_obj_t* name_label = CreateLabel(row, entry.name.c_str(),
-                                     lv_color_hex(kPrimaryTextColor), Font28());
+      lv_color_hex(theme::ActiveThemeColors().on_surface), Font28());
   if (name_label != nullptr) {
     lv_obj_set_size(name_label, width - kStorageRowTextX - 32,
                     kStorageNameHeight);
@@ -902,7 +893,8 @@ bool CreateFileRow(lv_obj_t* parent, FilesViewState* state,
     FormatSize(entry.size, description, sizeof(description));
   }
   lv_obj_t* description_label = CreateLabel(
-      row, description, lv_color_hex(kSecondaryTextColor), Font22());
+      row, description,
+      lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font22());
   if (description_label != nullptr) {
     lv_obj_set_size(description_label, width - kStorageRowTextX - 32,
                     kStorageDescriptionHeight);
@@ -917,7 +909,7 @@ bool CreateFileRow(lv_obj_t* parent, FilesViewState* state,
     lv_obj_set_size(divider, width - kStorageRowTextX - 28, 1);
     lv_obj_align(divider, LV_ALIGN_BOTTOM_RIGHT, -28, 0);
     lv_obj_set_style_bg_color(
-        divider, lv_color_hex(kDividerColor), LV_PART_MAIN);
+        divider, lv_color_hex(theme::ActiveThemeColors().outline_variant), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(divider, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(divider, 0, LV_PART_MAIN);
@@ -942,7 +934,7 @@ bool CreateEmptyDirectoryContent(lv_obj_t* parent, FilesViewState* state) {
   config.icon_font = FilesFillIconFont56();
   config.title = "This folder is empty";
   config.title_font = Font28();
-  config.title_color = kPrimaryTextColor;
+  config.title_color = theme::ActiveThemeColors().on_surface;
   config.title_top = 122;
   lv_obj_t* group = CreatePromptStatus(parent, config);
   if (group == nullptr) {
@@ -1061,11 +1053,11 @@ void RenderScanningContent(FilesViewState* state) {
   config.visual = PromptStatusVisual::kSpinner;
   config.title = "Looking for an SD card...";
   config.title_font = Font28();
-  config.title_color = kPrimaryTextColor;
+  config.title_color = theme::ActiveThemeColors().on_surface;
   config.title_top = 96;
   config.message = "Keep the card inserted while scanning";
   config.message_font = Font22();
-  config.message_color = kSecondaryTextColor;
+  config.message_color = theme::ActiveThemeColors().on_surface_variant;
   config.message_top = 138;
   lv_obj_t* group = CreatePromptStatus(state->content, config);
   PositionFilesStatusGroup(group, state, kScanningGroupOffsetY);
@@ -1090,10 +1082,10 @@ void RenderNoStorageContent(FilesViewState* state) {
   config.icon_font = FilesFillIconFont56();
   config.title = "SD card not found";
   config.title_font = Font28();
-  config.title_color = kPrimaryTextColor;
+  config.title_color = theme::ActiveThemeColors().on_surface;
   config.message = "Insert a card and scan again.";
   config.message_font = Font22();
-  config.message_color = kSecondaryTextColor;
+  config.message_color = theme::ActiveThemeColors().on_surface_variant;
   config.button_text = "Scan again";
   config.button_font = Font24();
   config.button_callback = RefreshStorageClickedEventCallback;
@@ -1505,12 +1497,16 @@ lv_obj_t* CreateStorageDrawerItem(lv_obj_t* parent, int drawer_width,
   lv_obj_set_size(row, drawer_width - 24, 104);
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_color(row,
-      lv_color_hex(selected ? kSelectedStorageColor : kBackgroundColor),
+      lv_color_hex(selected
+              ? theme::ActiveThemeColors().action_container_pressed
+              : theme::ActiveThemeColors().surface),
       LV_PART_MAIN);
   lv_obj_set_style_bg_opa(
       row, selected ? LV_OPA_COVER : LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_bg_color(row,
-      lv_color_hex(selected ? kSelectedStorageColor : kPressedColor),
+      lv_color_hex(selected
+              ? theme::ActiveThemeColors().action_container_pressed
+              : theme::ActiveThemeColors().state_layer),
       LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_radius(row, selected ? 52 : 0, LV_PART_MAIN);
@@ -1530,19 +1526,25 @@ lv_obj_t* CreateStorageDrawerItem(lv_obj_t* parent, int drawer_width,
     lv_obj_set_size(left_cap, 52, 104);
     lv_obj_set_pos(left_cap, 0, 0);
     lv_obj_set_style_bg_color(left_cap,
-        lv_color_hex(selected ? kSelectedStorageColor : kBackgroundColor),
+        lv_color_hex(selected
+                ? theme::ActiveThemeColors().action_container_pressed
+                : theme::ActiveThemeColors().surface),
         LV_PART_MAIN);
     lv_obj_set_style_bg_opa(
         left_cap, selected ? LV_OPA_COVER : LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_bg_color(left_cap,
-        lv_color_hex(selected ? kSelectedStorageColor : kPressedColor),
+        lv_color_hex(selected
+                ? theme::ActiveThemeColors().action_container_pressed
+                : theme::ActiveThemeColors().state_layer),
         LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(left_cap, LV_OPA_COVER, LV_STATE_PRESSED);
     lv_obj_set_style_radius(left_cap, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(left_cap, 0, LV_STATE_PRESSED);
   }
 
-  const uint32_t content_color = selected ? kActionColor : kIconColor;
+  const uint32_t content_color = selected
+      ? theme::ActiveThemeColors().action
+      : theme::ActiveThemeColors().on_surface_variant;
   lv_obj_t* icon_label = CreateMaterialIcon(
       row, symbol, lv_color_hex(content_color));
   if (icon_label != nullptr) {
@@ -1550,7 +1552,9 @@ lv_obj_t* CreateStorageDrawerItem(lv_obj_t* parent, int drawer_width,
   }
   lv_obj_t* title_label =
       CreateLabel(row, title,
-          lv_color_hex(selected ? kActionColor : kPrimaryTextColor), Font28());
+          lv_color_hex(selected ? theme::ActiveThemeColors().action
+                                : theme::ActiveThemeColors().on_surface),
+          Font28());
   if (title_label != nullptr) {
     lv_obj_set_width(title_label, drawer_width - 142);
     lv_label_set_long_mode(title_label, LV_LABEL_LONG_DOT);
@@ -1558,7 +1562,9 @@ lv_obj_t* CreateStorageDrawerItem(lv_obj_t* parent, int drawer_width,
   }
   lv_obj_t* subtitle_label =
       CreateLabel(row, subtitle,
-          lv_color_hex(selected ? kActionColor : kSecondaryTextColor),
+          lv_color_hex(selected
+                  ? theme::ActiveThemeColors().action
+                  : theme::ActiveThemeColors().on_surface_variant),
           Font22());
   if (subtitle_label != nullptr) {
     lv_obj_set_width(subtitle_label, drawer_width - 142);
@@ -1592,19 +1598,19 @@ lv_obj_t* CreateStorageStateDrawerItem(lv_obj_t* parent, int drawer_width,
   lv_obj_set_pos(row, 0, y);
 
   lv_obj_t* icon_label = CreateMaterialIcon(row, symbol,
-                                            lv_color_hex(kSecondaryTextColor));
+      lv_color_hex(theme::ActiveThemeColors().on_surface_variant));
   if (icon_label != nullptr) {
     lv_obj_align(icon_label, LV_ALIGN_LEFT_MID, 28, 0);
   }
-  lv_obj_t* title_label =
-      CreateLabel(row, title, lv_color_hex(kPrimaryTextColor), Font28());
+  lv_obj_t* title_label = CreateLabel(row, title,
+      lv_color_hex(theme::ActiveThemeColors().on_surface), Font28());
   if (title_label != nullptr) {
     lv_obj_set_width(title_label, drawer_width - 142);
     lv_label_set_long_mode(title_label, LV_LABEL_LONG_DOT);
     lv_obj_align(title_label, LV_ALIGN_TOP_LEFT, 88, 18);
   }
-  lv_obj_t* subtitle_label =
-      CreateLabel(row, subtitle, lv_color_hex(kSecondaryTextColor), Font22());
+  lv_obj_t* subtitle_label = CreateLabel(row, subtitle,
+      lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font22());
   if (subtitle_label != nullptr) {
     lv_obj_set_width(subtitle_label, drawer_width - 142);
     lv_label_set_long_mode(subtitle_label, LV_LABEL_LONG_DOT);
@@ -1724,11 +1730,11 @@ void ShowDrawer(FilesViewState* state) {
   NavigationDrawerConfig drawer_config;
   drawer_config.screen_width = state->config.width;
   drawer_config.screen_height = state->config.height;
-  drawer_config.background_color = kBackgroundColor;
-  drawer_config.primary_text_color = kPrimaryTextColor;
-  drawer_config.icon_color = kIconColor;
-  drawer_config.pressed_color = kPressedColor;
-  drawer_config.divider_color = kDividerColor;
+  drawer_config.background_color = theme::ActiveThemeColors().surface;
+  drawer_config.primary_text_color = theme::ActiveThemeColors().on_surface;
+  drawer_config.icon_color = theme::ActiveThemeColors().on_surface_variant;
+  drawer_config.pressed_color = theme::ActiveThemeColors().state_layer;
+  drawer_config.divider_color = theme::ActiveThemeColors().outline_variant;
   drawer_config.title = "Files";
   drawer_config.title_font = Font36();
   drawer_config.item_font = Font28();
@@ -1839,8 +1845,14 @@ bool CreateFolderPickerAction(lv_obj_t* parent, FilesViewState* state) {
   lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, -15);
   lv_obj_set_style_radius(button, kFolderPickerButtonHeight / 2,
                           LV_PART_MAIN);
-  lv_obj_set_style_bg_color(button,
-      lv_color_hex(state->picker_config.action_color), LV_PART_MAIN);
+  const uint32_t action_color = state->picker_config.action_color == 0
+      ? theme::ActiveThemeColors().action
+      : state->picker_config.action_color;
+  const uint32_t action_text_color = state->picker_config.action_text_color == 0
+      ? theme::ActiveThemeColors().on_action
+      : state->picker_config.action_text_color;
+  lv_obj_set_style_bg_color(
+      button, lv_color_hex(action_color), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
@@ -1853,8 +1865,8 @@ bool CreateFolderPickerAction(lv_obj_t* parent, FilesViewState* state) {
   const char* text = state->picker_config.action_text == nullptr
                          ? "Use this folder"
                          : state->picker_config.action_text;
-  lv_obj_t* label = CreateLabel(button, text,
-      lv_color_hex(state->picker_config.action_text_color), Font28());
+  lv_obj_t* label =
+      CreateLabel(button, text, lv_color_hex(action_text_color), Font28());
   if (label == nullptr) {
     lv_obj_delete(button);
     return false;
@@ -1886,7 +1898,8 @@ bool CreateHeader(lv_obj_t* parent, FilesViewState* state) {
     lv_obj_set_style_bg_opa(menu, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(menu, LV_OPA_TRANSP, LV_STATE_PRESSED);
     lv_obj_t* back_icon = CreateMaterialIcon(menu, icon::kArrowBack,
-        lv_color_hex(kPrimaryTextColor), MaterialOutlineIconFont44());
+        lv_color_hex(theme::ActiveThemeColors().on_surface),
+        MaterialOutlineIconFont44());
     if (back_icon == nullptr) {
       return false;
     }
@@ -1902,7 +1915,7 @@ bool CreateHeader(lv_obj_t* parent, FilesViewState* state) {
       LV_EVENT_CLICKED, state);
   lv_obj_t* title =
       CreateLabel(parent, FilesHeaderTitle(state),
-                  lv_color_hex(kPrimaryTextColor), Font36());
+                  lv_color_hex(theme::ActiveThemeColors().on_surface), Font36());
   if (title == nullptr) {
     return false;
   }
@@ -1912,7 +1925,7 @@ bool CreateHeader(lv_obj_t* parent, FilesViewState* state) {
   lv_obj_align(title, LV_ALIGN_TOP_LEFT, kHeaderTitleX, kHeaderTop);
 
   lv_obj_t* subtitle = CreateLabel(parent, "Scanning SD card",
-                                   lv_color_hex(kSecondaryTextColor), Font24());
+      lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font24());
   if (subtitle != nullptr) {
     state->subtitle_label = subtitle;
     lv_obj_set_width(subtitle, state->config.width - kHeaderTitleX - 32);
@@ -1981,7 +1994,7 @@ lv_obj_t* CreateFilesViewInternal(lv_obj_t* parent,
   state->root = root;
   lv_obj_set_size(root, config.width, config.height);
   lv_obj_align(root, LV_ALIGN_CENTER, 0, 0);
-  lv_obj_set_style_bg_color(root, lv_color_hex(kBackgroundColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(root, lv_color_hex(theme::ActiveThemeColors().surface), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(root, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(root, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(root, 0, LV_PART_MAIN);
@@ -2012,7 +2025,7 @@ lv_obj_t* CreateFilesViewInternal(lv_obj_t* parent,
     config.set_status_bar_visible(true);
   }
   if (config.set_status_bar_text_color) {
-    config.set_status_bar_text_color(kPrimaryTextColor);
+    config.set_status_bar_text_color(theme::ActiveThemeColors().on_surface);
   }
 
   state->content = lv_obj_create(root);

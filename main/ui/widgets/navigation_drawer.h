@@ -10,6 +10,7 @@
 #include <cstdint>
 
 #include "lvgl.h"
+#include "ui/theme/theme_provider.h"
 
 namespace lilygo_box::ui {
 
@@ -27,12 +28,12 @@ struct NavigationDrawerConfig {
   int screen_height = 0;
   int width_percent = 78;
   int animation_ms = 220;
-  uint32_t background_color = 0xFFFBFE;
-  uint32_t scrim_color = 0x000000;
-  uint32_t primary_text_color = 0x1D1B20;
-  uint32_t icon_color = 0x49454F;
-  uint32_t pressed_color = 0xE7E0EC;
-  uint32_t divider_color = 0xCAC4D0;
+  uint32_t background_color = theme::ActiveThemeColors().surface;
+  uint32_t scrim_color = theme::ActiveThemeColors().scrim;
+  uint32_t primary_text_color = theme::ActiveThemeColors().on_surface;
+  uint32_t icon_color = theme::ActiveThemeColors().on_surface_variant;
+  uint32_t pressed_color = theme::ActiveThemeColors().state_layer;
+  uint32_t divider_color = theme::ActiveThemeColors().outline_variant;
   const char* title = nullptr;
   const lv_font_t* title_font = nullptr;
   const lv_font_t* item_font = nullptr;

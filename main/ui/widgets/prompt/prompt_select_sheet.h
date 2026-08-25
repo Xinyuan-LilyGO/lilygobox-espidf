@@ -53,17 +53,17 @@ struct PromptSelectSheetConfig {
   int button_height = 0;
   int button_radius = 0;
   int title_message_gap = 8;
-  uint32_t sheet_color = theme::LightNeutralTheme().surface_container_lowest;
-  uint32_t selected_color = theme::LightNeutralTheme().action_container;
-  uint32_t primary_text_color = theme::LightNeutralTheme().on_surface;
+  uint32_t sheet_color = theme::ActiveThemeColors().surface_container_lowest;
+  uint32_t selected_color = theme::ActiveThemeColors().action_container;
+  uint32_t primary_text_color = theme::ActiveThemeColors().on_surface;
   uint32_t secondary_text_color =
-      theme::LightNeutralTheme().on_surface_variant;
-  uint32_t selected_text_color = theme::LightNeutralTheme().action;
+      theme::ActiveThemeColors().on_surface_variant;
+  uint32_t selected_text_color = theme::ActiveThemeColors().action;
   uint32_t cancel_background_color =
-      theme::LightNeutralTheme().button_secondary;
+      theme::ActiveThemeColors().button_secondary;
   uint32_t cancel_pressed_color =
-      theme::LightNeutralTheme().surface_container_high;
-  uint32_t pressed_color = theme::LightNeutralTheme().surface_container_low;
+      theme::ActiveThemeColors().surface_container_high;
+  uint32_t pressed_color = theme::ActiveThemeColors().surface_container_low;
   lv_opa_t pressed_opacity = 190;
   lv_opa_t overlay_opacity = 115;
   uint32_t animation_ms = 180;

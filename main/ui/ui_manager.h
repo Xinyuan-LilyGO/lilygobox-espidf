@@ -19,6 +19,7 @@
 #include "hal/providers/screen_provider.h"
 #include "lvgl.h"
 #include "ui/theme/theme_provider.h"
+#include "ui/wallpaper.h"
 #include "ui/widgets/prompt/prompt_dialog.h"
 #include "ui/widgets/status_bar.h"
 #include "ui/widgets/volume_overlay.h"
@@ -115,6 +116,12 @@ class UiManager final {
    * @param callback 由应用层统一处理的亮度调整回调
    */
   void SetScreenBrightnessCallback(std::function<bool(int)> callback);
+
+  /**
+   * @brief 同步存储中的亮色或暗色主题偏好
+   * @param enabled true 使用暗色主题，false 使用亮色主题
+   */
+  void ApplyThemePreference(bool enabled);
 
   /**
    * @brief 设置电池管理状态更新回调
@@ -319,6 +326,12 @@ class UiManager final {
   static void SystemStatusRefreshTimerCallback(lv_timer_t* timer);
 
   /**
+   * @brief 在 LVGL 事件结束后应用待切换的主题
+   * @param context UiManager 指针
+   */
+  static void ApplyPendingThemeAsync(void* context);
+
+  /**
    * @brief 处理键盘扩展不可用提示关闭事件
    * @param context UiManager 指针
    */
@@ -476,6 +489,12 @@ class UiManager final {
   void RefreshSystemStatus();
 
   /**
+   * @brief 请求切换系统主题并异步重建当前应用
+   * @param enabled true 使用暗色主题，false 使用亮色主题
+   */
+  void RequestDarkThemeEnabled(bool enabled);
+
+  /**
    * @brief 将系统音量同步到当前打开的设置页面
    * @param volume_percent 当前音量百分比
    */
@@ -610,9 +629,12 @@ class UiManager final {
   bool first_boot_welcome_pending_ = false;
   bool first_boot_welcome_closing_ = false;
   bool relayouting_ = false;
+  bool pending_dark_theme_enabled_ = false;
+  bool theme_refresh_pending_ = false;
   std::function<bool()> first_boot_welcome_completion_callback_;
   const app::AppEntry* active_app_entry_ = nullptr;
   lv_obj_t* launcher_container_ = nullptr;
+  WallpaperObjects launcher_wallpaper_;
   lv_obj_t* page_scroller_ = nullptr;
   lv_obj_t* home_page_ = nullptr;
   lv_obj_t* home_time_label_ = nullptr;

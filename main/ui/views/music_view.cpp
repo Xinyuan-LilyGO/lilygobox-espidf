@@ -43,14 +43,7 @@
 namespace lilygo_box::ui {
 namespace {
 
-constexpr uint32_t kMainBackgroundColor = 0xFEF9F6;
-constexpr uint32_t kSurfaceContainerColor = 0xFCF1EF;
-constexpr uint32_t kSecondaryContainerColor = 0xF8DBD5;
 constexpr uint32_t kPrimaryColor = 0x874E43;
-constexpr uint32_t kMainTextColor = 0x24201F;
-constexpr uint32_t kSecondaryTextColor = 0x716864;
-constexpr uint32_t kDividerColor = 0xDED8D5;
-constexpr uint32_t kPressedColor = 0xF0E5E2;
 
 constexpr int kMainPadding = 32;
 constexpr int kHeaderTop = 68;
@@ -643,8 +636,8 @@ void MusicProgressDrawEventCallback(lv_event_t* event) {
       std::clamp<int32_t>(mask_left + progress_overlap, area.x1, thumb_x);
   lv_layer_t* layer = lv_event_get_layer(event);
   const lv_color_t progress_color = lv_color_hex(kPrimaryColor);
-  const lv_color_t track_color = lv_color_hex(kSecondaryContainerColor);
-  const lv_color_t mask_color = lv_color_hex(kSurfaceContainerColor);
+  const lv_color_t track_color = lv_color_hex(theme::ActiveThemeColors().primary_container);
+  const lv_color_t mask_color = lv_color_hex(theme::ActiveThemeColors().surface_container_low);
 
   DrawFilledRect(layer, area.x1, track_top, area.x2, track_bottom,
       kProgressBarHeight / 2, track_color);
@@ -736,7 +729,7 @@ void PlayerCloseCompletedCallback(lv_anim_t* animation) {
     state->config.set_status_bar_visible(true);
   }
   if (state->config.set_status_bar_text_color) {
-    state->config.set_status_bar_text_color(kMainTextColor);
+    state->config.set_status_bar_text_color(theme::ActiveThemeColors().on_surface);
   }
 }
 
@@ -1123,7 +1116,7 @@ lv_obj_t* CreateArtwork(lv_obj_t* parent, int size, int radius) {
   lv_obj_set_size(artwork, size, size);
   lv_obj_set_style_radius(artwork, radius, LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      artwork, lv_color_hex(kSecondaryContainerColor), LV_PART_MAIN);
+      artwork, lv_color_hex(theme::ActiveThemeColors().primary_container), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(artwork, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(artwork, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(artwork, 0, LV_PART_MAIN);
@@ -1155,7 +1148,7 @@ bool CreatePlayerPage(MusicViewState* state) {
   lv_obj_add_flag(page, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(page, state->config.width, state->config.height);
-  lv_obj_set_style_bg_color(page, lv_color_hex(kSurfaceContainerColor),
+  lv_obj_set_style_bg_color(page, lv_color_hex(theme::ActiveThemeColors().surface_container_low),
       LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
@@ -1165,7 +1158,7 @@ bool CreatePlayerPage(MusicViewState* state) {
     state->config.set_status_bar_visible(true);
   }
   if (state->config.set_status_bar_text_color) {
-    state->config.set_status_bar_text_color(kMainTextColor);
+    state->config.set_status_bar_text_color(theme::ActiveThemeColors().on_surface);
   }
 
   lv_obj_t* close_button = CreateFlatButton(page);
@@ -1178,19 +1171,19 @@ bool CreatePlayerPage(MusicViewState* state) {
       close_button, PlayerBackClickedEventCallback, LV_EVENT_CLICKED, state);
   lv_obj_t* close_label =
       CreateLabel(close_button, icon::kKeyboardArrowDown,
-          lv_color_hex(kMainTextColor), MaterialOutlineIconFont56());
+          lv_color_hex(theme::ActiveThemeColors().on_surface),
+          MaterialOutlineIconFont56());
   if (close_label != nullptr) {
     lv_obj_center(close_label);
   }
 
-  lv_obj_t* heading =
-      CreateLabel(page, "Now Playing", lv_color_hex(kMainTextColor), Font32());
+  lv_obj_t* heading = CreateLabel(page, "Now Playing",
+      lv_color_hex(theme::ActiveThemeColors().on_surface), Font32());
   if (heading != nullptr) {
     lv_obj_align(heading, LV_ALIGN_TOP_MID, 0, 60);
   }
-  lv_obj_t* subheading =
-      CreateLabel(page, "All Songs", lv_color_hex(kSecondaryTextColor),
-          Font24());
+  lv_obj_t* subheading = CreateLabel(page, "All Songs",
+      lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font24());
   if (subheading != nullptr && heading != nullptr) {
     lv_obj_align_to(subheading, heading, LV_ALIGN_OUT_BOTTOM_MID, 0, 2);
   }
@@ -1295,9 +1288,8 @@ bool CreatePlayerPage(MusicViewState* state) {
     }
   }
 
-  state->player_title_label =
-      CreateLabel(
-          page, "Unknown Track", lv_color_hex(kMainTextColor), title_font);
+  state->player_title_label = CreateLabel(page, "Unknown Track",
+      lv_color_hex(theme::ActiveThemeColors().on_surface), title_font);
   if (state->player_title_label != nullptr) {
     lv_obj_set_size(state->player_title_label,
         text_width, title_height);
@@ -1306,9 +1298,9 @@ bool CreatePlayerPage(MusicViewState* state) {
     lv_obj_align(
         state->player_title_label, LV_ALIGN_TOP_LEFT, text_x, title_y);
   }
-  state->player_artist_label =
-      CreateLabel(page, "Unknown Artist", lv_color_hex(kSecondaryTextColor),
-          artist_font);
+  state->player_artist_label = CreateLabel(page, "Unknown Artist",
+      lv_color_hex(theme::ActiveThemeColors().on_surface_variant),
+      artist_font);
   if (state->player_artist_label != nullptr &&
       state->player_title_label != nullptr) {
     lv_obj_set_size(state->player_artist_label,
@@ -1349,15 +1341,15 @@ bool CreatePlayerPage(MusicViewState* state) {
     lv_obj_add_event_cb(
         slider, MusicProgressInputEventCallback, LV_EVENT_PRESS_LOST, state);
   }
-  state->current_time_label =
-      CreateLabel(page, "0:00", lv_color_hex(kSecondaryTextColor), Font24());
+  state->current_time_label = CreateLabel(page, "0:00",
+      lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font24());
   if (state->current_time_label != nullptr) {
     lv_obj_align(state->current_time_label, LV_ALIGN_TOP_LEFT, text_x,
         time_y);
     UpdateMusicCurrentTime(state, 0);
   }
-  state->total_time_label =
-      CreateLabel(page, "0:00", lv_color_hex(kSecondaryTextColor), Font24());
+  state->total_time_label = CreateLabel(page, "0:00",
+      lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font24());
   if (state->total_time_label != nullptr) {
     const int right_margin =
         state->config.width - text_x - text_width;
@@ -1372,7 +1364,7 @@ bool CreatePlayerPage(MusicViewState* state) {
 
   lv_obj_t* previous =
       CreatePlayerControlButton(page, MusicControlIcon::kSkipPrevious,
-          side_button_size, kSecondaryContainerColor, kPrimaryColor);
+          side_button_size, theme::ActiveThemeColors().primary_container, kPrimaryColor);
   if (previous != nullptr) {
     if (landscape_layout) {
       lv_obj_set_pos(previous, previous_button_x,
@@ -1406,11 +1398,11 @@ bool CreatePlayerPage(MusicViewState* state) {
     lv_obj_set_style_radius(
         playback_mode_button, mode_button_size / 2, LV_PART_MAIN);
     lv_obj_set_style_bg_color(playback_mode_button,
-        lv_color_hex(kSecondaryContainerColor), LV_PART_MAIN);
+        lv_color_hex(theme::ActiveThemeColors().primary_container), LV_PART_MAIN);
     lv_obj_set_style_outline_width(playback_mode_button, 0, LV_PART_MAIN);
     lv_obj_set_style_shadow_width(playback_mode_button, 0, LV_PART_MAIN);
     lv_obj_set_style_bg_color(playback_mode_button,
-        lv_color_hex(kSecondaryContainerColor), pressed_selector);
+        lv_color_hex(theme::ActiveThemeColors().primary_container), pressed_selector);
     lv_obj_set_style_bg_opa(playback_mode_button, LV_OPA_COVER,
         pressed_selector);
     lv_obj_set_style_radius(
@@ -1451,7 +1443,7 @@ bool CreatePlayerPage(MusicViewState* state) {
   }
   lv_obj_t* next =
       CreatePlayerControlButton(page, MusicControlIcon::kSkipNext,
-          side_button_size, kSecondaryContainerColor, kPrimaryColor);
+          side_button_size, theme::ActiveThemeColors().primary_container, kPrimaryColor);
   if (next != nullptr) {
     if (landscape_layout) {
       lv_obj_set_pos(next, next_button_x,
@@ -1557,17 +1549,17 @@ bool CreateEmptyMusicContent(lv_obj_t* parent, MusicViewState* state) {
   config.height = 280;
   config.icon = storage_available ? icon::kMusic : icon::kSdStorage;
   config.icon_font = MaterialFillIconFont56();
-  config.icon_background_color = kSecondaryContainerColor;
+  config.icon_background_color = theme::ActiveThemeColors().primary_container;
   config.icon_color = kPrimaryColor;
   config.title =
       storage_available ? "No music found" : "Storage device not found";
   config.title_font = Font28();
-  config.title_color = kMainTextColor;
+  config.title_color = theme::ActiveThemeColors().on_surface;
   config.message = storage_available
                        ? "Add a music source or scan again."
                        : "Insert a storage device and scan again.";
   config.message_font = Font22();
-  config.message_color = kSecondaryTextColor;
+  config.message_color = theme::ActiveThemeColors().on_surface_variant;
   config.button_text = storage_available ? "Scan Music" : "Scan again";
   config.button_font = Font24();
   config.button_width = 230;
@@ -1600,7 +1592,7 @@ bool CreateMiniPlayer(lv_obj_t* parent, MusicViewState* state) {
   lv_obj_set_size(card, state->config.width, kMiniPlayerHeight);
   lv_obj_align(card, LV_ALIGN_BOTTOM_MID, 0, 0);
   lv_obj_set_style_radius(card, kMiniPlayerRadius, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(card, lv_color_hex(kSurfaceContainerColor),
+  lv_obj_set_style_bg_color(card, lv_color_hex(theme::ActiveThemeColors().surface_container_low),
       LV_PART_MAIN);
   lv_obj_set_style_bg_opa(card, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(card, 0, LV_PART_MAIN);
@@ -1613,8 +1605,8 @@ bool CreateMiniPlayer(lv_obj_t* parent, MusicViewState* state) {
   if (artwork != nullptr) {
     lv_obj_align(artwork, LV_ALIGN_LEFT_MID, 0, 0);
   }
-  state->mini_title_label =
-      CreateLabel(card, "Unknown Track", lv_color_hex(kMainTextColor), Font24());
+  state->mini_title_label = CreateLabel(card, "Unknown Track",
+      lv_color_hex(theme::ActiveThemeColors().on_surface), Font24());
   if (state->mini_title_label != nullptr) {
     lv_obj_set_size(state->mini_title_label,
         state->config.width - 288,
@@ -1623,8 +1615,8 @@ bool CreateMiniPlayer(lv_obj_t* parent, MusicViewState* state) {
         state->mini_title_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_align(state->mini_title_label, LV_ALIGN_LEFT_MID, 90, -15);
   }
-  state->mini_artist_label =
-      CreateLabel(card, "Unknown Artist", lv_color_hex(kSecondaryTextColor), Font22());
+  state->mini_artist_label = CreateLabel(card, "Unknown Artist",
+      lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font22());
   if (state->mini_artist_label != nullptr) {
     lv_obj_set_size(state->mini_artist_label,
         state->config.width - 288,
@@ -1640,7 +1632,7 @@ bool CreateMiniPlayer(lv_obj_t* parent, MusicViewState* state) {
     lv_obj_set_size(play, 62, 62);
     lv_obj_align(play, LV_ALIGN_RIGHT_MID, -88, 0);
     lv_obj_set_style_radius(play, 31, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(play, lv_color_hex(kSecondaryContainerColor),
+    lv_obj_set_style_bg_color(play, lv_color_hex(theme::ActiveThemeColors().primary_container),
         LV_PART_MAIN);
     lv_obj_set_style_bg_opa(play, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_shadow_width(play, 0, LV_PART_MAIN);
@@ -1694,15 +1686,15 @@ bool RenderMusicScanningContent(MusicViewState* state) {
   config.width = state->config.width;
   config.height = 250;
   config.visual = PromptStatusVisual::kSpinner;
-  config.spinner_track_color = kSecondaryContainerColor;
+  config.spinner_track_color = theme::ActiveThemeColors().primary_container;
   config.spinner_indicator_color = kPrimaryColor;
   config.title = "Scanning music files...";
   config.title_font = Font28();
-  config.title_color = kMainTextColor;
+  config.title_color = theme::ActiveThemeColors().on_surface;
   config.title_top = 96;
   config.message = "Reading MP3 files from selected folders";
   config.message_font = Font22();
-  config.message_color = kSecondaryTextColor;
+  config.message_color = theme::ActiveThemeColors().on_surface_variant;
   config.message_top = 138;
   lv_obj_t* group = CreatePromptStatus(state->library_content, config);
   if (group == nullptr) {
@@ -1798,7 +1790,7 @@ bool CreateMusicSourcesSettingRow(
   lv_obj_set_size(row, state->config.width, 120);
   lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 210);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(row, lv_color_hex(kSurfaceContainerColor),
+  lv_obj_set_style_bg_color(row, lv_color_hex(theme::ActiveThemeColors().surface_container_low),
                             LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
@@ -1808,12 +1800,12 @@ bool CreateMusicSourcesSettingRow(
                       LV_EVENT_CLICKED, state);
 
   lv_obj_t* title = CreateLabel(
-      row, "Music sources", lv_color_hex(kMainTextColor), Font28());
+      row, "Music sources", lv_color_hex(theme::ActiveThemeColors().on_surface), Font28());
   if (title != nullptr) {
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 34, 23);
   }
   lv_obj_t* subtitle = CreateLabel(row, "Manage music loading locations",
-      lv_color_hex(kSecondaryTextColor), Font24());
+      lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font24());
   if (subtitle != nullptr) {
     lv_obj_set_width(subtitle, state->config.width - 68);
     lv_label_set_long_mode(subtitle, LV_LABEL_LONG_DOT);
@@ -1847,14 +1839,14 @@ bool CreateSettingsStyleHeader(lv_obj_t* page, const char* title,
   lv_obj_add_event_cb(back, callback, LV_EVENT_CLICKED, state);
 
   lv_obj_t* back_icon = CreateLabel(back, icon::kArrowBack,
-      lv_color_hex(kMainTextColor), MaterialOutlineIconFont44());
+      lv_color_hex(theme::ActiveThemeColors().on_surface), MaterialOutlineIconFont44());
   if (back_icon == nullptr) {
     return false;
   }
   lv_obj_align(back_icon, LV_ALIGN_CENTER, -4, 0);
 
   lv_obj_t* title_label = CreateLabel(
-      page, title, lv_color_hex(kMainTextColor), Font32());
+      page, title, lv_color_hex(theme::ActiveThemeColors().on_surface), Font32());
   if (title_label == nullptr) {
     return false;
   }
@@ -1910,11 +1902,11 @@ PromptDialogConfig CreateMusicPromptConfig(
   config.action_button_height = 74;
   config.action_button_gap = 20;
   config.action_bottom_padding = 32;
-  config.dialog_color = kSurfaceContainerColor;
-  config.primary_text_color = kMainTextColor;
-  config.secondary_text_color = kSecondaryTextColor;
-  config.divider_color = kDividerColor;
-  config.pressed_color = kPressedColor;
+  config.dialog_color = theme::ActiveThemeColors().surface_container_low;
+  config.primary_text_color = theme::ActiveThemeColors().on_surface;
+  config.secondary_text_color = theme::ActiveThemeColors().on_surface_variant;
+  config.divider_color = theme::ActiveThemeColors().outline_variant;
+  config.pressed_color = theme::ActiveThemeColors().state_layer;
   config.confirm_background_color = kPrimaryColor;
   config.confirm_pressed_color = kPrimaryColor;
   config.confirm_text_color = 0xFFFFFF;
@@ -2046,8 +2038,8 @@ void AddMusicSourcePromptClickedEventCallback(lv_event_t* event) {
   picker_config.view_config = state->config;
   picker_config.title = "Select folder";
   picker_config.action_text = "Use this folder";
-  picker_config.action_color = theme::LightNeutralTheme().action;
-  picker_config.action_text_color = theme::LightNeutralTheme().on_action;
+  picker_config.action_color = theme::ActiveThemeColors().action;
+  picker_config.action_text_color = theme::ActiveThemeColors().on_action;
   picker_config.selected_callback = [state](const char* path) {
     if (path == nullptr || path[0] == '\0') {
       return;
@@ -2103,14 +2095,14 @@ bool CreateMusicSourcesPromptRow(
 
   lv_obj_t* path = CreateLabel(
       row, state->draft_source_paths[source].c_str(),
-      lv_color_hex(kMainTextColor), Font24());
+      lv_color_hex(theme::ActiveThemeColors().on_surface), Font24());
   if (path != nullptr) {
     lv_obj_set_size(path, state->config.width - 188, 32);
     lv_label_set_long_mode(path, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_align(path, LV_ALIGN_TOP_LEFT, 32, 12);
   }
   lv_obj_t* detail = CreateLabel(
-      row, "Music search folder", lv_color_hex(kSecondaryTextColor),
+      row, "Music search folder", lv_color_hex(theme::ActiveThemeColors().on_surface_variant),
       Font22());
   if (detail != nullptr) {
     lv_obj_align(detail, LV_ALIGN_TOP_LEFT, 32, 47);
@@ -2132,7 +2124,7 @@ bool CreateMusicSourcesPromptRow(
   lv_obj_add_event_cb(remove, MusicSourceActionDeleteEventCallback,
                       LV_EVENT_DELETE, action);
   lv_obj_t* delete_icon = CreateLabel(remove, icon::kDelete,
-      lv_color_hex(kSecondaryTextColor), MaterialFillIconFont44());
+      lv_color_hex(theme::ActiveThemeColors().on_surface_variant), MaterialFillIconFont44());
   if (delete_icon != nullptr) {
     lv_obj_center(delete_icon);
   }
@@ -2160,7 +2152,7 @@ bool RenderMusicSourcesPromptContent(MusicViewState* state) {
   }
   if (folder_count == 0) {
     lv_obj_t* empty = CreateLabel(body, "No folders",
-        lv_color_hex(kSecondaryTextColor), Font24());
+        lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font24());
     if (empty != nullptr) {
       lv_obj_set_pos(empty, 32, y + 12);
     }
@@ -2209,7 +2201,7 @@ bool CreateMusicTrackRow(
   lv_obj_set_size(row, state->config.width, kMusicTrackRowHeight);
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(row, lv_color_hex(kPressedColor),
+  lv_obj_set_style_bg_color(row, lv_color_hex(theme::ActiveThemeColors().state_layer),
       static_cast<lv_style_selector_t>(LV_PART_MAIN) |
           static_cast<lv_style_selector_t>(LV_STATE_PRESSED));
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER,
@@ -2225,14 +2217,16 @@ bool CreateMusicTrackRow(
     lv_obj_align(artwork, LV_ALIGN_LEFT_MID, 24, 0);
   }
   lv_obj_t* title = CreateLabel(
-      row, track.title.c_str(), lv_color_hex(kMainTextColor), Font28());
+      row, track.title.c_str(),
+      lv_color_hex(theme::ActiveThemeColors().on_surface), Font28());
   if (title != nullptr) {
     lv_obj_set_size(title, state->config.width - 140, 34);
     lv_label_set_long_mode(title, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 116, 18);
   }
   lv_obj_t* artist = CreateLabel(
-      row, track.artist.c_str(), lv_color_hex(kSecondaryTextColor), Font22());
+      row, track.artist.c_str(),
+      lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font22());
   if (artist != nullptr) {
     lv_obj_set_size(artist, state->config.width - 140, 30);
     lv_label_set_long_mode(artist, LV_LABEL_LONG_SCROLL_CIRCULAR);
@@ -2244,7 +2238,8 @@ bool CreateMusicTrackRow(
     lv_obj_set_size(divider, state->config.width - 116, 1);
     lv_obj_align(divider, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
     lv_obj_set_style_bg_color(
-        divider, lv_color_hex(kDividerColor), LV_PART_MAIN);
+        divider, lv_color_hex(theme::ActiveThemeColors().outline_variant),
+        LV_PART_MAIN);
     lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(divider, 0, LV_PART_MAIN);
   }
@@ -2568,7 +2563,7 @@ bool CreateMusicSourcesPromptHeader(MusicViewState* state) {
   }
   lv_obj_t* panel = state->sources_dialog.panel;
   lv_obj_t* section = CreateLabel(panel, "Folders to load",
-      lv_color_hex(kSecondaryTextColor), Font24());
+      lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font24());
   if (section != nullptr) {
     lv_obj_set_pos(section, 32, kMusicSourcesHeaderTop);
   }
@@ -2580,14 +2575,14 @@ bool CreateMusicSourcesPromptHeader(MusicViewState* state) {
   lv_obj_set_size(add, 62, 62);
   lv_obj_align(add, LV_ALIGN_TOP_RIGHT, -16, kMusicSourcesAddTop);
   lv_obj_set_style_bg_opa(add, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(add, lv_color_hex(kPressedColor),
+  lv_obj_set_style_bg_color(add, lv_color_hex(theme::ActiveThemeColors().state_layer),
                             LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(add, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_radius(add, 31, LV_PART_MAIN);
   lv_obj_add_event_cb(add, AddMusicSourcePromptClickedEventCallback,
                       LV_EVENT_CLICKED, state);
   lv_obj_t* add_icon = CreateLabel(add, icon::kAdd,
-      lv_color_hex(kMainTextColor), MaterialOutlineIconFont44());
+      lv_color_hex(theme::ActiveThemeColors().on_surface), MaterialOutlineIconFont44());
   if (add_icon != nullptr) {
     lv_obj_center(add_icon);
   }
@@ -2644,7 +2639,7 @@ bool ShowMusicSettingsPage(MusicViewState* state) {
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(page, state->config.width, state->config.height);
   lv_obj_set_pos(page, 0, 0);
-  lv_obj_set_style_bg_color(page, lv_color_hex(kMainBackgroundColor),
+  lv_obj_set_style_bg_color(page, lv_color_hex(theme::ActiveThemeColors().surface),
                             LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
@@ -2726,11 +2721,11 @@ void ShowMusicDrawer(MusicViewState* state) {
   NavigationDrawerConfig config;
   config.screen_width = state->config.width;
   config.screen_height = state->config.height;
-  config.background_color = kMainBackgroundColor;
-  config.primary_text_color = kMainTextColor;
-  config.icon_color = kSecondaryTextColor;
-  config.pressed_color = kPressedColor;
-  config.divider_color = kDividerColor;
+  config.background_color = theme::ActiveThemeColors().surface;
+  config.primary_text_color = theme::ActiveThemeColors().on_surface;
+  config.icon_color = theme::ActiveThemeColors().on_surface_variant;
+  config.pressed_color = theme::ActiveThemeColors().state_layer;
+  config.divider_color = theme::ActiveThemeColors().outline_variant;
   config.title = "Music";
   config.title_font = Font36();
   config.item_font = Font28();
@@ -2780,13 +2775,13 @@ bool CreateMusicHeader(lv_obj_t* parent, MusicViewState* state) {
   lv_obj_add_event_cb(menu, MenuButtonClickedEventCallback,
                       LV_EVENT_CLICKED, state);
   lv_obj_t* menu_icon = CreateLabel(menu, icon::kMenu,
-      lv_color_hex(kMainTextColor), MaterialFillIconFont56());
+      lv_color_hex(theme::ActiveThemeColors().on_surface), MaterialFillIconFont56());
   if (menu_icon != nullptr) {
     lv_obj_center(menu_icon);
   }
 
   lv_obj_t* title = CreateLabel(
-      parent, "Music", lv_color_hex(kMainTextColor), Font36());
+      parent, "Music", lv_color_hex(theme::ActiveThemeColors().on_surface), Font36());
   if (title == nullptr) {
     return false;
   }
@@ -2807,7 +2802,7 @@ lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry& app_entry,
   lv_obj_remove_flag(container, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(container, config.width, config.height);
   lv_obj_align(container, LV_ALIGN_CENTER, 0, 0);
-  lv_obj_set_style_bg_color(container, lv_color_hex(kMainBackgroundColor),
+  lv_obj_set_style_bg_color(container, lv_color_hex(theme::ActiveThemeColors().surface),
       LV_PART_MAIN);
   lv_obj_set_style_bg_opa(container, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(container, 0, LV_PART_MAIN);
@@ -2817,7 +2812,7 @@ lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry& app_entry,
     config.set_status_bar_visible(true);
   }
   if (config.set_status_bar_text_color) {
-    config.set_status_bar_text_color(kMainTextColor);
+    config.set_status_bar_text_color(theme::ActiveThemeColors().on_surface);
   }
 
   auto* state = new MusicViewState();

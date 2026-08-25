@@ -29,10 +29,6 @@ namespace {
 
 constexpr int kFactoryResetCountdownSeconds = 10;
 constexpr uint32_t kFactoryResetCountdownPeriodMs = 1000;
-constexpr uint32_t kFactoryResetColor = 0xBA1A1A;
-constexpr uint32_t kFactoryResetPressedColor = 0x93000A;
-constexpr uint32_t kFactoryResetContainerColor = 0xFFDAD6;
-constexpr uint32_t kFactoryResetContainerTextColor = 0x410002;
 constexpr int kFactoryResetButtonSide = 26;
 constexpr int kFactoryResetButtonHeight = 76;
 constexpr int kMyDeviceBrandIconSize = 64;
@@ -468,12 +464,12 @@ void UpdateFactoryResetConfirmButton(SettingsViewState* state) {
     lv_obj_add_state(state->factory_reset_confirm_button, LV_STATE_DISABLED);
   }
   lv_obj_set_style_bg_color(state->factory_reset_confirm_button,
-      lv_color_hex(enabled ? kFactoryResetColor
-                           : theme::LightNeutralTheme().disabled_container),
+      lv_color_hex(enabled ? SettingsThemeColors().error
+                           : SettingsThemeColors().disabled_container),
       LV_PART_MAIN);
   lv_obj_set_style_text_color(state->factory_reset_confirm_label,
-      lv_color_hex(enabled ? 0xFFFFFF
-                           : theme::LightNeutralTheme().outline),
+      lv_color_hex(enabled ? SettingsThemeColors().on_error
+                           : SettingsThemeColors().outline),
       LV_PART_MAIN);
 }
 
@@ -629,14 +625,14 @@ bool CreateFactoryResetHeader(
   }
 
   lv_obj_t* back_icon = CreateLabel(back_button, icon::kArrowBack,
-      lv_color_hex(kDetailBackColor), MaterialIconFont44());
+      lv_color_hex(SettingsThemeColors().on_surface), MaterialIconFont44());
   if (back_icon == nullptr) {
     return false;
   }
   lv_obj_align(back_icon, LV_ALIGN_CENTER, kDetailBackIconOffsetX, 0);
 
   lv_obj_t* title = CreateLabel(
-      parent, "Factory reset", lv_color_hex(kTitleColor), Font32());
+      parent, "Factory reset", lv_color_hex(SettingsThemeColors().on_surface), Font32());
   if (title == nullptr) {
     return false;
   }
@@ -666,21 +662,21 @@ bool CreateFactoryResetContent(lv_obj_t* parent, SettingsViewState* state,
   const int button_height = compact ? 66 : kFactoryResetButtonHeight;
 
   lv_obj_t* icon_box = CreateBox(parent, icon_size, icon_size,
-      kFactoryResetContainerColor, LV_OPA_COVER, icon_size / 2);
+      SettingsThemeColors().error_container, LV_OPA_COVER, icon_size / 2);
   if (icon_box == nullptr) {
     return false;
   }
   lv_obj_align(icon_box, LV_ALIGN_TOP_MID, 0, icon_top);
 
   lv_obj_t* warning_icon = CreateLabel(icon_box, icon::kWarning,
-      lv_color_hex(kFactoryResetColor), MaterialIconFont56());
+      lv_color_hex(SettingsThemeColors().error), MaterialIconFont56());
   if (warning_icon == nullptr) {
     return false;
   }
   lv_obj_align(warning_icon, LV_ALIGN_CENTER, 0, -3);
 
   lv_obj_t* heading = CreateLabel(
-      parent, "Erase all saved data?", lv_color_hex(kTitleColor), Font36());
+      parent, "Erase all saved data?", lv_color_hex(SettingsThemeColors().on_surface), Font36());
   if (heading == nullptr) {
     return false;
   }
@@ -691,7 +687,7 @@ bool CreateFactoryResetContent(lv_obj_t* parent, SettingsViewState* state,
   lv_obj_t* message = CreateLabel(parent,
       "All NVS settings and all files in internal LittleFS storage will be "
       "permanently erased. Files on the SD card will not be deleted.",
-      lv_color_hex(kSecondaryTextColor), Font28());
+      lv_color_hex(SettingsThemeColors().on_surface_variant), Font28());
   if (message == nullptr) {
     return false;
   }
@@ -703,14 +699,15 @@ bool CreateFactoryResetContent(lv_obj_t* parent, SettingsViewState* state,
 
   const int notice_width = width - 2 * kFactoryResetButtonSide;
   lv_obj_t* notice = CreateBox(parent, notice_width, notice_height,
-      kFactoryResetContainerColor, LV_OPA_COVER, 24);
+      SettingsThemeColors().error_container, LV_OPA_COVER, 24);
   if (notice == nullptr) {
     return false;
   }
   lv_obj_align(notice, LV_ALIGN_TOP_MID, 0, notice_top);
 
   lv_obj_t* notice_icon = CreateLabel(notice, icon::kWarning,
-      lv_color_hex(kFactoryResetContainerTextColor), MaterialIconFont32());
+      lv_color_hex(SettingsThemeColors().on_error_container),
+      MaterialIconFont32());
   if (notice_icon == nullptr) {
     return false;
   }
@@ -719,7 +716,7 @@ bool CreateFactoryResetContent(lv_obj_t* parent, SettingsViewState* state,
   lv_obj_t* notice_text = CreateLabel(notice,
       "This permanently clears NVS and LittleFS. The device will restart "
       "with factory defaults.",
-      lv_color_hex(kFactoryResetContainerTextColor), Font24());
+      lv_color_hex(SettingsThemeColors().on_error_container), Font24());
   if (notice_text == nullptr) {
     return false;
   }
@@ -736,11 +733,12 @@ bool CreateFactoryResetContent(lv_obj_t* parent, SettingsViewState* state,
   confirm_config.width = width - 2 * kFactoryResetButtonSide;
   confirm_config.height = button_height;
   confirm_config.radius = button_height / 3;
-  confirm_config.background_color = kFactoryResetColor;
+  confirm_config.background_color = SettingsThemeColors().error;
   confirm_config.disabled_background_color =
-      theme::LightNeutralTheme().disabled_container;
-  confirm_config.pressed_background_color = kFactoryResetPressedColor;
-  confirm_config.text_color = 0xFFFFFF;
+      SettingsThemeColors().disabled_container;
+  confirm_config.pressed_background_color =
+      SettingsThemeColors().error_container;
+  confirm_config.text_color = SettingsThemeColors().on_error;
   confirm_config.font = Font28();
   confirm_config.callback = FactoryResetConfirmClickedEventCallback;
   confirm_config.user_data = state;
@@ -794,7 +792,7 @@ bool ShowFactoryResetPage(SettingsViewState* state) {
   lv_obj_set_size(page, config.width, config.height);
   lv_obj_set_pos(page, 0, 0);
   lv_obj_set_style_bg_color(
-      page, lv_color_hex(kBackgroundColor), LV_PART_MAIN);
+      page, lv_color_hex(SettingsThemeColors().surface), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
@@ -849,7 +847,7 @@ void FactoryResetRowClickedEventCallback(lv_event_t* event) {
  */
 bool CreateCloseIcon(lv_obj_t* parent) {
   lv_obj_t* icon = CreateLabel(parent, icon::kClose,
-      lv_color_hex(kDetailBackColor), MaterialIconFont44());
+      lv_color_hex(SettingsThemeColors().on_surface), MaterialIconFont44());
   if (icon == nullptr) {
     return false;
   }
@@ -864,7 +862,7 @@ bool CreateCloseIcon(lv_obj_t* parent) {
  */
 bool CreateCheckIcon(lv_obj_t* parent) {
   lv_obj_t* icon = CreateLabel(parent, icon::kCheck,
-      lv_color_hex(kDetailBackColor), MaterialIconFont44());
+      lv_color_hex(SettingsThemeColors().on_surface), MaterialIconFont44());
   if (icon == nullptr) {
     return false;
   }
@@ -895,7 +893,7 @@ void FirmwareUpdateButtonClickedEventCallback(lv_event_t* event) {
 bool CreateMyDeviceHeader(
     lv_obj_t* parent, SettingsViewState* state, int width) {
   lv_obj_t* title =
-      CreateLabel(parent, "My Device", lv_color_hex(kTitleColor), Font32());
+      CreateLabel(parent, "My Device", lv_color_hex(SettingsThemeColors().on_surface), Font32());
   if (title == nullptr) {
     return false;
   }
@@ -935,7 +933,7 @@ bool CreateMyDeviceHeader(
       back_button, MyDeviceBackClickedEventCallback, LV_EVENT_CLICKED, state);
 
   lv_obj_t* back_icon = CreateLabel(
-      back_button, icon::kArrowBack, lv_color_hex(kDetailBackColor),
+      back_button, icon::kArrowBack, lv_color_hex(SettingsThemeColors().on_surface),
       MaterialIconFont44());
   if (back_icon == nullptr) {
     return false;
@@ -970,7 +968,8 @@ bool CreateMyDeviceSnapshotArea(lv_obj_t* parent, int width,
   }
 
   lv_obj_t* brand_text = CreateLabel(
-      brand_group, "LilygoBox", lv_color_hex(0x050505), Font48());
+      brand_group, "LilygoBox",
+      lv_color_hex(SettingsThemeColors().on_surface), Font48());
   if (brand_text == nullptr) {
     return false;
   }
@@ -996,7 +995,7 @@ bool CreateMyDeviceSnapshotArea(lv_obj_t* parent, int width,
   std::snprintf(version_text, sizeof(version_text),
       has_version_prefix ? "%s" : "v%s", software_version);
   lv_obj_t* version = CreateLabel(parent, version_text,
-      lv_color_hex(kSecondaryTextColor), Font24());
+      lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
   if (version == nullptr) {
     return false;
   }
@@ -1013,10 +1012,10 @@ bool CreateMyDeviceSnapshotArea(lv_obj_t* parent, int width,
   lv_obj_add_flag(update_button, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(update_button, kDetailUpdateWidth, kDetailUpdateHeight);
   lv_obj_align(update_button, LV_ALIGN_TOP_MID, 0, kDetailUpdateTop);
-  lv_obj_set_style_bg_color(update_button, lv_color_hex(kDetailBlueColor),
+  lv_obj_set_style_bg_color(update_button, lv_color_hex(SettingsThemeColors().action),
       LV_PART_MAIN);
   lv_obj_set_style_bg_color(update_button,
-      lv_color_hex(theme::LightNeutralTheme().action_pressed),
+      lv_color_hex(SettingsThemeColors().action_pressed),
       LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(update_button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(update_button, LV_OPA_COVER, LV_STATE_PRESSED);
@@ -1032,8 +1031,8 @@ bool CreateMyDeviceSnapshotArea(lv_obj_t* parent, int width,
       FirmwareUpdateButtonClickedEventCallback, LV_EVENT_CLICKED, state);
 
   lv_obj_t* update_text =
-      CreateLabel(update_button, "Check for updates", lv_color_hex(0xFFFFFF),
-          Font28());
+      CreateLabel(update_button, "Check for updates",
+          lv_color_hex(SettingsThemeColors().on_action), Font28());
   if (update_text == nullptr) {
     return false;
   }
@@ -1076,7 +1075,7 @@ bool CreateDeviceInfoRow(lv_obj_t* parent, const char* title,
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_PRESS_LOCK);
     lv_obj_set_style_bg_color(
-        row, lv_color_hex(kDeviceInfoPressedColor), LV_STATE_PRESSED);
+        row, lv_color_hex(SettingsThemeColors().state_layer), LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
     if (!AddPressCancelOnLeave(row)) {
       return false;
@@ -1087,7 +1086,7 @@ bool CreateDeviceInfoRow(lv_obj_t* parent, const char* title,
   }
 
   lv_obj_t* title_label =
-      CreateLabel(row, title, lv_color_hex(kPrimaryTextColor), Font28());
+      CreateLabel(row, title, lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (title_label == nullptr) {
     return false;
   }
@@ -1096,7 +1095,7 @@ bool CreateDeviceInfoRow(lv_obj_t* parent, const char* title,
   lv_obj_t* anchor = nullptr;
   if (show_arrow) {
     anchor = CreateLabel(row, icon::kChevronRight,
-        lv_color_hex(kSecondaryTextColor), MaterialIconFont32());
+        lv_color_hex(SettingsThemeColors().on_surface_variant), MaterialIconFont32());
     if (anchor == nullptr) {
       return false;
     }
@@ -1104,7 +1103,7 @@ bool CreateDeviceInfoRow(lv_obj_t* parent, const char* title,
   }
 
   lv_obj_t* value_label =
-      CreateLabel(row, value, lv_color_hex(kSecondaryTextColor), Font24());
+      CreateLabel(row, value, lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
   if (value_label == nullptr) {
     return false;
   }
@@ -1139,7 +1138,7 @@ bool CreateDeviceInfoCard(
 
   const int card_width = width - 2 * kDetailSidePadding;
   lv_obj_t* card = CreateBox(parent, card_width, kDetailFirstCardHeight,
-      kDetailCardColor, LV_OPA_COVER,
+      SettingsThemeColors().surface_container_lowest, LV_OPA_COVER,
       kDetailCardRadius);
   if (card == nullptr) {
     return false;
@@ -1167,14 +1166,14 @@ bool CreateDeviceInfoCard(
 bool CreateSpecText(lv_obj_t* parent, const char* value, const char* label,
     int x, int y) {
   lv_obj_t* value_label =
-      CreateLabel(parent, value, lv_color_hex(kPrimaryTextColor), Font28());
+      CreateLabel(parent, value, lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (value_label == nullptr) {
     return false;
   }
   lv_obj_align(value_label, LV_ALIGN_TOP_LEFT, x, y);
 
   lv_obj_t* title_label =
-      CreateLabel(parent, label, lv_color_hex(kSecondaryTextColor), Font22());
+      CreateLabel(parent, label, lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
   if (title_label == nullptr) {
     return false;
   }
@@ -1202,7 +1201,7 @@ bool CreateDeviceSpecCard(
   FormatResolution(info, resolution_text, sizeof(resolution_text));
 
   lv_obj_t* card = CreateBox(parent, width - 2 * kDetailSidePadding,
-      kDetailSecondCardHeight, kDetailCardColor, LV_OPA_COVER,
+      kDetailSecondCardHeight, SettingsThemeColors().surface_container_lowest, LV_OPA_COVER,
       kDetailCardRadius);
   if (card == nullptr) {
     return false;
@@ -1210,7 +1209,7 @@ bool CreateDeviceSpecCard(
   lv_obj_align(card, LV_ALIGN_TOP_MID, 0, kDetailSecondCardTop);
 
   lv_obj_t* title = CreateLabel(card, info.software.device_model_name,
-      lv_color_hex(kPrimaryTextColor), Font36());
+      lv_color_hex(SettingsThemeColors().on_surface), Font36());
   if (title == nullptr) {
     return false;
   }
@@ -1218,7 +1217,7 @@ bool CreateDeviceSpecCard(
       kDetailCardPaddingTop);
 
   lv_obj_t* model_version = CreateLabel(card,
-      info.software.device_model_version, lv_color_hex(kSecondaryTextColor),
+      info.software.device_model_version, lv_color_hex(SettingsThemeColors().on_surface_variant),
       Font28());
   if (model_version == nullptr) {
     return false;
@@ -1266,7 +1265,7 @@ bool CreateDeviceOptionRow(lv_obj_t* parent, const char* text, int y,
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      row, lv_color_hex(kDetailOptionPressedColor), LV_STATE_PRESSED);
+      row, lv_color_hex(SettingsThemeColors().state_layer_strong), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, kDetailOptionPressedOpacity, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
@@ -1280,14 +1279,14 @@ bool CreateDeviceOptionRow(lv_obj_t* parent, const char* text, int y,
   }
 
   lv_obj_t* label =
-      CreateLabel(row, text, lv_color_hex(kPrimaryTextColor), Font28());
+      CreateLabel(row, text, lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (label == nullptr) {
     return false;
   }
   lv_obj_align(label, LV_ALIGN_LEFT_MID, kDetailSidePadding + 8, 0);
 
   lv_obj_t* arrow = CreateLabel(row, icon::kChevronRight,
-      lv_color_hex(kSecondaryTextColor), MaterialIconFont32());
+      lv_color_hex(SettingsThemeColors().on_surface_variant), MaterialIconFont32());
   if (arrow == nullptr) {
     return false;
   }
@@ -1350,7 +1349,7 @@ bool ShowMyDevicePageInternal(SettingsViewState* state) {
   lv_obj_set_size(page, config.width, config.height);
   lv_obj_set_pos(page, 0, 0);
   lv_obj_set_style_bg_color(
-      page, lv_color_hex(kDetailBackgroundColor), LV_PART_MAIN);
+      page, lv_color_hex(SettingsThemeColors().surface_container), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
@@ -1430,7 +1429,7 @@ bool CreateDeviceNameEditHeader(
   }
 
   lv_obj_t* title = CreateLabel(
-      parent, "Edit device name", lv_color_hex(kTitleColor), Font32());
+      parent, "Edit device name", lv_color_hex(SettingsThemeColors().on_surface), Font32());
   if (title == nullptr) {
     return false;
   }
@@ -1470,7 +1469,7 @@ bool CreateDeviceNameEditContent(
 
   lv_obj_t* help = CreateLabel(parent,
       "This name is shown when identifying this device.",
-      lv_color_hex(kSecondaryTextColor), Font24());
+      lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
   if (help == nullptr) {
     return false;
   }
@@ -1528,7 +1527,7 @@ bool ShowDeviceNameEditPage(SettingsViewState* state) {
   lv_obj_set_size(page, config.width, config.height);
   lv_obj_set_pos(page, 0, 0);
   lv_obj_set_style_bg_color(
-      page, lv_color_hex(kBackgroundColor), LV_PART_MAIN);
+      page, lv_color_hex(SettingsThemeColors().surface), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);

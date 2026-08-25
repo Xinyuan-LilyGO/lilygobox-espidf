@@ -35,9 +35,6 @@ constexpr int kAutoLockSheetInnerPadding = 32;
 constexpr int kAutoLockSheetHeight = 755;
 constexpr int kAutoLockOptionTop = 155;
 constexpr int kAutoLockOptionHeight = 78;
-constexpr uint32_t kAutoLockSelectedColor =
-    theme::LightNeutralTheme().action_container;
-
 /**
  * @brief 格式化自动锁屏等待时间
  * @param seconds 等待时间，单位为秒
@@ -107,12 +104,12 @@ bool ShowAutoLockSheet(SettingsViewState* state) {
   config.option_height = kAutoLockOptionHeight;
   config.button_height = kWifiConnectButtonHeight;
   config.button_radius = 24;
-  config.selected_color = kAutoLockSelectedColor;
-  config.primary_text_color = kPrimaryTextColor;
-  config.secondary_text_color = kSecondaryTextColor;
-  config.selected_text_color = kBasicBlueColor;
-  config.cancel_background_color = kWifiConnectSecondaryColor;
-  config.pressed_color = kWifiConnectSecondaryPressedColor;
+  config.selected_color = SettingsThemeColors().action_container;
+  config.primary_text_color = SettingsThemeColors().on_surface;
+  config.secondary_text_color = SettingsThemeColors().on_surface_variant;
+  config.selected_text_color = SettingsThemeColors().action;
+  config.cancel_background_color = SettingsThemeColors().button_secondary;
+  config.pressed_color = SettingsThemeColors().button_secondary_pressed;
   config.pressed_opacity = kPressedOpacity;
   config.animation_ms = kDetailSlideAnimationMs;
   config.title = "Auto lock";
@@ -190,7 +187,7 @@ bool CreateAutoLockRow(
   lv_obj_set_size(row, width, kBasicRowHeight);
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(row, lv_color_hex(kPressedColor),
+  lv_obj_set_style_bg_color(row, lv_color_hex(SettingsThemeColors().state_layer),
       LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, kPressedOpacity, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
@@ -203,7 +200,7 @@ bool CreateAutoLockRow(
       LV_EVENT_CLICKED, state);
 
   lv_obj_t* title = CreateLabel(row, "Auto lock",
-      lv_color_hex(kPrimaryTextColor), Font28());
+      lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (title == nullptr) {
     return false;
   }
@@ -214,7 +211,7 @@ bool CreateAutoLockRow(
   char value[24] = {};
   FormatAutoLockValue(state->auto_lock_seconds, value, sizeof(value));
   lv_obj_t* value_label = CreateLabel(row, value,
-      lv_color_hex(kSecondaryTextColor), Font24());
+      lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
   if (value_label == nullptr) {
     return false;
   }
@@ -225,7 +222,7 @@ bool CreateAutoLockRow(
       -(kBasicSidePadding + 40), 0);
 
   lv_obj_t* arrow = CreateLabel(row, icon::kChevronRight,
-      lv_color_hex(kSecondaryTextColor), MaterialIconFont32());
+      lv_color_hex(SettingsThemeColors().on_surface_variant), MaterialIconFont32());
   if (arrow == nullptr) {
     return false;
   }

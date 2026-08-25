@@ -77,10 +77,6 @@ constexpr uint32_t kStartupProgressMinStepMs = 200;
 constexpr uint32_t kStartupFadeOutMs = 220;
 constexpr uint32_t kFirstBootWelcomeFadeOutMs = 180;
 constexpr uint32_t kSystemStatusRefreshPeriodMs = 1000;
-constexpr uint32_t kStartupBackgroundColor = 0xFFFFFF;
-constexpr uint32_t kStartupTextColor = 0x111111;
-constexpr uint32_t kStartupProgressTrackColor = 0xE8E8E8;
-constexpr uint32_t kStartupProgressFillColor = 0x1C1C1C;
 constexpr uint32_t kStartupBlackBackgroundColor = 0x000000;
 constexpr uint32_t kLowBatteryStartupTextColor = 0xFFFFFF;
 constexpr uint32_t kPowerOffChargingColor = 0x27C769;
@@ -928,7 +924,8 @@ bool UiManager::Init(hal::ScreenProvider* screen,
 
   lv_obj_remove_flag(root_screen_, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(root_screen_, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
-  lv_obj_set_style_bg_color(root_screen_, lv_color_hex(0xE2E2E2), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(root_screen_,
+      lv_color_hex(theme_provider_.colors().surface_dim), LV_PART_MAIN);
   lv_obj_set_style_border_width(root_screen_, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(root_screen_, 0, LV_PART_MAIN);
   InitializeEdgeSwipeIndicator(lvgl_port_, [this]() {
@@ -1116,9 +1113,9 @@ bool UiManager::ShowKeyboardExpansionUnavailablePrompt() {
   config.title_text_align = LV_TEXT_ALIGN_CENTER;
   config.subtitle_text_align = LV_TEXT_ALIGN_CENTER;
   config.cancel_text = "OK";
-  config.cancel_background_color = theme::LightNeutralTheme().action;
-  config.cancel_pressed_color = theme::LightNeutralTheme().action_pressed;
-  config.cancel_text_color = theme::LightNeutralTheme().on_action;
+  config.cancel_background_color = theme::ActiveThemeColors().action;
+  config.cancel_pressed_color = theme::ActiveThemeColors().action_pressed;
+  config.cancel_text_color = theme::ActiveThemeColors().on_action;
   config.confirm_text = nullptr;
   config.cancel_callback =
       KeyboardExpansionUnavailablePromptDismissedCallback;
@@ -1291,6 +1288,17 @@ void UiManager::SetScreenLockCallback(std::function<void()> callback) {
 void UiManager::SetScreenBrightnessCallback(
     std::function<bool(int)> callback) {
   screen_brightness_callback_ = std::move(callback);
+}
+
+void UiManager::ApplyThemePreference(bool enabled) {
+  pending_dark_theme_enabled_ = enabled;
+  theme_provider_.SetMode(enabled ? theme::ThemeMode::kDark
+                                  : theme::ThemeMode::kLight);
+  if (root_screen_ != nullptr) {
+    lv_obj_set_style_bg_color(root_screen_,
+        lv_color_hex(theme_provider_.colors().surface_dim), LV_PART_MAIN);
+  }
+  ApplyWallpaperTheme(launcher_wallpaper_);
 }
 
 void UiManager::SetBatteryManagementStatusCallback(
@@ -1523,6 +1531,35 @@ void UiManager::SystemStatusRefreshTimerCallback(lv_timer_t* timer) {
   }
 }
 
+void UiManager::ApplyPendingThemeAsync(void* context) {
+  auto* self = static_cast<UiManager*>(context);
+  if (self == nullptr) {
+    return;
+  }
+  self->theme_refresh_pending_ = false;
+  self->theme_provider_.SetMode(
+      self->pending_dark_theme_enabled_ ? theme::ThemeMode::kDark
+                                        : theme::ThemeMode::kLight);
+  self->volume_overlay_.Reset();
+  if (self->root_screen_ != nullptr) {
+    lv_obj_set_style_bg_color(self->root_screen_,
+        lv_color_hex(self->theme_provider_.colors().surface_dim), LV_PART_MAIN);
+  }
+  ApplyWallpaperTheme(self->launcher_wallpaper_);
+  if (self->active_app_entry_ != nullptr) {
+    self->ShowAppView(*self->active_app_entry_);
+  }
+}
+
+void UiManager::RequestDarkThemeEnabled(bool enabled) {
+  pending_dark_theme_enabled_ = enabled;
+  if (theme_refresh_pending_ || theme_provider_.is_dark() == enabled) {
+    return;
+  }
+  theme_refresh_pending_ = true;
+  lv_async_call(ApplyPendingThemeAsync, this);
+}
+
 void UiManager::RootLayoutRefreshEventCallback(lv_event_t* event) {
   const lv_event_code_t code = lv_event_get_code(event);
   if (code != LV_EVENT_SIZE_CHANGED && code != LV_EVENT_REFRESH) {
@@ -1622,6 +1659,7 @@ void UiManager::RelayoutForScreenSize() {
   if (launcher_container_ != nullptr) {
     lv_obj_delete(launcher_container_);
     launcher_container_ = nullptr;
+    launcher_wallpaper_ = {};
     page_scroller_ = nullptr;
     home_page_ = nullptr;
     reserved_page_ = nullptr;
@@ -1719,7 +1757,9 @@ lv_obj_t* UiManager::CreateLauncher(lv_obj_t* parent) {
   lv_obj_set_size(launcher, LayoutWidth(), LayoutHeight());
   lv_obj_align(launcher, LV_ALIGN_CENTER, 0, 0);
 
-  CreateWallpaperObjects(launcher, LayoutWidth(), LayoutHeight());
+  WallpaperObjects wallpaper;
+  CreateWallpaperObjects(
+      launcher, LayoutWidth(), LayoutHeight(), &wallpaper);
 
   page_scroller_ = CreatePageScroller(launcher);
   if (page_scroller_ == nullptr) {
@@ -1739,6 +1779,7 @@ lv_obj_t* UiManager::CreateLauncher(lv_obj_t* parent) {
   }
 
   UpdatePageIndicator(0);
+  launcher_wallpaper_ = wallpaper;
   return launcher;
 }
 
@@ -2312,7 +2353,7 @@ lv_obj_t* UiManager::CreateStartupScreen(lv_obj_t* parent) {
   lv_obj_set_size(startup, LayoutWidth(), LayoutHeight());
   lv_obj_set_pos(startup, 0, 0);
   lv_obj_set_style_bg_color(
-      startup, lv_color_hex(kStartupBackgroundColor), LV_PART_MAIN);
+      startup, lv_color_hex(theme::ActiveThemeColors().surface), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(startup, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(startup, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(startup, 0, LV_PART_MAIN);
@@ -2342,7 +2383,7 @@ lv_obj_t* UiManager::CreateStartupScreen(lv_obj_t* parent) {
     return nullptr;
   }
   lv_label_set_text(title, "LilygoBox");
-  SetTextStyle(title, lv_color_hex(kStartupTextColor), Font32());
+  SetTextStyle(title, lv_color_hex(theme::ActiveThemeColors().on_surface), Font32());
   lv_obj_update_layout(title);
   const int brand_width = kStartupBrandIconSize + kStartupBrandIconGap +
                           lv_obj_get_width(title);
@@ -2366,7 +2407,7 @@ lv_obj_t* UiManager::CreateStartupScreen(lv_obj_t* parent) {
   lv_obj_set_size(track, progress_width, progress_height);
   lv_obj_align(track, LV_ALIGN_CENTER, 0, kStartupProgressOffsetY);
   lv_obj_set_style_bg_color(
-      track, lv_color_hex(kStartupProgressTrackColor), LV_PART_MAIN);
+      track, lv_color_hex(theme::ActiveThemeColors().surface_container_high), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(track, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(track, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(track, 0, LV_PART_MAIN);
@@ -2383,7 +2424,7 @@ lv_obj_t* UiManager::CreateStartupScreen(lv_obj_t* parent) {
   lv_obj_set_size(startup_progress_fill_, 1, progress_height);
   lv_obj_set_pos(startup_progress_fill_, 0, 0);
   lv_obj_set_style_bg_color(startup_progress_fill_,
-      lv_color_hex(kStartupProgressFillColor), LV_PART_MAIN);
+      lv_color_hex(theme::ActiveThemeColors().primary), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(startup_progress_fill_, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(startup_progress_fill_, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(startup_progress_fill_, 0, LV_PART_MAIN);
@@ -2683,6 +2724,9 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   };
   config.request_screen_lock = screen_lock_callback_;
   config.set_screen_brightness = screen_brightness_callback_;
+  config.set_dark_theme_enabled = [this](bool enabled) {
+    RequestDarkThemeEnabled(enabled);
+  };
   config.show_power_options = [this]() {
     return ShowPowerMenu(restart_device_callback_,
         power_off_device_callback_, std::function<void()>());

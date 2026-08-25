@@ -40,13 +40,6 @@ constexpr int kDividerLeft = 0;
 constexpr int kDividerHeight = 2;
 constexpr int kGroupDividerTopPadding = 16;
 constexpr int kGroupDividerBottomPadding = 22;
-constexpr uint32_t kBackgroundColor = theme::LightNeutralTheme().surface;
-constexpr uint32_t kTitleColor = theme::LightNeutralTheme().on_surface;
-constexpr uint32_t kPrimaryTextColor = theme::LightNeutralTheme().on_surface;
-constexpr uint32_t kSecondaryTextColor =
-    theme::LightNeutralTheme().on_surface_variant;
-constexpr uint32_t kDividerColor = theme::LightNeutralTheme().outline_variant;
-constexpr uint32_t kPressedColor = theme::LightNeutralTheme().state_layer;
 constexpr lv_opa_t kPressedOpacity = 190;
 constexpr int kDetailBackButtonSize = 62;
 constexpr int kDetailBackButtonLeft = 18;
@@ -71,16 +64,6 @@ constexpr int kDetailCardPaddingX = 34;
 constexpr int kDetailCardPaddingTop = 34;
 constexpr int kDetailInfoRowHeight = 72;
 constexpr uint32_t kDetailSlideAnimationMs = 180;
-constexpr uint32_t kDetailBackgroundColor =
-    theme::LightNeutralTheme().surface_container;
-constexpr uint32_t kDetailCardColor =
-    theme::LightNeutralTheme().surface_container_lowest;
-constexpr uint32_t kDeviceInfoPressedColor =
-    theme::LightNeutralTheme().state_layer;
-constexpr uint32_t kDetailBlueColor = theme::LightNeutralTheme().action;
-constexpr uint32_t kDetailBackColor = theme::LightNeutralTheme().on_surface;
-constexpr uint32_t kDetailOptionPressedColor =
-    theme::LightNeutralTheme().state_layer_strong;
 constexpr lv_opa_t kDetailOptionPressedOpacity = LV_OPA_COVER;
 constexpr int kNameEditButtonSize = kDetailBackButtonSize;
 constexpr int kNameEditButtonTop = kDetailBackButtonTop;
@@ -124,28 +107,20 @@ constexpr int kWifiPasswordKeyboardHeightPercent = 35;
 constexpr size_t kWifiPasswordMinLength = 8;
 constexpr size_t kWifiActionCapacity = hal::kMaxWifiScanNetworkCount * 2 + 6;
 constexpr size_t kWifiSubPageStackCapacity = 4;
-constexpr uint32_t kWifiBlueColor = theme::LightNeutralTheme().action;
-constexpr uint32_t kWifiActionPressedColor =
-    theme::LightNeutralTheme().action_pressed;
-constexpr uint32_t kWifiConnectingColor =
-    0xF5A623;
-constexpr uint32_t kWifiCardColor =
-    theme::LightNeutralTheme().surface_container_low;
-constexpr uint32_t kWifiMutedColor = theme::LightNeutralTheme().outline;
-constexpr uint32_t kWifiControlColor =
-    theme::LightNeutralTheme().surface_container;
-constexpr uint32_t kWifiConnectDisabledColor =
-    theme::LightNeutralTheme().action_disabled;
-constexpr uint32_t kWifiConnectSecondaryColor =
-    theme::LightNeutralTheme().button_secondary;
-constexpr uint32_t kWifiConnectSecondaryPressedColor =
-    theme::LightNeutralTheme().button_secondary_pressed;
 constexpr const char* kDeviceNameAcceptedChars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_. ";
 constexpr const char* kWifiPasswordAcceptedChars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
     "0123456789"
     " !@#$%^&*()-_=+[]{};:'\",.<>/?\\|`~";
+
+/**
+ * @brief 获取当前设置界面语义色
+ * @return 当前主题颜色配置
+ */
+inline const theme::ThemeColors& SettingsThemeColors() {
+  return theme::ActiveThemeColors();
+}
 
 struct SettingsViewState;
 
@@ -230,6 +205,7 @@ struct SettingsViewState {
   lv_obj_t* auto_lock_value_label = nullptr;
   PromptSelectSheetState auto_lock_select_sheet = {};
   bool lock_screen_double_tap_to_turn_screen_on_and_off = true;
+  bool dark_theme_enabled = false;
   lv_obj_t* screen_rotation_value_label = nullptr;
   PromptSelectSheetState screen_rotation_select_sheet = {};
   // 管理已保存网络页中等待确认删除的行对象。

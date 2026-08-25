@@ -1,6 +1,9 @@
 #include "ui/wallpaper.h"
 
 #include <algorithm>
+#include <cstddef>
+
+#include "ui/theme/theme_provider.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -38,10 +41,14 @@ lv_obj_t* CreateWallpaperCircle(lv_obj_t* parent, int size, int x, int y,
 
 }  // namespace
 
-void CreateWallpaperObjects(lv_obj_t* parent, int width, int height) {
+void CreateWallpaperObjects(lv_obj_t* parent, int width, int height,
+    WallpaperObjects* objects) {
   if (parent == nullptr) {
     return;
   }
+
+  WallpaperObjects created_objects;
+  created_objects.background = parent;
 
   constexpr int kBasePortraitWidth = 540;
   constexpr int kBasePortraitHeight = 960;
@@ -67,30 +74,71 @@ void CreateWallpaperObjects(lv_obj_t* parent, int width, int height) {
   const bool is_landscape =
       raw_width > raw_height || rotation == LV_DISPLAY_ROTATION_90 ||
       rotation == LV_DISPLAY_ROTATION_270;
+  const theme::ThemeColors& colors = theme::ActiveThemeColors();
 
   if (is_landscape) {
     const auto landscape_size = [scale_size](int value) {
       return scale_size(value) * 120 / 100;
     };
-    CreateWallpaperCircle(parent, landscape_size(1120), 0, raw_height * 3 / 100,
-        LV_ALIGN_TOP_MID, 0xDCDCDC, LV_OPA_COVER);
-    CreateWallpaperCircle(parent, landscape_size(1000), 0, raw_height * 13 / 100,
-        LV_ALIGN_TOP_MID, 0xC8C8C8, LV_OPA_COVER);
-    CreateWallpaperCircle(parent, landscape_size(940), 0, raw_height * 36 / 100,
-        LV_ALIGN_TOP_MID, 0xB7B7B7, LV_OPA_COVER);
-    CreateWallpaperCircle(parent, landscape_size(1040), 0, raw_height * 70 / 100,
-        LV_ALIGN_TOP_MID, 0x9F9F9F, LV_OPA_COVER);
+    created_objects.layers[0] = CreateWallpaperCircle(parent,
+        landscape_size(1120), 0, raw_height * 3 / 100, LV_ALIGN_TOP_MID,
+        colors.wallpaper_layer_1, LV_OPA_COVER);
+    created_objects.layers[1] = CreateWallpaperCircle(parent,
+        landscape_size(1000), 0, raw_height * 13 / 100, LV_ALIGN_TOP_MID,
+        colors.wallpaper_layer_2, LV_OPA_COVER);
+    created_objects.layers[2] = CreateWallpaperCircle(parent,
+        landscape_size(940), 0, raw_height * 36 / 100, LV_ALIGN_TOP_MID,
+        colors.wallpaper_layer_3, LV_OPA_COVER);
+    created_objects.layers[3] = CreateWallpaperCircle(parent,
+        landscape_size(1040), 0, raw_height * 70 / 100, LV_ALIGN_TOP_MID,
+        colors.wallpaper_layer_4, LV_OPA_COVER);
+    if (objects != nullptr) {
+      *objects = created_objects;
+    }
+    ApplyWallpaperTheme(created_objects);
     return;
   }
 
-  CreateWallpaperCircle(parent, scale_size(1120), 0, scale_y(70),
-      LV_ALIGN_TOP_MID, 0xDCDCDC, LV_OPA_COVER);
-  CreateWallpaperCircle(parent, scale_size(1000), 0, scale_y(140),
-      LV_ALIGN_TOP_MID, 0xC8C8C8, LV_OPA_COVER);
-  CreateWallpaperCircle(parent, scale_size(940), 0, scale_y(300),
-      LV_ALIGN_TOP_MID, 0xB7B7B7, LV_OPA_COVER);
-  CreateWallpaperCircle(parent, scale_size(1040), 0, scale_y(640),
-      LV_ALIGN_BOTTOM_MID, 0x9F9F9F, LV_OPA_COVER);
+  created_objects.layers[0] = CreateWallpaperCircle(parent, scale_size(1120),
+      0, scale_y(70), LV_ALIGN_TOP_MID, colors.wallpaper_layer_1,
+      LV_OPA_COVER);
+  created_objects.layers[1] = CreateWallpaperCircle(parent, scale_size(1000),
+      0, scale_y(140), LV_ALIGN_TOP_MID, colors.wallpaper_layer_2,
+      LV_OPA_COVER);
+  created_objects.layers[2] = CreateWallpaperCircle(parent, scale_size(940),
+      0, scale_y(300), LV_ALIGN_TOP_MID, colors.wallpaper_layer_3,
+      LV_OPA_COVER);
+  created_objects.layers[3] = CreateWallpaperCircle(parent, scale_size(1040),
+      0, scale_y(640), LV_ALIGN_BOTTOM_MID, colors.wallpaper_layer_4,
+      LV_OPA_COVER);
+  if (objects != nullptr) {
+    *objects = created_objects;
+  }
+  ApplyWallpaperTheme(created_objects);
+}
+
+void ApplyWallpaperTheme(const WallpaperObjects& objects) {
+  const theme::ThemeColors& colors = theme::ActiveThemeColors();
+  if (objects.background != nullptr) {
+    lv_obj_set_style_bg_color(objects.background,
+        lv_color_hex(colors.wallpaper_background), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(
+        objects.background, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_invalidate(objects.background);
+  }
+  const uint32_t layer_colors[kWallpaperLayerCount] = {
+      colors.wallpaper_layer_1,
+      colors.wallpaper_layer_2,
+      colors.wallpaper_layer_3,
+      colors.wallpaper_layer_4,
+  };
+  for (size_t index = 0; index < kWallpaperLayerCount; ++index) {
+    if (objects.layers[index] != nullptr) {
+      lv_obj_set_style_bg_color(objects.layers[index],
+          lv_color_hex(layer_colors[index]), LV_PART_MAIN);
+      lv_obj_invalidate(objects.layers[index]);
+    }
+  }
 }
 
 }  // namespace lilygo_box::ui

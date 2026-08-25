@@ -31,7 +31,6 @@ constexpr uint32_t kCameraViewRefreshPeriodMs = 10;
 constexpr uint32_t kBackgroundColor = 0x000000;
 constexpr uint32_t kPrimaryTextColor = 0xFFFFFF;
 constexpr uint32_t kSecondaryTextColor = 0xBDBDBD;
-constexpr uint32_t kActionColor = theme::LightNeutralTheme().action;
 constexpr int kPortraitPromptGroupOffsetY = -72;
 constexpr int kLandscapePromptGroupOffsetY = -72;
 
@@ -151,8 +150,8 @@ void RenderCameraScanning(CameraViewState* state) {
   config.height = 180;
   config.visual = PromptStatusVisual::kSpinner;
   config.spinner_track_color =
-      theme::LightNeutralTheme().surface_container_high;
-  config.spinner_indicator_color = kActionColor;
+      theme::ActiveThemeColors().surface_container_high;
+  config.spinner_indicator_color = theme::ActiveThemeColors().action;
   config.title = "Looking for a camera...";
   config.title_font = Font28();
   config.title_color = kPrimaryTextColor;

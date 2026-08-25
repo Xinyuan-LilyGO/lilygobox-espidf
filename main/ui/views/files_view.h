@@ -22,8 +22,9 @@ struct FolderPickerViewConfig {
   const char* title = "Select folder";
   const char* action_text = "Use this folder";
   int animation_ms = 240;
-  uint32_t action_color = 0x6750A4;
-  uint32_t action_text_color = 0xFFFFFF;
+  // 0 表示使用当前主题的操作色。
+  uint32_t action_color = 0;
+  uint32_t action_text_color = 0;
   std::function<void(const char* path)> selected_callback;
   std::function<void()> closed_callback;
 };

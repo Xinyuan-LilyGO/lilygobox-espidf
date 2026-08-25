@@ -13,14 +13,11 @@
 #include "ui/input/back_navigation_controller.h"
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
+#include "ui/theme/theme_provider.h"
 
 namespace lilygo_box::ui {
 namespace {
 
-constexpr int kOverlayColor = 0x111111;
-constexpr int kButtonColor = 0x343A40;
-constexpr int kButtonPressedColor = 0x444B52;
-constexpr int kTextColor = 0xFFFFFF;
 constexpr int kButtonSize = 118;
 constexpr int kButtonGap = 62;
 constexpr int kItemWidth = 152;
@@ -201,20 +198,23 @@ lv_obj_t* CreateActionItem(lv_obj_t* parent, const char* icon,
   lv_obj_add_flag(button, LV_OBJ_FLAG_EVENT_BUBBLE);
   lv_obj_set_size(button, kButtonSize, kButtonSize);
   lv_obj_set_style_radius(button, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(button, lv_color_hex(kButtonColor), LV_PART_MAIN);
+  const theme::ThemeColors& colors = theme::ActiveThemeColors();
+  lv_obj_set_style_bg_color(
+      button, lv_color_hex(colors.button_secondary), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      button, lv_color_hex(kButtonPressedColor), LV_STATE_PRESSED);
+      button, lv_color_hex(colors.button_secondary_pressed), LV_STATE_PRESSED);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(button, 12, LV_PART_MAIN);
   lv_obj_set_style_shadow_opa(button, 36, LV_PART_MAIN);
-  lv_obj_set_style_shadow_color(button, lv_color_hex(0x000000), LV_PART_MAIN);
+  lv_obj_set_style_shadow_color(
+      button, lv_color_hex(colors.scrim), LV_PART_MAIN);
   lv_obj_align(button, LV_ALIGN_TOP_MID, 0, 0);
   lv_obj_add_event_cb(button, event_callback, LV_EVENT_CLICKED,
       event_user_data);
 
-  lv_obj_t* icon_label =
-      CreateLabel(button, icon, kTextColor, PowerFillIconFont56());
+  lv_obj_t* icon_label = CreateLabel(
+      button, icon, colors.on_button_secondary, PowerFillIconFont56());
   if (icon_label == nullptr) {
     lv_obj_delete(item);
     return nullptr;
@@ -222,7 +222,8 @@ lv_obj_t* CreateActionItem(lv_obj_t* parent, const char* icon,
   lv_obj_add_flag(icon_label, LV_OBJ_FLAG_EVENT_BUBBLE);
   lv_obj_center(icon_label);
 
-  lv_obj_t* label = CreateLabel(item, text, kTextColor, Font24());
+  lv_obj_t* label =
+      CreateLabel(item, text, colors.on_surface, Font24());
   if (label == nullptr) {
     lv_obj_delete(item);
     return nullptr;
@@ -251,7 +252,8 @@ lv_obj_t* CreatePowerMenuView(lv_obj_t* parent,
   lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(overlay, width, height);
   lv_obj_set_pos(overlay, 0, 0);
-  lv_obj_set_style_bg_color(overlay, lv_color_hex(kOverlayColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(overlay,
+      lv_color_hex(theme::ActiveThemeColors().scrim), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(overlay, 210, LV_PART_MAIN);
   lv_obj_set_style_border_width(overlay, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(overlay, 0, LV_PART_MAIN);

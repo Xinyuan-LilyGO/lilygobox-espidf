@@ -486,9 +486,9 @@ bool ShowKeyboardExpansionFailurePrompt(SettingsViewState* state,
   config.title_text_align = LV_TEXT_ALIGN_CENTER;
   config.subtitle_text_align = LV_TEXT_ALIGN_CENTER;
   config.cancel_text = "OK";
-  config.cancel_background_color = theme::LightNeutralTheme().action;
-  config.cancel_pressed_color = theme::LightNeutralTheme().action_pressed;
-  config.cancel_text_color = theme::LightNeutralTheme().on_action;
+  config.cancel_background_color = SettingsThemeColors().action;
+  config.cancel_pressed_color = SettingsThemeColors().action_pressed;
+  config.cancel_text_color = SettingsThemeColors().on_action;
   config.confirm_text = nullptr;
   lv_obj_t* body = ShowPromptDialog(
       state->root, &state->keyboard_expansion_prompt, config);
@@ -506,7 +506,7 @@ bool ShowKeyboardExpansionFailurePrompt(SettingsViewState* state,
   }
   lv_label_set_text(label, state->keyboard_expansion_prompt_message);
   lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
-  SetTextStyle(label, lv_color_hex(kSecondaryTextColor), Font24());
+  SetTextStyle(label, lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
   lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_set_width(
       label, config.dialog_width - 2 * kKeyboardExpansionPromptInnerPadding);

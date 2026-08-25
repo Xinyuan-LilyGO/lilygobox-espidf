@@ -32,6 +32,7 @@
 #include "ui/input/press_cancel.h"
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
+#include "ui/theme/theme_provider.h"
 #include "ui/widgets/navigation_drawer.h"
 #include "ui/widgets/prompt/prompt_dialog.h"
 #include "ui/widgets/prompt/prompt_status.h"
@@ -40,29 +41,9 @@
 namespace lilygo_box::ui {
 namespace {
 
-constexpr uint32_t kMainBackgroundColor = 0xFFFBFE;
-constexpr uint32_t kSurfaceContainerLowColor = 0xEEE8F4;
-constexpr uint32_t kSurfaceContainerColor = 0xE7DFF0;
-constexpr uint32_t kSurfaceContainerHighColor = 0xDDD2E8;
-constexpr uint32_t kNoticeContainerColor = 0xF0EFF2;
 constexpr uint32_t kPrimaryColor = 0x6750A4;
 constexpr uint32_t kPrimaryPressedColor = 0x4F378B;
 constexpr uint32_t kOnPrimaryColor = 0xFFFFFF;
-constexpr uint32_t kMainTextColor = 0x1D1B20;
-constexpr uint32_t kSecondaryTextColor = 0x49454F;
-constexpr uint32_t kSettingsSecondaryTextColor = 0x79747E;
-constexpr uint32_t kOutlineVariantColor = 0xCAC4D0;
-constexpr uint32_t kPressedColor = kSurfaceContainerLowColor;
-constexpr uint32_t kDisabledContainerColor = 0xE4E1E6;
-constexpr uint32_t kDisabledTextColor = 0xA7A2AA;
-constexpr uint32_t kSendSuccessColor = 0x2E7D32;
-constexpr uint32_t kSendFailureColor = 0xBA1A1A;
-constexpr uint32_t kUnreadBadgeColor = 0xBA1A1A;
-constexpr uint32_t kActiveIndicatorColor = 0x23A55A;
-constexpr uint32_t kInactiveIndicatorColor = 0xC7C5CC;
-constexpr uint32_t kInputErrorColor = 0xBA1A1A;
-constexpr uint32_t kDeleteActionColor = 0xE53935;
-constexpr uint32_t kWarningColor = 0x8A4F00;
 constexpr int kHeaderTop = 68;
 constexpr int kListTop = 154;
 constexpr int kEmptyStatusGroupOffsetY = -100;
@@ -628,6 +609,32 @@ void UpdateChatComposerState(RadioViewState* state);
  * @return 字体指针
  */
 const lv_font_t* Font22() { return &lvgl_font_google_sans_flex_22; }
+
+/**
+ * @brief 应用 Radio 开关的当前主题颜色
+ * @param switch_object 开关对象
+ */
+void ApplyRadioSwitchTheme(lv_obj_t* switch_object) {
+  if (switch_object == nullptr) {
+    return;
+  }
+  constexpr lv_style_selector_t kCheckedKnobSelector =
+      static_cast<lv_style_selector_t>(LV_PART_KNOB) |
+      static_cast<lv_style_selector_t>(LV_STATE_CHECKED);
+  lv_obj_set_style_bg_color(switch_object,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_highest),
+      LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(switch_object, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(switch_object,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_lowest),
+      LV_PART_KNOB);
+  lv_obj_set_style_bg_color(switch_object, lv_color_hex(kOnPrimaryColor),
+      kCheckedKnobSelector);
+  lv_obj_set_style_bg_color(switch_object, lv_color_hex(kPrimaryColor),
+      kProfileSwitchCheckedIndicatorSelector);
+  lv_obj_set_style_bg_opa(switch_object, LV_OPA_COVER,
+      kProfileSwitchCheckedIndicatorSelector);
+}
 
 /**
  * @brief 获取 24 号 Google Sans 字体
@@ -1289,20 +1296,20 @@ const char* ProfileStatusText(const RadioViewState* state, size_t index) {
 
 uint32_t ProfileStatusColor(const char* status) {
   if (status != nullptr && std::strcmp(status, "Active") == 0) {
-    return kSendSuccessColor;
+    return theme::ActiveThemeColors().success;
   }
   if (status != nullptr && std::strcmp(status, "Activating") == 0) {
     return kPrimaryColor;
   }
   if (status != nullptr && std::strcmp(status, "Chip error") == 0) {
-    return kSendFailureColor;
+    return theme::ActiveThemeColors().error;
   }
   if (status != nullptr &&
       (std::strcmp(status, "Unsupported") == 0 ||
           std::strcmp(status, "Unavailable") == 0)) {
-    return kWarningColor;
+    return theme::ActiveThemeColors().warning;
   }
-  return kSecondaryTextColor;
+  return theme::ActiveThemeColors().on_surface_variant;
 }
 
 /**
@@ -1315,15 +1322,15 @@ uint32_t ProfileIndicatorColor(
     const RadioViewState* state, size_t index) {
   const char* status = ProfileStatusText(state, index);
   if (std::strcmp(status, "Active") == 0) {
-    return kActiveIndicatorColor;
+    return theme::ActiveThemeColors().success;
   }
   if (std::strcmp(status, "Activating") == 0) {
     return kPrimaryColor;
   }
   if (std::strcmp(status, "Chip error") == 0) {
-    return kSendFailureColor;
+    return theme::ActiveThemeColors().error;
   }
-  return kInactiveIndicatorColor;
+  return theme::ActiveThemeColors().outline_variant;
 }
 
 /**
@@ -1609,8 +1616,8 @@ void DrawSystemChatMessage(lv_layer_t* layer, int timeline_x, int row_y,
   }
   const int box_x = timeline_x + rendered.content_x;
   DrawChatRectangle(layer, box_x, row_y, rendered.content_width,
-      rendered.content_height, kNoticeContainerColor, 21);
-  DrawChatText(layer, message->text, kSecondaryTextColor, Font22(),
+      rendered.content_height, theme::ActiveThemeColors().surface_container_highest, 21);
+  DrawChatText(layer, message->text, theme::ActiveThemeColors().on_surface_variant, Font22(),
       box_x + 14, row_y + 8, rendered.content_width - 28,
       rendered.content_height - 16, LV_TEXT_ALIGN_CENTER, false);
 }
@@ -1633,8 +1640,8 @@ void DrawUserChatMessage(lv_layer_t* layer, int timeline_x,
   const bool outgoing =
       message->delivery != RadioChatDeliveryState::kReceived;
   const uint32_t bubble_color =
-      outgoing ? kPrimaryColor : kSurfaceContainerColor;
-  const uint32_t text_color = outgoing ? kOnPrimaryColor : kMainTextColor;
+      outgoing ? kPrimaryColor : theme::ActiveThemeColors().surface_container;
+  const uint32_t text_color = outgoing ? kOnPrimaryColor : theme::ActiveThemeColors().on_surface;
   const int bubble_x = timeline_x + rendered.content_x;
   DrawChatRectangle(layer, bubble_x, row_y, rendered.content_width,
       rendered.content_height, bubble_color, 20);
@@ -1653,7 +1660,7 @@ void DrawUserChatMessage(lv_layer_t* layer, int timeline_x,
   const int status_y = row_y + rendered.status_y;
   if (!outgoing) {
     if (!message->rssi_valid && !message->snr_valid) {
-      DrawChatText(layer, message->time, kSecondaryTextColor, Font22(),
+      DrawChatText(layer, message->time, theme::ActiveThemeColors().on_surface_variant, Font22(),
           timeline_x + 28, status_y, 180, 30,
           LV_TEXT_ALIGN_LEFT, false, LV_TEXT_FLAG_EXPAND);
       return;
@@ -1669,7 +1676,7 @@ void DrawUserChatMessage(lv_layer_t* layer, int timeline_x,
       lv_text_get_size(&rssi_size, rssi, Font22(), 0, 0,
           LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
       const int rssi_width = std::max(1, static_cast<int>(rssi_size.x));
-      DrawChatText(layer, rssi, kSecondaryTextColor, Font22(),
+      DrawChatText(layer, rssi, theme::ActiveThemeColors().on_surface_variant, Font22(),
           next_signal_metric_x, status_y, rssi_width, 30,
           LV_TEXT_ALIGN_LEFT, true, LV_TEXT_FLAG_EXPAND);
       next_signal_metric_x += rssi_width + kChatSignalMetricGap;
@@ -1681,11 +1688,11 @@ void DrawUserChatMessage(lv_layer_t* layer, int timeline_x,
       lv_text_get_size(&snr_size, snr, Font22(), 0, 0,
           LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
       const int snr_width = std::max(1, static_cast<int>(snr_size.x));
-      DrawChatText(layer, snr, kSecondaryTextColor, Font22(),
+      DrawChatText(layer, snr, theme::ActiveThemeColors().on_surface_variant, Font22(),
           next_signal_metric_x, status_y, snr_width, 30,
           LV_TEXT_ALIGN_LEFT, true, LV_TEXT_FLAG_EXPAND);
     }
-    DrawChatText(layer, message->time, kSecondaryTextColor, Font22(),
+    DrawChatText(layer, message->time, theme::ActiveThemeColors().on_surface_variant, Font22(),
         timeline_x + 28, status_y + 28, 180, 30,
         LV_TEXT_ALIGN_LEFT, false, LV_TEXT_FLAG_EXPAND);
     return;
@@ -1700,12 +1707,13 @@ void DrawUserChatMessage(lv_layer_t* layer, int timeline_x,
       sending ? "Sending  " : "", message->time);
   const int time_right = timeline_x + timeline_width -
       (sending ? 28 : 66);
-  DrawChatText(layer, status_text, kSecondaryTextColor, Font22(),
+  DrawChatText(layer, status_text, theme::ActiveThemeColors().on_surface_variant, Font22(),
       timeline_x + 28, status_y, time_right - timeline_x - 28, 30,
       LV_TEXT_ALIGN_RIGHT, true);
   if (!sending) {
     DrawChatText(layer, success ? icon::kCheck : icon::kClose,
-        success ? kSendSuccessColor : kSendFailureColor,
+        success ? theme::ActiveThemeColors().success
+                : theme::ActiveThemeColors().error,
         FillIconFont32(), timeline_x + timeline_width - 62,
         status_y - 5, 34, 40, LV_TEXT_ALIGN_RIGHT, false);
   }
@@ -3396,7 +3404,7 @@ void UpdateChatComposerState(RadioViewState* state) {
         state->detail_composer_action_button, LV_STATE_DISABLED);
   }
   lv_obj_set_style_text_color(state->detail_composer_action_label,
-      lv_color_hex(action_enabled ? kOnPrimaryColor : kDisabledTextColor),
+      lv_color_hex(action_enabled ? kOnPrimaryColor : theme::ActiveThemeColors().disabled_content),
       LV_PART_MAIN);
 }
 
@@ -3438,21 +3446,21 @@ bool CreateChatJumpButton(lv_obj_t* page, RadioViewState* state) {
   lv_obj_set_style_radius(
       button, kChatJumpButtonSize / 2, LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      button, lv_color_hex(kMainBackgroundColor), LV_PART_MAIN);
+      button, lv_color_hex(theme::ActiveThemeColors().surface), LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      button, lv_color_hex(kSurfaceContainerHighColor), LV_STATE_PRESSED);
+      button, lv_color_hex(theme::ActiveThemeColors().surface_container_high), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(button, 1, LV_PART_MAIN);
   lv_obj_set_style_border_color(
-      button, lv_color_hex(kOutlineVariantColor), LV_PART_MAIN);
+      button, lv_color_hex(theme::ActiveThemeColors().outline_variant), LV_PART_MAIN);
   lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
   lv_obj_add_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_remove_flag(button, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_flag(button, LV_OBJ_FLAG_HIDDEN);
   lv_obj_t* icon_label = CreateLabel(button, icon::kKeyboardArrowDown,
-      kSettingsSecondaryTextColor, OutlineIconFont56());
+      theme::ActiveThemeColors().outline, OutlineIconFont56());
   if (icon_label == nullptr) {
     return false;
   }
@@ -3485,7 +3493,7 @@ bool CreateChatComposer(lv_obj_t* page, RadioViewState* state) {
   lv_obj_set_size(background, state->config.width, 108);
   lv_obj_set_pos(background, 0, divider_y);
   lv_obj_set_style_bg_color(background,
-      lv_color_hex(kMainBackgroundColor), LV_PART_MAIN);
+      lv_color_hex(theme::ActiveThemeColors().surface), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(background, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(background, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(background, 0, LV_PART_MAIN);
@@ -3502,7 +3510,7 @@ bool CreateChatComposer(lv_obj_t* page, RadioViewState* state) {
   lv_obj_set_size(divider, state->config.width, 1);
   lv_obj_set_pos(divider, 0, divider_y);
   lv_obj_set_style_bg_color(
-      divider, lv_color_hex(kOutlineVariantColor), LV_PART_MAIN);
+      divider, lv_color_hex(theme::ActiveThemeColors().outline_variant), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(divider, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(divider, 0, LV_PART_MAIN);
@@ -3525,11 +3533,11 @@ bool CreateChatComposer(lv_obj_t* page, RadioViewState* state) {
   lv_textarea_set_placeholder_text(input, "Enter a message to send...");
   lv_obj_set_style_text_font(input, Font22(), LV_PART_MAIN);
   lv_obj_set_style_text_color(
-      input, lv_color_hex(kMainTextColor), LV_PART_MAIN);
+      input, lv_color_hex(theme::ActiveThemeColors().on_surface), LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      input, lv_color_hex(kSurfaceContainerLowColor), LV_PART_MAIN);
+      input, lv_color_hex(theme::ActiveThemeColors().surface_container_low), LV_PART_MAIN);
   lv_obj_set_style_bg_color(input,
-      lv_color_hex(kSurfaceContainerLowColor), LV_STATE_FOCUSED);
+      lv_color_hex(theme::ActiveThemeColors().surface_container_low), LV_STATE_FOCUSED);
   lv_obj_set_style_bg_opa(input, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(input, LV_OPA_COVER, LV_STATE_FOCUSED);
   lv_obj_set_style_border_width(input, 0, LV_PART_MAIN);
@@ -3586,7 +3594,7 @@ bool CreateChatComposer(lv_obj_t* page, RadioViewState* state) {
   lv_obj_set_style_bg_color(composer_action,
       lv_color_hex(kPrimaryPressedColor), LV_STATE_PRESSED);
   lv_obj_set_style_bg_color(composer_action,
-      lv_color_hex(kDisabledContainerColor), LV_STATE_DISABLED);
+      lv_color_hex(theme::ActiveThemeColors().disabled_container), LV_STATE_DISABLED);
   lv_obj_set_style_bg_opa(composer_action, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(composer_action, 0, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(composer_action, 0, LV_PART_MAIN);
@@ -3666,7 +3674,7 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(page, state->config.width, state->config.height);
   lv_obj_set_style_bg_color(
-      page, lv_color_hex(kMainBackgroundColor), LV_PART_MAIN);
+      page, lv_color_hex(theme::ActiveThemeColors().surface), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
@@ -3684,7 +3692,7 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
   lv_obj_add_event_cb(
       back, DetailBackClickedEventCallback, LV_EVENT_CLICKED, state);
   lv_obj_t* back_icon = CreateLabel(
-      back, icon::kArrowBack, kMainTextColor, OutlineIconFont44());
+      back, icon::kArrowBack, theme::ActiveThemeColors().on_surface, OutlineIconFont44());
   if (back_icon != nullptr) {
     lv_obj_align(back_icon, LV_ALIGN_CENTER, -4, 0);
   }
@@ -3716,7 +3724,7 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
     lv_obj_move_to_index(header_action, -1);
   }
   lv_obj_t* title = CreateLabel(
-      page, item.name, kMainTextColor, Font28());
+      page, item.name, theme::ActiveThemeColors().on_surface, Font28());
   if (title != nullptr) {
     state->detail_title_label = title;
     lv_obj_set_width(title, state->config.width - 190);
@@ -3928,14 +3936,14 @@ bool CreateRadioSettingsHeader(lv_obj_t* page, RadioViewState* state) {
   lv_obj_set_style_bg_opa(back, LV_OPA_TRANSP, LV_STATE_PRESSED);
   lv_obj_add_event_cb(
       back, RadioSettingsBackClickedEventCallback, LV_EVENT_CLICKED, state);
-  lv_obj_t* back_icon =
-      CreateLabel(back, icon::kArrowBack, kMainTextColor, OutlineIconFont44());
+  lv_obj_t* back_icon = CreateLabel(back, icon::kArrowBack,
+      theme::ActiveThemeColors().on_surface, OutlineIconFont44());
   if (back_icon == nullptr) {
     return false;
   }
   lv_obj_align(back_icon, LV_ALIGN_CENTER, -4, 0);
   lv_obj_t* title = CreateLabel(
-      page, "Radio settings", kMainTextColor, Font32());
+      page, "Radio settings", theme::ActiveThemeColors().on_surface, Font32());
   if (title == nullptr) {
     return false;
   }
@@ -3964,7 +3972,7 @@ bool CreateRadioStorageSettingRow(lv_obj_t* page, RadioViewState* state) {
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
   lv_obj_t* title =
-      CreateLabel(row, "Storage folder", kMainTextColor, Font28());
+      CreateLabel(row, "Storage folder", theme::ActiveThemeColors().on_surface, Font28());
   if (title != nullptr) {
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 34, 23);
   }
@@ -3973,7 +3981,7 @@ bool CreateRadioStorageSettingRow(lv_obj_t* page, RadioViewState* state) {
     CopyBoundedString(path, sizeof(path), "Storage unavailable");
   }
   lv_obj_t* subtitle =
-      CreateLabel(row, path, kSettingsSecondaryTextColor, Font24());
+      CreateLabel(row, path, theme::ActiveThemeColors().outline, Font24());
   if (subtitle == nullptr) {
     return false;
   }
@@ -4007,7 +4015,7 @@ bool ShowRadioSettingsPage(RadioViewState* state) {
   lv_obj_set_size(page, state->config.width, state->config.height);
   lv_obj_set_pos(page, 0, 0);
   lv_obj_set_style_bg_color(
-      page, lv_color_hex(kMainBackgroundColor), LV_PART_MAIN);
+      page, lv_color_hex(theme::ActiveThemeColors().surface), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
@@ -4087,11 +4095,11 @@ void ShowRadioDrawer(RadioViewState* state) {
   NavigationDrawerConfig config;
   config.screen_width = state->config.width;
   config.screen_height = state->config.height;
-  config.background_color = kMainBackgroundColor;
-  config.primary_text_color = kMainTextColor;
-  config.icon_color = kSecondaryTextColor;
-  config.pressed_color = kPressedColor;
-  config.divider_color = kOutlineVariantColor;
+  config.background_color = theme::ActiveThemeColors().surface;
+  config.primary_text_color = theme::ActiveThemeColors().on_surface;
+  config.icon_color = theme::ActiveThemeColors().on_surface_variant;
+  config.pressed_color = theme::ActiveThemeColors().state_layer;
+  config.divider_color = theme::ActiveThemeColors().outline_variant;
   config.title = "Radio";
   config.title_font = Font36();
   config.item_font = Font28();
@@ -4179,14 +4187,14 @@ bool CreateModuleAvatar(lv_obj_t* row, const RadioModuleItem& item,
     lv_obj_align(selection, LV_ALIGN_LEFT_MID, 80, 25);
     lv_obj_set_style_radius(selection, 15, LV_PART_MAIN);
     lv_obj_set_style_bg_color(selection,
-        lv_color_hex(kSendSuccessColor), LV_PART_MAIN);
+        lv_color_hex(theme::ActiveThemeColors().success), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(selection, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_color(selection,
-        lv_color_hex(kMainBackgroundColor), LV_PART_MAIN);
+        lv_color_hex(theme::ActiveThemeColors().surface), LV_PART_MAIN);
     lv_obj_set_style_border_width(selection, 3, LV_PART_MAIN);
     lv_obj_set_style_pad_all(selection, 0, LV_PART_MAIN);
-    lv_obj_t* check = CreateLabel(
-        selection, icon::kCheck, 0xFFFFFF, FillIconFont32());
+    lv_obj_t* check = CreateLabel(selection, icon::kCheck,
+        theme::ActiveThemeColors().on_success, FillIconFont32());
     if (check != nullptr) {
       lv_obj_center(check);
     }
@@ -4215,7 +4223,7 @@ bool CreateModuleRow(lv_obj_t* parent, const RadioModuleItem& item,
   lv_obj_set_size(row, width, kRowHeight);
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(row, lv_color_hex(kPressedColor),
+  lv_obj_set_style_bg_color(row, lv_color_hex(theme::ActiveThemeColors().state_layer),
                             LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
   if (!AddPressCancelOnLeave(row) ||
@@ -4231,14 +4239,14 @@ bool CreateModuleRow(lv_obj_t* parent, const RadioModuleItem& item,
   lv_obj_add_event_cb(row, ModuleActionDeleteEventCallback,
                       LV_EVENT_DELETE, action);
   lv_obj_t* title = CreateLabel(
-      row, item.name, kMainTextColor, Font28());
+      row, item.name, theme::ActiveThemeColors().on_surface, Font28());
   if (title != nullptr) {
     lv_obj_set_size(title, width - 250, 34);
     lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 120, 18);
   }
   lv_obj_t* time = CreateLabel(
-      row, item.time, kSecondaryTextColor, Font22());
+      row, item.time, theme::ActiveThemeColors().on_surface_variant, Font22());
   if (time != nullptr) {
     lv_obj_align(time, LV_ALIGN_TOP_RIGHT, -28, 20);
   }
@@ -4259,12 +4267,12 @@ bool CreateModuleRow(lv_obj_t* parent, const RadioModuleItem& item,
       lv_obj_align(unread, LV_ALIGN_TOP_RIGHT, -28, 54);
       lv_obj_set_style_radius(unread, 16, LV_PART_MAIN);
       lv_obj_set_style_bg_color(unread,
-          lv_color_hex(kUnreadBadgeColor), LV_PART_MAIN);
+          lv_color_hex(theme::ActiveThemeColors().error), LV_PART_MAIN);
       lv_obj_set_style_bg_opa(unread, LV_OPA_COVER, LV_PART_MAIN);
       lv_obj_set_style_border_width(unread, 0, LV_PART_MAIN);
       lv_obj_set_style_pad_all(unread, 0, LV_PART_MAIN);
-      lv_obj_t* unread_label = CreateLabel(
-          unread, unread_text, 0xFFFFFF, Font22());
+      lv_obj_t* unread_label = CreateLabel(unread, unread_text,
+          theme::ActiveThemeColors().on_error, Font22());
       if (unread_label != nullptr) {
         lv_obj_center(unread_label);
       }
@@ -4272,7 +4280,7 @@ bool CreateModuleRow(lv_obj_t* parent, const RadioModuleItem& item,
   }
   if (item.latest_message != nullptr && item.latest_message[0] != '\0') {
     lv_obj_t* message = CreateLabel(
-        row, item.latest_message, kSecondaryTextColor, Font22());
+        row, item.latest_message, theme::ActiveThemeColors().on_surface_variant, Font22());
     if (message != nullptr) {
       lv_obj_set_size(message,
           width - (item.unread_count > 0 ? 230 : 174), 30);
@@ -4286,7 +4294,7 @@ bool CreateModuleRow(lv_obj_t* parent, const RadioModuleItem& item,
     lv_obj_set_size(divider, width - 120, 1);
     lv_obj_align(divider, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
     lv_obj_set_style_bg_color(
-        divider, lv_color_hex(kOutlineVariantColor), LV_PART_MAIN);
+        divider, lv_color_hex(theme::ActiveThemeColors().outline_variant), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(divider, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(divider, 0, LV_PART_MAIN);
@@ -4338,15 +4346,15 @@ bool CreateEmptyRadioContent(RadioViewState* state) {
   config.height = 280;
   config.icon = icon::kSettingsInputAntenna;
   config.icon_font = FillIconFont56();
-  config.icon_background_color = kSurfaceContainerColor;
+  config.icon_background_color = theme::ActiveThemeColors().surface_container;
   config.icon_color = kPrimaryColor;
   config.title = "No Radio profiles";
   config.title_font = Font28();
-  config.title_color = kMainTextColor;
+  config.title_color = theme::ActiveThemeColors().on_surface;
   config.message =
       "Tap Add profile or use the + button in the bottom-right.";
   config.message_font = Font22();
-  config.message_color = kSecondaryTextColor;
+  config.message_color = theme::ActiveThemeColors().on_surface_variant;
   config.horizontal_padding = 48;
   config.button_text = "Add profile";
   config.button_font = Font24();
@@ -4668,7 +4676,7 @@ bool CreateProfileNameEditToolbarButton(lv_obj_t* parent,
   }
   lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, state);
   lv_obj_t* icon_label = CreateLabel(
-      button, icon_text, kMainTextColor, OutlineIconFont44());
+      button, icon_text, theme::ActiveThemeColors().on_surface, OutlineIconFont44());
   if (icon_label == nullptr) {
     lv_obj_delete(button);
     return false;
@@ -4688,11 +4696,14 @@ void ApplyProfileNameEditTextAreaStyle(lv_obj_t* text_area) {
   lv_obj_set_scrollbar_mode(text_area, LV_SCROLLBAR_MODE_OFF);
   lv_obj_set_style_text_font(text_area, Font32(), LV_PART_MAIN);
   lv_obj_set_style_text_color(
-      text_area, lv_color_hex(kMainTextColor), LV_PART_MAIN);
+      text_area, lv_color_hex(theme::ActiveThemeColors().on_surface),
+      LV_PART_MAIN);
   lv_obj_set_style_bg_color(text_area,
-      lv_color_hex(kSurfaceContainerLowColor), LV_PART_MAIN);
+      lv_color_hex(theme::ActiveThemeColors().surface_container_low),
+      LV_PART_MAIN);
   lv_obj_set_style_bg_color(text_area,
-      lv_color_hex(kSurfaceContainerLowColor), LV_STATE_FOCUSED);
+      lv_color_hex(theme::ActiveThemeColors().surface_container_low),
+      LV_STATE_FOCUSED);
   lv_obj_set_style_bg_opa(text_area, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(text_area, LV_OPA_COVER, LV_STATE_FOCUSED);
   lv_obj_set_style_border_width(text_area, 0, LV_PART_MAIN);
@@ -4746,7 +4757,7 @@ bool ShowProfileNameEditPage(RadioViewState* state) {
   lv_obj_set_size(page, state->config.width, state->config.height);
   lv_obj_set_pos(page, 0, 0);
   lv_obj_set_style_bg_color(
-      page, lv_color_hex(kMainBackgroundColor), LV_PART_MAIN);
+      page, lv_color_hex(theme::ActiveThemeColors().surface), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
@@ -4765,7 +4776,7 @@ bool ShowProfileNameEditPage(RadioViewState* state) {
     return false;
   }
   lv_obj_t* title = CreateLabel(
-      page, "Edit profile name", kMainTextColor, Font32());
+      page, "Edit profile name", theme::ActiveThemeColors().on_surface, Font32());
   if (title == nullptr) {
     CloseProfileNameEditPage(state, false);
     return false;
@@ -4797,7 +4808,7 @@ bool ShowProfileNameEditPage(RadioViewState* state) {
 
   lv_obj_t* help = CreateLabel(page,
       "This name is used to identify this Radio profile.",
-      kSecondaryTextColor, Font24());
+      theme::ActiveThemeColors().on_surface_variant, Font24());
   if (help == nullptr) {
     CloseProfileNameEditPage(state, false);
     return false;
@@ -5085,7 +5096,7 @@ lv_obj_t* CreateProfileSettingsRow(lv_obj_t* parent, RadioViewState* state,
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      row, lv_color_hex(kPressedColor), LV_STATE_PRESSED);
+      row, lv_color_hex(theme::ActiveThemeColors().state_layer), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
@@ -5101,9 +5112,9 @@ lv_obj_t* CreateProfileSettingsRow(lv_obj_t* parent, RadioViewState* state,
   }
 
   lv_obj_t* title_label = CreateLabel(
-      row, title, kMainTextColor, Font28());
+      row, title, theme::ActiveThemeColors().on_surface, Font28());
   lv_obj_t* subtitle_label = CreateLabel(
-      row, subtitle, kSettingsSecondaryTextColor, Font24());
+      row, subtitle, theme::ActiveThemeColors().outline, Font24());
   if (title_label == nullptr || subtitle_label == nullptr) {
     lv_obj_delete(row);
     return nullptr;
@@ -5118,7 +5129,7 @@ lv_obj_t* CreateProfileSettingsRow(lv_obj_t* parent, RadioViewState* state,
       subtitle_label, LV_ALIGN_TOP_LEFT, 34, 65 + text_y_offset);
   if (show_chevron) {
     lv_obj_t* chevron = CreateLabel(row, icon::kChevronRight,
-        kSecondaryTextColor, OutlineIconFont44());
+        theme::ActiveThemeColors().on_surface_variant, OutlineIconFont44());
     if (chevron == nullptr) {
       lv_obj_delete(row);
       return nullptr;
@@ -5167,7 +5178,7 @@ bool CreateProfileDeleteRow(
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      row, lv_color_hex(kPressedColor), LV_STATE_PRESSED);
+      row, lv_color_hex(theme::ActiveThemeColors().state_layer), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
@@ -5179,10 +5190,10 @@ bool CreateProfileDeleteRow(
   lv_obj_add_event_cb(row, ProfileDeleteClickedEventCallback,
       LV_EVENT_CLICKED, state);
 
-  lv_obj_t* label = CreateLabel(
-      row, "Delete profile", kDeleteActionColor, Font28());
+  lv_obj_t* label = CreateLabel(row, "Delete profile",
+      theme::ActiveThemeColors().error, Font28());
   lv_obj_t* chevron = CreateLabel(row, icon::kChevronRight,
-      kSecondaryTextColor, OutlineIconFont44());
+      theme::ActiveThemeColors().on_surface_variant, OutlineIconFont44());
   if (label == nullptr || chevron == nullptr) {
     lv_obj_delete(row);
     return false;
@@ -5216,7 +5227,7 @@ bool CreateProfileActionDivider(
   lv_obj_set_size(divider, state->config.width - 2 * kSidePadding, 1);
   lv_obj_set_pos(divider, kSidePadding, y);
   lv_obj_set_style_bg_color(
-      divider, lv_color_hex(kOutlineVariantColor), LV_PART_MAIN);
+      divider, lv_color_hex(theme::ActiveThemeColors().outline_variant), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(divider, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(divider, 0, LV_PART_MAIN);
@@ -5252,7 +5263,7 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
   lv_obj_set_size(page, state->config.width, state->config.height);
   lv_obj_set_pos(page, 0, 0);
   lv_obj_set_style_bg_color(
-      page, lv_color_hex(kMainBackgroundColor), LV_PART_MAIN);
+      page, lv_color_hex(theme::ActiveThemeColors().surface), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
@@ -5275,9 +5286,9 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
   lv_obj_add_event_cb(back, ProfileSettingsBackClickedEventCallback,
       LV_EVENT_CLICKED, state);
   lv_obj_t* back_icon = CreateLabel(
-      back, icon::kArrowBack, kMainTextColor, OutlineIconFont44());
+      back, icon::kArrowBack, theme::ActiveThemeColors().on_surface, OutlineIconFont44());
   lv_obj_t* page_title = CreateLabel(
-      page, "Profile settings", kMainTextColor, Font32());
+      page, "Profile settings", theme::ActiveThemeColors().on_surface, Font32());
   if (back_icon == nullptr || page_title == nullptr) {
     ResetProfileSettingsReferences(state);
     lv_obj_delete(page);
@@ -5339,7 +5350,7 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
   lv_obj_set_pos(name_action, kProfileNameActionX, 30);
   lv_obj_set_style_bg_opa(name_action, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      name_action, lv_color_hex(kPressedColor), LV_STATE_PRESSED);
+      name_action, lv_color_hex(theme::ActiveThemeColors().state_layer), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(name_action, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_radius(name_action, 22, LV_PART_MAIN);
   lv_obj_set_style_border_width(name_action, 0, LV_PART_MAIN);
@@ -5353,7 +5364,7 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
   lv_obj_add_event_cb(name_action, ProfileNameAreaClickedEventCallback,
       LV_EVENT_CLICKED, state);
   state->profile_settings_name_label = CreateLabel(
-      name_action, profile.name, kMainTextColor, Font36());
+      name_action, profile.name, theme::ActiveThemeColors().on_surface, Font36());
   const char* status = ProfileStatusText(state, index);
   state->profile_settings_header_status_label = CreateLabel(
       body, status, ProfileStatusColor(status), Font24());
@@ -5405,10 +5416,7 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
       LV_ALIGN_RIGHT_MID, -34, 0);
   lv_obj_set_style_anim_duration(state->profile_settings_active_switch,
       kProfileSwitchAnimationMs, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(state->profile_settings_active_switch,
-      lv_color_hex(kPrimaryColor), kProfileSwitchCheckedIndicatorSelector);
-  lv_obj_set_style_bg_opa(state->profile_settings_active_switch,
-      LV_OPA_COVER, kProfileSwitchCheckedIndicatorSelector);
+  ApplyRadioSwitchTheme(state->profile_settings_active_switch);
   lv_obj_add_event_cb(state->profile_settings_active_switch,
       ProfileSettingsActiveChangedEventCallback,
       LV_EVENT_VALUE_CHANGED, state);
@@ -5604,9 +5612,9 @@ bool ShowRadioDeletePrompt(RadioViewState* state, const char* title,
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
 
   lv_obj_t* title_label = CreateLabel(
-      body, title, kMainTextColor, Font32());
+      body, title, theme::ActiveThemeColors().on_surface, Font32());
   lv_obj_t* message_label = CreateLabel(
-      body, message, kSecondaryTextColor, Font24());
+      body, message, theme::ActiveThemeColors().on_surface_variant, Font24());
   if (title_label == nullptr || message_label == nullptr) {
     ClosePromptDialog(&state->delete_dialog);
     return false;
@@ -5684,7 +5692,7 @@ lv_obj_t* CreateHeaderIconButton(lv_obj_t* parent, const char* icon_text,
   lv_obj_set_pos(button, x, 0);
   lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, state);
   lv_obj_t* label = CreateLabel(
-      button, icon_text, kMainTextColor, icon_font);
+      button, icon_text, theme::ActiveThemeColors().on_surface, icon_font);
   if (label != nullptr) {
     lv_obj_center(label);
   }
@@ -5709,7 +5717,7 @@ bool RenderHeader(RadioViewState* state) {
         icon::kMenu, 20, 72, &lvgl_font_material_symbols_fill_56,
         MenuClickedEventCallback, state);
     lv_obj_t* title = CreateLabel(
-        state->header_area, "Radio", kMainTextColor, Font36());
+        state->header_area, "Radio", theme::ActiveThemeColors().on_surface, Font36());
     if (menu == nullptr || title == nullptr) {
       return false;
     }
@@ -5724,7 +5732,7 @@ bool RenderHeader(RadioViewState* state) {
           static_cast<unsigned>(state->module_count));
     }
     lv_obj_t* summary_label = CreateLabel(state->header_area,
-        summary_text, kSecondaryTextColor, Font24());
+        summary_text, theme::ActiveThemeColors().on_surface_variant, Font24());
     if (summary_label != nullptr) {
       lv_obj_set_pos(summary_label, 104, 44);
     }
@@ -5751,7 +5759,7 @@ bool RenderHeader(RadioViewState* state) {
   std::snprintf(count_text, sizeof(count_text), "%u",
       static_cast<unsigned>(selected_count));
   lv_obj_t* count = CreateLabel(
-      state->header_area, count_text, kMainTextColor, Font36());
+      state->header_area, count_text, theme::ActiveThemeColors().on_surface, Font36());
   if (count != nullptr) {
     lv_obj_set_pos(count, 102, 10);
   }
@@ -5806,17 +5814,17 @@ void UpdateOptionButtonGroup(
     const bool selected = index == selected_index;
     lv_obj_set_style_bg_color(button,
         lv_color_hex(selected ? kPrimaryColor
-                              : kSurfaceContainerColor),
+                              : theme::ActiveThemeColors().surface_container),
         LV_PART_MAIN);
     lv_obj_set_style_bg_color(button,
         lv_color_hex(selected ? kPrimaryPressedColor
-                              : kSurfaceContainerHighColor),
+                              : theme::ActiveThemeColors().surface_container_high),
         LV_STATE_PRESSED);
     lv_obj_t* label = lv_obj_get_child(button, 0);
     if (label != nullptr) {
       lv_obj_set_style_text_color(label,
           lv_color_hex(selected ? kOnPrimaryColor
-                                : kMainTextColor),
+                                : theme::ActiveThemeColors().on_surface),
           LV_PART_MAIN);
     }
   }
@@ -6136,9 +6144,9 @@ void UpdateAddTextAreaErrorStyle(lv_obj_t* input, bool valid) {
   lv_obj_set_style_outline_width(input, outline_width, LV_PART_MAIN);
   lv_obj_set_style_outline_width(input, outline_width, LV_STATE_FOCUSED);
   lv_obj_set_style_outline_color(input,
-      lv_color_hex(kInputErrorColor), LV_PART_MAIN);
+      lv_color_hex(theme::ActiveThemeColors().error), LV_PART_MAIN);
   lv_obj_set_style_outline_color(input,
-      lv_color_hex(kInputErrorColor), LV_STATE_FOCUSED);
+      lv_color_hex(theme::ActiveThemeColors().error), LV_STATE_FOCUSED);
   lv_obj_set_style_outline_opa(input, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_outline_opa(input, LV_OPA_COVER, LV_STATE_FOCUSED);
   lv_obj_set_style_outline_pad(input, -2, LV_PART_MAIN);
@@ -6299,11 +6307,11 @@ void UpdateAddSubmitButton(RadioViewState* state) {
     lv_obj_add_state(state->add_submit_button, LV_STATE_DISABLED);
   }
   lv_obj_set_style_bg_color(state->add_submit_button,
-      lv_color_hex(enabled ? kPrimaryColor : kDisabledContainerColor),
+      lv_color_hex(enabled ? kPrimaryColor : theme::ActiveThemeColors().disabled_container),
       LV_PART_MAIN);
   if (state->add_submit_label != nullptr) {
     lv_obj_set_style_text_color(state->add_submit_label,
-        lv_color_hex(enabled ? kOnPrimaryColor : kDisabledTextColor),
+        lv_color_hex(enabled ? kOnPrimaryColor : theme::ActiveThemeColors().disabled_content),
         LV_PART_MAIN);
   }
 }
@@ -6907,9 +6915,9 @@ lv_obj_t* CreateAddOptionButton(lv_obj_t* parent, RadioViewState* state,
   lv_obj_set_pos(button, x, y);
   lv_obj_set_style_radius(button, height / 2, LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      button, lv_color_hex(kSurfaceContainerColor), LV_PART_MAIN);
+      button, lv_color_hex(theme::ActiveThemeColors().surface_container), LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      button, lv_color_hex(kSurfaceContainerHighColor), LV_STATE_PRESSED);
+      button, lv_color_hex(theme::ActiveThemeColors().surface_container_high), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
@@ -6926,7 +6934,7 @@ lv_obj_t* CreateAddOptionButton(lv_obj_t* parent, RadioViewState* state,
       LV_EVENT_CLICKED, action);
   lv_obj_add_event_cb(button, AddOptionActionDeleteEventCallback,
       LV_EVENT_DELETE, action);
-  lv_obj_t* label = CreateLabel(button, text, kMainTextColor, Font22());
+  lv_obj_t* label = CreateLabel(button, text, theme::ActiveThemeColors().on_surface, Font22());
   if (label == nullptr) {
     lv_obj_delete(button);
     return nullptr;
@@ -6964,11 +6972,11 @@ lv_obj_t* CreateAddTextArea(lv_obj_t* parent, RadioViewState* state,
   lv_textarea_set_text(input, text);
   lv_obj_set_style_text_font(input, Font24(), LV_PART_MAIN);
   lv_obj_set_style_text_color(
-      input, lv_color_hex(kMainTextColor), LV_PART_MAIN);
+      input, lv_color_hex(theme::ActiveThemeColors().on_surface), LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      input, lv_color_hex(kSurfaceContainerLowColor), LV_PART_MAIN);
+      input, lv_color_hex(theme::ActiveThemeColors().surface_container_low), LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      input, lv_color_hex(kSurfaceContainerLowColor), LV_STATE_FOCUSED);
+      input, lv_color_hex(theme::ActiveThemeColors().surface_container_low), LV_STATE_FOCUSED);
   lv_obj_set_style_bg_opa(input, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(input, 0, LV_PART_MAIN);
   lv_obj_set_style_border_width(input, 0, LV_STATE_FOCUSED);
@@ -7019,13 +7027,13 @@ bool CreateAddHexPrefix(lv_obj_t* parent, RadioViewState* state,
   lv_obj_set_size(prefix, kPrefixWidth, kAddInputHeight);
   lv_obj_set_pos(prefix, kSideMargin, y);
   lv_obj_set_style_bg_color(
-      prefix, lv_color_hex(kSurfaceContainerHighColor), LV_PART_MAIN);
+      prefix, lv_color_hex(theme::ActiveThemeColors().surface_container_high), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(prefix, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(prefix, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(prefix, 22, LV_PART_MAIN);
   lv_obj_set_style_pad_all(prefix, 0, LV_PART_MAIN);
   lv_obj_t* label = CreateLabel(
-      prefix, "0x", kSecondaryTextColor, Font22());
+      prefix, "0x", theme::ActiveThemeColors().on_surface_variant, Font22());
   if (label == nullptr) {
     lv_obj_delete(prefix);
     return false;
@@ -7046,15 +7054,16 @@ lv_obj_t* CreateAddSwitchRow(lv_obj_t* parent, RadioViewState* state,
       row, state->config.width - 56, kAddSwitchRowHeight);
   lv_obj_set_pos(row, 28, y);
   lv_obj_set_style_bg_color(
-      row, lv_color_hex(kSurfaceContainerLowColor), LV_PART_MAIN);
+      row, lv_color_hex(theme::ActiveThemeColors().surface_container_low),
+      LV_PART_MAIN);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(row, 22, LV_PART_MAIN);
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
   lv_obj_t* title_label = CreateLabel(
-      row, title, kMainTextColor, Font24());
+      row, title, theme::ActiveThemeColors().on_surface, Font24());
   lv_obj_t* subtitle_label = CreateLabel(
-      row, subtitle, kSecondaryTextColor, Font22());
+      row, subtitle, theme::ActiveThemeColors().on_surface_variant, Font22());
   lv_obj_t* toggle = lv_switch_create(row);
   if (title_label == nullptr || subtitle_label == nullptr ||
       toggle == nullptr) {
@@ -7081,10 +7090,7 @@ lv_obj_t* CreateAddSwitchRow(lv_obj_t* parent, RadioViewState* state,
   lv_obj_align(toggle, LV_ALIGN_RIGHT_MID, -18, 0);
   lv_obj_set_style_anim_duration(
       toggle, kProfileSwitchAnimationMs, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(toggle, lv_color_hex(kPrimaryColor),
-      kProfileSwitchCheckedIndicatorSelector);
-  lv_obj_set_style_bg_opa(
-      toggle, LV_OPA_COVER, kProfileSwitchCheckedIndicatorSelector);
+  ApplyRadioSwitchTheme(toggle);
   if (checked) {
     lv_obj_add_state(toggle, LV_STATE_CHECKED);
   }
@@ -7266,11 +7272,11 @@ lv_obj_t* CreateAutoSendTextArea(lv_obj_t* parent, RadioViewState* state,
   lv_textarea_set_text(input, text);
   lv_obj_set_style_text_font(input, Font24(), LV_PART_MAIN);
   lv_obj_set_style_text_color(
-      input, lv_color_hex(kMainTextColor), LV_PART_MAIN);
+      input, lv_color_hex(theme::ActiveThemeColors().on_surface), LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      input, lv_color_hex(kSurfaceContainerLowColor), LV_PART_MAIN);
+      input, lv_color_hex(theme::ActiveThemeColors().surface_container_low), LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      input, lv_color_hex(kSurfaceContainerLowColor), LV_STATE_FOCUSED);
+      input, lv_color_hex(theme::ActiveThemeColors().surface_container_low), LV_STATE_FOCUSED);
   lv_obj_set_style_bg_opa(input, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(input, 0, LV_PART_MAIN);
   lv_obj_set_style_border_width(input, 0, LV_STATE_FOCUSED);
@@ -7312,15 +7318,16 @@ lv_obj_t* CreateAutoSendSwitch(
   lv_obj_set_size(row, state->config.width - 56, kAddSwitchRowHeight);
   lv_obj_set_pos(row, 28, y);
   lv_obj_set_style_bg_color(
-      row, lv_color_hex(kSurfaceContainerLowColor), LV_PART_MAIN);
+      row, lv_color_hex(theme::ActiveThemeColors().surface_container_low), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(row, 22, LV_PART_MAIN);
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
   lv_obj_t* title = CreateLabel(
-      row, "Automatic send", kMainTextColor, Font24());
+      row, "Automatic send", theme::ActiveThemeColors().on_surface, Font24());
   lv_obj_t* subtitle = CreateLabel(row,
-      "Repeat while this profile is active", kSecondaryTextColor, Font22());
+      "Repeat while this profile is active",
+      theme::ActiveThemeColors().on_surface_variant, Font22());
   lv_obj_t* toggle = lv_switch_create(row);
   if (title == nullptr || subtitle == nullptr || toggle == nullptr) {
     lv_obj_delete(row);
@@ -7345,10 +7352,7 @@ lv_obj_t* CreateAutoSendSwitch(
   lv_obj_align(toggle, LV_ALIGN_RIGHT_MID, -18, 0);
   lv_obj_set_style_anim_duration(
       toggle, kProfileSwitchAnimationMs, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(toggle, lv_color_hex(kPrimaryColor),
-      kProfileSwitchCheckedIndicatorSelector);
-  lv_obj_set_style_bg_opa(
-      toggle, LV_OPA_COVER, kProfileSwitchCheckedIndicatorSelector);
+  ApplyRadioSwitchTheme(toggle);
   if (checked) {
     lv_obj_add_state(toggle, LV_STATE_CHECKED);
   }
@@ -7430,7 +7434,7 @@ bool ShowAutoSendSettingsPage(RadioViewState* state) {
   lv_obj_set_size(page, state->config.width, state->config.height);
   lv_obj_set_pos(page, 0, 0);
   lv_obj_set_style_bg_color(
-      page, lv_color_hex(kMainBackgroundColor), LV_PART_MAIN);
+      page, lv_color_hex(theme::ActiveThemeColors().surface), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
@@ -7448,9 +7452,9 @@ bool ShowAutoSendSettingsPage(RadioViewState* state) {
   lv_obj_add_event_cb(back, AutoSendBackClickedEventCallback,
       LV_EVENT_CLICKED, state);
   lv_obj_t* back_icon = CreateLabel(
-      back, icon::kArrowBack, kMainTextColor, OutlineIconFont44());
+      back, icon::kArrowBack, theme::ActiveThemeColors().on_surface, OutlineIconFont44());
   lv_obj_t* title = CreateLabel(
-      page, "Automatic send", kMainTextColor, Font32());
+      page, "Automatic send", theme::ActiveThemeColors().on_surface, Font32());
   if (back_icon == nullptr || title == nullptr) {
     CloseAutoSendSettingsPage(state, false);
     return false;
@@ -7507,7 +7511,7 @@ bool ShowAutoSendSettingsPage(RadioViewState* state) {
       state->auto_send_interval_area, kIntegerAcceptedChars);
   lv_obj_t* interval_help = CreateLabel(body,
       "100-60000 ms; each cycle waits for the previous send to finish.",
-      kSettingsSecondaryTextColor, Font22());
+      theme::ActiveThemeColors().outline, Font22());
   if (interval_help == nullptr) {
     CloseAutoSendSettingsPage(state, false);
     return false;
@@ -8183,13 +8187,13 @@ bool CreateAddModuleContent(RadioViewState* state) {
   lv_obj_set_pos(unit, state->config.width - 112,
       302 + content_offset);
   lv_obj_set_style_bg_color(
-      unit, lv_color_hex(kSurfaceContainerHighColor), LV_PART_MAIN);
+      unit, lv_color_hex(theme::ActiveThemeColors().surface_container_high), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(unit, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(unit, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(unit, 22, LV_PART_MAIN);
   lv_obj_set_style_pad_all(unit, 0, LV_PART_MAIN);
   lv_obj_t* unit_label = CreateLabel(
-      unit, "MHz", kSecondaryTextColor, Font22());
+      unit, "MHz", theme::ActiveThemeColors().on_surface_variant, Font22());
   if (unit_label == nullptr) {
     return false;
   }
@@ -8546,7 +8550,7 @@ bool CreateAddModuleHeader(lv_obj_t* page, RadioViewState* state) {
   lv_obj_add_event_cb(back, AddPageBackClickedEventCallback,
       LV_EVENT_CLICKED, state);
   lv_obj_t* icon_label = CreateLabel(
-      back, icon::kArrowBack, kMainTextColor, OutlineIconFont44());
+      back, icon::kArrowBack, theme::ActiveThemeColors().on_surface, OutlineIconFont44());
   if (icon_label == nullptr) {
     return false;
   }
@@ -8555,7 +8559,7 @@ bool CreateAddModuleHeader(lv_obj_t* page, RadioViewState* state) {
       page, state->editing_index < state->module_count
           ? "Radio settings"
           : "Add Radio profile",
-      kMainTextColor, Font32());
+      theme::ActiveThemeColors().on_surface, Font32());
   if (title == nullptr) {
     return false;
   }
@@ -8595,11 +8599,11 @@ bool CreateAddModuleActionArea(lv_obj_t* page, RadioViewState* state) {
   lv_obj_align(button, LV_ALIGN_CENTER, 0, 0);
   lv_obj_set_style_radius(button, 42, LV_PART_MAIN);
   lv_obj_set_style_bg_color(button,
-      lv_color_hex(kDisabledContainerColor), LV_PART_MAIN);
+      lv_color_hex(theme::ActiveThemeColors().disabled_container), LV_PART_MAIN);
   lv_obj_set_style_bg_color(
       button, lv_color_hex(kPrimaryPressedColor), LV_STATE_PRESSED);
   lv_obj_set_style_bg_color(button,
-      lv_color_hex(kDisabledContainerColor), LV_STATE_DISABLED);
+      lv_color_hex(theme::ActiveThemeColors().disabled_container), LV_STATE_DISABLED);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
   lv_obj_add_event_cb(button, AddModuleSubmitClickedEventCallback,
@@ -8608,7 +8612,7 @@ bool CreateAddModuleActionArea(lv_obj_t* page, RadioViewState* state) {
       button, state->editing_index < state->module_count
           ? "Save profile"
           : "Add profile",
-      kDisabledTextColor, Font28());
+      theme::ActiveThemeColors().disabled_content, Font28());
   if (state->add_submit_label == nullptr) {
     return false;
   }
@@ -8699,7 +8703,7 @@ bool ShowAddModulePage(RadioViewState* state) {
   lv_obj_set_size(page, state->config.width, state->config.height);
   lv_obj_set_pos(page, 0, 0);
   lv_obj_set_style_bg_color(
-      page, lv_color_hex(kMainBackgroundColor), LV_PART_MAIN);
+      page, lv_color_hex(theme::ActiveThemeColors().surface), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
@@ -8939,7 +8943,7 @@ lv_obj_t* CreateRadioView(lv_obj_t* parent, const app::AppEntry& app_entry,
   lv_obj_set_size(root, config.width, config.height);
   lv_obj_align(root, LV_ALIGN_CENTER, 0, 0);
   lv_obj_set_style_bg_color(
-      root, lv_color_hex(kMainBackgroundColor), LV_PART_MAIN);
+      root, lv_color_hex(theme::ActiveThemeColors().surface), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(root, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(root, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(root, 0, LV_PART_MAIN);
@@ -8949,7 +8953,7 @@ lv_obj_t* CreateRadioView(lv_obj_t* parent, const app::AppEntry& app_entry,
     config.set_status_bar_visible(true);
   }
   if (config.set_status_bar_text_color) {
-    config.set_status_bar_text_color(kMainTextColor);
+    config.set_status_bar_text_color(theme::ActiveThemeColors().on_surface);
   }
   lv_obj_t* list = lv_obj_create(root);
   if (list == nullptr) {
@@ -8959,7 +8963,7 @@ lv_obj_t* CreateRadioView(lv_obj_t* parent, const app::AppEntry& app_entry,
   lv_obj_set_pos(list, 0, kListTop);
   lv_obj_set_size(list, config.width, config.height - kListTop);
   lv_obj_set_style_bg_color(
-      list, lv_color_hex(kMainBackgroundColor), LV_PART_MAIN);
+      list, lv_color_hex(theme::ActiveThemeColors().surface), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(list, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(list, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(list, 0, LV_PART_MAIN);

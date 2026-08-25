@@ -32,6 +32,7 @@ enum class DisplayField : uint16_t {
   kLockTimeoutSeconds = 2,
   kScreenRotationAngle = 3,
   kLockScreenDoubleTapToTurnScreenOnAndOff = 4,
+  kDarkThemeEnabled = 5,
 };
 
 int NormalizeScreenRotationAngle(int angle) {
@@ -59,6 +60,7 @@ DisplayPreferences NormalizeDisplayPreferences(
       NormalizeScreenRotationAngle(source.screen_rotation_angle);
   result.lock_screen_double_tap_to_turn_screen_on_and_off =
       source.lock_screen_double_tap_to_turn_screen_on_and_off;
+  result.dark_theme_enabled = source.dark_theme_enabled;
   return result;
 }
 
@@ -68,7 +70,8 @@ bool AreDisplayPreferencesEqual(
       left.lock_timeout_seconds == right.lock_timeout_seconds &&
       left.screen_rotation_angle == right.screen_rotation_angle &&
       left.lock_screen_double_tap_to_turn_screen_on_and_off ==
-          right.lock_screen_double_tap_to_turn_screen_on_and_off;
+          right.lock_screen_double_tap_to_turn_screen_on_and_off &&
+      left.dark_theme_enabled == right.dark_theme_enabled;
 }
 
 bool DecodeDisplayPreferences(const storage::TlvBuffer& buffer,
@@ -122,6 +125,12 @@ bool DecodeDisplayPreferences(const storage::TlvBuffer& buffer,
         }
         break;
       }
+      case DisplayField::kDarkThemeEnabled: {
+        if (!field.ReadBool(&decoded.dark_theme_enabled)) {
+          return false;
+        }
+        break;
+      }
       default:
         // 未知字段由旧固件跳过，新增参数不需要提升容器版本。
         break;
@@ -148,6 +157,9 @@ bool EncodeDisplayPreferences(const DisplayPreferences& preferences,
           static_cast<uint16_t>(
               DisplayField::kLockScreenDoubleTapToTurnScreenOnAndOff),
           normalized.lock_screen_double_tap_to_turn_screen_on_and_off) &&
+      writer.WriteBool(
+          static_cast<uint16_t>(DisplayField::kDarkThemeEnabled),
+          normalized.dark_theme_enabled) &&
       writer.Finalize(encoded_size);
 }
 

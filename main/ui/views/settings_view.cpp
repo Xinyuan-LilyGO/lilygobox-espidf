@@ -29,8 +29,6 @@
 namespace lilygo_box::ui {
 namespace {
 
-constexpr uint32_t kSettingsStatusBarTextColor = 0x111111;
-
 // 保存旋转后需要自动恢复的子页面 ID
 const char* g_restore_sub_page = nullptr;
 // 旋转恢复时跳过页面切换动画，避免看到列表页闪现
@@ -315,7 +313,7 @@ lv_obj_t* CreateSettingsRow(lv_obj_t* parent,
   lv_obj_set_size(row, width, kRowHeight);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      row, lv_color_hex(kPressedColor), LV_STATE_PRESSED);
+      row, lv_color_hex(SettingsThemeColors().state_layer), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, kPressedOpacity, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
@@ -333,7 +331,7 @@ lv_obj_t* CreateSettingsRow(lv_obj_t* parent,
   lv_obj_align(icon_box, LV_ALIGN_LEFT_MID, kPagePaddingX + kIconLeft, 0);
 
   lv_obj_t* title =
-      CreateLabel(row, item.title, lv_color_hex(kPrimaryTextColor), Font28());
+      CreateLabel(row, item.title, lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (title == nullptr) {
     lv_obj_delete(row);
     return nullptr;
@@ -342,7 +340,7 @@ lv_obj_t* CreateSettingsRow(lv_obj_t* parent,
   lv_obj_align(title, LV_ALIGN_LEFT_MID, kPagePaddingX + kTextLeft, 0);
 
   lv_obj_t* arrow = CreateLabel(row, icon::kChevronRight,
-      lv_color_hex(kSecondaryTextColor), MaterialIconFont32());
+      lv_color_hex(SettingsThemeColors().on_surface_variant), MaterialIconFont32());
   if (arrow == nullptr) {
     lv_obj_delete(row);
     return nullptr;
@@ -352,7 +350,7 @@ lv_obj_t* CreateSettingsRow(lv_obj_t* parent,
 
   if (item.value != nullptr && item.value[0] != '\0') {
     lv_obj_t* value = CreateLabel(
-        row, item.value, lv_color_hex(kSecondaryTextColor), Font24());
+        row, item.value, lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
     if (value == nullptr) {
       lv_obj_delete(row);
       return nullptr;
@@ -481,7 +479,8 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
   }
 
   if (config.set_status_bar_text_color) {
-    config.set_status_bar_text_color(kSettingsStatusBarTextColor);
+    config.set_status_bar_text_color(
+        theme::ActiveThemeColors().on_surface);
   }
 
   lv_obj_t* root = lv_obj_create(parent);
@@ -516,6 +515,7 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
   state->screen_rotation_angle = display_preferences.screen_rotation_angle;
   state->lock_screen_double_tap_to_turn_screen_on_and_off =
       display_preferences.lock_screen_double_tap_to_turn_screen_on_and_off;
+  state->dark_theme_enabled = display_preferences.dark_theme_enabled;
   app::SoundPreferences sound_preferences = app::GetSoundPreferences();
   state->audio_volume_percent = sound_preferences.volume_percent;
   app::HapticPreferences haptic_preferences = app::GetHapticPreferences();
@@ -530,14 +530,14 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
   lv_obj_set_size(root, config.width, config.height);
   lv_obj_set_pos(root, 0, 0);
   lv_obj_set_style_bg_color(
-      root, lv_color_hex(kBackgroundColor), LV_PART_MAIN);
+      root, lv_color_hex(SettingsThemeColors().surface), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(root, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(root, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(root, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(root, 0, LV_PART_MAIN);
 
-  lv_obj_t* title =
-      CreateLabel(root, "Settings", lv_color_hex(kTitleColor), Font48());
+  lv_obj_t* title = CreateLabel(root, "Settings",
+      lv_color_hex(SettingsThemeColors().on_surface), Font48());
   if (title == nullptr) {
     lv_obj_delete(root);
     return nullptr;
