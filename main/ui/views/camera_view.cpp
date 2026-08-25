@@ -32,7 +32,7 @@ constexpr uint32_t kBackgroundColor = 0x000000;
 constexpr uint32_t kPrimaryTextColor = 0xFFFFFF;
 constexpr uint32_t kSecondaryTextColor = 0xBDBDBD;
 constexpr uint32_t kActionColor = theme::LightNeutralTheme().action;
-constexpr int kPortraitPromptGroupOffsetY = -176;
+constexpr int kPortraitPromptGroupOffsetY = -72;
 constexpr int kLandscapePromptGroupOffsetY = -72;
 
 enum class CameraContentState : uint8_t {
