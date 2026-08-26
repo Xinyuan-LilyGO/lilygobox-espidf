@@ -374,8 +374,11 @@ void EnableSharedKeyboardReleaseActivation(lv_obj_t* keyboard) {
  * @param keyboard 键盘对象
  */
 void ConfigureSharedKeyboardStyle(lv_obj_t* keyboard) {
+  const lv_color_t content_color =
+      lv_color_hex(theme::ActiveThemeColors().on_keyboard_key);
   lv_obj_set_style_bg_color(
-      keyboard, lv_color_hex(theme::ActiveThemeColors().keyboard_background), LV_PART_MAIN);
+      keyboard, lv_color_hex(theme::ActiveThemeColors().keyboard_background),
+      LV_PART_MAIN);
   lv_obj_set_style_bg_opa(keyboard, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(keyboard, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_left(keyboard, 0, LV_PART_MAIN);
@@ -383,22 +386,25 @@ void ConfigureSharedKeyboardStyle(lv_obj_t* keyboard) {
   lv_obj_set_style_pad_row(keyboard, kKeyboardPadRow, LV_PART_MAIN);
   lv_obj_set_style_pad_column(keyboard, kKeyboardPadColumn, LV_PART_MAIN);
   lv_obj_set_style_text_font(keyboard, KeyboardFont(), LV_PART_MAIN);
-  lv_obj_set_style_text_color(
-      keyboard, lv_color_hex(theme::ActiveThemeColors().on_keyboard_key), LV_PART_MAIN);
+  lv_obj_set_style_text_color(keyboard, content_color, LV_PART_MAIN);
 
   lv_obj_set_style_radius(keyboard, kKeyboardRadius, LV_PART_ITEMS);
   lv_obj_set_style_bg_color(
-      keyboard, lv_color_hex(theme::ActiveThemeColors().keyboard_key), LV_PART_ITEMS);
+      keyboard, lv_color_hex(theme::ActiveThemeColors().keyboard_key),
+      LV_PART_ITEMS);
   lv_obj_set_style_bg_opa(keyboard, LV_OPA_COVER, LV_PART_ITEMS);
   lv_obj_set_style_border_width(keyboard, 0, LV_PART_ITEMS);
-  lv_obj_set_style_text_color(
-      keyboard, lv_color_hex(theme::ActiveThemeColors().on_keyboard_key), LV_PART_ITEMS);
+  lv_obj_set_style_text_color(keyboard, content_color, LV_PART_ITEMS);
 
   lv_obj_set_style_bg_color(
       keyboard, lv_color_hex(theme::ActiveThemeColors().keyboard_key_pressed),
       StyleSelector(LV_PART_ITEMS, LV_STATE_PRESSED));
+  lv_obj_set_style_text_color(keyboard, content_color,
+      StyleSelector(LV_PART_ITEMS, LV_STATE_PRESSED));
   lv_obj_set_style_bg_color(
       keyboard, lv_color_hex(theme::ActiveThemeColors().keyboard_special_key),
+      StyleSelector(LV_PART_ITEMS, LV_STATE_CHECKED));
+  lv_obj_set_style_text_color(keyboard, content_color,
       StyleSelector(LV_PART_ITEMS, LV_STATE_CHECKED));
 }
 
@@ -676,6 +682,9 @@ bool AttachSharedKeyboardToTextArea(
   }
 
   lv_obj_set_scrollbar_mode(text_area, LV_SCROLLBAR_MODE_OFF);
+  lv_obj_set_style_border_color(text_area,
+      lv_color_hex(theme::ActiveThemeColors().on_keyboard_key),
+      StyleSelector(LV_PART_CURSOR, LV_STATE_FOCUSED));
 
   auto* binding = new (std::nothrow) TextAreaKeyboardBinding();
   if (binding == nullptr) {
