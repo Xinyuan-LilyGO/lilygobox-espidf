@@ -2,7 +2,7 @@
  * @Description: T-Display-P4-Air 设备初始化与硬件 Provider 适配实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-08-17 09:16:56
+ * @LastEditTime: 2026-08-26 10:02:10
  * @License: GPL 3.0
  */
 #include "hal/device/t_display_p4_air/t_display_p4_air_device.h"
@@ -249,6 +249,7 @@ NecDecodeResult DecodeNecSymbols(const rmt_symbol_word_t* symbols,
   return NecDecodeResult::kFrame;
 }
 
+/**
  * @brief 在 Debug 日志启用时执行 NFC 射频诊断
  * @param nfc_driver ST25R3916 驱动
  */
