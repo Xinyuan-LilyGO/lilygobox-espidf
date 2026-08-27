@@ -86,7 +86,8 @@ constexpr uint32_t kVibrationTestStopMs = 180;
 constexpr size_t kSpeakerPlaybackChunkBytes = 4096;
 constexpr uint32_t kSpeakerPlaybackTaskStackBytes = 4 * 1024;
 constexpr uint32_t kAudioFilePlaybackTaskStackBytes = 8 * 1024;
-constexpr UBaseType_t kSpeakerPlaybackTaskPriority = 3;
+constexpr UBaseType_t kHapticPlaybackTaskPriority = 3;
+constexpr UBaseType_t kSpeakerPlaybackTaskPriority = 6;
 constexpr uint32_t kPausedAudioReadyTimeoutMs = 1000;
 constexpr uint32_t kPausedAudioReadyPollMs = 10;
 constexpr uint32_t kSpeakerPlaybackSampleRateHz = 44100;
@@ -102,6 +103,7 @@ constexpr int kMicrophoneLevelRiseDivisor = 4;
 constexpr int kMicrophoneLevelFallDivisor = 8;
 constexpr uint32_t kCameraPreviewTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kCameraPreviewTaskPriority = 5;
+static_assert(kSpeakerPlaybackTaskPriority > kCameraPreviewTaskPriority);
 constexpr uint32_t kCameraBufferCount = 2;
 constexpr uint32_t kCameraFrameIntervalMs = 10;
 constexpr uint32_t kCameraStopWaitTimeoutMs = 5000;
@@ -2508,7 +2510,7 @@ bool TDisplayP4AirDevice::PlayHapticWaveform(uint8_t waveform_sequence_number,
   }
 
   const BaseType_t result = xTaskCreate(HapticPlaybackTaskEntry, "haptic_play",
-      kSpeakerPlaybackTaskStackBytes, this, kSpeakerPlaybackTaskPriority,
+      kSpeakerPlaybackTaskStackBytes, this, kHapticPlaybackTaskPriority,
       nullptr);
   if (result != pdPASS) {
     haptic_.running.store(false);
