@@ -7,6 +7,7 @@
  */
 #include "hal/device/t_display_p4_air/t_display_p4_air_device.h"
 
+#include <cerrno>
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -30,10 +31,12 @@
 #include <new>
 #include <string>
 
+#include "app/diagnostics/camera_error.h"
 #include "app/storage/display_storage.h"
 #include "audio/new_notification_010_c2_b16_s44100.h"
 #include "base/logger.h"
 #include "bhy2_parse.h"
+#include "driver/i2c_master.h"
 #include "esp_attr.h"
 #include "esp_err.h"
 #include "esp_event.h"
@@ -102,8 +105,84 @@ constexpr UBaseType_t kCameraPreviewTaskPriority = 5;
 constexpr uint32_t kCameraBufferCount = 2;
 constexpr uint32_t kCameraFrameIntervalMs = 10;
 constexpr uint32_t kCameraStopWaitTimeoutMs = 5000;
+constexpr uint32_t kCameraSensorReadyPollIntervalMs = 100;
+constexpr uint32_t kCameraStartupTimeoutMs = 3000;
+constexpr uint32_t kCameraPowerCycleOffDelayMs = 20;
 constexpr uint32_t kCameraOutputClearFrameCount = 3;
 constexpr uint32_t kCameraWarmupFrameCount = 5;
+constexpr uint32_t kCameraVideoInitFlags =
+    ESP_VIDEO_INIT_FLAGS_MIPI_CSI | ESP_VIDEO_INIT_FLAGS_ISP;
+static_assert(kCameraStartupTimeoutMs >= kCameraSensorReadyPollIntervalMs);
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_CAMERA_TYPE_SC2336)
+constexpr uint16_t kCameraSensorI2cAddress = 0x30;
+#elif defined(CONFIG_LILYGO_DEVICE_DRIVER_CAMERA_TYPE_OV2710)
+constexpr uint16_t kCameraSensorI2cAddress = 0x36;
+#elif defined(CONFIG_LILYGO_DEVICE_DRIVER_CAMERA_TYPE_OV5645)
+constexpr uint16_t kCameraSensorI2cAddress = 0x3C;
+#else
+#error "Unsupported camera sensor type"
+#endif
+
+/**
+ * @brief 获取摄像头启动流程已经消耗的时间
+ * @param start_tick 启动流程开始时的系统节拍
+ * @return 已消耗时间，单位为毫秒
+ */
+uint32_t CameraStartupElapsedMs(TickType_t start_tick) {
+  return static_cast<uint32_t>(
+      (xTaskGetTickCount() - start_tick) * portTICK_PERIOD_MS);
+}
+
+/**
+ * @brief 判断摄像头启动流程是否已经达到总超时
+ * @param start_tick 启动流程开始时的系统节拍
+ * @return 达到总超时返回 true，否则返回 false
+ */
+bool CameraStartupTimedOut(TickType_t start_tick) {
+  return CameraStartupElapsedMs(start_tick) >= kCameraStartupTimeoutMs;
+}
+
+/**
+ * @brief 获取摄像头启动流程剩余时间
+ * @param start_tick 启动流程开始时的系统节拍
+ * @return 剩余时间，单位为毫秒
+ */
+uint32_t CameraStartupRemainingMs(TickType_t start_tick) {
+  const uint32_t elapsed_ms = CameraStartupElapsedMs(start_tick);
+  return elapsed_ms < kCameraStartupTimeoutMs
+             ? kCameraStartupTimeoutMs - elapsed_ms
+             : 0;
+}
+
+/**
+ * @brief 判断系统错误是否可能由摄像头瞬时硬件状态引起
+ * @param error errno 错误值
+ * @return 适合通过完整摄像头电源重启恢复返回 true
+ */
+bool IsRetryableCameraIoError(int error) {
+  switch (error) {
+    case EAGAIN:
+    case EBUSY:
+    case EIO:
+    case ENODEV:
+    case ENOENT:
+    case ENXIO:
+    case ETIMEDOUT:
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * @brief 判断 ESP Video 初始化错误是否适合重新上电重试
+ * @param error ESP-IDF 错误值
+ * @return 适合通过完整摄像头电源重启恢复返回 true
+ */
+bool IsRetryableCameraVideoError(esp_err_t error) {
+  return error == ESP_FAIL || error == ESP_ERR_NOT_FOUND ||
+         error == ESP_ERR_TIMEOUT;
+}
 // Radio 发送硬件超时的最小值和额外保护时间。
 constexpr uint32_t kMinimumRadioTransmitTimeoutMs = 1000;
 constexpr uint32_t kRadioTransmitTimeoutMarginMs = 500;
@@ -3210,18 +3289,17 @@ bool TDisplayP4AirDevice::StartCameraPreview() {
   }
 
   camera_preview_.error.store(CameraError::kNone);
+  camera_preview_.startup_in_progress.store(false);
   camera_preview_.stop_requested.store(false);
-  if (!InitializeCameraPreview()) {
-    DeinitializeCameraPreview();
-    camera_preview_.stop_requested.store(true);
-    return false;
-  }
-
   camera_preview_.task_active.store(true);
-  BaseType_t result = xTaskCreate(CameraPreviewTaskEntry, "camera_preview",
-      kCameraPreviewTaskStackBytes, this, kCameraPreviewTaskPriority, nullptr);
+  const BaseType_t result = xTaskCreate(CameraPreviewTaskEntry,
+      "camera_preview", kCameraPreviewTaskStackBytes, this,
+      kCameraPreviewTaskPriority, nullptr);
   if (result != pdPASS) {
     camera_preview_.error.store(CameraError::kPreviewTaskCreateFailed);
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Create camera preview task failed: %ld\n",
+        static_cast<long>(result));
     camera_preview_.task_active.store(false);
     camera_preview_.stop_requested.store(true);
     DeinitializeCameraPreview();
@@ -3231,6 +3309,9 @@ bool TDisplayP4AirDevice::StartCameraPreview() {
 }
 
 CameraError TDisplayP4AirDevice::GetCameraPreviewError() const {
+  if (camera_preview_.startup_in_progress.load()) {
+    return CameraError::kNone;
+  }
   return camera_preview_.error.load();
 }
 
@@ -3300,6 +3381,16 @@ void TDisplayP4AirDevice::CameraPreviewTaskEntry(void* context) {
 }
 
 void TDisplayP4AirDevice::RunCameraPreviewTask() {
+  if (camera_preview_.stop_requested.load() || !InitializeCameraPreview() ||
+      camera_preview_.stop_requested.load()) {
+    DeinitializeCameraPreview();
+    camera_preview_.stop_requested.store(true);
+    camera_preview_.running.store(false);
+    camera_preview_.task_active.store(false);
+    vTaskDelete(nullptr);
+    return;
+  }
+
   camera_preview_.running.store(true);
   while (!camera_preview_.stop_requested.load()) {
     v4l2_buffer buffer = {};
@@ -3334,6 +3425,72 @@ void TDisplayP4AirDevice::RunCameraPreviewTask() {
   vTaskDelete(nullptr);
 }
 
+bool TDisplayP4AirDevice::WaitForCameraSensorReady(
+    TickType_t startup_tick) {
+  const auto& i2c_bus = driver_.bus().sgm38121_i2c_bus;
+  if (i2c_bus == nullptr || i2c_bus->bus_handle() == nullptr) {
+    camera_preview_.error.store(CameraError::kSensorNotDetected);
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Camera sensor readiness check failed (I2C bus unavailable)\n");
+    return false;
+  }
+
+  uint32_t attempt = 0;
+  while (!CameraStartupTimedOut(startup_tick)) {
+    if (camera_preview_.stop_requested.load()) {
+      return false;
+    }
+
+    ++attempt;
+    const TickType_t probe_tick = xTaskGetTickCount();
+    const uint32_t remaining_ms = CameraStartupRemainingMs(startup_tick);
+    const uint32_t probe_timeout_ms =
+        std::min(kCameraSensorReadyPollIntervalMs, remaining_ms);
+    const esp_err_t result = i2c_master_probe(i2c_bus->bus_handle(),
+        kCameraSensorI2cAddress, probe_timeout_ms);
+    if (result == ESP_OK) {
+      LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+          "Camera sensor ready (address: %#X, attempts: %lu, elapsed: %lu "
+          "ms)\n",
+          kCameraSensorI2cAddress, static_cast<unsigned long>(attempt),
+          static_cast<unsigned long>(CameraStartupElapsedMs(startup_tick)));
+      return true;
+    }
+    if (result != ESP_ERR_NOT_FOUND && result != ESP_ERR_TIMEOUT) {
+      camera_preview_.error.store(CameraError::kSensorNotDetected);
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Camera sensor readiness check failed (address: %#X, reason: %s, "
+          "error: %#X)\n",
+          kCameraSensorI2cAddress, esp_err_to_name(result),
+          static_cast<unsigned>(result));
+      return false;
+    }
+
+    const uint32_t probe_elapsed_ms = static_cast<uint32_t>(
+        (xTaskGetTickCount() - probe_tick) * portTICK_PERIOD_MS);
+    const uint32_t poll_delay_ms =
+        probe_elapsed_ms < kCameraSensorReadyPollIntervalMs
+            ? kCameraSensorReadyPollIntervalMs - probe_elapsed_ms
+            : 0;
+    const uint32_t delay_ms = std::min(
+        poll_delay_ms, CameraStartupRemainingMs(startup_tick));
+    if (delay_ms > 0) {
+      vTaskDelay(pdMS_TO_TICKS(delay_ms));
+    }
+  }
+
+  if (camera_preview_.stop_requested.load()) {
+    return false;
+  }
+  camera_preview_.error.store(CameraError::kSensorNotDetected);
+  LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+      "Camera sensor readiness check timed out (address: %#X, attempts: %lu, "
+      "timeout: %lu ms)\n",
+      kCameraSensorI2cAddress, static_cast<unsigned long>(attempt),
+      static_cast<unsigned long>(kCameraStartupTimeoutMs));
+  return false;
+}
+
 bool TDisplayP4AirDevice::InitializeCameraPreview() {
   if (!driver_.IsScreenReady()) {
     camera_preview_.error.store(CameraError::kScreenNotReady);
@@ -3341,15 +3498,89 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
         "Camera preview start failed: screen is not ready\n");
     return false;
   }
+
+  const TickType_t startup_tick = xTaskGetTickCount();
+  uint32_t attempt = 0;
+  CameraError last_error = CameraError::kNone;
+  camera_preview_.startup_in_progress.store(true);
+  while (!camera_preview_.stop_requested.load() &&
+         !CameraStartupTimedOut(startup_tick)) {
+    ++attempt;
+    camera_preview_.error.store(CameraError::kNone);
+    const CameraStartupAttemptResult result =
+        InitializeCameraPreviewAttempt(startup_tick);
+    if (result == CameraStartupAttemptResult::kSuccess) {
+      camera_preview_.startup_in_progress.store(false);
+      if (attempt > 1) {
+        LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+            "Camera startup recovered (attempts: %lu, elapsed: %lu ms)\n",
+            static_cast<unsigned long>(attempt),
+            static_cast<unsigned long>(CameraStartupElapsedMs(startup_tick)));
+      }
+      return true;
+    }
+
+    last_error = camera_preview_.error.load();
+    if (camera_preview_.stop_requested.load()) {
+      camera_preview_.startup_in_progress.store(false);
+      return false;
+    }
+    if (result == CameraStartupAttemptResult::kStop) {
+      camera_preview_.startup_in_progress.store(false);
+      return false;
+    }
+    if (CameraStartupTimedOut(startup_tick)) {
+      break;
+    }
+
+    const DiagnosticError diagnostic_error =
+        GetCameraDiagnosticError(last_error);
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Camera startup attempt failed; retrying from power-on (attempt: %lu, "
+        "error: %s, reason: %s, elapsed: %lu ms)\n",
+        static_cast<unsigned long>(attempt), diagnostic_error.code,
+        diagnostic_error.text,
+        static_cast<unsigned long>(CameraStartupElapsedMs(startup_tick)));
+    DeinitializeCameraPreview();
+
+    const uint32_t delay_ms = std::min(
+        kCameraPowerCycleOffDelayMs, CameraStartupRemainingMs(startup_tick));
+    if (delay_ms > 0) {
+      vTaskDelay(pdMS_TO_TICKS(delay_ms));
+    }
+  }
+
+  if (last_error == CameraError::kNone) {
+    last_error = CameraError::kSensorNotDetected;
+  }
+  camera_preview_.error.store(last_error);
+  camera_preview_.startup_in_progress.store(false);
+  const DiagnosticError diagnostic_error = GetCameraDiagnosticError(last_error);
+  LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+      "Camera startup timed out (attempts: %lu, elapsed: %lu ms, error: %s, "
+      "reason: %s)\n",
+      static_cast<unsigned long>(attempt),
+      static_cast<unsigned long>(CameraStartupElapsedMs(startup_tick)),
+      diagnostic_error.code, diagnostic_error.text);
+  return false;
+}
+
+TDisplayP4AirDevice::CameraStartupAttemptResult
+TDisplayP4AirDevice::InitializeCameraPreviewAttempt(TickType_t startup_tick) {
   if (!driver_.SetCameraPowerEnabled(true)) {
     camera_preview_.error.store(CameraError::kPowerEnableFailed);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Camera preview start failed: power enable failed\n");
-    return false;
+    return CameraStartupAttemptResult::kPowerCycle;
+  }
+  if (!WaitForCameraSensorReady(startup_tick)) {
+    return CameraStartupAttemptResult::kStop;
   }
 
-  const bool restore_sensor = camera_preview_.video_system_initialized.load();
-  if (!camera_preview_.video_system_initialized.load()) {
+  const bool video_system_was_initialized =
+      camera_preview_.video_system_initialized.load();
+  bool initialized_video_system = false;
+  if (!video_system_was_initialized) {
     esp_video_init_csi_config_t csi_config = {};
     csi_config.sccb_config.init_sccb = false;
     csi_config.sccb_config.i2c_handle =
@@ -3362,9 +3593,8 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
     esp_video_init_config_t camera_config = {};
     camera_config.csi = &csi_config;
     // video0 和 video20 只注册一次，避免组件反初始化后无法重复注册 VFS。
-    const uint32_t init_flags =
-        ESP_VIDEO_INIT_FLAGS_MIPI_CSI | ESP_VIDEO_INIT_FLAGS_ISP;
-    esp_err_t result = esp_video_init_with_flags(&camera_config, init_flags);
+    const esp_err_t result =
+        esp_video_init_with_flags(&camera_config, kCameraVideoInitFlags);
     if (result != ESP_OK) {
       // 组件初始化失败时会清理当前已经创建的全部视频设备。
       camera_preview_.video_system_initialized.store(false);
@@ -3372,40 +3602,87 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "esp_video_init_with_flags failed: %s (%#X)\n",
           esp_err_to_name(result), static_cast<unsigned>(result));
-      driver_.SetCameraPowerEnabled(false);
-      return false;
+      return IsRetryableCameraVideoError(result)
+                 ? CameraStartupAttemptResult::kPowerCycle
+                 : CameraStartupAttemptResult::kStop;
     }
-    camera_preview_.video_system_initialized.store(true);
+    initialized_video_system = true;
   }
 
   camera_preview_.video_fd = open(kCameraDeviceName, O_RDONLY | O_NONBLOCK);
   if (camera_preview_.video_fd < 0) {
+    const int open_error = errno;
+    if (open_error == ENOENT) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Open camera video device failed (device: %s, reason: video device "
+          "node is unavailable, errno: %d)\n",
+          kCameraDeviceName, open_error);
+    } else {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Open camera video device failed (device: %s, reason: %s, errno: "
+          "%d)\n",
+          kCameraDeviceName, std::strerror(open_error), open_error);
+    }
+    esp_err_t deinit_result = ESP_OK;
+    if (!video_system_was_initialized) {
+      deinit_result = esp_video_deinit_with_flags(kCameraVideoInitFlags);
+      camera_preview_.video_system_initialized.store(false);
+    }
     camera_preview_.error.store(CameraError::kVideoDeviceOpenFailed);
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Open camera video device failed\n");
-    return false;
+    if (deinit_result != ESP_OK) {
+      camera_preview_.error.store(CameraError::kVideoInitFailed);
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "esp_video_deinit_with_flags failed: %s (%#X)\n",
+          esp_err_to_name(deinit_result),
+          static_cast<unsigned>(deinit_result));
+      return CameraStartupAttemptResult::kStop;
+    }
+    return IsRetryableCameraIoError(open_error)
+               ? CameraStartupAttemptResult::kPowerCycle
+               : CameraStartupAttemptResult::kStop;
+  }
+  if (initialized_video_system) {
+    camera_preview_.video_system_initialized.store(true);
   }
 
-  if (restore_sensor) {
+  if (video_system_was_initialized) {
     // 摄像头重新上电后，通过组件公开接口重写传感器的完整寄存器配置。
     auto& sensor_format = camera_preview_.sensor_format;
     if (ioctl(camera_preview_.video_fd, VIDIOC_G_SENSOR_FMT, &sensor_format) !=
-            0 ||
-        ioctl(camera_preview_.video_fd, VIDIOC_S_SENSOR_FMT, &sensor_format) !=
-            0) {
+        0) {
+      const int ioctl_error = errno;
       camera_preview_.error.store(CameraError::kSensorRestoreFailed);
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Restore camera sensor format failed\n");
-      return false;
+          "VIDIOC_G_SENSOR_FMT failed (reason: %s, errno: %d)\n",
+          std::strerror(ioctl_error), ioctl_error);
+      return IsRetryableCameraIoError(ioctl_error)
+                 ? CameraStartupAttemptResult::kPowerCycle
+                 : CameraStartupAttemptResult::kStop;
+    }
+    if (ioctl(camera_preview_.video_fd, VIDIOC_S_SENSOR_FMT,
+            &sensor_format) != 0) {
+      const int ioctl_error = errno;
+      camera_preview_.error.store(CameraError::kSensorRestoreFailed);
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "VIDIOC_S_SENSOR_FMT failed (reason: %s, errno: %d)\n",
+          std::strerror(ioctl_error), ioctl_error);
+      return IsRetryableCameraIoError(ioctl_error)
+                 ? CameraStartupAttemptResult::kPowerCycle
+                 : CameraStartupAttemptResult::kStop;
     }
   }
 
   v4l2_format format = {};
   format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   if (ioctl(camera_preview_.video_fd, VIDIOC_G_FMT, &format) != 0) {
+    const int ioctl_error = errno;
     camera_preview_.error.store(CameraError::kFormatConfigurationFailed);
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "VIDIOC_G_FMT failed\n");
-    return false;
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "VIDIOC_G_FMT failed (reason: %s, errno: %d)\n",
+        std::strerror(ioctl_error), ioctl_error);
+    return IsRetryableCameraIoError(ioctl_error)
+               ? CameraStartupAttemptResult::kPowerCycle
+               : CameraStartupAttemptResult::kStop;
   }
   camera_preview_.frame_width = format.fmt.pix.width;
   camera_preview_.frame_height = format.fmt.pix.height;
@@ -3417,9 +3694,14 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
   format.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB565;
 #endif
   if (ioctl(camera_preview_.video_fd, VIDIOC_S_FMT, &format) != 0) {
+    const int ioctl_error = errno;
     camera_preview_.error.store(CameraError::kFormatConfigurationFailed);
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "VIDIOC_S_FMT failed\n");
-    return false;
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "VIDIOC_S_FMT failed (reason: %s, errno: %d)\n",
+        std::strerror(ioctl_error), ioctl_error);
+    return IsRetryableCameraIoError(ioctl_error)
+               ? CameraStartupAttemptResult::kPowerCycle
+               : CameraStartupAttemptResult::kStop;
   }
   camera_preview_.frame_width = format.fmt.pix.width;
   camera_preview_.frame_height = format.fmt.pix.height;
@@ -3428,12 +3710,18 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
   request.count = kCameraBufferCount;
   request.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   request.memory = V4L2_MEMORY_MMAP;
-  if (ioctl(camera_preview_.video_fd, VIDIOC_REQBUFS, &request) != 0 ||
-      request.count < kCameraBufferCount) {
+  if (ioctl(camera_preview_.video_fd, VIDIOC_REQBUFS, &request) != 0) {
     camera_preview_.error.store(CameraError::kBufferAllocationFailed);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "VIDIOC_REQBUFS failed or returned too few buffers\n");
-    return false;
+        "VIDIOC_REQBUFS failed\n");
+    return CameraStartupAttemptResult::kStop;
+  }
+  if (request.count < kCameraBufferCount) {
+    camera_preview_.error.store(CameraError::kBufferAllocationFailed);
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "VIDIOC_REQBUFS returned too few buffers: %lu\n",
+        static_cast<unsigned long>(request.count));
+    return CameraStartupAttemptResult::kStop;
   }
 
   for (uint32_t index = 0; index < kCameraBufferCount; ++index) {
@@ -3445,7 +3733,7 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
       camera_preview_.error.store(CameraError::kBufferAllocationFailed);
       LogMessage(
           LogLevel::kWarning, __FILE__, __LINE__, "VIDIOC_QUERYBUF failed\n");
-      return false;
+      return CameraStartupAttemptResult::kStop;
     }
     camera_preview_.frame_buffer_sizes[index] = buffer.length;
     camera_preview_.frame_buffers[index] =
@@ -3456,13 +3744,13 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
       camera_preview_.error.store(CameraError::kBufferMappingFailed);
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Camera buffer mmap failed\n");
-      return false;
+      return CameraStartupAttemptResult::kStop;
     }
     if (ioctl(camera_preview_.video_fd, VIDIOC_QBUF, &buffer) != 0) {
       camera_preview_.error.store(CameraError::kBufferAllocationFailed);
       LogMessage(
           LogLevel::kWarning, __FILE__, __LINE__, "VIDIOC_QBUF failed\n");
-      return false;
+      return CameraStartupAttemptResult::kStop;
     }
   }
 
@@ -3473,14 +3761,14 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
           CameraError::kOutputBufferAllocationFailed);
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Camera output mutex allocation failed\n");
-      return false;
+      return CameraStartupAttemptResult::kStop;
     }
   }
 
   if (!camera_preview_.ppa.Init()) {
     camera_preview_.error.store(CameraError::kProcessingInitFailed);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "PPA SRM init failed\n");
-    return false;
+    return CameraStartupAttemptResult::kStop;
   }
   const size_t bytes_per_pixel = ScreenBitsPerPixel() / 8;
   camera_preview_.output_rotation_angle = NormalizeCameraPreviewRotationAngle(
@@ -3510,7 +3798,7 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
         CameraError::kOutputBufferAllocationFailed);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Camera output buffer allocation failed\n");
-    return false;
+    return CameraStartupAttemptResult::kStop;
   }
   camera_preview_.output_buffer.reset(static_cast<uint8_t*>(output_buffer));
   camera_preview_.clear_output_frames_remaining = kCameraOutputClearFrameCount;
@@ -3518,17 +3806,21 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
 
   int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   if (ioctl(camera_preview_.video_fd, VIDIOC_STREAMON, &type) != 0) {
+    const int ioctl_error = errno;
     camera_preview_.error.store(CameraError::kStreamStartFailed);
-    LogMessage(
-        LogLevel::kWarning, __FILE__, __LINE__, "VIDIOC_STREAMON failed\n");
-    return false;
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "VIDIOC_STREAMON failed (reason: %s, errno: %d)\n",
+        std::strerror(ioctl_error), ioctl_error);
+    return IsRetryableCameraIoError(ioctl_error)
+               ? CameraStartupAttemptResult::kPowerCycle
+               : CameraStartupAttemptResult::kStop;
   }
 
   camera_preview_.initialized.store(true);
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
       "Camera preview started (%lux%lu)\n", camera_preview_.frame_width,
       camera_preview_.frame_height);
-  return true;
+  return CameraStartupAttemptResult::kSuccess;
 }
 
 void TDisplayP4AirDevice::DeinitializeCameraPreview() {

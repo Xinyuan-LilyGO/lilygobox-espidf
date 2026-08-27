@@ -2,7 +2,7 @@
  * @Description: Camera app view
  * @Author: LILYGO_L
  * @Date: 2026-07-02 00:00:00
- * @LastEditTime: 2026-07-02 18:19:32
+ * @LastEditTime: 2026-08-27 16:30:22
  * @License: GPL 3.0
  */
 #include "ui/views/camera_view.h"
@@ -31,8 +31,8 @@ constexpr uint32_t kCameraViewRefreshPeriodMs = 10;
 constexpr uint32_t kBackgroundColor = 0x000000;
 constexpr uint32_t kPrimaryTextColor = 0xFFFFFF;
 constexpr uint32_t kSecondaryTextColor = 0xBDBDBD;
-constexpr int kPortraitPromptGroupOffsetY = -72;
-constexpr int kLandscapePromptGroupOffsetY = -72;
+constexpr int kCameraPromptGroupHeight = 300;
+constexpr int kCameraPromptGroupOffsetY = -144;
 
 enum class CameraContentState : uint8_t {
   kScanning,
@@ -97,17 +97,12 @@ void PositionCameraPromptStatus(CameraViewState* state, lv_obj_t* group) {
     return;
   }
   lv_display_t* display = lv_obj_get_display(group);
-  const int display_width = display == nullptr
-      ? state->width
-      : lv_display_get_horizontal_resolution(display);
   const int display_height = display == nullptr
       ? state->height
       : lv_display_get_vertical_resolution(display);
-  const int offset_y = display_width > display_height
-      ? kLandscapePromptGroupOffsetY
-      : kPortraitPromptGroupOffsetY;
   const int height = lv_obj_get_height(group);
-  const int centered_top = (display_height - height) / 2 + offset_y;
+  const int centered_top =
+      (display_height - height) / 2 + kCameraPromptGroupOffsetY;
   const int maximum_top = std::max(0, display_height - height);
   const int group_top = std::min(std::max(centered_top, 0), maximum_top);
   lv_obj_align(group, LV_ALIGN_TOP_MID, 0, group_top);
@@ -147,7 +142,7 @@ void RenderCameraScanning(CameraViewState* state) {
 
   PromptStatusConfig config;
   config.width = state->width;
-  config.height = 180;
+  config.height = kCameraPromptGroupHeight;
   config.visual = PromptStatusVisual::kSpinner;
   config.spinner_track_color =
       theme::ActiveThemeColors().surface_container_high;
@@ -197,7 +192,7 @@ void RenderCameraError(CameraViewState* state, CameraError error) {
       diagnostic_error.code, diagnostic_error.text);
   PromptStatusConfig config;
   config.width = state->width;
-  config.height = 300;
+  config.height = kCameraPromptGroupHeight;
   config.icon = icon::kCamera;
   config.icon_font = &lvgl_font_material_symbols_fill_56;
   config.title = "Camera unavailable";
