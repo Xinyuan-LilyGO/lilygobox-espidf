@@ -59,7 +59,9 @@ bool TDisplayP4AirDevice::InitializeTouchInterrupt() {
   }
 
   touch_interrupt_initialized_ = true;
-  if (!tool_->GpioRead(gpio::hi8561::kTouchInt)) {
+  touch_interrupt_line_active_ =
+      !tool_->GpioRead(gpio::hi8561::kTouchInt);
+  if (touch_interrupt_line_active_) {
     touch_interrupt_pending_.store(true, std::memory_order_relaxed);
   }
   return true;
@@ -168,6 +170,11 @@ bool TDisplayP4AirDevice::ReadScreenTouch(TouchPoint* point) {
   cpp_bus_driver::TouchFrame frame;
   const cpp_bus_driver::TouchReadStatus read_status =
       driver_.chip().hi8561_touch->ReadPrimaryTouch(&frame);
+  if (read_status == cpp_bus_driver::TouchReadStatus::kSuccess ||
+      read_status == cpp_bus_driver::TouchReadStatus::kNoData) {
+    point->report_sequence = frame.sequence;
+    point->report_sequence_valid = true;
+  }
   if (frame.gesture == static_cast<uint8_t>(
           cpp_bus_driver::Hi8561Touch::Gesture::kDoubleTap)) {
     point->x = -1;
@@ -247,9 +254,43 @@ bool TDisplayP4AirDevice::SupportsTouchInterrupt() const {
   return touch_interrupt_initialized_;
 }
 
-bool TDisplayP4AirDevice::ConsumeTouchInterrupt() {
-  return touch_interrupt_initialized_ &&
-         touch_interrupt_pending_.exchange(false, std::memory_order_relaxed);
+bool TDisplayP4AirDevice::ConsumeTouchInterrupt(bool* edge_received) {
+  if (edge_received != nullptr) {
+    *edge_received = false;
+  }
+  if (!touch_interrupt_initialized_) {
+    return false;
+  }
+  // 原子标志处理正常下降沿，当前低电平用于恢复 HI8561 漏掉的边沿。
+  const bool interrupt_pending =
+      touch_interrupt_pending_.exchange(false, std::memory_order_relaxed);
+  const bool interrupt_line_active =
+      tool_ != nullptr && !tool_->GpioRead(gpio::hi8561::kTouchInt);
+  const bool recovered_falling_edge =
+      interrupt_line_active && !touch_interrupt_line_active_;
+  touch_interrupt_line_active_ = interrupt_line_active;
+  if (edge_received != nullptr) {
+    *edge_received = interrupt_pending || recovered_falling_edge;
+  }
+  return interrupt_pending || interrupt_line_active;
+}
+
+bool TDisplayP4AirDevice::RequiresContinuousSleepingTouchPolling() const {
+  return !touch_gesture_wake_enabled_;
+}
+
+bool TDisplayP4AirDevice::RefreshTouchWakeConfiguration() {
+  if (!driver_.IsHi8561TouchReady() ||
+      driver_.chip().hi8561_touch == nullptr) {
+    return false;
+  }
+
+  const bool refreshed =
+      driver_.chip().hi8561_touch->SetGestureWakeEnabled(true);
+  if (refreshed) {
+    touch_gesture_wake_enabled_ = true;
+  }
+  return refreshed;
 }
 
 bool TDisplayP4AirDevice::SetScreenBrightnessPercent(int percent) {

@@ -350,10 +350,14 @@ class Application final {
    * @brief 在面板熄屏且 LVGL 刷新暂停时直接读取触摸控制器
    * @param point 触摸点输出
    * @param access_available 可选返回当前触摸源是否可访问
+   * @param interrupt_edge_received 可选返回本次是否收到新的触摸中断下降沿
+   * @param force_read 是否在没有中断通知时执行恢复读取
+   * @param refresh_wake_configuration 是否刷新触摸唤醒配置
    * @return 检测到有效触摸返回 true
    */
-  bool ReadScreenTouchWhileSleeping(
-      hal::TouchPoint* point, bool* access_available = nullptr);
+  bool ReadScreenTouchWhileSleeping(hal::TouchPoint* point,
+      bool* access_available, bool* interrupt_edge_received,
+      bool force_read, bool refresh_wake_configuration);
 
   /**
    * @brief 应用屏幕亮度并同步应用层当前值

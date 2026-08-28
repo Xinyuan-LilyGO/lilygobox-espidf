@@ -137,13 +137,10 @@ bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
         driver_.SetKeyboardExpansionOperatingMode(
             lilygo_device_driver::TDisplayP4Driver::
                 KeyboardExpansionOperatingMode::kSleep);
-    touch_gesture_wake_enabled_ =
-        driver_.screen_type() == device::ScreenType::kHi8561 &&
-        driver_.IsHi8561TouchReady() &&
-        driver_.chip().hi8561_touch->SetGestureWakeEnabled(true);
+    touch_gesture_wake_enabled_ = SetTouchGestureWakeEnabled(true);
     const bool screen_slept = driver_.SetScreenSleep(true);
     if (!screen_slept && touch_gesture_wake_enabled_) {
-      driver_.chip().hi8561_touch->SetGestureWakeEnabled(false);
+      SetTouchGestureWakeEnabled(false);
       touch_gesture_wake_enabled_ = false;
     }
     if (!keyboard_expansion_slept) {
@@ -220,9 +217,9 @@ bool TDisplayP4Device::ExitDeviceSleep(bool deep_sleep) {
     return false;
   }
   if (touch_gesture_wake_enabled_) {
-    if (!driver_.chip().hi8561_touch->SetGestureWakeEnabled(false)) {
+    if (!SetTouchGestureWakeEnabled(false)) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Disable HI8561 touch gesture wake failed\n");
+          "Disable touch gesture wake failed\n");
     }
     touch_gesture_wake_enabled_ = false;
   }

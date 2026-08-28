@@ -424,9 +424,22 @@ class TDisplayP4AirDevice final : public ScreenProvider,
 
   /**
    * @brief 消费一个来自触摸控制器的报告通知
+   * @param edge_received 可选返回本次是否收到新的中断下降沿
    * @return 存在新的触摸报告通知返回 true，否则返回 false
    */
-  bool ConsumeTouchInterrupt() override;
+  bool ConsumeTouchInterrupt(bool* edge_received = nullptr) override;
+
+  /**
+   * @brief 判断 HI8561 是否需要连续读取以识别熄屏双击
+   * @return 固件手势未启用、需要软件降级时返回 true
+   */
+  bool RequiresContinuousSleepingTouchPolling() const override;
+
+  /**
+   * @brief 重新应用 HI8561 熄屏手势唤醒配置
+   * @return 配置成功返回 true，否则返回 false
+   */
+  bool RefreshTouchWakeConfiguration() override;
 
   /**
    * @brief 读取设备诊断快照
@@ -1473,6 +1486,8 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   bool volume_buttons_initialized_ = false;
   // 中断服务等待任务上下文处理的通知标志。
   std::atomic<bool> touch_interrupt_pending_{false};
+  // 任务最近一次观察到的触摸中断线有效状态。
+  bool touch_interrupt_line_active_ = false;
   // 轻度熄屏期间是否启用了触摸固件双击唤醒。
   bool touch_gesture_wake_enabled_ = false;
   // 扬声器播放状态，供 UI 和后台播放任务共享

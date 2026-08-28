@@ -23,6 +23,9 @@ struct TouchPoint {
   int16_t x = 0;
   int16_t y = 0;
   uint8_t pressure = 0;
+  // 触摸控制器报告序号，用于区分固件保留值与新的触摸报告。
+  uint8_t report_sequence = 0;
+  bool report_sequence_valid = false;
   // 触摸控制器报告了边缘触摸，但当前样本可能尚无有效坐标。
   bool edge_touch_flag = false;
   TouchGesture gesture = TouchGesture::kNone;
@@ -113,9 +116,29 @@ class ScreenProvider {
 
   /**
    * @brief 消费一个待处理的触摸报告中断通知
+   * @param edge_received 可选返回本次是否收到新的中断下降沿
    * @return 存在新的触摸报告通知返回 true，否则返回 false
    */
-  virtual bool ConsumeTouchInterrupt() { return false; }
+  virtual bool ConsumeTouchInterrupt(bool* edge_received = nullptr) {
+    if (edge_received != nullptr) {
+      *edge_received = false;
+    }
+    return false;
+  }
+
+  /**
+   * @brief 判断熄屏手势是否需要连续读取触摸状态
+   * @return 需要连续读取以完成软件手势识别时返回 true
+   */
+  virtual bool RequiresContinuousSleepingTouchPolling() const {
+    return false;
+  }
+
+  /**
+   * @brief 刷新熄屏触摸唤醒配置
+   * @return 配置有效或当前设备无需维护时返回 true，否则返回 false
+   */
+  virtual bool RefreshTouchWakeConfiguration() { return true; }
 
   /**
    * @brief 设置屏幕亮度

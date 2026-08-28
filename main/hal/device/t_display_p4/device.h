@@ -316,9 +316,22 @@ class TDisplayP4Device final : public ScreenProvider,
 
   /**
    * @brief 消费一个 XL9535 汇总输入变化通知
+   * @param edge_received 可选返回本次是否收到新的中断下降沿
    * @return 存在需要检查的触摸报告返回 true，否则返回 false
    */
-  bool ConsumeTouchInterrupt() override;
+  bool ConsumeTouchInterrupt(bool* edge_received = nullptr) override;
+
+  /**
+   * @brief 判断当前触摸控制器是否需要连续读取以识别熄屏双击
+   * @return 当前触摸固件手势未启用、需要软件降级时返回 true
+   */
+  bool RequiresContinuousSleepingTouchPolling() const override;
+
+  /**
+   * @brief 重新应用当前触摸控制器的熄屏手势唤醒配置
+   * @return 配置成功或当前屏幕无需维护时返回 true，否则返回 false
+   */
+  bool RefreshTouchWakeConfiguration() override;
 
   /**
    * @brief 读取设备诊断快照
@@ -813,6 +826,13 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 触摸可用返回 true，否则返回 false
    */
   bool WaitForTouchReady();
+
+  /**
+   * @brief 切换当前触摸控制器的固件双击唤醒模式
+   * @param enabled 是否启用固件双击唤醒
+   * @return 模式切换成功返回 true，否则返回 false
+   */
+  bool SetTouchGestureWakeEnabled(bool enabled);
 
   /**
    * @brief 停止仍可能访问外设的后台任务和网络协议栈

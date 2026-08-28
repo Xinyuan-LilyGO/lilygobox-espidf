@@ -67,6 +67,8 @@ constexpr int kVolumeButtonStepPercent = 2;
 constexpr uint32_t kScreenLockPollMs = 100;
 constexpr uint32_t kKeyboardExpansionConnectionUpdateWaitMs = 5000;
 constexpr uint32_t kScreenTouchPollMs = 30;
+constexpr uint32_t kSleepingTouchRecoveryPollMs = 1000;
+constexpr uint32_t kSleepingTouchWakeRefreshMs = 30 * 1000;
 // 防止触发熄屏的双击被触摸固件延迟上报为新的唤醒手势。
 constexpr uint32_t kScreenWakeInputGuardMs = 200;
 constexpr uint32_t kScreenLockSleepConfirmMs = 3 * 1000;
@@ -1554,13 +1556,18 @@ void Application::RunScreenLockTask() {
       portTICK_PERIOD_MS);
   uint32_t lock_screen_last_interaction_ms = last_touch_ms;
   uint32_t screen_sleep_started_ms = last_touch_ms;
+  uint32_t last_sleep_touch_recovery_ms = last_touch_ms;
+  uint32_t last_sleep_touch_wake_refresh_ms = last_touch_ms;
   bool unlock_touch_active = false;
   bool unlock_drag_ready = false;
   ScreenLockState observed_screen_lock_state = screen_lock_state_.load();
   bool screen_wake_input_armed =
       observed_screen_lock_state != ScreenLockState::kAsleep;
-  // 仅在触摸中断不可用的轮询降级路径中锁存固件手势状态。
-  bool polled_firmware_double_tap_latched = false;
+  // 序号可用时按新报告去重；无序号设备按当前手势状态去重。
+  bool firmware_double_tap_latched = false;
+  bool firmware_double_tap_sequence_valid = false;
+  uint8_t last_firmware_double_tap_sequence = 0;
+  bool software_double_tap_fallback_active = false;
   // 状态切换后丢弃触发切换的剩余触摸序列，直到确认手指释放。
   bool discard_transition_touch_until_release = false;
   hal::TouchPoint unlock_touch_start = {};
@@ -1599,9 +1606,15 @@ void Application::RunScreenLockTask() {
     const ScreenLockState screen_lock_state = screen_lock_state_.load();
     if (screen_lock_state != observed_screen_lock_state) {
       observed_screen_lock_state = screen_lock_state;
-      polled_firmware_double_tap_latched = false;
+      firmware_double_tap_latched = false;
+      firmware_double_tap_sequence_valid = false;
+      software_double_tap_fallback_active = false;
       if (screen_lock_state == ScreenLockState::kAsleep) {
         screen_sleep_started_ms = now_ms;
+        last_sleep_touch_recovery_ms =
+            now_ms - kSleepingTouchRecoveryPollMs;
+        last_sleep_touch_wake_refresh_ms =
+            now_ms - kSleepingTouchWakeRefreshMs;
         screen_wake_input_armed = false;
       }
     }
@@ -1712,28 +1725,65 @@ void Application::RunScreenLockTask() {
         if (!preferences.lock_screen_double_tap_to_turn_screen_on_and_off) {
           wake_double_tap_recognizer.Reset();
           sleep_double_tap_recognizer.Reset();
-          polled_firmware_double_tap_latched = false;
+          firmware_double_tap_latched = false;
+          firmware_double_tap_sequence_valid = false;
+          software_double_tap_fallback_active = false;
           discard_transition_touch_until_release = false;
           vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
           continue;
         }
 
+        const bool software_double_tap_fallback_required =
+            screen->RequiresContinuousSleepingTouchPolling();
+        if (software_double_tap_fallback_required &&
+            !software_double_tap_fallback_active) {
+          LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+              "Touch firmware gesture wake unavailable; "
+              "using software double-tap polling\n");
+        }
+        software_double_tap_fallback_active =
+            software_double_tap_fallback_required;
+
         hal::TouchPoint screen_off_point;
         bool touch_access_available = false;
+        bool touch_interrupt_edge_received = false;
+        const bool force_touch_recovery =
+            now_ms - last_sleep_touch_recovery_ms >=
+            kSleepingTouchRecoveryPollMs;
+        const bool refresh_touch_wake_configuration =
+            force_touch_recovery &&
+            now_ms - last_sleep_touch_wake_refresh_ms >=
+                kSleepingTouchWakeRefreshMs;
         const bool screen_off_sample_available =
-            ReadScreenTouchWhileSleeping(
-                &screen_off_point, &touch_access_available);
+            ReadScreenTouchWhileSleeping(&screen_off_point,
+                &touch_access_available, &touch_interrupt_edge_received,
+                force_touch_recovery, refresh_touch_wake_configuration);
+        if (touch_access_available && force_touch_recovery) {
+          last_sleep_touch_recovery_ms = now_ms;
+        }
+        if (touch_access_available && refresh_touch_wake_configuration) {
+          last_sleep_touch_wake_refresh_ms = now_ms;
+        }
         const bool firmware_double_tap_active =
             screen_off_sample_available &&
             screen_off_point.gesture == hal::TouchGesture::kDoubleTap;
-        const bool touch_interrupt_supported =
-            screen->SupportsTouchInterrupt();
+        const bool firmware_report_changed =
+            touch_interrupt_edge_received ||
+            (screen_off_point.report_sequence_valid
+                ? !firmware_double_tap_sequence_valid ||
+                    screen_off_point.report_sequence !=
+                        last_firmware_double_tap_sequence
+                : !firmware_double_tap_latched);
         const bool firmware_double_tap_detected =
             touch_access_available && firmware_double_tap_active &&
-            (touch_interrupt_supported ||
-                !polled_firmware_double_tap_latched);
-        if (!touch_interrupt_supported && touch_access_available) {
-          polled_firmware_double_tap_latched = firmware_double_tap_active;
+            firmware_report_changed;
+        if (touch_access_available) {
+          firmware_double_tap_latched = firmware_double_tap_active;
+          if (screen_off_point.report_sequence_valid) {
+            firmware_double_tap_sequence_valid = true;
+            last_firmware_double_tap_sequence =
+                screen_off_point.report_sequence;
+          }
         }
         const bool screen_off_touched =
             screen_off_sample_available &&
@@ -2743,9 +2793,14 @@ bool Application::ReadScreenTouchWhileAwake(
 }
 
 bool Application::ReadScreenTouchWhileSleeping(
-    hal::TouchPoint* point, bool* access_available) {
+    hal::TouchPoint* point, bool* access_available,
+    bool* interrupt_edge_received, bool force_read,
+    bool refresh_wake_configuration) {
   if (access_available != nullptr) {
     *access_available = false;
+  }
+  if (interrupt_edge_received != nullptr) {
+    *interrupt_edge_received = false;
   }
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
   if (point == nullptr || screen == nullptr ||
@@ -2760,19 +2815,35 @@ bool Application::ReadScreenTouchWhileSleeping(
     return false;
   }
 
-  // 有硬件中断时只读取新报告，避免把固件保持的手势值重复解释为新的
-  // 双击。先取得屏幕事务所有权再消费通知，防止竞争时丢失事件。
-  // 没有中断能力的设备继续使用原有轮询降级路径。
-  if (screen->SupportsTouchInterrupt() &&
-      !screen->ConsumeTouchInterrupt()) {
-    lvgl_port_.EndScreenTransition();
-    return false;
+  // 先取得屏幕事务所有权再消费通知，防止竞争时丢失事件。低频恢复读取
+  // 用于重新同步漏掉的边沿或持续有效的中断线。
+  bool touch_report_pending = false;
+  bool fresh_interrupt_edge_received = false;
+  if (!screen->RequiresContinuousSleepingTouchPolling() &&
+      screen->SupportsTouchInterrupt()) {
+    touch_report_pending =
+        screen->ConsumeTouchInterrupt(&fresh_interrupt_edge_received);
+    if (!touch_report_pending && !force_read) {
+      lvgl_port_.EndScreenTransition();
+      return false;
+    }
+  }
+
+  // 待处理报告必须先读取，避免重复下发配置时覆盖刚到达的固件手势。
+  if (refresh_wake_configuration && !touch_report_pending &&
+      !screen->RefreshTouchWakeConfiguration()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Refresh sleeping touch wake configuration failed\n");
   }
 
   const bool can_access = screen_off_confirmed_.load() &&
       lvgl_port_.IsDisplayFlushPaused();
   if (access_available != nullptr) {
     *access_available = can_access;
+  }
+  if (interrupt_edge_received != nullptr) {
+    *interrupt_edge_received =
+        can_access && fresh_interrupt_edge_received;
   }
   const bool touched = can_access && screen->ReadScreenTouch(point);
   lvgl_port_.EndScreenTransition();

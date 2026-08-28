@@ -186,10 +186,20 @@ bool TDisplayP4Device::ReadScreenTouch(TouchPoint* point) {
     default:
       return false;
   }
+  if (read_status == cpp_bus_driver::TouchReadStatus::kSuccess ||
+      read_status == cpp_bus_driver::TouchReadStatus::kNoData) {
+    point->report_sequence = frame.sequence;
+    point->report_sequence_valid = true;
+  }
 
-  if (driver_.screen_type() == device::ScreenType::kHi8561 &&
-      frame.gesture == static_cast<uint8_t>(
-          cpp_bus_driver::Hi8561Touch::Gesture::kDoubleTap)) {
+  const bool firmware_double_tap =
+      (driver_.screen_type() == device::ScreenType::kHi8561 &&
+          frame.gesture == static_cast<uint8_t>(
+              cpp_bus_driver::Hi8561Touch::Gesture::kDoubleTap)) ||
+      (driver_.screen_type() == device::ScreenType::kRm69a10 &&
+          frame.gesture == static_cast<uint8_t>(
+              cpp_bus_driver::Gt9895::Gesture::kDoubleTap));
+  if (firmware_double_tap) {
     point->x = -1;
     point->y = -1;
     point->gesture = TouchGesture::kDoubleTap;
@@ -318,9 +328,22 @@ bool TDisplayP4Device::SupportsTouchInterrupt() const {
   return touch_interrupt_initialized_;
 }
 
-bool TDisplayP4Device::ConsumeTouchInterrupt() {
-  if (!touch_interrupt_initialized_ ||
-      !touch_interrupt_pending_.exchange(false, std::memory_order_relaxed)) {
+bool TDisplayP4Device::ConsumeTouchInterrupt(bool* edge_received) {
+  if (edge_received != nullptr) {
+    *edge_received = false;
+  }
+  if (!touch_interrupt_initialized_) {
+    return false;
+  }
+  // 原子标志处理正常下降沿，当前低电平用于恢复漏边沿或共享中断锁存。
+  const bool interrupt_pending =
+      touch_interrupt_pending_.exchange(false, std::memory_order_relaxed);
+  if (edge_received != nullptr) {
+    *edge_received = interrupt_pending;
+  }
+  const bool interrupt_line_active =
+      tool_ != nullptr && !tool_->GpioRead(gpio::xl9535::kInt);
+  if (!interrupt_pending && !interrupt_line_active) {
     return false;
   }
   if (!driver_.IsXl9535Ready() || driver_.chip().xl9535 == nullptr) {
@@ -335,6 +358,41 @@ bool TDisplayP4Device::ConsumeTouchInterrupt() {
     return false;
   }
   return true;
+}
+
+bool TDisplayP4Device::RequiresContinuousSleepingTouchPolling() const {
+  switch (driver_.screen_type()) {
+    case device::ScreenType::kHi8561:
+    case device::ScreenType::kRm69a10:
+      return !touch_gesture_wake_enabled_;
+    default:
+      return false;
+  }
+}
+
+bool TDisplayP4Device::RefreshTouchWakeConfiguration() {
+  const bool refreshed = SetTouchGestureWakeEnabled(true);
+  if (refreshed) {
+    touch_gesture_wake_enabled_ = true;
+  }
+  return refreshed;
+}
+
+bool TDisplayP4Device::SetTouchGestureWakeEnabled(bool enabled) {
+  switch (driver_.screen_type()) {
+    case device::ScreenType::kHi8561:
+      return driver_.IsHi8561TouchReady() &&
+             driver_.chip().hi8561_touch != nullptr &&
+             driver_.chip().hi8561_touch->SetGestureWakeEnabled(enabled);
+    case device::ScreenType::kRm69a10:
+      if (!driver_.IsGt9895Ready() || driver_.chip().gt9895 == nullptr) {
+        return false;
+      }
+      return enabled ? driver_.chip().gt9895->EnterGestureMode()
+                     : driver_.chip().gt9895->ExitGestureMode();
+    default:
+      return false;
+  }
 }
 
 bool TDisplayP4Device::SetScreenBrightnessPercent(int percent) {
