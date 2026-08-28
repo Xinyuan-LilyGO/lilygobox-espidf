@@ -19,6 +19,7 @@
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <new>
 
 #include "app/application.h"
 #include "app/network_monitor.h"
@@ -268,6 +269,15 @@ struct FirmwareReleaseManifest {
   size_t note_count = 0;
 };
 
+/**
+ * @brief 在堆上创建固件发布清单
+ * @return 创建成功时返回独占指针，内存不足时返回空指针
+ */
+std::unique_ptr<FirmwareReleaseManifest> AllocateFirmwareReleaseManifest() {
+  return std::unique_ptr<FirmwareReleaseManifest>(
+      new (std::nothrow) FirmwareReleaseManifest());
+}
+
 struct ManifestDownloadContext {
   char* data = nullptr;
   size_t size = 0;
@@ -378,8 +388,11 @@ void CopyText(char* destination, size_t destination_size,
   if (destination == nullptr || destination_size == 0) {
     return;
   }
-  std::snprintf(destination, destination_size, "%s",
-      source == nullptr ? "" : source);
+  const char* safe_source = source == nullptr ? "" : source;
+  const size_t copy_size = std::min(
+      std::strlen(safe_source), destination_size - 1);
+  std::memmove(destination, safe_source, copy_size);
+  destination[copy_size] = '\0';
 }
 
 /**
@@ -1820,7 +1833,8 @@ bool LoadManifestFile(
     return false;
   }
   std::rewind(file.get());
-  auto text = std::make_unique<char[]>(static_cast<size_t>(file_size) + 1);
+  auto text = std::unique_ptr<char[]>(new (std::nothrow)
+      char[static_cast<size_t>(file_size) + 1]());
   if (text == nullptr ||
       std::fread(text.get(), 1, static_cast<size_t>(file_size), file.get()) !=
           static_cast<size_t>(file_size)) {
@@ -1900,15 +1914,16 @@ bool SaveInstalledManifest() {
  * @brief 在线检查覆盖缓存前保留当前已安装版本的日志
  */
 void PreserveInstalledManifestBeforeCheck() {
-  FirmwareReleaseManifest saved_manifest;
+  auto saved_manifest = AllocateFirmwareReleaseManifest();
   char main_current[32] = {};
   char wireless_current[32] = {};
-  if (!LoadSavedManifest(&saved_manifest) ||
+  if (saved_manifest == nullptr ||
+      !LoadSavedManifest(saved_manifest.get()) ||
       !ReadCurrentMainVersion(main_current, sizeof(main_current)) ||
       !ReadCurrentWirelessVersion(
           wireless_current, sizeof(wireless_current)) ||
-      std::strcmp(saved_manifest.main_version, main_current) != 0 ||
-      std::strcmp(saved_manifest.wireless_version, wireless_current) != 0) {
+      std::strcmp(saved_manifest->main_version, main_current) != 0 ||
+      std::strcmp(saved_manifest->wireless_version, wireless_current) != 0) {
     return;
   }
   if (!SaveInstalledManifest()) {
@@ -2043,8 +2058,15 @@ bool DownloadManifest(
   }
   const bool historical_manifest =
       release_version != nullptr && release_version[0] != '\0';
-  auto buffer = std::make_unique<char[]>(kManifestMaximumSize + 1);
+  auto buffer = std::unique_ptr<char[]>(
+      new (std::nothrow) char[kManifestMaximumSize + 1]());
   if (buffer == nullptr) {
+    if (!historical_manifest) {
+      SetFailure("Insufficient memory for update information");
+    } else {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Allocate historical firmware manifest buffer failed\n");
+    }
     return false;
   }
   ManifestDownloadContext context;
@@ -2172,7 +2194,7 @@ void FormatFirmwareSize(size_t size_bytes, char* destination,
  * @return 清单与当前设备和主固件匹配并恢复成功返回 true，否则返回 false
  */
 bool RestoreInstalledManifestSnapshot(const char* main_current) {
-  auto installed_manifest = std::make_unique<FirmwareReleaseManifest>();
+  auto installed_manifest = AllocateFirmwareReleaseManifest();
   if (main_current == nullptr || main_current[0] == '\0' ||
       installed_manifest == nullptr ||
       !LoadInstalledManifest(installed_manifest.get()) ||
@@ -2247,25 +2269,29 @@ bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
   const size_t package_size_bytes =
       (main_update_available ? manifest.main_size_bytes : 0) +
       (wireless_update_available ? manifest.wireless_size_bytes : 0);
-  FirmwareReleaseManifest installed_manifest;
-  bool installed_manifest_valid = false;
+  std::unique_ptr<FirmwareReleaseManifest> installed_manifest_storage;
+  const FirmwareReleaseManifest* installed_manifest = nullptr;
   if (!update_available) {
-    installed_manifest = manifest;
-    installed_manifest_valid = true;
+    installed_manifest = &manifest;
     if (save_as_installed && !SaveInstalledManifest()) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Save installed firmware release notes failed\n");
     }
   } else if (current_manifest != nullptr &&
              std::strcmp(current_manifest->main_version, main_current) == 0) {
-    installed_manifest = *current_manifest;
-    installed_manifest_valid = true;
-  } else if (LoadInstalledManifest(&installed_manifest) &&
-             std::strcmp(installed_manifest.main_version, main_current) == 0 &&
-             std::strcmp(
-                 installed_manifest.wireless_version, wireless_current) == 0) {
-    installed_manifest_valid = true;
+    installed_manifest = current_manifest;
+  } else {
+    installed_manifest_storage = AllocateFirmwareReleaseManifest();
+    if (installed_manifest_storage != nullptr &&
+        LoadInstalledManifest(installed_manifest_storage.get()) &&
+        std::strcmp(
+            installed_manifest_storage->main_version, main_current) == 0 &&
+        std::strcmp(installed_manifest_storage->wireless_version,
+            wireless_current) == 0) {
+      installed_manifest = installed_manifest_storage.get();
+    }
   }
+  const bool installed_manifest_valid = installed_manifest != nullptr;
   if (!LockManager()) {
     return false;
   }
@@ -2273,7 +2299,7 @@ bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
   State().manifest_valid = true;
   State().snapshot.manifest_available = true;
   State().snapshot.current_release_notes_available =
-      installed_manifest_valid && installed_manifest.note_count > 0;
+      installed_manifest_valid && installed_manifest->note_count > 0;
   State().snapshot.update_available = update_available;
   State().snapshot.main_update_available = main_update_available;
   State().snapshot.wireless_update_available =
@@ -2288,13 +2314,13 @@ bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
   if (installed_manifest_valid) {
     CopyText(State().snapshot.current_release_version,
         sizeof(State().snapshot.current_release_version),
-        installed_manifest.release_version);
+        installed_manifest->release_version);
     CopyText(State().snapshot.current_release_channel,
         sizeof(State().snapshot.current_release_channel),
-        installed_manifest.release_channel);
+        installed_manifest->release_channel);
     CopyText(State().snapshot.current_publish_time,
         sizeof(State().snapshot.current_publish_time),
-        installed_manifest.publish_time);
+        installed_manifest->publish_time);
   } else {
     CopyReleaseVersion(State().snapshot.current_release_version,
         sizeof(State().snapshot.current_release_version), main_current);
@@ -2311,14 +2337,14 @@ bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
       State().snapshot.wireless_size,
       sizeof(State().snapshot.wireless_size));
   if (installed_manifest_valid) {
-    FormatFirmwareSize(installed_manifest.main_size_bytes +
-            installed_manifest.wireless_size_bytes,
+    FormatFirmwareSize(installed_manifest->main_size_bytes +
+            installed_manifest->wireless_size_bytes,
         State().snapshot.current_package_size,
         sizeof(State().snapshot.current_package_size));
-    FormatFirmwareSize(installed_manifest.main_size_bytes,
+    FormatFirmwareSize(installed_manifest->main_size_bytes,
         State().snapshot.current_main_size,
         sizeof(State().snapshot.current_main_size));
-    FormatFirmwareSize(installed_manifest.wireless_size_bytes,
+    FormatFirmwareSize(installed_manifest->wireless_size_bytes,
         State().snapshot.current_wireless_size,
         sizeof(State().snapshot.current_wireless_size));
   } else {
@@ -2341,10 +2367,10 @@ bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
         sizeof(State().snapshot.notes[index]), manifest.notes[index]);
     CopyText(State().snapshot.current_notes[index],
         sizeof(State().snapshot.current_notes[index]),
-        installed_manifest_valid ? installed_manifest.notes[index] : "");
+        installed_manifest_valid ? installed_manifest->notes[index] : "");
   }
   State().snapshot.current_note_count = installed_manifest_valid
-      ? installed_manifest.note_count
+      ? installed_manifest->note_count
       : 0;
   State().snapshot.stage = update_available
       ? FirmwareUpdateStage::kUpdateAvailable
@@ -2363,17 +2389,18 @@ bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
  * @return 本地记录与当前固件一致并恢复成功返回 true，否则返回 false
  */
 bool ApplyInstalledManifestFallback(const char* failure_message) {
-  FirmwareReleaseManifest installed_manifest;
+  auto installed_manifest = AllocateFirmwareReleaseManifest();
   char main_current[32] = {};
   char wireless_current[32] = {};
-  if (!LoadInstalledManifest(&installed_manifest) ||
+  if (installed_manifest == nullptr ||
+      !LoadInstalledManifest(installed_manifest.get()) ||
       !ReadCurrentMainVersion(main_current, sizeof(main_current)) ||
       !ReadCurrentWirelessVersion(
           wireless_current, sizeof(wireless_current)) ||
-      std::strcmp(installed_manifest.main_version, main_current) != 0 ||
-      std::strcmp(installed_manifest.wireless_version, wireless_current) != 0 ||
+      std::strcmp(installed_manifest->main_version, main_current) != 0 ||
+      std::strcmp(installed_manifest->wireless_version, wireless_current) != 0 ||
       !ApplyManifestSnapshot(
-          installed_manifest, main_current, wireless_current)) {
+          *installed_manifest, main_current, wireless_current)) {
     return false;
   }
   SetFailure(failure_message);
@@ -2486,7 +2513,8 @@ bool VerifyFileIntegrity(FILE* file, size_t file_size, size_t expected_size,
       !IsSha256Text(expected_sha256) || std::fseek(file, 0, SEEK_SET) != 0) {
     return false;
   }
-  auto buffer = std::make_unique<uint8_t[]>(kHashReadChunkSize);
+  auto buffer = std::unique_ptr<uint8_t[]>(
+      new (std::nothrow) uint8_t[kHashReadChunkSize]());
   if (buffer == nullptr) {
     return false;
   }
@@ -2529,7 +2557,8 @@ bool VerifyPartitionIntegrity(const esp_partition_t* partition,
       image_size > partition->size || !IsSha256Text(expected_sha256)) {
     return false;
   }
-  auto buffer = std::make_unique<uint8_t[]>(kHashReadChunkSize);
+  auto buffer = std::unique_ptr<uint8_t[]>(
+      new (std::nothrow) uint8_t[kHashReadChunkSize]());
   if (buffer == nullptr) {
     return false;
   }
@@ -3106,7 +3135,8 @@ WirelessUpdateResult UpdateWirelessFirmware(
     SetFailure("Cannot prepare Wireless firmware update");
     return WirelessUpdateResult::kFailed;
   }
-  auto chunk = std::make_unique<uint8_t[]>(kWirelessFirmwareChunkSize);
+  auto chunk = std::unique_ptr<uint8_t[]>(
+      new (std::nothrow) uint8_t[kWirelessFirmwareChunkSize]());
   if (chunk == nullptr) {
     if (!keep_marker_on_failure) {
       ClearPendingUpdate();
@@ -3538,18 +3568,15 @@ MainUpdateResult UpdateMainFirmware(
 }
 
 /**
- * @brief 执行一次最新固件检查任务
- * @param context FreeRTOS 任务参数，本任务未使用
+ * @brief 执行一次最新固件检查流程
  */
-void CheckTask(void* context) {
-  static_cast<void>(context);
+void RunCheckTask() {
   PreserveInstalledManifestBeforeCheck();
   if (!IsNetworkReady()) {
     if (!ApplyInstalledManifestFallback("Wi-Fi is not connected")) {
       SetFailure("Wi-Fi is not connected");
     }
     FinishWorker();
-    vTaskDelete(nullptr);
     return;
   }
   if (!EnsureFirmwareInternetAccess()) {
@@ -3558,12 +3585,17 @@ void CheckTask(void* context) {
       SetFailure("Current Wi-Fi cannot access internet");
     }
     FinishWorker();
-    vTaskDelete(nullptr);
     return;
   }
   SetStage(FirmwareUpdateStage::kChecking,
       "Loading update information");
-  FirmwareReleaseManifest manifest;
+  auto manifest_storage = AllocateFirmwareReleaseManifest();
+  if (manifest_storage == nullptr) {
+    SetFailure("Insufficient memory for update information");
+    FinishWorker();
+    return;
+  }
+  FirmwareReleaseManifest& manifest = *manifest_storage;
   char main_current[32] = {};
   char wireless_current[32] = {};
   if (!DownloadManifest(&manifest, nullptr)) {
@@ -3578,7 +3610,6 @@ void CheckTask(void* context) {
           "Update information unavailable");
     }
     FinishWorker();
-    vTaskDelete(nullptr);
     return;
   }
   if (!ReadCurrentMainVersion(main_current, sizeof(main_current)) ||
@@ -3586,30 +3617,40 @@ void CheckTask(void* context) {
           wireless_current, sizeof(wireless_current))) {
     SetFailure("Installed versions unavailable");
   } else {
-    FirmwareReleaseManifest current_manifest;
+    auto current_manifest_storage = AllocateFirmwareReleaseManifest();
     bool current_release_notes_available =
-        LoadInstalledManifest(&current_manifest) &&
-        std::strcmp(current_manifest.main_version, main_current) == 0 &&
+        current_manifest_storage != nullptr &&
+        LoadInstalledManifest(current_manifest_storage.get()) &&
         std::strcmp(
-            current_manifest.wireless_version, wireless_current) == 0 &&
-        current_manifest.note_count > 0;
+            current_manifest_storage->main_version, main_current) == 0 &&
+        std::strcmp(current_manifest_storage->wireless_version,
+            wireless_current) == 0 &&
+        current_manifest_storage->note_count > 0;
     if (!current_release_notes_available &&
         std::strcmp(manifest.main_version, main_current) == 0 &&
         manifest.note_count > 0) {
-      current_manifest = manifest;
-      current_release_notes_available = true;
+      if (current_manifest_storage == nullptr) {
+        current_manifest_storage = AllocateFirmwareReleaseManifest();
+      }
+      if (current_manifest_storage != nullptr) {
+        *current_manifest_storage = manifest;
+      }
+      current_release_notes_available = current_manifest_storage != nullptr;
     }
     if (!current_release_notes_available &&
-        DownloadManifest(&current_manifest, main_current)) {
+        current_manifest_storage != nullptr &&
+        DownloadManifest(current_manifest_storage.get(), main_current)) {
       current_release_notes_available =
-          std::strcmp(current_manifest.main_version, main_current) == 0 &&
-          current_manifest.note_count > 0;
+          std::strcmp(
+              current_manifest_storage->main_version, main_current) == 0 &&
+          current_manifest_storage->note_count > 0;
       if (!current_release_notes_available) {
-        if (std::strcmp(current_manifest.main_version, main_current) != 0) {
+        if (std::strcmp(
+                current_manifest_storage->main_version, main_current) != 0) {
           LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
               "Historical firmware manifest version mismatch "
               "(installed: %s, manifest: %s)\n",
-              main_current, current_manifest.main_version);
+              main_current, current_manifest_storage->main_version);
         } else {
           LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
               "Historical firmware manifest has no release notes "
@@ -3620,19 +3661,33 @@ void CheckTask(void* context) {
     }
     ApplyManifestSnapshot(
         manifest, main_current, wireless_current, true,
-        current_release_notes_available ? &current_manifest : nullptr);
+        current_release_notes_available ? current_manifest_storage.get()
+                                        : nullptr);
   }
   FinishWorker();
+}
+
+/**
+ * @brief 执行一次最新固件检查任务
+ * @param context FreeRTOS 任务参数，本任务未使用
+ */
+void CheckTask(void* context) {
+  static_cast<void>(context);
+  RunCheckTask();
   vTaskDelete(nullptr);
 }
 
 /**
- * @brief 执行用户确认的主固件与无线固件组合更新任务
- * @param context FreeRTOS 任务参数，本任务未使用
+ * @brief 执行用户确认的主固件与无线固件组合更新流程
  */
-void UpdateTask(void* context) {
-  static_cast<void>(context);
-  FirmwareReleaseManifest manifest;
+void RunUpdateTask() {
+  auto manifest_storage = AllocateFirmwareReleaseManifest();
+  if (manifest_storage == nullptr) {
+    SetFailure("Insufficient memory for update information");
+    FinishWorker();
+    return;
+  }
+  FirmwareReleaseManifest& manifest = *manifest_storage;
   if (LockManager()) {
     manifest = State().manifest;
     UnlockManager();
@@ -3640,13 +3695,11 @@ void UpdateTask(void* context) {
   if (!IsNetworkReady()) {
     SetFailure("Wi-Fi is not connected");
     FinishWorker();
-    vTaskDelete(nullptr);
     return;
   }
   if (!EnsureFirmwareInternetAccess()) {
     SetFailure("Current Wi-Fi cannot access internet");
     FinishWorker();
-    vTaskDelete(nullptr);
     return;
   }
   char main_current[32] = {};
@@ -3656,7 +3709,6 @@ void UpdateTask(void* context) {
           wireless_current, sizeof(wireless_current))) {
     SetFailure("Installed versions unavailable");
     FinishWorker();
-    vTaskDelete(nullptr);
     return;
   }
   bool main_version_valid = false;
@@ -3668,7 +3720,6 @@ void UpdateTask(void* context) {
   if (!main_version_valid || !wireless_version_valid) {
     SetFailure("Installed firmware version invalid");
     FinishWorker();
-    vTaskDelete(nullptr);
     return;
   }
 
@@ -3685,12 +3736,10 @@ void UpdateTask(void* context) {
       } else {
         FinishWorker();
       }
-      vTaskDelete(nullptr);
       return;
     }
   }
   if (HandlePendingDownloadInterruption()) {
-    vTaskDelete(nullptr);
     return;
   }
   // 主固件镜像写入备用分区并校验，但确认安装前恢复当前启动分区。
@@ -3708,17 +3757,33 @@ void UpdateTask(void* context) {
           main_result != MainUpdateResult::kCancelled) {
         FinishWorker();
       }
-      vTaskDelete(nullptr);
       return;
     }
   }
   FinishPreparedDownload();
+}
+
+/**
+ * @brief 执行用户确认的主固件与无线固件组合更新任务
+ * @param context FreeRTOS 任务参数，本任务未使用
+ */
+void UpdateTask(void* context) {
+  static_cast<void>(context);
+  RunUpdateTask();
   vTaskDelete(nullptr);
 }
 
-void InstallTask(void* context) {
-  static_cast<void>(context);
-  FirmwareReleaseManifest manifest;
+/**
+ * @brief 安装已经准备完成的主固件与无线固件
+ */
+void RunInstallTask() {
+  auto manifest_storage = AllocateFirmwareReleaseManifest();
+  if (manifest_storage == nullptr) {
+    SetFailure("Insufficient memory for update information");
+    FinishWorker();
+    return;
+  }
+  FirmwareReleaseManifest& manifest = *manifest_storage;
   if (LockManager()) {
     manifest = State().manifest;
     UnlockManager();
@@ -3730,7 +3795,6 @@ void InstallTask(void* context) {
           wireless_current, sizeof(wireless_current))) {
     SetFailure("Installed versions unavailable");
     FinishWorker();
-    vTaskDelete(nullptr);
     return;
   }
   bool main_version_valid = false;
@@ -3742,7 +3806,6 @@ void InstallTask(void* context) {
   if (!main_version_valid || !wireless_version_valid) {
     SetFailure("Installed firmware version invalid");
     FinishWorker();
-    vTaskDelete(nullptr);
     return;
   }
   if (wireless_update_required &&
@@ -3750,7 +3813,6 @@ void InstallTask(void* context) {
     std::remove(kWirelessFirmwarePath);
     SetFailure("Prepared Wireless firmware is unavailable");
     FinishWorker();
-    vTaskDelete(nullptr);
     return;
   }
   const esp_partition_t* prepared_main_partition = nullptr;
@@ -3767,7 +3829,6 @@ void InstallTask(void* context) {
     if (!image_valid) {
       SetFailure("Prepared Main firmware is unavailable");
       FinishWorker();
-      vTaskDelete(nullptr);
       return;
     }
   }
@@ -3777,7 +3838,6 @@ void InstallTask(void* context) {
     if (wireless_result != WirelessUpdateResult::kCompleted &&
         wireless_result != WirelessUpdateResult::kNotRequired) {
       FinishWorker();
-      vTaskDelete(nullptr);
       return;
     }
   }
@@ -3788,14 +3848,12 @@ void InstallTask(void* context) {
       RestoreRunningBootPartition();
       SetFailure("Cannot activate prepared Main firmware");
       FinishWorker();
-      vTaskDelete(nullptr);
       return;
     }
     SetStage(FirmwareUpdateStage::kRestarting,
         "Restarting into the new firmware", 100);
     vTaskDelay(pdMS_TO_TICKS(kRestartDelayMs));
     RestartAfterScreenOff();
-    vTaskDelete(nullptr);
     return;
   }
   if (wireless_update_required) {
@@ -3803,7 +3861,6 @@ void InstallTask(void* context) {
         UpdateWirelessFirmware(manifest, false, true);
     if (wireless_result != WirelessUpdateResult::kNotRequired) {
       FinishWorker();
-      vTaskDelete(nullptr);
       return;
     }
   }
@@ -3817,22 +3874,34 @@ void InstallTask(void* context) {
         manifest, main_current, wireless_current);
   }
   FinishWorker();
+}
+
+/**
+ * @brief 执行已准备固件的安装任务
+ * @param context FreeRTOS 任务参数，本任务未使用
+ */
+void InstallTask(void* context) {
+  static_cast<void>(context);
+  RunInstallTask();
   vTaskDelete(nullptr);
 }
 
 /**
- * @brief 在重启后按安全顺序恢复未完成的组合更新任务
- * @param context FreeRTOS 任务参数，本任务未使用
+ * @brief 在重启后按安全顺序恢复未完成的组合更新流程
  */
-void ResumeTask(void* context) {
-  static_cast<void>(context);
-  FirmwareReleaseManifest manifest;
+void RunResumeTask() {
+  auto manifest_storage = AllocateFirmwareReleaseManifest();
+  if (manifest_storage == nullptr) {
+    SetFailure("Insufficient memory for update information");
+    FinishWorker();
+    return;
+  }
+  FirmwareReleaseManifest& manifest = *manifest_storage;
   if (!LoadSavedManifest(&manifest)) {
     ClearPendingUpdate();
     CleanupWirelessFiles();
     SetFailure("Saved update information missing");
     FinishWorker();
-    vTaskDelete(nullptr);
     return;
   }
   ApplyPendingManifestSnapshot(manifest);
@@ -3841,14 +3910,12 @@ void ResumeTask(void* context) {
           sizeof(wireless_current), kWirelessReadyTimeoutMs)) {
     SetFailure("Cannot verify Wireless firmware after restart");
     FinishWorker();
-    vTaskDelete(nullptr);
     return;
   }
   char main_current[32] = {};
   if (!ReadCurrentMainVersion(main_current, sizeof(main_current))) {
     SetFailure("Cannot verify Main firmware after restart");
     FinishWorker();
-    vTaskDelete(nullptr);
     return;
   }
   bool main_version_valid = false;
@@ -3860,7 +3927,6 @@ void ResumeTask(void* context) {
   if (!main_version_valid || !wireless_version_valid) {
     SetFailure("Installed firmware version invalid");
     FinishWorker();
-    vTaskDelete(nullptr);
     return;
   }
   if (LockManager()) {
@@ -3879,13 +3945,11 @@ void ResumeTask(void* context) {
     if (!IsNetworkReady()) {
       SetFailure("Wi-Fi is not connected");
       FinishWorker();
-      vTaskDelete(nullptr);
       return;
     }
     if (!EnsureFirmwareInternetAccess()) {
       SetFailure("Current Wi-Fi cannot access internet");
       FinishWorker();
-      vTaskDelete(nullptr);
       return;
     }
     const FirmwareDownloadResult wireless_result =
@@ -3898,25 +3962,21 @@ void ResumeTask(void* context) {
       } else {
         FinishWorker();
       }
-      vTaskDelete(nullptr);
       return;
     }
   }
   if (HandlePendingDownloadInterruption()) {
-    vTaskDelete(nullptr);
     return;
   }
   if (main_update_required) {
     if (!IsNetworkReady()) {
       SetFailure("Wi-Fi is not connected");
       FinishWorker();
-      vTaskDelete(nullptr);
       return;
     }
     if (!EnsureFirmwareInternetAccess()) {
       SetFailure("Current Wi-Fi cannot access internet");
       FinishWorker();
-      vTaskDelete(nullptr);
       return;
     }
     const MainUpdateResult main_result =
@@ -3931,7 +3991,6 @@ void ResumeTask(void* context) {
           main_result != MainUpdateResult::kCancelled) {
         FinishWorker();
       }
-      vTaskDelete(nullptr);
       return;
     }
   }
@@ -3942,7 +4001,6 @@ void ResumeTask(void* context) {
         UpdateWirelessFirmware(manifest, true, true);
     if (wireless_result != WirelessUpdateResult::kNotRequired) {
       FinishWorker();
-      vTaskDelete(nullptr);
       return;
     }
   }
@@ -3956,6 +4014,15 @@ void ResumeTask(void* context) {
         manifest, main_current, wireless_current);
   }
   FinishWorker();
+}
+
+/**
+ * @brief 在重启后恢复未完成的组合更新任务
+ * @param context FreeRTOS 任务参数，本任务未使用
+ */
+void ResumeTask(void* context) {
+  static_cast<void>(context);
+  RunResumeTask();
   vTaskDelete(nullptr);
 }
 
@@ -3989,7 +4056,7 @@ class FirmwareUpdateManager::Impl {
 };
 
 FirmwareUpdateManager::FirmwareUpdateManager()
-    : impl_(std::make_unique<Impl>()) {}
+    : impl_(new (std::nothrow) Impl()) {}
 
 FirmwareUpdateManager& FirmwareUpdateManager::Instance() {
   static FirmwareUpdateManager manager;
