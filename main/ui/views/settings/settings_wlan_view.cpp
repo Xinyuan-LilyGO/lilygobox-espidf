@@ -72,6 +72,13 @@ void UpdateWifiConnectedSignalIcon(SettingsViewState* state);
 void UpdateWifiConnectButtonState(SettingsViewState* state);
 
 /**
+ * @brief 检查 WLAN 密码是否符合 WPA/WPA2 个人网络格式
+ * @param password 待检查密码
+ * @return 密码格式有效时返回 true
+ */
+bool IsValidWifiPassword(const char* password);
+
+/**
  * @brief 根据键盘显示状态移动 WLAN 连接弹窗
  * @param state 设置页状态
  * @param keyboard_visible 键盘是否显示
@@ -300,6 +307,8 @@ void WifiCloseCompletedCallback(lv_anim_t* animation) {
   state->wifi_modal_overlay = nullptr;
   state->wifi_modal_sheet = nullptr;
   state->wifi_password_text_area = nullptr;
+  state->wifi_password_visibility_button = nullptr;
+  state->wifi_password_visibility_icon = nullptr;
   state->wifi_password_error_label = nullptr;
   state->wifi_password_keyboard = nullptr;
   state->wifi_connect_button = nullptr;
@@ -345,6 +354,8 @@ void CloseWifiPage(SettingsViewState* state, bool animated) {
   state->wifi_modal_overlay = nullptr;
   state->wifi_modal_sheet = nullptr;
   state->wifi_password_text_area = nullptr;
+  state->wifi_password_visibility_button = nullptr;
+  state->wifi_password_visibility_icon = nullptr;
   state->wifi_password_error_label = nullptr;
   state->wifi_password_keyboard = nullptr;
   state->wifi_connect_button = nullptr;
@@ -474,6 +485,8 @@ void ResetWifiModalState(SettingsViewState* state) {
   state->wifi_modal_overlay = nullptr;
   state->wifi_modal_sheet = nullptr;
   state->wifi_password_text_area = nullptr;
+  state->wifi_password_visibility_button = nullptr;
+  state->wifi_password_visibility_icon = nullptr;
   state->wifi_password_error_label = nullptr;
   state->wifi_password_keyboard = nullptr;
   state->wifi_connect_button = nullptr;
@@ -813,7 +826,9 @@ void WifiModalContentClickedEventCallback(lv_event_t* event) {
   if (state != nullptr && state->wifi_password_keyboard != nullptr &&
       state->wifi_password_text_area != nullptr &&
       !IsObjectOrChildOf(target, state->wifi_password_keyboard) &&
-      !IsObjectOrChildOf(target, state->wifi_password_text_area)) {
+      !IsObjectOrChildOf(target, state->wifi_password_text_area) &&
+      !IsObjectOrChildOf(
+          target, state->wifi_password_visibility_button)) {
     HideSharedKeyboard(state->wifi_password_keyboard);
     MoveWifiConnectSheetForKeyboard(state, false);
     lv_obj_remove_state(state->wifi_password_text_area, LV_STATE_FOCUSED);
@@ -839,7 +854,7 @@ void WifiModalConnectClickedEventCallback(lv_event_t* event) {
   const char* password = state->wifi_pending_action.password;
   if (state->wifi_password_text_area != nullptr) {
     password = lv_textarea_get_text(state->wifi_password_text_area);
-    if (std::strlen(password) < kWifiPasswordMinLength) {
+    if (!IsValidWifiPassword(password)) {
       UpdateWifiConnectButtonState(state);
       lv_event_stop_bubbling(event);
       lv_event_stop_processing(event);
@@ -1929,7 +1944,9 @@ bool CreateWifiConnectedCard(lv_obj_t* parent, SettingsViewState* state,
   if (subtitle == nullptr) {
     return false;
   }
-  lv_obj_set_width(subtitle, card_width - 210);
+  lv_obj_set_size(subtitle, card_width - 210,
+      static_cast<int>(lv_font_get_line_height(Font22())));
+  lv_label_set_long_mode(subtitle, LV_LABEL_LONG_SCROLL_CIRCULAR);
   lv_obj_align(subtitle, LV_ALIGN_LEFT_MID, 82, 22);
 
   if (is_5g) {
@@ -2693,6 +2710,32 @@ void SetWifiConnectButtonEnabled(SettingsViewState* state, bool enabled) {
   }
 }
 
+/**
+ * @brief 检查 WLAN 密码是否符合 WPA/WPA2 个人网络格式
+ * @param password 待检查密码
+ * @return 8 至 63 位可打印 ASCII 时返回 true
+ */
+bool IsValidWifiPassword(const char* password) {
+  if (password == nullptr) {
+    return false;
+  }
+
+  const size_t length = std::strlen(password);
+  if (length < kWifiPasswordMinLength ||
+      length > kWifiPasswordInputMaxLength) {
+    return false;
+  }
+
+  for (size_t index = 0; index < length; ++index) {
+    const unsigned char character =
+        static_cast<unsigned char>(password[index]);
+    if (character < 0x20 || character > 0x7E) {
+      return false;
+    }
+  }
+  return true;
+}
+
 void UpdateWifiConnectButtonState(SettingsViewState* state) {
   if (state == nullptr) {
     return;
@@ -2702,9 +2745,7 @@ void UpdateWifiConnectButtonState(SettingsViewState* state) {
     return;
   }
   const char* password = lv_textarea_get_text(state->wifi_password_text_area);
-  const bool enabled =
-      password != nullptr && std::strlen(password) >= kWifiPasswordMinLength;
-  SetWifiConnectButtonEnabled(state, enabled);
+  SetWifiConnectButtonEnabled(state, IsValidWifiPassword(password));
 }
 
 void MoveWifiConnectSheetForKeyboard(
@@ -2769,6 +2810,123 @@ void WifiPasswordTextAreaEventCallback(lv_event_t* event) {
     }
     MoveWifiConnectSheetForKeyboard(state, false);
   }
+}
+
+/**
+ * @brief 密码显隐切换后重新计算单行输入框的水平滚动位置
+ * @param text_area WLAN 密码输入框
+ */
+void RefreshWifiPasswordTextAreaScroll(lv_obj_t* text_area) {
+  if (text_area == nullptr) {
+    return;
+  }
+
+  lv_obj_t* label = lv_textarea_get_label(text_area);
+  const lv_font_t* font =
+      lv_obj_get_style_text_font(text_area, LV_PART_MAIN);
+  if (label == nullptr || font == nullptr) {
+    return;
+  }
+
+  lv_obj_update_layout(label);
+  lv_point_t cursor_position;
+  lv_label_get_letter_pos(label, lv_textarea_get_cursor_pos(text_area),
+      &cursor_position);
+  const int32_t cursor_margin = lv_font_get_line_height(font);
+  const int32_t content_width = lv_obj_get_content_width(text_area);
+  const int32_t target_scroll_x = std::max<int32_t>(0,
+      cursor_position.x - content_width + cursor_margin);
+  lv_obj_scroll_to_x(text_area, target_scroll_x, LV_ANIM_OFF);
+}
+
+/**
+ * @brief 切换 WLAN 密码输入框的明文显示状态
+ * @param event LVGL 事件对象
+ */
+void WifiPasswordVisibilityClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->wifi_password_text_area == nullptr ||
+      state->wifi_password_visibility_icon == nullptr) {
+    return;
+  }
+
+  const bool password_hidden =
+      lv_textarea_get_password_mode(state->wifi_password_text_area);
+  lv_textarea_set_password_mode(
+      state->wifi_password_text_area, !password_hidden);
+  RefreshWifiPasswordTextAreaScroll(state->wifi_password_text_area);
+  const uint32_t icon_color =
+      password_hidden ? SettingsThemeColors().action
+                      : SettingsThemeColors().on_surface_variant;
+  lv_obj_set_style_text_color(state->wifi_password_visibility_icon,
+      lv_color_hex(icon_color), LV_PART_MAIN);
+  lv_event_stop_bubbling(event);
+  lv_event_stop_processing(event);
+}
+
+/**
+ * @brief 在 WLAN 密码输入框末端创建密码显隐按钮
+ * @param parent 密码弹窗内容对象
+ * @param state 设置页状态
+ * @param sheet_width 弹窗宽度
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreateWifiPasswordVisibilityButton(
+    lv_obj_t* parent, SettingsViewState* state, int sheet_width) {
+  if (parent == nullptr || state == nullptr) {
+    return false;
+  }
+
+  lv_obj_t* button = lv_button_create(parent);
+  if (button == nullptr) {
+    return false;
+  }
+  lv_obj_remove_style_all(button);
+  lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+  lv_obj_remove_flag(button, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+  lv_obj_remove_flag(button, LV_OBJ_FLAG_PRESS_LOCK);
+  lv_obj_add_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(button, kWifiPasswordVisibilityButtonSize,
+      kWifiPasswordVisibilityButtonSize);
+  lv_obj_set_pos(button,
+      sheet_width - kWifiConnectSheetInnerPadding -
+          kWifiPasswordVisibilityButtonRight -
+          kWifiPasswordVisibilityButtonSize,
+      kWifiPasswordInputTop +
+          (kWifiPasswordInputHeight -
+              kWifiPasswordVisibilityButtonSize) /
+              2);
+  lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(button,
+      lv_color_hex(SettingsThemeColors().state_layer), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
+  lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
+  lv_obj_set_style_outline_width(button, 0, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(
+      button, kWifiPasswordVisibilityButtonSize / 2, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
+  if (!AddPressCancelOnLeave(button)) {
+    return false;
+  }
+  lv_obj_add_event_cb(button, WifiPasswordVisibilityClickedEventCallback,
+      LV_EVENT_CLICKED, state);
+
+  lv_obj_t* visibility_icon = CreateLabel(button, icon::kVisibility,
+      lv_color_hex(SettingsThemeColors().on_surface_variant),
+      MaterialIconFont32());
+  if (visibility_icon == nullptr) {
+    return false;
+  }
+  lv_obj_center(visibility_icon);
+  state->wifi_password_visibility_button = button;
+  state->wifi_password_visibility_icon = visibility_icon;
+  return true;
 }
 
 bool ShowWifiConnectSheet(SettingsViewState* state,
@@ -2872,11 +3030,17 @@ bool ShowWifiConnectSheet(SettingsViewState* state,
     lv_textarea_set_one_line(text_area, true);
     lv_textarea_set_password_mode(text_area, true);
     lv_textarea_set_password_bullet(text_area, "*");
-    lv_textarea_set_max_length(text_area, hal::kWifiPasswordMaxLength);
+    lv_textarea_set_max_length(text_area, kWifiPasswordInputMaxLength);
     lv_textarea_set_placeholder_text(text_area, "");
     lv_textarea_set_text(text_area, "");
     ApplySettingsTextAreaStyle(
         text_area, Font28(), kWifiPasswordInputHeight);
+    lv_obj_set_style_pad_right(
+        text_area, kWifiPasswordInputRightPadding, LV_PART_MAIN);
+    if (!CreateWifiPasswordVisibilityButton(sheet, state, sheet_width)) {
+      CloseWifiModalImmediately(state);
+      return false;
+    }
 
     SharedKeyboardConfig keyboard_config;
     keyboard_config.width = state->config.width;

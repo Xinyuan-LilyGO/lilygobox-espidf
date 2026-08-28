@@ -49,6 +49,7 @@ inline constexpr char kPowerSettingsNew[] = "\xEF\xA3\x87";
 inline constexpr char kSunny[] = "\xEE\xA0\x9A";
 inline constexpr char kTouchApp[] = "\xEE\xA4\x93";
 inline constexpr char kUsb[] = "\xEE\x87\xA0";
+inline constexpr char kVisibility[] = "\xEE\xA3\xB4";
 inline constexpr char kRefresh[] = "\xEE\x97\x95";
 inline constexpr char kRepeat[] = "\xEE\x81\x80";
 inline constexpr char kRepeatOne[] = "\xEE\x81\x81";
