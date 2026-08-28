@@ -22,9 +22,9 @@
 #endif
 
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
-#include "hal/device/t_display_p4_air/t_display_p4_air_device.h"
+#include "hal/device/t_display_p4_air/device.h"
 #elif defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
-#include "hal/device/t_display_p4/t_display_p4_device.h"
+#include "hal/device/t_display_p4/device.h"
 #endif
 
 namespace lilygo_box::hal {

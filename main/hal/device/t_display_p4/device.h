@@ -44,6 +44,9 @@ class TDisplayP4Device final : public ScreenProvider,
                                public StorageProvider,
                                private audio::PcmOutput {
  public:
+  /**
+   * @brief 构造 T-Display-P4 Provider 并创建共享状态同步资源
+   */
   TDisplayP4Device();
 
   /**
@@ -246,6 +249,11 @@ class TDisplayP4Device final : public ScreenProvider,
   bool CopyCameraPreviewFrame(uint8_t* buffer, size_t buffer_size,
       CameraPreviewFrameInfo* info) override;
 
+  /**
+   * @brief 启用或停用 L76K GPS 数据采集
+   * @param enabled true 唤醒并启用 GPS，false 停止采集并进入睡眠
+   * @return GPS 目标工作状态设置成功返回 true，否则返回 false
+   */
   bool SetGpsEnabled(bool enabled) override;
 
   /**
@@ -418,9 +426,25 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ReadRadioStatus(
       uint32_t client_token, RadioStatus* status) override;
 
+  /**
+   * @brief 启用或停用 ICM20948 IMU 数据采集
+   * @param enabled true 唤醒 IMU，false 使 IMU 进入睡眠
+   * @return IMU 目标工作状态设置成功返回 true，否则返回 false
+   */
   bool SetImuEnabled(bool enabled) override;
+
+  /**
+   * @brief 读取 ICM20948 姿态角状态
+   * @param status IMU 姿态状态输出地址
+   * @return IMU 已启用且姿态数据读取成功返回 true，否则返回 false
+   */
   bool ReadImuStatus(ImuStatus* status) override;
 
+  /**
+   * @brief 异步启用或停用 IP101 以太网
+   * @param enabled true 启动以太网，false 停止协议栈并关闭硬件电源
+   * @return 状态切换请求成功接受返回 true，否则返回 false
+   */
   bool SetEthernetEnabled(bool enabled) override;
 
   /**
@@ -430,6 +454,11 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   bool ReadEthernetStatus(EthernetStatus* status) override;
 
+  /**
+   * @brief 异步启用或停用 ESP32-C6 hosted WiFi
+   * @param enabled true 启动 WiFi，false 停止连接并关闭桥接芯片电源
+   * @return 状态切换请求成功接受返回 true，否则返回 false
+   */
   bool SetWifiEnabled(bool enabled) override;
 
   /**
@@ -1436,7 +1465,18 @@ class TDisplayP4Device final : public ScreenProvider,
     bool chip_error = false;
   };
 
+  /**
+   * @brief 按配置稳定 ID 查找活动射频会话状态
+   * @param client_token 配置稳定 ID
+   * @return 找到时返回对应射频状态，否则返回 nullptr
+   */
   RadioState* FindRadioState(uint32_t client_token);
+
+  /**
+   * @brief 获取指定物理射频芯片对应的会话状态存储
+   * @param chip 物理射频芯片类型
+   * @return 芯片受支持时返回对应射频状态，否则返回 nullptr
+   */
   RadioState* RadioStateForChip(radio::ChipType chip);
 
   /**
@@ -1456,8 +1496,28 @@ class TDisplayP4Device final : public ScreenProvider,
    * @param context 当前设备对象
    */
   static void Cc1101ReceiveInterruptHandler(void* context);
+
+  /**
+   * @brief 停止指定射频会话并清理芯片收发状态
+   * @param state 待停止的射频会话状态
+   * @return 会话和对应硬件成功进入非活动状态返回 true，否则返回 false
+   */
   bool DeactivateRadioState(RadioState* state);
+
+  /**
+   * @brief 非阻塞处理指定射频会话的收发事件和软件看门狗
+   * @param state 待轮询的射频会话状态
+   * @param event 射频事件输出地址
+   * @return 轮询及必要的硬件状态处理成功返回 true，否则返回 false
+   */
   bool PollRadioState(RadioState* state, RadioEvent* event);
+
+  /**
+   * @brief 读取指定射频会话的硬件可用性和链路状态
+   * @param state 待读取的射频会话状态
+   * @param status 射频状态输出地址
+   * @return 状态读取成功返回 true，否则返回 false
+   */
   bool ReadRadioStateStatus(RadioState* state, RadioStatus* status);
 
   static constexpr int kDefaultKeyboardBacklightBrightnessPercent = 10;

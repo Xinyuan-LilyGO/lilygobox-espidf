@@ -5,7 +5,7 @@
  * @LastEditTime: 2026-08-21 00:00:00
  * @License: GPL 3.0
  */
-#include "hal/device/t_display_p4/t_display_p4_device.h"
+#include "hal/device/t_display_p4/device.h"
 
 #include <algorithm>
 #include <array>
