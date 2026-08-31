@@ -15,13 +15,13 @@
           },
           "wireless": {
             "model": "esp32c5",
-            "revision": "0.0"
+            "revision": "1.0"
           }
         }
       },
       "components": {
         "main": "device-v1.0-esp32p4-rev1.0",
-        "wireless": "device-v1.0-esp32c5-rev0.0"
+        "wireless": "device-v1.0-esp32c5-rev1.0"
       }
     }
   ],
@@ -30,7 +30,7 @@
       "chip": "esp32p4",
       "projectName": "lilygobox-espidf"
     },
-    "device-v1.0-esp32c5-rev0.0": {
+    "device-v1.0-esp32c5-rev1.0": {
       "chip": "esp32c5",
       "projectName": "network_adapter"
     }

@@ -241,7 +241,7 @@ python .\generate_manifest.py --channel stable --firmware-file "device-v1.0-esp3
 T-Display-P4-Air 使用独立设备 ID 和 ESP32-C5 Wireless 固件：
 
 ```bat
-python .\generate_manifest.py --config .\devices\t-display-p4-air.json --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c5-rev0.0=.\input\network_adapter.bin" --note "Initial T-Display-P4-Air firmware release"
+python .\generate_manifest.py --config .\devices\t-display-p4-air.json --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c5-rev1.0=.\input\network_adapter.bin" --note "Initial T-Display-P4-Air firmware release"
 ```
 
 ### 只更新主固件

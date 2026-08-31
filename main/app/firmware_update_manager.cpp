@@ -101,16 +101,17 @@ constexpr char kPendingUpdatePath[] =
     "/littlefs/lilygobox/ota/pending-update";
 constexpr char kMainFirmwareProjectName[] = "lilygobox-espidf";
 constexpr char kWirelessFirmwareProjectName[] = "network_adapter";
+// 当前 ESP-Hosted 接口不提供协处理器芯片修订号，使用各板型固定的修订号。
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
 constexpr esp_chip_id_t kExpectedWirelessChipId = ESP_CHIP_ID_ESP32C5;
 constexpr char kCurrentWirelessChipModel[] = "esp32c5";
+constexpr char kCurrentWirelessChipRevision[] = "1.0";
 #else
 constexpr esp_chip_id_t kExpectedWirelessChipId = ESP_CHIP_ID_ESP32C6;
 constexpr char kCurrentWirelessChipModel[] = "esp32c6";
+constexpr char kCurrentWirelessChipRevision[] = "0.0";
 #endif
 constexpr char kCurrentMainChipModel[] = "esp32p4";
-// 当前 ESP-Hosted 接口不提供协处理器芯片修订号，板载 C5/C6 均按 rev0 匹配。
-constexpr char kCurrentWirelessChipRevision[] = "0.0";
 constexpr int kFirmwareHttpTimeoutMs = 15000;
 constexpr int kHttpBufferSize = 4096;
 constexpr size_t kMaximumFirmwareDownloadSourceCount = 4;
