@@ -28,7 +28,7 @@ constexpr uint32_t kInitializationFailureRestartDelayMs = 1000;
  * 同时保留 bootloader 对待验证 OTA 固件的回滚保护。
  */
 [[noreturn]] void RestartAfterInitializationFailure() {
-  lilygo_box::LogMessage(lilygo_box::LogLevel::kInfo, __FILE__, __LINE__,
+  lilygo_box::LogMessage(lilygo_box::LogLevel::kWarning, __FILE__, __LINE__,
       "Application initialization failed; restarting system\n");
   vTaskDelay(pdMS_TO_TICKS(kInitializationFailureRestartDelayMs));
   esp_restart();
