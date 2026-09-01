@@ -70,7 +70,7 @@ constexpr int kUpdatePageIndicatorStackedBottom =
     kUpdateActionButtonGap + 16;
 constexpr int kUpdatePageDotSize = 12;
 constexpr uint32_t kUpdateBetaChannelColor = 0xF5A623;
-constexpr uint32_t kUpdateAlphaChannelColor = 0xBA1A1A;
+constexpr uint32_t kUpdateAlphaChannelColor = 0xFF3B30;
 
 /**
  * @brief 获取当前固件更新状态快照

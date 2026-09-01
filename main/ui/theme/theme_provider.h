@@ -48,11 +48,11 @@ struct ThemeColors {
   uint32_t button_secondary = 0xE8E8E8;
   uint32_t button_secondary_pressed = 0xDCDCDC;
   uint32_t on_button_secondary = 0x101010;
-  uint32_t error = 0xBA1A1A;
+  uint32_t error = 0xFF3B30;
   uint32_t on_error = 0xFFFFFF;
-  uint32_t error_container = 0xFFDAD6;
+  uint32_t error_container = 0xFF3B30;
   uint32_t on_error_container = 0x410002;
-  uint32_t warning = 0x8A4F00;
+  uint32_t warning = 0xFFB95C;
   uint32_t warning_pressed = 0x704000;
   uint32_t on_warning = 0xFFFFFF;
   uint32_t success = 0x138A3D;
@@ -67,6 +67,8 @@ struct ThemeColors {
   uint32_t wallpaper_layer_2 = 0xC8C8C8;
   uint32_t wallpaper_layer_3 = 0xB7B7B7;
   uint32_t wallpaper_layer_4 = 0x9F9F9F;
+  uint32_t edge_swipe_indicator = 0x303030;
+  uint32_t on_edge_swipe_indicator = 0xF1F1F1;
   uint32_t scrim = 0x000000;
 };
 
@@ -94,18 +96,18 @@ inline constexpr ThemeColors kDarkTheme = {
     .disabled_content = 0x777777,
     .state_layer = 0x292929,
     .state_layer_strong = 0x363636,
-    .action = 0x8AB4F8,
-    .action_pressed = 0xA8C7FA,
-    .action_disabled = 0x455A73,
-    .action_container = 0x203A5C,
-    .action_container_pressed = 0x2A4A73,
-    .on_action = 0x10233D,
+    .action = 0x3F82F6,
+    .action_pressed = 0x2F73E8,
+    .action_disabled = 0xBFD7FB,
+    .action_container = 0xE8F3FF,
+    .action_container_pressed = 0xD8E9FF,
+    .on_action = 0xFFFFFF,
     .button_secondary = 0x303030,
     .button_secondary_pressed = 0x3C3C3C,
     .on_button_secondary = 0xF1F1F1,
-    .error = 0xFFB4AB,
+    .error = 0xFF3B30,
     .on_error = 0x690005,
-    .error_container = 0x93000A,
+    .error_container = 0xFF3B30,
     .on_error_container = 0xFFDAD6,
     .warning = 0xFFB95C,
     .warning_pressed = 0xFFCA7A,
@@ -122,6 +124,8 @@ inline constexpr ThemeColors kDarkTheme = {
     .wallpaper_layer_2 = 0x292929,
     .wallpaper_layer_3 = 0x232323,
     .wallpaper_layer_4 = 0x1C1C1C,
+    .edge_swipe_indicator = 0x303030,
+    .on_edge_swipe_indicator = 0xF1F1F1,
     .scrim = 0x000000,
 };
 

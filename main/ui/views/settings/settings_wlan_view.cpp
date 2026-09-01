@@ -2134,10 +2134,10 @@ bool CreateWifiSavedManageRow(
   lv_obj_set_size(button, button_width, button_height);
   lv_obj_align(button, LV_ALIGN_RIGHT_MID, -kWifiSidePadding, 0);
   lv_obj_set_style_bg_color(button,
-      lv_color_hex(SettingsThemeColors().error_container), LV_PART_MAIN);
+      lv_color_hex(SettingsThemeColors().action), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      button, lv_color_hex(SettingsThemeColors().error), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(button,
+      lv_color_hex(SettingsThemeColors().action_pressed), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(button, button_height / 2, LV_PART_MAIN);
@@ -2154,7 +2154,7 @@ bool CreateWifiSavedManageRow(
 
   lv_obj_t* label =
       CreateLabel(button, "Delete",
-          lv_color_hex(SettingsThemeColors().on_error_container), Font28());
+          lv_color_hex(SettingsThemeColors().on_action), Font28());
   if (label == nullptr) {
     return false;
   }

@@ -141,12 +141,12 @@ void IndicatorFadeCompletedCallback(lv_anim_t* animation) {
  * @return 返回圆和图标可用时返回 true，否则返回 false
  */
 bool EnsureIndicator() {
+  const theme::ThemeColors& colors = theme::ActiveThemeColors();
   if (g_indicator != nullptr && g_icon != nullptr) {
-    const theme::ThemeColors& colors = theme::ActiveThemeColors();
     lv_obj_set_style_bg_color(g_indicator,
-        lv_color_hex(colors.surface_container_highest), LV_PART_MAIN);
+        lv_color_hex(colors.edge_swipe_indicator), LV_PART_MAIN);
     lv_obj_set_style_text_color(
-        g_icon, lv_color_hex(colors.on_surface), LV_PART_MAIN);
+        g_icon, lv_color_hex(colors.on_edge_swipe_indicator), LV_PART_MAIN);
     return true;
   }
 
@@ -165,7 +165,7 @@ bool EnsureIndicator() {
   lv_obj_add_flag(g_indicator, LV_OBJ_FLAG_FLOATING);
   lv_obj_add_flag(g_indicator, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_style_bg_color(g_indicator,
-      lv_color_hex(theme::ActiveThemeColors().surface_container_highest),
+      lv_color_hex(colors.edge_swipe_indicator),
       LV_PART_MAIN);
   lv_obj_set_style_bg_opa(g_indicator, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(g_indicator, 0, LV_PART_MAIN);
@@ -183,7 +183,7 @@ bool EnsureIndicator() {
   lv_obj_remove_flag(g_icon, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(g_icon, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_style_text_color(g_icon,
-      lv_color_hex(theme::ActiveThemeColors().on_surface), LV_PART_MAIN);
+      lv_color_hex(colors.on_edge_swipe_indicator), LV_PART_MAIN);
   lv_obj_set_style_text_font(
       g_icon, &lvgl_font_material_symbols_fill_32, LV_PART_MAIN);
   lv_obj_set_style_text_align(g_icon, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);

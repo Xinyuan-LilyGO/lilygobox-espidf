@@ -102,7 +102,7 @@ constexpr uint32_t kCitTitleColor = 0xFFFFFF;
 constexpr int kRowPressedHeight = kRowHeight;
 constexpr int kRowPressedRadius = 0;
 constexpr uint32_t kReadyColor = 0x138A3D;
-constexpr uint32_t kFailedColor = 0xEE2C2C;
+constexpr uint32_t kFailedColor = 0xFF3B30;
 constexpr uint32_t kPendingColor = 0xF28C00;
 constexpr std::array<uint32_t, 5> kScreenColorTestColors = {
     0xFF0000,
