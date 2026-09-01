@@ -2,7 +2,7 @@
  * @Description: Radio Provider 芯片与协议公共类型
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
- * @LastEditTime: 2026-07-30 18:00:00
+ * @LastEditTime: 2026-09-01 12:08:36
  * @License: GPL 3.0
  */
 #pragma once
@@ -121,9 +121,9 @@ constexpr uint8_t Lr2021CodingRateDenominator(
 }
 
 enum class AntennaType : uint8_t {
-  // RF1 板载天线。
+  // 内置天线。
   kInternal = 0,
-  // RF2 外置天线接口。
+  // 外置天线接口。
   kExternal = 1,
 };
 
