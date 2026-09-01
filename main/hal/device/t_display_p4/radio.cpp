@@ -409,6 +409,30 @@ bool SelectCc1101RfSwitch(uint32_t frequency_hz,
 }
 
 /**
+ * @brief 根据配置选择主板 SKY13453 射频天线通路
+ * @param antenna 应用层天线类型
+ * @param rf_switch 射频开关输出
+ * @return 天线类型受主板支持时返回 true
+ */
+bool SelectSky13453RfSwitch(radio::AntennaType antenna,
+    lilygo_device_driver::TDisplayP4Driver::Sky13453RfSwitch* rf_switch) {
+  if (rf_switch == nullptr) {
+    return false;
+  }
+  switch (antenna) {
+    case radio::AntennaType::kInternal:
+      *rf_switch = lilygo_device_driver::TDisplayP4Driver::
+          Sky13453RfSwitch::kInternalAntenna;
+      return true;
+    case radio::AntennaType::kExternal:
+      *rf_switch = lilygo_device_driver::TDisplayP4Driver::
+          Sky13453RfSwitch::kExternalAntenna;
+      return true;
+  }
+  return false;
+}
+
+/**
  * @brief 将空中数据速率转换为 nRF24L01 驱动枚举
  * @param data_rate_bps 空中数据速率，单位为 bit/s
  * @param data_rate 驱动数据速率输出
@@ -1015,19 +1039,10 @@ bool TDisplayP4Device::ActivateRadio(const RadioConfig& config) {
   if (config.chip == radio::ChipType::kSx1262 &&
       config.protocol == radio::ProtocolType::kLora) {
     usp_cpp_bus_driver::Sx126x::LoraConfig driver_config;
-    const bool antenna_supported =
-        config.antenna == radio::AntennaType::kInternal ||
-        config.antenna == radio::AntennaType::kExternal;
-    result = antenna_supported && BuildSx1262Config(
-        config.lora, &driver_config);
-    if (result) {
-      auto* antenna_switch = driver_.chip().xl9535.get();
-      const uint8_t antenna_level =
-          config.antenna == radio::AntennaType::kExternal ? 0 : 1;
-      result = driver_.IsXl9535Ready() && antenna_switch != nullptr &&
-               antenna_switch->GpioWrite(
-                   gpio::xl9535::kSky13453Vctl, antenna_level);
-    }
+    lilygo_device_driver::TDisplayP4Driver::Sky13453RfSwitch rf_switch;
+    result = BuildSx1262Config(config.lora, &driver_config) &&
+        SelectSky13453RfSwitch(config.antenna, &rf_switch) &&
+        driver_.SetSky13453RfSwitch(rf_switch);
     if (result) {
       result = driver_.SetSx1262OperatingMode(
           lilygo_device_driver::TDisplayP4Driver::
@@ -1045,18 +1060,10 @@ bool TDisplayP4Device::ActivateRadio(const RadioConfig& config) {
     }
   } else if (config.chip == radio::ChipType::kLr2021 &&
              config.protocol == radio::ProtocolType::kLora) {
-    const bool antenna_supported =
-        config.antenna == radio::AntennaType::kInternal ||
-        config.antenna == radio::AntennaType::kExternal;
-    result = antenna_supported && driver_.IsLr2021Ready();
-    if (result) {
-      auto* antenna_switch = driver_.chip().xl9535.get();
-      const uint8_t antenna_level =
-          config.antenna == radio::AntennaType::kExternal ? 0 : 1;
-      result = driver_.IsXl9535Ready() && antenna_switch != nullptr &&
-          antenna_switch->GpioWrite(
-              gpio::xl9535::kSky13453Vctl, antenna_level);
-    }
+    lilygo_device_driver::TDisplayP4Driver::Sky13453RfSwitch rf_switch;
+    result = driver_.IsLr2021Ready() &&
+        SelectSky13453RfSwitch(config.antenna, &rf_switch) &&
+        driver_.SetSky13453RfSwitch(rf_switch);
     if (result) {
       result = driver_.SetLr2021OperatingMode(
           lilygo_device_driver::TDisplayP4Driver::
