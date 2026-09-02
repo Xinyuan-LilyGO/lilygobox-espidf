@@ -14,6 +14,7 @@
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/resources/images/image_assets.h"
+#include "ui/theme/theme_provider.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -30,10 +31,6 @@ constexpr int kStatusBarBatteryFillOffsetX = 5;
 constexpr int kStatusBarBatteryFillOffsetY = 0;
 constexpr int kStatusBarBatteryFillRadius = 2;
 constexpr int kStatusBarBatteryLowThresholdPercent = 20;
-constexpr uint32_t kStatusBarBackgroundColor = 0x000000;
-constexpr uint32_t kStatusBarTextColor = 0xFFFFFF;
-constexpr uint32_t kStatusBarBatteryChargingColor = 0x27C769;
-constexpr uint32_t kStatusBarBatteryLowColor = 0xFF3B30;
 
 /**
  * @brief 设置文本对象的颜色和字体
@@ -192,10 +189,10 @@ void MakeTransparent(lv_obj_t* object) {
  */
 uint32_t BatteryFillColor(int percent, bool charging, uint32_t text_color) {
   if (charging) {
-    return kStatusBarBatteryChargingColor;
+    return theme::FixedColors().status_bar_battery_charging;
   }
   if (percent >= 0 && percent < kStatusBarBatteryLowThresholdPercent) {
-    return kStatusBarBatteryLowColor;
+    return theme::FixedColors().status_bar_battery_low;
   }
   return text_color;
 }
@@ -255,6 +252,7 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
   if (parent == nullptr || width <= 0) {
     return false;
   }
+  text_color_hex_ = theme::FixedColors().status_bar_text;
 
   object_ = lv_obj_create(parent);
   if (object_ == nullptr) {
@@ -268,13 +266,14 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
   lv_obj_set_size(object_, width, kStatusBarHeight);
   lv_obj_align(object_, LV_ALIGN_TOP_MID, 0, 0);
   lv_obj_set_style_bg_color(
-      object_, lv_color_hex(kStatusBarBackgroundColor), LV_PART_MAIN);
+      object_, lv_color_hex(theme::FixedColors().status_bar_background),
+      LV_PART_MAIN);
   lv_obj_set_style_bg_opa(object_, LV_OPA_10, LV_PART_MAIN);
   lv_obj_set_style_radius(object_, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_hor(object_, kStatusBarPadding, LV_PART_MAIN);
 
   time_label_ =
-      CreateLabel(object_, "09:15", lv_color_hex(kStatusBarTextColor),
+      CreateLabel(object_, "09:15", lv_color_hex(text_color_hex_),
           Font24());
   if (time_label_ == nullptr) {
     lv_obj_delete(object_);
@@ -284,7 +283,7 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
   lv_obj_align(time_label_, LV_ALIGN_LEFT_MID, 0, 0);
 
   battery_management_percent_label_ =
-      CreateLabel(object_, "--%", lv_color_hex(kStatusBarTextColor), Font24());
+      CreateLabel(object_, "--%", lv_color_hex(text_color_hex_), Font24());
   if (battery_management_percent_label_ == nullptr) {
     lv_obj_delete(object_);
     object_ = nullptr;
@@ -294,7 +293,7 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
 
   battery_management_label_ =
       CreateLabel(object_, icon::kBatteryAndroid0,
-          lv_color_hex(kStatusBarTextColor), BatteryOutlineIconFont46());
+          lv_color_hex(text_color_hex_), BatteryOutlineIconFont46());
   if (battery_management_label_ == nullptr) {
     lv_obj_delete(object_);
     object_ = nullptr;
@@ -313,7 +312,7 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
   lv_obj_remove_flag(battery_management_fill_, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(battery_management_fill_, 1, kStatusBarBatteryFillHeight);
   lv_obj_set_style_bg_color(
-      battery_management_fill_, lv_color_hex(kStatusBarTextColor), LV_PART_MAIN);
+      battery_management_fill_, lv_color_hex(text_color_hex_), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(battery_management_fill_, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(battery_management_fill_, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(battery_management_fill_, 0, LV_PART_MAIN);
@@ -325,7 +324,7 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
   lv_obj_move_to_index(battery_management_fill_, lv_obj_get_index(battery_management_label_));
 
   battery_management_bolt_label_ = CreateLabel(object_, icon::kBolt,
-      lv_color_hex(kStatusBarTextColor), MaterialFillIconFont22());
+      lv_color_hex(text_color_hex_), MaterialFillIconFont22());
   if (battery_management_bolt_label_ == nullptr) {
     lv_obj_delete(object_);
     object_ = nullptr;
@@ -337,7 +336,7 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
   lv_obj_move_to_index(battery_management_bolt_label_, -1);
 
   wifi_label_ = CreateLabel(object_, icon::kSignalWifi4Bar,
-      lv_color_hex(kStatusBarTextColor), MaterialFillIconFont32());
+      lv_color_hex(text_color_hex_), MaterialFillIconFont32());
   if (wifi_label_ == nullptr) {
     lv_obj_delete(object_);
     object_ = nullptr;
@@ -346,7 +345,7 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
   lv_obj_add_flag(wifi_label_, LV_OBJ_FLAG_HIDDEN);
 
   keyboard_expansion_label_ = CreateLabel(object_, icon::kKeyboard,
-      lv_color_hex(kStatusBarTextColor), KeyboardOutlineIconFont38());
+      lv_color_hex(text_color_hex_), KeyboardOutlineIconFont38());
   if (keyboard_expansion_label_ == nullptr) {
     lv_obj_delete(object_);
     object_ = nullptr;

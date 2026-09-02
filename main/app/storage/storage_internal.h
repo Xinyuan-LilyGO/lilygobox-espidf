@@ -28,6 +28,7 @@ enum class StorageDomain : uint8_t {
   kOtg,
   kInputMethod,
   kKeyboardExpansion,
+  kBattery,
   kCount,
 };
 
@@ -315,6 +316,19 @@ StorageStageResult StageKeyboardExpansionStorage(nvs_handle_t handle);
  * @param committed 事务是否提交成功
  */
 void FinishKeyboardExpansionStorage(bool committed);
+
+/**
+ * @brief 将电池容量偏好脏快照暂存到当前 NVS 事务
+ * @param handle 已打开的共享 NVS 句柄
+ * @return 无修改、暂存成功或暂存失败
+ */
+StorageStageResult StageBatteryStorage(nvs_handle_t handle);
+
+/**
+ * @brief 根据 NVS 事务提交结果结束电池容量偏好快照
+ * @param committed 事务是否提交成功
+ */
+void FinishBatteryStorage(bool committed);
 
 /**
  * @brief 将振动偏好脏快照暂存到当前 NVS 事务

@@ -226,10 +226,10 @@ bool ShowScreenRotationSheet(SettingsViewState* state) {
   config.option_height = kScreenRotationOptionHeight;
   config.button_height = kWifiConnectButtonHeight;
   config.button_radius = 24;
-  config.selected_color = SettingsThemeColors().action_container;
+  config.selected_color = theme::FixedColors().action_container;
   config.primary_text_color = SettingsThemeColors().on_surface;
   config.secondary_text_color = SettingsThemeColors().on_surface_variant;
-  config.selected_text_color = SettingsThemeColors().action;
+  config.selected_text_color = theme::FixedColors().action;
   config.cancel_background_color = SettingsThemeColors().button_secondary;
   config.pressed_color = SettingsThemeColors().button_secondary_pressed;
   config.pressed_opacity = kPressedOpacity;

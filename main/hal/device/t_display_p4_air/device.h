@@ -463,6 +463,19 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   bool ReadBatteryLevel(int* percent) override;
 
   /**
+   * @brief 获取 Air 软件电池时间估算支持的额定容量范围
+   * @return 最小和最大额定容量，单位为 mAh
+   */
+  BatteryCapacityRange GetBatteryCapacityRange() const override;
+
+  /**
+   * @brief 设置 Air 软件电池时间估算使用的额定容量
+   * @param capacity_mah 电池额定容量，单位为 mAh
+   * @return 容量有效并应用成功返回 true
+   */
+  bool SetBatteryCapacityMah(int capacity_mah) override;
+
+  /**
    * @brief 设置 AXP517 Type-C Source 反向供电状态
    * @param enabled true 允许反向供电，false 保持受电角色
    * @return 设置成功返回 true，否则返回 false
@@ -1482,6 +1495,8 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   bool touch_interrupt_initialized_ = false;
   // Air 板电源键 GPIO 是否已经配置为可轮询输入。
   bool power_button_initialized_ = false;
+  // AXP517 不提供容量寄存器，使用该值计算近似剩余时间。
+  std::atomic<int> battery_capacity_mah_{1000};
   // Air 板音量加减 GPIO 是否已经配置为可轮询输入。
   bool volume_buttons_initialized_ = false;
   // 中断服务等待任务上下文处理的通知标志。

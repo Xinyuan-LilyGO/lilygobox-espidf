@@ -3182,7 +3182,7 @@ lv_obj_t* CreateCenterButton(lv_obj_t* parent, const char* text,
   lv_obj_center(button);
   lv_obj_set_style_radius(button, 12, LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      button, lv_color_hex(theme::ActiveThemeColors().action), LV_PART_MAIN);
+      button, lv_color_hex(theme::FixedColors().action), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
@@ -3195,7 +3195,7 @@ lv_obj_t* CreateCenterButton(lv_obj_t* parent, const char* text,
   }
 
   lv_obj_t* label =
-      CreateLabel(button, text, lv_color_hex(theme::ActiveThemeColors().on_action), Font28());
+      CreateLabel(button, text, lv_color_hex(theme::FixedColors().on_action), Font28());
   if (label == nullptr) {
     lv_obj_delete(button);
     return nullptr;
@@ -3234,8 +3234,8 @@ lv_obj_t* CreateTestButtonBar(lv_obj_t* parent, CitViewState* state) {
           -kTestButtonCenterOffset, TestFailButtonEventCallback,
           state) == nullptr ||
       CreateTestActionButton(button_bar, "PASS",
-          theme::ActiveThemeColors().action,
-          theme::ActiveThemeColors().on_action, LV_ALIGN_CENTER,
+          theme::FixedColors().action,
+          theme::FixedColors().on_action, LV_ALIGN_CENTER,
           kTestButtonCenterOffset, TestPassButtonEventCallback,
           state) == nullptr) {
     lv_obj_delete(button_bar);
@@ -3353,7 +3353,7 @@ bool CreateTouchPointMarkers(CitViewState* state) {
     lv_obj_set_size(marker, kTouchMarkerSize, kTouchMarkerSize);
     lv_obj_set_style_radius(marker, LV_RADIUS_CIRCLE, LV_PART_MAIN);
     lv_obj_set_style_bg_color(
-        marker, lv_color_hex(theme::ActiveThemeColors().action), LV_PART_MAIN);
+        marker, lv_color_hex(theme::FixedColors().action), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(marker, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_color(marker, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_set_style_border_width(marker, 2, LV_PART_MAIN);
@@ -3683,7 +3683,7 @@ bool AddMicrophoneContent(lv_obj_t* content, CitViewState* state) {
   lv_obj_set_size(switch_object, 90, 50);
   lv_obj_align(switch_object, LV_ALIGN_TOP_MID, 0, 610);
   lv_obj_set_style_bg_color(switch_object,
-      lv_color_hex(theme::ActiveThemeColors().action),
+      lv_color_hex(theme::FixedColors().action),
       kSwitchCheckedIndicatorSelector);
   lv_obj_set_style_bg_opa(
       switch_object, LV_OPA_COVER, kSwitchCheckedIndicatorSelector);

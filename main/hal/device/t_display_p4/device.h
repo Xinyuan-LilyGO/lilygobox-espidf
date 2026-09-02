@@ -355,6 +355,19 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ReadBatteryLevel(int* percent) override;
 
   /**
+   * @brief 获取 BQ27220 支持的电池额定容量范围
+   * @return 最小和最大额定容量，单位为 mAh
+   */
+  BatteryCapacityRange GetBatteryCapacityRange() const override;
+
+  /**
+   * @brief 设置 BQ27220 使用的电池额定容量
+   * @param capacity_mah 电池额定容量，单位为 mAh
+   * @return 容量参数已保存到 BQ27220 时返回 true
+   */
+  bool SetBatteryCapacityMah(int capacity_mah) override;
+
+  /**
    * @brief 读取 PCF8563 RTC 日期时间和时钟完整性状态
    * @param status RTC 状态输出地址
    * @return 读取到有效 RTC 数据返回 true，否则返回 false
@@ -1589,6 +1602,9 @@ class TDisplayP4Device final : public ScreenProvider,
   std::unique_ptr<cpp_bus_driver::Tool> tool_;
   UsbStorageManager usb_storage_manager_;
   ScreenProviderDisplayCallbacks display_callbacks_;
+  // 应用层配置的电池额定容量，供设备信息和 BQ27220 配置使用。
+  std::atomic<int> battery_capacity_mah_{
+      lilygo_device_driver::t_display_p4::device::kBatteryInfo.capacity_mah};
   // XL9535 汇总中断是否已经完成注册。
   bool touch_interrupt_initialized_ = false;
   // 中断服务等待任务上下文处理的通知标志。

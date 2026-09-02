@@ -486,9 +486,9 @@ bool ShowKeyboardExpansionFailurePrompt(SettingsViewState* state,
   config.title_text_align = LV_TEXT_ALIGN_CENTER;
   config.subtitle_text_align = LV_TEXT_ALIGN_CENTER;
   config.cancel_text = "OK";
-  config.cancel_background_color = SettingsThemeColors().action;
-  config.cancel_pressed_color = SettingsThemeColors().action_pressed;
-  config.cancel_text_color = SettingsThemeColors().on_action;
+  config.cancel_background_color = theme::FixedColors().action;
+  config.cancel_pressed_color = theme::FixedColors().action_pressed;
+  config.cancel_text_color = theme::FixedColors().on_action;
   config.confirm_text = nullptr;
   lv_obj_t* body = ShowPromptDialog(
       state->root, &state->keyboard_expansion_prompt, config);

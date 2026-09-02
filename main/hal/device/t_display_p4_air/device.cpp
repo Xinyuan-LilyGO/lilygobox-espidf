@@ -106,8 +106,7 @@ bool TDisplayP4AirDevice::ReadDeviceInfo(DeviceInfo* info) {
   info->camera_bits_per_pixel = device_info.camera.bits_per_pixel;
   info->camera_buffer_count = device_info.camera.buffer_count;
   info->battery_fuel_gauge_name = "AXP517";
-  // 原理图未固定电池容量，运行时仅报告 PMIC 电量计数据。
-  info->battery_capacity_mah = 0;
+  info->battery_capacity_mah = battery_capacity_mah_.load();
   return true;
 }
 

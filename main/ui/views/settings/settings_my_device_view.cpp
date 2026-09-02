@@ -22,7 +22,6 @@
 #include "ui/views/settings/settings_basic_view_common.h"
 #include "ui/widgets/brand_icon.h"
 #include "ui/widgets/prompt/prompt_sheet.h"
-#include "ui/widgets/shared_keyboard.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -175,52 +174,6 @@ void FormatBatteryCapacity(
 }
 
 /**
- * @brief 处理设备名称编辑页关闭动画完成
- * @param animation LVGL 动画对象
- */
-void DeviceNameEditCloseCompletedCallback(lv_anim_t* animation) {
-  auto* state =
-      static_cast<SettingsViewState*>(lv_anim_get_user_data(animation));
-  if (state == nullptr || state->name_edit_page == nullptr) {
-    return;
-  }
-
-  lv_obj_t* page = state->name_edit_page;
-  state->name_edit_page = nullptr;
-  state->name_edit_text_area = nullptr;
-  state->name_edit_keyboard = nullptr;
-  state->name_edit_closing = false;
-  lv_obj_delete(page);
-}
-
-/**
- * @brief 关闭设备名称编辑页
- * @param state 设置页面状态
- * @param animated 是否播放关闭动画
- */
-void CloseDeviceNameEditPage(SettingsViewState* state, bool animated) {
-  if (state == nullptr || state->name_edit_page == nullptr ||
-      state->name_edit_closing) {
-    return;
-  }
-
-  if (animated &&
-      StartSlideRightWindowTransition(state->name_edit_page,
-          state->config.width, kDetailSlideAnimationMs, state,
-          DeviceNameEditCloseCompletedCallback)) {
-    state->name_edit_closing = true;
-    return;
-  }
-
-  lv_obj_t* page = state->name_edit_page;
-  state->name_edit_page = nullptr;
-  state->name_edit_text_area = nullptr;
-  state->name_edit_keyboard = nullptr;
-  state->name_edit_closing = false;
-  lv_obj_delete(page);
-}
-
-/**
  * @brief 处理我的设备详情页关闭动画完成
  * @param animation LVGL 动画对象
  */
@@ -258,7 +211,7 @@ void CloseMyDevicePage(SettingsViewState* state, bool animated) {
     CloseFactoryResetPage(state, animated);
     return;
   }
-  CloseDeviceNameEditPage(state, false);
+  CloseSettingsTextEditPage(&state->text_edit_page, false);
 
   if (animated &&
       StartSlideRightWindowTransition(state->detail_page, state->config.width,
@@ -288,43 +241,6 @@ void MyDeviceBackClickedEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 处理设备名称编辑页键盘外点击隐藏键盘
- * @param event LVGL 事件对象
- */
-void DeviceNameEditKeyboardDismissEventCallback(lv_event_t* event) {
-  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
-    return;
-  }
-
-  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->name_edit_keyboard == nullptr ||
-      state->name_edit_text_area == nullptr) {
-    return;
-  }
-
-  lv_obj_t* target = lv_event_get_target_obj(event);
-  if (IsObjectOrChildOf(target, state->name_edit_keyboard) ||
-      IsObjectOrChildOf(target, state->name_edit_text_area)) {
-    return;
-  }
-
-  HideSharedKeyboard(state->name_edit_keyboard);
-}
-
-/**
- * @brief 处理设备名称编辑取消按钮
- * @param event LVGL 事件对象
- */
-void DeviceNameEditCancelClickedEventCallback(lv_event_t* event) {
-  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
-    return;
-  }
-
-  CloseDeviceNameEditPage(
-      static_cast<SettingsViewState*>(lv_event_get_user_data(event)), true);
-}
-
-/**
  * @brief 刷新设备名称显示对象
  * @param state 设置页面状态
  */
@@ -340,28 +256,25 @@ void RefreshDeviceNameLabels(SettingsViewState* state) {
 }
 
 /**
- * @brief 处理设备名称编辑确认按钮
- * @param event LVGL 事件对象
+ * @brief 保存设备名称编辑结果
+ * @param text 用户输入的设备名称
+ * @param context 设置页面状态
+ * @return 名称有效并保存成功返回 true，否则返回 false
  */
-void DeviceNameEditConfirmClickedEventCallback(lv_event_t* event) {
-  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
-    return;
+bool SaveDeviceNameEdit(const char* text, void* context) {
+  auto* state = static_cast<SettingsViewState*>(context);
+  if (state == nullptr) {
+    return false;
   }
-
-  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->name_edit_text_area == nullptr) {
-    return;
-  }
-
-  const char* text = lv_textarea_get_text(state->name_edit_text_area);
   if (!app::SetConfiguredDeviceName(text)) {
-    lv_textarea_set_text(
-        state->name_edit_text_area, ReadDisplayDeviceName(state->config));
-    return;
+    if (state->text_edit_page.text_area != nullptr) {
+      lv_textarea_set_text(state->text_edit_page.text_area,
+          ReadDisplayDeviceName(state->config));
+    }
+    return false;
   }
-
   RefreshDeviceNameLabels(state);
-  CloseDeviceNameEditPage(state, true);
+  return true;
 }
 
 /**
@@ -464,7 +377,7 @@ void UpdateFactoryResetConfirmButton(SettingsViewState* state) {
     lv_obj_add_state(state->factory_reset_confirm_button, LV_STATE_DISABLED);
   }
   lv_obj_set_style_bg_color(state->factory_reset_confirm_button,
-      lv_color_hex(enabled ? SettingsThemeColors().error
+      lv_color_hex(enabled ? theme::FixedColors().error
                            : SettingsThemeColors().disabled_container),
       LV_PART_MAIN);
   lv_obj_set_style_text_color(state->factory_reset_confirm_label,
@@ -662,14 +575,14 @@ bool CreateFactoryResetContent(lv_obj_t* parent, SettingsViewState* state,
   const int button_height = compact ? 66 : kFactoryResetButtonHeight;
 
   lv_obj_t* icon_box = CreateBox(parent, icon_size, icon_size,
-      SettingsThemeColors().error_container, LV_OPA_COVER, icon_size / 2);
+      theme::FixedColors().error_container, LV_OPA_COVER, icon_size / 2);
   if (icon_box == nullptr) {
     return false;
   }
   lv_obj_align(icon_box, LV_ALIGN_TOP_MID, 0, icon_top);
 
   lv_obj_t* warning_icon = CreateLabel(icon_box, icon::kWarning,
-      lv_color_hex(SettingsThemeColors().error), MaterialIconFont56());
+      lv_color_hex(theme::FixedColors().error), MaterialIconFont56());
   if (warning_icon == nullptr) {
     return false;
   }
@@ -699,7 +612,7 @@ bool CreateFactoryResetContent(lv_obj_t* parent, SettingsViewState* state,
 
   const int notice_width = width - 2 * kFactoryResetButtonSide;
   lv_obj_t* notice = CreateBox(parent, notice_width, notice_height,
-      SettingsThemeColors().error_container, LV_OPA_COVER, 24);
+      theme::FixedColors().error_container, LV_OPA_COVER, 24);
   if (notice == nullptr) {
     return false;
   }
@@ -733,11 +646,11 @@ bool CreateFactoryResetContent(lv_obj_t* parent, SettingsViewState* state,
   confirm_config.width = width - 2 * kFactoryResetButtonSide;
   confirm_config.height = button_height;
   confirm_config.radius = button_height / 3;
-  confirm_config.background_color = SettingsThemeColors().error;
+  confirm_config.background_color = theme::FixedColors().error;
   confirm_config.disabled_background_color =
       SettingsThemeColors().disabled_container;
   confirm_config.pressed_background_color =
-      SettingsThemeColors().error_container;
+      theme::FixedColors().error_container;
   confirm_config.text_color = SettingsThemeColors().on_error;
   confirm_config.font = Font28();
   confirm_config.callback = FactoryResetConfirmClickedEventCallback;
@@ -838,36 +751,6 @@ void FactoryResetRowClickedEventCallback(lv_event_t* event) {
 
   ShowFactoryResetPage(
       static_cast<SettingsViewState*>(lv_event_get_user_data(event)));
-}
-
-/**
- * @brief 创建取消图标
- * @param parent 父对象
- * @return 创建成功返回 true，否则返回 false
- */
-bool CreateCloseIcon(lv_obj_t* parent) {
-  lv_obj_t* icon = CreateLabel(parent, icon::kClose,
-      lv_color_hex(SettingsThemeColors().on_surface), MaterialIconFont44());
-  if (icon == nullptr) {
-    return false;
-  }
-  lv_obj_center(icon);
-  return true;
-}
-
-/**
- * @brief 创建确认图标
- * @param parent 父对象
- * @return 创建成功返回 true，否则返回 false
- */
-bool CreateCheckIcon(lv_obj_t* parent) {
-  lv_obj_t* icon = CreateLabel(parent, icon::kCheck,
-      lv_color_hex(SettingsThemeColors().on_surface), MaterialIconFont44());
-  if (icon == nullptr) {
-    return false;
-  }
-  lv_obj_center(icon);
-  return true;
 }
 
 /**
@@ -1012,10 +895,10 @@ bool CreateMyDeviceSnapshotArea(lv_obj_t* parent, int width,
   lv_obj_add_flag(update_button, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(update_button, kDetailUpdateWidth, kDetailUpdateHeight);
   lv_obj_align(update_button, LV_ALIGN_TOP_MID, 0, kDetailUpdateTop);
-  lv_obj_set_style_bg_color(update_button, lv_color_hex(SettingsThemeColors().action),
+  lv_obj_set_style_bg_color(update_button, lv_color_hex(theme::FixedColors().action),
       LV_PART_MAIN);
   lv_obj_set_style_bg_color(update_button,
-      lv_color_hex(SettingsThemeColors().action_pressed),
+      lv_color_hex(theme::FixedColors().action_pressed),
       LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(update_button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(update_button, LV_OPA_COVER, LV_STATE_PRESSED);
@@ -1032,7 +915,7 @@ bool CreateMyDeviceSnapshotArea(lv_obj_t* parent, int width,
 
   lv_obj_t* update_text =
       CreateLabel(update_button, "Check for updates",
-          lv_color_hex(SettingsThemeColors().on_action), Font28());
+          lv_color_hex(theme::FixedColors().on_action), Font28());
   if (update_text == nullptr) {
     return false;
   }
@@ -1407,93 +1290,6 @@ bool ShowMyDevicePageInternal(SettingsViewState* state) {
 }
 
 /**
- * @brief 创建设备名称编辑顶部按钮
- * @param parent 父对象
- * @param state 设置页面状态
- * @param width 页面宽度
- * @return 创建成功返回 true，否则返回 false
- */
-bool CreateDeviceNameEditHeader(
-    lv_obj_t* parent, SettingsViewState* state, int width) {
-  lv_obj_t* cancel = CreateToolbarButton(parent, kNameEditButtonSide,
-      kNameEditButtonTop, DeviceNameEditCancelClickedEventCallback, state);
-  if (cancel == nullptr || !CreateCloseIcon(cancel)) {
-    return false;
-  }
-
-  lv_obj_t* confirm = CreateToolbarButton(parent,
-      width - kNameEditButtonSide - kNameEditButtonSize, kNameEditButtonTop,
-      DeviceNameEditConfirmClickedEventCallback, state);
-  if (confirm == nullptr || !CreateCheckIcon(confirm)) {
-    return false;
-  }
-
-  lv_obj_t* title = CreateLabel(
-      parent, "Edit device name", lv_color_hex(SettingsThemeColors().on_surface), Font32());
-  if (title == nullptr) {
-    return false;
-  }
-  lv_obj_set_width(title, width);
-  lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, kDetailTitleTop);
-
-  return true;
-}
-
-/**
- * @brief 创建设备名称编辑输入区域
- * @param parent 父对象
- * @param state 设置页面状态
- * @param config app 页面配置
- * @return 创建成功返回 true，否则返回 false
- */
-bool CreateDeviceNameEditContent(
-    lv_obj_t* parent, SettingsViewState* state, const AppViewConfig& config) {
-  lv_obj_t* text_area = lv_textarea_create(parent);
-  if (text_area == nullptr) {
-    return false;
-  }
-  state->name_edit_text_area = text_area;
-  lv_obj_add_flag(text_area, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_size(text_area, config.width - 2 * kNameEditTextAreaSide,
-      kNameEditTextAreaHeight);
-  lv_obj_align(text_area, LV_ALIGN_TOP_LEFT, kNameEditTextAreaSide,
-      kNameEditTextAreaTop);
-  lv_textarea_set_one_line(text_area, true);
-  lv_textarea_set_max_length(text_area, app::kMaxDeviceNameLength);
-  lv_textarea_set_accepted_chars(text_area, kDeviceNameAcceptedChars);
-  lv_textarea_set_text(text_area, ReadDisplayDeviceName(config));
-  lv_textarea_set_cursor_pos(text_area, LV_TEXTAREA_CURSOR_LAST);
-  ApplySettingsTextAreaStyle(
-      text_area, Font32(), kNameEditTextAreaHeight);
-
-  lv_obj_t* help = CreateLabel(parent,
-      "This name is shown when identifying this device.",
-      lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
-  if (help == nullptr) {
-    return false;
-  }
-  lv_obj_set_width(help, config.width - 2 * (kNameEditTextAreaSide + 10));
-  lv_label_set_long_mode(help, LV_LABEL_LONG_WRAP);
-  lv_obj_align(help, LV_ALIGN_TOP_LEFT, kNameEditTextAreaSide + 10,
-      kNameEditHelpTop);
-
-  SharedKeyboardConfig keyboard_config;
-  keyboard_config.width = config.width;
-  keyboard_config.height =
-      config.height * kNameEditKeyboardHeightPercent / 100;
-  lv_obj_t* keyboard = CreateSharedKeyboard(parent, keyboard_config);
-  if (keyboard == nullptr) {
-    return false;
-  }
-  state->name_edit_keyboard = keyboard;
-  lv_obj_add_flag(keyboard, LV_OBJ_FLAG_GESTURE_BUBBLE);
-
-  return AttachSharedKeyboardToTextArea(
-      keyboard, text_area, kDeviceNameAcceptedChars);
-}
-
-/**
  * @brief 显示设备名称编辑页
  * @param state 设置页面状态
  * @return 显示成功返回 true，否则返回 false
@@ -1502,55 +1298,18 @@ bool ShowDeviceNameEditPage(SettingsViewState* state) {
   if (state == nullptr || state->root == nullptr) {
     return false;
   }
-  if (state->name_edit_closing) {
-    return true;
-  }
-  if (state->name_edit_page != nullptr) {
-    lv_obj_move_to_index(state->name_edit_page, -1);
-    return true;
-  }
-
-  const AppViewConfig& config = state->config;
-  lv_obj_t* page = lv_obj_create(state->root);
-  if (page == nullptr) {
-    return false;
-  }
-
-  state->name_edit_page = page;
-  state->name_edit_text_area = nullptr;
-  state->name_edit_closing = false;
-  lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_add_event_cb(
-      page, DeviceNameEditKeyboardDismissEventCallback, LV_EVENT_CLICKED,
-      state);
-  lv_obj_set_size(page, config.width, config.height);
-  lv_obj_set_pos(page, 0, 0);
-  lv_obj_set_style_bg_color(
-      page, lv_color_hex(SettingsThemeColors().surface), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
-
-  if (!CreateDeviceNameEditHeader(page, state, config.width) ||
-      !CreateDeviceNameEditContent(page, state, config)) {
-    CloseDeviceNameEditPage(state, false);
-    return false;
-  }
-
-  if (!StartSlideLeftWindowTransition(
-          page, config.width, kDetailSlideAnimationMs, state, nullptr)) {
-    CloseDeviceNameEditPage(state, false);
-    return false;
-  }
-  if (!RegisterBackNavigationHandler(page, [state]() {
-        CloseDeviceNameEditPage(state, true);
-      })) {
-    CloseDeviceNameEditPage(state, false);
-    return false;
-  }
-  return true;
+  SettingsTextEditPageConfig config;
+  config.parent = state->root;
+  config.width = state->config.width;
+  config.height = state->config.height;
+  config.title = "Edit device name";
+  config.initial_text = ReadDisplayDeviceName(state->config);
+  config.help_text = "This name is shown when identifying this device.";
+  config.accepted_chars = kDeviceNameAcceptedChars;
+  config.maximum_length = app::kMaxDeviceNameLength;
+  config.save_callback = SaveDeviceNameEdit;
+  config.callback_context = state;
+  return ShowSettingsTextEditPage(&state->text_edit_page, config);
 }
 
 void DeviceNameRowClickedEventCallback(lv_event_t* event) {

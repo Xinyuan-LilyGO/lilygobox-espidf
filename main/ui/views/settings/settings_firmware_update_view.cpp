@@ -265,7 +265,7 @@ void SetReleaseChannelLabel(lv_obj_t* label, const char* channel) {
     return;
   }
   const char* channel_text = "Stable";
-  uint32_t channel_color = SettingsThemeColors().action;
+  uint32_t channel_color = theme::FixedColors().action;
   if (channel != nullptr && std::strcmp(channel, "beta") == 0) {
     channel_text = "Beta";
     channel_color = kUpdateBetaChannelColor;
@@ -707,11 +707,11 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
   lv_obj_set_style_bg_color(state->firmware_update_download_button,
       lv_color_hex(show_progress
               ? SettingsThemeColors().surface_container_high
-              : SettingsThemeColors().action),
+              : theme::FixedColors().action),
       LV_PART_MAIN);
   lv_obj_set_style_text_color(
       state->firmware_update_download_button_label,
-      lv_color_hex(SettingsThemeColors().on_action),
+      lv_color_hex(theme::FixedColors().on_action),
       LV_PART_MAIN);
   lv_obj_move_to_index(state->firmware_update_download_button_label, -1);
 
@@ -1061,7 +1061,7 @@ bool CreateFirmwareUpdateCard(
       kUpdateVersionTop);
 
   lv_obj_t* channel_label = CreateLabel(card, "Stable",
-      lv_color_hex(SettingsThemeColors().action), Font22());
+      lv_color_hex(theme::FixedColors().action), Font22());
   lv_obj_t* publish_time = CreateLabel(card, "Unavailable",
       lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
   if (channel_label == nullptr || publish_time == nullptr) {
@@ -1274,7 +1274,7 @@ bool CreateFirmwareUpdateBody(
       lv_color_hex(SettingsThemeColors().surface_container_high),
       LV_PART_MAIN);
   lv_obj_set_style_arc_color(spinner,
-      lv_color_hex(SettingsThemeColors().action), LV_PART_INDICATOR);
+      lv_color_hex(theme::FixedColors().action), LV_PART_INDICATOR);
   lv_obj_set_style_arc_width(spinner, 7, LV_PART_MAIN);
   lv_obj_set_style_arc_width(spinner, 7, LV_PART_INDICATOR);
   lv_obj_align(spinner, LV_ALIGN_TOP_MID, 0, kUpdateStatusSpinnerTop);
@@ -1379,7 +1379,7 @@ bool CreateFirmwareUpdateBody(
     lv_obj_remove_flag(dot, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_size(dot, kUpdatePageDotSize, kUpdatePageDotSize);
     lv_obj_set_style_bg_color(
-        dot, lv_color_hex(SettingsThemeColors().action), LV_PART_MAIN);
+        dot, lv_color_hex(theme::FixedColors().action), LV_PART_MAIN);
     lv_obj_set_style_border_width(dot, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, LV_PART_MAIN);
     lv_obj_set_style_pad_all(dot, 0, LV_PART_MAIN);
@@ -1512,7 +1512,7 @@ lv_obj_t* CreateCurrentFirmwareLogCard(lv_obj_t* body, int x, int y,
   FormatPublishTimeForDisplay(snapshot.current_publish_time,
       publish_time_text, sizeof(publish_time_text));
   lv_obj_t* channel_label = CreateLabel(card, "Stable",
-      lv_color_hex(SettingsThemeColors().action), Font22());
+      lv_color_hex(theme::FixedColors().action), Font22());
   lv_obj_t* publish_time = CreateLabel(card, publish_time_text,
       lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
   if (channel_label == nullptr || publish_time == nullptr) {
@@ -1789,9 +1789,9 @@ bool CreateDownloadUpdateButton(
   lv_obj_set_size(button, button_width, kUpdateButtonHeight);
   lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, -kUpdateButtonBottom);
   lv_obj_set_style_bg_color(
-      button, lv_color_hex(SettingsThemeColors().action), LV_PART_MAIN);
+      button, lv_color_hex(theme::FixedColors().action), LV_PART_MAIN);
   lv_obj_set_style_bg_color(button,
-      lv_color_hex(SettingsThemeColors().action_pressed),
+      lv_color_hex(theme::FixedColors().action_pressed),
       LV_STATE_PRESSED);
   lv_obj_set_style_bg_color(button,
       lv_color_hex(SettingsThemeColors().outline), LV_STATE_DISABLED);
@@ -1821,14 +1821,14 @@ bool CreateDownloadUpdateButton(
   lv_obj_set_size(progress_fill, 1, kUpdateButtonHeight);
   lv_obj_set_pos(progress_fill, 0, 0);
   lv_obj_set_style_bg_color(
-      progress_fill, lv_color_hex(SettingsThemeColors().action), LV_PART_MAIN);
+      progress_fill, lv_color_hex(theme::FixedColors().action), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(progress_fill, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(progress_fill, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(progress_fill, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(progress_fill, 0, LV_PART_MAIN);
 
   lv_obj_t* label = CreateLabel(button, "Download firmware",
-      lv_color_hex(SettingsThemeColors().on_action), Font28());
+      lv_color_hex(theme::FixedColors().on_action), Font28());
   if (label == nullptr) {
     return false;
   }

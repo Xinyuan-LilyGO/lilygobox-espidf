@@ -60,7 +60,6 @@ constexpr int kAppRowGap = 30;
 constexpr int kMaxColumnGap = 40;
 constexpr int kDockHeight = 160;
 constexpr int kDockIconSize = 98;
-constexpr uint32_t kIconGlowColor = 0x242424;
 constexpr int kIconGlowWidth = 15;
 constexpr int kIconPressedGlowWidth = 17;
 constexpr int kIconGlowSpread = 0;
@@ -77,12 +76,7 @@ constexpr uint32_t kStartupProgressMinStepMs = 200;
 constexpr uint32_t kStartupFadeOutMs = 220;
 constexpr uint32_t kFirstBootWelcomeFadeOutMs = 180;
 constexpr uint32_t kSystemStatusRefreshPeriodMs = 1000;
-constexpr uint32_t kStartupBlackBackgroundColor = 0x000000;
-constexpr uint32_t kLowBatteryStartupTextColor = 0xFFFFFF;
-constexpr uint32_t kPowerOffChargingColor = 0x27C769;
-constexpr uint32_t kPowerOffChargingCriticalColor = 0xFF3B30;
 constexpr int kPowerOffChargingBoltOffsetX = -2;
-constexpr uint32_t kStatusBarLightTextColor = 0xFFFFFF;
 constexpr int kStartupProgressMaxWidth = 360;
 constexpr int kStartupProgressWidthPercent = 54;
 constexpr int kStartupProgressMinHeight = 6;
@@ -512,9 +506,10 @@ void SetIconGlowStyle(lv_obj_t* object, lv_opa_t opacity) {
   lv_obj_set_style_shadow_offset_y(object, 0, LV_PART_MAIN);
   lv_obj_set_style_shadow_offset_y(object, 0, LV_STATE_PRESSED);
   lv_obj_set_style_shadow_color(
-      object, lv_color_hex(kIconGlowColor), LV_PART_MAIN);
+      object, lv_color_hex(theme::FixedColors().home_icon_glow), LV_PART_MAIN);
   lv_obj_set_style_shadow_color(
-      object, lv_color_hex(kIconGlowColor), LV_STATE_PRESSED);
+      object, lv_color_hex(theme::FixedColors().home_icon_glow),
+      LV_STATE_PRESSED);
   lv_obj_set_style_shadow_opa(object, opacity, LV_PART_MAIN);
   lv_obj_set_style_shadow_opa(
       object, kIconPressedGlowOpacity, LV_STATE_PRESSED);
@@ -1008,7 +1003,8 @@ bool UiManager::ShowBatteryStartupWarning(const char* icon_text,
   lv_obj_set_size(warning, LayoutWidth(), LayoutHeight());
   lv_obj_set_pos(warning, 0, 0);
   lv_obj_set_style_bg_color(
-      warning, lv_color_hex(kStartupBlackBackgroundColor), LV_PART_MAIN);
+      warning, lv_color_hex(theme::FixedColors().startup_background),
+      LV_PART_MAIN);
   lv_obj_set_style_bg_opa(warning, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(warning, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(warning, 0, LV_PART_MAIN);
@@ -1021,7 +1017,7 @@ bool UiManager::ShowBatteryStartupWarning(const char* icon_text,
   }
   lv_label_set_text(icon, icon_text);
   const uint32_t shell_color =
-      battery_percent >= 0 ? kLowBatteryStartupTextColor : icon_color;
+      battery_percent >= 0 ? theme::FixedColors().startup_text : icon_color;
   SetTextStyle(icon, lv_color_hex(shell_color), MaterialOutlineIconFont56());
   lv_obj_align(icon, LV_ALIGN_CENTER, 0, kLowBatteryStartupIconOffsetY);
 
@@ -1061,7 +1057,8 @@ bool UiManager::ShowBatteryStartupWarning(const char* icon_text,
     return false;
   }
   lv_label_set_text(label, message);
-  SetTextStyle(label, lv_color_hex(kLowBatteryStartupTextColor), Font32());
+  SetTextStyle(label,
+      lv_color_hex(theme::FixedColors().startup_text), Font32());
   lv_obj_align_to(label, icon, LV_ALIGN_OUT_BOTTOM_MID, 0,
       kLowBatteryStartupPercentGap);
 
@@ -1113,9 +1110,9 @@ bool UiManager::ShowKeyboardExpansionUnavailablePrompt() {
   config.title_text_align = LV_TEXT_ALIGN_CENTER;
   config.subtitle_text_align = LV_TEXT_ALIGN_CENTER;
   config.cancel_text = "OK";
-  config.cancel_background_color = theme::ActiveThemeColors().action;
-  config.cancel_pressed_color = theme::ActiveThemeColors().action_pressed;
-  config.cancel_text_color = theme::ActiveThemeColors().on_action;
+  config.cancel_background_color = theme::FixedColors().action;
+  config.cancel_pressed_color = theme::FixedColors().action_pressed;
+  config.cancel_text_color = theme::FixedColors().on_action;
   config.confirm_text = nullptr;
   config.cancel_callback =
       KeyboardExpansionUnavailablePromptDismissedCallback;
@@ -1157,7 +1154,8 @@ bool UiManager::ShowPowerOffChargingScreen(
   }
 
   if (!ShowBatteryStartupWarning(icon::kBatteryAndroid0,
-          critical ? kPowerOffChargingCriticalColor : kPowerOffChargingColor,
+          critical ? theme::FixedColors().power_off_charging_critical
+                   : theme::FixedColors().power_off_charging,
           message, clamped_percent)) {
     return false;
   }
@@ -1167,8 +1165,8 @@ bool UiManager::ShowPowerOffChargingScreen(
     return false;
   }
   lv_label_set_text(bolt, icon::kBolt);
-  SetTextStyle(
-      bolt, lv_color_hex(kLowBatteryStartupTextColor), MaterialFillIconFont32());
+  SetTextStyle(bolt, lv_color_hex(theme::FixedColors().startup_text),
+      MaterialFillIconFont32());
   lv_obj_align(bolt, LV_ALIGN_CENTER, kPowerOffChargingBoltOffsetX,
       kLowBatteryStartupIconOffsetY);
   lv_obj_move_to_index(bolt, -1);
@@ -1735,7 +1733,7 @@ void UiManager::RelayoutForScreenSize() {
       lv_obj_move_to_index(startup_screen_, -1);
     }
   } else if (first_boot_welcome_closing) {
-    SetStatusBarTextColor(kStatusBarLightTextColor);
+    SetStatusBarTextColor(theme::FixedColors().status_bar_text);
     SetStatusBarVisible(true);
     status_bar_.MoveToTop();
   }
@@ -1854,34 +1852,40 @@ lv_obj_t* UiManager::CreateClockGroup(lv_obj_t* parent) {
       ClockTop(screen_width, screen_height));
 
   lv_obj_t* time_label =
-      CreateLabel(group, clock_time_text_, lv_color_hex(0xFFFFFF));
+      CreateLabel(group, clock_time_text_,
+          lv_color_hex(theme::FixedColors().home_content));
   if (time_label == nullptr) {
     lv_obj_delete(group);
     return nullptr;
   }
-  SetTextStyle(time_label, lv_color_hex(0xFFFFFF), HomeTimeFont());
+  SetTextStyle(time_label,
+      lv_color_hex(theme::FixedColors().home_content), HomeTimeFont());
   lv_obj_set_size(time_label, 400, 110);
   lv_obj_set_style_text_opa(time_label, 245, LV_PART_MAIN);
   lv_obj_align(time_label, LV_ALIGN_TOP_LEFT, 0, 0);
 
   lv_obj_t* date_label =
-      CreateLabel(group, home_date_text_, lv_color_hex(0xFFFFFF));
+      CreateLabel(group, home_date_text_,
+          lv_color_hex(theme::FixedColors().home_content));
   if (date_label == nullptr) {
     lv_obj_delete(group);
     return nullptr;
   }
-  SetTextStyle(date_label, lv_color_hex(0xFFFFFF), HomeDateFont());
+  SetTextStyle(date_label,
+      lv_color_hex(theme::FixedColors().home_content), HomeDateFont());
   lv_obj_set_size(date_label, 400, 70);
   lv_obj_set_style_text_opa(date_label, 220, LV_PART_MAIN);
   lv_obj_align(date_label, LV_ALIGN_TOP_LEFT, 10, 110);
 
   lv_obj_t* week_label =
-      CreateLabel(group, home_week_text_, lv_color_hex(0xFFFFFF));
+      CreateLabel(group, home_week_text_,
+          lv_color_hex(theme::FixedColors().home_content));
   if (week_label == nullptr) {
     lv_obj_delete(group);
     return nullptr;
   }
-  SetTextStyle(week_label, lv_color_hex(0xFFFFFF), HomeDateFont());
+  SetTextStyle(week_label,
+      lv_color_hex(theme::FixedColors().home_content), HomeDateFont());
   lv_obj_set_size(week_label, 400, 50);
   lv_obj_set_style_text_opa(week_label, 220, LV_PART_MAIN);
   lv_obj_align(week_label, LV_ALIGN_TOP_LEFT, 10, 172);
@@ -2104,10 +2108,11 @@ lv_obj_t* UiManager::CreateAppIcon(
       lv_image_set_src(icon, style.image);
     }
   } else if (style.symbol != nullptr) {
-    icon = CreateLabel(button, style.symbol, lv_color_hex(0xFFFFFF));
+    icon = CreateLabel(button, style.symbol,
+        lv_color_hex(theme::FixedColors().home_content));
     if (icon != nullptr) {
-      SetTextStyle(
-          icon, lv_color_hex(0xFFFFFF), MaterialOutlineIconFont56());
+      SetTextStyle(icon, lv_color_hex(theme::FixedColors().home_content),
+          MaterialOutlineIconFont56());
     }
   }
 
@@ -2123,13 +2128,15 @@ lv_obj_t* UiManager::CreateAppIcon(
   }
 
   lv_obj_t* title =
-      CreateLabel(cell, context->app_entry->title, lv_color_hex(0xFFFFFF));
+      CreateLabel(cell, context->app_entry->title,
+          lv_color_hex(theme::FixedColors().home_content));
   if (title == nullptr) {
     lv_obj_delete(cell);
     return nullptr;
   }
   lv_obj_set_width(title, cell_width);
-  SetTextStyle(title, lv_color_hex(0xFFFFFF), Font22());
+  SetTextStyle(title,
+      lv_color_hex(theme::FixedColors().home_content), Font22());
   lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_set_style_text_opa(title, 235, LV_PART_MAIN);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0,
@@ -2151,7 +2158,8 @@ lv_obj_t* UiManager::CreateDock(lv_obj_t* parent) {
   const int dock_columns = DockColumnCount(screen_width, screen_height);
   lv_obj_set_size(dock, screen_width, DockHeight(screen_width, screen_height));
   lv_obj_align(dock, LV_ALIGN_BOTTOM_MID, 0, 0);
-  lv_obj_set_style_bg_color(dock, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(dock,
+      lv_color_hex(theme::FixedColors().home_dock), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(dock, 28, LV_PART_MAIN);
   lv_obj_set_style_border_width(dock, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(dock, 0, LV_PART_MAIN);
@@ -2255,10 +2263,11 @@ lv_obj_t* UiManager::CreateDockIcon(
       lv_image_set_src(icon, style.image);
     }
   } else if (style.symbol != nullptr) {
-    icon = CreateLabel(icon_box, style.symbol, lv_color_hex(0xFFFFFF));
+    icon = CreateLabel(icon_box, style.symbol,
+        lv_color_hex(theme::FixedColors().home_content));
     if (icon != nullptr) {
-      SetTextStyle(
-          icon, lv_color_hex(0xFFFFFF), MaterialOutlineIconFont56());
+      SetTextStyle(icon, lv_color_hex(theme::FixedColors().home_content),
+          MaterialOutlineIconFont56());
     }
   }
 
@@ -2274,13 +2283,15 @@ lv_obj_t* UiManager::CreateDockIcon(
   }
 
   lv_obj_t* title_label =
-      CreateLabel(cell, entry.title, lv_color_hex(0xFFFFFF));
+      CreateLabel(cell, entry.title,
+          lv_color_hex(theme::FixedColors().home_content));
   if (title_label == nullptr) {
     lv_obj_delete(cell);
     return nullptr;
   }
   lv_obj_set_width(title_label, cell_width);
-  SetTextStyle(title_label, lv_color_hex(0xFFFFFF), Font22());
+  SetTextStyle(title_label,
+      lv_color_hex(theme::FixedColors().home_content), Font22());
   lv_obj_set_style_text_align(title_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_set_style_text_opa(title_label, 235, LV_PART_MAIN);
   lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0,
@@ -2302,9 +2313,11 @@ lv_obj_t* UiManager::CreatePageIndicator(lv_obj_t* parent) {
       -PageIndicatorBottom(LayoutWidth(), LayoutHeight()));
 
   first_page_dot_ =
-      CreateCircle(indicator, 12, -10, 0, LV_ALIGN_CENTER, 0xFFFFFF, 240);
+      CreateCircle(indicator, 12, -10, 0, LV_ALIGN_CENTER,
+          theme::FixedColors().home_content, 240);
   second_page_dot_ =
-      CreateCircle(indicator, 12, 10, 0, LV_ALIGN_CENTER, 0xFFFFFF, 110);
+      CreateCircle(indicator, 12, 10, 0, LV_ALIGN_CENTER,
+          theme::FixedColors().home_content, 110);
   if (first_page_dot_ == nullptr || second_page_dot_ == nullptr) {
     lv_obj_delete(indicator);
     first_page_dot_ = nullptr;
@@ -2329,7 +2342,7 @@ lv_obj_t* UiManager::CreateStartupBackground(lv_obj_t* parent) {
   lv_obj_set_size(background, LayoutWidth(), LayoutHeight());
   lv_obj_set_pos(background, 0, 0);
   lv_obj_set_style_bg_color(background,
-      lv_color_hex(kStartupBlackBackgroundColor), LV_PART_MAIN);
+      lv_color_hex(theme::FixedColors().startup_background), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(background, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(background, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(background, 0, LV_PART_MAIN);
@@ -2651,7 +2664,7 @@ void UiManager::DestroyFirstBootWelcomeScreen() {
     lv_obj_delete(screen);
   }
   first_boot_welcome_closing_ = false;
-  SetStatusBarTextColor(kStatusBarLightTextColor);
+  SetStatusBarTextColor(theme::FixedColors().status_bar_text);
   SetStatusBarVisible(true);
   status_bar_.MoveToTop();
 }
@@ -2674,7 +2687,7 @@ bool UiManager::CompleteFirstBootWelcome() {
   first_boot_welcome_closing_ = true;
   lv_obj_remove_flag(first_boot_welcome_screen_, LV_OBJ_FLAG_CLICKABLE);
   // 先恢复下层主界面，再把欢迎页保持在最上方执行淡出。
-  SetStatusBarTextColor(kStatusBarLightTextColor);
+  SetStatusBarTextColor(theme::FixedColors().status_bar_text);
   SetStatusBarVisible(true);
   lv_obj_move_to_index(first_boot_welcome_screen_, -1);
   if (!StartFirstBootWelcomeFadeOut()) {
@@ -2733,7 +2746,7 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   };
 
   SetStatusBarVisible(true);
-  SetStatusBarTextColor(kStatusBarLightTextColor);
+  SetStatusBarTextColor(theme::FixedColors().status_bar_text);
   active_view_container_ = CreateAppView(root_screen_, app_entry, config);
   if (active_view_container_ == nullptr) {
     return false;
@@ -2778,7 +2791,7 @@ void UiManager::ShowLauncher() {
     if (launcher_container_ != nullptr) {
       lv_obj_remove_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
       lv_obj_set_style_opa(launcher_container_, LV_OPA_COVER, LV_PART_MAIN);
-      SetStatusBarTextColor(kStatusBarLightTextColor);
+      SetStatusBarTextColor(theme::FixedColors().status_bar_text);
       SetStatusBarVisible(true);
       status_bar_.MoveToTop();
     }
@@ -2793,7 +2806,7 @@ void UiManager::ShowLauncher() {
   active_view_container_ = nullptr;
   lv_obj_remove_flag(launcher_container_, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_style_opa(launcher_container_, LV_OPA_COVER, LV_PART_MAIN);
-  SetStatusBarTextColor(kStatusBarLightTextColor);
+  SetStatusBarTextColor(theme::FixedColors().status_bar_text);
   SetStatusBarVisible(true);
   status_bar_.MoveToTop();
 }

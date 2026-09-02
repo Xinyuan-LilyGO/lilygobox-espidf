@@ -10,6 +10,12 @@
 #include <cstdint>
 
 namespace lilygo_box::hal {
+namespace {
+
+constexpr int kMinimumBatteryCapacityMah = 1;
+constexpr int kMaximumBatteryCapacityMah = INT16_MAX;
+
+}  // namespace
 
 bool TDisplayP4Device::ReadBatteryManagementStatus(
     BatteryManagementStatus* status) {
@@ -93,6 +99,28 @@ bool TDisplayP4Device::ReadBatteryLevel(int* percent) {
   }
 
   *percent = charge_percent;
+  return true;
+}
+
+BatteryCapacityRange TDisplayP4Device::GetBatteryCapacityRange() const {
+  return {
+      .minimum_mah = kMinimumBatteryCapacityMah,
+      .maximum_mah = kMaximumBatteryCapacityMah,
+  };
+}
+
+bool TDisplayP4Device::SetBatteryCapacityMah(int capacity_mah) {
+  const BatteryCapacityRange range = GetBatteryCapacityRange();
+  if (capacity_mah < range.minimum_mah ||
+      capacity_mah > range.maximum_mah) {
+    return false;
+  }
+  if (driver_.IsBq27220Ready() &&
+      !driver_.chip().bq27220->SetBatteryCapacity(
+          static_cast<uint16_t>(capacity_mah))) {
+    return false;
+  }
+  battery_capacity_mah_.store(capacity_mah);
   return true;
 }
 

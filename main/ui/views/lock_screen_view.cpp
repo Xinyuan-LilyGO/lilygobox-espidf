@@ -11,6 +11,7 @@
 
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
+#include "ui/theme/theme_provider.h"
 #include "ui/wallpaper.h"
 
 namespace lilygo_box::ui {
@@ -21,7 +22,6 @@ constexpr int kLockHorizontalPadding = 10;
 constexpr int kUnlockHintBottom = 46;
 constexpr uint32_t kLockResetAnimationMs = 180;
 constexpr uint32_t kLockUnlockAnimationMs = 220;
-constexpr uint32_t kLockTextColor = 0xFFFFFF;
 
 /**
  * @brief 获取锁屏时间字体
@@ -110,8 +110,8 @@ lv_obj_t* CreateClockGroup(
   lv_obj_align(group, LV_ALIGN_TOP_LEFT, kLockHorizontalPadding, kLockClockTop);
 
   lv_obj_t* time_label =
-      CreateLabel(group, options.time_text, lv_color_hex(kLockTextColor),
-          HomeTimeFont());
+      CreateLabel(group, options.time_text,
+          lv_color_hex(theme::FixedColors().lock_screen_text), HomeTimeFont());
   if (time_label == nullptr) {
     lv_obj_delete(group);
     return nullptr;
@@ -121,8 +121,8 @@ lv_obj_t* CreateClockGroup(
   lv_obj_align(time_label, LV_ALIGN_TOP_LEFT, 0, 0);
 
   lv_obj_t* date_label =
-      CreateLabel(group, options.date_text, lv_color_hex(kLockTextColor),
-          HomeDateFont());
+      CreateLabel(group, options.date_text,
+          lv_color_hex(theme::FixedColors().lock_screen_text), HomeDateFont());
   if (date_label == nullptr) {
     lv_obj_delete(group);
     return nullptr;
@@ -132,8 +132,8 @@ lv_obj_t* CreateClockGroup(
   lv_obj_align(date_label, LV_ALIGN_TOP_LEFT, 10, 110);
 
   lv_obj_t* week_label =
-      CreateLabel(group, options.week_text, lv_color_hex(kLockTextColor),
-          HomeDateFont());
+      CreateLabel(group, options.week_text,
+          lv_color_hex(theme::FixedColors().lock_screen_text), HomeDateFont());
   if (week_label == nullptr) {
     lv_obj_delete(group);
     return nullptr;
@@ -192,7 +192,8 @@ lv_obj_t* CreateLockScreenView(lv_obj_t* parent,
   }
 
   lv_obj_t* arrow = CreateLabel(lock_screen, icon::kKeyboardArrowUp,
-      lv_color_hex(kLockTextColor), MaterialOutlineIconFont56());
+      lv_color_hex(theme::FixedColors().lock_screen_text),
+      MaterialOutlineIconFont56());
   if (arrow == nullptr) {
     lv_obj_delete(lock_screen);
     return nullptr;

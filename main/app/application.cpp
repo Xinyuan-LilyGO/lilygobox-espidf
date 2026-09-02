@@ -15,6 +15,7 @@
 
 #include "app/firmware_update_manager.h"
 #include "app/network_monitor.h"
+#include "app/storage/battery_storage.h"
 #include "app/storage/display_storage.h"
 #include "app/storage/first_boot_storage.h"
 #include "app/storage/keyboard_expansion_storage.h"
@@ -492,6 +493,34 @@ bool Application::Init() {
     LogMessage(
         LogLevel::kError, __FILE__, __LINE__, "No device provider selected\n");
     return false;
+  }
+
+  if (!app::InitBatteryStorage()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Initialize battery capacity storage failed; using default\n");
+  }
+  app::BatteryPreferences battery_preferences = app::GetBatteryPreferences();
+  hal::BatteryManagementProvider* battery_management =
+      device_provider_context_.battery_management;
+  if (battery_management != nullptr) {
+    const hal::BatteryCapacityRange range =
+        battery_management->GetBatteryCapacityRange();
+    const int configured_capacity_mah = std::clamp(
+        battery_preferences.capacity_mah, range.minimum_mah,
+        range.maximum_mah);
+    if (configured_capacity_mah != battery_preferences.capacity_mah) {
+      battery_preferences.capacity_mah = configured_capacity_mah;
+      if (!app::UpdateBatteryPreferences(battery_preferences)) {
+        LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+            "Normalize configured battery capacity failed: capacity=%d mAh\n",
+            configured_capacity_mah);
+      }
+    }
+    if (!battery_management->SetBatteryCapacityMah(configured_capacity_mah)) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Apply configured battery capacity failed: capacity=%d mAh\n",
+          configured_capacity_mah);
+    }
   }
 
   if (device->SupportsPowerOffCharging()) {

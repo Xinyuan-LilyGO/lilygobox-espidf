@@ -29,7 +29,7 @@ struct NavigationDrawerConfig {
   int width_percent = 78;
   int animation_ms = 220;
   uint32_t background_color = theme::ActiveThemeColors().surface;
-  uint32_t scrim_color = theme::ActiveThemeColors().scrim;
+  uint32_t scrim_color = theme::FixedColors().scrim;
   uint32_t primary_text_color = theme::ActiveThemeColors().on_surface;
   uint32_t icon_color = theme::ActiveThemeColors().on_surface_variant;
   uint32_t pressed_color = theme::ActiveThemeColors().state_layer;

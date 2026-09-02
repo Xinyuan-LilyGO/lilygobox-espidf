@@ -210,11 +210,11 @@ lv_obj_t* CreateDivider(lv_obj_t* parent, int width) {
  * @param x 按钮左上角横坐标
  * @param y 按钮左上角纵坐标
  * @param callback 点击事件回调
- * @param state 设置页面状态
+ * @param user_data 点击事件上下文
  * @return 创建成功返回按钮对象，否则返回 nullptr
  */
 lv_obj_t* CreateToolbarButton(lv_obj_t* parent, int x, int y,
-    lv_event_cb_t callback, SettingsViewState* state) {
+    lv_event_cb_t callback, void* user_data) {
   lv_obj_t* button = lv_button_create(parent);
   if (button == nullptr) {
     return nullptr;
@@ -224,7 +224,7 @@ lv_obj_t* CreateToolbarButton(lv_obj_t* parent, int x, int y,
   lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(button, LV_OBJ_FLAG_PRESS_LOCK);
   lv_obj_add_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_size(button, kNameEditButtonSize, kNameEditButtonSize);
+  lv_obj_set_size(button, kDetailBackButtonSize, kDetailBackButtonSize);
   lv_obj_set_pos(button, x, y);
   lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, LV_STATE_PRESSED);
@@ -244,7 +244,7 @@ lv_obj_t* CreateToolbarButton(lv_obj_t* parent, int x, int y,
   if (!AddPressCancelOnLeave(button)) {
     return nullptr;
   }
-  lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, state);
+  lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, user_data);
   return button;
 }
 

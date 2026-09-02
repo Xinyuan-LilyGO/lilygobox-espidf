@@ -141,7 +141,7 @@ void IndicatorFadeCompletedCallback(lv_anim_t* animation) {
  * @return 返回圆和图标可用时返回 true，否则返回 false
  */
 bool EnsureIndicator() {
-  const theme::ThemeColors& colors = theme::ActiveThemeColors();
+  const theme::FixedUiColors& colors = theme::FixedColors();
   if (g_indicator != nullptr && g_icon != nullptr) {
     lv_obj_set_style_bg_color(g_indicator,
         lv_color_hex(colors.edge_swipe_indicator), LV_PART_MAIN);

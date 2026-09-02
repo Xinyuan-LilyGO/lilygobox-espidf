@@ -54,11 +54,11 @@ struct PromptSelectSheetConfig {
   int button_radius = 0;
   int title_message_gap = 8;
   uint32_t sheet_color = theme::ActiveThemeColors().surface_container_lowest;
-  uint32_t selected_color = theme::ActiveThemeColors().action_container;
+  uint32_t selected_color = theme::FixedColors().action_container;
   uint32_t primary_text_color = theme::ActiveThemeColors().on_surface;
   uint32_t secondary_text_color =
       theme::ActiveThemeColors().on_surface_variant;
-  uint32_t selected_text_color = theme::ActiveThemeColors().action;
+  uint32_t selected_text_color = theme::FixedColors().action;
   uint32_t cancel_background_color =
       theme::ActiveThemeColors().button_secondary;
   uint32_t cancel_pressed_color =

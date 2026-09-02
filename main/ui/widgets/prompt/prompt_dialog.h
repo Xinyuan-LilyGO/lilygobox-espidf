@@ -67,10 +67,10 @@ struct PromptDialogConfig {
       theme::ActiveThemeColors().button_secondary_pressed;
   uint32_t cancel_text_color =
       theme::ActiveThemeColors().on_button_secondary;
-  uint32_t confirm_background_color = theme::ActiveThemeColors().action;
+  uint32_t confirm_background_color = theme::FixedColors().action;
   uint32_t confirm_pressed_color =
-      theme::ActiveThemeColors().action_pressed;
-  uint32_t confirm_text_color = theme::ActiveThemeColors().on_action;
+      theme::FixedColors().action_pressed;
+  uint32_t confirm_text_color = theme::FixedColors().on_action;
   lv_opa_t overlay_opacity = 115;
   uint32_t animation_ms = 180;
   const char* title = nullptr;

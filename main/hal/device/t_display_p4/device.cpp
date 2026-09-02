@@ -38,6 +38,11 @@ bool TDisplayP4Device::InitDevice() {
   if (!result) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "Init failed\n");
   }
+  if (driver_.IsBq27220Ready() &&
+      !SetBatteryCapacityMah(battery_capacity_mah_.load())) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Apply configured battery capacity failed\n");
+  }
 
   if (!WaitForScreenReady()) {
     LogMessage(
@@ -105,7 +110,7 @@ bool TDisplayP4Device::ReadDeviceInfo(DeviceInfo* info) {
   info->camera_bits_per_pixel = device_info.camera.bits_per_pixel;
   info->camera_buffer_count = device_info.camera.buffer_count;
   info->battery_fuel_gauge_name = device_info.battery.fuel_gauge_name;
-  info->battery_capacity_mah = device_info.battery.capacity_mah;
+  info->battery_capacity_mah = battery_capacity_mah_.load();
   return true;
 }
 

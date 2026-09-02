@@ -8,11 +8,15 @@
 #include "ui/views/settings/settings_basic_view_common.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 
+#include "app/storage/battery_storage.h"
 #include "app/system_status_cache.h"
+#include "base/logger.h"
 #include "hal/providers/battery_management_provider.h"
 #include "ui/resources/fonts/icon_assets.h"
 
@@ -20,6 +24,8 @@ namespace lilygo_box::ui {
 namespace {
 
 constexpr uint32_t kBatteryRefreshPeriodMs = 1000;
+constexpr char kBatteryCapacityAcceptedChars[] = "0123456789";
+constexpr size_t kBatteryCapacityMaximumLength = 5;
 constexpr int kBatteryCardHeight = 190;
 constexpr int kBatteryCardInnerPadding = 28;
 constexpr int kBatteryCardRadius = 40;
@@ -65,6 +71,20 @@ uint32_t BatteryOverviewRestColor(int percent, bool charging) {
     return kBatteryLowRestColor;
   }
   return kBatteryRestColor;
+}
+
+/**
+ * @brief 将电池额定容量格式化为设置行文本
+ * @param capacity_mah 电池额定容量，单位为 mAh
+ * @param buffer 输出缓冲区
+ * @param buffer_size 输出缓冲区大小
+ */
+void FormatBatteryCapacity(
+    int capacity_mah, char* buffer, size_t buffer_size) {
+  if (buffer == nullptr || buffer_size == 0) {
+    return;
+  }
+  std::snprintf(buffer, buffer_size, "%d mAh", capacity_mah);
 }
 
 /**
@@ -292,6 +312,7 @@ void BatteryPageDeleteEventCallback(lv_event_t* event) {
   state->battery_overview_status_label = nullptr;
   state->battery_health_value_label = nullptr;
   state->battery_cycle_value_label = nullptr;
+  state->battery_capacity_value_label = nullptr;
 }
 
 /**
@@ -310,6 +331,152 @@ void BatteryProtectionDeleteEventCallback(lv_event_t* event) {
 
   state->battery_health_value_label = nullptr;
   state->battery_cycle_value_label = nullptr;
+}
+
+/**
+ * @brief 解析并校验电池额定容量输入
+ * @param text 用户输入的 mAh 数值
+ * @param state 设置页状态
+ * @param capacity_mah 解析后的容量输出地址
+ * @return 输入为当前设备支持的有效容量时返回 true
+ */
+bool ParseBatteryCapacityEdit(const char* text,
+    const SettingsViewState* state, int* capacity_mah) {
+  if (text == nullptr || text[0] == '\0' || state == nullptr ||
+      state->config.battery_management == nullptr ||
+      capacity_mah == nullptr) {
+    return false;
+  }
+
+  errno = 0;
+  char* end = nullptr;
+  const long parsed_capacity = std::strtol(text, &end, 10);
+  const hal::BatteryCapacityRange range =
+      state->config.battery_management->GetBatteryCapacityRange();
+  if (errno == ERANGE || end == text || end == nullptr || *end != '\0' ||
+      parsed_capacity < range.minimum_mah ||
+      parsed_capacity > range.maximum_mah) {
+    return false;
+  }
+  *capacity_mah = static_cast<int>(parsed_capacity);
+  return true;
+}
+
+/**
+ * @brief 校验电池额定容量编辑内容
+ * @param text 用户输入的 mAh 数值
+ * @param context 设置页状态
+ * @return 输入有效返回 true
+ */
+bool ValidateBatteryCapacityEdit(const char* text, void* context) {
+  int capacity_mah = 0;
+  return ParseBatteryCapacityEdit(text,
+      static_cast<SettingsViewState*>(context), &capacity_mah);
+}
+
+/**
+ * @brief 保存用户输入的电池额定容量
+ * @param text 用户输入的 mAh 数值
+ * @param context 设置页状态
+ * @return 容量有效且已应用并持久化返回 true，否则返回 false
+ */
+bool SaveBatteryCapacityEdit(const char* text, void* context) {
+  auto* state = static_cast<SettingsViewState*>(context);
+  int capacity_mah = 0;
+  if (!ParseBatteryCapacityEdit(text, state, &capacity_mah)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Invalid battery capacity: value=%s\n",
+        text == nullptr ? "(null)" : text);
+    return false;
+  }
+
+  const app::BatteryPreferences previous_preferences =
+      app::GetBatteryPreferences();
+  if (capacity_mah == previous_preferences.capacity_mah) {
+    return true;
+  }
+  if (!state->config.battery_management->SetBatteryCapacityMah(
+          capacity_mah)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Apply battery capacity failed: capacity=%d mAh\n", capacity_mah);
+    return false;
+  }
+
+  app::BatteryPreferences updated_preferences = previous_preferences;
+  updated_preferences.capacity_mah = capacity_mah;
+  if (!app::UpdateBatteryPreferences(updated_preferences)) {
+    const bool hardware_rolled_back =
+        state->config.battery_management->SetBatteryCapacityMah(
+            previous_preferences.capacity_mah);
+    const bool storage_rolled_back =
+        app::UpdateBatteryPreferences(previous_preferences);
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Persist battery capacity failed: capacity=%d mAh, "
+        "hardware_rollback=%s, storage_rollback=%s\n",
+        capacity_mah, hardware_rolled_back ? "success" : "failed",
+        storage_rolled_back ? "success" : "failed");
+    return false;
+  }
+
+  if (state->battery_capacity_value_label != nullptr) {
+    char capacity_text[24] = {};
+    FormatBatteryCapacity(capacity_mah, capacity_text, sizeof(capacity_text));
+    lv_label_set_text(state->battery_capacity_value_label, capacity_text);
+  }
+  if (state->config.system_status != nullptr) {
+    state->config.system_status->RefreshBattery();
+  }
+  return true;
+}
+
+/**
+ * @brief 显示电池额定容量编辑页
+ * @param state 设置页状态
+ * @return 显示成功返回 true，否则返回 false
+ */
+bool ShowBatteryCapacityEditPage(SettingsViewState* state) {
+  if (state == nullptr || state->root == nullptr ||
+      state->config.battery_management == nullptr) {
+    return false;
+  }
+
+  const app::BatteryPreferences preferences = app::GetBatteryPreferences();
+  const hal::BatteryCapacityRange range =
+      state->config.battery_management->GetBatteryCapacityRange();
+  char capacity_text[16] = {};
+  std::snprintf(
+      capacity_text, sizeof(capacity_text), "%d", preferences.capacity_mah);
+  char help_text[80] = {};
+  std::snprintf(help_text, sizeof(help_text),
+      "Enter the rated battery capacity in mAh (%d-%d).",
+      range.minimum_mah, range.maximum_mah);
+
+  SettingsTextEditPageConfig config;
+  config.parent = state->root;
+  config.width = state->config.width;
+  config.height = state->config.height;
+  config.title = "Edit battery capacity";
+  config.initial_text = capacity_text;
+  config.help_text = help_text;
+  config.accepted_chars = kBatteryCapacityAcceptedChars;
+  config.maximum_length = kBatteryCapacityMaximumLength;
+  config.keyboard_mode = LV_KEYBOARD_MODE_USER_3;
+  config.save_callback = SaveBatteryCapacityEdit;
+  config.validation_callback = ValidateBatteryCapacityEdit;
+  config.callback_context = state;
+  return ShowSettingsTextEditPage(&state->text_edit_page, config);
+}
+
+/**
+ * @brief 处理电池额定容量设置行点击事件
+ * @param event LVGL 事件对象
+ */
+void BatteryCapacityClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  ShowBatteryCapacityEditPage(
+      static_cast<SettingsViewState*>(lv_event_get_user_data(event)));
 }
 
 /**
@@ -509,6 +676,22 @@ bool BuildPowerBatteryContent(lv_obj_t* body, SettingsViewState* state) {
           state->config.width, BatteryProtectionClickedEventCallback, state)) {
     return false;
   }
+  y += kBasicRowHeight;
+  const app::BatteryPreferences battery_preferences =
+      app::GetBatteryPreferences();
+  char capacity_text[24] = {};
+  FormatBatteryCapacity(battery_preferences.capacity_mah, capacity_text,
+      sizeof(capacity_text));
+  if (!CreateArrowRow(body, "Battery capacity", capacity_text, y,
+          state->config.width, BatteryCapacityClickedEventCallback, state)) {
+    return false;
+  }
+  lv_obj_t* capacity_row =
+      lv_obj_get_child(body, lv_obj_get_child_count(body) - 1);
+  if (capacity_row == nullptr || lv_obj_get_child_count(capacity_row) < 2) {
+    return false;
+  }
+  state->battery_capacity_value_label = lv_obj_get_child(capacity_row, 1);
 
   if (state->battery_refresh_timer != nullptr) {
     lv_timer_delete(state->battery_refresh_timer);

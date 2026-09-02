@@ -178,7 +178,7 @@ lv_obj_t* CreatePlaceholderAppView(lv_obj_t* parent,
   lv_obj_align_to(subtitle, title, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 14);
 
   lv_obj_t* message = CreateLabel(container, "View implementation pending",
-      lv_color_hex(theme::ActiveThemeColors().action), Font24());
+      lv_color_hex(theme::FixedColors().action), Font24());
   if (message == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Create placeholder app message failed, app_id=%s\n",

@@ -1850,7 +1850,7 @@ bool CreateWifiOptionRow(lv_obj_t* parent, SettingsViewState* state,
 
   const bool delete_network = std::strcmp(text, "Delete network") == 0;
   const uint32_t label_color =
-      delete_network ? SettingsThemeColors().error
+      delete_network ? theme::FixedColors().error
                      : SettingsThemeColors().on_surface;
   lv_obj_t* label = CreateLabel(row, text, lv_color_hex(label_color),
       delete_network ? Font28() : Font32());
@@ -1888,17 +1888,17 @@ bool CreateWifiConnectedCard(lv_obj_t* parent, SettingsViewState* state,
     bool is_5g, bool secure, const char* password, int y, int width,
     bool retry_on_click) {
   const int card_width = width - 2 * kWifiSidePadding;
-  const bool blue_card = card_color == SettingsThemeColors().action;
-  const bool warning_card = card_color == SettingsThemeColors().warning;
+  const bool blue_card = card_color == theme::FixedColors().action;
+  const bool warning_card = card_color == theme::FixedColors().warning;
   const bool colored_card = blue_card || warning_card;
   const uint32_t text_color = blue_card
-      ? SettingsThemeColors().on_action
+      ? theme::FixedColors().on_action
       : (warning_card ? SettingsThemeColors().on_warning
                       : SettingsThemeColors().on_surface);
   const uint32_t subtitle_color =
       colored_card ? text_color : SettingsThemeColors().on_surface_variant;
   const uint32_t pressed_color = colored_card
-      ? (blue_card ? SettingsThemeColors().action_pressed
+      ? (blue_card ? theme::FixedColors().action_pressed
                    : SettingsThemeColors().warning_pressed)
       : SettingsThemeColors().state_layer;
   lv_obj_t* card = CreateBox(parent, card_width, kWifiConnectedCardHeight,
@@ -2134,10 +2134,10 @@ bool CreateWifiSavedManageRow(
   lv_obj_set_size(button, button_width, button_height);
   lv_obj_align(button, LV_ALIGN_RIGHT_MID, -kWifiSidePadding, 0);
   lv_obj_set_style_bg_color(button,
-      lv_color_hex(SettingsThemeColors().action), LV_PART_MAIN);
+      lv_color_hex(theme::FixedColors().action), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_color(button,
-      lv_color_hex(SettingsThemeColors().action_pressed), LV_STATE_PRESSED);
+      lv_color_hex(theme::FixedColors().action_pressed), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(button, button_height / 2, LV_PART_MAIN);
@@ -2154,7 +2154,7 @@ bool CreateWifiSavedManageRow(
 
   lv_obj_t* label =
       CreateLabel(button, "Delete",
-          lv_color_hex(SettingsThemeColors().on_action), Font28());
+          lv_color_hex(theme::FixedColors().on_action), Font28());
   if (label == nullptr) {
     return false;
   }
@@ -2653,7 +2653,7 @@ bool CreateWifiSheetButton(lv_obj_t* parent, const char* text, int x, int y,
     int width, lv_event_cb_t callback, SettingsViewState* state,
     bool primary, bool enabled) {
   const uint32_t background_color =
-      primary ? SettingsThemeColors().action
+      primary ? theme::FixedColors().action
               : SettingsThemeColors().button_secondary;
   PromptSheetButtonConfig button_config;
   button_config.text = text;
@@ -2663,13 +2663,13 @@ bool CreateWifiSheetButton(lv_obj_t* parent, const char* text, int x, int y,
   button_config.height = kWifiConnectButtonHeight;
   button_config.radius = 24;
   button_config.background_color = background_color;
-  button_config.disabled_background_color = SettingsThemeColors().action_disabled;
+  button_config.disabled_background_color = theme::FixedColors().action_disabled;
   button_config.pressed_background_color =
-      primary ? SettingsThemeColors().action_pressed
+      primary ? theme::FixedColors().action_pressed
               : SettingsThemeColors().button_secondary_pressed;
   button_config.pressed_opacity = LV_OPA_COVER;
   button_config.text_color = primary
-      ? SettingsThemeColors().on_action
+      ? theme::FixedColors().on_action
       : SettingsThemeColors().on_surface;
   button_config.font = Font28();
   button_config.callback = callback;
@@ -2698,15 +2698,15 @@ void SetWifiConnectButtonEnabled(SettingsViewState* state, bool enabled) {
   if (enabled) {
     lv_obj_remove_state(state->wifi_connect_button, LV_STATE_DISABLED);
     lv_obj_set_style_bg_color(state->wifi_connect_button,
-        lv_color_hex(SettingsThemeColors().action), LV_PART_MAIN);
+        lv_color_hex(theme::FixedColors().action), LV_PART_MAIN);
   } else {
     lv_obj_add_state(state->wifi_connect_button, LV_STATE_DISABLED);
     lv_obj_set_style_bg_color(state->wifi_connect_button,
-        lv_color_hex(SettingsThemeColors().action_disabled), LV_PART_MAIN);
+        lv_color_hex(theme::FixedColors().action_disabled), LV_PART_MAIN);
   }
   if (state->wifi_connect_button_label != nullptr) {
     lv_obj_set_style_text_color(state->wifi_connect_button_label,
-        lv_color_hex(SettingsThemeColors().on_action), LV_PART_MAIN);
+        lv_color_hex(theme::FixedColors().on_action), LV_PART_MAIN);
   }
 }
 
@@ -2860,7 +2860,7 @@ void WifiPasswordVisibilityClickedEventCallback(lv_event_t* event) {
       state->wifi_password_text_area, !password_hidden);
   RefreshWifiPasswordTextAreaScroll(state->wifi_password_text_area);
   const uint32_t icon_color =
-      password_hidden ? SettingsThemeColors().action
+      password_hidden ? theme::FixedColors().action
                       : SettingsThemeColors().on_surface_variant;
   lv_obj_set_style_text_color(state->wifi_password_visibility_icon,
       lv_color_hex(icon_color), LV_PART_MAIN);
@@ -3000,7 +3000,7 @@ bool ShowWifiConnectSheet(SettingsViewState* state,
       : "Connect to this open network?";
   if (subtitle[0] != '\0') {
     lv_obj_t* subtitle_label = CreateLabel(sheet, subtitle,
-        lv_color_hex(has_error ? SettingsThemeColors().error
+        lv_color_hex(has_error ? theme::FixedColors().error
                                : SettingsThemeColors().on_surface_variant),
         Font24());
     if (subtitle_label == nullptr) {
@@ -3300,7 +3300,7 @@ bool CreateWifiPageContent(lv_obj_t* parent, SettingsViewState* state,
       connection_text = "Connected, no internet";
     }
     if (!CreateWifiConnectedCard(parent, state, ssid, connection_text,
-            SettingsThemeColors().action, card_rssi, card_is_5g, card_secure,
+            theme::FixedColors().action, card_rssi, card_is_5g, card_secure,
             card_password, y, config.width, false)) {
       return false;
     }
@@ -3311,7 +3311,7 @@ bool CreateWifiPageContent(lv_obj_t* parent, SettingsViewState* state,
                  (state != nullptr && state->wifi_scan_on_ready))) {
     y += 10;
     if (!CreateWifiConnectedCard(parent, state, ssid, "Connecting...",
-            SettingsThemeColors().warning, card_rssi, card_is_5g, card_secure,
+            theme::FixedColors().warning, card_rssi, card_is_5g, card_secure,
             card_password, y, config.width, false)) {
       return false;
     }
@@ -3321,7 +3321,7 @@ bool CreateWifiPageContent(lv_obj_t* parent, SettingsViewState* state,
              (status.start_failed || status.disconnect_reason != 0)) {
     y += 10;
     if (!CreateWifiConnectedCard(parent, state, ssid, "Connection failed",
-            SettingsThemeColors().error_container, card_rssi, card_is_5g,
+            theme::FixedColors().error_container, card_rssi, card_is_5g,
             card_secure, card_password, y, config.width, true)) {
       return false;
     }

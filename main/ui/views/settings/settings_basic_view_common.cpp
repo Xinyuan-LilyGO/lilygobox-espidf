@@ -81,6 +81,7 @@ void CloseExtraPage(SettingsViewState* state, bool animated) {
   if (state->settings_nested_page != nullptr) {
     CloseNestedPage(state, false);
   }
+  CloseSettingsTextEditPage(&state->text_edit_page, false);
   state->audio_volume_slider = nullptr;
 
   if (animated &&
@@ -102,6 +103,8 @@ void CloseNestedPage(SettingsViewState* state, bool animated) {
       state->settings_nested_closing) {
     return;
   }
+
+  CloseSettingsTextEditPage(&state->text_edit_page, false);
 
   if (animated &&
       StartSlideRightWindowTransition(state->settings_nested_page,
@@ -468,9 +471,9 @@ void ApplySettingsSwitchTheme(lv_obj_t* switch_object) {
       lv_color_hex(SettingsThemeColors().surface_container_lowest),
       LV_PART_KNOB);
   lv_obj_set_style_bg_color(switch_object,
-      lv_color_hex(SettingsThemeColors().on_action), kCheckedKnobSelector);
+      lv_color_hex(theme::FixedColors().on_action), kCheckedKnobSelector);
   lv_obj_set_style_bg_color(switch_object,
-      lv_color_hex(SettingsThemeColors().action),
+      lv_color_hex(theme::FixedColors().action),
       kWifiSwitchCheckedIndicatorSelector);
   lv_obj_set_style_bg_opa(switch_object, LV_OPA_COVER,
       kWifiSwitchCheckedIndicatorSelector);
@@ -598,7 +601,7 @@ bool CreateSliderRow(lv_obj_t* parent, const char* icon_text,
       LV_PART_MAIN);
   lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_radius(slider, kSliderBarHeight / 2, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(slider, lv_color_hex(SettingsThemeColors().action),
+  lv_obj_set_style_bg_color(slider, lv_color_hex(theme::FixedColors().action),
       LV_PART_INDICATOR);
   lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_INDICATOR);
   lv_obj_set_style_radius(slider, 0, LV_PART_INDICATOR);

@@ -39,20 +39,11 @@ struct ThemeColors {
   uint32_t disabled_content = 0x8F8F8F;
   uint32_t state_layer = 0xEBEBEB;
   uint32_t state_layer_strong = 0xE0E0E0;
-  uint32_t action = 0x3F82F6;
-  uint32_t action_pressed = 0x2F73E8;
-  uint32_t action_disabled = 0xBFD7FB;
-  uint32_t action_container = 0xE8F3FF;
-  uint32_t action_container_pressed = 0xD8E9FF;
-  uint32_t on_action = 0xFFFFFF;
   uint32_t button_secondary = 0xE8E8E8;
   uint32_t button_secondary_pressed = 0xDCDCDC;
   uint32_t on_button_secondary = 0x101010;
-  uint32_t error = 0xFF3B30;
   uint32_t on_error = 0xFFFFFF;
-  uint32_t error_container = 0xFF3B30;
   uint32_t on_error_container = 0x410002;
-  uint32_t warning = 0xFFB95C;
   uint32_t warning_pressed = 0x704000;
   uint32_t on_warning = 0xFFFFFF;
   uint32_t success = 0x138A3D;
@@ -67,9 +58,43 @@ struct ThemeColors {
   uint32_t wallpaper_layer_2 = 0xC8C8C8;
   uint32_t wallpaper_layer_3 = 0xB7B7B7;
   uint32_t wallpaper_layer_4 = 0x9F9F9F;
+};
+
+// 不随亮暗主题变化的界面颜色。
+struct FixedUiColors {
+  uint32_t action = 0x3F82F6;
+  uint32_t action_pressed = 0x2F73E8;
+  uint32_t action_disabled = 0xBFD7FB;
+  uint32_t action_container = 0xE8F3FF;
+  uint32_t action_container_pressed = 0xD8E9FF;
+  uint32_t on_action = 0xFFFFFF;
+  uint32_t error = 0xFF3B30;
+  uint32_t error_container = 0xFF3B30;
+  uint32_t warning = 0xFFB95C;
+  uint32_t scrim = 0x000000;
+  uint32_t home_content = 0xFFFFFF;
+  uint32_t home_dock = 0xFFFFFF;
+  uint32_t home_icon_glow = 0x242424;
+  uint32_t startup_background = 0x000000;
+  uint32_t startup_text = 0xFFFFFF;
+  uint32_t power_off_charging = 0x27C769;
+  uint32_t power_off_charging_critical = 0xFF3B30;
+  uint32_t status_bar_background = 0x000000;
+  uint32_t status_bar_text = 0xFFFFFF;
+  uint32_t status_bar_battery_charging = 0x27C769;
+  uint32_t status_bar_battery_low = 0xFF3B30;
+  uint32_t lock_screen_text = 0xFFFFFF;
+  uint32_t camera_background = 0x000000;
+  uint32_t camera_primary_text = 0xFFFFFF;
+  uint32_t camera_secondary_text = 0xBDBDBD;
+  uint32_t brand_icon_background = 0x000000;
+  uint32_t power_menu_button = 0x303030;
+  uint32_t power_menu_button_pressed = 0x3C3C3C;
+  uint32_t on_power_menu_button = 0xF1F1F1;
+  uint32_t power_menu_text = 0xF1F1F1;
+  uint32_t power_menu_scrim = 0x000000;
   uint32_t edge_swipe_indicator = 0x303030;
   uint32_t on_edge_swipe_indicator = 0xF1F1F1;
-  uint32_t scrim = 0x000000;
 };
 
 inline constexpr ThemeColors kLightTheme = {};
@@ -96,20 +121,11 @@ inline constexpr ThemeColors kDarkTheme = {
     .disabled_content = 0x777777,
     .state_layer = 0x292929,
     .state_layer_strong = 0x363636,
-    .action = 0x3F82F6,
-    .action_pressed = 0x2F73E8,
-    .action_disabled = 0xBFD7FB,
-    .action_container = 0xE8F3FF,
-    .action_container_pressed = 0xD8E9FF,
-    .on_action = 0xFFFFFF,
     .button_secondary = 0x303030,
     .button_secondary_pressed = 0x3C3C3C,
     .on_button_secondary = 0xF1F1F1,
-    .error = 0xFF3B30,
     .on_error = 0x690005,
-    .error_container = 0xFF3B30,
     .on_error_container = 0xFFDAD6,
-    .warning = 0xFFB95C,
     .warning_pressed = 0xFFCA7A,
     .on_warning = 0x452B00,
     .success = 0x6DD58C,
@@ -124,10 +140,9 @@ inline constexpr ThemeColors kDarkTheme = {
     .wallpaper_layer_2 = 0x292929,
     .wallpaper_layer_3 = 0x232323,
     .wallpaper_layer_4 = 0x1C1C1C,
-    .edge_swipe_indicator = 0x303030,
-    .on_edge_swipe_indicator = 0xF1F1F1,
-    .scrim = 0x000000,
 };
+
+inline constexpr FixedUiColors kFixedUiColors = {};
 
 /**
  * @brief 获取亮色主题颜色
@@ -140,6 +155,12 @@ constexpr const ThemeColors& LightTheme() { return kLightTheme; }
  * @return 暗色主题颜色配置
  */
 constexpr const ThemeColors& DarkTheme() { return kDarkTheme; }
+
+/**
+ * @brief 获取不随主题变化的系统界面颜色
+ * @return 固定系统界面颜色配置
+ */
+constexpr const FixedUiColors& FixedColors() { return kFixedUiColors; }
 
 class ThemeProvider final {
  public:

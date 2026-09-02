@@ -1302,12 +1302,12 @@ uint32_t ProfileStatusColor(const char* status) {
     return kPrimaryColor;
   }
   if (status != nullptr && std::strcmp(status, "Chip error") == 0) {
-    return theme::ActiveThemeColors().error;
+    return theme::FixedColors().error;
   }
   if (status != nullptr &&
       (std::strcmp(status, "Unsupported") == 0 ||
           std::strcmp(status, "Unavailable") == 0)) {
-    return theme::ActiveThemeColors().warning;
+    return theme::FixedColors().warning;
   }
   return theme::ActiveThemeColors().on_surface_variant;
 }
@@ -1328,7 +1328,7 @@ uint32_t ProfileIndicatorColor(
     return kPrimaryColor;
   }
   if (std::strcmp(status, "Chip error") == 0) {
-    return theme::ActiveThemeColors().error;
+    return theme::FixedColors().error;
   }
   return theme::ActiveThemeColors().outline_variant;
 }
@@ -1713,7 +1713,7 @@ void DrawUserChatMessage(lv_layer_t* layer, int timeline_x,
   if (!sending) {
     DrawChatText(layer, success ? icon::kCheck : icon::kClose,
         success ? theme::ActiveThemeColors().success
-                : theme::ActiveThemeColors().error,
+                : theme::FixedColors().error,
         FillIconFont32(), timeline_x + timeline_width - 62,
         status_y - 5, 34, 40, LV_TEXT_ALIGN_RIGHT, false);
   }
@@ -4267,7 +4267,7 @@ bool CreateModuleRow(lv_obj_t* parent, const RadioModuleItem& item,
       lv_obj_align(unread, LV_ALIGN_TOP_RIGHT, -28, 54);
       lv_obj_set_style_radius(unread, 16, LV_PART_MAIN);
       lv_obj_set_style_bg_color(unread,
-          lv_color_hex(theme::ActiveThemeColors().error), LV_PART_MAIN);
+          lv_color_hex(theme::FixedColors().error), LV_PART_MAIN);
       lv_obj_set_style_bg_opa(unread, LV_OPA_COVER, LV_PART_MAIN);
       lv_obj_set_style_border_width(unread, 0, LV_PART_MAIN);
       lv_obj_set_style_pad_all(unread, 0, LV_PART_MAIN);
@@ -5191,7 +5191,7 @@ bool CreateProfileDeleteRow(
       LV_EVENT_CLICKED, state);
 
   lv_obj_t* label = CreateLabel(row, "Delete profile",
-      theme::ActiveThemeColors().error, Font28());
+      theme::FixedColors().error, Font28());
   lv_obj_t* chevron = CreateLabel(row, icon::kChevronRight,
       theme::ActiveThemeColors().on_surface_variant, OutlineIconFont44());
   if (label == nullptr || chevron == nullptr) {
@@ -6144,9 +6144,9 @@ void UpdateAddTextAreaErrorStyle(lv_obj_t* input, bool valid) {
   lv_obj_set_style_outline_width(input, outline_width, LV_PART_MAIN);
   lv_obj_set_style_outline_width(input, outline_width, LV_STATE_FOCUSED);
   lv_obj_set_style_outline_color(input,
-      lv_color_hex(theme::ActiveThemeColors().error), LV_PART_MAIN);
+      lv_color_hex(theme::FixedColors().error), LV_PART_MAIN);
   lv_obj_set_style_outline_color(input,
-      lv_color_hex(theme::ActiveThemeColors().error), LV_STATE_FOCUSED);
+      lv_color_hex(theme::FixedColors().error), LV_STATE_FOCUSED);
   lv_obj_set_style_outline_opa(input, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_outline_opa(input, LV_OPA_COVER, LV_STATE_FOCUSED);
   lv_obj_set_style_outline_pad(input, -2, LV_PART_MAIN);

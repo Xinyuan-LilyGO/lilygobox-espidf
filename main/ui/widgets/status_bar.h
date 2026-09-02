@@ -82,7 +82,7 @@ class StatusBar final {
   lv_obj_t* battery_management_fill_ = nullptr;
   lv_obj_t* battery_management_bolt_label_ = nullptr;
   lv_obj_t* battery_management_percent_label_ = nullptr;
-  uint32_t text_color_hex_ = 0xFFFFFF;
+  uint32_t text_color_hex_ = 0;
   int battery_management_percent_ = -1;
   int wifi_signal_level_ = -1;
   char time_text_[6] = "09:15";

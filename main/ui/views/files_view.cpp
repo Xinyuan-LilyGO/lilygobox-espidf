@@ -1498,14 +1498,14 @@ lv_obj_t* CreateStorageDrawerItem(lv_obj_t* parent, int drawer_width,
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_color(row,
       lv_color_hex(selected
-              ? theme::ActiveThemeColors().action_container_pressed
+              ? theme::FixedColors().action_container_pressed
               : theme::ActiveThemeColors().surface),
       LV_PART_MAIN);
   lv_obj_set_style_bg_opa(
       row, selected ? LV_OPA_COVER : LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_bg_color(row,
       lv_color_hex(selected
-              ? theme::ActiveThemeColors().action_container_pressed
+              ? theme::FixedColors().action_container_pressed
               : theme::ActiveThemeColors().state_layer),
       LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
@@ -1527,14 +1527,14 @@ lv_obj_t* CreateStorageDrawerItem(lv_obj_t* parent, int drawer_width,
     lv_obj_set_pos(left_cap, 0, 0);
     lv_obj_set_style_bg_color(left_cap,
         lv_color_hex(selected
-                ? theme::ActiveThemeColors().action_container_pressed
+                ? theme::FixedColors().action_container_pressed
                 : theme::ActiveThemeColors().surface),
         LV_PART_MAIN);
     lv_obj_set_style_bg_opa(
         left_cap, selected ? LV_OPA_COVER : LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_bg_color(left_cap,
         lv_color_hex(selected
-                ? theme::ActiveThemeColors().action_container_pressed
+                ? theme::FixedColors().action_container_pressed
                 : theme::ActiveThemeColors().state_layer),
         LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(left_cap, LV_OPA_COVER, LV_STATE_PRESSED);
@@ -1543,7 +1543,7 @@ lv_obj_t* CreateStorageDrawerItem(lv_obj_t* parent, int drawer_width,
   }
 
   const uint32_t content_color = selected
-      ? theme::ActiveThemeColors().action
+      ? theme::FixedColors().action
       : theme::ActiveThemeColors().on_surface_variant;
   lv_obj_t* icon_label = CreateMaterialIcon(
       row, symbol, lv_color_hex(content_color));
@@ -1552,7 +1552,7 @@ lv_obj_t* CreateStorageDrawerItem(lv_obj_t* parent, int drawer_width,
   }
   lv_obj_t* title_label =
       CreateLabel(row, title,
-          lv_color_hex(selected ? theme::ActiveThemeColors().action
+          lv_color_hex(selected ? theme::FixedColors().action
                                 : theme::ActiveThemeColors().on_surface),
           Font28());
   if (title_label != nullptr) {
@@ -1563,7 +1563,7 @@ lv_obj_t* CreateStorageDrawerItem(lv_obj_t* parent, int drawer_width,
   lv_obj_t* subtitle_label =
       CreateLabel(row, subtitle,
           lv_color_hex(selected
-                  ? theme::ActiveThemeColors().action
+                  ? theme::FixedColors().action
                   : theme::ActiveThemeColors().on_surface_variant),
           Font22());
   if (subtitle_label != nullptr) {
@@ -1846,10 +1846,10 @@ bool CreateFolderPickerAction(lv_obj_t* parent, FilesViewState* state) {
   lv_obj_set_style_radius(button, kFolderPickerButtonHeight / 2,
                           LV_PART_MAIN);
   const uint32_t action_color = state->picker_config.action_color == 0
-      ? theme::ActiveThemeColors().action
+      ? theme::FixedColors().action
       : state->picker_config.action_color;
   const uint32_t action_text_color = state->picker_config.action_text_color == 0
-      ? theme::ActiveThemeColors().on_action
+      ? theme::FixedColors().on_action
       : state->picker_config.action_text_color;
   lv_obj_set_style_bg_color(
       button, lv_color_hex(action_color), LV_PART_MAIN);

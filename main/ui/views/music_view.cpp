@@ -2038,8 +2038,8 @@ void AddMusicSourcePromptClickedEventCallback(lv_event_t* event) {
   picker_config.view_config = state->config;
   picker_config.title = "Select folder";
   picker_config.action_text = "Use this folder";
-  picker_config.action_color = theme::ActiveThemeColors().action;
-  picker_config.action_text_color = theme::ActiveThemeColors().on_action;
+  picker_config.action_color = theme::FixedColors().action;
+  picker_config.action_text_color = theme::FixedColors().on_action;
   picker_config.selected_callback = [state](const char* path) {
     if (path == nullptr || path[0] == '\0') {
       return;

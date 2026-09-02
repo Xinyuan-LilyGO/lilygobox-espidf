@@ -28,9 +28,6 @@ namespace lilygo_box::ui {
 namespace {
 
 constexpr uint32_t kCameraViewRefreshPeriodMs = 10;
-constexpr uint32_t kBackgroundColor = 0x000000;
-constexpr uint32_t kPrimaryTextColor = 0xFFFFFF;
-constexpr uint32_t kSecondaryTextColor = 0xBDBDBD;
 constexpr int kCameraPromptGroupHeight = 300;
 constexpr int kCameraPromptGroupOffsetY = -144;
 
@@ -117,9 +114,11 @@ void ApplyCameraPageColors(CameraViewState* state) {
     return;
   }
   lv_obj_set_style_bg_color(
-      state->container, lv_color_hex(kBackgroundColor), LV_PART_MAIN);
+      state->container, lv_color_hex(theme::FixedColors().camera_background),
+      LV_PART_MAIN);
   if (state->set_status_bar_text_color) {
-    state->set_status_bar_text_color(kPrimaryTextColor);
+    state->set_status_bar_text_color(
+        theme::FixedColors().camera_primary_text);
   }
 }
 
@@ -146,14 +145,14 @@ void RenderCameraScanning(CameraViewState* state) {
   config.visual = PromptStatusVisual::kSpinner;
   config.spinner_track_color =
       theme::ActiveThemeColors().surface_container_high;
-  config.spinner_indicator_color = theme::ActiveThemeColors().action;
+  config.spinner_indicator_color = theme::FixedColors().action;
   config.title = "Looking for a camera...";
   config.title_font = Font28();
-  config.title_color = kPrimaryTextColor;
+  config.title_color = theme::FixedColors().camera_primary_text;
   config.title_top = 96;
   config.message = "Keep the camera connected while scanning";
   config.message_font = Font22();
-  config.message_color = kSecondaryTextColor;
+  config.message_color = theme::FixedColors().camera_secondary_text;
   config.message_top = 138;
   lv_obj_t* group = CreatePromptStatus(state->status_layer, config);
   PositionCameraPromptStatus(state, group);
@@ -197,10 +196,10 @@ void RenderCameraError(CameraViewState* state, CameraError error) {
   config.icon_font = &lvgl_font_material_symbols_fill_56;
   config.title = "Camera unavailable";
   config.title_font = Font28();
-  config.title_color = kPrimaryTextColor;
+  config.title_color = theme::FixedColors().camera_primary_text;
   config.message = hint_text;
   config.message_font = Font22();
-  config.message_color = kSecondaryTextColor;
+  config.message_color = theme::FixedColors().camera_secondary_text;
   config.button_text = "Retry";
   config.button_font = &lvgl_font_google_sans_flex_24;
   config.button_callback = RetryCameraClickedEventCallback;
@@ -490,7 +489,8 @@ lv_obj_t* CreateCameraView(lv_obj_t* parent, const app::AppEntry& app_entry,
   lv_obj_set_size(container, config.width, config.height);
   lv_obj_align(container, LV_ALIGN_CENTER, 0, 0);
   lv_obj_set_style_bg_color(
-      container, lv_color_hex(kBackgroundColor), LV_PART_MAIN);
+      container, lv_color_hex(theme::FixedColors().camera_background),
+      LV_PART_MAIN);
   lv_obj_set_style_bg_opa(container, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(container, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(container, 0, LV_PART_MAIN);

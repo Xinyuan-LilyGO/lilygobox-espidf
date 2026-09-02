@@ -198,23 +198,24 @@ lv_obj_t* CreateActionItem(lv_obj_t* parent, const char* icon,
   lv_obj_add_flag(button, LV_OBJ_FLAG_EVENT_BUBBLE);
   lv_obj_set_size(button, kButtonSize, kButtonSize);
   lv_obj_set_style_radius(button, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-  const theme::ThemeColors& colors = theme::ActiveThemeColors();
+  const theme::FixedUiColors& colors = theme::FixedColors();
   lv_obj_set_style_bg_color(
-      button, lv_color_hex(colors.button_secondary), LV_PART_MAIN);
+      button, lv_color_hex(colors.power_menu_button), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      button, lv_color_hex(colors.button_secondary_pressed), LV_STATE_PRESSED);
+      button, lv_color_hex(colors.power_menu_button_pressed),
+      LV_STATE_PRESSED);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(button, 12, LV_PART_MAIN);
   lv_obj_set_style_shadow_opa(button, 36, LV_PART_MAIN);
   lv_obj_set_style_shadow_color(
-      button, lv_color_hex(colors.scrim), LV_PART_MAIN);
+      button, lv_color_hex(colors.power_menu_scrim), LV_PART_MAIN);
   lv_obj_align(button, LV_ALIGN_TOP_MID, 0, 0);
   lv_obj_add_event_cb(button, event_callback, LV_EVENT_CLICKED,
       event_user_data);
 
   lv_obj_t* icon_label = CreateLabel(
-      button, icon, colors.on_button_secondary, PowerFillIconFont56());
+      button, icon, colors.on_power_menu_button, PowerFillIconFont56());
   if (icon_label == nullptr) {
     lv_obj_delete(item);
     return nullptr;
@@ -223,7 +224,7 @@ lv_obj_t* CreateActionItem(lv_obj_t* parent, const char* icon,
   lv_obj_center(icon_label);
 
   lv_obj_t* label =
-      CreateLabel(item, text, colors.on_surface, Font24());
+      CreateLabel(item, text, colors.power_menu_text, Font24());
   if (label == nullptr) {
     lv_obj_delete(item);
     return nullptr;
@@ -253,7 +254,7 @@ lv_obj_t* CreatePowerMenuView(lv_obj_t* parent,
   lv_obj_set_size(overlay, width, height);
   lv_obj_set_pos(overlay, 0, 0);
   lv_obj_set_style_bg_color(overlay,
-      lv_color_hex(theme::ActiveThemeColors().scrim), LV_PART_MAIN);
+      lv_color_hex(theme::FixedColors().power_menu_scrim), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(overlay, 210, LV_PART_MAIN);
   lv_obj_set_style_border_width(overlay, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(overlay, 0, LV_PART_MAIN);

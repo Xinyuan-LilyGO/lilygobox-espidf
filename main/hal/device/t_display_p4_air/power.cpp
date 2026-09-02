@@ -1,5 +1,5 @@
 /*
- * @Description: T-Display-P4-Air 电源、电池与 OTG 硬件实现
+ * @Description: T-Display-P4-Air 电源与 OTG 硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
  * @LastEditTime: 2026-08-28 00:00:00
@@ -7,7 +7,6 @@
  */
 #include "hal/device/t_display_p4_air/device.h"
 
-#include <cmath>
 #include <cstdint>
 
 #include "base/logger.h"
@@ -404,80 +403,6 @@ PowerOffAction TDisplayP4AirDevice::RequestPowerOffInternal(
   }
   // 正常情况下 BATFET 会立即断开；深度睡眠是 USB 同时插入时的安全后备。
   return PowerOffAction::kEnterDeepSleep;
-}
-
-bool TDisplayP4AirDevice::ReadBatteryManagementStatus(
-    BatteryManagementStatus* status) {
-  if (status == nullptr) {
-    return false;
-  }
-
-  *status = BatteryManagementStatus();
-
-  if (!driver_.IsAxp517Ready() || driver_.chip().axp517 == nullptr) {
-    return false;
-  }
-
-  auto& axp517 = *driver_.chip().axp517;
-  cpp_bus_driver::Axp517::ChipStatus0 chip_status0;
-  cpp_bus_driver::Axp517::ChipStatus1 chip_status1;
-  if (!axp517.GetChipStatus0(chip_status0) ||
-      !axp517.GetChipStatus1(chip_status1)) {
-    return false;
-  }
-
-  const uint16_t voltage_mv = axp517.GetBatteryVoltage();
-  const uint8_t charge_percent = axp517.GetBatteryLevel();
-  const uint8_t health_percent = axp517.GetBatteryHealth();
-  const float current_ma = axp517.GetBatteryCurrent();
-
-  status->ready = true;
-  status->pack_present = chip_status0.battery_present_status;
-  status->charging = status->pack_present && chip_status0.vbus_good_indication &&
-                     (chip_status1.charging_status ==
-                             cpp_bus_driver::Axp517::ChargeStatus::kTrickleCharge ||
-                         chip_status1.charging_status ==
-                             cpp_bus_driver::Axp517::ChargeStatus::kPrecharge ||
-                         chip_status1.charging_status ==
-                             cpp_bus_driver::Axp517::ChargeStatus::kConstantCurrent ||
-                         chip_status1.charging_status ==
-                             cpp_bus_driver::Axp517::ChargeStatus::kConstantVoltage ||
-                         chip_status1.charging_status ==
-                             cpp_bus_driver::Axp517::ChargeStatus::kChargeDone);
-  status->full_charged =
-      chip_status1.charging_status ==
-          cpp_bus_driver::Axp517::ChargeStatus::kChargeDone ||
-      charge_percent == 100;
-  status->full_discharged = status->pack_present && charge_percent == 0;
-  status->voltage_mv = voltage_mv;
-  status->current_ma = static_cast<int>(std::lround(current_ma));
-  status->charge_percent = charge_percent;
-  status->health_percent = health_percent;
-  status->pack_temperature_c = axp517.GetBatteryTemperatureCelsius();
-  if (axp517.SetAdcDataSelect(
-          cpp_bus_driver::Axp517::AdcData::kChipTemperatureCelsius)) {
-    status->chip_temperature_c = axp517.GetChipDieJunctionTemperatureCelsius();
-  }
-  return true;
-}
-
-bool TDisplayP4AirDevice::ReadBatteryLevel(int* percent) {
-  if (percent == nullptr || !driver_.IsAxp517Ready() ||
-      driver_.chip().axp517 == nullptr) {
-    return false;
-  }
-
-  cpp_bus_driver::Axp517::ChipStatus0 chip_status;
-  if (!driver_.chip().axp517->GetChipStatus0(chip_status) ||
-      !chip_status.battery_present_status) {
-    return false;
-  }
-  const uint8_t charge_percent = driver_.chip().axp517->GetBatteryLevel();
-  if (charge_percent > 100) {
-    return false;
-  }
-  *percent = charge_percent;
-  return true;
 }
 
 bool TDisplayP4AirDevice::SetOtgPowerEnabled(bool enabled) {

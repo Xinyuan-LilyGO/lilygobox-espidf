@@ -179,6 +179,7 @@ const lv_buttonmatrix_ctrl_t kKeyboardSymbolCtrl[] = {
 struct TextAreaKeyboardBinding {
   lv_obj_t* keyboard = nullptr;
   const char* accepted_chars = nullptr;
+  lv_keyboard_mode_t initial_mode = LV_KEYBOARD_MODE_USER_1;
   lv_point_t start_point = {};
   uint32_t cursor_on_press = 0;
   bool has_start_point = false;
@@ -313,7 +314,7 @@ void ActivateTextAreaAfterRelease(
   if (binding->accepted_chars != nullptr) {
     lv_textarea_set_accepted_chars(text_area, binding->accepted_chars);
   }
-  lv_keyboard_set_mode(binding->keyboard, LV_KEYBOARD_MODE_USER_1);
+  lv_keyboard_set_mode(binding->keyboard, binding->initial_mode);
   if (ShouldShowSharedKeyboardInternal()) {
     lv_obj_remove_flag(binding->keyboard, LV_OBJ_FLAG_HIDDEN);
   } else {
@@ -664,7 +665,7 @@ lv_obj_t* CreateSharedKeyboard(
   ConfigureSharedKeyboardMap(keyboard);
   lv_obj_align(keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
   lv_obj_add_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
-  lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_USER_1);
+  lv_keyboard_set_mode(keyboard, config.initial_mode);
   EnableSharedKeyboardReleaseActivation(keyboard);
   const lv_event_code_t mode_event =
       static_cast<lv_event_code_t>(LV_EVENT_VALUE_CHANGED |
@@ -676,7 +677,8 @@ lv_obj_t* CreateSharedKeyboard(
 }
 
 bool AttachSharedKeyboardToTextArea(
-    lv_obj_t* keyboard, lv_obj_t* text_area, const char* accepted_chars) {
+    lv_obj_t* keyboard, lv_obj_t* text_area, const char* accepted_chars,
+    lv_keyboard_mode_t initial_mode) {
   if (keyboard == nullptr || text_area == nullptr) {
     return false;
   }
@@ -693,6 +695,7 @@ bool AttachSharedKeyboardToTextArea(
 
   binding->keyboard = keyboard;
   binding->accepted_chars = accepted_chars;
+  binding->initial_mode = initial_mode;
   const lv_event_code_t preprocess_event =
       static_cast<lv_event_code_t>(LV_EVENT_ALL | LV_EVENT_PREPROCESS);
   lv_obj_add_event_cb(

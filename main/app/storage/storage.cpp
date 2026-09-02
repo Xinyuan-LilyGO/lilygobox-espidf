@@ -15,6 +15,7 @@
 #include <new>
 
 #include "app/radio_chat_repository.h"
+#include "app/storage/battery_storage.h"
 #include "app/storage/display_storage.h"
 #include "app/storage/first_boot_storage.h"
 #include "app/storage/haptic_storage.h"
@@ -67,6 +68,7 @@ constexpr StorageBackend kStorageBackends[] = {
     {StageOtgStorage, FinishOtgStorage},
     {StageInputMethodStorage, FinishInputMethodStorage},
     {StageKeyboardExpansionStorage, FinishKeyboardExpansionStorage},
+    {StageBatteryStorage, FinishBatteryStorage},
 };
 constexpr size_t kStorageBackendCount =
     sizeof(kStorageBackends) / sizeof(kStorageBackends[0]);
@@ -454,6 +456,10 @@ void InitStorage(radio::ChipMask supported_radio_chips,
   InitOtgCache();
   InitInputMethodCache();
   InitKeyboardExpansionCache();
+  if (!InitBatteryStorage()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Initialize battery storage failed\n");
+  }
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
       "NVS caches loaded: domains=%u, status=ready\n",
       static_cast<unsigned>(kStorageDomainCount));

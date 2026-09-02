@@ -65,6 +65,12 @@ struct BatteryManagementStatus {
   float chip_temperature_c = 0.0F;
 };
 
+// 当前设备支持的电池额定容量范围。
+struct BatteryCapacityRange {
+  int minimum_mah = 1;
+  int maximum_mah = 1;
+};
+
 class BatteryManagementProvider {
  public:
   virtual ~BatteryManagementProvider() = default;
@@ -82,6 +88,19 @@ class BatteryManagementProvider {
    * @return 检测到电池且电量读取成功返回 true，否则返回 false
    */
   virtual bool ReadBatteryLevel(int* percent) = 0;
+
+  /**
+   * @brief 获取当前设备支持的电池额定容量范围
+   * @return 最小和最大额定容量，单位为 mAh
+   */
+  virtual BatteryCapacityRange GetBatteryCapacityRange() const = 0;
+
+  /**
+   * @brief 应用用户配置的电池额定容量
+   * @param capacity_mah 电池额定容量，单位为 mAh
+   * @return 软件估算参数或硬件电量计配置更新成功返回 true
+   */
+  virtual bool SetBatteryCapacityMah(int capacity_mah) = 0;
 };
 
 }  // namespace lilygo_box::hal

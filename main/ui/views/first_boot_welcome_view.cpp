@@ -95,16 +95,18 @@ lv_obj_t* CreateGetStartedButton(lv_obj_t* parent, int width, int height,
   }
   lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(button, width, height);
-  lv_obj_set_style_bg_color(button, lv_color_hex(colors.action), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      button, lv_color_hex(theme::FixedColors().action), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      button, lv_color_hex(colors.action_pressed), LV_STATE_PRESSED);
+      button, lv_color_hex(theme::FixedColors().action_pressed),
+      LV_STATE_PRESSED);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(button, kButtonRadius, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(button, 10, LV_PART_MAIN);
   lv_obj_set_style_shadow_opa(button, 24, LV_PART_MAIN);
   lv_obj_set_style_shadow_color(
-      button, lv_color_hex(colors.action), LV_PART_MAIN);
+      button, lv_color_hex(theme::FixedColors().action), LV_PART_MAIN);
   if (!AddPressCancelOnLeave(button)) {
     lv_obj_delete(button);
     return nullptr;
@@ -113,7 +115,8 @@ lv_obj_t* CreateGetStartedButton(lv_obj_t* parent, int width, int height,
       LV_EVENT_CLICKED, state);
 
   lv_obj_t* label =
-      CreateLabel(button, "Get started", colors.on_action, Font28());
+      CreateLabel(
+          button, "Get started", theme::FixedColors().on_action, Font28());
   if (label == nullptr) {
     lv_obj_delete(button);
     return nullptr;

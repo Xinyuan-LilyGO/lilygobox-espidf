@@ -17,6 +17,7 @@
 #include "ui/input/back_navigation_controller.h"
 #include "ui/theme/theme_provider.h"
 #include "ui/views/app_view_config.h"
+#include "ui/views/settings/settings_text_edit_page.h"
 #include "ui/widgets/prompt/prompt_dialog.h"
 #include "ui/widgets/prompt/prompt_select_sheet.h"
 
@@ -65,15 +66,15 @@ constexpr int kDetailCardPaddingTop = 34;
 constexpr int kDetailInfoRowHeight = 72;
 constexpr uint32_t kDetailSlideAnimationMs = 180;
 constexpr lv_opa_t kDetailOptionPressedOpacity = LV_OPA_COVER;
-constexpr int kNameEditButtonSize = kDetailBackButtonSize;
-constexpr int kNameEditButtonTop = kDetailBackButtonTop;
-constexpr int kNameEditButtonSide = kDetailBackButtonLeft;
-constexpr int kNameEditTextAreaTop = 174;
-constexpr int kNameEditTextAreaHeight = 88;
-constexpr int kNameEditTextAreaSide = 26;
-constexpr int kNameEditHelpTop =
-    kNameEditTextAreaTop + kNameEditTextAreaHeight + 10;
-constexpr int kNameEditKeyboardHeightPercent = 35;
+constexpr int kTextEditButtonSize = kDetailBackButtonSize;
+constexpr int kTextEditButtonTop = kDetailBackButtonTop;
+constexpr int kTextEditButtonSide = kDetailBackButtonLeft;
+constexpr int kTextEditTextAreaTop = 174;
+constexpr int kTextEditTextAreaHeight = 88;
+constexpr int kTextEditTextAreaSide = 26;
+constexpr int kTextEditHelpTop =
+    kTextEditTextAreaTop + kTextEditTextAreaHeight + 10;
+constexpr int kTextEditKeyboardHeightPercent = 35;
 constexpr int kWifiBodyTop = kDetailBodyTop;
 constexpr int kWifiSidePadding = 34;
 constexpr int kWifiRowHeight = 80;
@@ -189,9 +190,7 @@ struct SettingsViewState {
   lv_obj_t* firmware_update_spinner = nullptr;
   lv_obj_t* firmware_update_log_page = nullptr;
   lv_obj_t* firmware_update_log_body = nullptr;
-  lv_obj_t* name_edit_page = nullptr;
-  lv_obj_t* name_edit_text_area = nullptr;
-  lv_obj_t* name_edit_keyboard = nullptr;
+  SettingsTextEditPageState text_edit_page;
   lv_obj_t* factory_reset_page = nullptr;
   lv_obj_t* factory_reset_confirm_button = nullptr;
   lv_obj_t* factory_reset_confirm_label = nullptr;
@@ -236,6 +235,7 @@ struct SettingsViewState {
   lv_obj_t* battery_overview_status_label = nullptr;
   lv_obj_t* battery_health_value_label = nullptr;
   lv_obj_t* battery_cycle_value_label = nullptr;
+  lv_obj_t* battery_capacity_value_label = nullptr;
   lv_obj_t* device_name_value_label = nullptr;
   // 设置主页 WLAN 行右侧的 On/Off 文本。
   lv_obj_t* wifi_value_label = nullptr;
@@ -258,7 +258,6 @@ struct SettingsViewState {
   int firmware_update_page_index = 0;
   // 检查完成并发现新版本后，自动切换到新版本详情页。
   bool firmware_update_auto_show_new_page = false;
-  bool name_edit_closing = false;
   bool factory_reset_closing = false;
   bool factory_reset_started = false;
   bool wifi_closing = false;
@@ -458,12 +457,12 @@ void UpdateSettingsWifiValue(SettingsViewState* state);
  * @param x X 坐标
  * @param y Y 坐标
  * @param callback 点击回调
- * @param state 设置页状态
+ * @param user_data 点击事件上下文
  * @return 创建成功返回按钮对象，否则返回 nullptr
  */
 lv_obj_t* CreateToolbarButton(
     lv_obj_t* parent, int x, int y, lv_event_cb_t callback,
-    SettingsViewState* state);
+    void* user_data);
 
 /**
  * @brief 从设置主页打开我的设备详情页

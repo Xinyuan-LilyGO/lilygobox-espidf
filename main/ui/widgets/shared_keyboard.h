@@ -19,6 +19,7 @@ namespace lilygo_box::ui {
 struct SharedKeyboardConfig {
   int width = 0;
   int height = 0;
+  lv_keyboard_mode_t initial_mode = LV_KEYBOARD_MODE_USER_1;
 };
 
 /**
@@ -58,10 +59,12 @@ lv_obj_t* CreateSharedKeyboard(
  * @param keyboard 共享键盘对象
  * @param text_area 文本输入框对象
  * @param accepted_chars 允许输入的字符集合
+ * @param initial_mode 文本框获得焦点时使用的键盘布局
  * @return 绑定成功返回 true，否则返回 false
  */
 bool AttachSharedKeyboardToTextArea(
-    lv_obj_t* keyboard, lv_obj_t* text_area, const char* accepted_chars);
+    lv_obj_t* keyboard, lv_obj_t* text_area, const char* accepted_chars,
+    lv_keyboard_mode_t initial_mode = LV_KEYBOARD_MODE_USER_1);
 
 /**
  * @brief 隐藏共享键盘

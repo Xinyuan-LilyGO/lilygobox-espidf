@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "ui/resources/images/image_assets.h"
+#include "ui/theme/theme_provider.h"
 
 namespace lilygo_box::ui {
 
@@ -19,7 +20,8 @@ lv_obj_t* CreateLilygoBoxBrandIcon(lv_obj_t* parent, int size) {
   lv_obj_remove_flag(tile, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_flag(tile, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(tile, size, size);
-  lv_obj_set_style_bg_color(tile, lv_color_hex(0x000000), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(tile,
+      lv_color_hex(theme::FixedColors().brand_icon_background), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(tile, 0, LV_PART_MAIN);
   lv_obj_set_style_outline_width(tile, 0, LV_PART_MAIN);
