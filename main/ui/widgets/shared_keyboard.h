@@ -58,8 +58,8 @@ lv_obj_t* CreateSharedKeyboard(
  * @brief 绑定共享键盘并让文本框仅在有效点击释放后激活
  * @param keyboard 共享键盘对象
  * @param text_area 文本输入框对象
- * @param accepted_chars 允许输入的字符集合
- * @param initial_mode 文本框获得焦点时使用的键盘布局
+ * @param accepted_chars 允许输入的字符集合，也用于识别数值型输入
+ * @param initial_mode 无法识别为数值型输入时使用的键盘布局
  * @return 绑定成功返回 true，否则返回 false
  */
 bool AttachSharedKeyboardToTextArea(

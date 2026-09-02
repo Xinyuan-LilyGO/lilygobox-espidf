@@ -188,6 +188,77 @@ struct TextAreaKeyboardBinding {
   bool allow_focus_event = false;
 };
 
+/**
+ * @brief 判断文本是否为有效十进制数
+ * @param text 待检查文本
+ * @return 文本由可选符号、数字和至多一个小数点组成时返回 true
+ */
+bool IsDecimalNumberText(const char* text) {
+  if (text == nullptr || text[0] == '\0') {
+    return false;
+  }
+
+  const char* cursor = text;
+  if (*cursor == '+' || *cursor == '-') {
+    ++cursor;
+  }
+  bool has_digit = false;
+  bool has_decimal_point = false;
+  for (; *cursor != '\0'; ++cursor) {
+    if (*cursor >= '0' && *cursor <= '9') {
+      has_digit = true;
+      continue;
+    }
+    if (*cursor == '.' && !has_decimal_point) {
+      has_decimal_point = true;
+      continue;
+    }
+    return false;
+  }
+  return has_digit;
+}
+
+/**
+ * @brief 判断允许字符集合是否只描述十进制数输入
+ * @param accepted_chars 输入框允许的字符集合
+ * @return 字符集合包含数字且其余字符仅为正负号或小数点时返回 true
+ */
+bool IsDecimalAcceptedChars(const char* accepted_chars) {
+  if (accepted_chars == nullptr || accepted_chars[0] == '\0') {
+    return false;
+  }
+
+  bool has_digit = false;
+  for (const char* cursor = accepted_chars; *cursor != '\0'; ++cursor) {
+    if (*cursor >= '0' && *cursor <= '9') {
+      has_digit = true;
+      continue;
+    }
+    if (*cursor != '+' && *cursor != '-' && *cursor != '.') {
+      return false;
+    }
+  }
+  return has_digit;
+}
+
+/**
+ * @brief 根据输入框当前内容选择获得焦点时使用的键盘布局
+ * @param text_area 文本输入框
+ * @param accepted_chars 输入框允许的字符集合
+ * @param requested_mode 调用方请求的默认布局
+ * @return 数值型输入返回数字布局，否则返回请求布局
+ */
+lv_keyboard_mode_t ResolveTextAreaKeyboardMode(
+    lv_obj_t* text_area, const char* accepted_chars,
+    lv_keyboard_mode_t requested_mode) {
+  if (IsDecimalAcceptedChars(accepted_chars) ||
+      (text_area != nullptr &&
+          IsDecimalNumberText(lv_textarea_get_text(text_area)))) {
+    return LV_KEYBOARD_MODE_USER_3;
+  }
+  return requested_mode;
+}
+
 bool IsPhysicalKeyboardConnected() {
   if (g_physical_keyboard_provider == nullptr) {
     return false;
@@ -314,7 +385,9 @@ void ActivateTextAreaAfterRelease(
   if (binding->accepted_chars != nullptr) {
     lv_textarea_set_accepted_chars(text_area, binding->accepted_chars);
   }
-  lv_keyboard_set_mode(binding->keyboard, binding->initial_mode);
+  lv_keyboard_set_mode(binding->keyboard,
+      ResolveTextAreaKeyboardMode(
+          text_area, binding->accepted_chars, binding->initial_mode));
   if (ShouldShowSharedKeyboardInternal()) {
     lv_obj_remove_flag(binding->keyboard, LV_OBJ_FLAG_HIDDEN);
   } else {

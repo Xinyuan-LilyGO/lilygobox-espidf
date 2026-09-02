@@ -460,7 +460,6 @@ bool ShowBatteryCapacityEditPage(SettingsViewState* state) {
   config.help_text = help_text;
   config.accepted_chars = kBatteryCapacityAcceptedChars;
   config.maximum_length = kBatteryCapacityMaximumLength;
-  config.keyboard_mode = LV_KEYBOARD_MODE_USER_3;
   config.save_callback = SaveBatteryCapacityEdit;
   config.validation_callback = ValidateBatteryCapacityEdit;
   config.callback_context = state;

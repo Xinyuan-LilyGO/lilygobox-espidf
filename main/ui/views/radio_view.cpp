@@ -33,6 +33,7 @@
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/theme/theme_provider.h"
+#include "ui/views/settings/settings_text_edit_page.h"
 #include "ui/widgets/navigation_drawer.h"
 #include "ui/widgets/prompt/prompt_dialog.h"
 #include "ui/widgets/prompt/prompt_status.h"
@@ -91,14 +92,6 @@ constexpr int kChatSignalMetricGap = 14;
 constexpr int kSystemMessageGlyphWidthEstimate = 13;
 constexpr int kAddSwitchRowHeight = 108;
 constexpr int kAddSwitchRowGap = 12;
-constexpr int kProfileNameEditButtonSize = 62;
-constexpr int kProfileNameEditButtonTop = 66;
-constexpr int kProfileNameEditButtonSide = 18;
-constexpr int kProfileNameEditTextAreaTop = 174;
-constexpr int kProfileNameEditTextAreaHeight = 88;
-constexpr int kProfileNameEditTextAreaSide = 26;
-constexpr int kProfileNameEditHelpTop = 272;
-constexpr int kProfileNameEditKeyboardHeightPercent = 35;
 constexpr int kProfileSwitchWidth = 78;
 constexpr int kProfileSwitchHeight = 44;
 constexpr uint32_t kProfileSwitchAnimationMs = 180;
@@ -351,9 +344,7 @@ struct RadioViewState {
   lv_obj_t* profile_settings_name_label = nullptr;
   lv_obj_t* profile_settings_chip_label = nullptr;
   lv_obj_t* profile_settings_header_status_label = nullptr;
-  lv_obj_t* profile_name_edit_page = nullptr;
-  lv_obj_t* profile_name_edit_text_area = nullptr;
-  lv_obj_t* profile_name_edit_keyboard = nullptr;
+  SettingsTextEditPageState profile_name_edit;
   lv_obj_t* auto_send_page = nullptr;
   lv_obj_t* auto_send_body = nullptr;
   lv_obj_t* auto_send_switch = nullptr;
@@ -488,7 +479,6 @@ struct RadioViewState {
   bool detail_closing = false;
   bool app_settings_closing = false;
   bool profile_settings_closing = false;
-  bool profile_name_edit_closing = false;
   bool auto_send_closing = false;
   // 首次有效提交后锁定表单，防止连点重复创建或保存配置。
   bool add_submitting = false;
@@ -2058,7 +2048,7 @@ void ScrollChatToBottom(
 bool IsChatTimelineVisible(const RadioViewState* state) {
   return state != nullptr && state->detail_page != nullptr &&
       state->profile_settings_page == nullptr &&
-      state->profile_name_edit_page == nullptr &&
+      state->profile_name_edit.page == nullptr &&
       state->add_page == nullptr && !state->detail_closing;
 }
 
@@ -4410,7 +4400,7 @@ bool IsModuleListVisible(const RadioViewState* state) {
   return state != nullptr && state->detail_page == nullptr &&
       state->app_settings_page == nullptr &&
       state->profile_settings_page == nullptr &&
-      state->profile_name_edit_page == nullptr && state->add_page == nullptr;
+      state->profile_name_edit.page == nullptr && state->add_page == nullptr;
 }
 
 /**
@@ -4512,106 +4502,33 @@ bool SetProfileActiveState(
 }
 
 /**
- * @brief 清空射频配置名称编辑页保存的控件引用
- * @param state 射频页面状态
+ * @brief 校验射频配置名称编辑内容
+ * @param text 用户输入的配置名称
+ * @param context 射频页面状态
+ * @return 名称非空且页面状态有效时返回 true
  */
-void ResetProfileNameEditReferences(RadioViewState* state) {
-  if (state == nullptr) {
-    return;
-  }
-  state->profile_name_edit_page = nullptr;
-  state->profile_name_edit_text_area = nullptr;
-  state->profile_name_edit_keyboard = nullptr;
-  state->profile_name_edit_closing = false;
+bool ValidateProfileNameEdit(const char* text, void* context) {
+  const auto* state = static_cast<const RadioViewState*>(context);
+  return state != nullptr &&
+      state->profile_settings_index < state->module_count &&
+      text != nullptr && text[0] != '\0';
 }
 
 /**
- * @brief 处理射频配置名称编辑页退出动画完成事件
- * @param animation LVGL 动画对象
+ * @brief 保存射频配置名称编辑结果
+ * @param text 用户输入的配置名称
+ * @param context 射频页面状态
+ * @return 名称有效并保存完成时返回 true
  */
-void ProfileNameEditCloseCompletedCallback(lv_anim_t* animation) {
-  auto* state = static_cast<RadioViewState*>(
-      lv_anim_get_user_data(animation));
-  if (state == nullptr || state->profile_name_edit_page == nullptr) {
-    return;
-  }
-  lv_obj_t* page = state->profile_name_edit_page;
-  ResetProfileNameEditReferences(state);
-  lv_obj_delete(page);
-}
-
-/**
- * @brief 关闭射频配置名称编辑页
- * @param state 射频页面状态
- * @param animated 是否播放退出动画
- */
-void CloseProfileNameEditPage(RadioViewState* state, bool animated) {
-  if (state == nullptr || state->profile_name_edit_page == nullptr ||
-      state->profile_name_edit_closing) {
-    return;
-  }
-  HideSharedKeyboard(state->profile_name_edit_keyboard);
-  if (animated && StartSlideRightWindowTransition(
-      state->profile_name_edit_page, state->config.width, kAnimationMs,
-      state, ProfileNameEditCloseCompletedCallback)) {
-    state->profile_name_edit_closing = true;
-    return;
-  }
-  lv_obj_t* page = state->profile_name_edit_page;
-  ResetProfileNameEditReferences(state);
-  lv_obj_delete(page);
-}
-
-/**
- * @brief 处理射频配置名称编辑页空白区域点击事件
- * @param event LVGL 事件对象
- */
-void ProfileNameEditBackgroundClickedEventCallback(lv_event_t* event) {
-  if (lv_event_get_code(event) != LV_EVENT_CLICKED ||
-      lv_event_get_target_obj(event) !=
-          lv_event_get_current_target_obj(event)) {
-    return;
-  }
-  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
-  if (state != nullptr) {
-    HideSharedKeyboard(state->profile_name_edit_keyboard);
-  }
-}
-
-/**
- * @brief 处理射频配置名称编辑取消按钮点击事件
- * @param event LVGL 事件对象
- */
-void ProfileNameEditCancelClickedEventCallback(lv_event_t* event) {
-  if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
-    CloseProfileNameEditPage(
-        static_cast<RadioViewState*>(lv_event_get_user_data(event)), true);
-  }
-}
-
-/**
- * @brief 处理射频配置名称编辑确认按钮点击事件
- * @param event LVGL 事件对象
- */
-void ProfileNameEditConfirmClickedEventCallback(lv_event_t* event) {
-  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
-    return;
-  }
-  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->profile_name_edit_text_area == nullptr ||
-      state->profile_settings_index >= state->module_count) {
-    return;
-  }
-  const char* text = lv_textarea_get_text(
-      state->profile_name_edit_text_area);
-  if (text == nullptr || text[0] == '\0') {
-    return;
+bool SaveProfileNameEdit(const char* text, void* context) {
+  auto* state = static_cast<RadioViewState*>(context);
+  if (!ValidateProfileNameEdit(text, state)) {
+    return false;
   }
   const size_t index = state->profile_settings_index;
   app::RadioProfile& profile = state->preferences.profiles[index];
   if (std::strcmp(profile.name, text) == 0) {
-    CloseProfileNameEditPage(state, true);
-    return;
+    return true;
   }
   CopyBoundedString(profile.name, sizeof(profile.name), text);
   app::UpdateRadioPreferences(state->preferences);
@@ -4623,7 +4540,7 @@ void ProfileNameEditConfirmClickedEventCallback(lv_event_t* event) {
   }
   RefreshProfileSettingsPage(state);
   MarkModuleListDirty(state);
-  CloseProfileNameEditPage(state, true);
+  return true;
 }
 
 /**
@@ -4638,95 +4555,6 @@ void ProfileNameAreaClickedEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 创建射频配置名称编辑页的透明工具按钮
- * @param parent 父对象
- * @param state 射频页面状态
- * @param icon_text 图标文本
- * @param x 左侧坐标
- * @param callback 点击事件回调
- * @return 创建成功返回 true，否则返回 false
- */
-bool CreateProfileNameEditToolbarButton(lv_obj_t* parent,
-    RadioViewState* state, const char* icon_text, int x,
-    lv_event_cb_t callback) {
-  if (parent == nullptr || state == nullptr || icon_text == nullptr ||
-      callback == nullptr) {
-    return false;
-  }
-  lv_obj_t* button = lv_button_create(parent);
-  if (button == nullptr) {
-    return false;
-  }
-  lv_obj_remove_style_all(button);
-  lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(button, LV_OBJ_FLAG_PRESS_LOCK);
-  lv_obj_add_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_size(
-      button, kProfileNameEditButtonSize, kProfileNameEditButtonSize);
-  lv_obj_set_pos(button, x, kProfileNameEditButtonTop);
-  lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, LV_STATE_PRESSED);
-  lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
-  lv_obj_set_style_outline_width(button, 0, LV_PART_MAIN);
-  lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
-  if (!AddPressCancelOnLeave(button)) {
-    lv_obj_delete(button);
-    return false;
-  }
-  lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, state);
-  lv_obj_t* icon_label = CreateLabel(
-      button, icon_text, theme::ActiveThemeColors().on_surface, OutlineIconFont44());
-  if (icon_label == nullptr) {
-    lv_obj_delete(button);
-    return false;
-  }
-  lv_obj_center(icon_label);
-  return true;
-}
-
-/**
- * @brief 设置射频配置名称编辑输入框样式
- * @param text_area 文本输入框对象
- */
-void ApplyProfileNameEditTextAreaStyle(lv_obj_t* text_area) {
-  if (text_area == nullptr) {
-    return;
-  }
-  lv_obj_set_scrollbar_mode(text_area, LV_SCROLLBAR_MODE_OFF);
-  lv_obj_set_style_text_font(text_area, Font32(), LV_PART_MAIN);
-  lv_obj_set_style_text_color(
-      text_area, lv_color_hex(theme::ActiveThemeColors().on_surface),
-      LV_PART_MAIN);
-  lv_obj_set_style_bg_color(text_area,
-      lv_color_hex(theme::ActiveThemeColors().surface_container_low),
-      LV_PART_MAIN);
-  lv_obj_set_style_bg_color(text_area,
-      lv_color_hex(theme::ActiveThemeColors().surface_container_low),
-      LV_STATE_FOCUSED);
-  lv_obj_set_style_bg_opa(text_area, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(text_area, LV_OPA_COVER, LV_STATE_FOCUSED);
-  lv_obj_set_style_border_width(text_area, 0, LV_PART_MAIN);
-  lv_obj_set_style_border_width(text_area, 0, LV_STATE_FOCUSED);
-  lv_obj_set_style_outline_width(text_area, 0, LV_PART_MAIN);
-  lv_obj_set_style_outline_width(text_area, 0, LV_STATE_FOCUSED);
-  lv_obj_set_style_shadow_width(text_area, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(text_area, 22, LV_PART_MAIN);
-  lv_obj_set_style_pad_left(text_area, 20, LV_PART_MAIN);
-  lv_obj_set_style_pad_right(text_area, 20, LV_PART_MAIN);
-  const int vertical_padding = std::max(0,
-      (kProfileNameEditTextAreaHeight -
-          static_cast<int>(lv_font_get_line_height(Font32()))) /
-          2);
-  lv_obj_set_style_pad_top(text_area, vertical_padding, LV_PART_MAIN);
-  lv_obj_set_style_pad_bottom(text_area, vertical_padding, LV_PART_MAIN);
-  lv_obj_t* content_label = lv_textarea_get_label(text_area);
-  if (content_label != nullptr) {
-    lv_obj_align(content_label, LV_ALIGN_LEFT_MID, 0, 0);
-  }
-}
-
-/**
  * @brief 显示射频配置名称编辑页
  * @param state 射频页面状态
  * @return 显示成功返回 true，否则返回 false
@@ -4737,114 +4565,22 @@ bool ShowProfileNameEditPage(RadioViewState* state) {
       state->profile_settings_index >= state->module_count) {
     return false;
   }
-  if (state->profile_name_edit_closing) {
-    return true;
-  }
-  if (state->profile_name_edit_page != nullptr) {
-    lv_obj_move_to_index(state->profile_name_edit_page, -1);
-    return true;
-  }
-  lv_obj_t* page = lv_obj_create(state->root);
-  if (page == nullptr) {
-    return false;
-  }
-  state->profile_name_edit_page = page;
-  state->profile_name_edit_text_area = nullptr;
-  state->profile_name_edit_keyboard = nullptr;
-  state->profile_name_edit_closing = false;
-  lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_size(page, state->config.width, state->config.height);
-  lv_obj_set_pos(page, 0, 0);
-  lv_obj_set_style_bg_color(
-      page, lv_color_hex(theme::ActiveThemeColors().surface), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
-  lv_obj_add_event_cb(page, ProfileNameEditBackgroundClickedEventCallback,
-      LV_EVENT_CLICKED, state);
-
-  const int confirm_x = state->config.width -
-      kProfileNameEditButtonSide - kProfileNameEditButtonSize;
-  if (!CreateProfileNameEditToolbarButton(page, state, icon::kClose,
-          kProfileNameEditButtonSide,
-          ProfileNameEditCancelClickedEventCallback) ||
-      !CreateProfileNameEditToolbarButton(page, state, icon::kCheck,
-          confirm_x, ProfileNameEditConfirmClickedEventCallback)) {
-    CloseProfileNameEditPage(state, false);
-    return false;
-  }
-  lv_obj_t* title = CreateLabel(
-      page, "Edit profile name", theme::ActiveThemeColors().on_surface, Font32());
-  if (title == nullptr) {
-    CloseProfileNameEditPage(state, false);
-    return false;
-  }
-  lv_obj_set_width(title, state->config.width);
-  lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, kNavigationTitleTop);
-
-  lv_obj_t* text_area = lv_textarea_create(page);
-  if (text_area == nullptr) {
-    CloseProfileNameEditPage(state, false);
-    return false;
-  }
-  state->profile_name_edit_text_area = text_area;
-  lv_obj_add_flag(text_area, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_size(text_area,
-      state->config.width - 2 * kProfileNameEditTextAreaSide,
-      kProfileNameEditTextAreaHeight);
-  lv_obj_align(text_area, LV_ALIGN_TOP_LEFT, kProfileNameEditTextAreaSide,
-      kProfileNameEditTextAreaTop);
-  lv_textarea_set_one_line(text_area, true);
-  lv_textarea_set_max_length(
-      text_area, app::kRadioProfileNameCapacity - 1);
-  lv_textarea_set_accepted_chars(text_area, kProfileNameAcceptedChars);
-  lv_textarea_set_text(text_area,
-      state->preferences.profiles[state->profile_settings_index].name);
-  lv_textarea_set_cursor_pos(text_area, LV_TEXTAREA_CURSOR_LAST);
-  ApplyProfileNameEditTextAreaStyle(text_area);
-
-  lv_obj_t* help = CreateLabel(page,
-      "This name is used to identify this Radio profile.",
-      theme::ActiveThemeColors().on_surface_variant, Font24());
-  if (help == nullptr) {
-    CloseProfileNameEditPage(state, false);
-    return false;
-  }
-  lv_obj_set_width(
-      help, state->config.width - 2 * (kProfileNameEditTextAreaSide + 10));
-  lv_label_set_long_mode(help, LV_LABEL_LONG_WRAP);
-  lv_obj_align(help, LV_ALIGN_TOP_LEFT,
-      kProfileNameEditTextAreaSide + 10, kProfileNameEditHelpTop);
-
-  SharedKeyboardConfig keyboard_config;
-  keyboard_config.width = state->config.width;
-  keyboard_config.height = state->config.height *
-      kProfileNameEditKeyboardHeightPercent / 100;
-  state->profile_name_edit_keyboard =
-      CreateSharedKeyboard(page, keyboard_config);
-  if (state->profile_name_edit_keyboard == nullptr ||
-      !AttachSharedKeyboardToTextArea(state->profile_name_edit_keyboard,
-          text_area, kProfileNameAcceptedChars)) {
-    CloseProfileNameEditPage(state, false);
-    return false;
-  }
-  lv_obj_add_flag(
-      state->profile_name_edit_keyboard, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  if (!StartSlideLeftWindowTransition(page, state->config.width,
-      kAnimationMs, state, nullptr)) {
-    CloseProfileNameEditPage(state, false);
-    return false;
-  }
-  if (!RegisterBackNavigationHandler(page, [state]() {
-        CloseProfileNameEditPage(state, true);
-      })) {
-    CloseProfileNameEditPage(state, false);
-    return false;
-  }
-  return true;
+  const app::RadioProfile& profile =
+      state->preferences.profiles[state->profile_settings_index];
+  SettingsTextEditPageConfig config;
+  config.parent = state->root;
+  config.width = state->config.width;
+  config.height = state->config.height;
+  config.title = "Edit profile name";
+  config.initial_text = profile.name;
+  config.help_text =
+      "This name is used to identify this Radio profile.";
+  config.accepted_chars = kProfileNameAcceptedChars;
+  config.maximum_length = app::kRadioProfileNameCapacity - 1;
+  config.save_callback = SaveProfileNameEdit;
+  config.validation_callback = ValidateProfileNameEdit;
+  config.callback_context = state;
+  return ShowSettingsTextEditPage(&state->profile_name_edit, config);
 }
 
 /**
@@ -4980,7 +4716,7 @@ void CloseProfileSettingsPage(RadioViewState* state) {
     return;
   }
   CloseAutoSendSettingsPage(state, false);
-  CloseProfileNameEditPage(state, false);
+  CloseSettingsTextEditPage(&state->profile_name_edit, false);
   state->profile_settings_closing = true;
   if (!StartSlideRightWindowTransition(state->profile_settings_page,
       state->config.width, kAnimationMs, state,
