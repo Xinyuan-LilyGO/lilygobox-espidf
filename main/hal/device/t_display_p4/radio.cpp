@@ -32,6 +32,8 @@ constexpr uint32_t kRadioTransmitTimeoutMarginMs = 500;
 constexpr uint32_t kRadioTransmitWatchdogGraceMs = 1000;
 
 constexpr size_t kRadioIrqTextCapacity = 160;
+// LR2021 在 RSSI 无法量化时将原始 0xFF 解码为该超范围值。
+constexpr int16_t kLr2021UnavailableRssiDbm = -255;
 
 // SX1262 IRQ 位与日志名称映射。
 struct RadioIrqDescription {
@@ -1557,9 +1559,9 @@ bool TDisplayP4Device::PollRadioState(
       }
       event->type = RadioEventType::kPacketReceived;
       event->payload_size = received;
-      event->rssi_dbm = static_cast<int8_t>(std::clamp(
-          metrics.rssi_dbm, -128.0F, 127.0F));
-      event->snr_db = 0;
+      event->rssi_quarter_dbm =
+          static_cast<int16_t>(metrics.rssi_dbm * 4.0F);
+      event->snr_quarter_db = 0;
       event->rssi_valid = true;
       event->snr_valid = false;
     }
@@ -1694,12 +1696,13 @@ bool TDisplayP4Device::PollRadioState(
       if (packet_read && result) {
         event->type = RadioEventType::kPacketReceived;
         event->payload_size = metrics.packet_length_bytes;
-        const int16_t rssi_dbm = metrics.rssi_pkt_in_dbm -
-            static_cast<int16_t>(metrics.rssi_pkt_half_dbm_count) / 2;
-        event->rssi_dbm = static_cast<int8_t>(
-            std::clamp<int16_t>(rssi_dbm, INT8_MIN, INT8_MAX));
-        event->snr_db = static_cast<int8_t>(metrics.snr_pkt_raw / 4);
-        event->rssi_valid = true;
+        event->rssi_valid =
+            metrics.rssi_pkt_in_dbm != kLr2021UnavailableRssiDbm;
+        if (event->rssi_valid) {
+          event->rssi_quarter_dbm = metrics.rssi_pkt_in_dbm * 4 -
+              static_cast<int16_t>(metrics.rssi_pkt_half_dbm_count) * 2;
+        }
+        event->snr_quarter_db = metrics.snr_pkt_raw;
         event->snr_valid = true;
       }
     } else {
@@ -1848,8 +1851,8 @@ bool TDisplayP4Device::PollRadioState(
     if (result) {
       event->type = RadioEventType::kPacketReceived;
       event->payload_size = received_size;
-      event->rssi_dbm = metrics.rssi_dbm;
-      event->snr_db = metrics.snr_db;
+      event->rssi_quarter_dbm = metrics.rssi_quarter_dbm;
+      event->snr_quarter_db = metrics.snr_quarter_db;
     }
   } else {
     result = radio->StartReceive();

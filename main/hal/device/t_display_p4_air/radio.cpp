@@ -789,21 +789,20 @@ bool TDisplayP4AirDevice::PollRadioEvent(RadioEvent* event) {
             static_cast<uint32_t>(event->request_token)));
   } else if (rx_done && !receive_error) {
     lr11xx_radio_rx_buffer_status_t buffer_status = {};
-    lr11xx_radio_pkt_status_lora_t packet_status = {};
+    usp_cpp_bus_driver::Lr11xx::PacketMetrics packet_metrics;
     result = lr1121.Invoke(lr11xx_radio_get_rx_buffer_status, &buffer_status) ==
                  LR11XX_STATUS_OK &&
              buffer_status.pld_len_in_bytes > 0 &&
              buffer_status.pld_len_in_bytes <= kRadioPayloadCapacity &&
              lr1121.ReadBuffer(buffer_status.buffer_start_pointer,
                  event->payload, buffer_status.pld_len_in_bytes) &&
-             lr1121.Invoke(lr11xx_radio_get_lora_pkt_status, &packet_status) ==
-                 LR11XX_STATUS_OK &&
+             lr1121.ReadLoraPacketMetrics(&packet_metrics) &&
              StartLr1121Receive(lr1121, radio_.lora_config);
     if (result) {
       event->type = RadioEventType::kPacketReceived;
       event->payload_size = buffer_status.pld_len_in_bytes;
-      event->rssi_dbm = packet_status.rssi_pkt_in_dbm;
-      event->snr_db = packet_status.snr_pkt_in_db;
+      event->rssi_quarter_dbm = packet_metrics.rssi_quarter_dbm;
+      event->snr_quarter_db = packet_metrics.snr_quarter_db;
     }
   } else {
     result = StartLr1121Receive(lr1121, radio_.lora_config);

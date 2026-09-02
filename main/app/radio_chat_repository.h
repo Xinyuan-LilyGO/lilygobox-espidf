@@ -64,10 +64,10 @@ struct RadioChatMessage {
   RadioChatMessageType type = RadioChatMessageType::kUser;
   // 消息接收或发送状态。
   RadioChatDeliveryState delivery = RadioChatDeliveryState::kReceived;
-  // 接收信号强度，发送消息和系统消息保持为 0。
-  int8_t rssi_dbm = 0;
-  // 接收信噪比，发送消息和系统消息保持为 0。
-  int8_t snr_db = 0;
+  // 接收信号强度，单位为四分之一 dBm。
+  int16_t rssi_quarter_dbm = 0;
+  // 接收信噪比，单位为四分之一 dB。
+  int16_t snr_quarter_db = 0;
   // 接收芯片是否能够提供可量化的 RSSI。
   bool rssi_valid = true;
   // 接收芯片是否能够提供可量化的 SNR。

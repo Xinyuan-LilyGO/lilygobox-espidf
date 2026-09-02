@@ -15,6 +15,7 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <new>
 
@@ -45,7 +46,8 @@ constexpr char kChatTempFile[] = "messages.tmp";
 
 // 固定长度聊天记录的格式标识和版本。
 constexpr uint32_t kRecordMagic = 0x52414348;
-constexpr uint16_t kRecordVersion = 1;
+constexpr uint16_t kLegacyRecordVersion = 1;
+constexpr uint16_t kRecordVersion = 2;
 // 固定长度聊天记录中各字段的字节偏移。
 constexpr size_t kMagicOffset = 0;
 constexpr size_t kVersionOffset = 4;
@@ -55,10 +57,12 @@ constexpr size_t kProfileIdOffset = 16;
 constexpr size_t kTextLengthOffset = 20;
 constexpr size_t kMessageTypeOffset = 22;
 constexpr size_t kDeliveryOffset = 23;
-constexpr size_t kRssiOffset = 24;
-constexpr size_t kSnrOffset = 25;
-// 0 保持兼容旧记录；bit0 和 bit1 分别表示 RSSI、SNR 不可用。
-constexpr size_t kUnavailableSignalMetricsOffset = 26;
+constexpr size_t kRssiQuarterDbmOffset = 24;
+constexpr size_t kSnrQuarterDbOffset = 26;
+// 版本 1 使用单字节整数信号值和独立的不可用标志。
+constexpr size_t kLegacyRssiOffset = 24;
+constexpr size_t kLegacySnrOffset = 25;
+constexpr size_t kLegacyUnavailableSignalMetricsOffset = 26;
 constexpr size_t kTimeOffset = 28;
 constexpr size_t kTextOffset = kTimeOffset + kRadioChatTimeCapacity;
 constexpr size_t kChecksumOffset = kTextOffset + kRadioChatTextCapacity;
@@ -68,6 +72,8 @@ constexpr size_t kDiskRecordSize = kChecksumOffset + sizeof(uint32_t);
 using DiskRecord = std::array<uint8_t, kDiskRecordSize>;
 static_assert(kDiskRecordSize <= UINT16_MAX,
     "Radio chat disk record size exceeds its file format field");
+constexpr int16_t kUnavailableSignalMetric =
+    std::numeric_limits<int16_t>::min();
 
 struct ChatLogReadBuffer {
   // 当前聊天日志文件路径。
@@ -145,6 +151,15 @@ void StoreUint16(uint8_t* output, uint16_t value) {
 }
 
 /**
+ * @brief 按小端字节序写入 16 位有符号整数
+ * @param output 两字节输出缓冲区
+ * @param value 待写入数值
+ */
+void StoreInt16(uint8_t* output, int16_t value) {
+  StoreUint16(output, static_cast<uint16_t>(value));
+}
+
+/**
  * @brief 按小端字节序写入 32 位无符号整数
  * @param output 四字节输出缓冲区
  * @param value 待写入数值
@@ -173,6 +188,15 @@ void StoreUint64(uint8_t* output, uint64_t value) {
  */
 uint16_t LoadUint16(const uint8_t* input) {
   return static_cast<uint16_t>(input[0]) | static_cast<uint16_t>(input[1]) << 8;
+}
+
+/**
+ * @brief 按小端字节序读取 16 位有符号整数
+ * @param input 两字节输入缓冲区
+ * @return 解码后的数值
+ */
+int16_t LoadInt16(const uint8_t* input) {
+  return static_cast<int16_t>(LoadUint16(input));
 }
 
 /**
@@ -283,11 +307,12 @@ bool EncodeRecord(const RadioChatMessage& message, DiskRecord* record) {
       record->data() + kTextLengthOffset, static_cast<uint16_t>(text_length));
   (*record)[kMessageTypeOffset] = static_cast<uint8_t>(message.type);
   (*record)[kDeliveryOffset] = static_cast<uint8_t>(message.delivery);
-  (*record)[kRssiOffset] = static_cast<uint8_t>(message.rssi_dbm);
-  (*record)[kSnrOffset] = static_cast<uint8_t>(message.snr_db);
-  (*record)[kUnavailableSignalMetricsOffset] =
-      static_cast<uint8_t>((message.rssi_valid ? 0 : 0x01) |
-          (message.snr_valid ? 0 : 0x02));
+  StoreInt16(record->data() + kRssiQuarterDbmOffset,
+      message.rssi_valid ? message.rssi_quarter_dbm
+                         : kUnavailableSignalMetric);
+  StoreInt16(record->data() + kSnrQuarterDbOffset,
+      message.snr_valid ? message.snr_quarter_db
+                        : kUnavailableSignalMetric);
   std::memcpy(record->data() + kTimeOffset, message.time,
       kRadioChatTimeCapacity);
   std::memcpy(record->data() + kTextOffset, message.text, text_length);
@@ -303,9 +328,12 @@ bool EncodeRecord(const RadioChatMessage& message, DiskRecord* record) {
  * @return 记录格式和校验值均有效时返回 true
  */
 bool DecodeRecord(const DiskRecord& record, RadioChatMessage* message) {
-  if (message == nullptr ||
-      LoadUint32(record.data() + kMagicOffset) != kRecordMagic ||
-      LoadUint16(record.data() + kVersionOffset) != kRecordVersion ||
+  if (message == nullptr) {
+    return false;
+  }
+  const uint16_t version = LoadUint16(record.data() + kVersionOffset);
+  if (LoadUint32(record.data() + kMagicOffset) != kRecordMagic ||
+      (version != kLegacyRecordVersion && version != kRecordVersion) ||
       LoadUint16(record.data() + kRecordSizeOffset) != kDiskRecordSize ||
       LoadUint32(record.data() + kChecksumOffset) !=
           CalculateChecksum(record.data(), kChecksumOffset)) {
@@ -328,12 +356,25 @@ bool DecodeRecord(const DiskRecord& record, RadioChatMessage* message) {
   message->profile_id = LoadUint32(record.data() + kProfileIdOffset);
   message->type = type;
   message->delivery = delivery;
-  message->rssi_dbm = static_cast<int8_t>(record[kRssiOffset]);
-  message->snr_db = static_cast<int8_t>(record[kSnrOffset]);
-  message->rssi_valid =
-      (record[kUnavailableSignalMetricsOffset] & 0x01) == 0;
-  message->snr_valid =
-      (record[kUnavailableSignalMetricsOffset] & 0x02) == 0;
+  if (version == kLegacyRecordVersion) {
+    message->rssi_quarter_dbm =
+        static_cast<int8_t>(record[kLegacyRssiOffset]) * 4;
+    message->snr_quarter_db =
+        static_cast<int8_t>(record[kLegacySnrOffset]) * 4;
+    message->rssi_valid =
+        (record[kLegacyUnavailableSignalMetricsOffset] & 0x01) == 0;
+    message->snr_valid =
+        (record[kLegacyUnavailableSignalMetricsOffset] & 0x02) == 0;
+  } else {
+    message->rssi_quarter_dbm =
+        LoadInt16(record.data() + kRssiQuarterDbmOffset);
+    message->snr_quarter_db =
+        LoadInt16(record.data() + kSnrQuarterDbOffset);
+    message->rssi_valid =
+        message->rssi_quarter_dbm != kUnavailableSignalMetric;
+    message->snr_valid =
+        message->snr_quarter_db != kUnavailableSignalMetric;
+  }
   std::memcpy(message->time, record.data() + kTimeOffset,
       kRadioChatTimeCapacity);
   message->time[kRadioChatTimeCapacity - 1] = '\0';

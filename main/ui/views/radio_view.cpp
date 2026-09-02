@@ -223,6 +223,38 @@ void CopyBoundedString(
   destination[copy_size] = '\0';
 }
 
+/**
+ * @brief 将四分之一 dB 定点值格式化为无冗余小数的文本
+ * @param quarter_db_value 以四分之一 dB 为单位的数值
+ * @param show_positive_sign 正数是否显示加号
+ * @param output 输出文本缓冲区
+ * @param output_size 输出文本缓冲区大小
+ */
+void FormatQuarterDbValue(int16_t quarter_db_value, bool show_positive_sign,
+    char* output, size_t output_size) {
+  if (output == nullptr || output_size == 0) {
+    return;
+  }
+  const int32_t signed_value = quarter_db_value;
+  const bool negative = signed_value < 0;
+  const uint32_t magnitude = static_cast<uint32_t>(
+      negative ? -signed_value : signed_value);
+  const uint32_t integer_part = magnitude / 4;
+  const uint32_t fraction = magnitude % 4;
+  const char* sign = negative ? "-" : (show_positive_sign ? "+" : "");
+  if (fraction == 0) {
+    std::snprintf(output, output_size, "%s%lu", sign,
+        static_cast<unsigned long>(integer_part));
+  } else if (fraction == 2) {
+    std::snprintf(output, output_size, "%s%lu.5", sign,
+        static_cast<unsigned long>(integer_part));
+  } else {
+    std::snprintf(output, output_size, "%s%lu.%s", sign,
+        static_cast<unsigned long>(integer_part),
+        fraction == 1 ? "25" : "75");
+  }
+}
+
 struct RadioModuleItem {
   const char* short_name;
   const char* name;
@@ -1660,20 +1692,27 @@ void DrawUserChatMessage(lv_layer_t* layer, int timeline_x,
     const int signal_metrics_x = timeline_x + 28;
     int next_signal_metric_x = signal_metrics_x;
     if (message->rssi_valid) {
-      std::snprintf(rssi, sizeof(rssi), "RSSI %d dBm",
-          static_cast<int>(message->rssi_dbm));
-      lv_point_t rssi_size = {};
-      lv_text_get_size(&rssi_size, rssi, Font22(), 0, 0,
-          LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
-      const int rssi_width = std::max(1, static_cast<int>(rssi_size.x));
-      DrawChatText(layer, rssi, theme::ActiveThemeColors().on_surface_variant, Font22(),
-          next_signal_metric_x, status_y, rssi_width, 30,
-          LV_TEXT_ALIGN_LEFT, true, LV_TEXT_FLAG_EXPAND);
-      next_signal_metric_x += rssi_width + kChatSignalMetricGap;
+      char value[16] = {};
+      FormatQuarterDbValue(
+          message->rssi_quarter_dbm, false, value, sizeof(value));
+      std::snprintf(rssi, sizeof(rssi), "RSSI %s dBm", value);
+    } else {
+      CopyBoundedString(rssi, sizeof(rssi), "RSSI --");
     }
+    lv_point_t rssi_size = {};
+    lv_text_get_size(&rssi_size, rssi, Font22(), 0, 0,
+        LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
+    const int rssi_width = std::max(1, static_cast<int>(rssi_size.x));
+    DrawChatText(layer, rssi,
+        theme::ActiveThemeColors().on_surface_variant, Font22(),
+        next_signal_metric_x, status_y, rssi_width, 30, LV_TEXT_ALIGN_LEFT,
+        true, LV_TEXT_FLAG_EXPAND);
+    next_signal_metric_x += rssi_width + kChatSignalMetricGap;
     if (message->snr_valid) {
-      std::snprintf(snr, sizeof(snr), "SNR %+d",
-          static_cast<int>(message->snr_db));
+      char value[16] = {};
+      FormatQuarterDbValue(
+          message->snr_quarter_db, true, value, sizeof(value));
+      std::snprintf(snr, sizeof(snr), "SNR %s", value);
       lv_point_t snr_size = {};
       lv_text_get_size(&snr_size, snr, Font22(), 0, 0,
           LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
@@ -3070,8 +3109,8 @@ void RadioTimerCallback(lv_timer_t* timer) {
     RadioChatMessage message;
     message.profile_id = profile_id;
     message.delivery = RadioChatDeliveryState::kReceived;
-    message.rssi_dbm = event.rssi_dbm;
-    message.snr_db = event.snr_db;
+    message.rssi_quarter_dbm = event.rssi_quarter_dbm;
+    message.snr_quarter_db = event.snr_quarter_db;
     message.rssi_valid = event.rssi_valid;
     message.snr_valid = event.snr_valid;
     FormatCurrentTime(state, message.time, sizeof(message.time));
