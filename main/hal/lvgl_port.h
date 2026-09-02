@@ -2,7 +2,7 @@
  * @Description: LVGL 显示、触摸与任务端口管理接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-17 10:30:19
+ * @LastEditTime: 2026-09-02 17:52:29
  * @License: GPL 3.0
  */
 #pragma once
@@ -33,9 +33,8 @@ class LvglPort final {
 
   using KeyboardInputEventCallback =
       std::function<void(const KeyboardInputEvent& event)>;
-  using PointerInputInterceptor =
-      std::function<bool(lv_indev_state_t state, lv_point_t point,
-          bool hardware_edge_hint)>;
+  using PointerInputInterceptor = std::function<bool(
+      lv_indev_state_t state, lv_point_t point, bool hardware_edge_hint)>;
 
   enum class TouchReadMode : uint8_t {
     kSinglePoint,
@@ -237,24 +236,21 @@ class LvglPort final {
    * @param self LVGL 端口实例
    * @param data 本次输入数据
    */
-  static void NotifyPointerInput(
-      LvglPort* self, const lv_indev_data_t* data);
+  static void NotifyPointerInput(LvglPort* self, const lv_indev_data_t* data);
 
   /**
    * @brief 读取实体键盘并转换为 LVGL keypad 输入
    * @param indev LVGL 输入设备
    * @param data 输入数据输出地址
    */
-  static void KeyboardReadCallback(
-      lv_indev_t* indev, lv_indev_data_t* data);
+  static void KeyboardReadCallback(lv_indev_t* indev, lv_indev_data_t* data);
 
   /**
    * @brief 将通用实体键盘事件转换为 LVGL 键值
    * @param event 通用实体键盘事件
    * @return LVGL 键值，不支持的按键返回 0
    */
-  static uint32_t KeyboardEventToLvglKey(
-      const KeyboardInputEvent& event);
+  static uint32_t KeyboardEventToLvglKey(const KeyboardInputEvent& event);
 
   /**
    * @brief 处理 LVGL tick 定时器回调

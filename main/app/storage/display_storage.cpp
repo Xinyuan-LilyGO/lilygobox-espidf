@@ -51,11 +51,9 @@ DisplayPreferences NormalizeDisplayPreferences(
     const DisplayPreferences& source) {
   DisplayPreferences result;
   result.brightness_percent = std::clamp(source.brightness_percent,
-      kUserDisplayBrightnessMinPercent,
-      kUserDisplayBrightnessMaxPercent);
-  result.lock_timeout_seconds = std::clamp(
-      source.lock_timeout_seconds, kDisplayLockTimeoutDisabledSeconds,
-      kMaximumLockTimeoutSeconds);
+      kUserDisplayBrightnessMinPercent, kUserDisplayBrightnessMaxPercent);
+  result.lock_timeout_seconds = std::clamp(source.lock_timeout_seconds,
+      kDisplayLockTimeoutDisabledSeconds, kMaximumLockTimeoutSeconds);
   result.screen_rotation_angle =
       NormalizeScreenRotationAngle(source.screen_rotation_angle);
   result.lock_screen_double_tap_to_turn_screen_on_and_off =
@@ -67,15 +65,15 @@ DisplayPreferences NormalizeDisplayPreferences(
 bool AreDisplayPreferencesEqual(
     const DisplayPreferences& left, const DisplayPreferences& right) {
   return left.brightness_percent == right.brightness_percent &&
-      left.lock_timeout_seconds == right.lock_timeout_seconds &&
-      left.screen_rotation_angle == right.screen_rotation_angle &&
-      left.lock_screen_double_tap_to_turn_screen_on_and_off ==
-          right.lock_screen_double_tap_to_turn_screen_on_and_off &&
-      left.dark_theme_enabled == right.dark_theme_enabled;
+         left.lock_timeout_seconds == right.lock_timeout_seconds &&
+         left.screen_rotation_angle == right.screen_rotation_angle &&
+         left.lock_screen_double_tap_to_turn_screen_on_and_off ==
+             right.lock_screen_double_tap_to_turn_screen_on_and_off &&
+         left.dark_theme_enabled == right.dark_theme_enabled;
 }
 
-bool DecodeDisplayPreferences(const storage::TlvBuffer& buffer,
-    DisplayPreferences* preferences) {
+bool DecodeDisplayPreferences(
+    const storage::TlvBuffer& buffer, DisplayPreferences* preferences) {
   if (preferences == nullptr) {
     return false;
   }
@@ -106,8 +104,8 @@ bool DecodeDisplayPreferences(const storage::TlvBuffer& buffer,
         if (!field.ReadUint32(&value)) {
           return false;
         }
-        decoded.lock_timeout_seconds = static_cast<int>(std::min(value,
-            static_cast<uint32_t>(kMaximumLockTimeoutSeconds)));
+        decoded.lock_timeout_seconds = static_cast<int>(
+            std::min(value, static_cast<uint32_t>(kMaximumLockTimeoutSeconds)));
         break;
       }
       case DisplayField::kScreenRotationAngle: {
@@ -142,25 +140,24 @@ bool EncodeDisplayPreferences(const DisplayPreferences& preferences,
     uint8_t* output, size_t capacity, size_t* encoded_size) {
   const DisplayPreferences normalized =
       NormalizeDisplayPreferences(preferences);
-  storage::TlvWriter writer(
-      storage::TlvDomain::kDisplay, output, capacity);
+  storage::TlvWriter writer(storage::TlvDomain::kDisplay, output, capacity);
   return writer.WriteUint8(
              static_cast<uint16_t>(DisplayField::kBrightnessPercent),
              static_cast<uint8_t>(normalized.brightness_percent)) &&
-      writer.WriteUint32(
-          static_cast<uint16_t>(DisplayField::kLockTimeoutSeconds),
-          static_cast<uint32_t>(normalized.lock_timeout_seconds)) &&
-      writer.WriteInt32(
-          static_cast<uint16_t>(DisplayField::kScreenRotationAngle),
-          static_cast<int32_t>(normalized.screen_rotation_angle)) &&
-      writer.WriteBool(
-          static_cast<uint16_t>(
-              DisplayField::kLockScreenDoubleTapToTurnScreenOnAndOff),
-          normalized.lock_screen_double_tap_to_turn_screen_on_and_off) &&
-      writer.WriteBool(
-          static_cast<uint16_t>(DisplayField::kDarkThemeEnabled),
-          normalized.dark_theme_enabled) &&
-      writer.Finalize(encoded_size);
+         writer.WriteUint32(
+             static_cast<uint16_t>(DisplayField::kLockTimeoutSeconds),
+             static_cast<uint32_t>(normalized.lock_timeout_seconds)) &&
+         writer.WriteInt32(
+             static_cast<uint16_t>(DisplayField::kScreenRotationAngle),
+             static_cast<int32_t>(normalized.screen_rotation_angle)) &&
+         writer.WriteBool(
+             static_cast<uint16_t>(
+                 DisplayField::kLockScreenDoubleTapToTurnScreenOnAndOff),
+             normalized.lock_screen_double_tap_to_turn_screen_on_and_off) &&
+         writer.WriteBool(
+             static_cast<uint16_t>(DisplayField::kDarkThemeEnabled),
+             normalized.dark_theme_enabled) &&
+         writer.Finalize(encoded_size);
 }
 
 NvsStorageCache<DisplayPreferences> g_display_cache(
@@ -171,13 +168,13 @@ NvsStorageCache<DisplayPreferences> g_display_cache(
 void InitDisplayCache() {
   DisplayPreferences loaded;
   nvs_handle_t handle = 0;
-  if (OpenApplicationNvs(
-          kDisplayNvsNamespace, NVS_READONLY, &handle) == ESP_OK) {
+  if (OpenApplicationNvs(kDisplayNvsNamespace, NVS_READONLY, &handle) ==
+      ESP_OK) {
     storage::TlvBuffer buffer;
     esp_err_t error = ESP_OK;
-    const storage::TlvLoadResult result = storage::LoadTlvBuffer(handle,
-        kDisplayNvsKey, storage::TlvDomain::kDisplay,
-        kDisplayTlvCapacity, &buffer, &error);
+    const storage::TlvLoadResult result =
+        storage::LoadTlvBuffer(handle, kDisplayNvsKey,
+            storage::TlvDomain::kDisplay, kDisplayTlvCapacity, &buffer, &error);
     if (result == storage::TlvLoadResult::kLoaded &&
         !DecodeDisplayPreferences(buffer, &loaded)) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
@@ -191,8 +188,7 @@ void InitDisplayCache() {
     }
     nvs_close(handle);
   }
-  if (!g_display_cache.Initialize(
-          NormalizeDisplayPreferences(loaded))) {
+  if (!g_display_cache.Initialize(NormalizeDisplayPreferences(loaded))) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize display storage cache failed\n");
   }
@@ -216,10 +212,10 @@ StorageStageResult StageDisplayStorage(nvs_handle_t handle) {
   }
   std::array<uint8_t, kDisplayTlvCapacity> buffer = {};
   size_t encoded_size = 0;
-  if (!EncodeDisplayPreferences(*preferences, buffer.data(),
-          buffer.size(), &encoded_size) ||
-      nvs_set_blob(handle, kDisplayNvsKey,
-          buffer.data(), encoded_size) != ESP_OK) {
+  if (!EncodeDisplayPreferences(
+          *preferences, buffer.data(), buffer.size(), &encoded_size) ||
+      nvs_set_blob(handle, kDisplayNvsKey, buffer.data(), encoded_size) !=
+          ESP_OK) {
     return StorageStageResult::kFailed;
   }
   return StorageStageResult::kStaged;

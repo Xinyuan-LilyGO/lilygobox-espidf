@@ -2,7 +2,7 @@
  * @Description: Battery capacity preference storage implementation
  * @Author: LILYGO_L
  * @Date: 2026-09-01 00:00:00
- * @LastEditTime: 2026-09-01 00:00:00
+ * @LastEditTime: 2026-09-02 17:51:19
  * @License: GPL 3.0
  */
 #include "app/storage/battery_storage.h"
@@ -61,8 +61,7 @@ bool DecodeBatteryPreferences(
     if (result == storage::TlvReadResult::kInvalid) {
       return false;
     }
-    if (static_cast<BatteryField>(field.tag()) ==
-        BatteryField::kCapacityMah) {
+    if (static_cast<BatteryField>(field.tag()) == BatteryField::kCapacityMah) {
       uint16_t capacity_mah = 0;
       if (!field.ReadUint16(&capacity_mah)) {
         return false;
@@ -76,12 +75,10 @@ bool EncodeBatteryPreferences(const BatteryPreferences& preferences,
     uint8_t* output, size_t capacity, size_t* encoded_size) {
   const BatteryPreferences normalized =
       NormalizeBatteryPreferences(preferences);
-  storage::TlvWriter writer(
-      storage::TlvDomain::kBattery, output, capacity);
-  return writer.WriteUint16(
-             static_cast<uint16_t>(BatteryField::kCapacityMah),
+  storage::TlvWriter writer(storage::TlvDomain::kBattery, output, capacity);
+  return writer.WriteUint16(static_cast<uint16_t>(BatteryField::kCapacityMah),
              static_cast<uint16_t>(normalized.capacity_mah)) &&
-      writer.Finalize(encoded_size);
+         writer.Finalize(encoded_size);
 }
 
 NvsStorageCache<BatteryPreferences> g_battery_cache(
@@ -102,14 +99,14 @@ bool InitBatteryStorage() {
 
   bool load_succeeded = true;
   nvs_handle_t handle = 0;
-  const esp_err_t open_result = OpenApplicationNvs(
-      kBatteryNvsNamespace, NVS_READONLY, &handle);
+  const esp_err_t open_result =
+      OpenApplicationNvs(kBatteryNvsNamespace, NVS_READONLY, &handle);
   if (open_result == ESP_OK) {
     storage::TlvBuffer buffer;
     esp_err_t error = ESP_OK;
-    const storage::TlvLoadResult result = storage::LoadTlvBuffer(handle,
-        kBatteryNvsKey, storage::TlvDomain::kBattery,
-        kBatteryTlvCapacity, &buffer, &error);
+    const storage::TlvLoadResult result =
+        storage::LoadTlvBuffer(handle, kBatteryNvsKey,
+            storage::TlvDomain::kBattery, kBatteryTlvCapacity, &buffer, &error);
     if (result == storage::TlvLoadResult::kLoaded &&
         !DecodeBatteryPreferences(buffer, &loaded)) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
@@ -131,8 +128,7 @@ bool InitBatteryStorage() {
     load_succeeded = false;
   }
 
-  if (!g_battery_cache.Initialize(
-          NormalizeBatteryPreferences(loaded))) {
+  if (!g_battery_cache.Initialize(NormalizeBatteryPreferences(loaded))) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize battery storage cache failed\n");
     return false;
@@ -158,10 +154,10 @@ StorageStageResult StageBatteryStorage(nvs_handle_t handle) {
   }
   std::array<uint8_t, kBatteryTlvCapacity> buffer = {};
   size_t encoded_size = 0;
-  if (!EncodeBatteryPreferences(*preferences, buffer.data(), buffer.size(),
-          &encoded_size) ||
-      nvs_set_blob(handle, kBatteryNvsKey,
-          buffer.data(), encoded_size) != ESP_OK) {
+  if (!EncodeBatteryPreferences(
+          *preferences, buffer.data(), buffer.size(), &encoded_size) ||
+      nvs_set_blob(handle, kBatteryNvsKey, buffer.data(), encoded_size) !=
+          ESP_OK) {
     return StorageStageResult::kFailed;
   }
   return StorageStageResult::kStaged;

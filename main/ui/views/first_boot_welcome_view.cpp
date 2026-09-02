@@ -2,7 +2,7 @@
  * @Description: Material 风格首次开机欢迎页实现
  * @Author: LILYGO_L
  * @Date: 2026-07-15 00:00:00
- * @LastEditTime: 2026-07-15 00:00:00
+ * @LastEditTime: 2026-09-02 17:54:33
  * @License: GPL 3.0
  */
 #include "ui/views/first_boot_welcome_view.h"
@@ -43,8 +43,8 @@ void MakeTransparent(lv_obj_t* object) {
   lv_obj_set_style_pad_all(object, 0, LV_PART_MAIN);
 }
 
-lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, uint32_t color,
-    const lv_font_t* font) {
+lv_obj_t* CreateLabel(
+    lv_obj_t* parent, const char* text, uint32_t color, const lv_font_t* font) {
   lv_obj_t* label = lv_label_create(parent);
   if (label == nullptr) {
     return nullptr;
@@ -57,8 +57,7 @@ lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, uint32_t color,
 
 void WelcomeViewDeleteEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_DELETE) {
-    delete static_cast<FirstBootWelcomeState*>(
-        lv_event_get_user_data(event));
+    delete static_cast<FirstBootWelcomeState*>(lv_event_get_user_data(event));
   }
 }
 
@@ -67,8 +66,8 @@ void GetStartedButtonClickedEventCallback(lv_event_t* event) {
     return;
   }
 
-  auto* state = static_cast<FirstBootWelcomeState*>(
-      lv_event_get_user_data(event));
+  auto* state =
+      static_cast<FirstBootWelcomeState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->completion_in_progress ||
       !state->completion_callback) {
     return;
@@ -98,9 +97,8 @@ lv_obj_t* CreateGetStartedButton(lv_obj_t* parent, int width, int height,
   lv_obj_set_style_bg_color(
       button, lv_color_hex(theme::FixedColors().action), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      button, lv_color_hex(theme::FixedColors().action_pressed),
-      LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(button,
+      lv_color_hex(theme::FixedColors().action_pressed), LV_STATE_PRESSED);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(button, kButtonRadius, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(button, 10, LV_PART_MAIN);
@@ -111,12 +109,11 @@ lv_obj_t* CreateGetStartedButton(lv_obj_t* parent, int width, int height,
     lv_obj_delete(button);
     return nullptr;
   }
-  lv_obj_add_event_cb(button, GetStartedButtonClickedEventCallback,
-      LV_EVENT_CLICKED, state);
+  lv_obj_add_event_cb(
+      button, GetStartedButtonClickedEventCallback, LV_EVENT_CLICKED, state);
 
-  lv_obj_t* label =
-      CreateLabel(
-          button, "Get started", theme::FixedColors().on_action, Font28());
+  lv_obj_t* label = CreateLabel(
+      button, "Get started", theme::FixedColors().on_action, Font28());
   if (label == nullptr) {
     lv_obj_delete(button);
     return nullptr;
@@ -141,8 +138,8 @@ bool BuildPortraitLayout(lv_obj_t* page, int width, int height,
   }
   lv_obj_align(hero, LV_ALIGN_TOP_MID, 0, compact ? 104 : height / 7);
 
-  lv_obj_t* title = CreateLabel(page, "Welcome to LilygoBox",
-      colors.on_surface, compact ? Font36() : Font48());
+  lv_obj_t* title = CreateLabel(page, "Welcome to LilygoBox", colors.on_surface,
+      compact ? Font36() : Font48());
   if (title == nullptr) {
     return false;
   }
@@ -162,8 +159,8 @@ bool BuildPortraitLayout(lv_obj_t* page, int width, int height,
   lv_obj_set_style_text_line_space(body, compact ? 4 : 7, LV_PART_MAIN);
   lv_obj_align_to(body, title, LV_ALIGN_OUT_BOTTOM_MID, 0, compact ? 18 : 26);
 
-  lv_obj_t* button = CreateGetStartedButton(
-      page, button_width, button_height, colors, state);
+  lv_obj_t* button =
+      CreateGetStartedButton(page, button_width, button_height, colors, state);
   if (button == nullptr) {
     return false;
   }
@@ -194,8 +191,8 @@ bool BuildLandscapeLayout(lv_obj_t* page, int width, int height,
   lv_obj_set_size(content, content_width, height - 2 * side_padding);
   lv_obj_align(content, LV_ALIGN_RIGHT_MID, -side_padding, 0);
 
-  lv_obj_t* title = CreateLabel(
-      content, "Welcome to LilygoBox", colors.on_surface, Font48());
+  lv_obj_t* title =
+      CreateLabel(content, "Welcome to LilygoBox", colors.on_surface, Font48());
   if (title == nullptr) {
     return false;
   }

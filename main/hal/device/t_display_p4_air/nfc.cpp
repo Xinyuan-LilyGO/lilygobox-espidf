@@ -2,11 +2,9 @@
  * @Description: T-Display-P4-Air ST25R3916 NFC 硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-08-28 00:00:00
+ * @LastEditTime: 2026-09-02 17:53:36
  * @License: GPL 3.0
  */
-#include "hal/device/t_display_p4_air/device.h"
-
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -17,6 +15,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal/device/common/st25r3916_nfc.h"
+#include "hal/device/t_display_p4_air/device.h"
 
 extern "C" {
 #include "rfal_chip.h"
@@ -75,30 +74,27 @@ void RunNfcDebugDiagnostics(
       vTaskDelay(pdMS_TO_TICKS(1));
     }
     amplitude_result = rfalChipMeasureAmplitude(&amplitude);
-    probe_result = rfalNfcaPollerTechnologyDetection(
-        RFAL_COMPLIANCE_MODE_ISO, &sens_res);
+    probe_result =
+        rfalNfcaPollerTechnologyDetection(RFAL_COMPLIANCE_MODE_ISO, &sens_res);
   }
 
   st25r3916ReadRegister(ST25R3916_REG_OP_CONTROL, &op_control);
   st25r3916ReadRegister(ST25R3916_REG_AUX_DISPLAY, &aux_display);
   st25r3916ReadRegister(ST25R3916_REG_TX_DRIVER, &tx_driver);
-  st25r3916ReadRegister(
-      ST25R3916_REG_FIELD_THRESHOLD_ACTV, &field_threshold);
+  st25r3916ReadRegister(ST25R3916_REG_FIELD_THRESHOLD_ACTV, &field_threshold);
   rfalFieldOff();
 
   LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
       "NFC RF diagnostic (init: %u, field: %u, amplitude result: %u, "
       "amplitude: %u, NFC-A probe: %u, ATQA: %02X%02X, op: 0x%02X, "
       "aux: 0x%02X, tx driver: 0x%02X, field threshold: 0x%02X)\n",
-      static_cast<unsigned>(init_result),
-      static_cast<unsigned>(field_result),
-      static_cast<unsigned>(amplitude_result),
-      static_cast<unsigned>(amplitude), static_cast<unsigned>(probe_result),
+      static_cast<unsigned>(init_result), static_cast<unsigned>(field_result),
+      static_cast<unsigned>(amplitude_result), static_cast<unsigned>(amplitude),
+      static_cast<unsigned>(probe_result),
       static_cast<unsigned>(sens_res.anticollisionInfo),
       static_cast<unsigned>(sens_res.platformInfo),
       static_cast<unsigned>(op_control), static_cast<unsigned>(aux_display),
-      static_cast<unsigned>(tx_driver),
-      static_cast<unsigned>(field_threshold));
+      static_cast<unsigned>(tx_driver), static_cast<unsigned>(field_threshold));
 }
 
 }  // namespace
@@ -248,9 +244,8 @@ void TDisplayP4AirDevice::RunNfcPollingTask() {
     if (platform_error !=
         stsw_st25rfal002_cpp_bus_driver::PlatformError::kNone) {
       if (xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
-        nfc_.status.last_error =
-            st25r3916_nfc::kPlatformErrorBase +
-            static_cast<int>(platform_error);
+        nfc_.status.last_error = st25r3916_nfc::kPlatformErrorBase +
+                                 static_cast<int>(platform_error);
         xSemaphoreGive(nfc_.mutex);
       }
       LogMessage(LogLevel::kError, __FILE__, __LINE__,
@@ -264,8 +259,8 @@ void TDisplayP4AirDevice::RunNfcPollingTask() {
       rfalNfcDevice* active_device = nullptr;
       result = rfalNfcGetActiveDevice(&active_device);
       if (result != RFAL_ERR_NONE || active_device == nullptr) {
-        const ReturnCode error = result == RFAL_ERR_NONE ? RFAL_ERR_INTERNAL
-                                                        : result;
+        const ReturnCode error =
+            result == RFAL_ERR_NONE ? RFAL_ERR_INTERNAL : result;
         if (xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
           nfc_.status.last_error = static_cast<int>(error);
           xSemaphoreGive(nfc_.mutex);
@@ -275,11 +270,11 @@ void TDisplayP4AirDevice::RunNfcPollingTask() {
             static_cast<unsigned>(error),
             active_device == nullptr ? "null" : "ready");
       } else {
-        const size_t identifier_length = active_device->nfcid == nullptr
-                                             ? 0
-                                             : std::min<size_t>(
-                                                   active_device->nfcidLen,
-                                                   kNfcIdentifierCapacity);
+        const size_t identifier_length =
+            active_device->nfcid == nullptr
+                ? 0
+                : std::min<size_t>(
+                      active_device->nfcidLen, kNfcIdentifierCapacity);
         const NfcTechnology technology =
             st25r3916_nfc::ToNfcTechnology(active_device->type);
         const bool same_card =
@@ -311,8 +306,7 @@ void TDisplayP4AirDevice::RunNfcPollingTask() {
             nfc_.status.card_present = true;
             nfc_.status.last_error = 0;
           } else {
-            detected_status.detection_count =
-                nfc_.status.detection_count + 1;
+            detected_status.detection_count = nfc_.status.detection_count + 1;
             nfc_.status = detected_status;
           }
           detection_count = nfc_.status.detection_count;
@@ -379,9 +373,8 @@ void TDisplayP4AirDevice::RunNfcPollingTask() {
             "NFC discovery active (state: %u, cycles: %u, interrupt: %s)\n",
             static_cast<unsigned>(state),
             static_cast<unsigned>(debug_discovery_cycle_count),
-            tool_ != nullptr && tool_->GpioRead(gpio::st25r3916::kInt)
-                ? "high"
-                : "low");
+            tool_ != nullptr && tool_->GpioRead(gpio::st25r3916::kInt) ? "high"
+                                                                       : "low");
         last_debug_log_tick = now;
       }
     }
@@ -405,8 +398,9 @@ void TDisplayP4AirDevice::RunNfcPollingTask() {
   const bool deinitialized = driver_.DeinitSt25r3916();
   nfc_.task_active.store(false);
   LogMessage(deinitialized ? LogLevel::kDebug : LogLevel::kError, __FILE__,
-      __LINE__, deinitialized ? "NFC polling task stopped\n"
-                              : "NFC polling task cleanup failed\n");
+      __LINE__,
+      deinitialized ? "NFC polling task stopped\n"
+                    : "NFC polling task cleanup failed\n");
 }
 
 }  // namespace lilygo_box::hal

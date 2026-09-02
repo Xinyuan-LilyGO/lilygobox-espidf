@@ -2,7 +2,7 @@
  * @Description: NVS 长期配置 TLV 编解码公共接口
  * @Author: LILYGO_L
  * @Date: 2026-07-22 00:00:00
- * @LastEditTime: 2026-07-22 00:00:00
+ * @LastEditTime: 2026-09-02 17:51:52
  * @License: GPL 3.0
  */
 #pragma once
@@ -79,8 +79,7 @@ class TlvField final {
 // 将一个配置域编码到调用方提供的固定容量缓冲区。
 class TlvWriter final {
  public:
-  TlvWriter(
-      TlvDomain domain, uint8_t* output, size_t output_capacity);
+  TlvWriter(TlvDomain domain, uint8_t* output, size_t output_capacity);
 
   TlvWriter(const TlvWriter&) = delete;
   TlvWriter& operator=(const TlvWriter&) = delete;
@@ -91,8 +90,7 @@ class TlvWriter final {
   bool WriteUint16(uint16_t tag, uint16_t value);
   bool WriteUint32(uint16_t tag, uint32_t value);
   bool WriteInt32(uint16_t tag, int32_t value);
-  bool WriteString(
-      uint16_t tag, const char* value, size_t value_capacity);
+  bool WriteString(uint16_t tag, const char* value, size_t value_capacity);
   bool WriteBytes(uint16_t tag, const uint8_t* value, size_t size);
 
   // 完成容器头和 CRC；调用成功后禁止继续写字段。
@@ -111,8 +109,7 @@ class TlvWriter final {
 // 验证容器头和 CRC，并按顺序遍历字段。
 class TlvReader final {
  public:
-  TlvReader(
-      TlvDomain expected_domain, const uint8_t* data, size_t size);
+  TlvReader(TlvDomain expected_domain, const uint8_t* data, size_t size);
 
   TlvReader(const TlvReader&) = delete;
   TlvReader& operator=(const TlvReader&) = delete;

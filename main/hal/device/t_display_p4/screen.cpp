@@ -2,11 +2,9 @@
  * @Description: T-Display-P4 显示、触摸与背光实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-08-28 00:00:00
+ * @LastEditTime: 2026-09-02 17:53:13
  * @License: GPL 3.0
  */
-#include "hal/device/t_display_p4/device.h"
-
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -18,6 +16,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal/device/common/device_utils.h"
+#include "hal/device/t_display_p4/device.h"
 
 namespace lilygo_box::hal {
 namespace device = lilygo_device_driver::t_display_p4::device;
@@ -35,8 +34,8 @@ cpp_bus_driver::Pwm::DutyCycle ScreenBrightnessPercentToHi8561DutyCycle(
 }
 
 uint8_t ScreenBrightnessPercentToRm69a10Value(int clamped_percent) {
-  return static_cast<uint8_t>(clamped_percent * kRm69a10BrightnessMax /
-                              device_utils::kMaximumPercent);
+  return static_cast<uint8_t>(
+      clamped_percent * kRm69a10BrightnessMax / device_utils::kMaximumPercent);
 }
 
 }  // namespace
@@ -45,8 +44,8 @@ bool TDisplayP4Device::InitializeTouchInterrupt() {
   if (touch_interrupt_initialized_) {
     return true;
   }
-  if (tool_ == nullptr || !driver_.IsTouchReady() ||
-      !driver_.IsXl9535Ready() || driver_.chip().xl9535 == nullptr) {
+  if (tool_ == nullptr || !driver_.IsTouchReady() || !driver_.IsXl9535Ready() ||
+      driver_.chip().xl9535 == nullptr) {
     return false;
   }
 
@@ -57,9 +56,8 @@ bool TDisplayP4Device::InitializeTouchInterrupt() {
   }
   touch_interrupt_pending_.store(false, std::memory_order_relaxed);
   if (!tool_->InitGpioInterrupt(gpio::xl9535::kInt,
-          cpp_bus_driver::Tool::InterruptMode::kFalling,
-          TouchInterruptHandler, this,
-          cpp_bus_driver::Tool::GpioStatus::kPullup)) {
+          cpp_bus_driver::Tool::InterruptMode::kFalling, TouchInterruptHandler,
+          this, cpp_bus_driver::Tool::GpioStatus::kPullup)) {
     return false;
   }
 
@@ -194,11 +192,12 @@ bool TDisplayP4Device::ReadScreenTouch(TouchPoint* point) {
 
   const bool firmware_double_tap =
       (driver_.screen_type() == device::ScreenType::kHi8561 &&
-          frame.gesture == static_cast<uint8_t>(
-              cpp_bus_driver::Hi8561Touch::Gesture::kDoubleTap)) ||
+          frame.gesture ==
+              static_cast<uint8_t>(
+                  cpp_bus_driver::Hi8561Touch::Gesture::kDoubleTap)) ||
       (driver_.screen_type() == device::ScreenType::kRm69a10 &&
           frame.gesture == static_cast<uint8_t>(
-              cpp_bus_driver::Gt9895::Gesture::kDoubleTap));
+                               cpp_bus_driver::Gt9895::Gesture::kDoubleTap));
   if (firmware_double_tap) {
     point->x = -1;
     point->y = -1;
@@ -210,7 +209,8 @@ bool TDisplayP4Device::ReadScreenTouch(TouchPoint* point) {
   // GT9895 的 INT 是通用触摸通知，不能把每次中断都解释为边缘触摸。
   // 只有收到中断但固件暂时没有提供坐标时，才将其作为边缘候选提示；
   // 普通有效坐标必须继续交给 LVGL，否则屏幕边缘控件会全部失效。
-  const bool hardware_edge_hint = frame.edge_touch ||
+  const bool hardware_edge_hint =
+      frame.edge_touch ||
       (driver_.screen_type() == device::ScreenType::kRm69a10 &&
           touch_interrupt_received &&
           (read_status == cpp_bus_driver::TouchReadStatus::kNoData ||
@@ -274,7 +274,8 @@ bool TDisplayP4Device::ReadScreenTouchPoints(
 
   // GT9895 的通用触摸中断只有在缺少有效坐标时才可作为边缘候选提示。
   // 有效触摸不能携带这个提示，避免全局手势抢占边缘页面控件。
-  const bool hardware_edge_hint = frame.edge_touch ||
+  const bool hardware_edge_hint =
+      frame.edge_touch ||
       (driver_.screen_type() == device::ScreenType::kRm69a10 &&
           touch_interrupt_received &&
           (read_status == cpp_bus_driver::TouchReadStatus::kNoData ||
@@ -460,7 +461,8 @@ bool TDisplayP4Device::FadeScreenBrightnessPercent(
         const int step_count =
             std::max(1, std::min(brightness_delta, duration_step_count));
         for (int step = 1; step <= step_count; ++step) {
-          const int brightness_percent = start_percent +
+          const int brightness_percent =
+              start_percent +
               (clamped_percent - start_percent) * step / step_count;
           const uint8_t brightness =
               ScreenBrightnessPercentToRm69a10Value(brightness_percent);
@@ -468,8 +470,8 @@ bool TDisplayP4Device::FadeScreenBrightnessPercent(
             return false;
           }
           rm69a10_brightness_percent_ = brightness_percent;
-          vTaskDelay(pdMS_TO_TICKS(
-              std::max<uint32_t>(1, duration_ms / step_count)));
+          vTaskDelay(
+              pdMS_TO_TICKS(std::max<uint32_t>(1, duration_ms / step_count)));
         }
         return true;
       }

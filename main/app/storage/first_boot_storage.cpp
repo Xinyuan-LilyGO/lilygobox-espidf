@@ -2,7 +2,7 @@
  * @Description: 首次开机欢迎页完成标志存储实现
  * @Author: LILYGO_L
  * @Date: 2026-07-15 00:00:00
- * @LastEditTime: 2026-07-16 22:35:14
+ * @LastEditTime: 2026-09-02 17:51:23
  * @License: GPL 3.0
  */
 #include "app/storage/first_boot_storage.h"
@@ -24,16 +24,14 @@ bool AreValuesEqual(const bool& left, const bool& right) {
   return left == right;
 }
 
-NvsStorageCache<bool> g_cache(
-    StorageDomain::kFirstBoot, AreValuesEqual);
+NvsStorageCache<bool> g_cache(StorageDomain::kFirstBoot, AreValuesEqual);
 
 }  // namespace
 
 void InitFirstBootCache() {
   bool completed = false;
   nvs_handle_t handle = 0;
-  if (OpenApplicationNvs(
-          kNvsNamespace, NVS_READONLY, &handle) == ESP_OK) {
+  if (OpenApplicationNvs(kNvsNamespace, NVS_READONLY, &handle) == ESP_OK) {
     uint8_t stored = 0;
     if (nvs_get_u8(handle, kNvsKey, &stored) == ESP_OK) {
       completed = stored != 0;
@@ -52,9 +50,7 @@ bool IsFirstBootCompleted() {
   return completed;
 }
 
-bool MarkFirstBootCompleted() {
-  return g_cache.UpdateAndPersist(true);
-}
+bool MarkFirstBootCompleted() { return g_cache.UpdateAndPersist(true); }
 
 StorageStageResult StageFirstBootStorage(nvs_handle_t handle) {
   const bool* completed = nullptr;
@@ -68,8 +64,6 @@ StorageStageResult StageFirstBootStorage(nvs_handle_t handle) {
   return StorageStageResult::kStaged;
 }
 
-void FinishFirstBootStorage(bool committed) {
-  g_cache.FinishFlush(committed);
-}
+void FinishFirstBootStorage(bool committed) { g_cache.FinishFlush(committed); }
 
 }  // namespace lilygo_box::app

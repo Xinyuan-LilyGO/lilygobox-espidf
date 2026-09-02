@@ -2,7 +2,7 @@
  * @Description: 可复用 LVGL 屏幕键盘布局与输入绑定实现
  * @Author: LILYGO_L
  * @Date: 2026-05-18 12:08:00
- * @LastEditTime: 2026-08-24 09:21:47
+ * @LastEditTime: 2026-09-02 17:54:54
  * @License: GPL 3.0
  */
 #include "ui/widgets/shared_keyboard.h"
@@ -32,31 +32,24 @@ constexpr size_t kMaximumSharedKeyboardCount = 16;
 hal::KeyboardExpansionProvider* g_physical_keyboard_provider = nullptr;
 std::array<lv_obj_t*, kMaximumSharedKeyboardCount> g_shared_keyboards = {};
 
-const char* const kKeyboardLowerMap[] = {
-    "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "\n",
-    " ", "a", "s", "d", "f", "g", "h", "j", "k", "l", " ", "\n",
-    LV_SYMBOL_EJECT, "z", "x", "c", "v", "b", "n", "m",
-    LV_SYMBOL_BACKSPACE, "\n",
-    LV_SYMBOL_KEYBOARD, LV_SYMBOL_LEFT, " ", LV_SYMBOL_RIGHT,
+const char* const kKeyboardLowerMap[] = {"q", "w", "e", "r", "t", "y", "u", "i",
+    "o", "p", "\n", " ", "a", "s", "d", "f", "g", "h", "j", "k", "l", " ", "\n",
+    LV_SYMBOL_EJECT, "z", "x", "c", "v", "b", "n", "m", LV_SYMBOL_BACKSPACE,
+    "\n", LV_SYMBOL_KEYBOARD, LV_SYMBOL_LEFT, " ", LV_SYMBOL_RIGHT,
     LV_SYMBOL_NEW_LINE, nullptr};
 
-const char* const kKeyboardUpperMap[] = {
-    "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "\n",
-    " ", "A", "S", "D", "F", "G", "H", "J", "K", "L", " ", "\n",
-    LV_SYMBOL_EJECT, "Z", "X", "C", "V", "B", "N", "M",
-    LV_SYMBOL_BACKSPACE, "\n",
-    LV_SYMBOL_KEYBOARD, LV_SYMBOL_LEFT, " ", LV_SYMBOL_RIGHT,
+const char* const kKeyboardUpperMap[] = {"Q", "W", "E", "R", "T", "Y", "U", "I",
+    "O", "P", "\n", " ", "A", "S", "D", "F", "G", "H", "J", "K", "L", " ", "\n",
+    LV_SYMBOL_EJECT, "Z", "X", "C", "V", "B", "N", "M", LV_SYMBOL_BACKSPACE,
+    "\n", LV_SYMBOL_KEYBOARD, LV_SYMBOL_LEFT, " ", LV_SYMBOL_RIGHT,
     LV_SYMBOL_NEW_LINE, nullptr};
 
-const char* const kKeyboardNumberMap[] = {
-    "1", "2", "3", LV_SYMBOL_BACKSPACE, "\n",
-    "4", "5", "6", LV_SYMBOL_LEFT, LV_SYMBOL_RIGHT, "\n",
-    "7", "8", "9", LV_SYMBOL_NEW_LINE, "\n",
-    "+/-", "0", ".", LV_SYMBOL_KEYBOARD, nullptr};
+const char* const kKeyboardNumberMap[] = {"1", "2", "3", LV_SYMBOL_BACKSPACE,
+    "\n", "4", "5", "6", LV_SYMBOL_LEFT, LV_SYMBOL_RIGHT, "\n", "7", "8", "9",
+    LV_SYMBOL_NEW_LINE, "\n", "+/-", "0", ".", LV_SYMBOL_KEYBOARD, nullptr};
 
-const char* const kKeyboardSymbolMap[] = {
-    "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "\n",
-    "_", "-", "+", "=", "[", "]", "{", "}", "|", ";", "\n",
+const char* const kKeyboardSymbolMap[] = {"!", "@", "#", "$", "%", "^", "&",
+    "*", "(", ")", "\n", "_", "-", "+", "=", "[", "]", "{", "}", "|", ";", "\n",
     ":", "'", "\"", ",", "<", ">", ".", "?", "/", "\\", "`", "~", "\n",
     LV_SYMBOL_KEYBOARD, LV_SYMBOL_LEFT, LV_SYMBOL_RIGHT, LV_SYMBOL_BACKSPACE,
     nullptr};
@@ -248,9 +241,8 @@ bool IsDecimalAcceptedChars(const char* accepted_chars) {
  * @param requested_mode 调用方请求的默认布局
  * @return 数值型输入返回数字布局，否则返回请求布局
  */
-lv_keyboard_mode_t ResolveTextAreaKeyboardMode(
-    lv_obj_t* text_area, const char* accepted_chars,
-    lv_keyboard_mode_t requested_mode) {
+lv_keyboard_mode_t ResolveTextAreaKeyboardMode(lv_obj_t* text_area,
+    const char* accepted_chars, lv_keyboard_mode_t requested_mode) {
   if (IsDecimalAcceptedChars(accepted_chars) ||
       (text_area != nullptr &&
           IsDecimalNumberText(lv_textarea_get_text(text_area)))) {
@@ -265,13 +257,13 @@ bool IsPhysicalKeyboardConnected() {
   }
   hal::KeyboardExpansionStatus status;
   return g_physical_keyboard_provider->ReadKeyboardExpansionStatus(&status) &&
-      status.state == hal::KeyboardExpansionState::kReady &&
-      status.tca8418 == hal::KeyboardExpansionComponentState::kReady;
+         status.state == hal::KeyboardExpansionState::kReady &&
+         status.tca8418 == hal::KeyboardExpansionComponentState::kReady;
 }
 
 bool ShouldShowSharedKeyboardInternal() {
   return !IsPhysicalKeyboardConnected() ||
-      app::GetInputMethodPreferences().use_on_screen_keyboard;
+         app::GetInputMethodPreferences().use_on_screen_keyboard;
 }
 
 void SharedKeyboardDeleteEventCallback(lv_event_t* event) {
@@ -323,8 +315,8 @@ bool IsPointerInsideTextArea(lv_obj_t* text_area) {
   lv_area_t area = {};
   lv_indev_get_point(indev, &point);
   lv_obj_get_coords(text_area, &area);
-  return point.x >= area.x1 && point.x <= area.x2 &&
-         point.y >= area.y1 && point.y <= area.y2;
+  return point.x >= area.x1 && point.x <= area.x2 && point.y >= area.y1 &&
+         point.y <= area.y2;
 }
 
 /**
@@ -355,8 +347,8 @@ bool HasTextAreaPointerMoved(const TextAreaKeyboardBinding& binding) {
  * @param text_area 文本输入框
  * @param binding 文本框键盘绑定状态
  */
-void RestoreTextAreaCursor(lv_obj_t* text_area,
-    const TextAreaKeyboardBinding& binding) {
+void RestoreTextAreaCursor(
+    lv_obj_t* text_area, const TextAreaKeyboardBinding& binding) {
   if (text_area == nullptr || !binding.cancelled) {
     return;
   }
@@ -385,9 +377,9 @@ void ActivateTextAreaAfterRelease(
   if (binding->accepted_chars != nullptr) {
     lv_textarea_set_accepted_chars(text_area, binding->accepted_chars);
   }
-  lv_keyboard_set_mode(binding->keyboard,
-      ResolveTextAreaKeyboardMode(
-          text_area, binding->accepted_chars, binding->initial_mode));
+  lv_keyboard_set_mode(
+      binding->keyboard, ResolveTextAreaKeyboardMode(text_area,
+                             binding->accepted_chars, binding->initial_mode));
   if (ShouldShowSharedKeyboardInternal()) {
     lv_obj_remove_flag(binding->keyboard, LV_OBJ_FLAG_HIDDEN);
   } else {
@@ -450,8 +442,8 @@ void EnableSharedKeyboardReleaseActivation(lv_obj_t* keyboard) {
 void ConfigureSharedKeyboardStyle(lv_obj_t* keyboard) {
   const lv_color_t content_color =
       lv_color_hex(theme::ActiveThemeColors().on_keyboard_key);
-  lv_obj_set_style_bg_color(
-      keyboard, lv_color_hex(theme::ActiveThemeColors().keyboard_background),
+  lv_obj_set_style_bg_color(keyboard,
+      lv_color_hex(theme::ActiveThemeColors().keyboard_background),
       LV_PART_MAIN);
   lv_obj_set_style_bg_opa(keyboard, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(keyboard, 0, LV_PART_MAIN);
@@ -463,23 +455,22 @@ void ConfigureSharedKeyboardStyle(lv_obj_t* keyboard) {
   lv_obj_set_style_text_color(keyboard, content_color, LV_PART_MAIN);
 
   lv_obj_set_style_radius(keyboard, kKeyboardRadius, LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(
-      keyboard, lv_color_hex(theme::ActiveThemeColors().keyboard_key),
-      LV_PART_ITEMS);
+  lv_obj_set_style_bg_color(keyboard,
+      lv_color_hex(theme::ActiveThemeColors().keyboard_key), LV_PART_ITEMS);
   lv_obj_set_style_bg_opa(keyboard, LV_OPA_COVER, LV_PART_ITEMS);
   lv_obj_set_style_border_width(keyboard, 0, LV_PART_ITEMS);
   lv_obj_set_style_text_color(keyboard, content_color, LV_PART_ITEMS);
 
-  lv_obj_set_style_bg_color(
-      keyboard, lv_color_hex(theme::ActiveThemeColors().keyboard_key_pressed),
+  lv_obj_set_style_bg_color(keyboard,
+      lv_color_hex(theme::ActiveThemeColors().keyboard_key_pressed),
       StyleSelector(LV_PART_ITEMS, LV_STATE_PRESSED));
-  lv_obj_set_style_text_color(keyboard, content_color,
-      StyleSelector(LV_PART_ITEMS, LV_STATE_PRESSED));
-  lv_obj_set_style_bg_color(
-      keyboard, lv_color_hex(theme::ActiveThemeColors().keyboard_special_key),
+  lv_obj_set_style_text_color(
+      keyboard, content_color, StyleSelector(LV_PART_ITEMS, LV_STATE_PRESSED));
+  lv_obj_set_style_bg_color(keyboard,
+      lv_color_hex(theme::ActiveThemeColors().keyboard_special_key),
       StyleSelector(LV_PART_ITEMS, LV_STATE_CHECKED));
-  lv_obj_set_style_text_color(keyboard, content_color,
-      StyleSelector(LV_PART_ITEMS, LV_STATE_CHECKED));
+  lv_obj_set_style_text_color(
+      keyboard, content_color, StyleSelector(LV_PART_ITEMS, LV_STATE_CHECKED));
 }
 
 /**
@@ -625,8 +616,8 @@ void TextAreaKeyboardPreprocessEventCallback(lv_event_t* event) {
 
   if (code == LV_EVENT_CLICKED) {
     const bool cancelled = binding->cancelled ||
-        HasTextAreaPointerMoved(*binding) ||
-        !IsPointerInsideTextArea(text_area);
+                           HasTextAreaPointerMoved(*binding) ||
+                           !IsPointerInsideTextArea(text_area);
     binding->has_start_point = false;
     binding->cancelled = cancelled;
     if (cancelled) {
@@ -686,9 +677,7 @@ void RegisterSharedKeyboardPhysicalKeyboardProvider(
   g_physical_keyboard_provider = provider;
 }
 
-bool ShouldShowSharedKeyboard() {
-  return ShouldShowSharedKeyboardInternal();
-}
+bool ShouldShowSharedKeyboard() { return ShouldShowSharedKeyboardInternal(); }
 
 void RefreshSharedKeyboardVisibility() {
   const bool visible = ShouldShowSharedKeyboardInternal();
@@ -740,18 +729,16 @@ lv_obj_t* CreateSharedKeyboard(
   lv_obj_add_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
   lv_keyboard_set_mode(keyboard, config.initial_mode);
   EnableSharedKeyboardReleaseActivation(keyboard);
-  const lv_event_code_t mode_event =
-      static_cast<lv_event_code_t>(LV_EVENT_VALUE_CHANGED |
-                                   LV_EVENT_PREPROCESS);
+  const lv_event_code_t mode_event = static_cast<lv_event_code_t>(
+      LV_EVENT_VALUE_CHANGED | LV_EVENT_PREPROCESS);
   lv_obj_add_event_cb(
       keyboard, SharedKeyboardModeEventCallback, mode_event, nullptr);
   RegisterSharedKeyboard(keyboard);
   return keyboard;
 }
 
-bool AttachSharedKeyboardToTextArea(
-    lv_obj_t* keyboard, lv_obj_t* text_area, const char* accepted_chars,
-    lv_keyboard_mode_t initial_mode) {
+bool AttachSharedKeyboardToTextArea(lv_obj_t* keyboard, lv_obj_t* text_area,
+    const char* accepted_chars, lv_keyboard_mode_t initial_mode) {
   if (keyboard == nullptr || text_area == nullptr) {
     return false;
   }
@@ -771,8 +758,7 @@ bool AttachSharedKeyboardToTextArea(
   binding->initial_mode = initial_mode;
   const lv_event_code_t preprocess_event =
       static_cast<lv_event_code_t>(LV_EVENT_ALL | LV_EVENT_PREPROCESS);
-  lv_obj_add_event_cb(
-      text_area, TextAreaKeyboardPreprocessEventCallback,
+  lv_obj_add_event_cb(text_area, TextAreaKeyboardPreprocessEventCallback,
       preprocess_event, binding);
   lv_obj_add_event_cb(text_area, TextAreaKeyboardPostprocessEventCallback,
       LV_EVENT_ALL, binding);

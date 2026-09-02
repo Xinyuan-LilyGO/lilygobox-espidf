@@ -2,7 +2,7 @@
  * @Description: LilygoBox 组合固件 OTA 更新管理接口
  * @Author: LILYGO_L
  * @Date: 2026-07-20 00:00:00
- * @LastEditTime: 2026-07-20 00:00:00
+ * @LastEditTime: 2026-09-02 17:51:05
  * @License: GPL 3.0
  */
 #pragma once
@@ -92,8 +92,8 @@ class FirmwareUpdateManager final {
    * @param application 唯一的应用实例，用于熄屏后重启
    * @return 初始化成功返回 true，否则返回 false
    */
-  bool Initialize(hal::WifiProvider* wifi,
-      ::lilygo_box::Application& application);
+  bool Initialize(
+      hal::WifiProvider* wifi, ::lilygo_box::Application& application);
 
   /**
    * @brief 异步检查最新固件清单

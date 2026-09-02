@@ -35,8 +35,7 @@ constexpr int kMscEventTaskPriority = 5;
 constexpr int kUsbEventPollMs = 20;
 constexpr int kUsbStopTimeoutMs = 4000;
 constexpr int kUsbStopPollMs = 20;
-constexpr size_t kUsbEventQueueLength =
-    kMaxUsbStorageDeviceCount * 2 + 2;
+constexpr size_t kUsbEventQueueLength = kMaxUsbStorageDeviceCount * 2 + 2;
 
 enum class UsbStorageEventType : uint8_t {
   kConnected,
@@ -108,8 +107,7 @@ int FindFreeDeviceSlot(const UsbStorageManagerState& state) {
   return -1;
 }
 
-int FindDeviceSlot(
-    const UsbStorageManagerState& state,
+int FindDeviceSlot(const UsbStorageManagerState& state,
     msc_host_device_handle_t device_handle) {
   for (size_t index = 0; index < state.devices.size(); ++index) {
     if (state.devices[index].device_handle == device_handle) {
@@ -158,8 +156,7 @@ void ReleaseUsbDevice(UsbStorageManagerState* state, int slot) {
   const esp_err_t result = msc_host_uninstall_device(device_handle);
   if (result != ESP_OK) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Uninstall USB storage device failed: %s\n",
-        esp_err_to_name(result));
+        "Uninstall USB storage device failed: %s\n", esp_err_to_name(result));
   }
 }
 
@@ -185,18 +182,16 @@ void MountUsbDevice(UsbStorageManagerState* state, uint8_t usb_address) {
     }
   }
   if (slot < 0) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "No free USB storage slot\n");
+    LogMessage(
+        LogLevel::kWarning, __FILE__, __LINE__, "No free USB storage slot\n");
     return;
   }
 
   msc_host_device_handle_t device_handle = nullptr;
-  esp_err_t result =
-      msc_host_install_device(usb_address, &device_handle);
+  esp_err_t result = msc_host_install_device(usb_address, &device_handle);
   if (result != ESP_OK) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Install USB storage device failed: %s\n",
-        esp_err_to_name(result));
+        "Install USB storage device failed: %s\n", esp_err_to_name(result));
     return;
   }
 
@@ -232,15 +227,13 @@ void MountUsbDevice(UsbStorageManagerState* state, uint8_t usb_address) {
     device.usb_address = usb_address;
     device.device_handle = device_handle;
     device.vfs_handle = vfs_handle;
-    std::snprintf(
-        device.name, sizeof(device.name), "USB Drive %d", slot + 1);
-    std::snprintf(
-        device.base_path, sizeof(device.base_path), "%s", base_path);
+    std::snprintf(device.name, sizeof(device.name), "USB Drive %d", slot + 1);
+    std::snprintf(device.base_path, sizeof(device.base_path), "%s", base_path);
     MarkSnapshotChanged(state);
   }
 
-  LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-      "USB storage mounted at %s\n", base_path);
+  LogMessage(LogLevel::kInfo, __FILE__, __LINE__, "USB storage mounted at %s\n",
+      base_path);
 }
 
 void HandleUsbStorageEvent(
@@ -267,8 +260,7 @@ void HandleUsbStorageEvent(
 
 void MscEventCallback(const msc_host_event_t* event, void* context) {
   auto* state = static_cast<UsbStorageManagerState*>(context);
-  if (state == nullptr || event == nullptr ||
-      state->event_queue == nullptr) {
+  if (state == nullptr || event == nullptr || state->event_queue == nullptr) {
     return;
   }
 
@@ -291,8 +283,8 @@ void MscEventCallback(const msc_host_event_t* event, void* context) {
   }
 }
 
-void FinishUsbHost(UsbStorageManagerState* state, bool msc_installed,
-    bool host_installed) {
+void FinishUsbHost(
+    UsbStorageManagerState* state, bool msc_installed, bool host_installed) {
   ReleaseAllUsbDevices(state);
   if (msc_installed) {
     const esp_err_t result = msc_host_uninstall();
@@ -307,8 +299,7 @@ void FinishUsbHost(UsbStorageManagerState* state, bool msc_installed,
     for (int elapsed_ms = 0; elapsed_ms < kUsbStopTimeoutMs;
         elapsed_ms += kUsbStopPollMs) {
       uint32_t event_flags = 0;
-      usb_host_lib_handle_events(
-          pdMS_TO_TICKS(kUsbStopPollMs), &event_flags);
+      usb_host_lib_handle_events(pdMS_TO_TICKS(kUsbStopPollMs), &event_flags);
       if ((event_flags & USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS) != 0) {
         no_clients = true;
         usb_host_device_free_all();
@@ -370,8 +361,7 @@ void UsbStorageTaskEntry(void* context) {
     MarkSnapshotChanged(state);
     while (!state->stop_requested.load()) {
       uint32_t event_flags = 0;
-      usb_host_lib_handle_events(
-          pdMS_TO_TICKS(kUsbEventPollMs), &event_flags);
+      usb_host_lib_handle_events(pdMS_TO_TICKS(kUsbEventPollMs), &event_flags);
 
       UsbStorageEvent event;
       while (xQueueReceive(state->event_queue, &event, 0) == pdTRUE) {
@@ -395,8 +385,7 @@ void UsbStorageTaskEntry(void* context) {
 
 }  // namespace
 
-UsbStorageManager::UsbStorageManager(
-    HostStoppedCallback host_stopped_callback)
+UsbStorageManager::UsbStorageManager(HostStoppedCallback host_stopped_callback)
     : state_(std::make_unique<UsbStorageManagerState>(
           std::move(host_stopped_callback))) {
   state_->mutex = xSemaphoreCreateMutex();
@@ -427,9 +416,9 @@ bool UsbStorageManager::Start() {
   state_->stop_requested.store(false);
   state_->start_failed.store(false);
   state_->start_requested.store(true);
-  const BaseType_t result = xTaskCreate(UsbStorageTaskEntry, "usb_storage",
-      kUsbStorageTaskStackBytes, state_.get(), kUsbStorageTaskPriority,
-      nullptr);
+  const BaseType_t result =
+      xTaskCreate(UsbStorageTaskEntry, "usb_storage", kUsbStorageTaskStackBytes,
+          state_.get(), kUsbStorageTaskPriority, nullptr);
   if (result != pdPASS) {
     state_->start_requested.store(false);
     state_->start_failed.store(true);
@@ -455,8 +444,7 @@ bool UsbStorageManager::Stop() {
   return !state_->start_requested.load();
 }
 
-bool UsbStorageManager::ReadSnapshot(
-    UsbStorageSnapshot* snapshot) const {
+bool UsbStorageManager::ReadSnapshot(UsbStorageSnapshot* snapshot) const {
   if (snapshot == nullptr || state_->mutex == nullptr) {
     return false;
   }
@@ -480,8 +468,7 @@ bool UsbStorageManager::ReadSnapshot(
       info.id = device.id;
       info.usb_address = device.usb_address;
       std::memcpy(info.name, device.name, sizeof(info.name));
-      std::memcpy(
-          info.base_path, device.base_path, sizeof(info.base_path));
+      std::memcpy(info.base_path, device.base_path, sizeof(info.base_path));
     }
   }
   *snapshot = value;

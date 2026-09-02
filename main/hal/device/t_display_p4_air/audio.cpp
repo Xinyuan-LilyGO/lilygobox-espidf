@@ -2,11 +2,9 @@
  * @Description: T-Display-P4-Air 音频硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-08-28 00:00:00
+ * @LastEditTime: 2026-09-02 17:53:19
  * @License: GPL 3.0
  */
-#include "hal/device/t_display_p4_air/device.h"
-
 #include <unistd.h>
 
 #include <algorithm>
@@ -20,6 +18,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal/device/common/camera_utils.h"
+#include "hal/device/t_display_p4_air/device.h"
 
 namespace lilygo_box::hal {
 namespace device = lilygo_device_driver::t_display_p4_air::device;
@@ -42,8 +41,8 @@ constexpr int kMicrophoneAverageFullScale = 1000;
 constexpr int kMicrophonePeakFullScale = 4000;
 constexpr int kMicrophoneLevelRiseDivisor = 4;
 constexpr int kMicrophoneLevelFallDivisor = 8;
-static_assert(kSpeakerPlaybackTaskPriority >
-              camera_utils::kPreviewTaskPriority);
+static_assert(
+    kSpeakerPlaybackTaskPriority > camera_utils::kPreviewTaskPriority);
 
 }  // namespace
 
@@ -106,8 +105,7 @@ bool TDisplayP4AirDevice::StartSpeakerTone() {
     return StartPausedAudioSpeakerTone(false);
   }
 
-  if (!TryAcquireAuxiliaryAudioOutput(
-          AuxiliaryAudioOutput::kSpeakerTone)) {
+  if (!TryAcquireAuxiliaryAudioOutput(AuxiliaryAudioOutput::kSpeakerTone)) {
     return false;
   }
 
@@ -151,8 +149,7 @@ bool TDisplayP4AirDevice::StartSpeakerToneLoop() {
     }
     return StartPausedAudioSpeakerTone(true);
   }
-  if (!TryAcquireAuxiliaryAudioOutput(
-          AuxiliaryAudioOutput::kSpeakerTone)) {
+  if (!TryAcquireAuxiliaryAudioOutput(AuxiliaryAudioOutput::kSpeakerTone)) {
     return false;
   }
   speaker_.loop_enabled.store(true);
@@ -424,14 +421,12 @@ void TDisplayP4AirDevice::RunSpeakerPlaybackTask() {
 }
 
 bool TDisplayP4AirDevice::StartPausedAudioSpeakerTone(bool loop_enabled) {
-  if (speaker_.playback_kind.load() !=
-          SpeakerState::PlaybackKind::kAudioFile ||
+  if (speaker_.playback_kind.load() != SpeakerState::PlaybackKind::kAudioFile ||
       speaker_.file_state.load() != AudioFilePlaybackState::kPaused) {
     return false;
   }
 
-  if (!TryAcquireAuxiliaryAudioOutput(
-          AuxiliaryAudioOutput::kSpeakerTone)) {
+  if (!TryAcquireAuxiliaryAudioOutput(AuxiliaryAudioOutput::kSpeakerTone)) {
     return false;
   }
 
@@ -478,9 +473,9 @@ void TDisplayP4AirDevice::RunPausedAudioSpeakerToneTask() {
              !speaker_.stop_requested.load());
   }
   const bool output_restored =
-      !pause_ready || Configure(paused_sample_rate_hz,
-                          kSpeakerPlaybackChannelCount,
-                          kSpeakerPlaybackBitsPerSample);
+      !pause_ready ||
+      Configure(paused_sample_rate_hz, kSpeakerPlaybackChannelCount,
+          kSpeakerPlaybackBitsPerSample);
   speaker_.bytes_written.store(total_bytes_written);
   speaker_.success.store(played && output_restored);
   speaker_.completed.store(true);
@@ -508,7 +503,7 @@ void TDisplayP4AirDevice::ReleaseAuxiliaryAudioOutput(
 
 bool TDisplayP4AirDevice::WaitForPausedAudioFile() {
   for (uint32_t elapsed_ms = 0; elapsed_ms < kPausedAudioReadyTimeoutMs;
-       elapsed_ms += kPausedAudioReadyPollMs) {
+      elapsed_ms += kPausedAudioReadyPollMs) {
     if (!speaker_.running.load() || !speaker_.paused.load() ||
         speaker_.stop_requested.load() ||
         speaker_.playback_kind.load() !=
@@ -532,9 +527,9 @@ bool TDisplayP4AirDevice::WaitForPausedAudioFile() {
 bool TDisplayP4AirDevice::UpdateAudioCodecOperatingMode() {
   const bool audio_active =
       speaker_.running.load() || microphone_.running.load();
-  const auto mode =
-      audio_active ? TDisplayP4AirBoardDriver::Es8389OperatingMode::kActive
-                   : TDisplayP4AirBoardDriver::Es8389OperatingMode::kSleep;
+  const auto mode = audio_active
+                        ? TDisplayP4AirBoardDriver::Es8389OperatingMode::kActive
+                        : TDisplayP4AirBoardDriver::Es8389OperatingMode::kSleep;
   if (!driver_.SetEs8389OperatingMode(mode)) {
     return false;
   }
@@ -696,10 +691,8 @@ bool TDisplayP4AirDevice::SetAudioAdcToDac(bool enable) {
     }
   }
 
-  const bool previous_enabled =
-      microphone_.adc_to_dac_enabled.exchange(enable);
-  const bool codec_ready =
-      driver_.IsEs8389Ready() || driver_.InitEs8389();
+  const bool previous_enabled = microphone_.adc_to_dac_enabled.exchange(enable);
+  const bool codec_ready = driver_.IsEs8389Ready() || driver_.InitEs8389();
   if (!UpdateAudioCodecOperatingMode() || !codec_ready) {
     microphone_.adc_to_dac_enabled.store(previous_enabled);
     if (enable) {

@@ -2,11 +2,9 @@
  * @Description: Settings display brightness page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-07-05 13:31:02
+ * @LastEditTime: 2026-09-02 17:56:36
  * @License: GPL 3.0
  */
-#include "ui/views/settings/settings_basic_view_common.h"
-
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -15,8 +13,9 @@
 #include "hal/lvgl_port.h"
 #include "hal/providers/haptic_provider.h"
 #include "hal/providers/screen_provider.h"
-#include "ui/resources/fonts/icon_assets.h"
 #include "ui/input/press_cancel.h"
+#include "ui/resources/fonts/icon_assets.h"
+#include "ui/views/settings/settings_basic_view_common.h"
 #include "ui/widgets/prompt/prompt_select_sheet.h"
 
 namespace lilygo_box::ui {
@@ -29,24 +28,25 @@ constexpr int kBrightnessSliderMin = 0;
 constexpr int kBrightnessSliderMax = 100;
 
 int BrightnessPercentFromSlider(int slider_value) {
-  const int clamped_value = std::clamp(
-      slider_value, kBrightnessSliderMin, kBrightnessSliderMax);
+  const int clamped_value =
+      std::clamp(slider_value, kBrightnessSliderMin, kBrightnessSliderMax);
   const int user_range = app::kUserDisplayBrightnessMaxPercent -
-      app::kUserDisplayBrightnessMinPercent;
+                         app::kUserDisplayBrightnessMinPercent;
   return app::kUserDisplayBrightnessMinPercent +
-      (clamped_value * user_range + kBrightnessSliderMax / 2) /
-          kBrightnessSliderMax;
+         (clamped_value * user_range + kBrightnessSliderMax / 2) /
+             kBrightnessSliderMax;
 }
 
 int SliderValueFromBrightnessPercent(int brightness_percent) {
-  const int clamped_percent = std::clamp(brightness_percent,
-      app::kUserDisplayBrightnessMinPercent,
-      app::kUserDisplayBrightnessMaxPercent);
+  const int clamped_percent =
+      std::clamp(brightness_percent, app::kUserDisplayBrightnessMinPercent,
+          app::kUserDisplayBrightnessMaxPercent);
   const int user_range = app::kUserDisplayBrightnessMaxPercent -
-      app::kUserDisplayBrightnessMinPercent;
+                         app::kUserDisplayBrightnessMinPercent;
   return ((clamped_percent - app::kUserDisplayBrightnessMinPercent) *
-              kBrightnessSliderMax + user_range / 2) /
-      user_range;
+                 kBrightnessSliderMax +
+             user_range / 2) /
+         user_range;
 }
 
 // sheet 收缩动画时长 (ms)，旋转需等待其播完后再执行
@@ -80,8 +80,8 @@ void PlaySettingsHapticPreview(SettingsViewState* state) {
       state->config.haptic == nullptr) {
     return;
   }
-  const uint8_t gain = static_cast<uint8_t>(
-      state->haptic_strength_percent * UINT8_MAX / 100);
+  const uint8_t gain =
+      static_cast<uint8_t>(state->haptic_strength_percent * UINT8_MAX / 100);
   state->config.haptic->PlayHapticWaveform(1, 1, gain, true);
 }
 
@@ -138,8 +138,7 @@ void DarkThemeSwitchChangedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED) {
     return;
   }
-  auto* state = static_cast<SettingsViewState*>(
-      lv_event_get_user_data(event));
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   lv_obj_t* target = lv_event_get_target_obj(event);
   if (state == nullptr || target == nullptr) {
     return;
@@ -288,8 +287,8 @@ bool CreateScreenRotationRow(
   lv_obj_set_size(row, width, kBasicRowHeight);
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(row, lv_color_hex(SettingsThemeColors().state_layer),
-      LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(
+      row, lv_color_hex(SettingsThemeColors().state_layer), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, kPressedOpacity, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
@@ -297,8 +296,8 @@ bool CreateScreenRotationRow(
   if (!AddPressCancelOnLeave(row)) {
     return false;
   }
-  lv_obj_add_event_cb(row, ScreenRotationRowClickedEventCallback,
-      LV_EVENT_CLICKED, state);
+  lv_obj_add_event_cb(
+      row, ScreenRotationRowClickedEventCallback, LV_EVENT_CLICKED, state);
 
   lv_obj_t* title = CreateLabel(row, "Screen rotation",
       lv_color_hex(SettingsThemeColors().on_surface), Font28());
@@ -319,11 +318,11 @@ bool CreateScreenRotationRow(
   state->screen_rotation_value_label = value_label;
   lv_obj_set_width(value_label, 184);
   lv_obj_set_style_text_align(value_label, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
-  lv_obj_align(value_label, LV_ALIGN_RIGHT_MID,
-      -(kBasicSidePadding + 40), 0);
+  lv_obj_align(value_label, LV_ALIGN_RIGHT_MID, -(kBasicSidePadding + 40), 0);
 
   lv_obj_t* arrow = CreateLabel(row, icon::kChevronRight,
-      lv_color_hex(SettingsThemeColors().on_surface_variant), MaterialIconFont32());
+      lv_color_hex(SettingsThemeColors().on_surface_variant),
+      MaterialIconFont32());
   if (arrow == nullptr) {
     return false;
   }
@@ -347,8 +346,8 @@ bool BuildDisplayBrightnessContent(lv_obj_t* body, SettingsViewState* state) {
   const int brightness_slider_value =
       SliderValueFromBrightnessPercent(state->display_brightness_percent);
   if (!CreateSliderRow(body, icon::kSunny, "Screen brightness",
-          brightness_slider_value, y,
-          width, BrightnessSliderChangedEventCallback, state)) {
+          brightness_slider_value, y, width,
+          BrightnessSliderChangedEventCallback, state)) {
     return false;
   }
 
@@ -392,12 +391,10 @@ bool BuildDisplayBrightnessContent(lv_obj_t* body, SettingsViewState* state) {
 
 bool ShowDisplayBrightnessPage(SettingsViewState* state) {
   SetSettingsRestoreSubPage("display_brightness");
-  return ShowBasicPage(state, "Display & Brightness",
-      BuildDisplayBrightnessContent);
+  return ShowBasicPage(
+      state, "Display & Brightness", BuildDisplayBrightnessContent);
 }
 
-void SetLvglPortForRotation(hal::LvglPort* port) {
-  g_lvgl_port = port;
-}
+void SetLvglPortForRotation(hal::LvglPort* port) { g_lvgl_port = port; }
 
 }  // namespace lilygo_box::ui

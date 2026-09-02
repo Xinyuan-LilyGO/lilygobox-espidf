@@ -2,7 +2,7 @@
  * @Description: Reusable settings single-line text edit page implementation
  * @Author: LILYGO_L
  * @Date: 2026-09-01 00:00:00
- * @LastEditTime: 2026-09-01 00:00:00
+ * @LastEditTime: 2026-09-02 17:56:50
  * @License: GPL 3.0
  */
 #include "ui/views/settings/settings_text_edit_page.h"
@@ -43,8 +43,8 @@ void SettingsTextEditPageDeleteEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_DELETE) {
     return;
   }
-  auto* state = static_cast<SettingsTextEditPageState*>(
-      lv_event_get_user_data(event));
+  auto* state =
+      static_cast<SettingsTextEditPageState*>(lv_event_get_user_data(event));
   if (state != nullptr && lv_event_get_target_obj(event) == state->page) {
     ClearSettingsTextEditPageState(state);
   }
@@ -55,8 +55,8 @@ void SettingsTextEditPageDeleteEventCallback(lv_event_t* event) {
  * @param animation LVGL 动画对象
  */
 void SettingsTextEditCloseCompletedCallback(lv_anim_t* animation) {
-  auto* state = static_cast<SettingsTextEditPageState*>(
-      lv_anim_get_user_data(animation));
+  auto* state =
+      static_cast<SettingsTextEditPageState*>(lv_anim_get_user_data(animation));
   if (state == nullptr || state->page == nullptr) {
     return;
   }
@@ -73,8 +73,8 @@ void SettingsTextEditKeyboardDismissEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  auto* state = static_cast<SettingsTextEditPageState*>(
-      lv_event_get_user_data(event));
+  auto* state =
+      static_cast<SettingsTextEditPageState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->keyboard == nullptr ||
       state->text_area == nullptr) {
     return;
@@ -92,8 +92,7 @@ void SettingsTextEditKeyboardDismissEventCallback(lv_event_t* event) {
  * @param text_area 文本输入框
  * @param show_error 是否显示错误描边
  */
-void UpdateSettingsTextEditErrorStyle(
-    lv_obj_t* text_area, bool show_error) {
+void UpdateSettingsTextEditErrorStyle(lv_obj_t* text_area, bool show_error) {
   if (text_area == nullptr) {
     return;
   }
@@ -101,15 +100,13 @@ void UpdateSettingsTextEditErrorStyle(
   lv_obj_set_style_border_width(text_area, 0, LV_PART_MAIN);
   lv_obj_set_style_border_width(text_area, 0, LV_STATE_FOCUSED);
   lv_obj_set_style_outline_width(text_area, outline_width, LV_PART_MAIN);
-  lv_obj_set_style_outline_width(
-      text_area, outline_width, LV_STATE_FOCUSED);
-  lv_obj_set_style_outline_color(text_area,
-      lv_color_hex(theme::FixedColors().error), LV_PART_MAIN);
-  lv_obj_set_style_outline_color(text_area,
-      lv_color_hex(theme::FixedColors().error), LV_STATE_FOCUSED);
+  lv_obj_set_style_outline_width(text_area, outline_width, LV_STATE_FOCUSED);
+  lv_obj_set_style_outline_color(
+      text_area, lv_color_hex(theme::FixedColors().error), LV_PART_MAIN);
+  lv_obj_set_style_outline_color(
+      text_area, lv_color_hex(theme::FixedColors().error), LV_STATE_FOCUSED);
   lv_obj_set_style_outline_opa(text_area, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_outline_opa(
-      text_area, LV_OPA_COVER, LV_STATE_FOCUSED);
+  lv_obj_set_style_outline_opa(text_area, LV_OPA_COVER, LV_STATE_FOCUSED);
   lv_obj_set_style_outline_pad(text_area, -2, LV_PART_MAIN);
   lv_obj_set_style_outline_pad(text_area, -2, LV_STATE_FOCUSED);
 }
@@ -147,7 +144,7 @@ bool UpdateSettingsTextEditValidationState(
   }
   const char* text = lv_textarea_get_text(state->text_area);
   const bool valid = state->validation_callback == nullptr ||
-      state->validation_callback(text, state->callback_context);
+                     state->validation_callback(text, state->callback_context);
   const bool has_text = text != nullptr && text[0] != '\0';
   UpdateSettingsTextEditErrorStyle(
       state->text_area, !valid && (has_text || show_empty_error));
@@ -163,8 +160,8 @@ void SettingsTextEditValueChangedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED) {
     return;
   }
-  auto* state = static_cast<SettingsTextEditPageState*>(
-      lv_event_get_user_data(event));
+  auto* state =
+      static_cast<SettingsTextEditPageState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->text_area == nullptr ||
       state->validation_callback == nullptr) {
     return;
@@ -179,8 +176,7 @@ void SettingsTextEditValueChangedEventCallback(lv_event_t* event) {
 void SettingsTextEditCancelClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
     CloseSettingsTextEditPage(
-        static_cast<SettingsTextEditPageState*>(
-            lv_event_get_user_data(event)),
+        static_cast<SettingsTextEditPageState*>(lv_event_get_user_data(event)),
         true);
   }
 }
@@ -193,8 +189,8 @@ void SettingsTextEditConfirmClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  auto* state = static_cast<SettingsTextEditPageState*>(
-      lv_event_get_user_data(event));
+  auto* state =
+      static_cast<SettingsTextEditPageState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->text_area == nullptr ||
       state->save_callback == nullptr) {
     return;
@@ -222,8 +218,7 @@ lv_obj_t* CreateSettingsTextEditToolbarIcon(
     return nullptr;
   }
   lv_obj_set_style_text_color(icon_label,
-      lv_color_hex(SettingsThemeColors().disabled_content),
-      LV_STATE_DISABLED);
+      lv_color_hex(SettingsThemeColors().disabled_content), LV_STATE_DISABLED);
   lv_obj_center(icon_label);
   return icon_label;
 }
@@ -283,8 +278,8 @@ bool CreateSettingsTextEditContent(lv_obj_t* parent,
   }
   state->text_area = text_area;
   lv_obj_add_flag(text_area, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_size(text_area,
-      config.width - 2 * kTextEditTextAreaSide, kTextEditTextAreaHeight);
+  lv_obj_set_size(text_area, config.width - 2 * kTextEditTextAreaSide,
+      kTextEditTextAreaHeight);
   lv_obj_align(text_area, LV_ALIGN_TOP_LEFT, kTextEditTextAreaSide,
       kTextEditTextAreaTop);
   lv_textarea_set_one_line(text_area, true);
@@ -303,24 +298,22 @@ bool CreateSettingsTextEditContent(lv_obj_t* parent,
   if (help == nullptr) {
     return false;
   }
-  lv_obj_set_width(help,
-      config.width - 2 * (kTextEditTextAreaSide + 10));
+  lv_obj_set_width(help, config.width - 2 * (kTextEditTextAreaSide + 10));
   lv_label_set_long_mode(help, LV_LABEL_LONG_WRAP);
-  lv_obj_align(help, LV_ALIGN_TOP_LEFT, kTextEditTextAreaSide + 10,
-      kTextEditHelpTop);
+  lv_obj_align(
+      help, LV_ALIGN_TOP_LEFT, kTextEditTextAreaSide + 10, kTextEditHelpTop);
 
   SharedKeyboardConfig keyboard_config;
   keyboard_config.width = config.width;
-  keyboard_config.height =
-      config.height * kTextEditKeyboardHeightPercent / 100;
+  keyboard_config.height = config.height * kTextEditKeyboardHeightPercent / 100;
   keyboard_config.initial_mode = config.keyboard_mode;
   state->keyboard = CreateSharedKeyboard(parent, keyboard_config);
   if (state->keyboard == nullptr) {
     return false;
   }
   lv_obj_add_flag(state->keyboard, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  return AttachSharedKeyboardToTextArea(state->keyboard, text_area,
-      config.accepted_chars, config.keyboard_mode);
+  return AttachSharedKeyboardToTextArea(
+      state->keyboard, text_area, config.accepted_chars, config.keyboard_mode);
 }
 
 }  // namespace
@@ -353,8 +346,8 @@ bool ShowSettingsTextEditPage(SettingsTextEditPageState* state,
   state->closing = false;
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_add_event_cb(page, SettingsTextEditPageDeleteEventCallback,
-      LV_EVENT_DELETE, state);
+  lv_obj_add_event_cb(
+      page, SettingsTextEditPageDeleteEventCallback, LV_EVENT_DELETE, state);
   lv_obj_add_event_cb(page, SettingsTextEditKeyboardDismissEventCallback,
       LV_EVENT_CLICKED, state);
   lv_obj_set_size(page, config.width, config.height);
@@ -368,11 +361,10 @@ bool ShowSettingsTextEditPage(SettingsTextEditPageState* state,
 
   if (!CreateSettingsTextEditHeader(page, state, config) ||
       !CreateSettingsTextEditContent(page, state, config) ||
-      !StartSlideLeftWindowTransition(page, config.width,
-          kDetailSlideAnimationMs, state, nullptr) ||
-      !RegisterBackNavigationHandler(page, [state]() {
-        CloseSettingsTextEditPage(state, true);
-      })) {
+      !StartSlideLeftWindowTransition(
+          page, config.width, kDetailSlideAnimationMs, state, nullptr) ||
+      !RegisterBackNavigationHandler(
+          page, [state]() { CloseSettingsTextEditPage(state, true); })) {
     CloseSettingsTextEditPage(state, false);
     return false;
   }

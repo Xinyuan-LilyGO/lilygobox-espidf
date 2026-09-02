@@ -2,7 +2,7 @@
  * @Description: 设备 Provider 通用数据转换辅助接口
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-08-28 00:00:00
+ * @LastEditTime: 2026-09-02 17:52:47
  * @License: GPL 3.0
  */
 #pragma once
@@ -63,7 +63,7 @@ bool IsGnssFloatReady(float value);
  * @param destination_size 目标字符数组长度
  * @param source 源字符串
  */
-void CopyString(char* destination, size_t destination_size,
-    const std::string& source);
+void CopyString(
+    char* destination, size_t destination_size, const std::string& source);
 
 }  // namespace lilygo_box::hal::device_utils

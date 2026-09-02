@@ -2,7 +2,7 @@
  * @Description: Radio 配置列表与按芯片激活状态持久化接口
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
- * @LastEditTime: 2026-07-30 18:00:00
+ * @LastEditTime: 2026-09-02 17:51:42
  * @License: GPL 3.0
  */
 #pragma once
@@ -61,8 +61,7 @@ struct RadioProfile {
   // CC1101 GFSK 单边频偏，单位为 Hz。
   uint32_t gfsk_frequency_deviation_hz = 5000;
   // CC1101 接收滤波带宽，单位为 Hz。
-  uint32_t gfsk_receive_bandwidth_hz =
-      radio::kCc1101ReceiveBandwidthsHz[0];
+  uint32_t gfsk_receive_bandwidth_hz = radio::kCc1101ReceiveBandwidthsHz[0];
   // CC1101 16 位同步字。
   uint16_t gfsk_sync_word = 0x12AD;
   // CC1101 是否启用数据白化。

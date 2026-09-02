@@ -2,19 +2,18 @@
  * @Description: Settings sound and haptics page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-05-23 00:00:00
+ * @LastEditTime: 2026-09-02 17:56:48
  * @License: GPL 3.0
  */
-#include "ui/views/settings/settings_basic_view_common.h"
-
 #include <cstdint>
 
 #include "app/storage/haptic_storage.h"
 #include "app/storage/sound_storage.h"
 #include "hal/providers/audio_provider.h"
 #include "hal/providers/haptic_provider.h"
-#include "ui/resources/fonts/icon_assets.h"
 #include "ui/haptic_feedback.h"
+#include "ui/resources/fonts/icon_assets.h"
+#include "ui/views/settings/settings_basic_view_common.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -52,8 +51,8 @@ void PlaySettingsHapticPreview(SettingsViewState* state) {
       state->config.haptic == nullptr) {
     return;
   }
-  const uint8_t gain = static_cast<uint8_t>(
-      state->haptic_strength_percent * UINT8_MAX / 100);
+  const uint8_t gain =
+      static_cast<uint8_t>(state->haptic_strength_percent * UINT8_MAX / 100);
   state->config.haptic->PlayHapticWaveform(1, 1, gain, true);
 }
 
@@ -70,11 +69,9 @@ void HapticsSwitchChangedEventCallback(lv_event_t* event) {
     PlaySettingsHapticPreview(state);
     if (state->haptic_strength_controls != nullptr) {
       if (state->haptics_enabled) {
-        lv_obj_clear_flag(
-            state->haptic_strength_controls, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(state->haptic_strength_controls, LV_OBJ_FLAG_HIDDEN);
       } else {
-        lv_obj_add_flag(
-            state->haptic_strength_controls, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(state->haptic_strength_controls, LV_OBJ_FLAG_HIDDEN);
       }
     }
   }
@@ -90,8 +87,7 @@ void VolumeSliderChangedEventCallback(lv_event_t* event) {
     state->audio_volume_percent = SliderPercentFromEvent(event);
     PlaySettingsHapticPreview(state);
     if (state->config.audio != nullptr) {
-      state->config.audio->SetSpeakerVolumePercent(
-          state->audio_volume_percent);
+      state->config.audio->SetSpeakerVolumePercent(state->audio_volume_percent);
       state->config.audio->StartSpeakerToneLoop();
     }
   }
@@ -147,8 +143,7 @@ void HapticSliderChangedEventCallback(lv_event_t* event) {
 bool BuildSoundHapticsContent(lv_obj_t* body, SettingsViewState* state) {
   state->haptic_strength_controls = nullptr;
   int y = 0;
-  if (!CreateSectionLabel(body, "Volume adjustment", y,
-          state->config.width)) {
+  if (!CreateSectionLabel(body, "Volume adjustment", y, state->config.width)) {
     return false;
   }
   y += kBasicSectionHeight;

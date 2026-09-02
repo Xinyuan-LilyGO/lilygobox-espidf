@@ -2,11 +2,9 @@
  * @Description: T-Display-P4-Air 蜂窝网络硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-08-28 00:00:00
+ * @LastEditTime: 2026-09-02 17:53:24
  * @License: GPL 3.0
  */
-#include "hal/device/t_display_p4_air/device.h"
-
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -19,6 +17,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal/device/common/device_utils.h"
+#include "hal/device/t_display_p4_air/device.h"
 
 namespace lilygo_box::hal {
 namespace {
@@ -114,8 +113,7 @@ bool ExtractAtNumericLine(const std::string& response, std::string* value) {
 bool ParseCellularSimState(
     const std::string& response, CellularSimState* state) {
   std::string value;
-  if (state == nullptr ||
-      !ExtractAtPrefixedValue(response, "+CPIN:", &value)) {
+  if (state == nullptr || !ExtractAtPrefixedValue(response, "+CPIN:", &value)) {
     return false;
   }
   if (value.size() >= 2 && value.front() == '"' && value.back() == '"') {
@@ -294,13 +292,13 @@ bool ParseCellularNetworkTime(
   int second = 0;
   int timezone_quarters = 0;
   char timezone_sign = '\0';
-  if (std::sscanf(value.c_str(), "\"%d/%d/%d,%d:%d:%d%c%d\"", &year,
-          &month, &day, &hour, &minute, &second, &timezone_sign,
+  if (std::sscanf(value.c_str(), "\"%d/%d/%d,%d:%d:%d%c%d\"", &year, &month,
+          &day, &hour, &minute, &second, &timezone_sign,
           &timezone_quarters) != 8 ||
-      year < 0 || year > 99 || month < 1 || month > 12 || day < 1 ||
-      hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 ||
-      second > 59 || (timezone_sign != '+' && timezone_sign != '-') ||
-      timezone_quarters < 0 || timezone_quarters > 48) {
+      year < 0 || year > 99 || month < 1 || month > 12 || day < 1 || hour < 0 ||
+      hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59 ||
+      (timezone_sign != '+' && timezone_sign != '-') || timezone_quarters < 0 ||
+      timezone_quarters > 48) {
     return false;
   }
 
@@ -322,8 +320,7 @@ bool ParseCellularNetworkTime(
       second_quote <= first_quote + 1) {
     return false;
   }
-  *network_time =
-      value.substr(first_quote + 1, second_quote - first_quote - 1);
+  *network_time = value.substr(first_quote + 1, second_quote - first_quote - 1);
   return true;
 }
 
@@ -440,25 +437,22 @@ void TDisplayP4AirDevice::RunCellularTask() {
   };
   using CellularCommandResult = cpp_bus_driver::Nrf9151::CommandResult;
   CellularCommandResult last_command_result = CellularCommandResult::kOk;
-  const auto send_command =
-      [this, &snapshot, &last_command_result](
-          const char* command, std::string* response) {
-        last_command_result = driver_.chip().nrf9151->SendCommand(
-            command, response, kCellularCommandTimeoutMs);
-        snapshot.last_error = static_cast<int>(last_command_result);
-        return last_command_result == CellularCommandResult::kOk;
-      };
+  const auto send_command = [this, &snapshot, &last_command_result](
+                                const char* command, std::string* response) {
+    last_command_result = driver_.chip().nrf9151->SendCommand(
+        command, response, kCellularCommandTimeoutMs);
+    snapshot.last_error = static_cast<int>(last_command_result);
+    return last_command_result == CellularCommandResult::kOk;
+  };
   const auto log_command_error = [&last_command_result](const char* operation,
                                      const char* command,
                                      const std::string& response) {
     std::string compact_response = TrimAsciiWhitespace(response);
-    std::replace(
-        compact_response.begin(), compact_response.end(), '\r', ' ');
-    std::replace(
-        compact_response.begin(), compact_response.end(), '\n', ' ');
+    std::replace(compact_response.begin(), compact_response.end(), '\r', ' ');
+    std::replace(compact_response.begin(), compact_response.end(), '\n', ' ');
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Cellular test %s (command: %s, result: %s, response: %s)\n",
-        operation, command,
+        "Cellular test %s (command: %s, result: %s, response: %s)\n", operation,
+        command,
         cpp_bus_driver::Nrf9151::CommandResultToString(last_command_result),
         compact_response.empty() ? "-" : compact_response.c_str());
   };
@@ -476,9 +470,8 @@ void TDisplayP4AirDevice::RunCellularTask() {
     std::string response;
     initialized = send_command("AT+CFUN=0", &response);
     if (!initialized) {
-      log_command_error(
-          "failed to stop the modem before configuration", "AT+CFUN=0",
-          response);
+      log_command_error("failed to stop the modem before configuration",
+          "AT+CFUN=0", response);
     }
     constexpr std::array<const char*, 3> kSystemModeCommands = {{
         "AT%XSYSTEMMODE=1,1,0,0",
@@ -517,8 +510,7 @@ void TDisplayP4AirDevice::RunCellularTask() {
       response.clear();
       if (!send_command("AT+CMEE=1", &response)) {
         log_command_error(
-            "failed to enable numeric modem errors", "AT+CMEE=1",
-            response);
+            "failed to enable numeric modem errors", "AT+CMEE=1", response);
       }
     }
   }
@@ -542,7 +534,8 @@ void TDisplayP4AirDevice::RunCellularTask() {
     std::string firmware;
     if (driver_.chip().nrf9151->GetModemFirmwareVersion(
             &firmware, kCellularCommandTimeoutMs)) {
-      device_utils::CopyString(snapshot.firmware, sizeof(snapshot.firmware), firmware);
+      device_utils::CopyString(
+          snapshot.firmware, sizeof(snapshot.firmware), firmware);
       snapshot.last_error = 0;
     } else {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
@@ -560,8 +553,7 @@ void TDisplayP4AirDevice::RunCellularTask() {
           "result: %s)\n",
           snapshot.hardware_ready ? "ready" : "unavailable",
           snapshot.powered ? "on" : "off",
-          cpp_bus_driver::Nrf9151::CommandResultToString(
-              last_command_result));
+          cpp_bus_driver::Nrf9151::CommandResultToString(last_command_result));
     }
     snapshot.enabled = false;
     publish_status();
@@ -580,9 +572,8 @@ void TDisplayP4AirDevice::RunCellularTask() {
   publish_status();
 
   // CFUN=1 后 UICC 仍在异步启动，过早查询 CPIN 会短暂返回 ERROR。
-  for (uint32_t elapsed_ms = 0;
-      elapsed_ms < kCellularSimStartupDelayMs &&
-      !cellular_.stop_requested.load();
+  for (uint32_t elapsed_ms = 0; elapsed_ms < kCellularSimStartupDelayMs &&
+                                !cellular_.stop_requested.load();
       elapsed_ms += 100) {
     vTaskDelay(pdMS_TO_TICKS(100));
   }
@@ -687,8 +678,8 @@ void TDisplayP4AirDevice::RunCellularTask() {
               "AT+COPS?", response);
         }
         operator_error_reported = !operator_status_valid;
-        device_utils::CopyString(snapshot.operator_name, sizeof(snapshot.operator_name),
-            operator_name);
+        device_utils::CopyString(snapshot.operator_name,
+            sizeof(snapshot.operator_name), operator_name);
       }
 
       const bool network_registered =
@@ -699,26 +690,24 @@ void TDisplayP4AirDevice::RunCellularTask() {
         network_time_poll_elapsed_ms = kCellularNetworkTimePollMs;
         network_time_error_reported = false;
       } else if (!cellular_.stop_requested.load() &&
-                 network_time_poll_elapsed_ms >=
-                     kCellularNetworkTimePollMs) {
+                 network_time_poll_elapsed_ms >= kCellularNetworkTimePollMs) {
         response.clear();
         std::string network_time;
         const bool network_time_command_ok =
             send_command("AT+CCLK?", &response);
-        snapshot.network_time_ready = network_time_command_ok &&
-                                      ParseCellularNetworkTime(
-                                          response, &network_time);
+        snapshot.network_time_ready =
+            network_time_command_ok &&
+            ParseCellularNetworkTime(response, &network_time);
         if (!snapshot.network_time_ready && !network_time_error_reported) {
-          log_command_error(
-              network_time_command_ok
-                  ? "received an invalid network time response"
-                  : "failed to query network time",
+          log_command_error(network_time_command_ok
+                                ? "received an invalid network time response"
+                                : "failed to query network time",
               "AT+CCLK?", response);
         }
         network_time_error_reported = !snapshot.network_time_ready;
         if (snapshot.network_time_ready) {
-          device_utils::CopyString(snapshot.network_time, sizeof(snapshot.network_time),
-              network_time);
+          device_utils::CopyString(snapshot.network_time,
+              sizeof(snapshot.network_time), network_time);
         } else {
           snapshot.network_time[0] = '\0';
         }
@@ -733,9 +722,8 @@ void TDisplayP4AirDevice::RunCellularTask() {
         elapsed_ms += 100) {
       vTaskDelay(pdMS_TO_TICKS(100));
     }
-    network_time_poll_elapsed_ms =
-        std::min(kCellularNetworkTimePollMs,
-            network_time_poll_elapsed_ms + kCellularStatusPollMs);
+    network_time_poll_elapsed_ms = std::min(kCellularNetworkTimePollMs,
+        network_time_poll_elapsed_ms + kCellularStatusPollMs);
   }
 
   if (xSemaphoreTake(nrf9151_mutex_, portMAX_DELAY) == pdTRUE) {

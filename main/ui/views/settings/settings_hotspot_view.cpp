@@ -2,7 +2,7 @@
  * @Description: Settings personal hotspot page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-05-23 00:00:00
+ * @LastEditTime: 2026-09-02 17:56:40
  * @License: GPL 3.0
  */
 #include "ui/views/settings/settings_basic_view_common.h"
@@ -40,18 +40,18 @@ bool BuildHotspotSettingsPage(lv_obj_t* body, SettingsViewState* state) {
     return false;
   }
   y += kBasicRowHeight;
-  if (!CreateArrowRow(body, "Security", "WPA2-Personal", y, width, nullptr,
-          state)) {
+  if (!CreateArrowRow(
+          body, "Security", "WPA2-Personal", y, width, nullptr, state)) {
     return false;
   }
   y += kBasicRowHeight;
-  if (!CreateArrowRow(body, "Password", "xinyuandianzi", y, width, nullptr,
-          state)) {
+  if (!CreateArrowRow(
+          body, "Password", "xinyuandianzi", y, width, nullptr, state)) {
     return false;
   }
   y += kBasicRowHeight;
-  return CreateArrowRow(body, "AP band", "2.4 GHz and 5 GHz", y, width,
-      nullptr, state);
+  return CreateArrowRow(
+      body, "AP band", "2.4 GHz and 5 GHz", y, width, nullptr, state);
 }
 
 /**

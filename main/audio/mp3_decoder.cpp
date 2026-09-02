@@ -2,14 +2,14 @@
  * @Description: MP3 流式解码与 PCM 输出实现
  * @Author: LILYGO_L
  * @Date: 2026-07-14 22:50:00
- * @LastEditTime: 2026-07-15 11:57:28
+ * @LastEditTime: 2026-09-02 17:52:03
  * @License: GPL 3.0
  */
 #include "audio/mp3_decoder.h"
 
 #include <algorithm>
-#include <cstdio>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <memory>
 
@@ -43,8 +43,8 @@ bool ParseMp3FrameSize(const uint8_t* header, size_t* frame_size) {
   const uint8_t bitrate_index = (header[2] >> 4) & 0x0FU;
   const uint8_t sample_rate_index = (header[2] >> 2) & 0x03U;
   const uint8_t padding = (header[2] >> 1) & 0x01U;
-  if (version == 1 || layer != 1 || bitrate_index == 0 ||
-      bitrate_index == 15 || sample_rate_index == 3) {
+  if (version == 1 || layer != 1 || bitrate_index == 0 || bitrate_index == 15 ||
+      sample_rate_index == 3) {
     return false;
   }
 
@@ -55,18 +55,44 @@ bool ParseMp3FrameSize(const uint8_t* header, size_t* frame_size) {
       {44100, 48000, 32000},
   };
   constexpr uint16_t kMpeg2Bitrates[16] = {
-      0, 8, 16, 24, 32, 40, 48, 56,
-      64, 80, 96, 112, 128, 144, 160, 0,
+      0,
+      8,
+      16,
+      24,
+      32,
+      40,
+      48,
+      56,
+      64,
+      80,
+      96,
+      112,
+      128,
+      144,
+      160,
+      0,
   };
   constexpr uint16_t kMpeg1Bitrates[16] = {
-      0, 32, 40, 48, 56, 64, 80, 96,
-      112, 128, 160, 192, 224, 256, 320, 0,
+      0,
+      32,
+      40,
+      48,
+      56,
+      64,
+      80,
+      96,
+      112,
+      128,
+      160,
+      192,
+      224,
+      256,
+      320,
+      0,
   };
-  const uint32_t sample_rate_hz =
-      kSampleRates[version][sample_rate_index];
-  const uint32_t bitrate_kbps = version == 3
-                                    ? kMpeg1Bitrates[bitrate_index]
-                                    : kMpeg2Bitrates[bitrate_index];
+  const uint32_t sample_rate_hz = kSampleRates[version][sample_rate_index];
+  const uint32_t bitrate_kbps = version == 3 ? kMpeg1Bitrates[bitrate_index]
+                                             : kMpeg2Bitrates[bitrate_index];
   if (sample_rate_hz == 0 || bitrate_kbps == 0) {
     return false;
   }
@@ -86,8 +112,7 @@ bool ParseMp3FrameSize(const uint8_t* header, size_t* frame_size) {
  */
 bool FindSeekFrame(FILE* file, size_t file_size, size_t audio_offset,
     size_t estimated_offset, size_t* frame_offset) {
-  if (file == nullptr || frame_offset == nullptr ||
-      audio_offset >= file_size) {
+  if (file == nullptr || frame_offset == nullptr || audio_offset >= file_size) {
     return false;
   }
   const long original_offset = ftell(file);
@@ -95,10 +120,11 @@ bool FindSeekFrame(FILE* file, size_t file_size, size_t audio_offset,
                                   ? estimated_offset - kSeekFrameSearchRadius
                                   : audio_offset;
   const size_t clamped_search_start = std::max(search_start, audio_offset);
-  const size_t candidate_end = estimated_offset + std::min(
-      file_size - estimated_offset, kSeekFrameSearchRadius);
-  const size_t search_end = candidate_end +
-      std::min(file_size - candidate_end, kMaxMp3FrameSize);
+  const size_t candidate_end =
+      estimated_offset +
+      std::min(file_size - estimated_offset, kSeekFrameSearchRadius);
+  const size_t search_end =
+      candidate_end + std::min(file_size - candidate_end, kMaxMp3FrameSize);
   if (search_end <= clamped_search_start ||
       fseek(file, static_cast<long>(clamped_search_start), SEEK_SET) != 0) {
     return false;
@@ -106,8 +132,7 @@ bool FindSeekFrame(FILE* file, size_t file_size, size_t audio_offset,
 
   const size_t search_size = search_end - clamped_search_start;
   auto search_buffer = std::make_unique<uint8_t[]>(search_size);
-  const size_t bytes_read =
-      fread(search_buffer.get(), 1, search_size, file);
+  const size_t bytes_read = fread(search_buffer.get(), 1, search_size, file);
   bool found_before_estimate = false;
   size_t frame_before_estimate = 0;
   bool found = false;
@@ -155,9 +180,8 @@ bool FindSeekFrame(FILE* file, size_t file_size, size_t audio_offset,
  * @param frame_offset 实际定位帧偏移输出地址
  * @return 定位成功返回 true，否则返回 false
  */
-bool SeekMp3Stream(FILE* file, size_t file_size,
-    esp_audio_dec_handle_t decoder, const Mp3Metadata& metadata,
-    uint32_t position_ms, size_t* frame_offset) {
+bool SeekMp3Stream(FILE* file, size_t file_size, esp_audio_dec_handle_t decoder,
+    const Mp3Metadata& metadata, uint32_t position_ms, size_t* frame_offset) {
   if (file == nullptr || decoder == nullptr || frame_offset == nullptr ||
       metadata.duration_ms == 0 || metadata.audio_data_offset >= file_size) {
     return false;
@@ -165,9 +189,10 @@ bool SeekMp3Stream(FILE* file, size_t file_size,
   const uint32_t clamped_position_ms =
       std::min(position_ms, metadata.duration_ms);
   const uint64_t audio_size = file_size - metadata.audio_data_offset;
-  const size_t estimated_offset = metadata.audio_data_offset +
-      static_cast<size_t>(audio_size * clamped_position_ms /
-                          metadata.duration_ms);
+  const size_t estimated_offset =
+      metadata.audio_data_offset +
+      static_cast<size_t>(
+          audio_size * clamped_position_ms / metadata.duration_ms);
   size_t seek_offset = metadata.audio_data_offset;
   if (clamped_position_ms > 0 &&
       !FindSeekFrame(file, file_size, metadata.audio_data_offset,
@@ -192,11 +217,10 @@ bool SeekMp3Stream(FILE* file, size_t file_size,
  * @param metadata MP3 流参数
  * @return 播放时间，单位毫秒
  */
-uint32_t CalculateElapsedMs(uint64_t pcm_bytes,
-    const Mp3Metadata& metadata) {
+uint32_t CalculateElapsedMs(uint64_t pcm_bytes, const Mp3Metadata& metadata) {
   const uint64_t bytes_per_second =
-      static_cast<uint64_t>(metadata.sample_rate_hz) *
-      metadata.channel_count * (kPcmBitsPerSample / 8U);
+      static_cast<uint64_t>(metadata.sample_rate_hz) * metadata.channel_count *
+      (kPcmBitsPerSample / 8U);
   if (bytes_per_second == 0) {
     return 0;
   }
@@ -214,8 +238,8 @@ uint32_t CalculatePositionMs(uint32_t base_position_ms, uint64_t pcm_bytes,
     const Mp3Metadata& metadata) {
   const uint64_t position_ms = static_cast<uint64_t>(base_position_ms) +
                                CalculateElapsedMs(pcm_bytes, metadata);
-  return static_cast<uint32_t>(std::min<uint64_t>(
-      position_ms, metadata.duration_ms));
+  return static_cast<uint32_t>(
+      std::min<uint64_t>(position_ms, metadata.duration_ms));
 }
 
 const char* PlaybackResultName(Mp3PlaybackResult result) {
@@ -250,8 +274,8 @@ void LogMp3Input(const char* path, const Mp3Metadata& metadata) {
   const uint32_t milliseconds = metadata.duration_ms % 1000U;
   const char* channel_layout = metadata.channel_count == 1 ? "mono" : "stereo";
 
-  LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-      "Input #0, mp3, from '%s':\n", path);
+  LogMessage(
+      LogLevel::kInfo, __FILE__, __LINE__, "Input #0, mp3, from '%s':\n", path);
   if (!metadata.title.empty() || !metadata.artist.empty()) {
     LogMessage(LogLevel::kInfo, __FILE__, __LINE__, "  Metadata:\n");
     if (!metadata.title.empty()) {
@@ -291,8 +315,8 @@ Mp3PlaybackResult PlayMp3File(const char* path, PcmOutput* output) {
     return Mp3PlaybackResult::kInvalidStream;
   }
   LogMp3Input(path, metadata);
-  if (!output->Configure(metadata.sample_rate_hz, metadata.channel_count,
-          kPcmBitsPerSample)) {
+  if (!output->Configure(
+          metadata.sample_rate_hz, metadata.channel_count, kPcmBitsPerSample)) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Unable to configure PCM output for %u Hz, %u channel MP3\n",
         static_cast<unsigned int>(metadata.sample_rate_hz),
@@ -376,8 +400,8 @@ Mp3PlaybackResult PlayMp3File(const char* path, PcmOutput* output) {
       uint32_t seek_position_ms = 0;
       if (output->TakeSeekRequest(&seek_position_ms)) {
         size_t seek_offset = 0;
-        if (SeekMp3Stream(file, file_size, decoder, metadata,
-                seek_position_ms, &seek_offset)) {
+        if (SeekMp3Stream(file, file_size, decoder, metadata, seek_position_ms,
+                &seek_offset)) {
           base_position_ms = std::min(seek_position_ms, metadata.duration_ms);
           position_pcm_bytes = 0;
           remaining_bytes = 0;

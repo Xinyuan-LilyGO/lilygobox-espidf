@@ -45,8 +45,7 @@ struct WifiPreferences {
  * @param count 已保存 WLAN 凭据数量
  * @return 无变化或 NVS 提交成功返回 true，否则返回 false
  */
-bool UpdateWifiSavedNetworks(
-    const WifiSavedNetwork* networks, size_t count);
+bool UpdateWifiSavedNetworks(const WifiSavedNetwork* networks, size_t count);
 
 /**
  * @brief 从启动时初始化的长期 RAM 缓存读取 WLAN 凭据

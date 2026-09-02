@@ -2,11 +2,9 @@
  * @Description: 设置固件更新界面与组合 OTA 状态交互
  * @Author: LILYGO_L
  * @Date: 2026-07-19 00:00:00
- * @LastEditTime: 2026-07-21 09:55:44
+ * @LastEditTime: 2026-09-02 17:56:38
  * @License: GPL 3.0
  */
-#include "ui/views/settings/settings_view_internal.h"
-
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -15,6 +13,7 @@
 #include "ui/animation/transition_animation.h"
 #include "ui/input/press_cancel.h"
 #include "ui/resources/fonts/icon_assets.h"
+#include "ui/views/settings/settings_view_internal.h"
 #include "ui/widgets/brand_icon.h"
 
 namespace lilygo_box::ui {
@@ -66,8 +65,7 @@ constexpr int kUpdatePageIndicatorWidth = 48;
 constexpr int kUpdatePageIndicatorHeight = 18;
 constexpr int kUpdatePageIndicatorBottom = 116;
 constexpr int kUpdatePageIndicatorStackedBottom =
-    kUpdateButtonBottom + 2 * kUpdateButtonHeight +
-    kUpdateActionButtonGap + 16;
+    kUpdateButtonBottom + 2 * kUpdateButtonHeight + kUpdateActionButtonGap + 16;
 constexpr int kUpdatePageDotSize = 12;
 constexpr uint32_t kUpdateBetaChannelColor = 0xF5A623;
 constexpr uint32_t kUpdateAlphaChannelColor = 0xFF3B30;
@@ -102,8 +100,7 @@ bool ShowFirmwareUpdateLogPage(SettingsViewState* state);
  * @param state 设置页面状态
  * @param animated 是否播放关闭动画
  */
-void CloseFirmwareUpdateLogPage(
-    SettingsViewState* state, bool animated);
+void CloseFirmwareUpdateLogPage(SettingsViewState* state, bool animated);
 
 /**
  * @brief 计算固件更新页面内容区域宽度
@@ -196,8 +193,7 @@ void FirmwareUpdateBackClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  auto* state = static_cast<SettingsViewState*>(
-      lv_event_get_user_data(event));
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (GetFirmwareUpdateSnapshot().stage ==
       app::FirmwareUpdateStage::kReadyToInstall) {
     return;
@@ -215,23 +211,21 @@ void FirmwareUpdateBackClickedEventCallback(lv_event_t* event) {
  */
 void FormatFirmwareVersion(const char* current_version,
     const char* target_version, char* output, size_t output_size) {
-  const bool current_available =
-      current_version != nullptr && current_version[0] != '\0' &&
-      std::strcmp(current_version, "unknown") != 0;
+  const bool current_available = current_version != nullptr &&
+                                 current_version[0] != '\0' &&
+                                 std::strcmp(current_version, "unknown") != 0;
   if (target_version != nullptr && target_version[0] != '\0' &&
       (!current_available ||
           std::strcmp(current_version, target_version) != 0)) {
     if (current_available) {
-      std::snprintf(output, output_size, "v%s -> v%s",
-          current_version, target_version);
-    } else {
       std::snprintf(
-          output, output_size, "Unknown -> v%s", target_version);
+          output, output_size, "v%s -> v%s", current_version, target_version);
+    } else {
+      std::snprintf(output, output_size, "Unknown -> v%s", target_version);
     }
     return;
   }
-  std::snprintf(output, output_size,
-      current_available ? "v%s" : "%s",
+  std::snprintf(output, output_size, current_available ? "v%s" : "%s",
       current_available ? current_version : "Unknown");
 }
 
@@ -251,8 +245,8 @@ void FormatPublishTimeForDisplay(
     std::snprintf(output, output_size, "Unavailable");
     return;
   }
-  std::snprintf(output, output_size, "%.10s %.5s",
-      publish_time, publish_time + 11);
+  std::snprintf(
+      output, output_size, "%.10s %.5s", publish_time, publish_time + 11);
 }
 
 /**
@@ -274,8 +268,7 @@ void SetReleaseChannelLabel(lv_obj_t* label, const char* channel) {
     channel_color = kUpdateAlphaChannelColor;
   }
   lv_label_set_text(label, channel_text);
-  lv_obj_set_style_text_color(
-      label, lv_color_hex(channel_color), LV_PART_MAIN);
+  lv_obj_set_style_text_color(label, lv_color_hex(channel_color), LV_PART_MAIN);
 }
 
 /**
@@ -296,8 +289,7 @@ void FormatFirmwareChipText(const char* chip, const char* firmware_size,
     std::snprintf(output, output_size, "%s", chip_text);
     return;
   }
-  std::snprintf(
-      output, output_size, "%s | %s", chip_text, firmware_size);
+  std::snprintf(output, output_size, "%s | %s", chip_text, firmware_size);
 }
 
 void SetFirmwareObjectVisible(lv_obj_t* object, bool visible) {
@@ -319,9 +311,8 @@ void SetFirmwareObjectVisible(lv_obj_t* object, bool visible) {
  * @param output 输出缓冲区
  * @param output_size 输出缓冲区长度
  */
-void FormatFirmwareNotesText(
-    const char notes[][128], size_t note_count, const char* empty_text,
-    char* output, size_t output_size) {
+void FormatFirmwareNotesText(const char notes[][128], size_t note_count,
+    const char* empty_text, char* output, size_t output_size) {
   if (output == nullptr || output_size == 0) {
     return;
   }
@@ -333,8 +324,7 @@ void FormatFirmwareNotesText(
   for (size_t index = 0; index < note_count; ++index) {
     const int written = std::snprintf(output + used, output_size - used,
         "%s• %s", index == 0 ? "" : "\n", notes[index]);
-    if (written < 0 ||
-        static_cast<size_t>(written) >= output_size - used) {
+    if (written < 0 || static_cast<size_t>(written) >= output_size - used) {
       break;
     }
     used += static_cast<size_t>(written);
@@ -354,28 +344,26 @@ void FitFirmwareCardToNotes(
   }
   lv_obj_set_height(notes_label, LV_SIZE_CONTENT);
   lv_obj_update_layout(notes_label);
-  const int notes_height = std::max(
-      1, static_cast<int>(lv_obj_get_height(notes_label)));
-  lv_obj_set_height(
-      card, notes_top + notes_height + kUpdateCardPadding);
+  const int notes_height =
+      std::max(1, static_cast<int>(lv_obj_get_height(notes_label)));
+  lv_obj_set_height(card, notes_top + notes_height + kUpdateCardPadding);
 }
 
-void UpdateFirmwareComponentLayout(SettingsViewState* state,
-    const app::FirmwareUpdateSnapshot& snapshot) {
+void UpdateFirmwareComponentLayout(
+    SettingsViewState* state, const app::FirmwareUpdateSnapshot& snapshot) {
   if (state == nullptr || state->firmware_update_card == nullptr) {
     return;
   }
   const bool show_main = snapshot.main_update_available;
   const bool show_wireless = snapshot.wireless_update_available;
-  const int component_count = static_cast<int>(show_main) +
-                              static_cast<int>(show_wireless);
+  const int component_count =
+      static_cast<int>(show_main) + static_cast<int>(show_wireless);
   SetFirmwareObjectVisible(
       state->firmware_update_components_title, component_count > 0);
   SetFirmwareObjectVisible(state->firmware_update_main_row, show_main);
+  SetFirmwareObjectVisible(state->firmware_update_wireless_row, show_wireless);
   SetFirmwareObjectVisible(
-      state->firmware_update_wireless_row, show_wireless);
-  SetFirmwareObjectVisible(state->firmware_update_components_divider,
-      component_count > 0);
+      state->firmware_update_components_divider, component_count > 0);
 
   int next_y = kUpdateComponentsTop;
   if (show_main) {
@@ -387,8 +375,7 @@ void UpdateFirmwareComponentLayout(SettingsViewState* state,
     next_y += kUpdateComponentHeight + kUpdateComponentGap;
   }
   if (component_count == 0) {
-    lv_obj_set_y(
-        state->firmware_update_notes_title, kUpdateComponentsTitleTop);
+    lv_obj_set_y(state->firmware_update_notes_title, kUpdateComponentsTitleTop);
     lv_obj_set_y(state->firmware_update_notes_label, kUpdateComponentsTop);
     FitFirmwareCardToNotes(state->firmware_update_card,
         state->firmware_update_notes_label, kUpdateComponentsTop);
@@ -433,16 +420,15 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
     return;
   }
 
-  const app::FirmwareUpdateSnapshot snapshot =
-      GetFirmwareUpdateSnapshot();
+  const app::FirmwareUpdateSnapshot snapshot = GetFirmwareUpdateSnapshot();
   const bool new_version_available =
       snapshot.manifest_available && snapshot.update_available;
   const bool scanning =
       snapshot.stage == app::FirmwareUpdateStage::kChecking ||
       snapshot.stage == app::FirmwareUpdateStage::kWaitingForNetwork;
   const bool manual_update_required = snapshot.manual_update_required;
-  const bool new_page_was_hidden = lv_obj_has_flag(
-      state->firmware_update_new_page, LV_OBJ_FLAG_HIDDEN);
+  const bool new_page_was_hidden =
+      lv_obj_has_flag(state->firmware_update_new_page, LV_OBJ_FLAG_HIDDEN);
   SetFirmwareObjectVisible(
       state->firmware_update_new_page, new_version_available);
   SetFirmwareObjectVisible(
@@ -457,19 +443,19 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
 
   bool card_ready = new_version_available;
   if (card_ready && state->firmware_update_card == nullptr) {
-    card_ready = CreateFirmwareUpdateCard(state->firmware_update_new_page,
-        state, state->config.width);
+    card_ready = CreateFirmwareUpdateCard(
+        state->firmware_update_new_page, state, state->config.width);
   }
   card_ready = card_ready && state->firmware_update_card != nullptr &&
-      state->firmware_update_release_label != nullptr &&
-      state->firmware_update_channel_label != nullptr &&
-      state->firmware_update_publish_time_label != nullptr &&
-      state->firmware_update_main_chip_label != nullptr &&
-      state->firmware_update_main_version_label != nullptr &&
-      state->firmware_update_wireless_chip_label != nullptr &&
-      state->firmware_update_wireless_version_label != nullptr &&
-      state->firmware_update_notes_title != nullptr &&
-      state->firmware_update_notes_label != nullptr;
+               state->firmware_update_release_label != nullptr &&
+               state->firmware_update_channel_label != nullptr &&
+               state->firmware_update_publish_time_label != nullptr &&
+               state->firmware_update_main_chip_label != nullptr &&
+               state->firmware_update_main_version_label != nullptr &&
+               state->firmware_update_wireless_chip_label != nullptr &&
+               state->firmware_update_wireless_version_label != nullptr &&
+               state->firmware_update_notes_title != nullptr &&
+               state->firmware_update_notes_label != nullptr;
 
   if (card_ready) {
     lv_obj_remove_flag(
@@ -482,19 +468,18 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
     std::snprintf(release_text, sizeof(release_text), "%s  |  %s",
         snapshot.release_version, snapshot.package_size);
     lv_label_set_text(state->firmware_update_release_label, release_text);
-    SetReleaseChannelLabel(state->firmware_update_channel_label,
-        snapshot.release_channel);
+    SetReleaseChannelLabel(
+        state->firmware_update_channel_label, snapshot.release_channel);
     char publish_time_text[48] = {};
-    FormatPublishTimeForDisplay(snapshot.publish_time,
-        publish_time_text, sizeof(publish_time_text));
+    FormatPublishTimeForDisplay(
+        snapshot.publish_time, publish_time_text, sizeof(publish_time_text));
     lv_label_set_text(
         state->firmware_update_publish_time_label, publish_time_text);
 
     char version_text[80] = {};
     FormatFirmwareVersion(snapshot.main_current_version,
         snapshot.main_target_version, version_text, sizeof(version_text));
-    lv_label_set_text(
-        state->firmware_update_main_version_label, version_text);
+    lv_label_set_text(state->firmware_update_main_version_label, version_text);
     FormatFirmwareVersion(snapshot.wireless_current_version,
         snapshot.wireless_target_version, version_text, sizeof(version_text));
     lv_label_set_text(
@@ -502,12 +487,10 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
     char chip_text[48] = {};
     FormatFirmwareChipText(
         "ESP32-P4", snapshot.main_size, chip_text, sizeof(chip_text));
-    lv_label_set_text(
-        state->firmware_update_main_chip_label, chip_text);
-    FormatFirmwareChipText("ESP32-C6", snapshot.wireless_size,
-        chip_text, sizeof(chip_text));
-    lv_label_set_text(
-        state->firmware_update_wireless_chip_label, chip_text);
+    lv_label_set_text(state->firmware_update_main_chip_label, chip_text);
+    FormatFirmwareChipText(
+        "ESP32-C6", snapshot.wireless_size, chip_text, sizeof(chip_text));
+    lv_label_set_text(state->firmware_update_wireless_chip_label, chip_text);
     lv_label_set_text(state->firmware_update_notes_title, "What's new");
 
     char notes_text[420] = {};
@@ -516,8 +499,7 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
     lv_label_set_text(state->firmware_update_notes_label, notes_text);
     UpdateFirmwareComponentLayout(state, snapshot);
   } else {
-    lv_obj_add_flag(
-        state->firmware_update_heading_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(state->firmware_update_heading_label, LV_OBJ_FLAG_HIDDEN);
     if (state->firmware_update_card != nullptr) {
       lv_obj_add_flag(state->firmware_update_card, LV_OBJ_FLAG_HIDDEN);
     }
@@ -543,39 +525,35 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
       state->firmware_update_page_index == 0 ? 110 : 240, LV_PART_MAIN);
 
   char current_version[64] = {};
-  FormatFirmwareVersion(snapshot.main_current_version, nullptr,
-      current_version, sizeof(current_version));
+  FormatFirmwareVersion(snapshot.main_current_version, nullptr, current_version,
+      sizeof(current_version));
   lv_label_set_text(
       state->firmware_update_status_version_label, current_version);
 
   SetFirmwareObjectVisible(state->firmware_update_spinner, scanning);
-  SetFirmwareObjectVisible(
-      state->firmware_update_status_log_button,
+  SetFirmwareObjectVisible(state->firmware_update_status_log_button,
       snapshot.current_release_notes_available);
-  SetFirmwareObjectVisible(
-      state->firmware_update_scan_message_label, true);
-  SetFirmwareObjectVisible(
-      state->firmware_update_scan_hint_label, true);
+  SetFirmwareObjectVisible(state->firmware_update_scan_message_label, true);
+  SetFirmwareObjectVisible(state->firmware_update_scan_hint_label, true);
   if (scanning) {
-    lv_label_set_text(state->firmware_update_scan_message_label,
-        "Checking for updates...");
+    lv_label_set_text(
+        state->firmware_update_scan_message_label, "Checking for updates...");
     lv_label_set_text(state->firmware_update_scan_hint_label,
         "Downloading update information");
   } else if (new_version_available) {
-    lv_label_set_text(state->firmware_update_scan_message_label,
-        "New version available");
+    lv_label_set_text(
+        state->firmware_update_scan_message_label, "New version available");
     lv_label_set_text(state->firmware_update_scan_hint_label,
         "Swipe left to view the update details");
   } else if (snapshot.stage == app::FirmwareUpdateStage::kUpToDate) {
-    lv_label_set_text(state->firmware_update_scan_message_label,
-        "Firmware is up to date");
+    lv_label_set_text(
+        state->firmware_update_scan_message_label, "Firmware is up to date");
     lv_label_set_text(state->firmware_update_scan_hint_label,
         "You are using the latest available version");
   } else {
     lv_label_set_text(state->firmware_update_scan_message_label,
-        snapshot.message[0] == '\0'
-            ? "Unable to check for updates"
-            : snapshot.message);
+        snapshot.message[0] == '\0' ? "Unable to check for updates"
+                                    : snapshot.message);
     const bool network_error =
         std::strstr(snapshot.message, "Wi-Fi") != nullptr;
     const bool update_information_unavailable =
@@ -590,29 +568,25 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
     } else if (manual_update_required) {
       failure_hint = "This updater does not support the manifest format";
     }
-    lv_label_set_text(
-        state->firmware_update_scan_hint_label, failure_hint);
+    lv_label_set_text(state->firmware_update_scan_hint_label, failure_hint);
   }
   lv_obj_update_layout(state->firmware_update_scan_group);
   lv_obj_align_to(state->firmware_update_scan_hint_label,
-      state->firmware_update_scan_message_label, LV_ALIGN_OUT_BOTTOM_MID,
-      0, kUpdateStatusTextGap);
+      state->firmware_update_scan_message_label, LV_ALIGN_OUT_BOTTOM_MID, 0,
+      kUpdateStatusTextGap);
 
   const bool downloading =
       snapshot.stage == app::FirmwareUpdateStage::kDownloadingWireless ||
       snapshot.stage == app::FirmwareUpdateStage::kDownloadingMain;
   const bool installing_wireless =
       snapshot.stage == app::FirmwareUpdateStage::kInstallingWireless;
-  const bool paused =
-      snapshot.stage == app::FirmwareUpdateStage::kPaused;
+  const bool paused = snapshot.stage == app::FirmwareUpdateStage::kPaused;
   const bool ready =
       snapshot.stage == app::FirmwareUpdateStage::kReadyToInstall;
   const bool cancelling =
       std::strcmp(snapshot.message, "Cancelling update") == 0;
-  const bool current_page_active =
-      state->firmware_update_page_index == 0;
-  SetFirmwareObjectVisible(
-      state->firmware_update_download_button, true);
+  const bool current_page_active = state->firmware_update_page_index == 0;
+  SetFirmwareObjectVisible(state->firmware_update_download_button, true);
   char button_text[64] = {};
   bool button_enabled = false;
   if (current_page_active) {
@@ -625,8 +599,7 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
     } else if (snapshot.busy) {
       std::snprintf(button_text, sizeof(button_text), "Update in progress");
     } else if (manual_update_required) {
-      std::snprintf(
-          button_text, sizeof(button_text), "Manual update required");
+      std::snprintf(button_text, sizeof(button_text), "Manual update required");
     } else {
       std::snprintf(button_text, sizeof(button_text), "Check again");
       button_enabled = true;
@@ -637,96 +610,85 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
       std::snprintf(button_text, sizeof(button_text), "Cancelling...");
     } else {
       switch (snapshot.stage) {
-      case app::FirmwareUpdateStage::kWaitingForNetwork:
-        std::snprintf(button_text, sizeof(button_text), "Waiting for Wi-Fi");
-        break;
-      case app::FirmwareUpdateStage::kChecking:
-        std::snprintf(button_text, sizeof(button_text), "Checking...");
-        break;
-      case app::FirmwareUpdateStage::kUpdateAvailable:
-        std::snprintf(button_text, sizeof(button_text), "Download firmware");
-        break;
-      case app::FirmwareUpdateStage::kDownloadingWireless:
-        std::snprintf(button_text, sizeof(button_text),
-            "Downloading Wireless firmware  %d%%",
-            snapshot.progress_percent);
-        break;
-      case app::FirmwareUpdateStage::kInstallingWireless:
-        std::snprintf(button_text, sizeof(button_text),
-            "Writing Wireless firmware  %d%%",
-            snapshot.progress_percent);
-        break;
-      case app::FirmwareUpdateStage::kDownloadingMain:
-        std::snprintf(button_text, sizeof(button_text),
-            "Downloading Main firmware  %d%%",
-            snapshot.progress_percent);
-        break;
-      case app::FirmwareUpdateStage::kPaused:
-        std::snprintf(button_text, sizeof(button_text),
-            "Download paused  %d%%", snapshot.progress_percent);
-        break;
-      case app::FirmwareUpdateStage::kReadyToInstall:
-        std::snprintf(button_text, sizeof(button_text),
-            "Restart and update now");
-        break;
-      case app::FirmwareUpdateStage::kRestarting:
-        std::snprintf(button_text, sizeof(button_text), "Restarting...");
-        break;
-      case app::FirmwareUpdateStage::kFailed:
-        std::snprintf(button_text, sizeof(button_text), "Retry download");
-        break;
-      case app::FirmwareUpdateStage::kUpToDate:
-      case app::FirmwareUpdateStage::kIdle:
-      default:
-        std::snprintf(button_text, sizeof(button_text), "Download firmware");
-        break;
+        case app::FirmwareUpdateStage::kWaitingForNetwork:
+          std::snprintf(button_text, sizeof(button_text), "Waiting for Wi-Fi");
+          break;
+        case app::FirmwareUpdateStage::kChecking:
+          std::snprintf(button_text, sizeof(button_text), "Checking...");
+          break;
+        case app::FirmwareUpdateStage::kUpdateAvailable:
+          std::snprintf(button_text, sizeof(button_text), "Download firmware");
+          break;
+        case app::FirmwareUpdateStage::kDownloadingWireless:
+          std::snprintf(button_text, sizeof(button_text),
+              "Downloading Wireless firmware  %d%%", snapshot.progress_percent);
+          break;
+        case app::FirmwareUpdateStage::kInstallingWireless:
+          std::snprintf(button_text, sizeof(button_text),
+              "Writing Wireless firmware  %d%%", snapshot.progress_percent);
+          break;
+        case app::FirmwareUpdateStage::kDownloadingMain:
+          std::snprintf(button_text, sizeof(button_text),
+              "Downloading Main firmware  %d%%", snapshot.progress_percent);
+          break;
+        case app::FirmwareUpdateStage::kPaused:
+          std::snprintf(button_text, sizeof(button_text),
+              "Download paused  %d%%", snapshot.progress_percent);
+          break;
+        case app::FirmwareUpdateStage::kReadyToInstall:
+          std::snprintf(
+              button_text, sizeof(button_text), "Restart and update now");
+          break;
+        case app::FirmwareUpdateStage::kRestarting:
+          std::snprintf(button_text, sizeof(button_text), "Restarting...");
+          break;
+        case app::FirmwareUpdateStage::kFailed:
+          std::snprintf(button_text, sizeof(button_text), "Retry download");
+          break;
+        case app::FirmwareUpdateStage::kUpToDate:
+        case app::FirmwareUpdateStage::kIdle:
+        default:
+          std::snprintf(button_text, sizeof(button_text), "Download firmware");
+          break;
       }
     }
   }
-  lv_label_set_text(
-      state->firmware_update_download_button_label, button_text);
+  lv_label_set_text(state->firmware_update_download_button_label, button_text);
   if (button_enabled) {
     lv_obj_remove_state(
         state->firmware_update_download_button, LV_STATE_DISABLED);
   } else {
-    lv_obj_add_state(
-        state->firmware_update_download_button, LV_STATE_DISABLED);
+    lv_obj_add_state(state->firmware_update_download_button, LV_STATE_DISABLED);
   }
 
   const bool show_progress =
       !current_page_active && (downloading || installing_wireless || paused);
-  SetFirmwareObjectVisible(
-      state->firmware_update_progress_fill, show_progress);
+  SetFirmwareObjectVisible(state->firmware_update_progress_fill, show_progress);
   if (show_progress) {
     const int button_width =
         lv_obj_get_width(state->firmware_update_download_button);
-    const int fill_width = std::max(1,
-        button_width * std::clamp(snapshot.progress_percent, 0, 100) / 100);
+    const int fill_width = std::max(
+        1, button_width * std::clamp(snapshot.progress_percent, 0, 100) / 100);
     lv_obj_set_width(state->firmware_update_progress_fill, fill_width);
   }
   lv_obj_set_style_bg_color(state->firmware_update_download_button,
-      lv_color_hex(show_progress
-              ? SettingsThemeColors().surface_container_high
-              : theme::FixedColors().action),
+      lv_color_hex(show_progress ? SettingsThemeColors().surface_container_high
+                                 : theme::FixedColors().action),
       LV_PART_MAIN);
-  lv_obj_set_style_text_color(
-      state->firmware_update_download_button_label,
-      lv_color_hex(theme::FixedColors().on_action),
-      LV_PART_MAIN);
+  lv_obj_set_style_text_color(state->firmware_update_download_button_label,
+      lv_color_hex(theme::FixedColors().on_action), LV_PART_MAIN);
   lv_obj_move_to_index(state->firmware_update_download_button_label, -1);
 
   const bool show_cancel =
       !current_page_active && (downloading || paused || ready);
-  SetFirmwareObjectVisible(
-      state->firmware_update_pause_button, false);
-  SetFirmwareObjectVisible(
-      state->firmware_update_cancel_button, show_cancel);
+  SetFirmwareObjectVisible(state->firmware_update_pause_button, false);
+  SetFirmwareObjectVisible(state->firmware_update_cancel_button, show_cancel);
   lv_label_set_text(state->firmware_update_cancel_button_label,
-      ready ? "Cancel current update"
-            : cancelling ? "Cancelling..." : "Cancel download");
+      ready        ? "Cancel current update"
+      : cancelling ? "Cancelling..."
+                   : "Cancel download");
   if (cancelling) {
-    lv_obj_add_state(
-        state->firmware_update_cancel_button, LV_STATE_DISABLED);
+    lv_obj_add_state(state->firmware_update_cancel_button, LV_STATE_DISABLED);
   } else {
     lv_obj_remove_state(
         state->firmware_update_cancel_button, LV_STATE_DISABLED);
@@ -734,21 +696,20 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
   const int primary_width =
       lv_obj_get_width(state->firmware_update_download_button);
   if (show_cancel) {
-    lv_obj_set_size(state->firmware_update_cancel_button,
-        primary_width, kUpdateButtonHeight);
+    lv_obj_set_size(state->firmware_update_cancel_button, primary_width,
+        kUpdateButtonHeight);
     lv_obj_set_style_radius(state->firmware_update_cancel_button,
         kUpdateButtonHeight / 3, LV_PART_MAIN);
-    lv_obj_align(state->firmware_update_cancel_button,
-        LV_ALIGN_BOTTOM_MID, 0, -kUpdateButtonBottom);
+    lv_obj_align(state->firmware_update_cancel_button, LV_ALIGN_BOTTOM_MID, 0,
+        -kUpdateButtonBottom);
     lv_obj_align_to(state->firmware_update_download_button,
-        state->firmware_update_cancel_button, LV_ALIGN_OUT_TOP_MID,
-        0, -kUpdateActionButtonGap);
+        state->firmware_update_cancel_button, LV_ALIGN_OUT_TOP_MID, 0,
+        -kUpdateActionButtonGap);
   } else {
-    lv_obj_align(state->firmware_update_download_button,
-        LV_ALIGN_BOTTOM_MID, 0, -kUpdateButtonBottom);
+    lv_obj_align(state->firmware_update_download_button, LV_ALIGN_BOTTOM_MID, 0,
+        -kUpdateButtonBottom);
   }
-  lv_obj_align(state->firmware_update_page_indicator,
-      LV_ALIGN_BOTTOM_MID, 0,
+  lv_obj_align(state->firmware_update_page_indicator, LV_ALIGN_BOTTOM_MID, 0,
       show_cancel ? -kUpdatePageIndicatorStackedBottom
                   : -kUpdatePageIndicatorBottom);
 }
@@ -761,13 +722,11 @@ void FirmwareUpdatePageScrollEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_SCROLL_END) {
     return;
   }
-  auto* state = static_cast<SettingsViewState*>(
-      lv_event_get_user_data(event));
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->firmware_update_body == nullptr) {
     return;
   }
-  const app::FirmwareUpdateSnapshot snapshot =
-      GetFirmwareUpdateSnapshot();
+  const app::FirmwareUpdateSnapshot snapshot = GetFirmwareUpdateSnapshot();
   const bool new_version_available =
       snapshot.manifest_available && snapshot.update_available;
   const int scroll_x =
@@ -794,22 +753,18 @@ void FirmwareUpdateDownloadClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  auto* state = static_cast<SettingsViewState*>(
-      lv_event_get_user_data(event));
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (state == nullptr) {
     return;
   }
-  app::FirmwareUpdateManager& manager =
-      app::FirmwareUpdateManager::Instance();
-  const app::FirmwareUpdateSnapshot snapshot =
-      GetFirmwareUpdateSnapshot();
+  app::FirmwareUpdateManager& manager = app::FirmwareUpdateManager::Instance();
+  const app::FirmwareUpdateSnapshot snapshot = GetFirmwareUpdateSnapshot();
   if (state->firmware_update_page_index == 0) {
     if (snapshot.busy || !snapshot.device_supported ||
         snapshot.stage == app::FirmwareUpdateStage::kReadyToInstall) {
       return;
     }
-    state->firmware_update_auto_show_new_page =
-        manager.RequestCheck();
+    state->firmware_update_auto_show_new_page = manager.RequestCheck();
     RefreshFirmwareUpdateView(state);
     return;
   }
@@ -830,12 +785,9 @@ void FirmwareUpdatePauseClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  auto* state = static_cast<SettingsViewState*>(
-      lv_event_get_user_data(event));
-  app::FirmwareUpdateManager& manager =
-      app::FirmwareUpdateManager::Instance();
-  const app::FirmwareUpdateSnapshot snapshot =
-      GetFirmwareUpdateSnapshot();
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
+  app::FirmwareUpdateManager& manager = app::FirmwareUpdateManager::Instance();
+  const app::FirmwareUpdateSnapshot snapshot = GetFirmwareUpdateSnapshot();
   if (snapshot.stage == app::FirmwareUpdateStage::kPaused) {
     manager.Resume();
   } else {
@@ -848,8 +800,7 @@ void FirmwareUpdateCancelClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  auto* state = static_cast<SettingsViewState*>(
-      lv_event_get_user_data(event));
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   app::FirmwareUpdateManager::Instance().Cancel();
   RefreshFirmwareUpdateView(state);
 }
@@ -862,8 +813,7 @@ void FirmwareCurrentLogClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  auto* state = static_cast<SettingsViewState*>(
-      lv_event_get_user_data(event));
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (state == nullptr ||
       !GetFirmwareUpdateSnapshot().current_release_notes_available) {
     return;
@@ -880,8 +830,8 @@ void FirmwareCurrentLogClickedEventCallback(lv_event_t* event) {
  */
 bool CreateFirmwareUpdateHeader(
     lv_obj_t* parent, SettingsViewState* state, int width) {
-  lv_obj_t* title = CreateLabel(
-      parent, "Firmware update", lv_color_hex(SettingsThemeColors().on_surface), Font32());
+  lv_obj_t* title = CreateLabel(parent, "Firmware update",
+      lv_color_hex(SettingsThemeColors().on_surface), Font32());
   if (title == nullptr) {
     return false;
   }
@@ -889,9 +839,8 @@ bool CreateFirmwareUpdateHeader(
   lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, kDetailTitleTop);
 
-  lv_obj_t* back_button = CreateToolbarButton(parent,
-      kDetailBackButtonLeft, kDetailBackButtonTop,
-      FirmwareUpdateBackClickedEventCallback, state);
+  lv_obj_t* back_button = CreateToolbarButton(parent, kDetailBackButtonLeft,
+      kDetailBackButtonTop, FirmwareUpdateBackClickedEventCallback, state);
   if (back_button == nullptr) {
     return false;
   }
@@ -925,22 +874,22 @@ bool CreateFirmwareBrand(lv_obj_t* card, int card_width) {
     return false;
   }
 
-  lv_obj_t* brand_text = CreateLabel(
-      brand_group, "LilygoBox", lv_color_hex(SettingsThemeColors().on_surface), Font48());
+  lv_obj_t* brand_text = CreateLabel(brand_group, "LilygoBox",
+      lv_color_hex(SettingsThemeColors().on_surface), Font48());
   if (brand_text == nullptr) {
     return false;
   }
   const int brand_width = card_width - 2 * kUpdateCardPadding;
-  const int text_width = std::max(1,
-      brand_width - kUpdateBrandIconSize - kUpdateBrandGap);
+  const int text_width =
+      std::max(1, brand_width - kUpdateBrandIconSize - kUpdateBrandGap);
   lv_obj_set_size(brand_group, brand_width, kUpdateBrandIconSize);
-  lv_obj_align(brand_group, LV_ALIGN_TOP_LEFT, kUpdateCardPadding,
-      kUpdateBrandTop);
+  lv_obj_align(
+      brand_group, LV_ALIGN_TOP_LEFT, kUpdateCardPadding, kUpdateBrandTop);
   lv_obj_align(brand_icon, LV_ALIGN_LEFT_MID, 0, 0);
   lv_obj_set_size(brand_text, text_width, kUpdateBrandIconSize);
   lv_label_set_long_mode(brand_text, LV_LABEL_LONG_DOT);
-  lv_obj_align_to(brand_text, brand_icon, LV_ALIGN_OUT_RIGHT_MID,
-      kUpdateBrandGap, 0);
+  lv_obj_align_to(
+      brand_text, brand_icon, LV_ALIGN_OUT_RIGHT_MID, kUpdateBrandGap, 0);
   return true;
 }
 
@@ -961,9 +910,8 @@ bool CreateFirmwareBrand(lv_obj_t* card, int card_width) {
  */
 bool CreateFirmwareComponentRow(lv_obj_t* card, int y, int width,
     const char* symbol, const char* title, const char* chip,
-    const char* version, uint32_t color,
-    lv_obj_t** row_output, lv_obj_t** chip_label_output,
-    lv_obj_t** version_label_output) {
+    const char* version, uint32_t color, lv_obj_t** row_output,
+    lv_obj_t** chip_label_output, lv_obj_t** version_label_output) {
   lv_obj_t* tile = CreateBox(card, width, kUpdateComponentHeight,
       SettingsThemeColors().surface_container_low, LV_OPA_COVER, 20);
   if (tile == nullptr) {
@@ -972,28 +920,26 @@ bool CreateFirmwareComponentRow(lv_obj_t* card, int y, int width,
   lv_obj_remove_flag(tile, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_pos(tile, kUpdateCardPadding, y);
 
-  lv_obj_t* component_icon = CreateLabel(
-      tile, symbol, lv_color_hex(color), MaterialIconFont32());
+  lv_obj_t* component_icon =
+      CreateLabel(tile, symbol, lv_color_hex(color), MaterialIconFont32());
   if (component_icon == nullptr) {
     return false;
   }
-  lv_obj_align(component_icon, LV_ALIGN_LEFT_MID,
-      kUpdateComponentIconLeft, 0);
+  lv_obj_align(component_icon, LV_ALIGN_LEFT_MID, kUpdateComponentIconLeft, 0);
 
-  lv_obj_t* component_title =
-      CreateLabel(tile, title, lv_color_hex(SettingsThemeColors().on_surface), Font22());
-  lv_obj_t* component_chip =
-      CreateLabel(tile, chip, lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
-  lv_obj_t* component_version =
-      CreateLabel(tile, version, lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
+  lv_obj_t* component_title = CreateLabel(
+      tile, title, lv_color_hex(SettingsThemeColors().on_surface), Font22());
+  lv_obj_t* component_chip = CreateLabel(tile, chip,
+      lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
+  lv_obj_t* component_version = CreateLabel(tile, version,
+      lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
   if (component_title == nullptr || component_chip == nullptr ||
       component_version == nullptr) {
     return false;
   }
-  lv_obj_align(component_title, LV_ALIGN_LEFT_MID,
-      kUpdateComponentTextLeft, -15);
-  lv_obj_align(component_chip, LV_ALIGN_LEFT_MID,
-      kUpdateComponentTextLeft, 15);
+  lv_obj_align(
+      component_title, LV_ALIGN_LEFT_MID, kUpdateComponentTextLeft, -15);
+  lv_obj_align(component_chip, LV_ALIGN_LEFT_MID, kUpdateComponentTextLeft, 15);
   lv_obj_set_width(component_version, kUpdateComponentVersionWidth);
   lv_obj_set_style_text_align(
       component_version, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
@@ -1052,16 +998,16 @@ bool CreateFirmwareUpdateCard(
     return discard_card();
   }
   state->firmware_update_release_label = version;
-  const int release_version_width = std::max(1,
-      card_width - 2 * kUpdateCardPadding - kUpdateReleaseMetadataWidth -
-          kUpdateReleaseMetadataGap);
+  const int release_version_width =
+      std::max(1, card_width - 2 * kUpdateCardPadding -
+                      kUpdateReleaseMetadataWidth - kUpdateReleaseMetadataGap);
   lv_obj_set_width(version, release_version_width);
   lv_label_set_long_mode(version, LV_LABEL_LONG_DOT);
-  lv_obj_align(version, LV_ALIGN_TOP_LEFT, kUpdateCardPadding,
-      kUpdateVersionTop);
+  lv_obj_align(
+      version, LV_ALIGN_TOP_LEFT, kUpdateCardPadding, kUpdateVersionTop);
 
-  lv_obj_t* channel_label = CreateLabel(card, "Stable",
-      lv_color_hex(theme::FixedColors().action), Font22());
+  lv_obj_t* channel_label = CreateLabel(
+      card, "Stable", lv_color_hex(theme::FixedColors().action), Font22());
   lv_obj_t* publish_time = CreateLabel(card, "Unavailable",
       lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
   if (channel_label == nullptr || publish_time == nullptr) {
@@ -1071,17 +1017,14 @@ bool CreateFirmwareUpdateCard(
   state->firmware_update_publish_time_label = publish_time;
   lv_obj_set_width(channel_label, kUpdateReleaseMetadataWidth);
   lv_obj_set_width(publish_time, kUpdateReleaseMetadataWidth);
-  lv_obj_set_style_text_align(
-      channel_label, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
-  lv_obj_set_style_text_align(
-      publish_time, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+  lv_obj_set_style_text_align(channel_label, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+  lv_obj_set_style_text_align(publish_time, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
   lv_obj_align(channel_label, LV_ALIGN_TOP_RIGHT, -kUpdateCardPadding,
       kUpdateChannelTop);
   lv_obj_align(publish_time, LV_ALIGN_TOP_RIGHT, -kUpdateCardPadding,
       kUpdatePublishTimeTop);
 
-  lv_obj_t* divider =
-      CreateDivider(card, card_width - 2 * kUpdateCardPadding);
+  lv_obj_t* divider = CreateDivider(card, card_width - 2 * kUpdateCardPadding);
   if (divider == nullptr) {
     return discard_card();
   }
@@ -1097,17 +1040,15 @@ bool CreateFirmwareUpdateCard(
       kUpdateComponentsTitleTop);
 
   const int component_width = card_width - 2 * kUpdateCardPadding;
-  if (!CreateFirmwareComponentRow(card, kUpdateComponentsTop,
-          component_width, icon::kMemory, "Main firmware", "ESP32-P4",
-          "Unknown", 0x3F82F6, &state->firmware_update_main_row,
+  if (!CreateFirmwareComponentRow(card, kUpdateComponentsTop, component_width,
+          icon::kMemory, "Main firmware", "ESP32-P4", "Unknown", 0x3F82F6,
+          &state->firmware_update_main_row,
           &state->firmware_update_main_chip_label,
           &state->firmware_update_main_version_label) ||
       !CreateFirmwareComponentRow(card,
-          kUpdateComponentsTop + kUpdateComponentHeight +
-              kUpdateComponentGap,
+          kUpdateComponentsTop + kUpdateComponentHeight + kUpdateComponentGap,
           component_width, icon::kSignalWifi4Bar, "Wireless firmware",
-          "ESP32-C6", "Unknown", 0x8B68F6,
-          &state->firmware_update_wireless_row,
+          "ESP32-C6", "Unknown", 0x8B68F6, &state->firmware_update_wireless_row,
           &state->firmware_update_wireless_chip_label,
           &state->firmware_update_wireless_version_label)) {
     return discard_card();
@@ -1118,8 +1059,7 @@ bool CreateFirmwareUpdateCard(
     return discard_card();
   }
   state->firmware_update_components_divider = second_divider;
-  lv_obj_set_pos(
-      second_divider, kUpdateCardPadding, kUpdateSecondDividerTop);
+  lv_obj_set_pos(second_divider, kUpdateCardPadding, kUpdateSecondDividerTop);
 
   lv_obj_t* whats_new_title = CreateLabel(card, "What's new",
       lv_color_hex(SettingsThemeColors().on_surface), Font28());
@@ -1130,17 +1070,17 @@ bool CreateFirmwareUpdateCard(
   lv_obj_align(whats_new_title, LV_ALIGN_TOP_LEFT, kUpdateCardPadding,
       kUpdateWhatsNewTitleTop);
 
-  lv_obj_t* notes = CreateLabel(card,
-      "Release notes will appear after checking.",
-      lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
+  lv_obj_t* notes =
+      CreateLabel(card, "Release notes will appear after checking.",
+          lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
   if (notes == nullptr) {
     return discard_card();
   }
   lv_obj_set_width(notes, card_width - 2 * kUpdateCardPadding);
   lv_label_set_long_mode(notes, LV_LABEL_LONG_WRAP);
   lv_obj_set_style_text_line_space(notes, 12, LV_PART_MAIN);
-  lv_obj_align(notes, LV_ALIGN_TOP_LEFT, kUpdateCardPadding,
-      kUpdateWhatsNewTop);
+  lv_obj_align(
+      notes, LV_ALIGN_TOP_LEFT, kUpdateCardPadding, kUpdateWhatsNewTop);
   state->firmware_update_notes_label = notes;
   return true;
 }
@@ -1177,8 +1117,8 @@ bool CreateFirmwareUpdateBody(
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLL_ELASTIC);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLL_MOMENTUM);
   lv_obj_set_style_anim_duration(body, 120, LV_PART_MAIN);
-  lv_obj_add_event_cb(body, FirmwareUpdatePageScrollEventCallback,
-      LV_EVENT_SCROLL_END, state);
+  lv_obj_add_event_cb(
+      body, FirmwareUpdatePageScrollEventCallback, LV_EVENT_SCROLL_END, state);
 
   const int content_width = FirmwareUpdateContentWidth(width);
   const int content_left = (width - content_width) / 2;
@@ -1238,14 +1178,12 @@ bool CreateFirmwareUpdateBody(
   MakeTransparent(brand_group);
   lv_obj_remove_flag(brand_group, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(brand_group, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(
-      brand_group, status_brand_width, kUpdateBrandIconSize);
+  lv_obj_set_size(brand_group, status_brand_width, kUpdateBrandIconSize);
   lv_obj_align(brand_group, LV_ALIGN_TOP_MID, 0, 0);
   lv_obj_set_flex_flow(brand_group, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(brand_group, LV_FLEX_ALIGN_CENTER,
-      LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_column(
-      brand_group, kUpdateStatusBrandGap, LV_PART_MAIN);
+  lv_obj_set_flex_align(brand_group, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+      LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(brand_group, kUpdateStatusBrandGap, LV_PART_MAIN);
 
   lv_obj_t* brand_icon =
       CreateLilygoBoxBrandIcon(brand_group, kUpdateBrandIconSize);
@@ -1271,10 +1209,9 @@ bool CreateFirmwareUpdateBody(
   lv_obj_set_size(spinner, kUpdateSpinnerSize, kUpdateSpinnerSize);
   lv_spinner_set_anim_params(spinner, 850, 250);
   lv_obj_set_style_arc_color(spinner,
-      lv_color_hex(SettingsThemeColors().surface_container_high),
-      LV_PART_MAIN);
-  lv_obj_set_style_arc_color(spinner,
-      lv_color_hex(theme::FixedColors().action), LV_PART_INDICATOR);
+      lv_color_hex(SettingsThemeColors().surface_container_high), LV_PART_MAIN);
+  lv_obj_set_style_arc_color(
+      spinner, lv_color_hex(theme::FixedColors().action), LV_PART_INDICATOR);
   lv_obj_set_style_arc_width(spinner, 7, LV_PART_MAIN);
   lv_obj_set_style_arc_width(spinner, 7, LV_PART_INDICATOR);
   lv_obj_align(spinner, LV_ALIGN_TOP_MID, 0, kUpdateStatusSpinnerTop);
@@ -1283,8 +1220,7 @@ bool CreateFirmwareUpdateBody(
 
   lv_obj_t* message = CreateLabel(scan_group, "Checking for updates...",
       lv_color_hex(SettingsThemeColors().on_surface), Font28());
-  lv_obj_t* hint = CreateLabel(scan_group,
-      "Downloading update information",
+  lv_obj_t* hint = CreateLabel(scan_group, "Downloading update information",
       lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
   if (message == nullptr || hint == nullptr) {
     return false;
@@ -1297,8 +1233,8 @@ bool CreateFirmwareUpdateBody(
   lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_align(message, LV_ALIGN_TOP_MID, 0, kUpdateStatusPrimaryTop);
   lv_obj_update_layout(scan_group);
-  lv_obj_align_to(hint, message, LV_ALIGN_OUT_BOTTOM_MID,
-      0, kUpdateStatusTextGap);
+  lv_obj_align_to(
+      hint, message, LV_ALIGN_OUT_BOTTOM_MID, 0, kUpdateStatusTextGap);
   state->firmware_update_scan_message_label = message;
   state->firmware_update_scan_hint_label = hint;
 
@@ -1311,10 +1247,8 @@ bool CreateFirmwareUpdateBody(
   lv_obj_remove_flag(log_button, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(log_button, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
   lv_obj_add_flag(log_button, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_size(
-      log_button, LV_SIZE_CONTENT, kUpdateStatusLogButtonHeight);
-  lv_obj_align(
-      log_button, LV_ALIGN_TOP_MID, 0, kUpdateStatusLogButtonTop);
+  lv_obj_set_size(log_button, LV_SIZE_CONTENT, kUpdateStatusLogButtonHeight);
+  lv_obj_align(log_button, LV_ALIGN_TOP_MID, 0, kUpdateStatusLogButtonTop);
   lv_obj_set_style_bg_opa(log_button, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_bg_color(log_button,
       lv_color_hex(SettingsThemeColors().state_layer_strong), LV_STATE_PRESSED);
@@ -1332,20 +1266,20 @@ bool CreateFirmwareUpdateBody(
   lv_obj_set_style_pad_column(
       log_button, kUpdateStatusLogButtonContentGap, LV_PART_MAIN);
   lv_obj_set_flex_flow(log_button, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(log_button, LV_FLEX_ALIGN_CENTER,
-      LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_flex_align(log_button, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+      LV_FLEX_ALIGN_CENTER);
   if (!AddPressCancelOnLeave(log_button)) {
     return false;
   }
-  lv_obj_add_event_cb(log_button,
-      FirmwareCurrentLogClickedEventCallback, LV_EVENT_CLICKED, state);
+  lv_obj_add_event_cb(log_button, FirmwareCurrentLogClickedEventCallback,
+      LV_EVENT_CLICKED, state);
   lv_obj_add_flag(log_button, LV_OBJ_FLAG_HIDDEN);
 
-  lv_obj_t* log_label = CreateLabel(log_button,
-      "Current version update log", lv_color_hex(SettingsThemeColors().on_surface_variant),
-      Font24());
+  lv_obj_t* log_label = CreateLabel(log_button, "Current version update log",
+      lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
   lv_obj_t* log_arrow = CreateLabel(log_button, icon::kChevronRight,
-      lv_color_hex(SettingsThemeColors().on_surface_variant), MaterialIconFont32());
+      lv_color_hex(SettingsThemeColors().on_surface_variant),
+      MaterialIconFont32());
   if (log_label == nullptr || log_arrow == nullptr) {
     return false;
   }
@@ -1361,10 +1295,9 @@ bool CreateFirmwareUpdateBody(
   lv_obj_remove_flag(indicator, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(indicator, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_flag(indicator, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_set_size(indicator,
-      kUpdatePageIndicatorWidth, kUpdatePageIndicatorHeight);
-  lv_obj_align(indicator, LV_ALIGN_BOTTOM_MID, 0,
-      -kUpdatePageIndicatorBottom);
+  lv_obj_set_size(
+      indicator, kUpdatePageIndicatorWidth, kUpdatePageIndicatorHeight);
+  lv_obj_align(indicator, LV_ALIGN_BOTTOM_MID, 0, -kUpdatePageIndicatorBottom);
 
   lv_obj_t* current_dot = lv_obj_create(indicator);
   lv_obj_t* new_dot = lv_obj_create(indicator);
@@ -1420,8 +1353,7 @@ void FirmwareUpdateLogCloseCompletedCallback(lv_anim_t* animation) {
   lv_obj_delete(page);
 }
 
-void CloseFirmwareUpdateLogPage(
-    SettingsViewState* state, bool animated) {
+void CloseFirmwareUpdateLogPage(SettingsViewState* state, bool animated) {
   if (state == nullptr || state->firmware_update_log_page == nullptr ||
       state->firmware_update_log_closing) {
     return;
@@ -1459,8 +1391,8 @@ void FirmwareUpdateLogBackClickedEventCallback(lv_event_t* event) {
  * @param snapshot 当前固件状态快照
  * @return 创建成功返回卡片对象，否则返回 nullptr
  */
-lv_obj_t* CreateCurrentFirmwareLogCard(lv_obj_t* body, int x, int y,
-    int width, const app::FirmwareUpdateSnapshot& snapshot) {
+lv_obj_t* CreateCurrentFirmwareLogCard(lv_obj_t* body, int x, int y, int width,
+    const app::FirmwareUpdateSnapshot& snapshot) {
   lv_obj_t* card = CreateBox(body, width, kUpdateCardHeight,
       SettingsThemeColors().surface_container_lowest, LV_OPA_COVER,
       kDetailCardRadius);
@@ -1481,9 +1413,8 @@ lv_obj_t* CreateCurrentFirmwareLogCard(lv_obj_t* body, int x, int y,
 
   char current_release_version[32] = {};
   if (snapshot.current_release_version[0] != '\0') {
-    std::snprintf(current_release_version,
-        sizeof(current_release_version), "%s",
-        snapshot.current_release_version);
+    std::snprintf(current_release_version, sizeof(current_release_version),
+        "%s", snapshot.current_release_version);
   } else {
     FormatFirmwareVersion(snapshot.main_current_version, nullptr,
         current_release_version, sizeof(current_release_version));
@@ -1501,18 +1432,18 @@ lv_obj_t* CreateCurrentFirmwareLogCard(lv_obj_t* body, int x, int y,
   if (version == nullptr) {
     return discard_card();
   }
-  const int release_version_width = std::max(1,
-      width - 2 * kUpdateCardPadding - kUpdateReleaseMetadataWidth -
-          kUpdateReleaseMetadataGap);
+  const int release_version_width =
+      std::max(1, width - 2 * kUpdateCardPadding - kUpdateReleaseMetadataWidth -
+                      kUpdateReleaseMetadataGap);
   lv_obj_set_width(version, release_version_width);
   lv_label_set_long_mode(version, LV_LABEL_LONG_DOT);
   lv_obj_set_pos(version, kUpdateCardPadding, kUpdateVersionTop);
 
   char publish_time_text[48] = {};
-  FormatPublishTimeForDisplay(snapshot.current_publish_time,
-      publish_time_text, sizeof(publish_time_text));
-  lv_obj_t* channel_label = CreateLabel(card, "Stable",
-      lv_color_hex(theme::FixedColors().action), Font22());
+  FormatPublishTimeForDisplay(snapshot.current_publish_time, publish_time_text,
+      sizeof(publish_time_text));
+  lv_obj_t* channel_label = CreateLabel(
+      card, "Stable", lv_color_hex(theme::FixedColors().action), Font22());
   lv_obj_t* publish_time = CreateLabel(card, publish_time_text,
       lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
   if (channel_label == nullptr || publish_time == nullptr) {
@@ -1521,17 +1452,14 @@ lv_obj_t* CreateCurrentFirmwareLogCard(lv_obj_t* body, int x, int y,
   SetReleaseChannelLabel(channel_label, snapshot.current_release_channel);
   lv_obj_set_width(channel_label, kUpdateReleaseMetadataWidth);
   lv_obj_set_width(publish_time, kUpdateReleaseMetadataWidth);
-  lv_obj_set_style_text_align(
-      channel_label, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
-  lv_obj_set_style_text_align(
-      publish_time, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+  lv_obj_set_style_text_align(channel_label, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+  lv_obj_set_style_text_align(publish_time, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
   lv_obj_align(channel_label, LV_ALIGN_TOP_RIGHT, -kUpdateCardPadding,
       kUpdateChannelTop);
   lv_obj_align(publish_time, LV_ALIGN_TOP_RIGHT, -kUpdateCardPadding,
       kUpdatePublishTimeTop);
 
-  lv_obj_t* divider =
-      CreateDivider(card, width - 2 * kUpdateCardPadding);
+  lv_obj_t* divider = CreateDivider(card, width - 2 * kUpdateCardPadding);
   lv_obj_t* components_title = CreateLabel(card, "Installed components",
       lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (divider == nullptr || components_title == nullptr) {
@@ -1545,21 +1473,20 @@ lv_obj_t* CreateCurrentFirmwareLogCard(lv_obj_t* body, int x, int y,
   char wireless_version[64] = {};
   char main_chip[48] = {};
   char wireless_chip[48] = {};
-  FormatFirmwareVersion(snapshot.main_current_version, nullptr,
-      main_version, sizeof(main_version));
+  FormatFirmwareVersion(snapshot.main_current_version, nullptr, main_version,
+      sizeof(main_version));
   FormatFirmwareVersion(snapshot.wireless_current_version, nullptr,
       wireless_version, sizeof(wireless_version));
-  FormatFirmwareChipText("ESP32-P4", snapshot.current_main_size,
-      main_chip, sizeof(main_chip));
+  FormatFirmwareChipText(
+      "ESP32-P4", snapshot.current_main_size, main_chip, sizeof(main_chip));
   FormatFirmwareChipText("ESP32-C6", snapshot.current_wireless_size,
       wireless_chip, sizeof(wireless_chip));
   const int component_width = width - 2 * kUpdateCardPadding;
-  if (!CreateFirmwareComponentRow(card, kUpdateComponentsTop,
-          component_width, icon::kMemory, "Main firmware", main_chip,
-          main_version, 0x3F82F6, nullptr, nullptr, nullptr) ||
+  if (!CreateFirmwareComponentRow(card, kUpdateComponentsTop, component_width,
+          icon::kMemory, "Main firmware", main_chip, main_version, 0x3F82F6,
+          nullptr, nullptr, nullptr) ||
       !CreateFirmwareComponentRow(card,
-          kUpdateComponentsTop + kUpdateComponentHeight +
-              kUpdateComponentGap,
+          kUpdateComponentsTop + kUpdateComponentHeight + kUpdateComponentGap,
           component_width, icon::kSignalWifi4Bar, "Wireless firmware",
           wireless_chip, wireless_version, 0x8B68F6, nullptr, nullptr,
           nullptr)) {
@@ -1572,16 +1499,13 @@ lv_obj_t* CreateCurrentFirmwareLogCard(lv_obj_t* body, int x, int y,
   if (second_divider == nullptr || whats_new_title == nullptr) {
     return discard_card();
   }
-  lv_obj_set_pos(
-      second_divider, kUpdateCardPadding, kUpdateSecondDividerTop);
-  lv_obj_set_pos(
-      whats_new_title, kUpdateCardPadding, kUpdateWhatsNewTitleTop);
+  lv_obj_set_pos(second_divider, kUpdateCardPadding, kUpdateSecondDividerTop);
+  lv_obj_set_pos(whats_new_title, kUpdateCardPadding, kUpdateWhatsNewTitleTop);
 
   char notes_text[420] = {};
-  FormatFirmwareNotesText(snapshot.current_notes,
-      snapshot.current_note_count,
-      "No local release notes are available for this version.",
-      notes_text, sizeof(notes_text));
+  FormatFirmwareNotesText(snapshot.current_notes, snapshot.current_note_count,
+      "No local release notes are available for this version.", notes_text,
+      sizeof(notes_text));
   lv_obj_t* notes = CreateLabel(card, notes_text,
       lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
   if (notes == nullptr) {
@@ -1604,8 +1528,7 @@ lv_obj_t* CreateCurrentFirmwareLogCard(lv_obj_t* body, int x, int y,
  */
 bool CreateFirmwareUpdateLogHeader(
     lv_obj_t* page, SettingsViewState* state, int width) {
-  lv_obj_t* title = CreateLabel(
-      page, "Current version update log",
+  lv_obj_t* title = CreateLabel(page, "Current version update log",
       lv_color_hex(SettingsThemeColors().on_surface), Font32());
   if (title == nullptr) {
     return false;
@@ -1613,9 +1536,8 @@ bool CreateFirmwareUpdateLogHeader(
   lv_obj_set_width(title, width);
   lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, kDetailTitleTop);
-  lv_obj_t* back_button = CreateToolbarButton(page,
-      kDetailBackButtonLeft, kDetailBackButtonTop,
-      FirmwareUpdateLogBackClickedEventCallback, state);
+  lv_obj_t* back_button = CreateToolbarButton(page, kDetailBackButtonLeft,
+      kDetailBackButtonTop, FirmwareUpdateLogBackClickedEventCallback, state);
   if (back_button == nullptr) {
     return false;
   }
@@ -1636,8 +1558,8 @@ bool CreateFirmwareUpdateLogHeader(
  * @param height 页面高度
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateFirmwareUpdateLogBody(lv_obj_t* page, SettingsViewState* state,
-    int width, int height) {
+bool CreateFirmwareUpdateLogBody(
+    lv_obj_t* page, SettingsViewState* state, int width, int height) {
   const int body_height = height - kDetailBodyTop;
   if (body_height <= 0) {
     return false;
@@ -1656,8 +1578,7 @@ bool CreateFirmwareUpdateLogBody(lv_obj_t* page, SettingsViewState* state,
   lv_obj_add_flag(body, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLL_ELASTIC);
 
-  const app::FirmwareUpdateSnapshot snapshot =
-      GetFirmwareUpdateSnapshot();
+  const app::FirmwareUpdateSnapshot snapshot = GetFirmwareUpdateSnapshot();
   const int content_width = FirmwareUpdateContentWidth(width);
   const int content_left = (width - content_width) / 2;
   lv_obj_t* current_card = CreateCurrentFirmwareLogCard(
@@ -1690,8 +1611,8 @@ bool ShowFirmwareUpdateLogPage(SettingsViewState* state) {
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(page, config.width, config.height);
   lv_obj_set_pos(page, 0, 0);
-  lv_obj_set_style_bg_color(
-      page, lv_color_hex(SettingsThemeColors().surface_container), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(page,
+      lv_color_hex(SettingsThemeColors().surface_container), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
@@ -1699,8 +1620,7 @@ bool ShowFirmwareUpdateLogPage(SettingsViewState* state) {
 
   const bool created =
       CreateFirmwareUpdateLogHeader(page, state, config.width) &&
-      CreateFirmwareUpdateLogBody(
-          page, state, config.width, config.height);
+      CreateFirmwareUpdateLogBody(page, state, config.width, config.height);
   if (!created) {
     CloseFirmwareUpdateLogPage(state, false);
     return false;
@@ -1710,18 +1630,17 @@ bool ShowFirmwareUpdateLogPage(SettingsViewState* state) {
     CloseFirmwareUpdateLogPage(state, false);
     return false;
   }
-  if (!RegisterBackNavigationHandler(page, [state]() {
-        CloseFirmwareUpdateLogPage(state, true);
-      })) {
+  if (!RegisterBackNavigationHandler(
+          page, [state]() { CloseFirmwareUpdateLogPage(state, true); })) {
     CloseFirmwareUpdateLogPage(state, false);
     return false;
   }
   return true;
 }
 
-bool CreateFirmwareSecondaryButton(lv_obj_t* page, int width,
-    const char* text, lv_event_cb_t callback, SettingsViewState* state,
-    lv_obj_t** button_output, lv_obj_t** label_output, bool destructive) {
+bool CreateFirmwareSecondaryButton(lv_obj_t* page, int width, const char* text,
+    lv_event_cb_t callback, SettingsViewState* state, lv_obj_t** button_output,
+    lv_obj_t** label_output, bool destructive) {
   lv_obj_t* button = lv_button_create(page);
   if (button == nullptr) {
     return false;
@@ -1731,24 +1650,23 @@ bool CreateFirmwareSecondaryButton(lv_obj_t* page, int width,
   lv_obj_add_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_add_flag(button, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_size(button, width, kUpdateActionButtonHeight);
-  const uint32_t background_color = destructive
-      ? SettingsThemeColors().state_layer_strong
-      : SettingsThemeColors().button_secondary;
-  const uint32_t pressed_color = destructive
-      ? SettingsThemeColors().button_secondary_pressed
-      : SettingsThemeColors().button_secondary_pressed;
+  const uint32_t background_color =
+      destructive ? SettingsThemeColors().state_layer_strong
+                  : SettingsThemeColors().button_secondary;
+  const uint32_t pressed_color =
+      destructive ? SettingsThemeColors().button_secondary_pressed
+                  : SettingsThemeColors().button_secondary_pressed;
   const uint32_t text_color = destructive
-      ? SettingsThemeColors().on_surface
-      : SettingsThemeColors().on_button_secondary;
-  lv_obj_set_style_bg_color(button,
-      lv_color_hex(background_color), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(button,
-      lv_color_hex(pressed_color), LV_STATE_PRESSED);
+                                  ? SettingsThemeColors().on_surface
+                                  : SettingsThemeColors().on_button_secondary;
+  lv_obj_set_style_bg_color(
+      button, lv_color_hex(background_color), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      button, lv_color_hex(pressed_color), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(button, kUpdateActionButtonHeight / 2,
-      LV_PART_MAIN);
+  lv_obj_set_style_radius(button, kUpdateActionButtonHeight / 2, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
   if (!AddPressCancelOnLeave(button)) {
@@ -1791,10 +1709,9 @@ bool CreateDownloadUpdateButton(
   lv_obj_set_style_bg_color(
       button, lv_color_hex(theme::FixedColors().action), LV_PART_MAIN);
   lv_obj_set_style_bg_color(button,
-      lv_color_hex(theme::FixedColors().action_pressed),
-      LV_STATE_PRESSED);
-  lv_obj_set_style_bg_color(button,
-      lv_color_hex(SettingsThemeColors().outline), LV_STATE_DISABLED);
+      lv_color_hex(theme::FixedColors().action_pressed), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(
+      button, lv_color_hex(SettingsThemeColors().outline), LV_STATE_DISABLED);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_opa(button, LV_OPA_COVER,
@@ -1836,8 +1753,7 @@ bool CreateDownloadUpdateButton(
   state->firmware_update_download_button = button;
   state->firmware_update_progress_fill = progress_fill;
   state->firmware_update_download_button_label = label;
-  const int action_width =
-      (button_width - kUpdateActionButtonGap) / 2;
+  const int action_width = (button_width - kUpdateActionButtonGap) / 2;
   return CreateFirmwareSecondaryButton(page, action_width, "Pause",
              FirmwareUpdatePauseClickedEventCallback, state,
              &state->firmware_update_pause_button,
@@ -1866,10 +1782,9 @@ void CloseFirmwareUpdatePage(SettingsViewState* state, bool animated) {
     return;
   }
 
-  if (animated &&
-      StartSlideRightWindowTransition(state->firmware_update_page,
-          state->config.width, kDetailSlideAnimationMs, state,
-          FirmwareUpdateCloseCompletedCallback)) {
+  if (animated && StartSlideRightWindowTransition(state->firmware_update_page,
+                      state->config.width, kDetailSlideAnimationMs, state,
+                      FirmwareUpdateCloseCompletedCallback)) {
     state->firmware_update_closing = true;
     return;
   }
@@ -1894,8 +1809,8 @@ bool ShowFirmwareUpdatePage(SettingsViewState* state) {
   }
   if (state->firmware_update_page != nullptr) {
     lv_obj_t* top_page = state->firmware_update_log_page != nullptr
-        ? state->firmware_update_log_page
-        : state->firmware_update_page;
+                             ? state->firmware_update_log_page
+                             : state->firmware_update_page;
     lv_obj_move_to_index(top_page, -1);
     return true;
   }
@@ -1912,8 +1827,8 @@ bool ShowFirmwareUpdatePage(SettingsViewState* state) {
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(page, config.width, config.height);
   lv_obj_set_pos(page, 0, 0);
-  lv_obj_set_style_bg_color(
-      page, lv_color_hex(SettingsThemeColors().surface_container), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(page,
+      lv_color_hex(SettingsThemeColors().surface_container), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
@@ -1921,8 +1836,7 @@ bool ShowFirmwareUpdatePage(SettingsViewState* state) {
 
   const bool created =
       CreateFirmwareUpdateHeader(page, state, config.width) &&
-      CreateFirmwareUpdateBody(
-          page, state, config.width, config.height) &&
+      CreateFirmwareUpdateBody(page, state, config.width, config.height) &&
       CreateDownloadUpdateButton(page, state, config.width);
   if (!created) {
     CloseFirmwareUpdatePage(state, false);
@@ -1943,9 +1857,8 @@ bool ShowFirmwareUpdatePage(SettingsViewState* state) {
   state->firmware_update_auto_show_new_page =
       app::FirmwareUpdateManager::Instance().RequestCheck();
   RefreshFirmwareUpdateView(state);
-  if (!RegisterBackNavigationHandler(page, [state]() {
-        CloseFirmwareUpdatePage(state, true);
-      })) {
+  if (!RegisterBackNavigationHandler(
+          page, [state]() { CloseFirmwareUpdatePage(state, true); })) {
     CloseFirmwareUpdatePage(state, false);
     return false;
   }

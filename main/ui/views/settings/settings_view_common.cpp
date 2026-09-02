@@ -2,16 +2,15 @@
  * @Description: Settings view shared helpers
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-07-18 00:00:00
+ * @LastEditTime: 2026-09-02 17:56:53
  * @License: GPL 3.0
  */
-#include "ui/views/settings/settings_view_internal.h"
-
 #include <cstring>
 
+#include "ui/input/press_cancel.h"
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
-#include "ui/input/press_cancel.h"
+#include "ui/views/settings/settings_view_internal.h"
 
 namespace lilygo_box::ui {
 
@@ -195,8 +194,8 @@ lv_obj_t* CreateDivider(lv_obj_t* parent, int width) {
   lv_obj_remove_flag(divider, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(divider, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(divider, width, kDividerHeight);
-  lv_obj_set_style_bg_color(
-      divider, lv_color_hex(SettingsThemeColors().outline_variant), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(divider,
+      lv_color_hex(SettingsThemeColors().outline_variant), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(divider, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(divider, 0, LV_PART_MAIN);
@@ -213,8 +212,8 @@ lv_obj_t* CreateDivider(lv_obj_t* parent, int width) {
  * @param user_data 点击事件上下文
  * @return 创建成功返回按钮对象，否则返回 nullptr
  */
-lv_obj_t* CreateToolbarButton(lv_obj_t* parent, int x, int y,
-    lv_event_cb_t callback, void* user_data) {
+lv_obj_t* CreateToolbarButton(
+    lv_obj_t* parent, int x, int y, lv_event_cb_t callback, void* user_data) {
   lv_obj_t* button = lv_button_create(parent);
   if (button == nullptr) {
     return nullptr;

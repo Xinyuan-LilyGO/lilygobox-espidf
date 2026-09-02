@@ -2,7 +2,7 @@
  * @Description: 系统电源状态持久化实现
  * @Author: LILYGO_L
  * @Date: 2026-08-14 00:00:00
- * @LastEditTime: 2026-08-14 00:00:00
+ * @LastEditTime: 2026-09-02 17:51:38
  * @License: GPL 3.0
  */
 #include "app/storage/power_state_storage.h"
@@ -52,20 +52,20 @@ bool DecodePowerState(
       return false;
     }
     if (static_cast<PowerStateField>(field.tag()) ==
-        PowerStateField::kPowerOffRequested && !field.ReadBool(&decoded)) {
+            PowerStateField::kPowerOffRequested &&
+        !field.ReadBool(&decoded)) {
       return false;
     }
   }
 }
 
-bool EncodePowerState(bool power_off_requested,
-    uint8_t* output, size_t capacity, size_t* encoded_size) {
-  storage::TlvWriter writer(
-      storage::TlvDomain::kPowerState, output, capacity);
+bool EncodePowerState(bool power_off_requested, uint8_t* output,
+    size_t capacity, size_t* encoded_size) {
+  storage::TlvWriter writer(storage::TlvDomain::kPowerState, output, capacity);
   return writer.WriteBool(
              static_cast<uint16_t>(PowerStateField::kPowerOffRequested),
              power_off_requested) &&
-      writer.Finalize(encoded_size);
+         writer.Finalize(encoded_size);
 }
 
 NvsStorageCache<bool> g_power_state_cache(
@@ -86,8 +86,8 @@ bool InitPowerStateStorage() {
 
   bool load_succeeded = true;
   nvs_handle_t handle = 0;
-  const esp_err_t open_result = OpenApplicationNvs(
-      kPowerStateNvsNamespace, NVS_READONLY, &handle);
+  const esp_err_t open_result =
+      OpenApplicationNvs(kPowerStateNvsNamespace, NVS_READONLY, &handle);
   if (open_result == ESP_OK) {
     storage::TlvBuffer buffer;
     esp_err_t error = ESP_OK;
@@ -139,10 +139,10 @@ StorageStageResult StagePowerStateStorage(nvs_handle_t handle) {
 
   std::array<uint8_t, kPowerStateTlvCapacity> buffer = {};
   size_t encoded_size = 0;
-  if (!EncodePowerState(*power_off_requested, buffer.data(),
-          buffer.size(), &encoded_size) ||
-      nvs_set_blob(handle, kPowerStateNvsKey,
-          buffer.data(), encoded_size) != ESP_OK) {
+  if (!EncodePowerState(
+          *power_off_requested, buffer.data(), buffer.size(), &encoded_size) ||
+      nvs_set_blob(handle, kPowerStateNvsKey, buffer.data(), encoded_size) !=
+          ESP_OK) {
     return StorageStageResult::kFailed;
   }
   return StorageStageResult::kStaged;

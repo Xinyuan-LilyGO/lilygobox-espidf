@@ -2,7 +2,7 @@
  * @Description: OTG reverse-power preference storage implementation
  * @Author: LILYGO_L
  * @Date: 2026-08-18 00:00:00
- * @LastEditTime: 2026-08-18 00:00:00
+ * @LastEditTime: 2026-09-02 17:51:36
  * @License: GPL 3.0
  */
 #include "app/storage/otg_storage.h"
@@ -65,13 +65,12 @@ bool DecodeOtgPreferences(
   }
 }
 
-bool EncodeOtgPreferences(const OtgPreferences& preferences,
-    uint8_t* output, size_t capacity, size_t* encoded_size) {
+bool EncodeOtgPreferences(const OtgPreferences& preferences, uint8_t* output,
+    size_t capacity, size_t* encoded_size) {
   storage::TlvWriter writer(storage::TlvDomain::kOtg, output, capacity);
   return writer.WriteBool(
-             static_cast<uint16_t>(OtgField::kEnabled),
-             preferences.enabled) &&
-      writer.Finalize(encoded_size);
+             static_cast<uint16_t>(OtgField::kEnabled), preferences.enabled) &&
+         writer.Finalize(encoded_size);
 }
 
 NvsStorageCache<OtgPreferences> g_otg_cache(
@@ -86,8 +85,7 @@ void InitOtgCache() {
     storage::TlvBuffer buffer;
     esp_err_t error = ESP_OK;
     const storage::TlvLoadResult result = storage::LoadTlvBuffer(handle,
-        kOtgNvsKey, storage::TlvDomain::kOtg,
-        kOtgTlvCapacity, &buffer, &error);
+        kOtgNvsKey, storage::TlvDomain::kOtg, kOtgTlvCapacity, &buffer, &error);
     if (result == storage::TlvLoadResult::kLoaded &&
         !DecodeOtgPreferences(buffer, &loaded)) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
@@ -124,17 +122,14 @@ StorageStageResult StageOtgStorage(nvs_handle_t handle) {
   }
   std::array<uint8_t, kOtgTlvCapacity> buffer = {};
   size_t encoded_size = 0;
-  if (!EncodeOtgPreferences(*preferences, buffer.data(), buffer.size(),
-          &encoded_size) ||
-      nvs_set_blob(handle, kOtgNvsKey,
-          buffer.data(), encoded_size) != ESP_OK) {
+  if (!EncodeOtgPreferences(
+          *preferences, buffer.data(), buffer.size(), &encoded_size) ||
+      nvs_set_blob(handle, kOtgNvsKey, buffer.data(), encoded_size) != ESP_OK) {
     return StorageStageResult::kFailed;
   }
   return StorageStageResult::kStaged;
 }
 
-void FinishOtgStorage(bool committed) {
-  g_otg_cache.FinishFlush(committed);
-}
+void FinishOtgStorage(bool committed) { g_otg_cache.FinishFlush(committed); }
 
 }  // namespace lilygo_box::app

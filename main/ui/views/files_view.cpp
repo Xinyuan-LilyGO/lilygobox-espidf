@@ -2,7 +2,7 @@
  * @Description: LittleFS、SD 卡与 USB 存储只读文件浏览页面
  * @Author: LILYGO_L
  * @Date: 2026-07-09 00:00:00
- * @LastEditTime: 2026-07-18 00:00:00
+ * @LastEditTime: 2026-09-02 17:54:31
  * @License: GPL 3.0
  */
 #include "ui/views/files_view.h"
@@ -156,12 +156,11 @@ const char* FilesHeaderTitle(const FilesViewState* state) {
  */
 bool IsSdCardSelected(const FilesViewState* state) {
   return state != nullptr &&
-      state->selected_storage == FilesStorageKind::kSdCard;
+         state->selected_storage == FilesStorageKind::kSdCard;
 }
 
 bool IsUsbStorageSelected(const FilesViewState* state) {
-  return state != nullptr &&
-      state->selected_storage == FilesStorageKind::kUsb;
+  return state != nullptr && state->selected_storage == FilesStorageKind::kUsb;
 }
 
 const hal::UsbStorageDeviceInfo* FindUsbStorageDevice(
@@ -169,8 +168,8 @@ const hal::UsbStorageDeviceInfo* FindUsbStorageDevice(
   if (state == nullptr || device_id == 0) {
     return nullptr;
   }
-  for (size_t index = 0;
-      index < state->usb_storage_snapshot.device_count; ++index) {
+  for (size_t index = 0; index < state->usb_storage_snapshot.device_count;
+      ++index) {
     const hal::UsbStorageDeviceInfo& device =
         state->usb_storage_snapshot.devices[index];
     if (device.id == device_id) {
@@ -190,9 +189,8 @@ const char* CurrentStorageBasePath(const FilesViewState* state) {
     return nullptr;
   }
   if (state->selected_storage == FilesStorageKind::kInternal) {
-    return app::IsLittleFsStorageMounted()
-               ? app::LittleFsStorageBasePath()
-               : nullptr;
+    return app::IsLittleFsStorageMounted() ? app::LittleFsStorageBasePath()
+                                           : nullptr;
   }
   if (IsUsbStorageSelected(state)) {
     const hal::UsbStorageDeviceInfo* device =
@@ -237,9 +235,9 @@ bool IsPathWithinCurrentStorage(
   }
   const std::string base_path(base_path_text);
   return path == base_path ||
-      (path.size() > base_path.size() &&
-          path.compare(0, base_path.size(), base_path) == 0 &&
-          path[base_path.size()] == '/');
+         (path.size() > base_path.size() &&
+             path.compare(0, base_path.size(), base_path) == 0 &&
+             path[base_path.size()] == '/');
 }
 
 /**
@@ -333,7 +331,7 @@ const lv_font_t* FilesFillIconFont56() {
  * @return 创建成功返回标签对象，否则返回 nullptr
  */
 lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color,
-                      const lv_font_t* font) {
+    const lv_font_t* font) {
   lv_obj_t* label = lv_label_create(parent);
   if (label == nullptr) {
     return nullptr;
@@ -352,11 +350,9 @@ lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color,
  * @return 创建成功返回图标对象，否则返回 nullptr
  */
 lv_obj_t* CreateMaterialIcon(lv_obj_t* parent, const char* symbol,
-                             lv_color_t color,
-                             const lv_font_t* font = nullptr) {
+    lv_color_t color, const lv_font_t* font = nullptr) {
   lv_obj_t* icon_label = CreateLabel(
-      parent, symbol, color,
-      font == nullptr ? MaterialFillIconFont32() : font);
+      parent, symbol, color, font == nullptr ? MaterialFillIconFont32() : font);
   if (icon_label != nullptr) {
     lv_obj_set_style_text_align(icon_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   }
@@ -378,15 +374,15 @@ lv_obj_t* CreateIconButton(lv_obj_t* parent, const char* symbol) {
   lv_obj_add_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(button, 72, 72);
   lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(button, lv_color_hex(theme::ActiveThemeColors().state_layer),
-                            LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(button,
+      lv_color_hex(theme::ActiveThemeColors().state_layer), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_radius(button, 36, LV_PART_MAIN);
   lv_obj_set_style_radius(button, 36, LV_STATE_PRESSED);
 
-  lv_obj_t* icon_label =
-      CreateMaterialIcon(button, symbol, lv_color_hex(theme::ActiveThemeColors().on_surface),
-                         FilesFillIconFont56());
+  lv_obj_t* icon_label = CreateMaterialIcon(button, symbol,
+      lv_color_hex(theme::ActiveThemeColors().on_surface),
+      FilesFillIconFont56());
   if (icon_label != nullptr) {
     lv_obj_center(icon_label);
   }
@@ -465,8 +461,8 @@ int CompareNamesIgnoreCase(const std::string& left, const std::string& right) {
  * @param truncated 是否因数量上限而截断
  * @return 读取成功返回 true，否则返回 false
  */
-bool ReadDirectoryEntries(const std::string& path,
-                          std::vector<FileEntry>* entries, bool* truncated) {
+bool ReadDirectoryEntries(
+    const std::string& path, std::vector<FileEntry>* entries, bool* truncated) {
   if (entries == nullptr || truncated == nullptr) {
     return false;
   }
@@ -508,12 +504,12 @@ bool ReadDirectoryEntries(const std::string& path,
   closedir(directory);
 
   std::sort(entries->begin(), entries->end(),
-            [](const FileEntry& left, const FileEntry& right) {
-              if (left.directory != right.directory) {
-                return left.directory && !right.directory;
-              }
-              return CompareNamesIgnoreCase(left.name, right.name) < 0;
-            });
+      [](const FileEntry& left, const FileEntry& right) {
+        if (left.directory != right.directory) {
+          return left.directory && !right.directory;
+        }
+        return CompareNamesIgnoreCase(left.name, right.name) < 0;
+      });
   return true;
 }
 
@@ -529,16 +525,16 @@ void FormatSize(uint64_t bytes, char* output, size_t output_size) {
   }
   if (bytes >= 1024ULL * 1024ULL * 1024ULL) {
     std::snprintf(output, output_size, "%.2f GB",
-                  static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0));
+        static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0));
   } else if (bytes >= 1024ULL * 1024ULL) {
     std::snprintf(output, output_size, "%.1f MB",
-                  static_cast<double>(bytes) / (1024.0 * 1024.0));
+        static_cast<double>(bytes) / (1024.0 * 1024.0));
   } else if (bytes >= 1024ULL) {
-    std::snprintf(output, output_size, "%.1f KB",
-                  static_cast<double>(bytes) / 1024.0);
+    std::snprintf(
+        output, output_size, "%.1f KB", static_cast<double>(bytes) / 1024.0);
   } else {
-    std::snprintf(output, output_size, "%llu B",
-                  static_cast<unsigned long long>(bytes));
+    std::snprintf(
+        output, output_size, "%llu B", static_cast<unsigned long long>(bytes));
   }
 }
 
@@ -549,8 +545,8 @@ void FormatSize(uint64_t bytes, char* output, size_t output_size) {
  * @param output_size 输出缓冲区大小
  * @return 读取成功返回 true，否则返回 false
  */
-bool ReadStorageSummary(const char* base_path, char* output,
-                        size_t output_size) {
+bool ReadStorageSummary(
+    const char* base_path, char* output, size_t output_size) {
   if (base_path == nullptr || output == nullptr || output_size == 0) {
     return false;
   }
@@ -598,18 +594,18 @@ bool ReadInternalStorageSummary(char* output, size_t output_size) {
  * @param output 输出缓冲区
  * @param output_size 输出缓冲区大小
  */
-void FormatItemCount(size_t count, bool truncated, char* output,
-                     size_t output_size) {
+void FormatItemCount(
+    size_t count, bool truncated, char* output, size_t output_size) {
   if (output == nullptr || output_size == 0) {
     return;
   }
   if (truncated) {
-    std::snprintf(output, output_size, "%u+ items",
-                  static_cast<unsigned>(count));
+    std::snprintf(
+        output, output_size, "%u+ items", static_cast<unsigned>(count));
     return;
   }
   std::snprintf(output, output_size, "%u %s", static_cast<unsigned>(count),
-                count == 1 ? "item" : "items");
+      count == 1 ? "item" : "items");
 }
 
 /**
@@ -636,8 +632,8 @@ void SetHeader(FilesViewState* state, const char* title, const char* subtitle) {
     lv_label_set_text(state->title_label, title == nullptr ? "" : title);
   }
   if (state->subtitle_label != nullptr) {
-    lv_label_set_text(state->subtitle_label,
-                      subtitle == nullptr ? "" : subtitle);
+    lv_label_set_text(
+        state->subtitle_label, subtitle == nullptr ? "" : subtitle);
   }
 }
 
@@ -687,8 +683,7 @@ void PathClickedEventCallback(lv_event_t* event) {
  * @return 下一个面包屑项的起始 X 坐标
  */
 int CreateBreadcrumbItem(lv_obj_t* parent, FilesViewState* state,
-                         const char* text, const std::string& path, int x,
-                         bool current) {
+    const char* text, const std::string& path, int x, bool current) {
   lv_obj_t* item = current ? lv_obj_create(parent) : lv_button_create(parent);
   if (item == nullptr) {
     return x;
@@ -700,22 +695,21 @@ int CreateBreadcrumbItem(lv_obj_t* parent, FilesViewState* state,
   lv_obj_set_pos(item, x, 0);
   lv_obj_set_height(item, kBreadcrumbHeight);
   if (!current) {
-    lv_obj_set_style_bg_color(item, lv_color_hex(theme::ActiveThemeColors().state_layer),
-                              LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(item,
+        lv_color_hex(theme::ActiveThemeColors().state_layer), LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(item, LV_OPA_COVER, LV_STATE_PRESSED);
     lv_obj_set_style_radius(item, 20, LV_STATE_PRESSED);
     auto* context = new PathClickContext{
         .state = state,
         .path = path,
     };
-    lv_obj_add_event_cb(item, PathClickedEventCallback, LV_EVENT_CLICKED,
-                        context);
-    lv_obj_add_event_cb(item, PathClickContextDeleteCallback, LV_EVENT_DELETE,
-                        context);
+    lv_obj_add_event_cb(
+        item, PathClickedEventCallback, LV_EVENT_CLICKED, context);
+    lv_obj_add_event_cb(
+        item, PathClickContextDeleteCallback, LV_EVENT_DELETE, context);
   }
 
-  lv_obj_t* label = CreateLabel(
-      item, text,
+  lv_obj_t* label = CreateLabel(item, text,
       lv_color_hex(current ? theme::ActiveThemeColors().on_surface
                            : theme::ActiveThemeColors().on_surface_variant),
       Font24());
@@ -742,8 +736,8 @@ int CreateBreadcrumbItem(lv_obj_t* parent, FilesViewState* state,
  * @param base_path 存储根路径
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateBreadcrumbBar(lv_obj_t* parent, FilesViewState* state,
-                         const std::string& base_path) {
+bool CreateBreadcrumbBar(
+    lv_obj_t* parent, FilesViewState* state, const std::string& base_path) {
   if (state == nullptr || state->current_path.empty()) {
     return false;
   }
@@ -781,8 +775,8 @@ bool CreateBreadcrumbBar(lv_obj_t* parent, FilesViewState* state,
     const std::string part = relative.substr(
         start, slash == std::string::npos ? std::string::npos : slash - start);
     if (!part.empty()) {
-      lv_obj_t* separator = CreateMaterialIcon(
-          bar, icon::kChevronRight, lv_color_hex(theme::ActiveThemeColors().on_surface_variant));
+      lv_obj_t* separator = CreateMaterialIcon(bar, icon::kChevronRight,
+          lv_color_hex(theme::ActiveThemeColors().on_surface_variant));
       if (separator != nullptr) {
         lv_obj_set_pos(separator, x, 8);
       }
@@ -815,9 +809,9 @@ const char* EntryIcon(const FileEntry& entry) {
   }
   std::string extension = entry.name.substr(dot + 1);
   std::transform(extension.begin(), extension.end(), extension.begin(),
-                 [](unsigned char value) {
-                   return static_cast<char>(std::tolower(value));
-                 });
+      [](unsigned char value) {
+        return static_cast<char>(std::tolower(value));
+      });
   if (extension == "jpg" || extension == "jpeg" || extension == "png" ||
       extension == "bmp" || extension == "gif") {
     return icon::kImage;
@@ -839,7 +833,7 @@ const char* EntryIcon(const FileEntry& entry) {
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateFileRow(lv_obj_t* parent, FilesViewState* state,
-                   const FileEntry& entry, int y, int width) {
+    const FileEntry& entry, int y, int width) {
   lv_obj_t* row =
       entry.directory ? lv_button_create(parent) : lv_obj_create(parent);
   if (row == nullptr) {
@@ -854,8 +848,8 @@ bool CreateFileRow(lv_obj_t* parent, FilesViewState* state,
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
 
   if (entry.directory && state != nullptr) {
-    lv_obj_set_style_bg_color(row, lv_color_hex(theme::ActiveThemeColors().state_layer),
-                              LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(row,
+        lv_color_hex(theme::ActiveThemeColors().state_layer), LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
     if (!AddPressCancelOnLeave(row)) {
       lv_obj_delete(row);
@@ -865,10 +859,10 @@ bool CreateFileRow(lv_obj_t* parent, FilesViewState* state,
         .state = state,
         .path = JoinPath(state->current_path, entry.name.c_str()),
     };
-    lv_obj_add_event_cb(row, PathClickedEventCallback, LV_EVENT_CLICKED,
-                        context);
-    lv_obj_add_event_cb(row, PathClickContextDeleteCallback, LV_EVENT_DELETE,
-                        context);
+    lv_obj_add_event_cb(
+        row, PathClickedEventCallback, LV_EVENT_CLICKED, context);
+    lv_obj_add_event_cb(
+        row, PathClickContextDeleteCallback, LV_EVENT_DELETE, context);
   }
 
   lv_obj_t* icon_label = CreateMaterialIcon(row, EntryIcon(entry),
@@ -880,8 +874,8 @@ bool CreateFileRow(lv_obj_t* parent, FilesViewState* state,
   lv_obj_t* name_label = CreateLabel(row, entry.name.c_str(),
       lv_color_hex(theme::ActiveThemeColors().on_surface), Font28());
   if (name_label != nullptr) {
-    lv_obj_set_size(name_label, width - kStorageRowTextX - 32,
-                    kStorageNameHeight);
+    lv_obj_set_size(
+        name_label, width - kStorageRowTextX - 32, kStorageNameHeight);
     lv_label_set_long_mode(name_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_align(name_label, LV_ALIGN_TOP_LEFT, kStorageRowTextX, 12);
   }
@@ -892,12 +886,11 @@ bool CreateFileRow(lv_obj_t* parent, FilesViewState* state,
   } else {
     FormatSize(entry.size, description, sizeof(description));
   }
-  lv_obj_t* description_label = CreateLabel(
-      row, description,
+  lv_obj_t* description_label = CreateLabel(row, description,
       lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font22());
   if (description_label != nullptr) {
     lv_obj_set_size(description_label, width - kStorageRowTextX - 32,
-                    kStorageDescriptionHeight);
+        kStorageDescriptionHeight);
     lv_label_set_long_mode(description_label, LV_LABEL_LONG_DOT);
     lv_obj_align(description_label, LV_ALIGN_TOP_LEFT, kStorageRowTextX, 50);
   }
@@ -908,8 +901,8 @@ bool CreateFileRow(lv_obj_t* parent, FilesViewState* state,
     lv_obj_remove_flag(divider, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_size(divider, width - kStorageRowTextX - 28, 1);
     lv_obj_align(divider, LV_ALIGN_BOTTOM_RIGHT, -28, 0);
-    lv_obj_set_style_bg_color(
-        divider, lv_color_hex(theme::ActiveThemeColors().outline_variant), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(divider,
+        lv_color_hex(theme::ActiveThemeColors().outline_variant), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(divider, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(divider, 0, LV_PART_MAIN);
@@ -952,7 +945,7 @@ bool CreateEmptyDirectoryContent(lv_obj_t* parent, FilesViewState* state) {
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateStorageListContent(lv_obj_t* parent, FilesViewState* state,
-                              const std::vector<FileEntry>& entries) {
+    const std::vector<FileEntry>& entries) {
   if (state == nullptr) {
     return false;
   }
@@ -975,8 +968,7 @@ bool CreateStorageListContent(lv_obj_t* parent, FilesViewState* state,
   const int picker_reserved_height =
       state->folder_picker_mode ? kFolderPickerActionHeight : 0;
   lv_obj_set_size(list, state->config.width,
-                  state->config.height - kStorageListTop -
-                      picker_reserved_height);
+      state->config.height - kStorageListTop - picker_reserved_height);
   lv_obj_set_pos(list, 0, kStorageListTop);
   lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_ACTIVE);
   lv_obj_set_scroll_dir(list, LV_DIR_VER);
@@ -1000,8 +992,8 @@ bool CreateStorageListContent(lv_obj_t* parent, FilesViewState* state,
  * @param state 文件管理页面状态
  * @param portrait_offset_y 竖屏时相对内容中心的纵向偏移
  */
-void PositionFilesStatusGroup(lv_obj_t* group, FilesViewState* state,
-    int portrait_offset_y) {
+void PositionFilesStatusGroup(
+    lv_obj_t* group, FilesViewState* state, int portrait_offset_y) {
   if (group == nullptr || state == nullptr || state->content == nullptr) {
     return;
   }
@@ -1019,8 +1011,7 @@ void PositionFilesStatusGroup(lv_obj_t* group, FilesViewState* state,
     lv_obj_get_coords(state->subtitle_label, &subtitle_area);
     lv_obj_get_coords(state->content, &content_area);
     group_top = static_cast<int>(subtitle_area.y2) -
-                static_cast<int>(content_area.y1) + 1 +
-                kStatusGroupTopGap;
+                static_cast<int>(content_area.y1) + 1 + kStatusGroupTopGap;
   }
   lv_obj_set_pos(group, 0, std::max(0, group_top));
 }
@@ -1103,15 +1094,15 @@ bool RenderDirectoryContent(FilesViewState* state, const std::string& path) {
   bool truncated = false;
   if (!ReadDirectoryEntries(path, &entries, &truncated)) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-               "Unable to read directory: %s\n", path.c_str());
+        "Unable to read directory: %s\n", path.c_str());
     return false;
   }
 
   state->current_path = path;
   ClearContent(state);
   char item_count_text[32] = {};
-  FormatItemCount(entries.size(), truncated, item_count_text,
-                  sizeof(item_count_text));
+  FormatItemCount(
+      entries.size(), truncated, item_count_text, sizeof(item_count_text));
   SetHeader(state, FilesHeaderTitle(state), item_count_text);
   if (!CreateStorageListContent(state->content, state, entries)) {
     return false;
@@ -1219,14 +1210,12 @@ bool RefreshUsbStorageSnapshot(FilesViewState* state) {
   const bool changed =
       snapshot.generation != state->usb_storage_snapshot.generation;
   if (!changed) {
-    state->usb_storage_snapshot.monitor_running =
-        snapshot.monitor_running;
+    state->usb_storage_snapshot.monitor_running = snapshot.monitor_running;
     state->usb_storage_snapshot.start_failed = snapshot.start_failed;
     return false;
   }
 
-  const uint32_t selected_device_id =
-      state->selected_usb_storage_id;
+  const uint32_t selected_device_id = state->selected_usb_storage_id;
   state->usb_storage_snapshot = snapshot;
   if (IsUsbStorageSelected(state) &&
       FindUsbStorageDevice(state, selected_device_id) == nullptr) {
@@ -1294,8 +1283,7 @@ void StorageRetryTimerCallback(lv_timer_t* timer) {
     state->storage_missing_checks = 0;
     const char* base_path = state->config.storage->SdCardBasePath();
     if (IsSdCardSelected(state) && base_path != nullptr &&
-        base_path[0] != '\0' &&
-        RenderDirectoryContent(state, base_path)) {
+        base_path[0] != '\0' && RenderDirectoryContent(state, base_path)) {
       StopStorageDiscovery(state);
       if (IsNavigationDrawerOpen(&state->drawer)) {
         RebuildStorageDrawerContent(state);
@@ -1415,8 +1403,7 @@ void DrawerSdCardClickedEventCallback(lv_event_t* event) {
 
 void UsbStorageClickContextDeletedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_DELETE) {
-    delete static_cast<UsbStorageClickContext*>(
-        lv_event_get_user_data(event));
+    delete static_cast<UsbStorageClickContext*>(lv_event_get_user_data(event));
   }
 }
 
@@ -1424,8 +1411,8 @@ void DrawerUsbStorageClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  const auto* context = static_cast<const UsbStorageClickContext*>(
-      lv_event_get_user_data(event));
+  const auto* context =
+      static_cast<const UsbStorageClickContext*>(lv_event_get_user_data(event));
   if (context == nullptr || context->state == nullptr) {
     return;
   }
@@ -1482,10 +1469,8 @@ void DrawerInternalStorageClickedEventCallback(lv_event_t* event) {
  * @return 创建成功返回存储设备行对象，否则返回 nullptr
  */
 lv_obj_t* CreateStorageDrawerItem(lv_obj_t* parent, int drawer_width,
-                                  const char* title, const char* subtitle,
-                                  const char* symbol, int y, bool selected,
-                                  lv_event_cb_t callback,
-                                  void* callback_context) {
+    const char* title, const char* subtitle, const char* symbol, int y,
+    bool selected, lv_event_cb_t callback, void* callback_context) {
   lv_obj_t* row = lv_button_create(parent);
   if (row == nullptr) {
     return nullptr;
@@ -1497,16 +1482,14 @@ lv_obj_t* CreateStorageDrawerItem(lv_obj_t* parent, int drawer_width,
   lv_obj_set_size(row, drawer_width - 24, 104);
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_color(row,
-      lv_color_hex(selected
-              ? theme::FixedColors().action_container_pressed
-              : theme::ActiveThemeColors().surface),
+      lv_color_hex(selected ? theme::FixedColors().action_container_pressed
+                            : theme::ActiveThemeColors().surface),
       LV_PART_MAIN);
   lv_obj_set_style_bg_opa(
       row, selected ? LV_OPA_COVER : LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_bg_color(row,
-      lv_color_hex(selected
-              ? theme::FixedColors().action_container_pressed
-              : theme::ActiveThemeColors().state_layer),
+      lv_color_hex(selected ? theme::FixedColors().action_container_pressed
+                            : theme::ActiveThemeColors().state_layer),
       LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_radius(row, selected ? 52 : 0, LV_PART_MAIN);
@@ -1515,8 +1498,7 @@ lv_obj_t* CreateStorageDrawerItem(lv_obj_t* parent, int drawer_width,
     lv_obj_delete(row);
     return nullptr;
   }
-  lv_obj_add_event_cb(
-      row, callback, LV_EVENT_CLICKED, callback_context);
+  lv_obj_add_event_cb(row, callback, LV_EVENT_CLICKED, callback_context);
 
   lv_obj_t* left_cap = lv_obj_create(row);
   if (left_cap != nullptr) {
@@ -1526,46 +1508,41 @@ lv_obj_t* CreateStorageDrawerItem(lv_obj_t* parent, int drawer_width,
     lv_obj_set_size(left_cap, 52, 104);
     lv_obj_set_pos(left_cap, 0, 0);
     lv_obj_set_style_bg_color(left_cap,
-        lv_color_hex(selected
-                ? theme::FixedColors().action_container_pressed
-                : theme::ActiveThemeColors().surface),
+        lv_color_hex(selected ? theme::FixedColors().action_container_pressed
+                              : theme::ActiveThemeColors().surface),
         LV_PART_MAIN);
     lv_obj_set_style_bg_opa(
         left_cap, selected ? LV_OPA_COVER : LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_bg_color(left_cap,
-        lv_color_hex(selected
-                ? theme::FixedColors().action_container_pressed
-                : theme::ActiveThemeColors().state_layer),
+        lv_color_hex(selected ? theme::FixedColors().action_container_pressed
+                              : theme::ActiveThemeColors().state_layer),
         LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(left_cap, LV_OPA_COVER, LV_STATE_PRESSED);
     lv_obj_set_style_radius(left_cap, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(left_cap, 0, LV_STATE_PRESSED);
   }
 
-  const uint32_t content_color = selected
-      ? theme::FixedColors().action
-      : theme::ActiveThemeColors().on_surface_variant;
-  lv_obj_t* icon_label = CreateMaterialIcon(
-      row, symbol, lv_color_hex(content_color));
+  const uint32_t content_color =
+      selected ? theme::FixedColors().action
+               : theme::ActiveThemeColors().on_surface_variant;
+  lv_obj_t* icon_label =
+      CreateMaterialIcon(row, symbol, lv_color_hex(content_color));
   if (icon_label != nullptr) {
     lv_obj_align(icon_label, LV_ALIGN_LEFT_MID, 28, 0);
   }
-  lv_obj_t* title_label =
-      CreateLabel(row, title,
-          lv_color_hex(selected ? theme::FixedColors().action
-                                : theme::ActiveThemeColors().on_surface),
-          Font28());
+  lv_obj_t* title_label = CreateLabel(row, title,
+      lv_color_hex(selected ? theme::FixedColors().action
+                            : theme::ActiveThemeColors().on_surface),
+      Font28());
   if (title_label != nullptr) {
     lv_obj_set_width(title_label, drawer_width - 142);
     lv_label_set_long_mode(title_label, LV_LABEL_LONG_DOT);
     lv_obj_align(title_label, LV_ALIGN_TOP_LEFT, 88, 18);
   }
-  lv_obj_t* subtitle_label =
-      CreateLabel(row, subtitle,
-          lv_color_hex(selected
-                  ? theme::FixedColors().action
-                  : theme::ActiveThemeColors().on_surface_variant),
-          Font22());
+  lv_obj_t* subtitle_label = CreateLabel(row, subtitle,
+      lv_color_hex(selected ? theme::FixedColors().action
+                            : theme::ActiveThemeColors().on_surface_variant),
+      Font22());
   if (subtitle_label != nullptr) {
     lv_obj_set_width(subtitle_label, drawer_width - 142);
     lv_label_set_long_mode(subtitle_label, LV_LABEL_LONG_DOT);
@@ -1585,9 +1562,7 @@ lv_obj_t* CreateStorageDrawerItem(lv_obj_t* parent, int drawer_width,
  * @return 创建成功返回存储设备行对象，否则返回 nullptr
  */
 lv_obj_t* CreateStorageStateDrawerItem(lv_obj_t* parent, int drawer_width,
-                                       const char* title,
-                                       const char* subtitle,
-                                       const char* symbol, int y) {
+    const char* title, const char* subtitle, const char* symbol, int y) {
   lv_obj_t* row = lv_obj_create(parent);
   if (row == nullptr) {
     return nullptr;
@@ -1597,8 +1572,8 @@ lv_obj_t* CreateStorageStateDrawerItem(lv_obj_t* parent, int drawer_width,
   lv_obj_set_size(row, drawer_width, 104);
   lv_obj_set_pos(row, 0, y);
 
-  lv_obj_t* icon_label = CreateMaterialIcon(row, symbol,
-      lv_color_hex(theme::ActiveThemeColors().on_surface_variant));
+  lv_obj_t* icon_label = CreateMaterialIcon(
+      row, symbol, lv_color_hex(theme::ActiveThemeColors().on_surface_variant));
   if (icon_label != nullptr) {
     lv_obj_align(icon_label, LV_ALIGN_LEFT_MID, 28, 0);
   }
@@ -1640,8 +1615,8 @@ void RebuildStorageDrawerContent(FilesViewState* state) {
     char internal_summary[64] = {};
     if (!ReadInternalStorageSummary(
             internal_summary, sizeof(internal_summary))) {
-      std::snprintf(internal_summary, sizeof(internal_summary),
-          "Internal storage");
+      std::snprintf(
+          internal_summary, sizeof(internal_summary), "Internal storage");
     }
     CreateStorageDrawerItem(drawer, drawer_width, "Internal storage",
         internal_summary, icon::kStorage, drawer_y,
@@ -1658,50 +1633,45 @@ void RebuildStorageDrawerContent(FilesViewState* state) {
   if (mounted) {
     char storage_summary[64] = {};
     const char* base_path = state->config.storage->SdCardBasePath();
-    if (base_path == nullptr ||
-        !ReadStorageSummary(
-            base_path, storage_summary, sizeof(storage_summary))) {
+    if (base_path == nullptr || !ReadStorageSummary(base_path, storage_summary,
+                                    sizeof(storage_summary))) {
       std::snprintf(storage_summary, sizeof(storage_summary), "SD card");
     }
-    CreateStorageDrawerItem(drawer, drawer_width, "SD Card",
-        storage_summary, icon::kSdStorage, drawer_y,
-        IsSdCardSelected(state), DrawerSdCardClickedEventCallback, state);
+    CreateStorageDrawerItem(drawer, drawer_width, "SD Card", storage_summary,
+        icon::kSdStorage, drawer_y, IsSdCardSelected(state),
+        DrawerSdCardClickedEventCallback, state);
   } else {
     const char* storage_state =
-        state->storage_retry_timer != nullptr
-            ? "Scanning..."
-            : "Not connected";
-    CreateStorageDrawerItem(drawer, drawer_width, "SD Card",
-        storage_state, icon::kSdStorage, drawer_y,
-        IsSdCardSelected(state), DrawerSdCardClickedEventCallback, state);
+        state->storage_retry_timer != nullptr ? "Scanning..." : "Not connected";
+    CreateStorageDrawerItem(drawer, drawer_width, "SD Card", storage_state,
+        icon::kSdStorage, drawer_y, IsSdCardSelected(state),
+        DrawerSdCardClickedEventCallback, state);
   }
   drawer_y += 116;
 
-  for (size_t index = 0;
-      index < state->usb_storage_snapshot.device_count; ++index) {
+  for (size_t index = 0; index < state->usb_storage_snapshot.device_count;
+      ++index) {
     const hal::UsbStorageDeviceInfo& device =
         state->usb_storage_snapshot.devices[index];
     char storage_summary[64] = {};
     if (!ReadStorageSummary(
             device.base_path, storage_summary, sizeof(storage_summary))) {
-      std::snprintf(
-          storage_summary, sizeof(storage_summary), "USB storage");
+      std::snprintf(storage_summary, sizeof(storage_summary), "USB storage");
     }
 
     auto* click_context = new UsbStorageClickContext{
         .state = state,
         .device_id = device.id,
     };
-    lv_obj_t* row = CreateStorageDrawerItem(drawer, drawer_width,
-        device.name, storage_summary, icon::kUsb, drawer_y,
+    lv_obj_t* row = CreateStorageDrawerItem(drawer, drawer_width, device.name,
+        storage_summary, icon::kUsb, drawer_y,
         IsUsbStorageSelected(state) &&
             state->selected_usb_storage_id == device.id,
         DrawerUsbStorageClickedEventCallback, click_context);
     if (row == nullptr) {
       delete click_context;
     } else {
-      lv_obj_add_event_cb(row,
-          UsbStorageClickContextDeletedEventCallback,
+      lv_obj_add_event_cb(row, UsbStorageClickContextDeletedEventCallback,
           LV_EVENT_DELETE, click_context);
     }
     drawer_y += 116;
@@ -1709,8 +1679,8 @@ void RebuildStorageDrawerContent(FilesViewState* state) {
 
   CreateNavigationDrawerDivider(&state->drawer, drawer_y);
   drawer_y += 18;
-  CreateNavigationDrawerItem(&state->drawer, icon::kSettings, "Settings",
-      drawer_y, nullptr, state);
+  CreateNavigationDrawerItem(
+      &state->drawer, icon::kSettings, "Settings", drawer_y, nullptr, state);
 
   lv_obj_update_layout(drawer);
   lv_obj_scroll_to_y(drawer, scroll_y, LV_ANIM_OFF);
@@ -1739,8 +1709,8 @@ void ShowDrawer(FilesViewState* state) {
   drawer_config.title_font = Font36();
   drawer_config.item_font = Font28();
   drawer_config.icon_font = FilesFillIconFont44();
-  lv_obj_t* drawer = OpenNavigationDrawer(
-      state->root, &state->drawer, drawer_config);
+  lv_obj_t* drawer =
+      OpenNavigationDrawer(state->root, &state->drawer, drawer_config);
   if (drawer == nullptr) {
     return;
   }
@@ -1763,8 +1733,7 @@ void MenuButtonClickedEventCallback(lv_event_t* event) {
  * @param animation LVGL 动画对象
  */
 void FolderPickerCloseCompletedCallback(lv_anim_t* animation) {
-  auto* state = static_cast<FilesViewState*>(
-      lv_anim_get_user_data(animation));
+  auto* state = static_cast<FilesViewState*>(lv_anim_get_user_data(animation));
   if (state == nullptr || state->root == nullptr) {
     return;
   }
@@ -1782,8 +1751,8 @@ void CloseFolderPicker(FilesViewState* state) {
   }
   state->folder_picker_closing = true;
   if (!StartSlideRightWindowTransition(state->root, state->config.width,
-      state->picker_config.animation_ms, state,
-      FolderPickerCloseCompletedCallback)) {
+          state->picker_config.animation_ms, state,
+          FolderPickerCloseCompletedCallback)) {
     const auto closed_callback = state->picker_config.closed_callback;
     lv_obj_delete(state->root);
     if (closed_callback) {
@@ -1832,27 +1801,24 @@ void FolderPickerConfirmClickedEventCallback(lv_event_t* event) {
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateFolderPickerAction(lv_obj_t* parent, FilesViewState* state) {
-  if (parent == nullptr || state == nullptr ||
-      !state->folder_picker_mode) {
+  if (parent == nullptr || state == nullptr || !state->folder_picker_mode) {
     return true;
   }
   lv_obj_t* button = lv_button_create(parent);
   if (button == nullptr) {
     return false;
   }
-  lv_obj_set_size(button, state->config.width - 56,
-                  kFolderPickerButtonHeight);
+  lv_obj_set_size(button, state->config.width - 56, kFolderPickerButtonHeight);
   lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, -15);
-  lv_obj_set_style_radius(button, kFolderPickerButtonHeight / 2,
-                          LV_PART_MAIN);
+  lv_obj_set_style_radius(button, kFolderPickerButtonHeight / 2, LV_PART_MAIN);
   const uint32_t action_color = state->picker_config.action_color == 0
-      ? theme::FixedColors().action
-      : state->picker_config.action_color;
-  const uint32_t action_text_color = state->picker_config.action_text_color == 0
-      ? theme::FixedColors().on_action
-      : state->picker_config.action_text_color;
-  lv_obj_set_style_bg_color(
-      button, lv_color_hex(action_color), LV_PART_MAIN);
+                                    ? theme::FixedColors().action
+                                    : state->picker_config.action_color;
+  const uint32_t action_text_color =
+      state->picker_config.action_text_color == 0
+          ? theme::FixedColors().on_action
+          : state->picker_config.action_text_color;
+  lv_obj_set_style_bg_color(button, lv_color_hex(action_color), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
@@ -1860,8 +1826,8 @@ bool CreateFolderPickerAction(lv_obj_t* parent, FilesViewState* state) {
     lv_obj_delete(button);
     return false;
   }
-  lv_obj_add_event_cb(button, FolderPickerConfirmClickedEventCallback,
-                      LV_EVENT_CLICKED, state);
+  lv_obj_add_event_cb(
+      button, FolderPickerConfirmClickedEventCallback, LV_EVENT_CLICKED, state);
   const char* text = state->picker_config.action_text == nullptr
                          ? "Use this folder"
                          : state->picker_config.action_text;
@@ -1906,16 +1872,15 @@ bool CreateHeader(lv_obj_t* parent, FilesViewState* state) {
     lv_obj_align(back_icon, LV_ALIGN_CENTER, -4, 0);
   } else {
     lv_obj_set_style_bg_opa(menu, LV_OPA_TRANSP, LV_STATE_PRESSED);
-    lv_obj_align(menu, LV_ALIGN_TOP_LEFT, kHeaderSidePadding - 8,
-                 kHeaderTop - 2);
+    lv_obj_align(
+        menu, LV_ALIGN_TOP_LEFT, kHeaderSidePadding - 8, kHeaderTop - 2);
   }
   lv_obj_add_event_cb(menu,
       state->folder_picker_mode ? FolderPickerBackClickedEventCallback
                                 : MenuButtonClickedEventCallback,
       LV_EVENT_CLICKED, state);
-  lv_obj_t* title =
-      CreateLabel(parent, FilesHeaderTitle(state),
-                  lv_color_hex(theme::ActiveThemeColors().on_surface), Font36());
+  lv_obj_t* title = CreateLabel(parent, FilesHeaderTitle(state),
+      lv_color_hex(theme::ActiveThemeColors().on_surface), Font36());
   if (title == nullptr) {
     return false;
   }
@@ -1968,14 +1933,13 @@ bool HandleFilesBackNavigation(FilesViewState* state) {
  * @param picker_config 文件夹选择配置，普通文件管理传入 nullptr
  * @return 创建成功返回页面根对象，否则返回 nullptr
  */
-lv_obj_t* CreateFilesViewInternal(lv_obj_t* parent,
-    const AppViewConfig& config,
+lv_obj_t* CreateFilesViewInternal(lv_obj_t* parent, const AppViewConfig& config,
     const FolderPickerViewConfig* picker_config) {
   if (parent == nullptr || config.width <= 0 || config.height <= 0) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-               "CreateFilesView received invalid input, parent=%p, width=%d, "
-               "height=%d\n",
-               parent, config.width, config.height);
+        "CreateFilesView received invalid input, parent=%p, width=%d, "
+        "height=%d\n",
+        parent, config.width, config.height);
     return nullptr;
   }
 
@@ -1994,7 +1958,8 @@ lv_obj_t* CreateFilesViewInternal(lv_obj_t* parent,
   state->root = root;
   lv_obj_set_size(root, config.width, config.height);
   lv_obj_align(root, LV_ALIGN_CENTER, 0, 0);
-  lv_obj_set_style_bg_color(root, lv_color_hex(theme::ActiveThemeColors().surface), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      root, lv_color_hex(theme::ActiveThemeColors().surface), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(root, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(root, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(root, 0, LV_PART_MAIN);
@@ -2044,9 +2009,8 @@ lv_obj_t* CreateFilesViewInternal(lv_obj_t* parent,
     lv_obj_delete(root);
     return nullptr;
   }
-  if (!RegisterConditionalBackNavigationHandler(root, [state]() {
-        return HandleFilesBackNavigation(state);
-      })) {
+  if (!RegisterConditionalBackNavigationHandler(
+          root, [state]() { return HandleFilesBackNavigation(state); })) {
     lv_obj_delete(root);
     return nullptr;
   }
@@ -2057,8 +2021,7 @@ lv_obj_t* CreateFilesViewInternal(lv_obj_t* parent,
 
   if (config.storage != nullptr && !state->folder_picker_mode) {
     config.storage->StartUsbStorage();
-    config.storage->ReadUsbStorageSnapshot(
-        &state->usb_storage_snapshot);
+    config.storage->ReadUsbStorageSnapshot(&state->usb_storage_snapshot);
   }
   StartStorageDiscovery(state);
   StartStorageMonitor(state);
@@ -2066,15 +2029,15 @@ lv_obj_t* CreateFilesViewInternal(lv_obj_t* parent,
 }
 
 lv_obj_t* CreateFilesView(lv_obj_t* parent, const app::AppEntry& app_entry,
-                          const AppViewConfig& config) {
+    const AppViewConfig& config) {
   static_cast<void>(app_entry);
   return CreateFilesViewInternal(parent, config, nullptr);
 }
 
 lv_obj_t* CreateFolderPickerView(
     lv_obj_t* parent, const FolderPickerViewConfig& config) {
-  lv_obj_t* picker = CreateFilesViewInternal(
-      parent, config.view_config, &config);
+  lv_obj_t* picker =
+      CreateFilesViewInternal(parent, config.view_config, &config);
   if (picker != nullptr) {
     StartSlideLeftWindowTransition(picker, config.view_config.width,
         config.animation_ms, nullptr, nullptr);

@@ -2,7 +2,7 @@
  * @Description: 系统音量快捷浮层实现
  * @Author: LILYGO_L
  * @Date: 2026-08-17 00:00:00
- * @LastEditTime: 2026-08-17 00:00:00
+ * @LastEditTime: 2026-09-02 17:54:59
  * @License: GPL 3.0
  */
 #include "ui/widgets/volume_overlay.h"
@@ -33,8 +33,8 @@ constexpr uint32_t kInputMonitorIntervalMs = 20;
 
 }  // namespace
 
-bool VolumeOverlay::Show(lv_obj_t* parent, int screen_width,
-    int screen_height, int volume_percent, VolumeChangeCallback callback) {
+bool VolumeOverlay::Show(lv_obj_t* parent, int screen_width, int screen_height,
+    int volume_percent, VolumeChangeCallback callback) {
   if (parent == nullptr || screen_width <= 0 || screen_height <= 0 ||
       !callback) {
     return false;
@@ -85,8 +85,7 @@ bool VolumeOverlay::Create(lv_obj_t* parent) {
   lv_obj_remove_style_all(panel_);
   lv_obj_remove_flag(panel_, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(panel_, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_event_cb(
-      panel_, PanelDeletedEventCallback, LV_EVENT_DELETE, this);
+  lv_obj_add_event_cb(panel_, PanelDeletedEventCallback, LV_EVENT_DELETE, this);
 
   slider_ = lv_slider_create(panel_);
   if (slider_ == nullptr) {
@@ -109,14 +108,11 @@ bool VolumeOverlay::Create(lv_obj_t* parent) {
   lv_obj_set_style_bg_opa(slider_, LV_OPA_COVER, LV_PART_INDICATOR);
   lv_obj_set_style_radius(slider_, 0, LV_PART_INDICATOR);
   lv_obj_set_style_bg_opa(slider_, LV_OPA_TRANSP, LV_PART_KNOB);
-  lv_obj_add_event_cb(
-      slider_, SliderEventCallback, LV_EVENT_PRESSED, this);
+  lv_obj_add_event_cb(slider_, SliderEventCallback, LV_EVENT_PRESSED, this);
   lv_obj_add_event_cb(
       slider_, SliderEventCallback, LV_EVENT_VALUE_CHANGED, this);
-  lv_obj_add_event_cb(
-      slider_, SliderEventCallback, LV_EVENT_RELEASED, this);
-  lv_obj_add_event_cb(
-      slider_, SliderEventCallback, LV_EVENT_PRESS_LOST, this);
+  lv_obj_add_event_cb(slider_, SliderEventCallback, LV_EVENT_RELEASED, this);
+  lv_obj_add_event_cb(slider_, SliderEventCallback, LV_EVENT_PRESS_LOST, this);
 
   icon_label_ = lv_label_create(panel_);
   if (icon_label_ == nullptr) {
@@ -127,10 +123,9 @@ bool VolumeOverlay::Create(lv_obj_t* parent) {
   lv_obj_set_style_text_font(
       icon_label_, &lvgl_font_material_symbols_fill_56, LV_PART_MAIN);
   lv_obj_set_style_text_align(icon_label_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-  lv_obj_add_event_cb(
-      icon_label_, IconEventCallback, LV_EVENT_CLICKED, this);
-  input_monitor_timer_ = lv_timer_create(
-      InputMonitorTimerCallback, kInputMonitorIntervalMs, this);
+  lv_obj_add_event_cb(icon_label_, IconEventCallback, LV_EVENT_CLICKED, this);
+  input_monitor_timer_ =
+      lv_timer_create(InputMonitorTimerCallback, kInputMonitorIntervalMs, this);
   if (input_monitor_timer_ == nullptr) {
     Reset();
     return false;
@@ -161,10 +156,9 @@ bool VolumeOverlay::ApplyVolume(int volume_percent, bool commit) {
 void VolumeOverlay::UpdateLayout(int screen_width, int screen_height) {
   screen_width_ = screen_width;
   screen_height_ = screen_height;
-  panel_width_ = std::clamp(screen_width_ / 7,
-      kPanelMinWidth, kPanelMaxWidth);
-  panel_height_ = std::clamp(screen_height_ * 33 / 100,
-      kPanelMinHeight, kPanelMaxHeight);
+  panel_width_ = std::clamp(screen_width_ / 7, kPanelMinWidth, kPanelMaxWidth);
+  panel_height_ =
+      std::clamp(screen_height_ * 33 / 100, kPanelMinHeight, kPanelMaxHeight);
   const int edge_margin = std::max(26, screen_width_ / 24);
   const int top = std::max(kPanelMinimumTop, screen_height_ / 8);
   visible_x_ = screen_width_ - panel_width_ - edge_margin;
@@ -199,8 +193,8 @@ void VolumeOverlay::UpdateVisuals() {
   if (!visual_state_initialized_ || icon_on_fill != icon_on_fill_visual_) {
     lv_obj_set_style_text_color(icon_label_,
         lv_color_hex(icon_on_fill
-                ? theme::ActiveThemeColors().on_surface_variant
-                : theme::ActiveThemeColors().on_surface),
+                         ? theme::ActiveThemeColors().on_surface_variant
+                         : theme::ActiveThemeColors().on_surface),
         LV_PART_MAIN);
     icon_on_fill_visual_ = icon_on_fill;
   }
@@ -244,8 +238,7 @@ void VolumeOverlay::StartShowAnimation() {
 }
 
 void VolumeOverlay::StartHideAnimation() {
-  if (panel_ == nullptr ||
-      lv_obj_has_flag(panel_, LV_OBJ_FLAG_HIDDEN)) {
+  if (panel_ == nullptr || lv_obj_has_flag(panel_, LV_OBJ_FLAG_HIDDEN)) {
     return;
   }
   if (auto_hide_timer_ != nullptr) {
@@ -299,7 +292,7 @@ void VolumeOverlay::HandlePointerInput() {
   lv_area_t panel_area;
   lv_obj_get_coords(panel_, &panel_area);
   for (lv_indev_t* input = lv_indev_get_next(nullptr); input != nullptr;
-       input = lv_indev_get_next(input)) {
+      input = lv_indev_get_next(input)) {
     if (lv_indev_get_type(input) != LV_INDEV_TYPE_POINTER ||
         lv_indev_get_state(input) != LV_INDEV_STATE_PRESSED) {
       continue;
@@ -320,31 +313,28 @@ void VolumeOverlay::HandlePointerInput() {
 }
 
 void VolumeOverlay::HandleIconClick() {
-  const int target_percent = volume_percent_ == 0
-      ? last_nonzero_volume_percent_ : 0;
+  const int target_percent =
+      volume_percent_ == 0 ? last_nonzero_volume_percent_ : 0;
   ApplyVolume(target_percent, true);
   RestartAutoHideTimer();
 }
 
 void VolumeOverlay::SliderEventCallback(lv_event_t* event) {
-  auto* self =
-      static_cast<VolumeOverlay*>(lv_event_get_user_data(event));
+  auto* self = static_cast<VolumeOverlay*>(lv_event_get_user_data(event));
   if (self != nullptr) {
     self->HandleSliderEvent(event);
   }
 }
 
 void VolumeOverlay::IconEventCallback(lv_event_t* event) {
-  auto* self =
-      static_cast<VolumeOverlay*>(lv_event_get_user_data(event));
+  auto* self = static_cast<VolumeOverlay*>(lv_event_get_user_data(event));
   if (self != nullptr && lv_event_get_code(event) == LV_EVENT_CLICKED) {
     self->HandleIconClick();
   }
 }
 
 void VolumeOverlay::PanelDeletedEventCallback(lv_event_t* event) {
-  auto* self =
-      static_cast<VolumeOverlay*>(lv_event_get_user_data(event));
+  auto* self = static_cast<VolumeOverlay*>(lv_event_get_user_data(event));
   if (self == nullptr) {
     return;
   }
@@ -378,8 +368,7 @@ void VolumeOverlay::InputMonitorTimerCallback(lv_timer_t* timer) {
 }
 
 void VolumeOverlay::HideAnimationCompletedCallback(lv_anim_t* animation) {
-  auto* self =
-      static_cast<VolumeOverlay*>(lv_anim_get_user_data(animation));
+  auto* self = static_cast<VolumeOverlay*>(lv_anim_get_user_data(animation));
   if (self != nullptr && self->panel_ != nullptr) {
     lv_obj_add_flag(self->panel_, LV_OBJ_FLAG_HIDDEN);
   }

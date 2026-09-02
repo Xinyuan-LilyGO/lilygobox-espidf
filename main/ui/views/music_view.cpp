@@ -2,7 +2,7 @@
  * @Description: 音乐应用视图
  * @Author: LILYGO_L
  * @Date: 2026-07-08 00:00:00
- * @LastEditTime: 2026-07-22 20:04:14
+ * @LastEditTime: 2026-09-02 17:54:38
  * @License: GPL 3.0
  */
 #include "ui/views/music_view.h"
@@ -252,8 +252,7 @@ bool PlayAdjacentMusicTrack(MusicPlaybackSession* session, int direction);
  * @param session 音乐播放会话
  * @return 当前曲目地址，没有选中曲目时返回 nullptr
  */
-const app::MusicTrack* CurrentMusicTrack(
-    const MusicPlaybackSession* session);
+const app::MusicTrack* CurrentMusicTrack(const MusicPlaybackSession* session);
 
 /**
  * @brief 更新播放状态以及两个播放按钮的图标
@@ -392,10 +391,9 @@ void UpdateMusicCurrentTime(MusicViewState* state, int32_t value) {
   }
   value = std::clamp<int32_t>(value, 0, 100);
   const app::MusicTrack* track = CurrentMusicTrack(state->session);
-  const int duration_seconds = track == nullptr
-                                   ? kDefaultTrackDurationSeconds
-                                   : static_cast<int>(
-                                         track->duration_ms / 1000U);
+  const int duration_seconds =
+      track == nullptr ? kDefaultTrackDurationSeconds
+                       : static_cast<int>(track->duration_ms / 1000U);
   const int current_seconds = duration_seconds * value / 100;
   SetMusicTimeLabel(state->current_time_label, current_seconds);
 }
@@ -466,11 +464,12 @@ void DrawFilledRect(lv_layer_t* layer, int32_t x1, int32_t y1, int32_t x2,
  * @param color 颜色
  * @param mirrored 是否水平镜像
  */
-void DrawPlayTriangle(lv_layer_t* layer, const lv_area_t& area,
-    lv_color_t color, bool mirrored) {
+void DrawPlayTriangle(
+    lv_layer_t* layer, const lv_area_t& area, lv_color_t color, bool mirrored) {
   const int32_t width = lv_area_get_width(&area);
   const int32_t height = lv_area_get_height(&area);
-  const int32_t optical_offset = mirrored ? -(width * 5 / 100) : width * 5 / 100;
+  const int32_t optical_offset =
+      mirrored ? -(width * 5 / 100) : width * 5 / 100;
   const int32_t center_x = area.x1 + width / 2 + optical_offset;
   const int32_t center_y = area.y1 + height / 2;
   const int32_t triangle_width = width * 32 / 100;
@@ -509,8 +508,8 @@ void DrawPlayTriangle(lv_layer_t* layer, const lv_area_t& area,
  * @param color 颜色
  * @param mirrored 是否水平镜像为上一首
  */
-void DrawSkipControlIcon(lv_layer_t* layer, const lv_area_t& area,
-    lv_color_t color, bool mirrored) {
+void DrawSkipControlIcon(
+    lv_layer_t* layer, const lv_area_t& area, lv_color_t color, bool mirrored) {
   const int32_t width = lv_area_get_width(&area);
   const int32_t height = lv_area_get_height(&area);
   const int32_t center_x = area.x1 + width / 2;
@@ -537,8 +536,8 @@ void DrawSkipControlIcon(lv_layer_t* layer, const lv_area_t& area,
   }
 
   DrawPlayTriangle(layer, triangle_area, color, mirrored);
-  DrawFilledRect(layer, bar_x, center_y - bar_height / 2,
-      bar_x + bar_width, center_y + bar_height / 2, LV_RADIUS_CIRCLE, color);
+  DrawFilledRect(layer, bar_x, center_y - bar_height / 2, bar_x + bar_width,
+      center_y + bar_height / 2, LV_RADIUS_CIRCLE, color);
 }
 
 /**
@@ -622,22 +621,23 @@ void MusicProgressDrawEventCallback(lv_event_t* event) {
       pressed ? kProgressThumbPressedWidth : kProgressThumbNormalWidth;
   const int32_t thumb_height =
       pressed ? kProgressThumbPressedHeight : kProgressSliderHeight;
-  const int32_t thumb_x = area.x1 +
-      std::clamp<int32_t>(
-          value * (width - thumb_width) / 100, 0, width - thumb_width);
+  const int32_t thumb_x =
+      area.x1 + std::clamp<int32_t>(value * (width - thumb_width) / 100, 0,
+                    width - thumb_width);
   const int32_t thumb_top = center_y - thumb_height / 2;
   const int32_t thumb_bottom = thumb_top + thumb_height - 1;
   const int32_t mask_left =
       std::clamp<int32_t>(thumb_x - mask_side_padding, area.x1, area.x2);
-  const int32_t mask_right =
-      std::clamp<int32_t>(
-          thumb_x + thumb_width - 1 + mask_side_padding, area.x1, area.x2);
+  const int32_t mask_right = std::clamp<int32_t>(
+      thumb_x + thumb_width - 1 + mask_side_padding, area.x1, area.x2);
   const int32_t progress_right =
       std::clamp<int32_t>(mask_left + progress_overlap, area.x1, thumb_x);
   lv_layer_t* layer = lv_event_get_layer(event);
   const lv_color_t progress_color = lv_color_hex(kPrimaryColor);
-  const lv_color_t track_color = lv_color_hex(theme::ActiveThemeColors().primary_container);
-  const lv_color_t mask_color = lv_color_hex(theme::ActiveThemeColors().surface_container_low);
+  const lv_color_t track_color =
+      lv_color_hex(theme::ActiveThemeColors().primary_container);
+  const lv_color_t mask_color =
+      lv_color_hex(theme::ActiveThemeColors().surface_container_low);
 
   DrawFilledRect(layer, area.x1, track_top, area.x2, track_bottom,
       kProgressBarHeight / 2, track_color);
@@ -665,11 +665,10 @@ void MusicProgressInputEventCallback(lv_event_t* event) {
     if (state != nullptr) {
       const app::MusicTrack* track = CurrentMusicTrack(state->session);
       if (state->session != nullptr && state->session->audio != nullptr &&
-          track != nullptr &&
-          track->duration_ms > 0) {
-        const uint32_t position_ms = static_cast<uint32_t>(
-            static_cast<uint64_t>(track->duration_ms) *
-            lv_slider_get_value(slider) / 100U);
+          track != nullptr && track->duration_ms > 0) {
+        const uint32_t position_ms =
+            static_cast<uint32_t>(static_cast<uint64_t>(track->duration_ms) *
+                                  lv_slider_get_value(slider) / 100U);
         state->session->audio->SeekAudioFile(position_ms);
       }
       state->seeking = false;
@@ -698,8 +697,7 @@ void MusicProgressInputEventCallback(lv_event_t* event) {
   lv_indev_get_point(indev, &point);
 
   const int32_t width = std::max<int32_t>(1, lv_area_get_width(&area));
-  const int32_t clamped_x =
-      std::clamp<int32_t>(point.x - area.x1, 0, width);
+  const int32_t clamped_x = std::clamp<int32_t>(point.x - area.x1, 0, width);
   const int32_t value = clamped_x * 100 / width;
   lv_slider_set_value(slider, value, LV_ANIM_OFF);
   UpdateMusicCurrentTime(state, value);
@@ -729,7 +727,8 @@ void PlayerCloseCompletedCallback(lv_anim_t* animation) {
     state->config.set_status_bar_visible(true);
   }
   if (state->config.set_status_bar_text_color) {
-    state->config.set_status_bar_text_color(theme::ActiveThemeColors().on_surface);
+    state->config.set_status_bar_text_color(
+        theme::ActiveThemeColors().on_surface);
   }
 }
 
@@ -780,8 +779,7 @@ void UpdatePlayButton(MusicViewState* state, bool animated) {
   lv_anim_init(&animation);
   lv_anim_set_var(&animation, state->play_button);
   lv_anim_set_values(&animation,
-      lv_obj_get_style_radius(state->play_button, LV_PART_MAIN),
-      target_radius);
+      lv_obj_get_style_radius(state->play_button, LV_PART_MAIN), target_radius);
   lv_anim_set_duration(&animation, kPlayToggleAnimationMs);
   lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
   lv_anim_set_exec_cb(&animation, SetObjectRadius);
@@ -861,8 +859,7 @@ void NextTrackClickedEventCallback(lv_event_t* event) {
   lv_event_stop_bubbling(event);
 }
 
-const app::MusicTrack* CurrentMusicTrack(
-    const MusicPlaybackSession* session) {
+const app::MusicTrack* CurrentMusicTrack(const MusicPlaybackSession* session) {
   if (session == nullptr || session->current_track < 0 ||
       session->current_track >= static_cast<int>(session->tracks.size())) {
     return nullptr;
@@ -892,8 +889,8 @@ void UpdateCurrentTrackLabels(MusicViewState* state) {
   if (state->player_artist_label != nullptr) {
     lv_label_set_text(state->player_artist_label, track->artist.c_str());
   }
-  SetMusicTimeLabel(state->total_time_label,
-      static_cast<int>(track->duration_ms / 1000U));
+  SetMusicTimeLabel(
+      state->total_time_label, static_cast<int>(track->duration_ms / 1000U));
 }
 
 /**
@@ -913,9 +910,9 @@ void SetMiniPlayerVisible(MusicViewState* state, bool visible) {
     }
   }
   if (state->library_content != nullptr) {
-    lv_obj_set_height(state->library_content,
-        state->config.height - kMusicLibraryTop -
-            (visible ? kMiniPlayerHeight : 0));
+    lv_obj_set_height(
+        state->library_content, state->config.height - kMusicLibraryTop -
+                                    (visible ? kMiniPlayerHeight : 0));
   }
 }
 
@@ -1080,17 +1077,16 @@ void PlayerBackClickedEventCallback(lv_event_t* event) {
  * @param color 背景颜色
  * @return 创建成功返回按钮对象，否则返回 nullptr
  */
-lv_obj_t* CreatePlayerControlButton(
-    lv_obj_t* parent, MusicControlIcon icon, int size, uint32_t background_color,
-    uint32_t icon_color) {
+lv_obj_t* CreatePlayerControlButton(lv_obj_t* parent, MusicControlIcon icon,
+    int size, uint32_t background_color, uint32_t icon_color) {
   lv_obj_t* button = lv_button_create(parent);
   if (button == nullptr) {
     return nullptr;
   }
   lv_obj_set_size(button, size, size);
   lv_obj_set_style_radius(button, size / 2, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(button, lv_color_hex(background_color),
-      LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      button, lv_color_hex(background_color), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
@@ -1115,15 +1111,14 @@ lv_obj_t* CreateArtwork(lv_obj_t* parent, int size, int radius) {
   lv_obj_remove_flag(artwork, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(artwork, size, size);
   lv_obj_set_style_radius(artwork, radius, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      artwork, lv_color_hex(theme::ActiveThemeColors().primary_container), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(artwork,
+      lv_color_hex(theme::ActiveThemeColors().primary_container), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(artwork, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(artwork, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(artwork, 0, LV_PART_MAIN);
 
-  lv_obj_t* icon_label =
-      CreateLabel(artwork, icon::kMusic, lv_color_hex(kPrimaryColor),
-          MaterialFillIconFont56());
+  lv_obj_t* icon_label = CreateLabel(artwork, icon::kMusic,
+      lv_color_hex(kPrimaryColor), MaterialFillIconFont56());
   if (icon_label != nullptr) {
     lv_obj_center(icon_label);
   }
@@ -1136,7 +1131,8 @@ lv_obj_t* CreateArtwork(lv_obj_t* parent, int size, int radius) {
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreatePlayerPage(MusicViewState* state) {
-  if (state == nullptr || state->root == nullptr || state->player_page != nullptr) {
+  if (state == nullptr || state->root == nullptr ||
+      state->player_page != nullptr) {
     return false;
   }
 
@@ -1148,7 +1144,8 @@ bool CreatePlayerPage(MusicViewState* state) {
   lv_obj_add_flag(page, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(page, state->config.width, state->config.height);
-  lv_obj_set_style_bg_color(page, lv_color_hex(theme::ActiveThemeColors().surface_container_low),
+  lv_obj_set_style_bg_color(page,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_low),
       LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
@@ -1158,7 +1155,8 @@ bool CreatePlayerPage(MusicViewState* state) {
     state->config.set_status_bar_visible(true);
   }
   if (state->config.set_status_bar_text_color) {
-    state->config.set_status_bar_text_color(theme::ActiveThemeColors().on_surface);
+    state->config.set_status_bar_text_color(
+        theme::ActiveThemeColors().on_surface);
   }
 
   lv_obj_t* close_button = CreateFlatButton(page);
@@ -1169,10 +1167,9 @@ bool CreatePlayerPage(MusicViewState* state) {
   lv_obj_align(close_button, LV_ALIGN_TOP_LEFT, 14, 56);
   lv_obj_add_event_cb(
       close_button, PlayerBackClickedEventCallback, LV_EVENT_CLICKED, state);
-  lv_obj_t* close_label =
-      CreateLabel(close_button, icon::kKeyboardArrowDown,
-          lv_color_hex(theme::ActiveThemeColors().on_surface),
-          MaterialOutlineIconFont56());
+  lv_obj_t* close_label = CreateLabel(close_button, icon::kKeyboardArrowDown,
+      lv_color_hex(theme::ActiveThemeColors().on_surface),
+      MaterialOutlineIconFont56());
   if (close_label != nullptr) {
     lv_obj_center(close_label);
   }
@@ -1189,10 +1186,8 @@ bool CreatePlayerPage(MusicViewState* state) {
   }
 
   const bool landscape_layout = state->config.width > state->config.height;
-  const bool compact_portrait =
-      !landscape_layout && state->config.height < 700;
-  const bool compact_landscape =
-      landscape_layout && state->config.height < 600;
+  const bool compact_portrait = !landscape_layout && state->config.height < 700;
+  const bool compact_landscape = landscape_layout && state->config.height < 600;
   const lv_font_t* title_font = compact_portrait ? Font28() : Font36();
   const lv_font_t* artist_font = compact_portrait ? Font24() : Font28();
   const int title_height =
@@ -1228,52 +1223,47 @@ bool CreatePlayerPage(MusicViewState* state) {
                                 ? kPlayerLandscapeCompactContentTop
                                 : kPlayerLandscapeRegularContentTop;
     const int available_width = state->config.width -
-        2 * kPlayerLandscapeSideMargin - kPlayerLandscapeColumnGap;
-    const int artwork_column_width = available_width *
-        kPlayerLandscapeArtworkWidthPercent / 100;
+                                2 * kPlayerLandscapeSideMargin -
+                                kPlayerLandscapeColumnGap;
+    const int artwork_column_width =
+        available_width * kPlayerLandscapeArtworkWidthPercent / 100;
     artwork_size = std::min(artwork_column_width,
-        state->config.height - content_top -
-            kPlayerLandscapeBottomMargin);
+        state->config.height - content_top - kPlayerLandscapeBottomMargin);
     artwork_size = std::max(1, artwork_size);
-    artwork_x = kPlayerLandscapeSideMargin +
-        (artwork_column_width - artwork_size) / 2;
-    artwork_y = content_top +
-        (state->config.height - content_top -
-            kPlayerLandscapeBottomMargin - artwork_size) / 2;
+    artwork_x =
+        kPlayerLandscapeSideMargin + (artwork_column_width - artwork_size) / 2;
+    artwork_y = content_top + (state->config.height - content_top -
+                                  kPlayerLandscapeBottomMargin - artwork_size) /
+                                  2;
     text_x = artwork_x + artwork_size + kPlayerLandscapeColumnGap;
     text_width = state->config.width - kPlayerLandscapeSideMargin - text_x;
     title_y = content_top +
-        (compact_landscape ? 8 : kPlayerLandscapeDetailsTopOffset);
+              (compact_landscape ? 8 : kPlayerLandscapeDetailsTopOffset);
     artist_y = title_y + title_height + 10;
-    track_y = artist_y + artist_height +
-        (compact_landscape ? 20 : 36) +
-        kPlayerLandscapeProgressDownOffset;
+    track_y = artist_y + artist_height + (compact_landscape ? 20 : 36) +
+              kPlayerLandscapeProgressDownOffset;
     time_y = track_y + 60;
 
-    control_gap = compact_landscape
-                      ? kPlayerLandscapeCompactControlGap
-                      : kPlayerLandscapeRegularControlGap;
-    const int desired_control_center_y =
-        time_y + kPlayerLandscapeControlRowGap;
+    control_gap = compact_landscape ? kPlayerLandscapeCompactControlGap
+                                    : kPlayerLandscapeRegularControlGap;
+    const int desired_control_center_y = time_y + kPlayerLandscapeControlRowGap;
     const int maximum_control_center_y = state->config.height -
-        kPlayerLandscapeBottomMargin - play_button_size / 2;
+                                         kPlayerLandscapeBottomMargin -
+                                         play_button_size / 2;
     control_center_y =
         std::min(desired_control_center_y, maximum_control_center_y);
     play_button_x = text_x + (text_width - play_button_size) / 2;
-    previous_button_x =
-        play_button_x - control_gap - side_button_size;
+    previous_button_x = play_button_x - control_gap - side_button_size;
     next_button_x = play_button_x + play_button_size + control_gap;
-    mode_button_x =
-        previous_button_x - control_gap - mode_button_size;
+    mode_button_x = previous_button_x - control_gap - mode_button_size;
   } else {
-    artwork_size = compact_portrait
-        ? std::min(state->config.width / 3, state->config.height / 3)
-        : std::min(state->config.width - 64, state->config.height / 2);
+    artwork_size =
+        compact_portrait
+            ? std::min(state->config.width / 3, state->config.height / 3)
+            : std::min(state->config.width - 64, state->config.height / 2);
     artwork_y = compact_portrait ? 124 : 164;
-    title_y = artwork_y + artwork_size +
-        (compact_portrait ? 12 : 34);
-    artist_y = title_y + title_height +
-        (compact_portrait ? 8 : 12);
+    title_y = artwork_y + artwork_size + (compact_portrait ? 12 : 34);
+    artist_y = title_y + title_height + (compact_portrait ? 8 : 12);
     track_y = title_y + (compact_portrait ? 74 : 142);
     time_y = track_y + 60;
   }
@@ -1281,8 +1271,7 @@ bool CreatePlayerPage(MusicViewState* state) {
   lv_obj_t* artwork = CreateArtwork(page, artwork_size, 26);
   if (artwork != nullptr) {
     if (landscape_layout) {
-      lv_obj_align(
-          artwork, LV_ALIGN_TOP_LEFT, artwork_x, artwork_y);
+      lv_obj_align(artwork, LV_ALIGN_TOP_LEFT, artwork_x, artwork_y);
     } else {
       lv_obj_align(artwork, LV_ALIGN_TOP_MID, 0, artwork_y);
     }
@@ -1291,20 +1280,16 @@ bool CreatePlayerPage(MusicViewState* state) {
   state->player_title_label = CreateLabel(page, "Unknown Track",
       lv_color_hex(theme::ActiveThemeColors().on_surface), title_font);
   if (state->player_title_label != nullptr) {
-    lv_obj_set_size(state->player_title_label,
-        text_width, title_height);
+    lv_obj_set_size(state->player_title_label, text_width, title_height);
     lv_label_set_long_mode(
         state->player_title_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_align(
-        state->player_title_label, LV_ALIGN_TOP_LEFT, text_x, title_y);
+    lv_obj_align(state->player_title_label, LV_ALIGN_TOP_LEFT, text_x, title_y);
   }
   state->player_artist_label = CreateLabel(page, "Unknown Artist",
-      lv_color_hex(theme::ActiveThemeColors().on_surface_variant),
-      artist_font);
+      lv_color_hex(theme::ActiveThemeColors().on_surface_variant), artist_font);
   if (state->player_artist_label != nullptr &&
       state->player_title_label != nullptr) {
-    lv_obj_set_size(state->player_artist_label,
-        text_width, artist_height);
+    lv_obj_set_size(state->player_artist_label, text_width, artist_height);
     lv_label_set_long_mode(
         state->player_artist_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_align(
@@ -1344,37 +1329,34 @@ bool CreatePlayerPage(MusicViewState* state) {
   state->current_time_label = CreateLabel(page, "0:00",
       lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font24());
   if (state->current_time_label != nullptr) {
-    lv_obj_align(state->current_time_label, LV_ALIGN_TOP_LEFT, text_x,
-        time_y);
+    lv_obj_align(state->current_time_label, LV_ALIGN_TOP_LEFT, text_x, time_y);
     UpdateMusicCurrentTime(state, 0);
   }
   state->total_time_label = CreateLabel(page, "0:00",
       lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font24());
   if (state->total_time_label != nullptr) {
-    const int right_margin =
-        state->config.width - text_x - text_width;
-    lv_obj_align(state->total_time_label, LV_ALIGN_TOP_RIGHT, -right_margin,
-        time_y);
+    const int right_margin = state->config.width - text_x - text_width;
+    lv_obj_align(
+        state->total_time_label, LV_ALIGN_TOP_RIGHT, -right_margin, time_y);
     const app::MusicTrack* track = CurrentMusicTrack(state->session);
     SetMusicTimeLabel(state->total_time_label,
-        track == nullptr
-            ? kDefaultTrackDurationSeconds
-            : static_cast<int>(track->duration_ms / 1000U));
+        track == nullptr ? kDefaultTrackDurationSeconds
+                         : static_cast<int>(track->duration_ms / 1000U));
   }
 
-  lv_obj_t* previous =
-      CreatePlayerControlButton(page, MusicControlIcon::kSkipPrevious,
-          side_button_size, theme::ActiveThemeColors().primary_container, kPrimaryColor);
+  lv_obj_t* previous = CreatePlayerControlButton(page,
+      MusicControlIcon::kSkipPrevious, side_button_size,
+      theme::ActiveThemeColors().primary_container, kPrimaryColor);
   if (previous != nullptr) {
     if (landscape_layout) {
-      lv_obj_set_pos(previous, previous_button_x,
-          control_center_y - side_button_size / 2);
+      lv_obj_set_pos(
+          previous, previous_button_x, control_center_y - side_button_size / 2);
     } else {
       lv_obj_align(previous, LV_ALIGN_BOTTOM_MID, -side_control_offset,
           side_control_bottom);
     }
-    lv_obj_add_event_cb(previous, PreviousTrackClickedEventCallback,
-        LV_EVENT_CLICKED, state);
+    lv_obj_add_event_cb(
+        previous, PreviousTrackClickedEventCallback, LV_EVENT_CLICKED, state);
   }
 
   lv_obj_t* playback_mode_button =
@@ -1386,82 +1368,76 @@ bool CreatePlayerPage(MusicViewState* state) {
     MakeTransparent(playback_mode_button);
     lv_obj_remove_flag(playback_mode_button, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(playback_mode_button, LV_OBJ_FLAG_CLICK_FOCUSABLE);
-    lv_obj_set_size(
-        playback_mode_button, mode_button_size, mode_button_size);
+    lv_obj_set_size(playback_mode_button, mode_button_size, mode_button_size);
     if (landscape_layout) {
       lv_obj_set_pos(playback_mode_button, mode_button_x,
           control_center_y - mode_button_size / 2);
     } else {
-      lv_obj_align_to(playback_mode_button, previous, LV_ALIGN_OUT_LEFT_MID,
-          -20, 0);
+      lv_obj_align_to(
+          playback_mode_button, previous, LV_ALIGN_OUT_LEFT_MID, -20, 0);
     }
     lv_obj_set_style_radius(
         playback_mode_button, mode_button_size / 2, LV_PART_MAIN);
     lv_obj_set_style_bg_color(playback_mode_button,
-        lv_color_hex(theme::ActiveThemeColors().primary_container), LV_PART_MAIN);
+        lv_color_hex(theme::ActiveThemeColors().primary_container),
+        LV_PART_MAIN);
     lv_obj_set_style_outline_width(playback_mode_button, 0, LV_PART_MAIN);
     lv_obj_set_style_shadow_width(playback_mode_button, 0, LV_PART_MAIN);
     lv_obj_set_style_bg_color(playback_mode_button,
-        lv_color_hex(theme::ActiveThemeColors().primary_container), pressed_selector);
-    lv_obj_set_style_bg_opa(playback_mode_button, LV_OPA_COVER,
+        lv_color_hex(theme::ActiveThemeColors().primary_container),
         pressed_selector);
+    lv_obj_set_style_bg_opa(
+        playback_mode_button, LV_OPA_COVER, pressed_selector);
     lv_obj_set_style_radius(
         playback_mode_button, mode_button_size / 2, pressed_selector);
-    state->playback_mode_label =
-        CreateLabel(playback_mode_button,
-            PlaybackModeIcon(state->session->playback_mode),
-            lv_color_hex(kPrimaryColor), MaterialOutlineIconFont56());
+    state->playback_mode_label = CreateLabel(playback_mode_button,
+        PlaybackModeIcon(state->session->playback_mode),
+        lv_color_hex(kPrimaryColor), MaterialOutlineIconFont56());
     if (state->playback_mode_label != nullptr) {
       lv_obj_center(state->playback_mode_label);
     }
-    lv_obj_add_event_cb(playback_mode_button,
-        PlaybackModeClickedEventCallback, LV_EVENT_CLICKED, state);
-    lv_obj_add_event_cb(playback_mode_button,
-        StopClickBubblingEventCallback, LV_EVENT_ALL, nullptr);
+    lv_obj_add_event_cb(playback_mode_button, PlaybackModeClickedEventCallback,
+        LV_EVENT_CLICKED, state);
+    lv_obj_add_event_cb(playback_mode_button, StopClickBubblingEventCallback,
+        LV_EVENT_ALL, nullptr);
   }
-  state->play_button =
-      CreatePlayerControlButton(
-          page, MusicControlIcon::kPlay, play_button_size,
-          kPrimaryColor, 0xFFFFFF);
+  state->play_button = CreatePlayerControlButton(
+      page, MusicControlIcon::kPlay, play_button_size, kPrimaryColor, 0xFFFFFF);
   if (state->play_button != nullptr) {
     if (landscape_layout) {
       lv_obj_set_pos(state->play_button, play_button_x,
           control_center_y - play_button_size / 2);
     } else {
-      lv_obj_align(
-          state->play_button, LV_ALIGN_BOTTOM_MID, 0, control_bottom);
+      lv_obj_align(state->play_button, LV_ALIGN_BOTTOM_MID, 0, control_bottom);
     }
     lv_obj_remove_event_cb(
         state->play_button, StaticControlIconDrawEventCallback);
-    lv_obj_add_event_cb(
-        state->play_button, PlayButtonDrawEventCallback, LV_EVENT_DRAW_MAIN,
-        state);
-    lv_obj_add_event_cb(
-        state->play_button, PlayButtonClickedEventCallback, LV_EVENT_CLICKED,
-        state);
+    lv_obj_add_event_cb(state->play_button, PlayButtonDrawEventCallback,
+        LV_EVENT_DRAW_MAIN, state);
+    lv_obj_add_event_cb(state->play_button, PlayButtonClickedEventCallback,
+        LV_EVENT_CLICKED, state);
     UpdatePlayButton(state, false);
   }
-  lv_obj_t* next =
-      CreatePlayerControlButton(page, MusicControlIcon::kSkipNext,
-          side_button_size, theme::ActiveThemeColors().primary_container, kPrimaryColor);
+  lv_obj_t* next = CreatePlayerControlButton(page, MusicControlIcon::kSkipNext,
+      side_button_size, theme::ActiveThemeColors().primary_container,
+      kPrimaryColor);
   if (next != nullptr) {
     if (landscape_layout) {
-      lv_obj_set_pos(next, next_button_x,
-          control_center_y - side_button_size / 2);
+      lv_obj_set_pos(
+          next, next_button_x, control_center_y - side_button_size / 2);
     } else {
-      lv_obj_align(next, LV_ALIGN_BOTTOM_MID, side_control_offset,
-          side_control_bottom);
+      lv_obj_align(
+          next, LV_ALIGN_BOTTOM_MID, side_control_offset, side_control_bottom);
     }
-    lv_obj_add_event_cb(next, NextTrackClickedEventCallback,
-        LV_EVENT_CLICKED, state);
+    lv_obj_add_event_cb(
+        next, NextTrackClickedEventCallback, LV_EVENT_CLICKED, state);
   }
 
   UpdateCurrentTrackLabels(state);
 
   StartVerticalSlide(page, state->config.height, 0, state, nullptr);
-  if (!RegisterBackNavigationHandler(page, [state]() {
-        ClosePlayerPage(state);
-      })) {
+  if (!RegisterBackNavigationHandler(
+          page, [state]() { ClosePlayerPage(state); })) {
     ClosePlayerPage(state);
     return false;
   }
@@ -1506,8 +1482,8 @@ void MusicViewDeleteEventCallback(lv_event_t* event) {
  * @param state 音乐页面状态
  * @param portrait_offset_y 竖屏时相对内容中心的纵向偏移
  */
-void PositionMusicStatusGroup(lv_obj_t* group, MusicViewState* state,
-    int portrait_offset_y) {
+void PositionMusicStatusGroup(
+    lv_obj_t* group, MusicViewState* state, int portrait_offset_y) {
   if (group == nullptr || state == nullptr ||
       state->library_content == nullptr) {
     return;
@@ -1526,8 +1502,7 @@ void PositionMusicStatusGroup(lv_obj_t* group, MusicViewState* state,
     lv_obj_get_coords(state->library_status_anchor, &anchor_area);
     lv_obj_get_coords(state->library_content, &content_area);
     group_top = static_cast<int>(anchor_area.y2) -
-                static_cast<int>(content_area.y1) + 1 +
-                kMusicStatusGroupTopGap;
+                static_cast<int>(content_area.y1) + 1 + kMusicStatusGroupTopGap;
   }
   lv_obj_set_pos(group, 0, std::max(0, group_top));
 }
@@ -1592,7 +1567,8 @@ bool CreateMiniPlayer(lv_obj_t* parent, MusicViewState* state) {
   lv_obj_set_size(card, state->config.width, kMiniPlayerHeight);
   lv_obj_align(card, LV_ALIGN_BOTTOM_MID, 0, 0);
   lv_obj_set_style_radius(card, kMiniPlayerRadius, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(card, lv_color_hex(theme::ActiveThemeColors().surface_container_low),
+  lv_obj_set_style_bg_color(card,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_low),
       LV_PART_MAIN);
   lv_obj_set_style_bg_opa(card, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(card, 0, LV_PART_MAIN);
@@ -1608,8 +1584,7 @@ bool CreateMiniPlayer(lv_obj_t* parent, MusicViewState* state) {
   state->mini_title_label = CreateLabel(card, "Unknown Track",
       lv_color_hex(theme::ActiveThemeColors().on_surface), Font24());
   if (state->mini_title_label != nullptr) {
-    lv_obj_set_size(state->mini_title_label,
-        state->config.width - 288,
+    lv_obj_set_size(state->mini_title_label, state->config.width - 288,
         static_cast<int>(lv_font_get_line_height(Font24())));
     lv_label_set_long_mode(
         state->mini_title_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
@@ -1618,8 +1593,7 @@ bool CreateMiniPlayer(lv_obj_t* parent, MusicViewState* state) {
   state->mini_artist_label = CreateLabel(card, "Unknown Artist",
       lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font22());
   if (state->mini_artist_label != nullptr) {
-    lv_obj_set_size(state->mini_artist_label,
-        state->config.width - 288,
+    lv_obj_set_size(state->mini_artist_label, state->config.width - 288,
         static_cast<int>(lv_font_get_line_height(Font22())));
     lv_label_set_long_mode(
         state->mini_artist_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
@@ -1632,17 +1606,18 @@ bool CreateMiniPlayer(lv_obj_t* parent, MusicViewState* state) {
     lv_obj_set_size(play, 62, 62);
     lv_obj_align(play, LV_ALIGN_RIGHT_MID, -88, 0);
     lv_obj_set_style_radius(play, 31, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(play, lv_color_hex(theme::ActiveThemeColors().primary_container),
+    lv_obj_set_style_bg_color(play,
+        lv_color_hex(theme::ActiveThemeColors().primary_container),
         LV_PART_MAIN);
     lv_obj_set_style_bg_opa(play, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_shadow_width(play, 0, LV_PART_MAIN);
     lv_obj_set_style_border_width(play, 0, LV_PART_MAIN);
-    lv_obj_set_style_text_color(play, lv_color_hex(kPrimaryColor),
-        LV_PART_MAIN);
-    lv_obj_add_event_cb(play, PlayButtonDrawEventCallback,
-        LV_EVENT_DRAW_MAIN, state);
-    lv_obj_add_event_cb(play, PlayButtonClickedEventCallback,
-        LV_EVENT_CLICKED, state);
+    lv_obj_set_style_text_color(
+        play, lv_color_hex(kPrimaryColor), LV_PART_MAIN);
+    lv_obj_add_event_cb(
+        play, PlayButtonDrawEventCallback, LV_EVENT_DRAW_MAIN, state);
+    lv_obj_add_event_cb(
+        play, PlayButtonClickedEventCallback, LV_EVENT_CLICKED, state);
     lv_obj_add_event_cb(
         play, StopClickBubblingEventCallback, LV_EVENT_ALL, nullptr);
   }
@@ -1653,18 +1628,18 @@ bool CreateMiniPlayer(lv_obj_t* parent, MusicViewState* state) {
     lv_obj_align(next, LV_ALIGN_RIGHT_MID, 0, 0);
     lv_obj_set_style_radius(next, 31, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(next, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_color(next, lv_color_hex(kPrimaryColor),
-        LV_PART_MAIN);
+    lv_obj_set_style_border_color(
+        next, lv_color_hex(kPrimaryColor), LV_PART_MAIN);
     lv_obj_set_style_border_width(next, 2, LV_PART_MAIN);
     lv_obj_set_style_shadow_width(next, 0, LV_PART_MAIN);
-    lv_obj_set_style_text_color(next, lv_color_hex(kPrimaryColor),
-        LV_PART_MAIN);
+    lv_obj_set_style_text_color(
+        next, lv_color_hex(kPrimaryColor), LV_PART_MAIN);
     lv_obj_add_event_cb(next, StaticControlIconDrawEventCallback,
         LV_EVENT_DRAW_MAIN,
         reinterpret_cast<void*>(
             static_cast<intptr_t>(MusicControlIcon::kSkipNext)));
-    lv_obj_add_event_cb(next, NextTrackClickedEventCallback,
-        LV_EVENT_CLICKED, state);
+    lv_obj_add_event_cb(
+        next, NextTrackClickedEventCallback, LV_EVENT_CLICKED, state);
     lv_obj_add_event_cb(
         next, StopClickBubblingEventCallback, LV_EVENT_ALL, nullptr);
   }
@@ -1730,8 +1705,7 @@ void MusicSourcesRowClickedEventCallback(lv_event_t* event) {
  * @param animation LVGL 动画对象
  */
 void SettingsCloseCompletedCallback(lv_anim_t* animation) {
-  auto* state = static_cast<MusicViewState*>(
-      lv_anim_get_user_data(animation));
+  auto* state = static_cast<MusicViewState*>(lv_anim_get_user_data(animation));
   if (state == nullptr || state->settings_page == nullptr) {
     return;
   }
@@ -1752,8 +1726,8 @@ void CloseMusicSettingsPage(MusicViewState* state) {
   }
   state->settings_closing = true;
   if (!StartSlideRightWindowTransition(state->settings_page,
-      state->config.width, kSettingsAnimationMs, state,
-      SettingsCloseCompletedCallback)) {
+          state->config.width, kSettingsAnimationMs, state,
+          SettingsCloseCompletedCallback)) {
     lv_obj_t* page = state->settings_page;
     state->settings_page = nullptr;
     state->settings_closing = false;
@@ -1779,8 +1753,7 @@ void SettingsBackClickedEventCallback(lv_event_t* event) {
  * @param state 音乐视图状态
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateMusicSourcesSettingRow(
-    lv_obj_t* page, MusicViewState* state) {
+bool CreateMusicSourcesSettingRow(lv_obj_t* page, MusicViewState* state) {
   lv_obj_t* row = lv_button_create(page);
   if (row == nullptr) {
     return false;
@@ -1790,17 +1763,18 @@ bool CreateMusicSourcesSettingRow(
   lv_obj_set_size(row, state->config.width, 120);
   lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 210);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(row, lv_color_hex(theme::ActiveThemeColors().surface_container_low),
-                            LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(row,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_low),
+      LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(row, 0, LV_PART_MAIN);
-  lv_obj_add_event_cb(row, MusicSourcesRowClickedEventCallback,
-                      LV_EVENT_CLICKED, state);
+  lv_obj_add_event_cb(
+      row, MusicSourcesRowClickedEventCallback, LV_EVENT_CLICKED, state);
 
-  lv_obj_t* title = CreateLabel(
-      row, "Music sources", lv_color_hex(theme::ActiveThemeColors().on_surface), Font28());
+  lv_obj_t* title = CreateLabel(row, "Music sources",
+      lv_color_hex(theme::ActiveThemeColors().on_surface), Font28());
   if (title != nullptr) {
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 34, 23);
   }
@@ -1839,20 +1813,20 @@ bool CreateSettingsStyleHeader(lv_obj_t* page, const char* title,
   lv_obj_add_event_cb(back, callback, LV_EVENT_CLICKED, state);
 
   lv_obj_t* back_icon = CreateLabel(back, icon::kArrowBack,
-      lv_color_hex(theme::ActiveThemeColors().on_surface), MaterialOutlineIconFont44());
+      lv_color_hex(theme::ActiveThemeColors().on_surface),
+      MaterialOutlineIconFont44());
   if (back_icon == nullptr) {
     return false;
   }
   lv_obj_align(back_icon, LV_ALIGN_CENTER, -4, 0);
 
-  lv_obj_t* title_label = CreateLabel(
-      page, title, lv_color_hex(theme::ActiveThemeColors().on_surface), Font32());
+  lv_obj_t* title_label = CreateLabel(page, title,
+      lv_color_hex(theme::ActiveThemeColors().on_surface), Font32());
   if (title_label == nullptr) {
     return false;
   }
   lv_obj_set_width(title_label, state->config.width);
-  lv_obj_set_style_text_align(
-      title_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_set_style_text_align(title_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, kNavigationTitleTop);
   return true;
 }
@@ -1931,8 +1905,7 @@ bool RenderMusicSourcesPromptContent(MusicViewState* state);
  * @param context 音乐视图状态
  */
 void RebuildMusicSourcesPromptAsync(void* context) {
-  RenderMusicSourcesPromptContent(
-      static_cast<MusicViewState*>(context));
+  RenderMusicSourcesPromptContent(static_cast<MusicViewState*>(context));
 }
 
 /**
@@ -1949,8 +1922,8 @@ void LoadStoredMusicSources(MusicViewState* state) {
       !app::GetMusicSourcePreferences(preferences.get())) {
     return;
   }
-  const size_t count = std::min<size_t>(
-      kMusicFolderOptionCount, app::kMusicSourceCapacity);
+  const size_t count =
+      std::min<size_t>(kMusicFolderOptionCount, app::kMusicSourceCapacity);
   for (size_t index = 0; index < count; ++index) {
     state->source_paths[index] = preferences->paths[index];
     state->source_enabled[index] = !state->source_paths[index].empty();
@@ -1971,12 +1944,11 @@ bool UpdateStoredMusicSources(const MusicViewState* state) {
   if (preferences == nullptr) {
     return false;
   }
-  const size_t count = std::min<size_t>(
-      kMusicFolderOptionCount, app::kMusicSourceCapacity);
+  const size_t count =
+      std::min<size_t>(kMusicFolderOptionCount, app::kMusicSourceCapacity);
   for (size_t index = 0; index < count; ++index) {
-    std::snprintf(preferences->paths[index],
-        app::kMusicSourcePathCapacity, "%s",
-        state->source_paths[index].c_str());
+    std::snprintf(preferences->paths[index], app::kMusicSourcePathCapacity,
+        "%s", state->source_paths[index].c_str());
   }
   return app::UpdateMusicSourcePreferences(*preferences);
 }
@@ -1990,12 +1962,10 @@ void MusicSourcesPromptSavedCallback(void* context) {
   if (state == nullptr) {
     return;
   }
-  CopyMusicSourceFlags(
-      state->source_enabled, state->draft_source_enabled);
+  CopyMusicSourceFlags(state->source_enabled, state->draft_source_enabled);
   state->source_paths = state->draft_source_paths;
   for (int source = 0; source < kMusicFolderOptionCount; ++source) {
-    state->source_enabled[source] =
-        !state->source_paths[source].empty();
+    state->source_enabled[source] = !state->source_paths[source].empty();
   }
   UpdateStoredMusicSources(state);
   RefreshMusicLibrary(state);
@@ -2009,8 +1979,7 @@ void MusicSourcesPromptRemoveClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  auto* action = static_cast<MusicSourceAction*>(
-      lv_event_get_user_data(event));
+  auto* action = static_cast<MusicSourceAction*>(lv_event_get_user_data(event));
   if (action == nullptr || action->state == nullptr || action->source < 0 ||
       action->source >= kMusicFolderOptionCount) {
     return;
@@ -2062,8 +2031,7 @@ void AddMusicSourcePromptClickedEventCallback(lv_event_t* event) {
     if (RenderMusicSourcesPromptContent(state) &&
         state->sources_dialog.body != nullptr) {
       lv_obj_update_layout(state->sources_dialog.body);
-      lv_obj_scroll_to_y(
-          state->sources_dialog.body, LV_COORD_MAX, LV_ANIM_OFF);
+      lv_obj_scroll_to_y(state->sources_dialog.body, LV_COORD_MAX, LV_ANIM_OFF);
       lv_obj_invalidate(state->sources_dialog.body);
     }
   };
@@ -2093,17 +2061,15 @@ bool CreateMusicSourcesPromptRow(
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
 
-  lv_obj_t* path = CreateLabel(
-      row, state->draft_source_paths[source].c_str(),
+  lv_obj_t* path = CreateLabel(row, state->draft_source_paths[source].c_str(),
       lv_color_hex(theme::ActiveThemeColors().on_surface), Font24());
   if (path != nullptr) {
     lv_obj_set_size(path, state->config.width - 188, 32);
     lv_label_set_long_mode(path, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_align(path, LV_ALIGN_TOP_LEFT, 32, 12);
   }
-  lv_obj_t* detail = CreateLabel(
-      row, "Music search folder", lv_color_hex(theme::ActiveThemeColors().on_surface_variant),
-      Font22());
+  lv_obj_t* detail = CreateLabel(row, "Music search folder",
+      lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font22());
   if (detail != nullptr) {
     lv_obj_align(detail, LV_ALIGN_TOP_LEFT, 32, 47);
   }
@@ -2120,11 +2086,12 @@ bool CreateMusicSourcesPromptRow(
       .source = source,
   };
   lv_obj_add_event_cb(remove, MusicSourcesPromptRemoveClickedEventCallback,
-                      LV_EVENT_CLICKED, action);
-  lv_obj_add_event_cb(remove, MusicSourceActionDeleteEventCallback,
-                      LV_EVENT_DELETE, action);
+      LV_EVENT_CLICKED, action);
+  lv_obj_add_event_cb(
+      remove, MusicSourceActionDeleteEventCallback, LV_EVENT_DELETE, action);
   lv_obj_t* delete_icon = CreateLabel(remove, icon::kDelete,
-      lv_color_hex(theme::ActiveThemeColors().on_surface_variant), MaterialFillIconFont44());
+      lv_color_hex(theme::ActiveThemeColors().on_surface_variant),
+      MaterialFillIconFont44());
   if (delete_icon != nullptr) {
     lv_obj_center(delete_icon);
   }
@@ -2168,8 +2135,7 @@ void MusicTrackClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  auto* action =
-      static_cast<MusicTrackAction*>(lv_event_get_user_data(event));
+  auto* action = static_cast<MusicTrackAction*>(lv_event_get_user_data(event));
   if (action == nullptr || action->state == nullptr) {
     return;
   }
@@ -2184,8 +2150,7 @@ void MusicTrackClickedEventCallback(lv_event_t* event) {
  * @param y 行顶部坐标
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateMusicTrackRow(
-    MusicViewState* state, size_t track_index, int y) {
+bool CreateMusicTrackRow(MusicViewState* state, size_t track_index, int y) {
   if (state == nullptr || state->session == nullptr ||
       state->library_content == nullptr ||
       track_index >= state->session->tracks.size()) {
@@ -2201,7 +2166,8 @@ bool CreateMusicTrackRow(
   lv_obj_set_size(row, state->config.width, kMusicTrackRowHeight);
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(row, lv_color_hex(theme::ActiveThemeColors().state_layer),
+  lv_obj_set_style_bg_color(row,
+      lv_color_hex(theme::ActiveThemeColors().state_layer),
       static_cast<lv_style_selector_t>(LV_PART_MAIN) |
           static_cast<lv_style_selector_t>(LV_STATE_PRESSED));
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER,
@@ -2216,16 +2182,14 @@ bool CreateMusicTrackRow(
   if (artwork != nullptr) {
     lv_obj_align(artwork, LV_ALIGN_LEFT_MID, 24, 0);
   }
-  lv_obj_t* title = CreateLabel(
-      row, track.title.c_str(),
+  lv_obj_t* title = CreateLabel(row, track.title.c_str(),
       lv_color_hex(theme::ActiveThemeColors().on_surface), Font28());
   if (title != nullptr) {
     lv_obj_set_size(title, state->config.width - 140, 34);
     lv_label_set_long_mode(title, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 116, 18);
   }
-  lv_obj_t* artist = CreateLabel(
-      row, track.artist.c_str(),
+  lv_obj_t* artist = CreateLabel(row, track.artist.c_str(),
       lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font22());
   if (artist != nullptr) {
     lv_obj_set_size(artist, state->config.width - 140, 30);
@@ -2237,9 +2201,8 @@ bool CreateMusicTrackRow(
     lv_obj_remove_flag(divider, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(divider, state->config.width - 116, 1);
     lv_obj_align(divider, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
-    lv_obj_set_style_bg_color(
-        divider, lv_color_hex(theme::ActiveThemeColors().outline_variant),
-        LV_PART_MAIN);
+    lv_obj_set_style_bg_color(divider,
+        lv_color_hex(theme::ActiveThemeColors().outline_variant), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(divider, 0, LV_PART_MAIN);
   }
@@ -2249,8 +2212,8 @@ bool CreateMusicTrackRow(
   action->track_index = track_index;
   MusicTrackAction* action_pointer = action.get();
   state->track_actions.push_back(std::move(action));
-  lv_obj_add_event_cb(row, MusicTrackClickedEventCallback,
-      LV_EVENT_CLICKED, action_pointer);
+  lv_obj_add_event_cb(
+      row, MusicTrackClickedEventCallback, LV_EVENT_CLICKED, action_pointer);
   return true;
 }
 
@@ -2273,8 +2236,7 @@ bool RenderMusicLibrary(MusicViewState* state) {
     }
     y += kMusicTrackRowHeight;
   }
-  lv_obj_set_scrollbar_mode(
-      state->library_content, LV_SCROLLBAR_MODE_AUTO);
+  lv_obj_set_scrollbar_mode(state->library_content, LV_SCROLLBAR_MODE_AUTO);
   return true;
 }
 
@@ -2283,16 +2245,14 @@ bool RenderMusicLibrary(MusicViewState* state) {
  * @param context 音乐扫描任务共享状态
  */
 void MusicLibraryScanTaskEntry(void* context) {
-  auto* shared_job =
-      static_cast<std::shared_ptr<MusicScanJob>*>(context);
+  auto* shared_job = static_cast<std::shared_ptr<MusicScanJob>*>(context);
   if (shared_job == nullptr) {
     vTaskDelete(nullptr);
     return;
   }
   std::shared_ptr<MusicScanJob> job = *shared_job;
   delete shared_job;
-  job->success =
-      app::ScanMusicLibrary(job->source_paths, &job->tracks);
+  job->success = app::ScanMusicLibrary(job->source_paths, &job->tracks);
   job->completed.store(true, std::memory_order_release);
   vTaskDelete(nullptr);
 }
@@ -2355,8 +2315,7 @@ bool StartMusicLibraryScan(MusicViewState* state) {
     return false;
   }
   MusicPlaybackSession* session = state->session;
-  if (session->storage == nullptr ||
-      !session->storage->EnsureSdCardMounted()) {
+  if (session->storage == nullptr || !session->storage->EnsureSdCardMounted()) {
     if (session->audio != nullptr) {
       session->audio->StopAudioFile();
     }
@@ -2386,12 +2345,11 @@ bool StartMusicLibraryScan(MusicViewState* state) {
   job->source_paths = std::move(source_paths);
   session->scan_job = job;
 
-  auto* task_context =
-      new (std::nothrow) std::shared_ptr<MusicScanJob>(job);
+  auto* task_context = new (std::nothrow) std::shared_ptr<MusicScanJob>(job);
   if (task_context != nullptr &&
       xTaskCreate(MusicLibraryScanTaskEntry, "music_scan",
-          kMusicScanTaskStackBytes, task_context,
-          kMusicScanTaskPriority, nullptr) == pdPASS) {
+          kMusicScanTaskStackBytes, task_context, kMusicScanTaskPriority,
+          nullptr) == pdPASS) {
     return true;
   }
   delete task_context;
@@ -2467,8 +2425,8 @@ void MusicPlaybackStatusTimerCallback(lv_timer_t* timer) {
     return;
   }
   MusicViewState* state = session->view;
-  const bool storage_mounted = session->storage != nullptr &&
-      session->storage->IsSdCardMounted();
+  const bool storage_mounted =
+      session->storage != nullptr && session->storage->IsSdCardMounted();
   if (session->storage_was_mounted && !storage_mounted) {
     session->storage_was_mounted = false;
     if (state != nullptr) {
@@ -2499,22 +2457,20 @@ void MusicPlaybackStatusTimerCallback(lv_timer_t* timer) {
   if (!session->audio->ReadAudioFileStatus(&status)) {
     return;
   }
-  const uint32_t duration_ms = status.duration_ms == 0
-                                   ? track->duration_ms
-                                   : status.duration_ms;
+  const uint32_t duration_ms =
+      status.duration_ms == 0 ? track->duration_ms : status.duration_ms;
   if (state != nullptr && !state->seeking) {
     const int progress = duration_ms == 0
                              ? 0
-                             : static_cast<int>(std::min<uint64_t>(
-                                   100, static_cast<uint64_t>(
-                                            status.elapsed_ms) * 100 /
-                                            duration_ms));
+                             : static_cast<int>(std::min<uint64_t>(100,
+                                   static_cast<uint64_t>(status.elapsed_ms) *
+                                       100 / duration_ms));
     if (state->progress_slider != nullptr) {
       lv_slider_set_value(state->progress_slider, progress, LV_ANIM_OFF);
       lv_obj_invalidate(state->progress_slider);
     }
-    SetMusicTimeLabel(state->current_time_label,
-        static_cast<int>(status.elapsed_ms / 1000U));
+    SetMusicTimeLabel(
+        state->current_time_label, static_cast<int>(status.elapsed_ms / 1000U));
   }
   if (state != nullptr) {
     SetMusicTimeLabel(
@@ -2575,14 +2531,15 @@ bool CreateMusicSourcesPromptHeader(MusicViewState* state) {
   lv_obj_set_size(add, 62, 62);
   lv_obj_align(add, LV_ALIGN_TOP_RIGHT, -16, kMusicSourcesAddTop);
   lv_obj_set_style_bg_opa(add, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(add, lv_color_hex(theme::ActiveThemeColors().state_layer),
-                            LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(add,
+      lv_color_hex(theme::ActiveThemeColors().state_layer), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(add, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_radius(add, 31, LV_PART_MAIN);
-  lv_obj_add_event_cb(add, AddMusicSourcePromptClickedEventCallback,
-                      LV_EVENT_CLICKED, state);
+  lv_obj_add_event_cb(
+      add, AddMusicSourcePromptClickedEventCallback, LV_EVENT_CLICKED, state);
   lv_obj_t* add_icon = CreateLabel(add, icon::kAdd,
-      lv_color_hex(theme::ActiveThemeColors().on_surface), MaterialOutlineIconFont44());
+      lv_color_hex(theme::ActiveThemeColors().on_surface),
+      MaterialOutlineIconFont44());
   if (add_icon != nullptr) {
     lv_obj_center(add_icon);
   }
@@ -2593,19 +2550,17 @@ bool ShowMusicSourcesPrompt(MusicViewState* state) {
   if (state == nullptr || state->root == nullptr) {
     return false;
   }
-  CopyMusicSourceFlags(
-      state->draft_source_enabled, state->source_enabled);
+  CopyMusicSourceFlags(state->draft_source_enabled, state->source_enabled);
   state->draft_source_paths = state->source_paths;
-  PromptDialogConfig config =
-      CreateMusicPromptConfig(state, "Music sources");
+  PromptDialogConfig config = CreateMusicPromptConfig(state, "Music sources");
   config.confirm_callback = MusicSourcesPromptSavedCallback;
-  lv_obj_t* body = ShowPromptDialog(
-      state->root, &state->sources_dialog, config);
+  lv_obj_t* body =
+      ShowPromptDialog(state->root, &state->sources_dialog, config);
   if (body == nullptr) {
     return false;
   }
-  const int list_height = config.dialog_height - config.action_height -
-                          kMusicSourcesListTop;
+  const int list_height =
+      config.dialog_height - config.action_height - kMusicSourcesListTop;
   lv_obj_set_pos(body, 0, kMusicSourcesListTop);
   lv_obj_set_size(body, config.dialog_width, list_height);
   if (!CreateMusicSourcesPromptHeader(state)) {
@@ -2639,21 +2594,21 @@ bool ShowMusicSettingsPage(MusicViewState* state) {
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(page, state->config.width, state->config.height);
   lv_obj_set_pos(page, 0, 0);
-  lv_obj_set_style_bg_color(page, lv_color_hex(theme::ActiveThemeColors().surface),
-                            LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      page, lv_color_hex(theme::ActiveThemeColors().surface), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
 
   if (!CreateSettingsStyleHeader(
-      page, "Music settings", SettingsBackClickedEventCallback, state)) {
+          page, "Music settings", SettingsBackClickedEventCallback, state)) {
     lv_obj_delete(page);
     state->settings_page = nullptr;
     return false;
   }
-  lv_obj_t* section = CreateLabel(
-      page, "LIBRARY", lv_color_hex(kPrimaryColor), Font22());
+  lv_obj_t* section =
+      CreateLabel(page, "LIBRARY", lv_color_hex(kPrimaryColor), Font22());
   if (section != nullptr) {
     lv_obj_align(section, LV_ALIGN_TOP_LEFT, 28, 164);
   }
@@ -2662,15 +2617,14 @@ bool ShowMusicSettingsPage(MusicViewState* state) {
     state->settings_page = nullptr;
     return false;
   }
-  if (!StartSlideLeftWindowTransition(page, state->config.width,
-      kSettingsAnimationMs, state, nullptr)) {
+  if (!StartSlideLeftWindowTransition(
+          page, state->config.width, kSettingsAnimationMs, state, nullptr)) {
     lv_obj_delete(page);
     state->settings_page = nullptr;
     return false;
   }
-  if (!RegisterBackNavigationHandler(page, [state]() {
-        CloseMusicSettingsPage(state);
-      })) {
+  if (!RegisterBackNavigationHandler(
+          page, [state]() { CloseMusicSettingsPage(state); })) {
     CloseMusicSettingsPage(state);
     return false;
   }
@@ -2730,8 +2684,7 @@ void ShowMusicDrawer(MusicViewState* state) {
   config.title_font = Font36();
   config.item_font = Font28();
   config.icon_font = MaterialFillIconFont44();
-  if (OpenNavigationDrawer(
-      state->root, &state->drawer, config) == nullptr) {
+  if (OpenNavigationDrawer(state->root, &state->drawer, config) == nullptr) {
     return;
   }
 
@@ -2741,8 +2694,8 @@ void ShowMusicDrawer(MusicViewState* state) {
   y += kNavigationDrawerItemHeight + 12;
   CreateNavigationDrawerDivider(&state->drawer, y);
   y += 18;
-  CreateNavigationDrawerItem(&state->drawer, icon::kSettings, "Settings",
-      y, DrawerSettingsClickedEventCallback, state);
+  CreateNavigationDrawerItem(&state->drawer, icon::kSettings, "Settings", y,
+      DrawerSettingsClickedEventCallback, state);
   PresentNavigationDrawer(&state->drawer);
 }
 
@@ -2772,16 +2725,17 @@ bool CreateMusicHeader(lv_obj_t* parent, MusicViewState* state) {
   lv_obj_add_flag(menu, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(menu, 72, 72);
   lv_obj_align(menu, LV_ALIGN_TOP_LEFT, 20, kHeaderTop - 2);
-  lv_obj_add_event_cb(menu, MenuButtonClickedEventCallback,
-                      LV_EVENT_CLICKED, state);
+  lv_obj_add_event_cb(
+      menu, MenuButtonClickedEventCallback, LV_EVENT_CLICKED, state);
   lv_obj_t* menu_icon = CreateLabel(menu, icon::kMenu,
-      lv_color_hex(theme::ActiveThemeColors().on_surface), MaterialFillIconFont56());
+      lv_color_hex(theme::ActiveThemeColors().on_surface),
+      MaterialFillIconFont56());
   if (menu_icon != nullptr) {
     lv_obj_center(menu_icon);
   }
 
-  lv_obj_t* title = CreateLabel(
-      parent, "Music", lv_color_hex(theme::ActiveThemeColors().on_surface), Font36());
+  lv_obj_t* title = CreateLabel(parent, "Music",
+      lv_color_hex(theme::ActiveThemeColors().on_surface), Font36());
   if (title == nullptr) {
     return false;
   }
@@ -2802,8 +2756,8 @@ lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry& app_entry,
   lv_obj_remove_flag(container, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(container, config.width, config.height);
   lv_obj_align(container, LV_ALIGN_CENTER, 0, 0);
-  lv_obj_set_style_bg_color(container, lv_color_hex(theme::ActiveThemeColors().surface),
-      LV_PART_MAIN);
+  lv_obj_set_style_bg_color(container,
+      lv_color_hex(theme::ActiveThemeColors().surface), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(container, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(container, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(container, 0, LV_PART_MAIN);
@@ -2838,8 +2792,8 @@ lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry& app_entry,
     lv_obj_remove_flag(underline, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(underline, 58, 6);
     lv_obj_set_style_radius(underline, 3, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(underline, lv_color_hex(kPrimaryColor),
-        LV_PART_MAIN);
+    lv_obj_set_style_bg_color(
+        underline, lv_color_hex(kPrimaryColor), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(underline, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(underline, 0, LV_PART_MAIN);
     lv_obj_align_to(underline, tab, LV_ALIGN_OUT_BOTTOM_MID, 0, 18);
@@ -2853,12 +2807,11 @@ lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry& app_entry,
   }
   MakeTransparent(state->library_content);
   lv_obj_set_pos(state->library_content, 0, kMusicLibraryTop);
-  lv_obj_set_size(state->library_content, config.width,
-      config.height - kMusicLibraryTop);
+  lv_obj_set_size(
+      state->library_content, config.width, config.height - kMusicLibraryTop);
   lv_obj_set_style_pad_all(state->library_content, 0, LV_PART_MAIN);
   lv_obj_set_scroll_dir(state->library_content, LV_DIR_VER);
-  lv_obj_set_scrollbar_mode(
-      state->library_content, LV_SCROLLBAR_MODE_AUTO);
+  lv_obj_set_scrollbar_mode(state->library_content, LV_SCROLLBAR_MODE_AUTO);
 
   bool content_created = false;
   if (state->session->scan_job != nullptr) {
@@ -2885,9 +2838,9 @@ lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry& app_entry,
   }
 
   if (state->session->status_timer == nullptr) {
-    state->session->status_timer = lv_timer_create(
-        MusicPlaybackStatusTimerCallback, kPlaybackStatusIntervalMs,
-        state->session);
+    state->session->status_timer =
+        lv_timer_create(MusicPlaybackStatusTimerCallback,
+            kPlaybackStatusIntervalMs, state->session);
     if (state->session->status_timer == nullptr) {
       lv_obj_delete(container);
       return nullptr;

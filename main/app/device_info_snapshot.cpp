@@ -2,7 +2,7 @@
  * @Description: 当前设备芯片、内存、软件与外设信息采集实现
  * @Author: LILYGO_L
  * @Date: 2026-05-19 23:20:00
- * @LastEditTime: 2026-05-20 00:10:00
+ * @LastEditTime: 2026-09-02 17:51:01
  * @License: GPL 3.0
  */
 #include "app/device_info_snapshot.h"
@@ -120,7 +120,8 @@ bool ReadRunningImageSize(size_t* image_size) {
   partition.size = running_partition->size;
 
   esp_image_metadata_t metadata = {};
-  const esp_err_t metadata_result = esp_image_get_metadata(&partition, &metadata);
+  const esp_err_t metadata_result =
+      esp_image_get_metadata(&partition, &metadata);
   if (metadata_result != ESP_OK || metadata.image_len == 0) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Read running image metadata failed, result=%d, image_len=%u\n",
@@ -171,7 +172,8 @@ bool ReadCurrentDeviceInfoSnapshot(
       esp_flash_get_size(nullptr, &info->chip.flash_total_bytes);
   if (flash_size_result != ESP_OK) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Read flash size failed, result=%d\n", static_cast<int>(flash_size_result));
+        "Read flash size failed, result=%d\n",
+        static_cast<int>(flash_size_result));
   }
   info->chip.running_image_size_valid =
       ReadRunningImageSize(&info->chip.running_image_bytes);
@@ -187,8 +189,7 @@ bool ReadCurrentDeviceInfoSnapshot(
   const esp_app_desc_t* app_description = esp_app_get_description();
   const hal::DeviceInfo device_info = ReadDeviceInfo(provider);
   info->software.company = "lilygo";
-  info->software.device_model_name =
-      KnownString(device_info.device_model_name);
+  info->software.device_model_name = KnownString(device_info.device_model_name);
   info->software.device_model_version =
       KnownString(device_info.device_model_version);
   info->software.device_name =
@@ -197,10 +198,10 @@ bool ReadCurrentDeviceInfoSnapshot(
       app_description == nullptr ? nullptr : app_description->project_name);
   info->software.software_version = KnownString(
       app_description == nullptr ? nullptr : app_description->version);
-  info->software.software_build_date = KnownString(
-      app_description == nullptr ? nullptr : app_description->date);
-  info->software.software_build_time = KnownString(
-      app_description == nullptr ? nullptr : app_description->time);
+  info->software.software_build_date =
+      KnownString(app_description == nullptr ? nullptr : app_description->date);
+  info->software.software_build_time =
+      KnownString(app_description == nullptr ? nullptr : app_description->time);
   info->software.esp_idf_version = esp_get_idf_version();
   info->software.target_arch = ConfiguredTargetArch();
 

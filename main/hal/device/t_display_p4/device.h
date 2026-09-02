@@ -2,7 +2,7 @@
  * @Description: T-Display-P4 设备及硬件 Provider 适配接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-17 18:40:56
+ * @LastEditTime: 2026-09-02 17:52:57
  * @License: GPL 3.0
  */
 #pragma once
@@ -101,8 +101,8 @@ class TDisplayP4Device final : public ScreenProvider,
    * @param auto_brake true 表示启用自动制动，false 表示关闭自动制动
    * @return 播放任务启动成功返回 true，否则返回 false
    */
-  bool PlayHapticWaveform(uint8_t waveform_sequence_number,
-      uint8_t loop_count, uint8_t gain, bool auto_brake) override;
+  bool PlayHapticWaveform(uint8_t waveform_sequence_number, uint8_t loop_count,
+      uint8_t gain, bool auto_brake) override;
 
   /**
    * @brief 播放 ES8311 扬声器音频提示
@@ -305,8 +305,7 @@ class TDisplayP4Device final : public ScreenProvider,
    * @param display_rotation_angle 显示旋转角度
    * @return 当前屏幕和方向支持硬件提示时返回 true
    */
-  bool SupportsHardwareEdgeTouchHint(
-      int display_rotation_angle) const override;
+  bool SupportsHardwareEdgeTouchHint(int display_rotation_angle) const override;
 
   /**
    * @brief 判断是否已启用板载触摸中断通知
@@ -426,8 +425,8 @@ class TDisplayP4Device final : public ScreenProvider,
    * @param request_token 发送请求唯一序号
    * @return 发送命令成功启动时返回 true
    */
-  bool SendRadio(uint32_t client_token, const uint8_t* data,
-      size_t size, uint64_t request_token) override;
+  bool SendRadio(uint32_t client_token, const uint8_t* data, size_t size,
+      uint64_t request_token) override;
 
   /**
    * @brief 非阻塞轮询全部活动射频会话的收发和芯片错误事件
@@ -449,8 +448,7 @@ class TDisplayP4Device final : public ScreenProvider,
    * @param status 射频状态输出地址
    * @return 状态读取成功时返回 true
    */
-  bool ReadRadioStatus(
-      uint32_t client_token, RadioStatus* status) override;
+  bool ReadRadioStatus(uint32_t client_token, RadioStatus* status) override;
 
   /**
    * @brief 启用或停用 ICM20948 IMU 数据采集
@@ -580,8 +578,7 @@ class TDisplayP4Device final : public ScreenProvider,
    * @param snapshot 快照输出地址
    * @return 读取成功返回 true，否则返回 false
    */
-  bool ReadUsbStorageSnapshot(
-      UsbStorageSnapshot* snapshot) const override;
+  bool ReadUsbStorageSnapshot(UsbStorageSnapshot* snapshot) const override;
 
   /**
    * @brief 设置屏幕亮度
@@ -675,8 +672,7 @@ class TDisplayP4Device final : public ScreenProvider,
    * @param enabled true 点亮，false 熄灭
    * @return 指示灯状态设置成功返回 true，否则返回 false
    */
-  bool SetKeyboardExpansionLed(
-      KeyboardExpansionLed led, bool enabled) override;
+  bool SetKeyboardExpansionLed(KeyboardExpansionLed led, bool enabled) override;
 
   /**
    * @brief 非阻塞读取一个实体键盘按键事件
@@ -1103,7 +1099,7 @@ class TDisplayP4Device final : public ScreenProvider,
   /**
    * @brief 初始化 hosted WiFi 驱动和默认 STA netif
    * @return 初始化成功返回 ESP_OK，否则返回错误码
-  */
+   */
   int InitializeWifiStack();
 
   /**

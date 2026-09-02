@@ -2,7 +2,7 @@
  * @Description: 全局边缘滑动指示器接口
  * @Author: LILYGO_L
  * @Date: 2026-08-24 00:00:00
- * @LastEditTime: 2026-08-25 15:25:56
+ * @LastEditTime: 2026-09-02 17:54:23
  * @License: GPL 3.0
  */
 #pragma once
@@ -22,8 +22,8 @@ using EdgeSwipeBackCallback = std::function<void()>;
  * @param lvgl_port LVGL 输入端口
  * @param back_callback 手势完成后的统一返回回调
  */
-void InitializeEdgeSwipeIndicator(hal::LvglPort* lvgl_port,
-    EdgeSwipeBackCallback back_callback);
+void InitializeEdgeSwipeIndicator(
+    hal::LvglPort* lvgl_port, EdgeSwipeBackCallback back_callback);
 
 /**
  * @brief 设置是否使用不拦截 LVGL 控件输入的边缘手势模式

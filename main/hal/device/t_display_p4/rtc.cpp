@@ -2,15 +2,14 @@
  * @Description: T-Display-P4 PCF8563 RTC 实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-08-28 00:00:00
+ * @LastEditTime: 2026-09-02 17:53:12
  * @License: GPL 3.0
  */
-#include "hal/device/t_display_p4/device.h"
-
 #include <ctime>
 
 #include "base/logger.h"
 #include "hal/device/common/device_utils.h"
+#include "hal/device/t_display_p4/device.h"
 
 namespace lilygo_box::hal {
 
@@ -32,8 +31,7 @@ bool TDisplayP4Device::ReadRtcStatus(RtcStatus* status) {
   }
 
   status->ready = true;
-  status->clock_integrity =
-      driver_.chip().pcf8563->CheckClockIntegrityFlag();
+  status->clock_integrity = driver_.chip().pcf8563->CheckClockIntegrityFlag();
   status->year = static_cast<uint16_t>(time.year) + 2000;
   status->month = time.month;
   status->day = time.day;
@@ -53,18 +51,16 @@ bool TDisplayP4Device::WriteRtcUnixTime(int64_t unix_time) {
   const std::time_t time_value = static_cast<std::time_t>(unix_time);
   std::tm local_time = {};
   if (localtime_r(&time_value, &local_time) == nullptr ||
-      local_time.tm_year + 1900 < 2000 ||
-      local_time.tm_year + 1900 > 2099) {
+      local_time.tm_year + 1900 < 2000 || local_time.tm_year + 1900 > 2099) {
     return false;
   }
 
   cpp_bus_driver::Pcf8563x::Time rtc_time;
-  rtc_time.year =
-      static_cast<uint8_t>(local_time.tm_year + 1900 - 2000);
+  rtc_time.year = static_cast<uint8_t>(local_time.tm_year + 1900 - 2000);
   rtc_time.month = static_cast<uint8_t>(local_time.tm_mon + 1);
   rtc_time.day = static_cast<uint8_t>(local_time.tm_mday);
-  rtc_time.week = static_cast<cpp_bus_driver::Pcf8563x::Week>(
-      local_time.tm_wday);
+  rtc_time.week =
+      static_cast<cpp_bus_driver::Pcf8563x::Week>(local_time.tm_wday);
   rtc_time.hour = static_cast<uint8_t>(local_time.tm_hour);
   rtc_time.minute = static_cast<uint8_t>(local_time.tm_min);
   rtc_time.second = static_cast<uint8_t>(local_time.tm_sec);

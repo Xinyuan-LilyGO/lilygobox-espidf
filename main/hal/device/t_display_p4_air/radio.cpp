@@ -2,11 +2,9 @@
  * @Description: T-Display-P4-Air LR1121 射频硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-08-28 00:00:00
+ * @LastEditTime: 2026-09-02 17:53:39
  * @License: GPL 3.0
  */
-#include "hal/device/t_display_p4_air/device.h"
-
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -17,6 +15,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "hal/device/t_display_p4_air/device.h"
 
 namespace lilygo_box::hal {
 namespace {
@@ -347,8 +346,7 @@ bool BuildRadioConfig(const LoraRadioConfig& source,
       !bandwidth_supported || source.preamble_length == 0 ||
       source.output_power_dbm < -9 ||
       source.output_power_dbm > (use_hf_path ? 13 : 22) ||
-      !SelectLoraSpreadingFactor(
-          source.spreading_factor, &spreading_factor) ||
+      !SelectLoraSpreadingFactor(source.spreading_factor, &spreading_factor) ||
       !SelectLoraBandwidth(source.bandwidth_hz, &bandwidth) ||
       !SelectLoraCodingRate(source.coding_rate_denominator, &coding_rate)) {
     return false;
@@ -417,8 +415,7 @@ bool CalculateLoraTransmitTiming(const LoraRadioConfig& config,
   lr11xx_radio_lora_sf_t spreading_factor;
   lr11xx_radio_lora_bw_t bandwidth;
   lr11xx_radio_lora_cr_t coding_rate;
-  if (!SelectLoraSpreadingFactor(
-          config.spreading_factor, &spreading_factor) ||
+  if (!SelectLoraSpreadingFactor(config.spreading_factor, &spreading_factor) ||
       !SelectLoraBandwidth(config.bandwidth_hz, &bandwidth) ||
       !SelectLoraCodingRate(config.coding_rate_denominator, &coding_rate)) {
     return false;

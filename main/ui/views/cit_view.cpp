@@ -2,7 +2,7 @@
  * @Description: 整机测试列表、测试流程与结果交互页面实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-30 18:00:00
+ * @LastEditTime: 2026-09-02 17:54:29
  * @License: GPL 3.0
  */
 #include "ui/views/cit_view.h"
@@ -389,8 +389,8 @@ void HideScreenColorOverlay(CitViewState* state) {
 bool WaitForPredecessor(const std::shared_ptr<ImuSession>& session) {
   if (session->predecessor != nullptr &&
       !session->predecessor->completed.load(std::memory_order_acquire)) {
-    xEventGroupWaitBits(session->predecessor->events, kImuCompletedBit,
-        pdFALSE, pdFALSE, portMAX_DELAY);
+    xEventGroupWaitBits(session->predecessor->events, kImuCompletedBit, pdFALSE,
+        pdFALSE, portMAX_DELAY);
   }
   session->predecessor.reset();
   return !session->stop_requested.load(std::memory_order_acquire);
@@ -401,8 +401,7 @@ bool WaitForPredecessor(const std::shared_ptr<ImuSession>& session) {
  * @param context 指向共享会话对象的堆内存指针
  */
 void ImuSessionTaskEntry(void* context) {
-  auto* shared_session =
-      static_cast<std::shared_ptr<ImuSession>*>(context);
+  auto* shared_session = static_cast<std::shared_ptr<ImuSession>*>(context);
   if (shared_session == nullptr) {
     vTaskDelete(nullptr);
     return;
@@ -427,13 +426,12 @@ void ImuSessionTaskEntry(void* context) {
   const bool started = session->provider->SetImuEnabled(true);
   session->started.store(started, std::memory_order_release);
   session->start_failed.store(!started, std::memory_order_release);
-  while (started &&
-         !session->stop_requested.load(std::memory_order_acquire)) {
+  while (started && !session->stop_requested.load(std::memory_order_acquire)) {
     ImuSample sample;
     sample.valid = session->provider->ReadImuStatus(&sample.status);
     xQueueOverwrite(session->sample_queue, &sample);
-    xEventGroupWaitBits(session->events, kImuStopRequestedBit, pdFALSE,
-        pdFALSE, pdMS_TO_TICKS(kImuSamplePeriodMs));
+    xEventGroupWaitBits(session->events, kImuStopRequestedBit, pdFALSE, pdFALSE,
+        pdMS_TO_TICKS(kImuSamplePeriodMs));
   }
 
   if (started) {
@@ -466,8 +464,7 @@ std::shared_ptr<ImuSession> StartImuSession(hal::ImuProvider* provider,
   session->sample_queue =
       xQueueCreate(kImuSampleQueueLength, sizeof(ImuSample));
   session->events = xEventGroupCreate();
-  auto* task_context =
-      new (std::nothrow) std::shared_ptr<ImuSession>(session);
+  auto* task_context = new (std::nothrow) std::shared_ptr<ImuSession>(session);
   if (session->sample_queue != nullptr && session->events != nullptr &&
       task_context != nullptr &&
       xTaskCreate(ImuSessionTaskEntry, "cit_imu", kImuWorkerTaskStackBytes,
@@ -489,8 +486,8 @@ std::shared_ptr<ImuSession> StartImuSession(hal::ImuProvider* provider,
 bool WaitForGpsPredecessor(const std::shared_ptr<GpsSession>& session) {
   if (session->predecessor != nullptr &&
       !session->predecessor->completed.load(std::memory_order_acquire)) {
-    xEventGroupWaitBits(session->predecessor->events, kGpsCompletedBit,
-        pdFALSE, pdFALSE, portMAX_DELAY);
+    xEventGroupWaitBits(session->predecessor->events, kGpsCompletedBit, pdFALSE,
+        pdFALSE, portMAX_DELAY);
   }
   session->predecessor.reset();
   return !session->stop_requested.load(std::memory_order_acquire);
@@ -501,8 +498,7 @@ bool WaitForGpsPredecessor(const std::shared_ptr<GpsSession>& session) {
  * @param context 指向共享会话对象的堆内存指针
  */
 void GpsSessionTaskEntry(void* context) {
-  auto* shared_session =
-      static_cast<std::shared_ptr<GpsSession>*>(context);
+  auto* shared_session = static_cast<std::shared_ptr<GpsSession>*>(context);
   if (shared_session == nullptr) {
     vTaskDelete(nullptr);
     return;
@@ -528,8 +524,7 @@ void GpsSessionTaskEntry(void* context) {
   session->started.store(started, std::memory_order_release);
   session->start_failed.store(!started, std::memory_order_release);
   uint32_t sample_period_ms = kGpsDefaultSamplePeriodMs;
-  while (started &&
-         !session->stop_requested.load(std::memory_order_acquire)) {
+  while (started && !session->stop_requested.load(std::memory_order_acquire)) {
     GpsSample sample;
     sample.valid = session->provider->ReadGpsStatus(&sample.status);
     session->read_failed.store(!sample.valid, std::memory_order_release);
@@ -538,8 +533,8 @@ void GpsSessionTaskEntry(void* context) {
       sample_period_ms = std::max<uint32_t>(sample.status.update_interval_ms,
           static_cast<uint32_t>(kCitRefreshPeriodMs));
     }
-    xEventGroupWaitBits(session->events, kGpsStopRequestedBit, pdFALSE,
-        pdFALSE, pdMS_TO_TICKS(sample_period_ms));
+    xEventGroupWaitBits(session->events, kGpsStopRequestedBit, pdFALSE, pdFALSE,
+        pdMS_TO_TICKS(sample_period_ms));
   }
 
   if (started) {
@@ -572,8 +567,7 @@ std::shared_ptr<GpsSession> StartGpsSession(hal::GpsProvider* provider,
   session->sample_queue =
       xQueueCreate(kGpsSampleQueueLength, sizeof(GpsSample));
   session->events = xEventGroupCreate();
-  auto* task_context =
-      new (std::nothrow) std::shared_ptr<GpsSession>(session);
+  auto* task_context = new (std::nothrow) std::shared_ptr<GpsSession>(session);
   if (session->sample_queue != nullptr && session->events != nullptr &&
       task_context != nullptr &&
       xTaskCreate(GpsSessionTaskEntry, "cit_gps", kGpsWorkerTaskStackBytes,
@@ -598,8 +592,7 @@ void StopImuTestHardware(CitViewState* state) {
 
   state->imu_session->stop_requested.store(true, std::memory_order_release);
   if (state->imu_session->events != nullptr) {
-    xEventGroupSetBits(
-        state->imu_session->events, kImuStopRequestedBit);
+    xEventGroupSetBits(state->imu_session->events, kImuStopRequestedBit);
   }
   state->retiring_imu_session = std::move(state->imu_session);
 }
@@ -615,8 +608,7 @@ void StopGpsTestHardware(CitViewState* state) {
 
   state->gps_session->stop_requested.store(true, std::memory_order_release);
   if (state->gps_session->events != nullptr) {
-    xEventGroupSetBits(
-        state->gps_session->events, kGpsStopRequestedBit);
+    xEventGroupSetBits(state->gps_session->events, kGpsStopRequestedBit);
   }
   state->retiring_gps_session = std::move(state->gps_session);
 }
@@ -659,12 +651,12 @@ void StopKeyboardTestHardware(CitViewState* state) {
   hal::KeyboardExpansionStatus status;
   const bool status_read =
       state->keyboard_expansion->ReadKeyboardExpansionStatus(&status);
-  const bool needs_deinit = status_read &&
+  const bool needs_deinit =
+      status_read &&
       (status.state == hal::KeyboardExpansionState::kScanning ||
           status.state == hal::KeyboardExpansionState::kReady ||
           status.state == hal::KeyboardExpansionState::kDisconnected);
-  if (needs_deinit &&
-      !state->keyboard_expansion->DisableKeyboardExpansion()) {
+  if (needs_deinit && !state->keyboard_expansion->DisableKeyboardExpansion()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Clean up CIT keyboard test resources failed\n");
   }
@@ -902,17 +894,15 @@ const char* GetKeyboardTestKeyName(hal::KeyboardKey key) {
  * @param buffer 输出缓冲区
  * @param capacity 输出缓冲区容量
  */
-void FormatKeyboardTestKeyDescription(const hal::KeyboardInputEvent& event,
-    char* buffer, size_t capacity) {
+void FormatKeyboardTestKeyDescription(
+    const hal::KeyboardInputEvent& event, char* buffer, size_t capacity) {
   if (buffer == nullptr || capacity == 0) {
     return;
   }
 
   if (event.key != hal::KeyboardKey::kCharacter) {
-    std::snprintf(buffer, capacity,
-        "Last pressed key: %s\nMatrix key ID: %u",
-        GetKeyboardTestKeyName(event.key),
-        static_cast<unsigned>(event.key_id));
+    std::snprintf(buffer, capacity, "Last pressed key: %s\nMatrix key ID: %u",
+        GetKeyboardTestKeyName(event.key), static_cast<unsigned>(event.key_id));
     return;
   }
 
@@ -948,9 +938,8 @@ void HandleKeyboardTestInputEvent(
       (event.key == hal::KeyboardKey::kF10 ||
           event.key == hal::KeyboardKey::kF11)) {
     const hal::KeyboardExpansionLed led =
-        event.key == hal::KeyboardKey::kF10
-        ? hal::KeyboardExpansionLed::kLed2
-        : hal::KeyboardExpansionLed::kLed3;
+        event.key == hal::KeyboardKey::kF10 ? hal::KeyboardExpansionLed::kLed2
+                                            : hal::KeyboardExpansionLed::kLed3;
     state->keyboard_expansion->SetKeyboardExpansionLed(led, event.pressed);
   }
 
@@ -995,8 +984,7 @@ bool IsKeyboardExpansionNfcReady(CitViewState* state) {
   hal::KeyboardExpansionStatus status;
   return state->keyboard_expansion->ReadKeyboardExpansionStatus(&status) &&
          status.state == hal::KeyboardExpansionState::kReady &&
-         status.st25r3916 ==
-             hal::KeyboardExpansionComponentState::kReady;
+         status.st25r3916 == hal::KeyboardExpansionComponentState::kReady;
 }
 
 /**
@@ -1026,15 +1014,15 @@ void RefreshKeyboardTestData(CitViewState* state) {
 
   hal::KeyboardExpansionStatus status;
   if (!state->keyboard_expansion->ReadKeyboardExpansionStatus(&status)) {
-    lv_label_set_text(state->keyboard_test_key_label,
-        "Keyboard status: unavailable");
+    lv_label_set_text(
+        state->keyboard_test_key_label, "Keyboard status: unavailable");
     return;
   }
 
   switch (status.state) {
     case hal::KeyboardExpansionState::kScanning:
-      lv_label_set_text(state->keyboard_test_key_label,
-          "Keyboard status: initializing...");
+      lv_label_set_text(
+          state->keyboard_test_key_label, "Keyboard status: initializing...");
       break;
     case hal::KeyboardExpansionState::kReady:
       if (!state->keyboard_test_key_received) {
@@ -1043,13 +1031,13 @@ void RefreshKeyboardTestData(CitViewState* state) {
       }
       break;
     case hal::KeyboardExpansionState::kNotFound:
-      lv_label_set_text(state->keyboard_test_key_label,
-          "Keyboard status: not detected");
+      lv_label_set_text(
+          state->keyboard_test_key_label, "Keyboard status: not detected");
       CloseUnavailableKeyboardTest(state);
       return;
     case hal::KeyboardExpansionState::kDisconnected:
-      lv_label_set_text(state->keyboard_test_key_label,
-          "Keyboard status: disconnected");
+      lv_label_set_text(
+          state->keyboard_test_key_label, "Keyboard status: disconnected");
       CloseUnavailableKeyboardTest(state);
       return;
     case hal::KeyboardExpansionState::kComponentFailure:
@@ -1058,13 +1046,13 @@ void RefreshKeyboardTestData(CitViewState* state) {
       CloseUnavailableKeyboardTest(state);
       return;
     case hal::KeyboardExpansionState::kDisabled:
-      lv_label_set_text(state->keyboard_test_key_label,
-          "Keyboard status: disabled");
+      lv_label_set_text(
+          state->keyboard_test_key_label, "Keyboard status: disabled");
       CloseUnavailableKeyboardTest(state);
       return;
     default:
-      lv_label_set_text(state->keyboard_test_key_label,
-          "Keyboard status: disabled");
+      lv_label_set_text(
+          state->keyboard_test_key_label, "Keyboard status: disabled");
       break;
   }
 }
@@ -1142,9 +1130,7 @@ void AlignStatusLabels(lv_obj_t* icon_label, lv_obj_t* name_label) {
  * @brief 获取状态图标使用的字体
  * @return 字体指针
  */
-const lv_font_t* GetStatusIconFont() {
-  return MaterialFillIconFont32();
-}
+const lv_font_t* GetStatusIconFont() { return MaterialFillIconFont32(); }
 
 /**
  * @brief 刷新列表页触摸测试触发状态
@@ -1243,8 +1229,8 @@ void RefreshTouchTestData(CitViewState* state) {
   std::array<hal::TouchPoint, kTouchDisplayPointCount> points = {};
   size_t point_count = 0;
   const bool touch_read = state->lvgl_port != nullptr &&
-      state->lvgl_port->ReadTouchPoints(
-          points.data(), points.size(), &point_count);
+                          state->lvgl_port->ReadTouchPoints(
+                              points.data(), points.size(), &point_count);
   if (touch_read) {
     state->touch_was_seen = point_count > 0;
   }
@@ -1295,8 +1281,7 @@ void RefreshSpeakerTestData(CitViewState* state) {
   if (status.running) {
     state_text = "playing built-in notification audio";
   } else if (status.completed) {
-    state_text =
-        status.success ? "playback complete" : "playback failed";
+    state_text = status.success ? "playback complete" : "playback failed";
   }
 
   char text[192] = {};
@@ -1429,7 +1414,7 @@ void RefreshGpsTestData(CitViewState* state) {
       status.location_status[0] == '\0' ? "unknown" : status.location_status,
       status.mode_indicator[0] == '\0' ? "unknown" : status.mode_indicator,
       status.navigational_status[0] == '\0' ? "unknown"
-                                             : status.navigational_status);
+                                            : status.navigational_status);
 
   char fix_quality_text[16] = "unknown";
   char fix_mode_text[16] = "unknown";
@@ -1464,8 +1449,7 @@ void RefreshGpsTestData(CitViewState* state) {
     std::snprintf(vdop_text, sizeof(vdop_text), "%.2f", status.vdop);
   }
 
-  AppendFormatted(text, sizeof(text), &used,
-      "fix quality: %s\nfix mode: %s\n",
+  AppendFormatted(text, sizeof(text), &used, "fix quality: %s\nfix mode: %s\n",
       fix_quality_text, fix_mode_text);
   AppendFormatted(text, sizeof(text), &used,
       "satellites used: %s\nsatellites in view: %s\n"
@@ -1481,8 +1465,8 @@ void RefreshGpsTestData(CitViewState* state) {
     AppendFormatted(
         text, sizeof(text), &used, "strongest satellite: unknown\n");
   }
-  AppendFormatted(text, sizeof(text), &used,
-      "HDOP: %s  PDOP: %s  VDOP: %s\n", hdop_text, pdop_text, vdop_text);
+  AppendFormatted(text, sizeof(text), &used, "HDOP: %s  PDOP: %s  VDOP: %s\n",
+      hdop_text, pdop_text, vdop_text);
   if (status.altitude_ready) {
     AppendFormatted(text, sizeof(text), &used, "altitude: %.2f %s\n",
         status.altitude,
@@ -1491,15 +1475,13 @@ void RefreshGpsTestData(CitViewState* state) {
     AppendFormatted(text, sizeof(text), &used, "altitude: unknown\n");
   }
   if (status.speed_ready) {
-    AppendFormatted(text, sizeof(text), &used,
-        "speed: %.2f km/h  %.2f kn\n", status.speed_kmh,
-        status.speed_knots);
+    AppendFormatted(text, sizeof(text), &used, "speed: %.2f km/h  %.2f kn\n",
+        status.speed_kmh, status.speed_knots);
   } else {
     AppendFormatted(text, sizeof(text), &used, "speed: unknown\n");
   }
   if (status.course_ready) {
-    AppendFormatted(
-        text, sizeof(text), &used, "course: %.2f deg\n\n",
+    AppendFormatted(text, sizeof(text), &used, "course: %.2f deg\n\n",
         status.course_degree);
   } else {
     AppendFormatted(text, sizeof(text), &used, "course: unknown\n\n");
@@ -1589,8 +1571,8 @@ void RefreshRtcTestData(CitViewState* state) {
     return;
   }
 
-  const uint32_t now_ms = static_cast<uint32_t>(
-      xTaskGetTickCount() * portTICK_PERIOD_MS);
+  const uint32_t now_ms =
+      static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
   if (!state->rtc_read_attempted ||
       now_ms - state->rtc_last_read_ms >= kRtcRefreshPeriodMs) {
     hal::RtcStatus status;
@@ -1715,8 +1697,7 @@ void RefreshEthernetTestData(CitViewState* state) {
   char ip_address[20] = {};
   char netmask[20] = {};
   char gateway[20] = {};
-  FormatPackedMacAddress(
-      status.mac_address, mac_address, sizeof(mac_address));
+  FormatPackedMacAddress(status.mac_address, mac_address, sizeof(mac_address));
   FormatIpv4Address(status.ip_address, ip_address, sizeof(ip_address));
   FormatIpv4Address(status.netmask, netmask, sizeof(netmask));
   FormatIpv4Address(status.gateway, gateway, sizeof(gateway));
@@ -1867,11 +1848,9 @@ void RefreshWifiTestData(CitViewState* state) {
       netmask, gateway, china_time, sync_age);
 
   if (status.start_failed) {
-    AppendFormatted(text, sizeof(text), &used,
-        "\nerror: %s (%#X)\nreason: %d",
+    AppendFormatted(text, sizeof(text), &used, "\nerror: %s (%#X)\nreason: %d",
         esp_err_to_name(static_cast<esp_err_t>(status.last_error)),
-        static_cast<unsigned int>(status.last_error),
-        status.disconnect_reason);
+        static_cast<unsigned int>(status.last_error), status.disconnect_reason);
   }
 
   lv_label_set_text(state->test_data_label, text);
@@ -1972,12 +1951,11 @@ const char* NfcNdefRecordTypeText(hal::NfcNdefRecordType type) {
  * @param text_size 文本缓冲区大小
  * @param used 已使用长度
  */
-void AppendNfcProtocolDetails(const hal::NfcStatus& status, char* text,
-    size_t text_size, size_t* used) {
+void AppendNfcProtocolDetails(
+    const hal::NfcStatus& status, char* text, size_t text_size, size_t* used) {
   switch (status.technology) {
     case hal::NfcTechnology::kTypeA:
-      AppendFormatted(text, text_size, used,
-          "ATQA: 0x%04X\nSAK: 0x%02X\n",
+      AppendFormatted(text, text_size, used, "ATQA: 0x%04X\nSAK: 0x%02X\n",
           static_cast<unsigned>(status.atqa),
           static_cast<unsigned>(status.sak));
       break;
@@ -2011,8 +1989,8 @@ void AppendNfcProtocolDetails(const hal::NfcStatus& status, char* text,
  * @param text_size 文本缓冲区大小
  * @param used 已使用长度
  */
-void AppendNfcNdefDetails(const hal::NfcStatus& status, char* text,
-    size_t text_size, size_t* used) {
+void AppendNfcNdefDetails(
+    const hal::NfcStatus& status, char* text, size_t text_size, size_t* used) {
   if (status.tag_type != hal::NfcTagType::kType2) {
     return;
   }
@@ -2033,8 +2011,8 @@ void AppendNfcNdefDetails(const hal::NfcStatus& status, char* text,
         static_cast<unsigned>(status.ndef_message_length),
         NfcNdefRecordTypeText(status.ndef_record_type));
     if (status.ndef_language[0] != '\0') {
-      AppendFormatted(text, text_size, used, "language: %s\n",
-          status.ndef_language);
+      AppendFormatted(
+          text, text_size, used, "language: %s\n", status.ndef_language);
     }
     const char* content = status.content;
     if (status.ndef_record_type == hal::NfcNdefRecordType::kUnsupported) {
@@ -2048,8 +2026,8 @@ void AppendNfcNdefDetails(const hal::NfcStatus& status, char* text,
     AppendFormatted(text, text_size, used, "content scan: limited\n");
   }
   if (status.content_error != 0) {
-    AppendFormatted(text, text_size, used, "content error: %d\n",
-        status.content_error);
+    AppendFormatted(
+        text, text_size, used, "content error: %d\n", status.content_error);
   }
 }
 
@@ -2213,17 +2191,15 @@ void RefreshPeripheralTestData(
         state->infrared->ReadInfraredStatus(&infrared_status);
     const char* transmit_status = "not tested";
     if (state->infrared_transmit_attempt_count > 0) {
-      transmit_status = state->infrared_last_transmit_succeeded
-                            ? "sent"
-                            : "failed";
+      transmit_status =
+          state->infrared_last_transmit_succeeded ? "sent" : "failed";
     }
     std::snprintf(text, sizeof(text),
         "infrared NEC transceiver:\nhardware: %s\nreceiver: %s\n"
         "TX: %s (0x%02X / 0x%02X)\nTX attempts/success: %u/%u\n"
         "RX: %s\nRX code: 0x%02X / 0x%02X%s\n"
         "RX frames/errors: %u/%u\nerror: %d",
-        status_valid && infrared_status.hardware_ready ? "ready"
-                                                       : "not ready",
+        status_valid && infrared_status.hardware_ready ? "ready" : "not ready",
         infrared_status.receiver_enabled ? "enabled" : "disabled",
         transmit_status, kInfraredTestAddress, kInfraredTestCommand,
         static_cast<unsigned>(state->infrared_transmit_attempt_count),
@@ -2246,13 +2222,12 @@ void RefreshPeripheralTestData(
 
       state->retiring_gps_session.reset();
       state->cellular_start_pending = false;
-      state->cellular_start_failed =
-          state->cellular == nullptr ||
-          !state->cellular->SetCellularEnabled(true);
+      state->cellular_start_failed = state->cellular == nullptr ||
+                                     !state->cellular->SetCellularEnabled(true);
     }
     if (state->cellular_start_failed) {
-      lv_label_set_text(state->test_data_label,
-          "cellular test:\nstatus: start failed");
+      lv_label_set_text(
+          state->test_data_label, "cellular test:\nstatus: start failed");
       return;
     }
 
@@ -2293,13 +2268,11 @@ void RefreshDiagnosticsState(CitViewState* state) {
   }
 
   if (state->retiring_imu_session != nullptr &&
-      state->retiring_imu_session->completed.load(
-          std::memory_order_acquire)) {
+      state->retiring_imu_session->completed.load(std::memory_order_acquire)) {
     state->retiring_imu_session.reset();
   }
   if (state->retiring_gps_session != nullptr &&
-      state->retiring_gps_session->completed.load(
-          std::memory_order_acquire) &&
+      state->retiring_gps_session->completed.load(std::memory_order_acquire) &&
       !state->cellular_start_pending) {
     state->retiring_gps_session.reset();
   }
@@ -2309,8 +2282,7 @@ void RefreshDiagnosticsState(CitViewState* state) {
     return;
   }
 
-  const app::CitTestEntry* entry =
-      state->rows[state->current_test_index].entry;
+  const app::CitTestEntry* entry = state->rows[state->current_test_index].entry;
   if (entry == nullptr) {
     return;
   }
@@ -2350,8 +2322,8 @@ void RefreshDiagnosticsState(CitViewState* state) {
         &state->diagnostics.battery_management);
   }
   if (!result && state->diagnostics_provider != nullptr) {
-    result = state->diagnostics_provider->ReadDeviceDiagnostics(
-        &state->diagnostics);
+    result =
+        state->diagnostics_provider->ReadDeviceDiagnostics(&state->diagnostics);
   }
   state->diagnostics_read = result;
   state->diagnostics_elapsed_ms = 0;
@@ -2481,13 +2453,12 @@ void RefreshActiveTestData(CitViewState* state) {
         state->imu_session != nullptr &&
         state->imu_session->started.load(std::memory_order_acquire);
     if (start_failed) {
-      lv_label_set_text(state->test_data_label,
-          "imu data:\nstatus: start failed");
+      lv_label_set_text(
+          state->test_data_label, "imu data:\nstatus: start failed");
       return;
     }
     if (!started) {
-      lv_label_set_text(state->test_data_label,
-          "imu data:\nstatus: starting");
+      lv_label_set_text(state->test_data_label, "imu data:\nstatus: starting");
       return;
     }
 
@@ -2502,7 +2473,8 @@ void RefreshActiveTestData(CitViewState* state) {
   }
 
   if (IsEntryId(*entry, "battery_management")) {
-    const hal::BatteryManagementStatus& battery_management = state->diagnostics.battery_management;
+    const hal::BatteryManagementStatus& battery_management =
+        state->diagnostics.battery_management;
     size_t used = 0;
     AppendFormatted(text, sizeof(text), &used,
         "battery management test data:\nstatus: %s\npack: %s\ncharging: %s\n"
@@ -2514,7 +2486,8 @@ void RefreshActiveTestData(CitViewState* state) {
         battery_management.ready ? "ready" : "not ready",
         battery_management.pack_present ? "present" : "none",
         battery_management.charging ? "yes" : "no",
-        battery_management.full_charged ? "yes" : "no", battery_management.full_discharged ? "yes" : "no",
+        battery_management.full_charged ? "yes" : "no",
+        battery_management.full_discharged ? "yes" : "no",
         battery_management.voltage_mv, battery_management.current_ma,
         battery_management.charge_percent, battery_management.health_percent);
     if (battery_management.capabilities.average_measurements) {
@@ -2983,9 +2956,8 @@ bool ShowScreenColorOverlay(CitViewState* state) {
     lv_obj_set_style_pad_all(overlay, 0, LV_PART_MAIN);
     lv_obj_add_event_cb(
         overlay, ScreenColorOverlayEventCallback, LV_EVENT_CLICKED, state);
-    if (!RegisterBackNavigationHandler(overlay, [state]() {
-          HideScreenColorOverlay(state);
-        })) {
+    if (!RegisterBackNavigationHandler(
+            overlay, [state]() { HideScreenColorOverlay(state); })) {
       lv_obj_delete(overlay);
       state->screen_color_overlay = nullptr;
       return false;
@@ -3194,8 +3166,8 @@ lv_obj_t* CreateCenterButton(lv_obj_t* parent, const char* text,
     lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, state);
   }
 
-  lv_obj_t* label =
-      CreateLabel(button, text, lv_color_hex(theme::FixedColors().on_action), Font28());
+  lv_obj_t* label = CreateLabel(
+      button, text, lv_color_hex(theme::FixedColors().on_action), Font28());
   if (label == nullptr) {
     lv_obj_delete(button);
     return nullptr;
@@ -3233,8 +3205,7 @@ lv_obj_t* CreateTestButtonBar(lv_obj_t* parent, CitViewState* state) {
           theme::ActiveThemeColors().on_button_secondary, LV_ALIGN_CENTER,
           -kTestButtonCenterOffset, TestFailButtonEventCallback,
           state) == nullptr ||
-      CreateTestActionButton(button_bar, "PASS",
-          theme::FixedColors().action,
+      CreateTestActionButton(button_bar, "PASS", theme::FixedColors().action,
           theme::FixedColors().on_action, LV_ALIGN_CENTER,
           kTestButtonCenterOffset, TestPassButtonEventCallback,
           state) == nullptr) {
@@ -3379,8 +3350,8 @@ bool CreateTouchPointMarkers(CitViewState* state) {
  * @param buffer 文本缓冲区
  * @param size 文本缓冲区大小
  */
-void FormatCitFlashFreeTotal(const app::CurrentDeviceChipInfo& chip,
-    char* buffer, size_t size) {
+void FormatCitFlashFreeTotal(
+    const app::CurrentDeviceChipInfo& chip, char* buffer, size_t size) {
   if (buffer == nullptr || size == 0) {
     return;
   }
@@ -3420,8 +3391,7 @@ bool AddVersionContent(lv_obj_t* content, CitViewState* state) {
   }
 
   app::CurrentDeviceInfoSnapshot info;
-  if (!app::ReadCurrentDeviceInfoSnapshot(
-          state->device_info_provider, &info)) {
+  if (!app::ReadCurrentDeviceInfoSnapshot(state->device_info_provider, &info)) {
     return false;
   }
 
@@ -3482,14 +3452,14 @@ bool AddVersionContent(lv_obj_t* content, CitViewState* state) {
       static_cast<unsigned long>(info.memory.psram_free_bytes),
       static_cast<unsigned long>(info.memory.psram_total_bytes),
       info.software.company, info.software.device_model_name,
-      info.software.device_model_version,
-      info.software.software_name, info.software.software_version,
-      info.software.software_build_date, info.software.software_build_time,
-      info.software.esp_idf_version, info.software.target_arch,
-      info.screen.type, info.screen.width, info.screen.height,
-      info.screen.pixel_format, info.camera.type, info.camera.pixel_format,
-      info.camera.bits_per_pixel, info.camera.buffer_count, info.lvgl.major,
-      info.lvgl.minor, info.lvgl.patch, info.lvgl.extra_info);
+      info.software.device_model_version, info.software.software_name,
+      info.software.software_version, info.software.software_build_date,
+      info.software.software_build_time, info.software.esp_idf_version,
+      info.software.target_arch, info.screen.type, info.screen.width,
+      info.screen.height, info.screen.pixel_format, info.camera.type,
+      info.camera.pixel_format, info.camera.bits_per_pixel,
+      info.camera.buffer_count, info.lvgl.major, info.lvgl.minor,
+      info.lvgl.patch, info.lvgl.extra_info);
 
   return CreateDataLabel(content, text) != nullptr;
 }
@@ -3667,9 +3637,8 @@ bool AddMicrophoneContent(lv_obj_t* content, CitViewState* state) {
   lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 420);
 
-  lv_obj_t* switch_label =
-      CreateLabel(content, "adc -> dac",
-          lv_color_hex(theme::ActiveThemeColors().on_surface), Font28());
+  lv_obj_t* switch_label = CreateLabel(content, "adc -> dac",
+      lv_color_hex(theme::ActiveThemeColors().on_surface), Font28());
   if (switch_label == nullptr) {
     return false;
   }
@@ -3731,8 +3700,8 @@ bool AddDiagnosticsContent(
     state->imu_session =
         StartImuSession(state->imu, state->retiring_imu_session);
     if (state->imu_session == nullptr) {
-      lv_label_set_text(state->test_data_label,
-          "imu data:\nstatus: start failed");
+      lv_label_set_text(
+          state->test_data_label, "imu data:\nstatus: start failed");
     }
     return true;
   }
@@ -3764,12 +3733,10 @@ bool AddGpsContent(lv_obj_t* content, CitViewState* state) {
   }
 
   if (state->retiring_gps_session != nullptr &&
-      state->retiring_gps_session->completed.load(
-          std::memory_order_acquire)) {
+      state->retiring_gps_session->completed.load(std::memory_order_acquire)) {
     state->retiring_gps_session.reset();
   }
-  state->gps_session =
-      StartGpsSession(state->gps, state->retiring_gps_session);
+  state->gps_session = StartGpsSession(state->gps, state->retiring_gps_session);
   if (state->gps_session == nullptr) {
     lv_label_set_text(
         state->test_data_label, "GPS data:\nstatus: start failed");
@@ -3880,8 +3847,8 @@ bool AddKeyboardContent(lv_obj_t* content, CitViewState* state) {
   }
   state->keyboard_test_key_received = false;
   state->keyboard_test_owns_expansion = false;
-  state->keyboard_test_key_label = CreateDataLabel(
-      content, "Keyboard status: preparing...");
+  state->keyboard_test_key_label =
+      CreateDataLabel(content, "Keyboard status: preparing...");
   if (state->keyboard_test_key_label == nullptr) {
     return false;
   }
@@ -3896,11 +3863,9 @@ bool AddKeyboardContent(lv_obj_t* content, CitViewState* state) {
   lv_obj_add_flag(text_area, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_add_flag(text_area, LV_OBJ_FLAG_SCROLL_CHAIN_VER);
   lv_obj_set_size(text_area, LV_PCT(100), kKeyboardTestTextAreaHeight);
-  lv_obj_align(
-      text_area, LV_ALIGN_TOP_MID, 0, kKeyboardTestTextAreaTop);
+  lv_obj_align(text_area, LV_ALIGN_TOP_MID, 0, kKeyboardTestTextAreaTop);
   lv_textarea_set_one_line(text_area, false);
-  lv_textarea_set_max_length(
-      text_area, kKeyboardTestMaximumTextLength);
+  lv_textarea_set_max_length(text_area, kKeyboardTestMaximumTextLength);
   lv_textarea_set_accepted_chars(text_area, kKeyboardTestAcceptedChars);
   lv_textarea_set_placeholder_text(
       text_area, "Type all supported characters here...");
@@ -3916,8 +3881,7 @@ bool AddKeyboardContent(lv_obj_t* content, CitViewState* state) {
   lv_obj_set_style_bg_opa(text_area, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(text_area, LV_OPA_COVER, LV_STATE_FOCUSED);
   lv_obj_set_style_border_width(text_area, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(
-      text_area, kKeyboardTestTextAreaRadius, LV_PART_MAIN);
+  lv_obj_set_style_radius(text_area, kKeyboardTestTextAreaRadius, LV_PART_MAIN);
   lv_obj_set_style_pad_all(text_area, 20, LV_PART_MAIN);
   lv_obj_set_scrollbar_mode(text_area, LV_SCROLLBAR_MODE_OFF);
 
@@ -3946,15 +3910,15 @@ bool AddKeyboardContent(lv_obj_t* content, CitViewState* state) {
         });
   }
   if (state->keyboard_expansion == nullptr) {
-    lv_label_set_text(state->keyboard_test_key_label,
-        "Keyboard status: unsupported");
+    lv_label_set_text(
+        state->keyboard_test_key_label, "Keyboard status: unsupported");
     return true;
   }
 
   hal::KeyboardExpansionStatus status;
   if (!state->keyboard_expansion->ReadKeyboardExpansionStatus(&status)) {
-    lv_label_set_text(state->keyboard_test_key_label,
-        "Keyboard status: unavailable");
+    lv_label_set_text(
+        state->keyboard_test_key_label, "Keyboard status: unavailable");
     return true;
   }
   if (status.state == hal::KeyboardExpansionState::kReady ||
@@ -3965,8 +3929,8 @@ bool AddKeyboardContent(lv_obj_t* content, CitViewState* state) {
 
   if (status.state == hal::KeyboardExpansionState::kDisconnected &&
       !state->keyboard_expansion->DisableKeyboardExpansion()) {
-    lv_label_set_text(state->keyboard_test_key_label,
-        "Keyboard status: cleanup failed");
+    lv_label_set_text(
+        state->keyboard_test_key_label, "Keyboard status: cleanup failed");
     return true;
   }
   if (!state->keyboard_expansion->StartKeyboardExpansionScan()) {
@@ -3999,9 +3963,8 @@ bool AddPeripheralContent(
 
   bool started = false;
   if (IsEntryId(entry, "nfc")) {
-    const bool expansion_nfc_ready =
-        state->keyboard_expansion == nullptr ||
-        IsKeyboardExpansionNfcReady(state);
+    const bool expansion_nfc_ready = state->keyboard_expansion == nullptr ||
+                                     IsKeyboardExpansionNfcReady(state);
     started = expansion_nfc_ready && state->nfc != nullptr &&
               state->nfc->SetNfcPollingEnabled(true);
   } else if (IsEntryId(entry, "cellular")) {
@@ -4016,8 +3979,8 @@ bool AddPeripheralContent(
       return true;
     }
     state->retiring_gps_session.reset();
-    started = state->cellular != nullptr &&
-              state->cellular->SetCellularEnabled(true);
+    started =
+        state->cellular != nullptr && state->cellular->SetCellularEnabled(true);
     state->cellular_start_failed = !started;
   }
 
@@ -4047,16 +4010,16 @@ bool AddInfraredContent(
   state->infrared_transmit_attempt_count = 0;
   state->infrared_transmit_success_count = 0;
   lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
-      LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_flex_align(
+      content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_row(content, 24, LV_PART_MAIN);
-  state->test_data_label = CreateDataLabel(
-      content, "infrared NEC transceiver:\nstatus: starting");
+  state->test_data_label =
+      CreateDataLabel(content, "infrared NEC transceiver:\nstatus: starting");
   if (state->test_data_label == nullptr) {
     return false;
   }
-  if (CreateCenterButton(content, "SEND NEC",
-          GenericStartButtonEventCallback, state) == nullptr) {
+  if (CreateCenterButton(content, "SEND NEC", GenericStartButtonEventCallback,
+          state) == nullptr) {
     return false;
   }
 
@@ -4177,16 +4140,13 @@ bool ShowCitTest(CitViewState* state, size_t index) {
                                             : kCitRefreshPeriodMs);
   }
 
-
   lv_obj_t* page = lv_obj_create(state->root);
   if (page == nullptr) {
     return false;
   }
   state->test_page = page;
   state->test_page_closing = false;
-  if (!RegisterBackNavigationHandler(page, [state]() {
-        ShowCitList(state);
-      })) {
+  if (!RegisterBackNavigationHandler(page, [state]() { ShowCitList(state); })) {
     DeleteTestPage(state);
     return false;
   }
@@ -4220,8 +4180,9 @@ bool ShowCitTest(CitViewState* state, size_t index) {
   SetTestContentVerticalScrollEnabled(content, true);
   lv_obj_set_size(
       content, LV_PCT(100), state->height - kListTop - kTestButtonBarHeight);
-  lv_obj_set_style_bg_color(
-      content, lv_color_hex(theme::ActiveThemeColors().surface_container_low), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(content,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_low),
+      LV_PART_MAIN);
   lv_obj_set_style_bg_opa(content, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_radius(content, 0, LV_PART_MAIN);
   lv_obj_set_style_border_width(content, 0, LV_PART_MAIN);
@@ -4317,8 +4278,8 @@ lv_obj_t* CreateStatusRow(
   lv_obj_add_flag(pressed_background, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_size(pressed_background, LV_PCT(100), kRowPressedHeight);
   lv_obj_align(pressed_background, LV_ALIGN_TOP_MID, 0, 0);
-  lv_obj_set_style_bg_color(
-      pressed_background, lv_color_hex(theme::ActiveThemeColors().state_layer), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(pressed_background,
+      lv_color_hex(theme::ActiveThemeColors().state_layer), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(pressed_background, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(pressed_background, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(pressed_background, kRowPressedRadius, LV_PART_MAIN);
@@ -4339,8 +4300,8 @@ lv_obj_t* CreateStatusRow(
     lv_obj_delete(row);
     return nullptr;
   }
-  const int name_label_width = state->width -
-      2 * kListHorizontalPadding - kRowIconWidth;
+  const int name_label_width =
+      state->width - 2 * kListHorizontalPadding - kRowIconWidth;
   if (name_label_width <= 0) {
     lv_obj_delete(row);
     return nullptr;
@@ -4391,16 +4352,16 @@ bool AddCitRows(
     if (state->keyboard_expansion->ReadKeyboardExpansionStatus(&status)) {
       keyboard_expansion_ready =
           status.state == hal::KeyboardExpansionState::kReady;
-      keyboard_expansion_nfc_ready = keyboard_expansion_ready &&
-          status.st25r3916 ==
-              hal::KeyboardExpansionComponentState::kReady;
+      keyboard_expansion_nfc_ready =
+          keyboard_expansion_ready &&
+          status.st25r3916 == hal::KeyboardExpansionComponentState::kReady;
     }
   }
   const bool show_keyboard_expansion_test =
       keyboard_expansion_ready && !state->keyboard_test_hidden;
-  const bool show_nfc_test = state->nfc != nullptr &&
-      (state->keyboard_expansion == nullptr ||
-          keyboard_expansion_nfc_ready) &&
+  const bool show_nfc_test =
+      state->nfc != nullptr &&
+      (state->keyboard_expansion == nullptr || keyboard_expansion_nfc_ready) &&
       !state->keyboard_expansion_nfc_test_hidden;
   for (size_t i = 0; i < catalog.entry_count; ++i) {
     const app::CitTestEntry& entry = catalog.entries[i];
@@ -4429,8 +4390,8 @@ bool RebuildCitRows(CitViewState* state) {
   }
 
   std::array<const char*, app::kMaxCitTestEntryCount> previous_ids = {};
-  std::array<app::CitTestStatus, app::kMaxCitTestEntryCount>
-      previous_statuses = {};
+  std::array<app::CitTestStatus, app::kMaxCitTestEntryCount> previous_statuses =
+      {};
   const size_t previous_row_count = state->row_count;
   for (size_t i = 0; i < previous_row_count; ++i) {
     if (state->rows[i].entry != nullptr) {
@@ -4490,14 +4451,13 @@ void RefreshKeyboardExpansionTestAvailability(CitViewState* state) {
   if (state->keyboard_expansion != nullptr &&
       app::GetKeyboardExpansionPreferences().enabled) {
     hal::KeyboardExpansionStatus status;
-    ready =
-        state->keyboard_expansion->ReadKeyboardExpansionStatus(&status) &&
-        status.state == hal::KeyboardExpansionState::kReady;
+    ready = state->keyboard_expansion->ReadKeyboardExpansionStatus(&status) &&
+            status.state == hal::KeyboardExpansionState::kReady;
   }
   const bool should_show_keyboard_test = ready;
-  const bool should_show_nfc_test = state->nfc != nullptr &&
-      (state->keyboard_expansion == nullptr ||
-          IsKeyboardExpansionNfcReady(state));
+  const bool should_show_nfc_test =
+      state->nfc != nullptr && (state->keyboard_expansion == nullptr ||
+                                   IsKeyboardExpansionNfcReady(state));
   if (keyboard_test_row_exists == should_show_keyboard_test &&
       nfc_test_row_exists == should_show_nfc_test) {
     return;
@@ -4562,9 +4522,8 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
   lv_obj_set_size(container, config.width, config.height);
   lv_obj_align(container, LV_ALIGN_CENTER, 0, 0);
 
-  lv_obj_t* title_weight =
-      CreateLabel(container, app_entry.title, lv_color_hex(kCitTitleColor),
-          Font48());
+  lv_obj_t* title_weight = CreateLabel(
+      container, app_entry.title, lv_color_hex(kCitTitleColor), Font48());
   if (title_weight == nullptr) {
     lv_obj_delete(container);
     return nullptr;
@@ -4572,9 +4531,8 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
   lv_obj_set_size(title_weight, config.width - 2 * kTitleLeft, 58);
   lv_obj_align(title_weight, LV_ALIGN_TOP_LEFT, kTitleLeft + 1, kTitleTop);
 
-  lv_obj_t* title =
-      CreateLabel(container, app_entry.title, lv_color_hex(kCitTitleColor),
-          Font48());
+  lv_obj_t* title = CreateLabel(
+      container, app_entry.title, lv_color_hex(kCitTitleColor), Font48());
   if (title == nullptr) {
     lv_obj_delete(container);
     return nullptr;
@@ -4591,8 +4549,9 @@ lv_obj_t* CreateCitView(lv_obj_t* parent, const app::AppEntry& app_entry,
   state->list_page = list;
   lv_obj_set_size(list, config.width, config.height - kListTop);
   lv_obj_align(list, LV_ALIGN_TOP_MID, 0, kListTop);
-  lv_obj_set_style_bg_color(
-      list, lv_color_hex(theme::ActiveThemeColors().surface_container_low), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(list,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_low),
+      LV_PART_MAIN);
   lv_obj_set_style_bg_opa(list, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(list, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(list, 0, LV_PART_MAIN);

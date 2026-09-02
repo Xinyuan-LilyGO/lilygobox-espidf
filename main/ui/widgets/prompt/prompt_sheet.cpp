@@ -2,7 +2,7 @@
  * @Description: Bottom prompt sheet widget
  * @Author: LILYGO_L
  * @Date: 2026-06-23 00:00:00
- * @LastEditTime: 2026-06-23 00:00:00
+ * @LastEditTime: 2026-09-02 17:57:13
  * @License: GPL 3.0
  */
 #include "ui/widgets/prompt/prompt_sheet.h"
@@ -59,8 +59,8 @@ lv_obj_t* CreatePromptSheetOverlay(
   lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(overlay, config.screen_width, config.screen_height);
   lv_obj_set_pos(overlay, 0, 0);
-  lv_obj_set_style_bg_color(overlay,
-      lv_color_hex(theme::FixedColors().scrim), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      overlay, lv_color_hex(theme::FixedColors().scrim), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(overlay, config.overlay_opacity, LV_PART_MAIN);
   lv_obj_set_style_border_width(overlay, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(overlay, 0, LV_PART_MAIN);
@@ -93,8 +93,8 @@ lv_obj_t* CreatePromptSheet(
   return sheet;
 }
 
-lv_obj_t* CreatePromptSheetLabel(lv_obj_t* parent, const char* text,
-    uint32_t color, const lv_font_t* font) {
+lv_obj_t* CreatePromptSheetLabel(
+    lv_obj_t* parent, const char* text, uint32_t color, const lv_font_t* font) {
   if (parent == nullptr || text == nullptr) {
     return nullptr;
   }
@@ -111,8 +111,7 @@ lv_obj_t* CreatePromptSheetLabel(lv_obj_t* parent, const char* text,
   return label;
 }
 
-void AlignPromptSheetSubtitle(
-    lv_obj_t* subtitle, lv_obj_t* title, int gap) {
+void AlignPromptSheetSubtitle(lv_obj_t* subtitle, lv_obj_t* title, int gap) {
   if (subtitle == nullptr || title == nullptr) {
     return;
   }
@@ -147,11 +146,11 @@ lv_obj_t* CreatePromptSheetButton(
       StyleSelector(LV_PART_MAIN, LV_STATE_FOCUS_KEY));
   lv_obj_set_style_bg_opa(
       button, LV_OPA_COVER, StyleSelector(LV_PART_MAIN, LV_STATE_FOCUS_KEY));
-  lv_obj_set_style_bg_color(button, lv_color_hex(
-      config.disabled_background_color),
+  lv_obj_set_style_bg_color(button,
+      lv_color_hex(config.disabled_background_color),
       StyleSelector(LV_PART_MAIN, LV_STATE_DISABLED));
-  lv_obj_set_style_bg_opa(button, LV_OPA_COVER,
-      StyleSelector(LV_PART_MAIN, LV_STATE_DISABLED));
+  lv_obj_set_style_bg_opa(
+      button, LV_OPA_COVER, StyleSelector(LV_PART_MAIN, LV_STATE_DISABLED));
   lv_obj_set_style_bg_color(button,
       lv_color_hex(config.pressed_background_color),
       StyleSelector(LV_PART_MAIN, LV_STATE_PRESSED));

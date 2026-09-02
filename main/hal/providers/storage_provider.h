@@ -2,7 +2,7 @@
  * @Description: Storage provider
  * @Author: LILYGO_L
  * @Date: 2026-07-09 00:00:00
- * @LastEditTime: 2026-07-09 00:00:00
+ * @LastEditTime: 2026-09-02 17:52:40
  * @License: GPL 3.0
  */
 #pragma once
@@ -76,8 +76,7 @@ class StorageProvider {
    * @param snapshot 快照输出地址
    * @return 读取成功返回 true，否则返回 false
    */
-  virtual bool ReadUsbStorageSnapshot(
-      UsbStorageSnapshot* snapshot) const = 0;
+  virtual bool ReadUsbStorageSnapshot(UsbStorageSnapshot* snapshot) const = 0;
 };
 
 }  // namespace lilygo_box::hal

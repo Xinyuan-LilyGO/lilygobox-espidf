@@ -2,7 +2,7 @@
  * @Description: Radio 聊天热缓存、会话摘要与 LittleFS 日志仓库实现
  * @Author: LILYGO_L
  * @Date: 2026-07-17 00:00:00
- * @LastEditTime: 2026-07-18 00:00:00
+ * @LastEditTime: 2026-09-02 17:51:11
  * @License: GPL 3.0
  */
 #include "app/radio_chat_repository.h"
@@ -31,8 +31,7 @@ namespace {
 // PSRAM 分配失败时使用的内部 RAM 消息容量。
 constexpr size_t kFallbackGlobalCapacity = 32;
 // 待写队列达到该数量时跳过合并等待，避免队列被突发消息占满。
-constexpr size_t kUrgentFlushPendingCount =
-    kRadioChatPendingCapacity * 3 / 4;
+constexpr size_t kUrgentFlushPendingCount = kRadioChatPendingCapacity * 3 / 4;
 // 日志达到容量上限后单次压缩保留的记录数量。
 constexpr size_t kCompactionTarget =
     kRadioChatStorageCapacity - kRadioChatStorageCapacity / 8;
@@ -111,8 +110,7 @@ void CopyBoundedString(
  * @param component 待追加的目录或文件名
  * @return 路径有效且追加后未发生截断时返回 true
  */
-bool AppendPathComponent(
-    char* path, size_t path_size, const char* component) {
+bool AppendPathComponent(char* path, size_t path_size, const char* component) {
   if (path == nullptr || path_size == 0 || component == nullptr) {
     return false;
   }
@@ -308,13 +306,11 @@ bool EncodeRecord(const RadioChatMessage& message, DiskRecord* record) {
   (*record)[kMessageTypeOffset] = static_cast<uint8_t>(message.type);
   (*record)[kDeliveryOffset] = static_cast<uint8_t>(message.delivery);
   StoreInt16(record->data() + kRssiQuarterDbmOffset,
-      message.rssi_valid ? message.rssi_quarter_dbm
-                         : kUnavailableSignalMetric);
+      message.rssi_valid ? message.rssi_quarter_dbm : kUnavailableSignalMetric);
   StoreInt16(record->data() + kSnrQuarterDbOffset,
-      message.snr_valid ? message.snr_quarter_db
-                        : kUnavailableSignalMetric);
-  std::memcpy(record->data() + kTimeOffset, message.time,
-      kRadioChatTimeCapacity);
+      message.snr_valid ? message.snr_quarter_db : kUnavailableSignalMetric);
+  std::memcpy(
+      record->data() + kTimeOffset, message.time, kRadioChatTimeCapacity);
   std::memcpy(record->data() + kTextOffset, message.text, text_length);
   StoreUint32(record->data() + kChecksumOffset,
       CalculateChecksum(record->data(), kChecksumOffset));
@@ -359,8 +355,7 @@ bool DecodeRecord(const DiskRecord& record, RadioChatMessage* message) {
   if (version == kLegacyRecordVersion) {
     message->rssi_quarter_dbm =
         static_cast<int8_t>(record[kLegacyRssiOffset]) * 4;
-    message->snr_quarter_db =
-        static_cast<int8_t>(record[kLegacySnrOffset]) * 4;
+    message->snr_quarter_db = static_cast<int8_t>(record[kLegacySnrOffset]) * 4;
     message->rssi_valid =
         (record[kLegacyUnavailableSignalMetricsOffset] & 0x01) == 0;
     message->snr_valid =
@@ -368,15 +363,12 @@ bool DecodeRecord(const DiskRecord& record, RadioChatMessage* message) {
   } else {
     message->rssi_quarter_dbm =
         LoadInt16(record.data() + kRssiQuarterDbmOffset);
-    message->snr_quarter_db =
-        LoadInt16(record.data() + kSnrQuarterDbOffset);
-    message->rssi_valid =
-        message->rssi_quarter_dbm != kUnavailableSignalMetric;
-    message->snr_valid =
-        message->snr_quarter_db != kUnavailableSignalMetric;
+    message->snr_quarter_db = LoadInt16(record.data() + kSnrQuarterDbOffset);
+    message->rssi_valid = message->rssi_quarter_dbm != kUnavailableSignalMetric;
+    message->snr_valid = message->snr_quarter_db != kUnavailableSignalMetric;
   }
-  std::memcpy(message->time, record.data() + kTimeOffset,
-      kRadioChatTimeCapacity);
+  std::memcpy(
+      message->time, record.data() + kTimeOffset, kRadioChatTimeCapacity);
   message->time[kRadioChatTimeCapacity - 1] = '\0';
   std::memcpy(message->text, record.data() + kTextOffset, text_length);
   message->text[text_length] = '\0';
@@ -668,8 +660,7 @@ uint64_t RadioChatRepository::Append(RadioChatMessage message) {
   }
   RefreshProfileSummary(message.profile_id);
   if (IsFinalDelivery(entry->message.delivery)) {
-    RequestLittleFsStorageFlush(
-        pending_count_ >= kUrgentFlushPendingCount);
+    RequestLittleFsStorageFlush(pending_count_ >= kUrgentFlushPendingCount);
   }
   return message.sequence;
 }
@@ -693,8 +684,7 @@ bool RadioChatRepository::UpdateDelivery(
   entry->dirty = true;
   QueueEntry(entry);
   if (IsFinalDelivery(delivery)) {
-    RequestLittleFsStorageFlush(
-        pending_count_ >= kUrgentFlushPendingCount);
+    RequestLittleFsStorageFlush(pending_count_ >= kUrgentFlushPendingCount);
   }
   return true;
 }
@@ -718,8 +708,7 @@ void RadioChatRepository::FailPending(uint32_t profile_id) {
     }
   }
   if (flush_requested) {
-    RequestLittleFsStorageFlush(
-        pending_count_ >= kUrgentFlushPendingCount);
+    RequestLittleFsStorageFlush(pending_count_ >= kUrgentFlushPendingCount);
   }
 }
 
@@ -759,10 +748,8 @@ size_t RadioChatRepository::GetCachedMessageCount() const {
   if (!lock.locked() || entries_ == nullptr) {
     return 0;
   }
-  return static_cast<size_t>(std::count_if(
-      entries_, entries_ + capacity_, [](const Entry& entry) {
-        return entry.used;
-      }));
+  return static_cast<size_t>(std::count_if(entries_, entries_ + capacity_,
+      [](const Entry& entry) { return entry.used; }));
 }
 
 bool RadioChatRepository::GetOldestPending(
@@ -947,8 +934,7 @@ bool RadioChatRepository::LoadLog(
     const uint32_t* profile_ids, size_t profile_count) {
   auto buffer = std::unique_ptr<ChatLogReadBuffer>(
       new (std::nothrow) ChatLogReadBuffer{});
-  if (buffer == nullptr ||
-      !BuildLogPath(buffer->path, sizeof(buffer->path))) {
+  if (buffer == nullptr || !BuildLogPath(buffer->path, sizeof(buffer->path))) {
     return false;
   }
   FILE* file = std::fopen(buffer->path, "rb");
@@ -1150,8 +1136,7 @@ bool RadioChatRepository::CompactLog(size_t keep_records) {
   if (!GetStorageDirectory(directory, sizeof(directory))) {
     return false;
   }
-  if (!AppendPathComponent(
-          temporary_path, sizeof(temporary_path), directory) ||
+  if (!AppendPathComponent(temporary_path, sizeof(temporary_path), directory) ||
       !AppendPathComponent(
           temporary_path, sizeof(temporary_path), kChatTempFile)) {
     return false;

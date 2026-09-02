@@ -2,11 +2,9 @@
  * @Description: T-Display-P4-Air WiFi 协处理器实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-08-28 00:00:00
+ * @LastEditTime: 2026-09-02 17:53:44
  * @License: GPL 3.0
  */
-#include "hal/device/t_display_p4_air/device.h"
-
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
@@ -30,6 +28,7 @@
 #include "freertos/task.h"
 #include "hal/device/common/device_utils.h"
 #include "hal/device/common/wifi_utils.h"
+#include "hal/device/t_display_p4_air/device.h"
 
 namespace lilygo_box::hal {
 namespace {
@@ -518,9 +517,9 @@ bool TDisplayP4AirDevice::ReadWifiStatus(WifiStatus* status) {
   }
 
   const int64_t synced_unix_time = wifi_time_test_.sntp_unix_time.load();
-  status->time_synced = wifi_time_test_.synced.load() &&
-                        synced_unix_time >
-                            device_utils::kValidUnixTimeThreshold;
+  status->time_synced =
+      wifi_time_test_.synced.load() &&
+      synced_unix_time > device_utils::kValidUnixTimeThreshold;
   status->unix_time = status->time_synced ? synced_unix_time : 0;
   const int64_t sync_monotonic_ms =
       wifi_time_test_.sntp_sync_monotonic_ms.load();
@@ -788,11 +787,10 @@ bool TDisplayP4AirDevice::WaitForWifiHardwareReady() {
   }
 
   for (elapsed_ms = 0;
-      elapsed_ms < kWifiCoprocessorBootDelayMs &&
-      !wifi_.stop_requested.load();
+      elapsed_ms < kWifiCoprocessorBootDelayMs && !wifi_.stop_requested.load();
       elapsed_ms += kWifiHardwareReadyPollMs) {
-    const uint32_t delay_ms = std::min(kWifiHardwareReadyPollMs,
-        kWifiCoprocessorBootDelayMs - elapsed_ms);
+    const uint32_t delay_ms = std::min(
+        kWifiHardwareReadyPollMs, kWifiCoprocessorBootDelayMs - elapsed_ms);
     vTaskDelay(pdMS_TO_TICKS(delay_ms));
   }
   return !wifi_.stop_requested.load();
@@ -809,8 +807,7 @@ int TDisplayP4AirDevice::InitializeWifiStack() {
 
   if (!wifi_.hosted_bridge_initialized.load()) {
     const esp_hosted_transport_err_t reset_callback_result =
-        esp_hosted_sdio_set_reset_callback(
-            WifiCoprocessorResetCallback, this);
+        esp_hosted_sdio_set_reset_callback(WifiCoprocessorResetCallback, this);
     if (reset_callback_result != ESP_TRANSPORT_OK) {
       return static_cast<int>(reset_callback_result);
     }

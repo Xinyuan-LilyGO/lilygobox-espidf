@@ -2,7 +2,7 @@
  * @Description: PPA scale/rotate/mirror helper
  * @Author: LILYGO_L
  * @Date: 2026-07-02 00:00:00
- * @LastEditTime: 2026-07-02 00:00:00
+ * @LastEditTime: 2026-09-02 17:52:32
  * @License: GPL 3.0
  */
 #pragma once
@@ -67,8 +67,7 @@ class PpaSrmHelper {
    * @return 转换成功返回 true，否则返回 false
    */
   bool Transform(const PpaSrmImageConfig& input,
-      const PpaSrmImageConfig& output,
-      const PpaSrmTransformConfig& transform);
+      const PpaSrmImageConfig& output, const PpaSrmTransformConfig& transform);
 
  private:
   ppa_client_handle_t handle_ = nullptr;

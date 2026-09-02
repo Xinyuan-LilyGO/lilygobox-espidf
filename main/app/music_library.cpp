@@ -2,7 +2,7 @@
  * @Description: SD 卡 MP3 曲库扫描与曲目信息实现
  * @Author: LILYGO_L
  * @Date: 2026-07-14 22:55:00
- * @LastEditTime: 2026-07-14 23:43:18
+ * @LastEditTime: 2026-09-02 17:51:07
  * @License: GPL 3.0
  */
 #include "app/music_library.h"
@@ -31,8 +31,8 @@ constexpr size_t kMaximumTrackCount = 2048;
  * @return 小写字符串
  */
 std::string AsciiLower(std::string value) {
-  std::transform(value.begin(), value.end(), value.begin(),
-      [](unsigned char character) {
+  std::transform(
+      value.begin(), value.end(), value.begin(), [](unsigned char character) {
         return static_cast<char>(std::tolower(character));
       });
   return value;
@@ -57,9 +57,8 @@ std::string FileTitle(const std::string& path) {
   const size_t slash = path.find_last_of("/\\");
   const size_t begin = slash == std::string::npos ? 0 : slash + 1;
   const size_t dot = path.find_last_of('.');
-  const size_t end = dot == std::string::npos || dot < begin
-                         ? path.size()
-                         : dot;
+  const size_t end =
+      dot == std::string::npos || dot < begin ? path.size() : dot;
   return path.substr(begin, end - begin);
 }
 
@@ -118,10 +117,8 @@ bool ScanDirectory(const std::string& root_directory,
   std::vector<PendingDirectory> pending_directories;
   pending_directories.push_back({root_directory, 0});
   bool success = true;
-  while (!pending_directories.empty() &&
-         tracks->size() < kMaximumTrackCount) {
-    PendingDirectory directory =
-        std::move(pending_directories.back());
+  while (!pending_directories.empty() && tracks->size() < kMaximumTrackCount) {
+    PendingDirectory directory = std::move(pending_directories.back());
     pending_directories.pop_back();
 
     DIR* handle = opendir(directory.path.c_str());
@@ -136,15 +133,14 @@ bool ScanDirectory(const std::string& root_directory,
         continue;
       }
       std::string path = JoinPath(directory.path, entry->d_name);
-      struct stat information {};
+      struct stat information{};
       if (stat(path.c_str(), &information) != 0) {
         success = false;
         continue;
       }
       if (S_ISDIR(information.st_mode) &&
           directory.depth < kMaximumDirectoryDepth) {
-        pending_directories.push_back(
-            {std::move(path), directory.depth + 1});
+        pending_directories.push_back({std::move(path), directory.depth + 1});
       } else if (S_ISREG(information.st_mode) && IsMp3Path(path)) {
         AddMp3Track(path, known_paths, tracks);
       }

@@ -2,7 +2,7 @@
  * @Description: Keyboard expansion preference storage implementation
  * @Author: LILYGO_L
  * @Date: 2026-08-20 00:00:00
- * @LastEditTime: 2026-08-20 00:00:00
+ * @LastEditTime: 2026-09-02 17:51:30
  * @License: GPL 3.0
  */
 #include "app/storage/keyboard_expansion_storage.h"
@@ -33,8 +33,8 @@ bool AreKeyboardExpansionPreferencesEqual(
     const KeyboardExpansionPreferences& left,
     const KeyboardExpansionPreferences& right) {
   return left.enabled == right.enabled &&
-      left.backlight_brightness_percent ==
-          right.backlight_brightness_percent;
+         left.backlight_brightness_percent ==
+             right.backlight_brightness_percent;
 }
 
 bool DecodeKeyboardExpansionPreferences(const storage::TlvBuffer& buffer,
@@ -44,8 +44,8 @@ bool DecodeKeyboardExpansionPreferences(const storage::TlvBuffer& buffer,
   }
 
   KeyboardExpansionPreferences decoded;
-  storage::TlvReader reader(storage::TlvDomain::kKeyboardExpansion,
-      buffer.data.get(), buffer.size);
+  storage::TlvReader reader(
+      storage::TlvDomain::kKeyboardExpansion, buffer.data.get(), buffer.size);
   storage::TlvField field;
   while (true) {
     const storage::TlvReadResult result = reader.Next(&field);
@@ -76,8 +76,8 @@ bool DecodeKeyboardExpansionPreferences(const storage::TlvBuffer& buffer,
 }
 
 bool EncodeKeyboardExpansionPreferences(
-    const KeyboardExpansionPreferences& preferences,
-    uint8_t* output, size_t capacity, size_t* encoded_size) {
+    const KeyboardExpansionPreferences& preferences, uint8_t* output,
+    size_t capacity, size_t* encoded_size) {
   if (preferences.backlight_brightness_percent < 0 ||
       preferences.backlight_brightness_percent > 100) {
     return false;
@@ -87,16 +87,15 @@ bool EncodeKeyboardExpansionPreferences(
   return writer.WriteBool(
              static_cast<uint16_t>(KeyboardExpansionField::kEnabled),
              preferences.enabled) &&
-      writer.WriteInt32(
-          static_cast<uint16_t>(
-              KeyboardExpansionField::kBacklightBrightnessPercent),
-          preferences.backlight_brightness_percent) &&
-      writer.Finalize(encoded_size);
+         writer.WriteInt32(
+             static_cast<uint16_t>(
+                 KeyboardExpansionField::kBacklightBrightnessPercent),
+             preferences.backlight_brightness_percent) &&
+         writer.Finalize(encoded_size);
 }
 
 NvsStorageCache<KeyboardExpansionPreferences> g_keyboard_expansion_cache(
-    StorageDomain::kKeyboardExpansion,
-    AreKeyboardExpansionPreferencesEqual);
+    StorageDomain::kKeyboardExpansion, AreKeyboardExpansionPreferencesEqual);
 
 }  // namespace
 
@@ -108,8 +107,7 @@ void InitKeyboardExpansionCache() {
     storage::TlvBuffer buffer;
     esp_err_t error = ESP_OK;
     const storage::TlvLoadResult result = storage::LoadTlvBuffer(handle,
-        kKeyboardExpansionNvsKey,
-        storage::TlvDomain::kKeyboardExpansion,
+        kKeyboardExpansionNvsKey, storage::TlvDomain::kKeyboardExpansion,
         kKeyboardExpansionTlvCapacity, &buffer, &error);
     if (result == storage::TlvLoadResult::kLoaded &&
         !DecodeKeyboardExpansionPreferences(buffer, &loaded)) {
@@ -120,8 +118,7 @@ void InitKeyboardExpansionCache() {
           "Keyboard expansion TLV container is invalid\n");
     } else if (result == storage::TlvLoadResult::kError) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Load keyboard expansion TLV failed: %s\n",
-          esp_err_to_name(error));
+          "Load keyboard expansion TLV failed: %s\n", esp_err_to_name(error));
     }
     nvs_close(handle);
   }
@@ -149,10 +146,10 @@ StorageStageResult StageKeyboardExpansionStorage(nvs_handle_t handle) {
   }
   std::array<uint8_t, kKeyboardExpansionTlvCapacity> buffer = {};
   size_t encoded_size = 0;
-  if (!EncodeKeyboardExpansionPreferences(*preferences, buffer.data(),
-          buffer.size(), &encoded_size) ||
-      nvs_set_blob(handle, kKeyboardExpansionNvsKey,
-          buffer.data(), encoded_size) != ESP_OK) {
+  if (!EncodeKeyboardExpansionPreferences(
+          *preferences, buffer.data(), buffer.size(), &encoded_size) ||
+      nvs_set_blob(handle, kKeyboardExpansionNvsKey, buffer.data(),
+          encoded_size) != ESP_OK) {
     return StorageStageResult::kFailed;
   }
   return StorageStageResult::kStaged;

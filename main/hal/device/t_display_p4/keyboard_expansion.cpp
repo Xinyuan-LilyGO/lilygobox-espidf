@@ -2,17 +2,16 @@
  * @Description: T-Display-P4 键盘扩展硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-08-28 00:00:00
+ * @LastEditTime: 2026-09-02 17:53:06
  * @License: GPL 3.0
  */
-#include "hal/device/t_display_p4/device.h"
-
 #include <atomic>
 #include <cstdint>
 
 #include "base/logger.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "hal/device/t_display_p4/device.h"
 
 namespace lilygo_box::hal {
 namespace keyboard_device =
@@ -123,13 +122,12 @@ KeyboardKey ToKeyboardKey(
  * @return ASCII 字符值，无有效字符返回 0
  */
 uint32_t ResolveKeyboardCharacter(
-    const keyboard_device::tca8418::KeyMapping& mapping,
-    bool function_pressed, bool shift_pressed, bool caps_lock_enabled) {
+    const keyboard_device::tca8418::KeyMapping& mapping, bool function_pressed,
+    bool shift_pressed, bool caps_lock_enabled) {
   const bool use_function_character =
       function_pressed && mapping.function_character != '\0';
-  char character = use_function_character
-      ? mapping.function_character
-      : mapping.character;
+  char character =
+      use_function_character ? mapping.function_character : mapping.character;
   if (!use_function_character && shift_pressed != caps_lock_enabled &&
       character >= 'a' && character <= 'z') {
     character = static_cast<char>(character - 'a' + 'A');
@@ -146,8 +144,8 @@ bool TDisplayP4Device::InitializeKeyboardExpansionConnectionInterrupt(
   }
 
   bool expected = false;
-  if (!keyboard_expansion_.interrupt_initialized
-           .compare_exchange_strong(expected, true)) {
+  if (!keyboard_expansion_.interrupt_initialized.compare_exchange_strong(
+          expected, true)) {
     return true;
   }
 
@@ -226,7 +224,7 @@ bool TDisplayP4Device::DeinitializeKeyboardExpansionInterrupt() {
   }
 
   const bool result = tool_ != nullptr &&
-      tool_->DeinitGpioInterrupt(keyboard_gpio::tca8418::kInt);
+                      tool_->DeinitGpioInterrupt(keyboard_gpio::tca8418::kInt);
   keyboard_expansion_.connection_interrupt_pending.store(
       false, std::memory_order_relaxed);
   keyboard_expansion_.input_interrupt_pending.store(
@@ -274,8 +272,7 @@ void TDisplayP4Device::RecordKeyboardInputReadFailure() {
   KeyboardExpansionState expected = KeyboardExpansionState::kReady;
   if (keyboard_expansion_.state.compare_exchange_strong(
           expected, KeyboardExpansionState::kDisconnected)) {
-    keyboard_expansion_.tca8418.store(
-        KeyboardExpansionComponentState::kFailed);
+    keyboard_expansion_.tca8418.store(KeyboardExpansionComponentState::kFailed);
     keyboard_expansion_.shift_pressed.store(false);
     keyboard_expansion_.function_pressed.store(false);
     keyboard_expansion_.caps_lock_enabled.store(false);
@@ -319,12 +316,11 @@ bool TDisplayP4Device::StartKeyboardExpansionScan() {
   keyboard_expansion_.consecutive_read_failures.store(0);
   keyboard_expansion_.state.store(KeyboardExpansionState::kScanning);
 
-  if (xTaskCreate(KeyboardExpansionScanTaskEntry,
-          "KeyboardExpScan", kKeyboardExpansionTaskStackBytes, this,
+  if (xTaskCreate(KeyboardExpansionScanTaskEntry, "KeyboardExpScan",
+          kKeyboardExpansionTaskStackBytes, this,
           kKeyboardExpansionTaskPriority, nullptr) != pdPASS) {
     keyboard_expansion_.task_running.store(false);
-    keyboard_expansion_.state.store(
-        KeyboardExpansionState::kComponentFailure);
+    keyboard_expansion_.state.store(KeyboardExpansionState::kComponentFailure);
     keyboard_expansion_.scan_generation.fetch_add(1);
     if (!InitializeKeyboardExpansionConnectionInterrupt(false)) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
@@ -375,18 +371,15 @@ bool TDisplayP4Device::DeinitializeKeyboardExpansionHardware(
   if (!SetNfcPollingEnabled(false)) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Stop keyboard expansion NFC polling failed\n");
-    keyboard_expansion_.state.store(
-        KeyboardExpansionState::kComponentFailure);
+    keyboard_expansion_.state.store(KeyboardExpansionState::kComponentFailure);
     return false;
   }
   if (!WaitForKeyboardExpansionTask()) {
-    keyboard_expansion_.state.store(
-        KeyboardExpansionState::kComponentFailure);
+    keyboard_expansion_.state.store(KeyboardExpansionState::kComponentFailure);
     return false;
   }
 
-  const bool interrupt_deinitialized =
-      DeinitializeKeyboardExpansionInterrupt();
+  const bool interrupt_deinitialized = DeinitializeKeyboardExpansionInterrupt();
   const auto deinit_mode =
       previous_state == KeyboardExpansionState::kDisconnected
           ? lilygo_device_driver::TDisplayP4Driver::
@@ -411,9 +404,8 @@ bool TDisplayP4Device::DeinitializeKeyboardExpansionHardware(
   keyboard_expansion_.function_pressed.store(false);
   keyboard_expansion_.caps_lock_enabled.store(false);
   keyboard_expansion_.consecutive_read_failures.store(0);
-  keyboard_expansion_.state.store(result
-          ? final_state
-          : KeyboardExpansionState::kComponentFailure);
+  keyboard_expansion_.state.store(
+      result ? final_state : KeyboardExpansionState::kComponentFailure);
   keyboard_expansion_.scan_generation.fetch_add(1);
   return result;
 }
@@ -437,8 +429,7 @@ bool TDisplayP4Device::SuspendKeyboardExpansionForScreenLock() {
 }
 
 bool TDisplayP4Device::ApplyKeyboardExpansionScreenLockSleep() {
-  bool result = driver_.IsTca8418Ready() &&
-      driver_.chip().tca8418 != nullptr;
+  bool result = driver_.IsTca8418Ready() && driver_.chip().tca8418 != nullptr;
   if (result) {
     auto* keyboard = driver_.chip().tca8418.get();
     result &= keyboard->SetInterruptEnable(0);
@@ -452,9 +443,8 @@ bool TDisplayP4Device::ApplyKeyboardExpansionScreenLockSleep() {
   keyboard_expansion_.shift_pressed.store(false);
   keyboard_expansion_.function_pressed.store(false);
   keyboard_expansion_.consecutive_read_failures.store(0);
-  result &= driver_.SetKeyboardExpansionOperatingMode(
-      lilygo_device_driver::TDisplayP4Driver::
-          KeyboardExpansionOperatingMode::kSleep);
+  result &= driver_.SetKeyboardExpansionOperatingMode(lilygo_device_driver::
+          TDisplayP4Driver::KeyboardExpansionOperatingMode::kSleep);
   return result;
 }
 
@@ -471,8 +461,8 @@ bool TDisplayP4Device::ResumeKeyboardExpansionAfterScreenUnlock() {
     return true;
   }
 
-  bool input_restored = driver_.IsTca8418Ready() &&
-      driver_.chip().tca8418 != nullptr;
+  bool input_restored =
+      driver_.IsTca8418Ready() && driver_.chip().tca8418 != nullptr;
   if (input_restored) {
     auto* keyboard = driver_.chip().tca8418.get();
     input_restored &= keyboard->ClearEventFifo();
@@ -480,8 +470,8 @@ bool TDisplayP4Device::ResumeKeyboardExpansionAfterScreenUnlock() {
         keyboard_device::tca8418::kKeypadScanWidth,
         keyboard_device::tca8418::kKeypadScanHeight);
     input_restored &= keyboard->ClearEventFifo();
-    input_restored &= keyboard->SetIrqGpioMode(
-        cpp_bus_driver::Tca8418::IrqMask::kKeyEvents);
+    input_restored &=
+        keyboard->SetIrqGpioMode(cpp_bus_driver::Tca8418::IrqMask::kKeyEvents);
   }
   keyboard_expansion_.input_interrupt_pending.store(
       false, std::memory_order_relaxed);
@@ -541,8 +531,7 @@ bool TDisplayP4Device::UpdateKeyboardExpansionDisconnectionState() {
   return true;
 }
 
-bool TDisplayP4Device::UpdateKeyboardExpansionConnection(
-    bool* scan_started) {
+bool TDisplayP4Device::UpdateKeyboardExpansionConnection(bool* scan_started) {
   if (scan_started != nullptr) {
     *scan_started = false;
   }
@@ -583,8 +572,7 @@ bool TDisplayP4Device::UpdateKeyboardExpansionConnection(
           false, std::memory_order_acq_rel)) {
     return true;
   }
-  if (tool_ == nullptr ||
-      !tool_->GpioRead(keyboard_gpio::tca8418::kInt)) {
+  if (tool_ == nullptr || !tool_->GpioRead(keyboard_gpio::tca8418::kInt)) {
     return true;
   }
 
@@ -660,8 +648,7 @@ bool TDisplayP4Device::ReadKeyboardInputEvent(KeyboardInputEvent* event) {
   }
 
   const bool interrupt_initialized =
-      keyboard_expansion_.interrupt_initialized.load(
-          std::memory_order_acquire);
+      keyboard_expansion_.interrupt_initialized.load(std::memory_order_acquire);
   if (interrupt_initialized &&
       !keyboard_expansion_.input_interrupt_pending.exchange(
           false, std::memory_order_acq_rel)) {
@@ -710,8 +697,7 @@ bool TDisplayP4Device::ReadKeyboardInputEvent(KeyboardInputEvent* event) {
   } else {
     keyboard_expansion_.consecutive_read_failures.store(0);
   }
-  if (input.num == 0 ||
-      input.num > keyboard_device::tca8418::kMap.size()) {
+  if (input.num == 0 || input.num > keyboard_device::tca8418::kMap.size()) {
     return false;
   }
 
@@ -721,11 +707,9 @@ bool TDisplayP4Device::ReadKeyboardInputEvent(KeyboardInputEvent* event) {
   const bool function_pressed = keyboard_expansion_.function_pressed.load();
   if (mapping.key == keyboard_device::tca8418::KeyCode::kShift) {
     keyboard_expansion_.shift_pressed.store(input.press_flag);
-  } else if (mapping.key ==
-             keyboard_device::tca8418::KeyCode::kFunction) {
+  } else if (mapping.key == keyboard_device::tca8418::KeyCode::kFunction) {
     keyboard_expansion_.function_pressed.store(input.press_flag);
-  } else if (mapping.key ==
-                 keyboard_device::tca8418::KeyCode::kCapsLock &&
+  } else if (mapping.key == keyboard_device::tca8418::KeyCode::kCapsLock &&
              input.press_flag) {
     const bool caps_lock_enabled =
         !keyboard_expansion_.caps_lock_enabled.load();
@@ -738,11 +722,11 @@ bool TDisplayP4Device::ReadKeyboardInputEvent(KeyboardInputEvent* event) {
   }
 
   event->key = ToKeyboardKey(mapping.key, shift_pressed);
-  event->character = mapping.key ==
-          keyboard_device::tca8418::KeyCode::kCharacter
-      ? ResolveKeyboardCharacter(mapping, function_pressed, shift_pressed,
-            keyboard_expansion_.caps_lock_enabled.load())
-      : 0;
+  event->character =
+      mapping.key == keyboard_device::tca8418::KeyCode::kCharacter
+          ? ResolveKeyboardCharacter(mapping, function_pressed, shift_pressed,
+                keyboard_expansion_.caps_lock_enabled.load())
+          : 0;
   event->key_id = input.num;
   event->pressed = input.press_flag;
   return event->key != KeyboardKey::kUnknown;
@@ -780,7 +764,8 @@ void TDisplayP4Device::RunKeyboardExpansionScanTask() {
       keyboard_expansion_.screen_lock_suspended.load();
   const int backlight_brightness_percent =
       keyboard_expansion_.backlight_brightness_percent.load();
-  const bool backlight_applied = !initialized || keep_screen_lock_suspended ||
+  const bool backlight_applied =
+      !initialized || keep_screen_lock_suspended ||
       SetKeyboardBacklightBrightnessPercent(backlight_brightness_percent);
 
   // 将各扩展芯片的初始化结果统一转换为对外组件状态。
@@ -790,12 +775,10 @@ void TDisplayP4Device::RunKeyboardExpansionScanTask() {
   };
   const bool xl9555_ready = driver_.IsXl9555Ready();
   keyboard_expansion_.xl9555.store(component_state(xl9555_ready));
-  keyboard_expansion_.tca8418.store(
-      component_state(driver_.IsTca8418Ready()));
+  keyboard_expansion_.tca8418.store(component_state(driver_.IsTca8418Ready()));
   keyboard_expansion_.sy7200a.store(
       component_state(driver_.IsSy7200aReady() && backlight_applied));
-  keyboard_expansion_.cc1101.store(
-      component_state(driver_.IsCc1101Ready()));
+  keyboard_expansion_.cc1101.store(component_state(driver_.IsCc1101Ready()));
   keyboard_expansion_.nrf24l01.store(
       component_state(driver_.IsNrf24l01Ready()));
   keyboard_expansion_.st25r3916.store(
@@ -820,8 +803,7 @@ void TDisplayP4Device::RunKeyboardExpansionScanTask() {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize keyboard input interrupt failed; using polling fallback\n");
   }
-  if (state == KeyboardExpansionState::kReady &&
-      keep_screen_lock_suspended &&
+  if (state == KeyboardExpansionState::kReady && keep_screen_lock_suspended &&
       !ApplyKeyboardExpansionScreenLockSleep()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Keep keyboard expansion asleep after locked scan failed\n");

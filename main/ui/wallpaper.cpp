@@ -41,8 +41,8 @@ lv_obj_t* CreateWallpaperCircle(lv_obj_t* parent, int size, int x, int y,
 
 }  // namespace
 
-void CreateWallpaperObjects(lv_obj_t* parent, int width, int height,
-    WallpaperObjects* objects) {
+void CreateWallpaperObjects(
+    lv_obj_t* parent, int width, int height, WallpaperObjects* objects) {
   if (parent == nullptr) {
     return;
   }
@@ -64,16 +64,14 @@ void CreateWallpaperObjects(lv_obj_t* parent, int width, int height,
   const auto scale_size = [size_scale](int value) {
     return std::max(1, value * size_scale / 100);
   };
-  const auto scale_y = [y_scale](int value) {
-    return value * y_scale / 100;
-  };
+  const auto scale_y = [y_scale](int value) { return value * y_scale / 100; };
   lv_display_t* display = lv_display_get_default();
-  const lv_display_rotation_t rotation =
-      display != nullptr ? lv_display_get_rotation(display)
-                         : LV_DISPLAY_ROTATION_0;
-  const bool is_landscape =
-      raw_width > raw_height || rotation == LV_DISPLAY_ROTATION_90 ||
-      rotation == LV_DISPLAY_ROTATION_270;
+  const lv_display_rotation_t rotation = display != nullptr
+                                             ? lv_display_get_rotation(display)
+                                             : LV_DISPLAY_ROTATION_0;
+  const bool is_landscape = raw_width > raw_height ||
+                            rotation == LV_DISPLAY_ROTATION_90 ||
+                            rotation == LV_DISPLAY_ROTATION_270;
   const theme::ThemeColors& colors = theme::ActiveThemeColors();
 
   if (is_landscape) {
@@ -99,18 +97,15 @@ void CreateWallpaperObjects(lv_obj_t* parent, int width, int height,
     return;
   }
 
-  created_objects.layers[0] = CreateWallpaperCircle(parent, scale_size(1120),
-      0, scale_y(70), LV_ALIGN_TOP_MID, colors.wallpaper_layer_1,
-      LV_OPA_COVER);
-  created_objects.layers[1] = CreateWallpaperCircle(parent, scale_size(1000),
-      0, scale_y(140), LV_ALIGN_TOP_MID, colors.wallpaper_layer_2,
-      LV_OPA_COVER);
-  created_objects.layers[2] = CreateWallpaperCircle(parent, scale_size(940),
-      0, scale_y(300), LV_ALIGN_TOP_MID, colors.wallpaper_layer_3,
-      LV_OPA_COVER);
-  created_objects.layers[3] = CreateWallpaperCircle(parent, scale_size(1040),
-      0, scale_y(640), LV_ALIGN_BOTTOM_MID, colors.wallpaper_layer_4,
-      LV_OPA_COVER);
+  created_objects.layers[0] = CreateWallpaperCircle(parent, scale_size(1120), 0,
+      scale_y(70), LV_ALIGN_TOP_MID, colors.wallpaper_layer_1, LV_OPA_COVER);
+  created_objects.layers[1] = CreateWallpaperCircle(parent, scale_size(1000), 0,
+      scale_y(140), LV_ALIGN_TOP_MID, colors.wallpaper_layer_2, LV_OPA_COVER);
+  created_objects.layers[2] = CreateWallpaperCircle(parent, scale_size(940), 0,
+      scale_y(300), LV_ALIGN_TOP_MID, colors.wallpaper_layer_3, LV_OPA_COVER);
+  created_objects.layers[3] =
+      CreateWallpaperCircle(parent, scale_size(1040), 0, scale_y(640),
+          LV_ALIGN_BOTTOM_MID, colors.wallpaper_layer_4, LV_OPA_COVER);
   if (objects != nullptr) {
     *objects = created_objects;
   }
@@ -122,8 +117,7 @@ void ApplyWallpaperTheme(const WallpaperObjects& objects) {
   if (objects.background != nullptr) {
     lv_obj_set_style_bg_color(objects.background,
         lv_color_hex(colors.wallpaper_background), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(
-        objects.background, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(objects.background, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_invalidate(objects.background);
   }
   const uint32_t layer_colors[kWallpaperLayerCount] = {

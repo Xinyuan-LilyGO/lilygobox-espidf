@@ -2,7 +2,7 @@
  * @Description: PPA scale/rotate/mirror helper
  * @Author: LILYGO_L
  * @Date: 2026-07-02 00:00:00
- * @LastEditTime: 2026-07-02 00:00:00
+ * @LastEditTime: 2026-09-02 17:52:30
  * @License: GPL 3.0
  */
 #include "hal/ppa/ppa_srm_helper.h"
@@ -43,8 +43,7 @@ void PpaSrmHelper::Deinit() {
 }
 
 bool PpaSrmHelper::Transform(const PpaSrmImageConfig& input,
-    const PpaSrmImageConfig& output,
-    const PpaSrmTransformConfig& transform) {
+    const PpaSrmImageConfig& output, const PpaSrmTransformConfig& transform) {
   if (handle_ == nullptr || input.buffer == nullptr ||
       output.buffer == nullptr) {
     return false;

@@ -2,11 +2,9 @@
  * @Description: T-Display-P4 以太网硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-08-28 00:00:00
+ * @LastEditTime: 2026-09-02 17:52:59
  * @License: GPL 3.0
  */
-#include "hal/device/t_display_p4/device.h"
-
 #include <cstdint>
 
 #include "base/logger.h"
@@ -19,6 +17,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal/device/common/wifi_utils.h"
+#include "hal/device/t_display_p4/device.h"
 
 namespace lilygo_box::hal {
 namespace device = lilygo_device_driver::t_display_p4::device;
@@ -292,7 +291,8 @@ void TDisplayP4Device::EthernetEventHandler(
         esp_eth_handle_t handle = *static_cast<esp_eth_handle_t*>(event_data);
         uint8_t mac_address[6] = {};
         if (esp_eth_ioctl(handle, ETH_CMD_G_MAC_ADDR, mac_address) == ESP_OK) {
-          self->ethernet_.mac_address.store(wifi_utils::PackMacAddress(mac_address));
+          self->ethernet_.mac_address.store(
+              wifi_utils::PackMacAddress(mac_address));
         }
       }
       break;

@@ -2,7 +2,7 @@
  * @Description: UI 分层返回目标管理实现
  * @Author: LILYGO_L
  * @Date: 2026-08-24 00:00:00
- * @LastEditTime: 2026-08-24 00:00:00
+ * @LastEditTime: 2026-09-02 17:54:20
  * @License: GPL 3.0
  */
 #include "ui/input/back_navigation_controller.h"
@@ -76,8 +76,8 @@ bool RegisterBackNavigationHandler(
   if (!callback) {
     return false;
   }
-  return RegisterConditionalBackNavigationHandler(owner,
-      [callback = std::move(callback)]() {
+  return RegisterConditionalBackNavigationHandler(
+      owner, [callback = std::move(callback)]() {
         callback();
         return true;
       });
@@ -134,8 +134,7 @@ bool RequestBackNavigation() {
         continue;
       }
       if (entry.owner == nullptr || !entry.callback ||
-          !lv_obj_is_visible(entry.owner) ||
-          entry.sequence >= sequence_limit) {
+          !lv_obj_is_visible(entry.owner) || entry.sequence >= sequence_limit) {
         continue;
       }
       if (selected_entry == nullptr ||

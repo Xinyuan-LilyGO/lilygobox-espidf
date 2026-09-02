@@ -23,8 +23,7 @@ class UsbStorageManager {
    * @brief 创建 USB Host MSC 存储管理器
    * @param host_stopped_callback USB Host 完全停止后的通知回调
    */
-  explicit UsbStorageManager(
-      HostStoppedCallback host_stopped_callback = {});
+  explicit UsbStorageManager(HostStoppedCallback host_stopped_callback = {});
   ~UsbStorageManager();
 
   UsbStorageManager(const UsbStorageManager&) = delete;

@@ -2,7 +2,7 @@
  * @Description: Radio Provider 芯片与协议公共类型
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
- * @LastEditTime: 2026-09-01 12:08:36
+ * @LastEditTime: 2026-09-02 17:53:48
  * @License: GPL 3.0
  */
 #pragma once
@@ -46,9 +46,8 @@ enum class Lr2021CodingRate : uint8_t {
   kLongInterleaverConvolutional4_8 = 9,
 };
 
-inline constexpr uint32_t kLr2021BandwidthsHz[] = {
-    31250, 41670, 62500, 83340, 101563, 125000,
-    203000, 250000, 406000, 500000, 812000, 1000000};
+inline constexpr uint32_t kLr2021BandwidthsHz[] = {31250, 41670, 62500, 83340,
+    101563, 125000, 203000, 250000, 406000, 500000, 812000, 1000000};
 
 constexpr bool IsLr2021FrequencySupported(uint32_t frequency_hz) {
   const bool low_frequency =
@@ -96,12 +95,11 @@ constexpr bool IsLr2021CodingRate(Lr2021CodingRate coding_rate) {
 
 constexpr Lr2021CodingRate StandardLr2021CodingRate(uint8_t denominator) {
   return denominator >= 5 && denominator <= 8
-      ? static_cast<Lr2021CodingRate>(denominator - 4)
-      : Lr2021CodingRate::kStandard4_5;
+             ? static_cast<Lr2021CodingRate>(denominator - 4)
+             : Lr2021CodingRate::kStandard4_5;
 }
 
-constexpr uint8_t Lr2021CodingRateDenominator(
-    Lr2021CodingRate coding_rate) {
+constexpr uint8_t Lr2021CodingRateDenominator(Lr2021CodingRate coding_rate) {
   switch (coding_rate) {
     case Lr2021CodingRate::kStandard4_5:
     case Lr2021CodingRate::kLongInterleaver4_5:
@@ -128,10 +126,8 @@ enum class AntennaType : uint8_t {
 };
 
 // CC1101 使用 26 MHz 晶振时，由 CHANBW_E/CHANBW_M 表达的硬件带宽。
-inline constexpr uint32_t kCc1101ReceiveBandwidthsHz[] = {
-    58036, 67708, 81250, 101563,
-    116071, 135417, 162500, 203125,
-    232143, 270833, 325000, 406250,
+inline constexpr uint32_t kCc1101ReceiveBandwidthsHz[] = {58036, 67708, 81250,
+    101563, 116071, 135417, 162500, 203125, 232143, 270833, 325000, 406250,
     464286, 541667, 650000, 812500};
 
 }  // namespace lilygo_box::radio

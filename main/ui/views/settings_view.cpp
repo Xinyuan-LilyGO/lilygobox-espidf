@@ -2,7 +2,7 @@
  * @Description: Settings main list view
  * @Author: LILYGO_L
  * @Date: 2026-05-18 09:20:00
- * @LastEditTime: 2026-07-15 15:53:19
+ * @LastEditTime: 2026-09-02 17:54:46
  * @License: GPL 3.0
  */
 #include "ui/views/settings_view.h"
@@ -21,9 +21,9 @@
 #include "app/storage/otg_storage.h"
 #include "app/storage/sound_storage.h"
 #include "hal/providers/wifi_provider.h"
-#include "ui/resources/fonts/icon_assets.h"
-#include "ui/input/press_cancel.h"
 #include "ui/haptic_feedback.h"
+#include "ui/input/press_cancel.h"
+#include "ui/resources/fonts/icon_assets.h"
 #include "ui/views/settings/settings_view_internal.h"
 
 namespace lilygo_box::ui {
@@ -48,9 +48,7 @@ void SetSettingsRestoreSubPage(const char* page_id) {
   g_restore_sub_page = page_id;
 }
 
-const char* GetSettingsRestoreSubPage() {
-  return g_restore_sub_page;
-}
+const char* GetSettingsRestoreSubPage() { return g_restore_sub_page; }
 
 // 设置入口图标样式。
 struct SettingsIconStyle {
@@ -118,8 +116,7 @@ lv_obj_t* CreateIconBox(lv_obj_t* parent, const app::SettingsEntry& item) {
   lv_obj_remove_flag(box, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(box, kIconBoxSize, kIconBoxSize);
   lv_obj_set_style_radius(box, kIconBoxRadius, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      box, lv_color_hex(icon_style.color), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(box, lv_color_hex(icon_style.color), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(box, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(box, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(box, 0, LV_PART_MAIN);
@@ -295,9 +292,8 @@ void MoreSettingsRowClickedEventCallback(lv_event_t* event) {
  * @param value_label_output 右侧值标签输出地址，可为 nullptr
  * @return 创建成功返回对象指针，否则返回 nullptr
  */
-lv_obj_t* CreateSettingsRow(lv_obj_t* parent,
-    const app::SettingsEntry& item, int width,
-    lv_obj_t** value_label_output) {
+lv_obj_t* CreateSettingsRow(lv_obj_t* parent, const app::SettingsEntry& item,
+    int width, lv_obj_t** value_label_output) {
   if (value_label_output != nullptr) {
     *value_label_output = nullptr;
   }
@@ -330,8 +326,8 @@ lv_obj_t* CreateSettingsRow(lv_obj_t* parent,
   }
   lv_obj_align(icon_box, LV_ALIGN_LEFT_MID, kPagePaddingX + kIconLeft, 0);
 
-  lv_obj_t* title =
-      CreateLabel(row, item.title, lv_color_hex(SettingsThemeColors().on_surface), Font28());
+  lv_obj_t* title = CreateLabel(row, item.title,
+      lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (title == nullptr) {
     lv_obj_delete(row);
     return nullptr;
@@ -340,17 +336,17 @@ lv_obj_t* CreateSettingsRow(lv_obj_t* parent,
   lv_obj_align(title, LV_ALIGN_LEFT_MID, kPagePaddingX + kTextLeft, 0);
 
   lv_obj_t* arrow = CreateLabel(row, icon::kChevronRight,
-      lv_color_hex(SettingsThemeColors().on_surface_variant), MaterialIconFont32());
+      lv_color_hex(SettingsThemeColors().on_surface_variant),
+      MaterialIconFont32());
   if (arrow == nullptr) {
     lv_obj_delete(row);
     return nullptr;
   }
-  lv_obj_align(
-      arrow, LV_ALIGN_RIGHT_MID, -(kPagePaddingX + kArrowRight), 0);
+  lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -(kPagePaddingX + kArrowRight), 0);
 
   if (item.value != nullptr && item.value[0] != '\0') {
-    lv_obj_t* value = CreateLabel(
-        row, item.value, lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
+    lv_obj_t* value = CreateLabel(row, item.value,
+        lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
     if (value == nullptr) {
       lv_obj_delete(row);
       return nullptr;
@@ -358,8 +354,7 @@ lv_obj_t* CreateSettingsRow(lv_obj_t* parent,
     lv_obj_set_style_text_align(value, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
     lv_obj_set_width(
         value, width - 2 * kPagePaddingX - kTextLeft - kValueRight - 40);
-    lv_obj_align(
-        value, LV_ALIGN_RIGHT_MID, -(kPagePaddingX + kValueRight), 1);
+    lv_obj_align(value, LV_ALIGN_RIGHT_MID, -(kPagePaddingX + kValueRight), 1);
     if (value_label_output != nullptr) {
       *value_label_output = value;
     }
@@ -402,8 +397,7 @@ const char* WifiValueText(const SettingsViewState* state) {
  * @param state 设置页面状态
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateSettingsList(
-    lv_obj_t* parent, int width, SettingsViewState* state) {
+bool CreateSettingsList(lv_obj_t* parent, int width, SettingsViewState* state) {
   const app::SettingsCatalog& catalog = app::GetSettingsCatalog();
   int y = 0;
   for (size_t i = 0; i < catalog.entry_count; ++i) {
@@ -414,10 +408,10 @@ bool CreateSettingsList(
       if (divider == nullptr) {
         return false;
       }
-      lv_obj_set_pos(divider, kPagePaddingX + kDividerLeft,
-          y + kGroupDividerTopPadding);
-      y += kGroupDividerTopPadding + kDividerHeight +
-           kGroupDividerBottomPadding;
+      lv_obj_set_pos(
+          divider, kPagePaddingX + kDividerLeft, y + kGroupDividerTopPadding);
+      y +=
+          kGroupDividerTopPadding + kDividerHeight + kGroupDividerBottomPadding;
     }
 
     if (IsId(item.id, "wlan")) {
@@ -472,15 +466,14 @@ void UpdateSettingsWifiValue(SettingsViewState* state) {
   lv_label_set_text(state->wifi_value_label, WifiValueText(state));
 }
 
-lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
-    const AppViewConfig& config) {
+lv_obj_t* CreateSettingsView(
+    lv_obj_t* parent, const app::AppEntry&, const AppViewConfig& config) {
   if (parent == nullptr || config.width <= 0 || config.height <= 0) {
     return nullptr;
   }
 
   if (config.set_status_bar_text_color) {
-    config.set_status_bar_text_color(
-        theme::ActiveThemeColors().on_surface);
+    config.set_status_bar_text_color(theme::ActiveThemeColors().on_surface);
   }
 
   lv_obj_t* root = lv_obj_create(parent);
@@ -507,8 +500,7 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
       app::GetKeyboardExpansionPreferences();
   state->on_screen_keyboard_enabled =
       input_method_preferences.use_on_screen_keyboard;
-  state->keyboard_expansion_enabled =
-      keyboard_expansion_preferences.enabled;
+  state->keyboard_expansion_enabled = keyboard_expansion_preferences.enabled;
   state->keyboard_backlight_brightness_percent =
       keyboard_expansion_preferences.backlight_brightness_percent;
   state->auto_lock_seconds = display_preferences.lock_timeout_seconds;
@@ -574,8 +566,7 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry&,
   return root;
 }
 
-void UpdateSettingsViewVolume(
-    lv_obj_t* settings_view, int volume_percent) {
+void UpdateSettingsViewVolume(lv_obj_t* settings_view, int volume_percent) {
   if (settings_view == nullptr) {
     return;
   }

@@ -2,7 +2,7 @@
  * @Description: 设备 Provider 通用数据转换辅助实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-08-28 00:00:00
+ * @LastEditTime: 2026-09-02 17:52:45
  * @License: GPL 3.0
  */
 #include "hal/device/common/device_utils.h"
@@ -36,8 +36,8 @@ cpp_bus_driver::Pwm::DutyCycle ScreenBrightnessPercentToDutyCycle(
   constexpr int kInputRangeSquared = kMaximumPercent * kMaximumPercent;
   const int input_percent =
       std::max(clamped_percent, kMinimumVisibleBrightnessPercent);
-  const uint32_t scaled_duty = static_cast<uint32_t>(
-      input_percent * input_percent * duty_scale);
+  const uint32_t scaled_duty =
+      static_cast<uint32_t>(input_percent * input_percent * duty_scale);
   return {
       .value = (scaled_duty + kInputRangeSquared / 2) / kInputRangeSquared,
       .scale = duty_scale,
@@ -51,8 +51,8 @@ uint8_t PercentToUint8Value(int percent, uint8_t maximum_value) {
 
 bool IsGnssFloatReady(float value) { return value >= 0.0F; }
 
-void CopyString(char* destination, size_t destination_size,
-    const std::string& source) {
+void CopyString(
+    char* destination, size_t destination_size, const std::string& source) {
   if (destination == nullptr || destination_size == 0) {
     return;
   }

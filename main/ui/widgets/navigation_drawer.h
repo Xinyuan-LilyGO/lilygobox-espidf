@@ -2,7 +2,7 @@
  * @Description: 公共导航抽屉控件
  * @Author: LILYGO_L
  * @Date: 2026-07-11 00:00:00
- * @LastEditTime: 2026-07-11 00:00:00
+ * @LastEditTime: 2026-09-02 17:54:52
  * @License: GPL 3.0
  */
 #pragma once
@@ -55,8 +55,8 @@ struct NavigationDrawerState {
  * @param config 导航抽屉配置
  * @return 创建成功返回抽屉内容面板，否则返回 nullptr
  */
-lv_obj_t* OpenNavigationDrawer(lv_obj_t* parent,
-    NavigationDrawerState* state, const NavigationDrawerConfig& config);
+lv_obj_t* OpenNavigationDrawer(lv_obj_t* parent, NavigationDrawerState* state,
+    const NavigationDrawerConfig& config);
 
 /**
  * @brief 完成抽屉布局并播放进入动画
@@ -105,7 +105,6 @@ lv_obj_t* CreateNavigationDrawerItem(NavigationDrawerState* state,
  * @param y 顶部坐标
  * @return 创建成功返回分隔线，否则返回 nullptr
  */
-lv_obj_t* CreateNavigationDrawerDivider(
-    NavigationDrawerState* state, int y);
+lv_obj_t* CreateNavigationDrawerDivider(NavigationDrawerState* state, int y);
 
 }  // namespace lilygo_box::ui

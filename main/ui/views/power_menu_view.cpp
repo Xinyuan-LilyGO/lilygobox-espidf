@@ -2,7 +2,7 @@
  * @Description: 关机菜单覆盖层布局与交互实现
  * @Author: LILYGO_L
  * @Date: 2026-07-07 11:18:34
- * @LastEditTime: 2026-07-14 21:08:13
+ * @LastEditTime: 2026-09-02 17:54:40
  * @License: GPL 3.0
  */
 #include "ui/views/power_menu_view.h"
@@ -157,8 +157,8 @@ void AddDismissEvents(lv_obj_t* object, PowerMenuDismissState* state) {
  * @param font 文本字体
  * @return 创建成功返回标签对象，失败返回 nullptr
  */
-lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, uint32_t color,
-    const lv_font_t* font) {
+lv_obj_t* CreateLabel(
+    lv_obj_t* parent, const char* text, uint32_t color, const lv_font_t* font) {
   lv_obj_t* label = lv_label_create(parent);
   if (label == nullptr) {
     return nullptr;
@@ -178,8 +178,8 @@ lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, uint32_t color,
  * @param event_user_data 按钮事件用户数据
  * @return 创建成功返回按钮项对象，失败返回 nullptr
  */
-lv_obj_t* CreateActionItem(lv_obj_t* parent, const char* icon,
-    const char* text, lv_event_cb_t event_callback, void* event_user_data) {
+lv_obj_t* CreateActionItem(lv_obj_t* parent, const char* icon, const char* text,
+    lv_event_cb_t event_callback, void* event_user_data) {
   lv_obj_t* item = lv_obj_create(parent);
   if (item == nullptr) {
     return nullptr;
@@ -203,16 +203,15 @@ lv_obj_t* CreateActionItem(lv_obj_t* parent, const char* icon,
       button, lv_color_hex(colors.power_menu_button), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_color(
-      button, lv_color_hex(colors.power_menu_button_pressed),
-      LV_STATE_PRESSED);
+      button, lv_color_hex(colors.power_menu_button_pressed), LV_STATE_PRESSED);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(button, 12, LV_PART_MAIN);
   lv_obj_set_style_shadow_opa(button, 36, LV_PART_MAIN);
   lv_obj_set_style_shadow_color(
       button, lv_color_hex(colors.power_menu_scrim), LV_PART_MAIN);
   lv_obj_align(button, LV_ALIGN_TOP_MID, 0, 0);
-  lv_obj_add_event_cb(button, event_callback, LV_EVENT_CLICKED,
-      event_user_data);
+  lv_obj_add_event_cb(
+      button, event_callback, LV_EVENT_CLICKED, event_user_data);
 
   lv_obj_t* icon_label = CreateLabel(
       button, icon, colors.on_power_menu_button, PowerFillIconFont56());
@@ -223,8 +222,7 @@ lv_obj_t* CreateActionItem(lv_obj_t* parent, const char* icon,
   lv_obj_add_flag(icon_label, LV_OBJ_FLAG_EVENT_BUBBLE);
   lv_obj_center(icon_label);
 
-  lv_obj_t* label =
-      CreateLabel(item, text, colors.power_menu_text, Font24());
+  lv_obj_t* label = CreateLabel(item, text, colors.power_menu_text, Font24());
   if (label == nullptr) {
     lv_obj_delete(item);
     return nullptr;
@@ -237,8 +235,8 @@ lv_obj_t* CreateActionItem(lv_obj_t* parent, const char* icon,
 
 }  // namespace
 
-lv_obj_t* CreatePowerMenuView(lv_obj_t* parent,
-    const PowerMenuViewOptions& options) {
+lv_obj_t* CreatePowerMenuView(
+    lv_obj_t* parent, const PowerMenuViewOptions& options) {
   if (parent == nullptr) {
     return nullptr;
   }
@@ -271,9 +269,8 @@ lv_obj_t* CreatePowerMenuView(lv_obj_t* parent,
             lv_event_get_user_data(event));
       },
       LV_EVENT_DELETE, dismiss_state);
-  if (!RegisterBackNavigationHandler(overlay, [dismiss_state]() {
-        DismissPowerMenu(dismiss_state);
-      })) {
+  if (!RegisterBackNavigationHandler(
+          overlay, [dismiss_state]() { DismissPowerMenu(dismiss_state); })) {
     lv_obj_delete(overlay);
     return nullptr;
   }

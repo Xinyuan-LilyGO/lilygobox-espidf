@@ -2,7 +2,7 @@
  * @Description: 指针拖动阈值检测与按压取消事件实现
  * @Author: LILYGO_L
  * @Date: 2026-05-15 10:18:00
- * @LastEditTime: 2026-07-18 23:47:51
+ * @LastEditTime: 2026-09-02 17:54:25
  * @License: GPL 3.0
  */
 #include "ui/input/press_cancel.h"
@@ -103,11 +103,10 @@ void PressCancelOnLeaveEventCallback(lv_event_t* event) {
     return;
   }
 
-  if (code == LV_EVENT_LONG_PRESSED ||
-      code == LV_EVENT_LONG_PRESSED_REPEAT) {
-    const bool long_press_cancelled =
-        state->cancelled || HasPointerExceededDragThreshold(*state) ||
-        !IsPointerInsideObject(object);
+  if (code == LV_EVENT_LONG_PRESSED || code == LV_EVENT_LONG_PRESSED_REPEAT) {
+    const bool long_press_cancelled = state->cancelled ||
+                                      HasPointerExceededDragThreshold(*state) ||
+                                      !IsPointerInsideObject(object);
     if (!long_press_cancelled) {
       return;
     }
@@ -152,8 +151,8 @@ bool IsPointerInsideObject(lv_obj_t* object) {
 
   lv_area_t coords = {};
   lv_obj_get_coords(object, &coords);
-  return point.x >= coords.x1 && point.x <= coords.x2 &&
-         point.y >= coords.y1 && point.y <= coords.y2;
+  return point.x >= coords.x1 && point.x <= coords.x2 && point.y >= coords.y1 &&
+         point.y <= coords.y2;
 }
 
 bool AddPressCancelOnLeave(lv_obj_t* object) {

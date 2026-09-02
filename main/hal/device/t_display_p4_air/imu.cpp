@@ -2,11 +2,9 @@
  * @Description: T-Display-P4-Air IMU 与磁力计硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-08-28 00:00:00
+ * @LastEditTime: 2026-09-02 17:53:33
  * @License: GPL 3.0
  */
-#include "hal/device/t_display_p4_air/device.h"
-
 #include <cmath>
 #include <cstdint>
 
@@ -15,6 +13,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "hal/device/t_display_p4_air/device.h"
 
 namespace lilygo_box::hal {
 namespace {
@@ -70,9 +69,8 @@ bool TDisplayP4AirDevice::SetImuEnabled(bool enabled) {
     return result;
   }
 
-  if (imu_enabled_.load() && imu_.configured &&
-      driver_.IsBhi260apReady() && driver_.IsQmc6310nReady() &&
-      driver_.chip().bhi260ap != nullptr &&
+  if (imu_enabled_.load() && imu_.configured && driver_.IsBhi260apReady() &&
+      driver_.IsQmc6310nReady() && driver_.chip().bhi260ap != nullptr &&
       driver_.chip().qmc6310n != nullptr) {
     xSemaphoreGive(imu_.mutex);
     return true;
@@ -203,8 +201,7 @@ bool TDisplayP4AirDevice::ReadImuStatus(ImuStatus* status) {
         "Read IMU status failed: QMC6310N has no valid data\n");
   }
 
-  if (!result || !imu_.acceleration_ready ||
-      !imu_.magnetic_field_ready) {
+  if (!result || !imu_.acceleration_ready || !imu_.magnetic_field_ready) {
     xSemaphoreGive(imu_.mutex);
     return false;
   }

@@ -148,8 +148,7 @@ void NetworkMonitor::RunTask() {
     }
 
     const int64_t now_ms = esp_timer_get_time() / 1000;
-    if (!had_ip ||
-        connection_generation != wifi_status.connection_generation) {
+    if (!had_ip || connection_generation != wifi_status.connection_generation) {
       had_ip = true;
       connection_generation = wifi_status.connection_generation;
       recheck_requested_.store(false);
@@ -191,8 +190,7 @@ void NetworkMonitor::RunTask() {
         verification_active = false;
         verification_started_ms = 0;
       } else if (now_ms - verification_started_ms >=
-                 static_cast<int64_t>(
-                     hal::kWifiInternetCheckTimeoutMs)) {
+                 static_cast<int64_t>(hal::kWifiInternetCheckTimeoutMs)) {
         internet_state_.store(InternetAccessState::kLocalOnly);
         check_monotonic_ms_.store(now_ms);
         check_generation_.fetch_add(1);

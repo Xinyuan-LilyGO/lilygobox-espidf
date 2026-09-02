@@ -2,7 +2,7 @@
  * @Description: NVS 与 LittleFS 即时持久化统一管理
  * @Author: LILYGO_L
  * @Date: 2026-07-03 00:00:00
- * @LastEditTime: 2026-07-18 00:00:00
+ * @LastEditTime: 2026-09-02 17:51:47
  * @License: GPL 3.0
  */
 #pragma once
@@ -16,8 +16,8 @@ namespace lilygo_box::app {
  * @param supported_radio_chips 当前板型允许持久化的可选射频芯片
  * @param primary_radio_chip 自动识别到的主射频芯片
  */
-void InitStorage(radio::ChipMask supported_radio_chips,
-    radio::ChipType primary_radio_chip);
+void InitStorage(
+    radio::ChipMask supported_radio_chips, radio::ChipType primary_radio_chip);
 
 /**
  * @brief 判断是否存在尚未写入 NVS 或 LittleFS 的 RAM 修改

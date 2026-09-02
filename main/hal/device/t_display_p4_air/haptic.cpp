@@ -2,17 +2,16 @@
  * @Description: T-Display-P4-Air 振动硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-08-28 00:00:00
+ * @LastEditTime: 2026-09-02 17:53:31
  * @License: GPL 3.0
  */
-#include "hal/device/t_display_p4_air/device.h"
-
 #include <algorithm>
 #include <cstdint>
 
 #include "base/logger.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "hal/device/t_display_p4_air/device.h"
 
 namespace lilygo_box::hal {
 namespace {
@@ -48,8 +47,8 @@ bool TDisplayP4AirDevice::PlayHapticWaveform(uint8_t waveform_sequence_number,
   haptic_.gain.store(gain);
   haptic_.auto_brake.store(auto_brake);
 
-  const uint32_t now_ms = static_cast<uint32_t>(
-      xTaskGetTickCount() * portTICK_PERIOD_MS);
+  const uint32_t now_ms =
+      static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
   const uint32_t last_preview_ms = haptic_.last_preview_ms.load();
   if (haptic_.running.load() ||
       now_ms - last_preview_ms < kVibrationPreviewMinIntervalMs) {

@@ -2,7 +2,7 @@
  * @Description: Settings basic page shared helpers
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-07-19 11:17:26
+ * @LastEditTime: 2026-09-02 17:56:31
  * @License: GPL 3.0
  */
 #include "ui/views/settings/settings_basic_view_common.h"
@@ -12,8 +12,8 @@
 #include "app/device_identity.h"
 #include "hal/providers/screen_provider.h"
 #include "ui/animation/transition_animation.h"
-#include "ui/resources/fonts/icon_assets.h"
 #include "ui/input/press_cancel.h"
+#include "ui/resources/fonts/icon_assets.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -84,10 +84,9 @@ void CloseExtraPage(SettingsViewState* state, bool animated) {
   CloseSettingsTextEditPage(&state->text_edit_page, false);
   state->audio_volume_slider = nullptr;
 
-  if (animated &&
-      StartSlideRightWindowTransition(state->settings_extra_page,
-          state->config.width, kDetailSlideAnimationMs, state,
-          ExtraCloseCompletedCallback)) {
+  if (animated && StartSlideRightWindowTransition(state->settings_extra_page,
+                      state->config.width, kDetailSlideAnimationMs, state,
+                      ExtraCloseCompletedCallback)) {
     state->settings_extra_closing = true;
     return;
   }
@@ -106,10 +105,9 @@ void CloseNestedPage(SettingsViewState* state, bool animated) {
 
   CloseSettingsTextEditPage(&state->text_edit_page, false);
 
-  if (animated &&
-      StartSlideRightWindowTransition(state->settings_nested_page,
-          state->config.width, kDetailSlideAnimationMs, state,
-          NestedCloseCompletedCallback)) {
+  if (animated && StartSlideRightWindowTransition(state->settings_nested_page,
+                      state->config.width, kDetailSlideAnimationMs, state,
+                      NestedCloseCompletedCallback)) {
     state->settings_nested_closing = true;
     return;
   }
@@ -154,10 +152,10 @@ void NestedBackClickedEventCallback(lv_event_t* event) {
  */
 bool CreateBasicHeader(
     lv_obj_t* page, SettingsViewState* state, const char* title, bool nested) {
-  lv_event_cb_t callback = nested ? NestedBackClickedEventCallback
-                                  : ExtraBackClickedEventCallback;
-  lv_obj_t* back_button = CreateToolbarButton(page, kDetailBackButtonLeft,
-      kDetailBackButtonTop, callback, state);
+  lv_event_cb_t callback =
+      nested ? NestedBackClickedEventCallback : ExtraBackClickedEventCallback;
+  lv_obj_t* back_button = CreateToolbarButton(
+      page, kDetailBackButtonLeft, kDetailBackButtonTop, callback, state);
   if (back_button == nullptr) {
     return false;
   }
@@ -168,14 +166,13 @@ bool CreateBasicHeader(
   }
   lv_obj_align(back_icon, LV_ALIGN_CENTER, kDetailBackIconOffsetX, 0);
 
-  lv_obj_t* title_label =
-      CreateLabel(page, title, lv_color_hex(SettingsThemeColors().on_surface), Font32());
+  lv_obj_t* title_label = CreateLabel(
+      page, title, lv_color_hex(SettingsThemeColors().on_surface), Font32());
   if (title_label == nullptr) {
     return false;
   }
   lv_obj_set_width(title_label, state->config.width);
-  lv_obj_set_style_text_align(
-      title_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_set_style_text_align(title_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, kDetailTitleTop);
   return true;
 }
@@ -194,8 +191,8 @@ lv_obj_t* CreateBasicBody(
     return nullptr;
   }
   MakeTransparent(body);
-  lv_obj_set_size(body, state->config.width,
-      state->config.height - kBasicBodyTop);
+  lv_obj_set_size(
+      body, state->config.width, state->config.height - kBasicBodyTop);
   lv_obj_align(body, LV_ALIGN_TOP_LEFT, 0, kBasicBodyTop);
   lv_obj_set_scroll_dir(body, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_OFF);
@@ -217,10 +214,11 @@ void ApplySettingsTextAreaStyle(
   lv_obj_set_style_text_font(text_area, font, LV_PART_MAIN);
   lv_obj_set_style_text_color(
       text_area, lv_color_hex(SettingsThemeColors().on_surface), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      text_area, lv_color_hex(SettingsThemeColors().surface_container_high), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      text_area, lv_color_hex(SettingsThemeColors().surface_container_high), LV_STATE_FOCUSED);
+  lv_obj_set_style_bg_color(text_area,
+      lv_color_hex(SettingsThemeColors().surface_container_high), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(text_area,
+      lv_color_hex(SettingsThemeColors().surface_container_high),
+      LV_STATE_FOCUSED);
   lv_obj_set_style_bg_opa(text_area, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(text_area, LV_OPA_COVER, LV_STATE_FOCUSED);
   lv_obj_set_style_border_width(text_area, 0, LV_PART_MAIN);
@@ -233,8 +231,7 @@ void ApplySettingsTextAreaStyle(
       text_area, kTextAreaHorizontalPadding, LV_PART_MAIN);
   lv_obj_set_style_pad_right(
       text_area, kTextAreaHorizontalPadding, LV_PART_MAIN);
-  const int line_height =
-      static_cast<int>(lv_font_get_line_height(font));
+  const int line_height = static_cast<int>(lv_font_get_line_height(font));
   const int vertical_padding = std::max(0, (height - line_height) / 2);
   lv_obj_set_style_pad_top(text_area, vertical_padding, LV_PART_MAIN);
   lv_obj_set_style_pad_bottom(text_area, vertical_padding, LV_PART_MAIN);
@@ -275,8 +272,8 @@ bool ShowBasicPage(SettingsViewState* state, const char* title,
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(page, state->config.width, state->config.height);
   lv_obj_set_pos(page, 0, 0);
-  lv_obj_set_style_bg_color(page, lv_color_hex(SettingsThemeColors().surface),
-      LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      page, lv_color_hex(SettingsThemeColors().surface), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
@@ -296,13 +293,12 @@ bool ShowBasicPage(SettingsViewState* state, const char* title,
     // 旋转恢复时跳过滑入动画，直接把页面放到最终位置
     lv_obj_set_x(page, 0);
   } else if (!StartSlideLeftWindowTransition(page, state->config.width,
-          kDetailSlideAnimationMs, state, nullptr)) {
+                 kDetailSlideAnimationMs, state, nullptr)) {
     CloseExtraPage(state, false);
     return false;
   }
-  if (!RegisterBackNavigationHandler(page, [state]() {
-        CloseExtraPage(state, true);
-      })) {
+  if (!RegisterBackNavigationHandler(
+          page, [state]() { CloseExtraPage(state, true); })) {
     CloseExtraPage(state, false);
     return false;
   }
@@ -330,8 +326,8 @@ bool ShowNestedPage(SettingsViewState* state, const char* title,
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(page, state->config.width, state->config.height);
   lv_obj_set_pos(page, 0, 0);
-  lv_obj_set_style_bg_color(page, lv_color_hex(SettingsThemeColors().surface),
-      LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      page, lv_color_hex(SettingsThemeColors().surface), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
@@ -346,14 +342,13 @@ bool ShowNestedPage(SettingsViewState* state, const char* title,
     CloseNestedPage(state, false);
     return false;
   }
-  if (!StartSlideLeftWindowTransition(page, state->config.width,
-          kDetailSlideAnimationMs, state, nullptr)) {
+  if (!StartSlideLeftWindowTransition(
+          page, state->config.width, kDetailSlideAnimationMs, state, nullptr)) {
     CloseNestedPage(state, false);
     return false;
   }
-  if (!RegisterBackNavigationHandler(page, [state]() {
-        CloseNestedPage(state, true);
-      })) {
+  if (!RegisterBackNavigationHandler(
+          page, [state]() { CloseNestedPage(state, true); })) {
     CloseNestedPage(state, false);
     return false;
   }
@@ -361,8 +356,8 @@ bool ShowNestedPage(SettingsViewState* state, const char* title,
 }
 
 bool CreateSectionLabel(lv_obj_t* parent, const char* text, int y, int width) {
-  lv_obj_t* label =
-      CreateLabel(parent, text, lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
+  lv_obj_t* label = CreateLabel(parent, text,
+      lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
   if (label == nullptr) {
     return false;
   }
@@ -394,8 +389,8 @@ lv_obj_t* CreateTextRow(lv_obj_t* parent, const char* title, int y, int width,
   lv_obj_set_size(row, width, kBasicRowHeight);
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(row, lv_color_hex(SettingsThemeColors().state_layer),
-      LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(
+      row, lv_color_hex(SettingsThemeColors().state_layer), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, kPressedOpacity, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
@@ -407,13 +402,12 @@ lv_obj_t* CreateTextRow(lv_obj_t* parent, const char* title, int y, int width,
     lv_obj_add_event_cb(row, callback, LV_EVENT_CLICKED, state);
   }
 
-  lv_obj_t* title_label =
-      CreateLabel(row, title, lv_color_hex(SettingsThemeColors().on_surface), Font28());
+  lv_obj_t* title_label = CreateLabel(
+      row, title, lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (title_label == nullptr) {
     return nullptr;
   }
-  lv_obj_set_width(
-      title_label, width - 2 * kBasicSidePadding - trailing_width);
+  lv_obj_set_width(title_label, width - 2 * kBasicSidePadding - trailing_width);
   lv_label_set_long_mode(title_label, LV_LABEL_LONG_DOT);
   lv_obj_align(title_label, LV_ALIGN_LEFT_MID, kBasicSidePadding, 0);
   return row;
@@ -423,27 +417,25 @@ lv_obj_t* CreateTextRow(lv_obj_t* parent, const char* title, int y, int width,
 
 bool CreateArrowRow(lv_obj_t* parent, const char* title, const char* value,
     int y, int width, lv_event_cb_t callback, SettingsViewState* state) {
-  lv_obj_t* row =
-      CreateTextRow(parent, title, y, width, 170, callback, state);
+  lv_obj_t* row = CreateTextRow(parent, title, y, width, 170, callback, state);
   if (row == nullptr) {
     return false;
   }
 
   if (value != nullptr && value[0] != '\0') {
-    lv_obj_t* value_label =
-        CreateLabel(row, value, lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
+    lv_obj_t* value_label = CreateLabel(row, value,
+        lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
     if (value_label == nullptr) {
       return false;
     }
     lv_obj_set_width(value_label, 180);
-    lv_obj_set_style_text_align(value_label, LV_TEXT_ALIGN_RIGHT,
-        LV_PART_MAIN);
-    lv_obj_align(value_label, LV_ALIGN_RIGHT_MID,
-        -(kBasicSidePadding + 40), 0);
+    lv_obj_set_style_text_align(value_label, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+    lv_obj_align(value_label, LV_ALIGN_RIGHT_MID, -(kBasicSidePadding + 40), 0);
   }
 
   lv_obj_t* arrow = CreateLabel(row, icon::kChevronRight,
-      lv_color_hex(SettingsThemeColors().on_surface_variant), MaterialIconFont32());
+      lv_color_hex(SettingsThemeColors().on_surface_variant),
+      MaterialIconFont32());
   if (arrow == nullptr) {
     return false;
   }
@@ -475,17 +467,16 @@ void ApplySettingsSwitchTheme(lv_obj_t* switch_object) {
   lv_obj_set_style_bg_color(switch_object,
       lv_color_hex(theme::FixedColors().action),
       kWifiSwitchCheckedIndicatorSelector);
-  lv_obj_set_style_bg_opa(switch_object, LV_OPA_COVER,
-      kWifiSwitchCheckedIndicatorSelector);
+  lv_obj_set_style_bg_opa(
+      switch_object, LV_OPA_COVER, kWifiSwitchCheckedIndicatorSelector);
 }
 
 bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,
     bool checked, lv_event_cb_t callback, SettingsViewState* state,
     bool wrap_title, lv_obj_t** switch_output, const char* subtitle) {
   const bool has_subtitle = subtitle != nullptr && subtitle[0] != '\0';
-  const int row_height = has_subtitle
-      ? kBasicSwitchRowWithSubtitleHeight
-      : kBasicRowHeight;
+  const int row_height =
+      has_subtitle ? kBasicSwitchRowWithSubtitleHeight : kBasicRowHeight;
   lv_obj_t* row = lv_obj_create(parent);
   if (row == nullptr) {
     return false;
@@ -499,37 +490,36 @@ bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
 
-  lv_obj_t* label =
-      CreateLabel(row, title, lv_color_hex(SettingsThemeColors().on_surface), Font28());
+  lv_obj_t* label = CreateLabel(
+      row, title, lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (label == nullptr) {
     return false;
   }
   constexpr int kSwitchTitleGap = 24;
   if (wrap_title || has_subtitle) {
-    lv_obj_set_width(label, width - 2 * kBasicSidePadding -
-        kBasicSwitchWidth - kSwitchTitleGap);
-    lv_label_set_long_mode(label,
-        has_subtitle ? LV_LABEL_LONG_DOT : LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(label,
+        width - 2 * kBasicSidePadding - kBasicSwitchWidth - kSwitchTitleGap);
+    lv_label_set_long_mode(
+        label, has_subtitle ? LV_LABEL_LONG_DOT : LV_LABEL_LONG_WRAP);
   }
   if (has_subtitle) {
     constexpr int kSwitchTitleTop = 12;
     constexpr int kSwitchSubtitleGap = 6;
     lv_obj_set_height(
         label, static_cast<int>(lv_font_get_line_height(Font28())));
-    lv_obj_align(label, LV_ALIGN_TOP_LEFT, kBasicSidePadding,
-        kSwitchTitleTop);
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, kBasicSidePadding, kSwitchTitleTop);
 
-    lv_obj_t* subtitle_label = CreateLabel(
-        row, subtitle, lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
+    lv_obj_t* subtitle_label = CreateLabel(row, subtitle,
+        lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
     if (subtitle_label == nullptr) {
       return false;
     }
-    lv_obj_set_width(subtitle_label, width - 2 * kBasicSidePadding -
-        kBasicSwitchWidth - kSwitchTitleGap);
+    lv_obj_set_width(subtitle_label,
+        width - 2 * kBasicSidePadding - kBasicSwitchWidth - kSwitchTitleGap);
     lv_label_set_long_mode(subtitle_label, LV_LABEL_LONG_WRAP);
     lv_obj_update_layout(row);
-    lv_obj_align_to(subtitle_label, label, LV_ALIGN_OUT_BOTTOM_LEFT, 0,
-        kSwitchSubtitleGap);
+    lv_obj_align_to(
+        subtitle_label, label, LV_ALIGN_OUT_BOTTOM_LEFT, 0, kSwitchSubtitleGap);
   } else {
     lv_obj_align(label, LV_ALIGN_LEFT_MID, kBasicSidePadding, 0);
   }
@@ -548,8 +538,7 @@ bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,
     lv_obj_add_state(switch_object, LV_STATE_CHECKED);
   }
   if (callback != nullptr) {
-    lv_obj_add_event_cb(switch_object, callback, LV_EVENT_VALUE_CHANGED,
-        state);
+    lv_obj_add_event_cb(switch_object, callback, LV_EVENT_VALUE_CHANGED, state);
   }
   if (switch_output != nullptr) {
     *switch_output = switch_object;
@@ -557,11 +546,11 @@ bool CreateSwitchRow(lv_obj_t* parent, const char* title, int y, int width,
   return true;
 }
 
-bool CreateSliderRow(lv_obj_t* parent, const char* icon_text,
-    const char* title, int value, int y, int width, lv_event_cb_t callback,
+bool CreateSliderRow(lv_obj_t* parent, const char* icon_text, const char* title,
+    int value, int y, int width, lv_event_cb_t callback,
     SettingsViewState* state) {
-  lv_obj_t* label =
-      CreateLabel(parent, title, lv_color_hex(SettingsThemeColors().on_surface), Font28());
+  lv_obj_t* label = CreateLabel(
+      parent, title, lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (label == nullptr) {
     return false;
   }
@@ -580,8 +569,7 @@ bool CreateSliderRow(lv_obj_t* parent, const char* icon_text,
     return false;
   }
   lv_obj_set_size(icon_label, kSliderIconSize, kSliderIconSize);
-  lv_obj_set_style_text_align(icon_label, LV_TEXT_ALIGN_CENTER,
-      LV_PART_MAIN);
+  lv_obj_set_style_text_align(icon_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_align(icon_label, LV_ALIGN_TOP_LEFT, kSliderSidePadding,
       y + kSliderIconTopOffset);
 
@@ -590,19 +578,17 @@ bool CreateSliderRow(lv_obj_t* parent, const char* icon_text,
     return false;
   }
   lv_obj_add_flag(slider, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_size(slider, width - 2 * kSliderSidePadding,
-      kSliderBarHeight);
-  lv_obj_align(slider, LV_ALIGN_TOP_LEFT, kSliderSidePadding,
-      y + kSliderBarTopOffset);
+  lv_obj_set_size(slider, width - 2 * kSliderSidePadding, kSliderBarHeight);
+  lv_obj_align(
+      slider, LV_ALIGN_TOP_LEFT, kSliderSidePadding, y + kSliderBarTopOffset);
   lv_slider_set_range(slider, 0, 100);
   lv_slider_set_value(slider, value, LV_ANIM_OFF);
   lv_obj_set_style_bg_color(slider,
-      lv_color_hex(SettingsThemeColors().surface_container_high),
-      LV_PART_MAIN);
+      lv_color_hex(SettingsThemeColors().surface_container_high), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_radius(slider, kSliderBarHeight / 2, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(slider, lv_color_hex(theme::FixedColors().action),
-      LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(
+      slider, lv_color_hex(theme::FixedColors().action), LV_PART_INDICATOR);
   lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_INDICATOR);
   lv_obj_set_style_radius(slider, 0, LV_PART_INDICATOR);
   lv_obj_set_style_bg_opa(slider, LV_OPA_TRANSP, LV_PART_KNOB);

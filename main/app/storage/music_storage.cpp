@@ -2,7 +2,7 @@
  * @Description: 音乐源文件夹偏好存储实现
  * @Author: LILYGO_L
  * @Date: 2026-07-14 23:25:00
- * @LastEditTime: 2026-07-22 00:00:00
+ * @LastEditTime: 2026-09-02 17:51:33
  * @License: GPL 3.0
  */
 #include "app/storage/music_storage.h"
@@ -48,12 +48,10 @@ void NormalizePath(char* path) {
   while (length < kMusicSourcePathCapacity && path[length] != '\0') {
     ++length;
   }
-  std::fill(path + length + 1,
-      path + kMusicSourcePathCapacity, '\0');
+  std::fill(path + length + 1, path + kMusicSourcePathCapacity, '\0');
 }
 
-void NormalizeMusicSourcePreferences(
-    MusicSourcePreferences* preferences) {
+void NormalizeMusicSourcePreferences(MusicSourcePreferences* preferences) {
   if (preferences == nullptr) {
     return;
   }
@@ -63,8 +61,7 @@ void NormalizeMusicSourcePreferences(
 }
 
 bool AreMusicSourcePreferencesEqual(
-    const MusicSourcePreferences& left,
-    const MusicSourcePreferences& right) {
+    const MusicSourcePreferences& left, const MusicSourcePreferences& right) {
   for (size_t index = 0; index < kMusicSourceCapacity; ++index) {
     if (std::strcmp(left.paths[index], right.paths[index]) != 0) {
       return false;
@@ -73,15 +70,15 @@ bool AreMusicSourcePreferencesEqual(
   return true;
 }
 
-bool DecodeMusicSourcePreferences(const storage::TlvBuffer& buffer,
-    MusicSourcePreferences* preferences) {
+bool DecodeMusicSourcePreferences(
+    const storage::TlvBuffer& buffer, MusicSourcePreferences* preferences) {
   if (preferences == nullptr) {
     return false;
   }
   ResetMusicSourcePreferences(preferences);
   size_t path_count = 0;
-  storage::TlvReader reader(storage::TlvDomain::kMusicSources,
-      buffer.data.get(), buffer.size);
+  storage::TlvReader reader(
+      storage::TlvDomain::kMusicSources, buffer.data.get(), buffer.size);
   storage::TlvField field;
   while (true) {
     const storage::TlvReadResult result = reader.Next(&field);
@@ -107,14 +104,12 @@ bool DecodeMusicSourcePreferences(const storage::TlvBuffer& buffer,
   }
 }
 
-bool EncodeMusicSourcePreferences(
-    const MusicSourcePreferences& preferences, uint8_t* output,
-    size_t capacity, size_t* encoded_size) {
+bool EncodeMusicSourcePreferences(const MusicSourcePreferences& preferences,
+    uint8_t* output, size_t capacity, size_t* encoded_size) {
   storage::TlvWriter writer(
       storage::TlvDomain::kMusicSources, output, capacity);
   for (size_t index = 0; index < kMusicSourceCapacity; ++index) {
-    if (!writer.WriteString(
-            static_cast<uint16_t>(MusicSourcesField::kPath),
+    if (!writer.WriteString(static_cast<uint16_t>(MusicSourcesField::kPath),
             preferences.paths[index], kMusicSourcePathCapacity)) {
       return false;
     }
@@ -142,8 +137,8 @@ void InitMusicCache() {
     return;
   }
   nvs_handle_t handle = 0;
-  const esp_err_t open_result = OpenApplicationNvs(
-      kMusicSourcesNvsNamespace, NVS_READONLY, &handle);
+  const esp_err_t open_result =
+      OpenApplicationNvs(kMusicSourcesNvsNamespace, NVS_READONLY, &handle);
   if (open_result == ESP_OK) {
     storage::TlvBuffer buffer;
     esp_err_t error = ESP_OK;
@@ -183,8 +178,7 @@ bool GetMusicSourcePreferences(MusicSourcePreferences* preferences) {
   return true;
 }
 
-bool UpdateMusicSourcePreferences(
-    const MusicSourcePreferences& preferences) {
+bool UpdateMusicSourcePreferences(const MusicSourcePreferences& preferences) {
   auto normalized = std::unique_ptr<MusicSourcePreferences>(
       new (std::nothrow) MusicSourcePreferences(preferences));
   if (normalized == nullptr) {
@@ -209,8 +203,8 @@ StorageStageResult StageMusicStorage(nvs_handle_t handle) {
           kMusicSourcesTlvCapacity, &encoded_size)) {
     return StorageStageResult::kFailed;
   }
-  const esp_err_t result = nvs_set_blob(
-      handle, kMusicSourcesNvsKey, buffer.get(), encoded_size);
+  const esp_err_t result =
+      nvs_set_blob(handle, kMusicSourcesNvsKey, buffer.get(), encoded_size);
   if (result != ESP_OK) {
     LogMusicStorageError("stage", result);
     return StorageStageResult::kFailed;

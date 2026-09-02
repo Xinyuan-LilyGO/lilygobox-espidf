@@ -2,16 +2,15 @@
  * @Description: Settings lock screen page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-07-04 18:18:46
+ * @LastEditTime: 2026-09-02 17:56:41
  * @License: GPL 3.0
  */
-#include "ui/views/settings/settings_basic_view_common.h"
-
 #include <cstdio>
 
 #include "app/storage/display_storage.h"
-#include "ui/resources/fonts/icon_assets.h"
 #include "ui/input/press_cancel.h"
+#include "ui/resources/fonts/icon_assets.h"
+#include "ui/views/settings/settings_basic_view_common.h"
 #include "ui/widgets/prompt/prompt_select_sheet.h"
 
 namespace lilygo_box::ui {
@@ -54,8 +53,8 @@ void FormatAutoLockValue(int seconds, char* buffer, size_t size) {
     return;
   }
   const int minutes = seconds / 60;
-  std::snprintf(buffer, size, "%d %s", minutes,
-      minutes == 1 ? "minute" : "minutes");
+  std::snprintf(
+      buffer, size, "%d %s", minutes, minutes == 1 ? "minute" : "minutes");
 }
 
 /**
@@ -152,8 +151,7 @@ void AutoLockRowClickedEventCallback(lv_event_t* event) {
  */
 void LockScreenDoubleTapToTurnScreenOnAndOffSwitchChangedEventCallback(
     lv_event_t* event) {
-  auto* state = static_cast<SettingsViewState*>(
-      lv_event_get_user_data(event));
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   lv_obj_t* target = lv_event_get_target_obj(event);
   if (state == nullptr || target == nullptr) {
     return;
@@ -187,8 +185,8 @@ bool CreateAutoLockRow(
   lv_obj_set_size(row, width, kBasicRowHeight);
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(row, lv_color_hex(SettingsThemeColors().state_layer),
-      LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(
+      row, lv_color_hex(SettingsThemeColors().state_layer), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, kPressedOpacity, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
@@ -196,8 +194,8 @@ bool CreateAutoLockRow(
   if (!AddPressCancelOnLeave(row)) {
     return false;
   }
-  lv_obj_add_event_cb(row, AutoLockRowClickedEventCallback,
-      LV_EVENT_CLICKED, state);
+  lv_obj_add_event_cb(
+      row, AutoLockRowClickedEventCallback, LV_EVENT_CLICKED, state);
 
   lv_obj_t* title = CreateLabel(row, "Auto lock",
       lv_color_hex(SettingsThemeColors().on_surface), Font28());
@@ -218,11 +216,11 @@ bool CreateAutoLockRow(
   state->auto_lock_value_label = value_label;
   lv_obj_set_width(value_label, 184);
   lv_obj_set_style_text_align(value_label, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
-  lv_obj_align(value_label, LV_ALIGN_RIGHT_MID,
-      -(kBasicSidePadding + 40), 0);
+  lv_obj_align(value_label, LV_ALIGN_RIGHT_MID, -(kBasicSidePadding + 40), 0);
 
   lv_obj_t* arrow = CreateLabel(row, icon::kChevronRight,
-      lv_color_hex(SettingsThemeColors().on_surface_variant), MaterialIconFont32());
+      lv_color_hex(SettingsThemeColors().on_surface_variant),
+      MaterialIconFont32());
   if (arrow == nullptr) {
     return false;
   }
@@ -250,8 +248,8 @@ bool BuildLockScreenContent(lv_obj_t* body, SettingsViewState* state) {
   return CreateSwitchRow(body,
       "Lock screen double-tap to\nturn screen on or off", y, width,
       state->lock_screen_double_tap_to_turn_screen_on_and_off,
-      LockScreenDoubleTapToTurnScreenOnAndOffSwitchChangedEventCallback,
-      state, true);
+      LockScreenDoubleTapToTurnScreenOnAndOffSwitchChangedEventCallback, state,
+      true);
 }
 
 }  // namespace

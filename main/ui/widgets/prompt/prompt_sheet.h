@@ -2,7 +2,7 @@
  * @Description: Bottom prompt sheet widget
  * @Author: LILYGO_L
  * @Date: 2026-06-23 00:00:00
- * @LastEditTime: 2026-06-23 00:00:00
+ * @LastEditTime: 2026-09-02 17:57:15
  * @License: GPL 3.0
  */
 #pragma once
@@ -61,8 +61,7 @@ lv_obj_t* CreatePromptSheetOverlay(
  * @param config 提示栏配置
  * @return 创建成功返回面板对象，否则返回 nullptr
  */
-lv_obj_t* CreatePromptSheet(
-    lv_obj_t* overlay, const PromptSheetConfig& config);
+lv_obj_t* CreatePromptSheet(lv_obj_t* overlay, const PromptSheetConfig& config);
 
 /**
  * @brief 创建底部提示栏文本标签
@@ -72,8 +71,8 @@ lv_obj_t* CreatePromptSheet(
  * @param font 文本字体
  * @return 创建成功返回标签对象，否则返回 nullptr
  */
-lv_obj_t* CreatePromptSheetLabel(lv_obj_t* parent, const char* text,
-    uint32_t color, const lv_font_t* font);
+lv_obj_t* CreatePromptSheetLabel(
+    lv_obj_t* parent, const char* text, uint32_t color, const lv_font_t* font);
 
 /**
  * @brief 将二级标签排列在一级标签的实际底部
@@ -81,8 +80,7 @@ lv_obj_t* CreatePromptSheetLabel(lv_obj_t* parent, const char* text,
  * @param title 一级标签
  * @param gap 标签之间的垂直间距
  */
-void AlignPromptSheetSubtitle(
-    lv_obj_t* subtitle, lv_obj_t* title, int gap);
+void AlignPromptSheetSubtitle(lv_obj_t* subtitle, lv_obj_t* title, int gap);
 
 /**
  * @brief 创建底部提示栏按钮

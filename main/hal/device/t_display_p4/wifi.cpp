@@ -2,11 +2,9 @@
  * @Description: T-Display-P4 WiFi 协处理器实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-08-28 00:00:00
+ * @LastEditTime: 2026-09-02 17:53:17
  * @License: GPL 3.0
  */
-#include "hal/device/t_display_p4/device.h"
-
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
@@ -30,6 +28,7 @@
 #include "freertos/task.h"
 #include "hal/device/common/device_utils.h"
 #include "hal/device/common/wifi_utils.h"
+#include "hal/device/t_display_p4/device.h"
 
 namespace lilygo_box::hal {
 namespace {
@@ -52,7 +51,7 @@ constexpr int kWifiSntpMaxAttemptCount = 3;
 constexpr uint32_t kWifiSntpAttemptIntervalMs =
     kWifiInternetCheckTimeoutMs / kWifiSntpMaxAttemptCount;
 static_assert(kWifiSntpAttemptIntervalMs * kWifiSntpMaxAttemptCount ==
-    kWifiInternetCheckTimeoutMs);
+              kWifiInternetCheckTimeoutMs);
 constexpr int kWifiMaxReconnectCount = 8;
 constexpr uint32_t kRtcSyncTaskStackBytes = 4 * 1024;
 constexpr UBaseType_t kRtcSyncTaskPriority = 3;
@@ -267,8 +266,7 @@ bool TDisplayP4Device::ReadWifiScanStatus(WifiScanStatus* status) {
   return true;
 }
 
-bool TDisplayP4Device::ConnectWifi(
-    const char* ssid, const char* password) {
+bool TDisplayP4Device::ConnectWifi(const char* ssid, const char* password) {
   if (ssid == nullptr || ssid[0] == '\0' || wifi_.stop_requested.load()) {
     return false;
   }
@@ -507,9 +505,9 @@ bool TDisplayP4Device::ReadWifiStatus(WifiStatus* status) {
   }
 
   const int64_t synced_unix_time = wifi_time_test_.sntp_unix_time.load();
-  status->time_synced = wifi_time_test_.synced.load() &&
-                        synced_unix_time >
-                            device_utils::kValidUnixTimeThreshold;
+  status->time_synced =
+      wifi_time_test_.synced.load() &&
+      synced_unix_time > device_utils::kValidUnixTimeThreshold;
   status->unix_time = status->time_synced ? synced_unix_time : 0;
   const int64_t sync_monotonic_ms =
       wifi_time_test_.sntp_sync_monotonic_ms.load();
@@ -719,8 +717,8 @@ void TDisplayP4Device::RunWifiConnectTask() {
   wifi_.netmask.store(0);
   wifi_.gateway.store(0);
 
-  const esp_err_t config_result = esp_wifi_set_config(WIFI_IF_STA,
-      &wifi_config);
+  const esp_err_t config_result =
+      esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
   if (config_result != ESP_OK) {
     finish(config_result);
     return;
@@ -741,8 +739,7 @@ void TDisplayP4Device::RunWifiConnectTask() {
 
 bool TDisplayP4Device::WaitForWifiHardwareReady() {
   uint32_t elapsed_ms = 0;
-  while (!driver_.IsXl9535Ready() &&
-         elapsed_ms < kWifiHardwareReadyTimeoutMs) {
+  while (!driver_.IsXl9535Ready() && elapsed_ms < kWifiHardwareReadyTimeoutMs) {
     vTaskDelay(pdMS_TO_TICKS(kWifiHardwareReadyPollMs));
     elapsed_ms += kWifiHardwareReadyPollMs;
   }
@@ -913,10 +910,9 @@ void TDisplayP4Device::CopyWifiScanResultsFromDriver() {
   }
 
   size_t network_count = 0;
-  for (uint16_t i = 0; i < record_count &&
-       network_count < kMaxWifiScanNetworkCount; ++i) {
-    const auto* ssid =
-        reinterpret_cast<const char*>(records[i].ssid);
+  for (uint16_t i = 0;
+      i < record_count && network_count < kMaxWifiScanNetworkCount; ++i) {
+    const auto* ssid = reinterpret_cast<const char*>(records[i].ssid);
     if (ssid == nullptr || ssid[0] == '\0') {
       continue;
     }
@@ -1094,8 +1090,8 @@ int TDisplayP4Device::StartWifiSntpAttemptTimer() {
     timer_config.arg = this;
     timer_config.dispatch_method = ESP_TIMER_TASK;
     timer_config.name = "sntp_attempt";
-    const esp_err_t create_result = esp_timer_create(
-        &timer_config, &wifi_time_test_.sntp_attempt_timer);
+    const esp_err_t create_result =
+        esp_timer_create(&timer_config, &wifi_time_test_.sntp_attempt_timer);
     if (create_result != ESP_OK) {
       return create_result;
     }
@@ -1107,9 +1103,10 @@ int TDisplayP4Device::StartWifiSntpAttemptTimer() {
       kMicrosecondsPerMillisecond;
   wifi_time_test_.sntp_attempt_count.store(1);
   return esp_timer_is_active(wifi_time_test_.sntp_attempt_timer)
-      ? esp_timer_restart(wifi_time_test_.sntp_attempt_timer, interval_us)
-      : esp_timer_start_periodic(
-            wifi_time_test_.sntp_attempt_timer, interval_us);
+             ? esp_timer_restart(
+                   wifi_time_test_.sntp_attempt_timer, interval_us)
+             : esp_timer_start_periodic(
+                   wifi_time_test_.sntp_attempt_timer, interval_us);
 }
 
 void TDisplayP4Device::WifiSntpAttemptTimerCallback(void* argument) {
@@ -1118,10 +1115,8 @@ void TDisplayP4Device::WifiSntpAttemptTimerCallback(void* argument) {
     return;
   }
 
-  const int attempt_count =
-      self->wifi_time_test_.sntp_attempt_count.load();
-  if (self->wifi_time_test_.synced.load() ||
-      !self->wifi_.got_ip.load() ||
+  const int attempt_count = self->wifi_time_test_.sntp_attempt_count.load();
+  if (self->wifi_time_test_.synced.load() || !self->wifi_.got_ip.load() ||
       attempt_count >= kWifiSntpMaxAttemptCount) {
     self->StopWifiInternetCheck();
     return;

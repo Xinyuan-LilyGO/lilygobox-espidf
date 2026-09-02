@@ -2,11 +2,9 @@
  * @Description: Settings My Device detail page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-07-19 11:17:26
+ * @LastEditTime: 2026-09-02 17:56:45
  * @License: GPL 3.0
  */
-#include "ui/views/settings/settings_view_internal.h"
-
 #include <cstdio>
 
 #include "app/device_identity.h"
@@ -20,6 +18,7 @@
 #include "ui/input/press_cancel.h"
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/views/settings/settings_basic_view_common.h"
+#include "ui/views/settings/settings_view_internal.h"
 #include "ui/widgets/brand_icon.h"
 #include "ui/widgets/prompt/prompt_sheet.h"
 
@@ -146,8 +145,8 @@ void FormatMemorySize(
       info.memory.internal_total_bytes + info.memory.psram_total_bytes;
   const size_t total_kb = total_bytes / 1024;
   if (total_kb >= 1024) {
-    std::snprintf(buffer, size, "%lu MB",
-        static_cast<unsigned long>(total_kb / 1024));
+    std::snprintf(
+        buffer, size, "%lu MB", static_cast<unsigned long>(total_kb / 1024));
     return;
   }
   std::snprintf(buffer, size, "%lu KB", static_cast<unsigned long>(total_kb));
@@ -336,10 +335,9 @@ void CloseFactoryResetPage(SettingsViewState* state, bool animated) {
   }
 
   StopFactoryResetCountdown(state);
-  if (animated &&
-      StartSlideRightWindowTransition(state->factory_reset_page,
-          state->config.width, kDetailSlideAnimationMs, state,
-          FactoryResetCloseCompletedCallback)) {
+  if (animated && StartSlideRightWindowTransition(state->factory_reset_page,
+                      state->config.width, kDetailSlideAnimationMs, state,
+                      FactoryResetCloseCompletedCallback)) {
     state->factory_reset_closing = true;
     return;
   }
@@ -371,8 +369,7 @@ void UpdateFactoryResetConfirmButton(SettingsViewState* state) {
   const bool enabled = state->factory_reset_seconds_remaining == 0 &&
                        !state->factory_reset_started;
   if (enabled) {
-    lv_obj_remove_state(
-        state->factory_reset_confirm_button, LV_STATE_DISABLED);
+    lv_obj_remove_state(state->factory_reset_confirm_button, LV_STATE_DISABLED);
   } else {
     lv_obj_add_state(state->factory_reset_confirm_button, LV_STATE_DISABLED);
   }
@@ -428,8 +425,8 @@ void FactoryResetBackClickedEventCallback(lv_event_t* event) {
       static_cast<SettingsViewState*>(lv_event_get_user_data(event)), true);
 }
 
-bool RestoreFactoryResetScreen(const AppViewConfig& config,
-    int brightness_percent) {
+bool RestoreFactoryResetScreen(
+    const AppViewConfig& config, int brightness_percent) {
   hal::ScreenProvider* screen = config.screen;
   hal::LvglPort* lvgl_port = config.lvgl_port;
   if (!screen->ExitDeviceSleep(false) ||
@@ -498,8 +495,8 @@ void FactoryResetConfirmClickedEventCallback(lv_event_t* event) {
 
   const bool screen_off = screen->EnterDeviceSleep(false);
   if (!screen_off) {
-    const bool screen_restored = RestoreFactoryResetScreen(
-        state->config, previous_brightness);
+    const bool screen_restored =
+        RestoreFactoryResetScreen(state->config, previous_brightness);
     lvgl_port->EndScreenTransition();
     if (!screen_restored) {
       LogMessage(LogLevel::kError, __FILE__, __LINE__,
@@ -510,8 +507,8 @@ void FactoryResetConfirmClickedEventCallback(lv_event_t* event) {
     return;
   }
   if (!app::FactoryResetAfterScreenOff()) {
-    const bool screen_restored = RestoreFactoryResetScreen(
-        state->config, previous_brightness);
+    const bool screen_restored =
+        RestoreFactoryResetScreen(state->config, previous_brightness);
     lvgl_port->EndScreenTransition();
     if (!screen_restored) {
       LogMessage(LogLevel::kError, __FILE__, __LINE__,
@@ -544,8 +541,8 @@ bool CreateFactoryResetHeader(
   }
   lv_obj_align(back_icon, LV_ALIGN_CENTER, kDetailBackIconOffsetX, 0);
 
-  lv_obj_t* title = CreateLabel(
-      parent, "Factory reset", lv_color_hex(SettingsThemeColors().on_surface), Font32());
+  lv_obj_t* title = CreateLabel(parent, "Factory reset",
+      lv_color_hex(SettingsThemeColors().on_surface), Font32());
   if (title == nullptr) {
     return false;
   }
@@ -563,8 +560,8 @@ bool CreateFactoryResetHeader(
  * @param height 页面高度
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateFactoryResetContent(lv_obj_t* parent, SettingsViewState* state,
-    int width, int height) {
+bool CreateFactoryResetContent(
+    lv_obj_t* parent, SettingsViewState* state, int width, int height) {
   const bool compact = height < 800;
   const int icon_size = compact ? 82 : 112;
   const int icon_top = compact ? 132 : 220;
@@ -588,8 +585,8 @@ bool CreateFactoryResetContent(lv_obj_t* parent, SettingsViewState* state,
   }
   lv_obj_align(warning_icon, LV_ALIGN_CENTER, 0, -3);
 
-  lv_obj_t* heading = CreateLabel(
-      parent, "Erase all saved data?", lv_color_hex(SettingsThemeColors().on_surface), Font36());
+  lv_obj_t* heading = CreateLabel(parent, "Erase all saved data?",
+      lv_color_hex(SettingsThemeColors().on_surface), Font36());
   if (heading == nullptr) {
     return false;
   }
@@ -641,8 +638,7 @@ bool CreateFactoryResetContent(lv_obj_t* parent, SettingsViewState* state,
   PromptSheetButtonConfig confirm_config;
   confirm_config.text = "Erase all data (10)";
   confirm_config.x = kFactoryResetButtonSide;
-  confirm_config.y =
-      height - kFactoryResetButtonSide - button_height;
+  confirm_config.y = height - kFactoryResetButtonSide - button_height;
   confirm_config.width = width - 2 * kFactoryResetButtonSide;
   confirm_config.height = button_height;
   confirm_config.radius = button_height / 3;
@@ -712,15 +708,14 @@ bool ShowFactoryResetPage(SettingsViewState* state) {
   lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
 
   if (!CreateFactoryResetHeader(page, state, config.width) ||
-      !CreateFactoryResetContent(
-          page, state, config.width, config.height)) {
+      !CreateFactoryResetContent(page, state, config.width, config.height)) {
     CloseFactoryResetPage(state, false);
     return false;
   }
 
-  state->factory_reset_countdown_timer = lv_timer_create(
-      FactoryResetCountdownTimerCallback, kFactoryResetCountdownPeriodMs,
-      state);
+  state->factory_reset_countdown_timer =
+      lv_timer_create(FactoryResetCountdownTimerCallback,
+          kFactoryResetCountdownPeriodMs, state);
   if (state->factory_reset_countdown_timer == nullptr) {
     CloseFactoryResetPage(state, false);
     return false;
@@ -731,9 +726,8 @@ bool ShowFactoryResetPage(SettingsViewState* state) {
     CloseFactoryResetPage(state, false);
     return false;
   }
-  if (!RegisterBackNavigationHandler(page, [state]() {
-        CloseFactoryResetPage(state, true);
-      })) {
+  if (!RegisterBackNavigationHandler(
+          page, [state]() { CloseFactoryResetPage(state, true); })) {
     CloseFactoryResetPage(state, false);
     return false;
   }
@@ -775,8 +769,8 @@ void FirmwareUpdateButtonClickedEventCallback(lv_event_t* event) {
  */
 bool CreateMyDeviceHeader(
     lv_obj_t* parent, SettingsViewState* state, int width) {
-  lv_obj_t* title =
-      CreateLabel(parent, "My Device", lv_color_hex(SettingsThemeColors().on_surface), Font32());
+  lv_obj_t* title = CreateLabel(parent, "My Device",
+      lv_color_hex(SettingsThemeColors().on_surface), Font32());
   if (title == nullptr) {
     return false;
   }
@@ -815,9 +809,8 @@ bool CreateMyDeviceHeader(
   lv_obj_add_event_cb(
       back_button, MyDeviceBackClickedEventCallback, LV_EVENT_CLICKED, state);
 
-  lv_obj_t* back_icon = CreateLabel(
-      back_button, icon::kArrowBack, lv_color_hex(SettingsThemeColors().on_surface),
-      MaterialIconFont44());
+  lv_obj_t* back_icon = CreateLabel(back_button, icon::kArrowBack,
+      lv_color_hex(SettingsThemeColors().on_surface), MaterialIconFont44());
   if (back_icon == nullptr) {
     return false;
   }
@@ -833,8 +826,7 @@ bool CreateMyDeviceHeader(
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateMyDeviceSnapshotArea(lv_obj_t* parent, int width,
-    SettingsViewState* state,
-    const app::CurrentDeviceInfoSnapshot& info) {
+    SettingsViewState* state, const app::CurrentDeviceInfoSnapshot& info) {
   lv_obj_t* brand_group = lv_obj_create(parent);
   if (brand_group == nullptr) {
     return false;
@@ -850,23 +842,19 @@ bool CreateMyDeviceSnapshotArea(lv_obj_t* parent, int width,
     return false;
   }
 
-  lv_obj_t* brand_text = CreateLabel(
-      brand_group, "LilygoBox",
+  lv_obj_t* brand_text = CreateLabel(brand_group, "LilygoBox",
       lv_color_hex(SettingsThemeColors().on_surface), Font48());
   if (brand_text == nullptr) {
     return false;
   }
   lv_obj_update_layout(brand_text);
-  const int brand_width = kMyDeviceBrandIconSize +
-                          kMyDeviceBrandIconGap +
+  const int brand_width = kMyDeviceBrandIconSize + kMyDeviceBrandIconGap +
                           lv_obj_get_width(brand_text);
-  lv_obj_set_size(
-      brand_group, brand_width, kMyDeviceBrandIconSize);
-  lv_obj_align(
-      brand_group, LV_ALIGN_TOP_MID, 0, kDetailBrandTop);
+  lv_obj_set_size(brand_group, brand_width, kMyDeviceBrandIconSize);
+  lv_obj_align(brand_group, LV_ALIGN_TOP_MID, 0, kDetailBrandTop);
   lv_obj_align(brand_icon, LV_ALIGN_LEFT_MID, 0, 0);
-  lv_obj_align_to(brand_text, brand_icon, LV_ALIGN_OUT_RIGHT_MID,
-      kMyDeviceBrandIconGap, 0);
+  lv_obj_align_to(
+      brand_text, brand_icon, LV_ALIGN_OUT_RIGHT_MID, kMyDeviceBrandIconGap, 0);
 
   const char* software_version = info.software.software_version;
   if (software_version == nullptr || software_version[0] == '\0') {
@@ -895,27 +883,24 @@ bool CreateMyDeviceSnapshotArea(lv_obj_t* parent, int width,
   lv_obj_add_flag(update_button, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(update_button, kDetailUpdateWidth, kDetailUpdateHeight);
   lv_obj_align(update_button, LV_ALIGN_TOP_MID, 0, kDetailUpdateTop);
-  lv_obj_set_style_bg_color(update_button, lv_color_hex(theme::FixedColors().action),
-      LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      update_button, lv_color_hex(theme::FixedColors().action), LV_PART_MAIN);
   lv_obj_set_style_bg_color(update_button,
-      lv_color_hex(theme::FixedColors().action_pressed),
-      LV_STATE_PRESSED);
+      lv_color_hex(theme::FixedColors().action_pressed), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(update_button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(update_button, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(update_button, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(update_button, kDetailUpdateHeight / 3,
-      LV_PART_MAIN);
+  lv_obj_set_style_radius(update_button, kDetailUpdateHeight / 3, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(update_button, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(update_button, 0, LV_PART_MAIN);
   if (!AddPressCancelOnLeave(update_button)) {
     return false;
   }
-  lv_obj_add_event_cb(update_button,
-      FirmwareUpdateButtonClickedEventCallback, LV_EVENT_CLICKED, state);
+  lv_obj_add_event_cb(update_button, FirmwareUpdateButtonClickedEventCallback,
+      LV_EVENT_CLICKED, state);
 
-  lv_obj_t* update_text =
-      CreateLabel(update_button, "Check for updates",
-          lv_color_hex(theme::FixedColors().on_action), Font28());
+  lv_obj_t* update_text = CreateLabel(update_button, "Check for updates",
+      lv_color_hex(theme::FixedColors().on_action), Font28());
   if (update_text == nullptr) {
     return false;
   }
@@ -936,9 +921,8 @@ bool CreateMyDeviceSnapshotArea(lv_obj_t* parent, int width,
  * @param value_label_output 右侧值文本输出
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateDeviceInfoRow(lv_obj_t* parent, const char* title,
-    const char* value, int y, int width, bool show_arrow,
-    lv_event_cb_t callback, void* user_data,
+bool CreateDeviceInfoRow(lv_obj_t* parent, const char* title, const char* value,
+    int y, int width, bool show_arrow, lv_event_cb_t callback, void* user_data,
     lv_obj_t** value_label_output) {
   lv_obj_t* row = lv_obj_create(parent);
   if (row == nullptr) {
@@ -968,8 +952,8 @@ bool CreateDeviceInfoRow(lv_obj_t* parent, const char* title,
     lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
   }
 
-  lv_obj_t* title_label =
-      CreateLabel(row, title, lv_color_hex(SettingsThemeColors().on_surface), Font28());
+  lv_obj_t* title_label = CreateLabel(
+      row, title, lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (title_label == nullptr) {
     return false;
   }
@@ -978,15 +962,16 @@ bool CreateDeviceInfoRow(lv_obj_t* parent, const char* title,
   lv_obj_t* anchor = nullptr;
   if (show_arrow) {
     anchor = CreateLabel(row, icon::kChevronRight,
-        lv_color_hex(SettingsThemeColors().on_surface_variant), MaterialIconFont32());
+        lv_color_hex(SettingsThemeColors().on_surface_variant),
+        MaterialIconFont32());
     if (anchor == nullptr) {
       return false;
     }
     lv_obj_align(anchor, LV_ALIGN_RIGHT_MID, -kDetailCardPaddingX, 0);
   }
 
-  lv_obj_t* value_label =
-      CreateLabel(row, value, lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
+  lv_obj_t* value_label = CreateLabel(row, value,
+      lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
   if (value_label == nullptr) {
     return false;
   }
@@ -1013,8 +998,7 @@ bool CreateDeviceInfoRow(lv_obj_t* parent, const char* title,
  * @param info 当前设备信息
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateDeviceInfoCard(
-    lv_obj_t* parent, const AppViewConfig&, int width,
+bool CreateDeviceInfoCard(lv_obj_t* parent, const AppViewConfig&, int width,
     SettingsViewState* state, const app::CurrentDeviceInfoSnapshot& info) {
   char storage_text[48] = {};
   FormatStorageUsage(info, storage_text, sizeof(storage_text));
@@ -1028,9 +1012,8 @@ bool CreateDeviceInfoCard(
   }
   lv_obj_align(card, LV_ALIGN_TOP_MID, 0, kDetailFirstCardTop);
 
-  return CreateDeviceInfoRow(card, "Device name",
-             info.software.device_name, 22, card_width, true,
-             DeviceNameRowClickedEventCallback, state,
+  return CreateDeviceInfoRow(card, "Device name", info.software.device_name, 22,
+             card_width, true, DeviceNameRowClickedEventCallback, state,
              state == nullptr ? nullptr : &state->device_name_value_label) &&
          CreateDeviceInfoRow(card, "Storage space", storage_text,
              22 + kDetailInfoRowHeight, card_width, false, nullptr, nullptr,
@@ -1046,17 +1029,17 @@ bool CreateDeviceInfoCard(
  * @param y Y 坐标
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateSpecText(lv_obj_t* parent, const char* value, const char* label,
-    int x, int y) {
-  lv_obj_t* value_label =
-      CreateLabel(parent, value, lv_color_hex(SettingsThemeColors().on_surface), Font28());
+bool CreateSpecText(
+    lv_obj_t* parent, const char* value, const char* label, int x, int y) {
+  lv_obj_t* value_label = CreateLabel(
+      parent, value, lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (value_label == nullptr) {
     return false;
   }
   lv_obj_align(value_label, LV_ALIGN_TOP_LEFT, x, y);
 
-  lv_obj_t* title_label =
-      CreateLabel(parent, label, lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
+  lv_obj_t* title_label = CreateLabel(parent, label,
+      lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
   if (title_label == nullptr) {
     return false;
   }
@@ -1073,8 +1056,7 @@ bool CreateSpecText(lv_obj_t* parent, const char* value, const char* label,
  * @param info 当前设备信息
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateDeviceSpecCard(
-    lv_obj_t* parent, const AppViewConfig&, int width,
+bool CreateDeviceSpecCard(lv_obj_t* parent, const AppViewConfig&, int width,
     SettingsViewState*, const app::CurrentDeviceInfoSnapshot& info) {
   char memory_text[32] = {};
   char battery_text[32] = {};
@@ -1084,8 +1066,8 @@ bool CreateDeviceSpecCard(
   FormatResolution(info, resolution_text, sizeof(resolution_text));
 
   lv_obj_t* card = CreateBox(parent, width - 2 * kDetailSidePadding,
-      kDetailSecondCardHeight, SettingsThemeColors().surface_container_lowest, LV_OPA_COVER,
-      kDetailCardRadius);
+      kDetailSecondCardHeight, SettingsThemeColors().surface_container_lowest,
+      LV_OPA_COVER, kDetailCardRadius);
   if (card == nullptr) {
     return false;
   }
@@ -1096,20 +1078,20 @@ bool CreateDeviceSpecCard(
   if (title == nullptr) {
     return false;
   }
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, kDetailCardPaddingX,
-      kDetailCardPaddingTop);
+  lv_obj_align(
+      title, LV_ALIGN_TOP_LEFT, kDetailCardPaddingX, kDetailCardPaddingTop);
 
-  lv_obj_t* model_version = CreateLabel(card,
-      info.software.device_model_version, lv_color_hex(SettingsThemeColors().on_surface_variant),
-      Font28());
+  lv_obj_t* model_version =
+      CreateLabel(card, info.software.device_model_version,
+          lv_color_hex(SettingsThemeColors().on_surface_variant), Font28());
   if (model_version == nullptr) {
     return false;
   }
   lv_obj_align_to(model_version, title, LV_ALIGN_OUT_RIGHT_MID, 14, 2);
 
   const int first_y = kDetailCardPaddingTop + 82;
-  return CreateSpecText(card, info.chip.model, "Processor",
-             kDetailCardPaddingX, first_y) &&
+  return CreateSpecText(card, info.chip.model, "Processor", kDetailCardPaddingX,
+             first_y) &&
          CreateSpecText(card, memory_text, "Runtime memory",
              kDetailCardPaddingX, first_y + 86) &&
          CreateSpecText(card, battery_text, "Battery capacity",
@@ -1134,8 +1116,8 @@ bool CreateDeviceSpecCard(
  * @param user_data 点击回调用户数据
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateDeviceOptionRow(lv_obj_t* parent, const char* text, int y,
-    int width, lv_event_cb_t callback, void* user_data) {
+bool CreateDeviceOptionRow(lv_obj_t* parent, const char* text, int y, int width,
+    lv_event_cb_t callback, void* user_data) {
   lv_obj_t* row = lv_obj_create(parent);
   if (row == nullptr) {
     return false;
@@ -1147,8 +1129,8 @@ bool CreateDeviceOptionRow(lv_obj_t* parent, const char* text, int y,
   lv_obj_set_size(row, width, kDetailOptionRowHeight);
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      row, lv_color_hex(SettingsThemeColors().state_layer_strong), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(row,
+      lv_color_hex(SettingsThemeColors().state_layer_strong), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, kDetailOptionPressedOpacity, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
@@ -1161,15 +1143,16 @@ bool CreateDeviceOptionRow(lv_obj_t* parent, const char* text, int y,
     lv_obj_add_event_cb(row, callback, LV_EVENT_CLICKED, user_data);
   }
 
-  lv_obj_t* label =
-      CreateLabel(row, text, lv_color_hex(SettingsThemeColors().on_surface), Font28());
+  lv_obj_t* label = CreateLabel(
+      row, text, lv_color_hex(SettingsThemeColors().on_surface), Font28());
   if (label == nullptr) {
     return false;
   }
   lv_obj_align(label, LV_ALIGN_LEFT_MID, kDetailSidePadding + 8, 0);
 
   lv_obj_t* arrow = CreateLabel(row, icon::kChevronRight,
-      lv_color_hex(SettingsThemeColors().on_surface_variant), MaterialIconFont32());
+      lv_color_hex(SettingsThemeColors().on_surface_variant),
+      MaterialIconFont32());
   if (arrow == nullptr) {
     return false;
   }
@@ -1193,8 +1176,8 @@ bool CreateDeviceOptions(
     const lv_event_cb_t callback = IsId(catalog.options[i].id, "factory_reset")
                                        ? FactoryResetRowClickedEventCallback
                                        : nullptr;
-    if (!CreateDeviceOptionRow(parent, catalog.options[i].title, y, width,
-            callback, state)) {
+    if (!CreateDeviceOptionRow(
+            parent, catalog.options[i].title, y, width, callback, state)) {
       return false;
     }
     y += kDetailOptionRowHeight;
@@ -1231,8 +1214,8 @@ bool ShowMyDevicePageInternal(SettingsViewState* state) {
   lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(page, config.width, config.height);
   lv_obj_set_pos(page, 0, 0);
-  lv_obj_set_style_bg_color(
-      page, lv_color_hex(SettingsThemeColors().surface_container), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(page,
+      lv_color_hex(SettingsThemeColors().surface_container), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
@@ -1263,13 +1246,11 @@ bool ShowMyDevicePageInternal(SettingsViewState* state) {
     return false;
   }
 
-  const bool created = CreateMyDeviceSnapshotArea(
-                           body, config.width, state, device_info) &&
-                       CreateDeviceInfoCard(
-                           body, config, config.width, state, device_info) &&
-                       CreateDeviceSpecCard(
-                           body, config, config.width, state, device_info) &&
-                       CreateDeviceOptions(body, config.width, state);
+  const bool created =
+      CreateMyDeviceSnapshotArea(body, config.width, state, device_info) &&
+      CreateDeviceInfoCard(body, config, config.width, state, device_info) &&
+      CreateDeviceSpecCard(body, config, config.width, state, device_info) &&
+      CreateDeviceOptions(body, config.width, state);
   if (!created) {
     CloseMyDevicePage(state, false);
     return false;
@@ -1280,9 +1261,8 @@ bool ShowMyDevicePageInternal(SettingsViewState* state) {
     CloseMyDevicePage(state, false);
     return false;
   }
-  if (!RegisterBackNavigationHandler(page, [state]() {
-        CloseMyDevicePage(state, true);
-      })) {
+  if (!RegisterBackNavigationHandler(
+          page, [state]() { CloseMyDevicePage(state, true); })) {
     CloseMyDevicePage(state, false);
     return false;
   }

@@ -2,7 +2,7 @@
  * @Description: Shared in-page status prompt widget
  * @Author: LILYGO_L
  * @Date: 2026-08-22 00:00:00
- * @LastEditTime: 2026-08-22 00:00:00
+ * @LastEditTime: 2026-09-02 17:57:18
  * @License: GPL 3.0
  */
 #pragma once
@@ -29,8 +29,7 @@ struct PromptStatusConfig {
   const char* icon = nullptr;
   const lv_font_t* icon_font = nullptr;
   int icon_background_size = 96;
-  uint32_t icon_background_color =
-      theme::FixedColors().action_container;
+  uint32_t icon_background_color = theme::FixedColors().action_container;
   uint32_t icon_color = theme::FixedColors().action;
 
   int spinner_size = 68;
@@ -59,8 +58,7 @@ struct PromptStatusConfig {
   int button_height = 64;
   int button_radius = 0;
   uint32_t button_background_color = theme::FixedColors().action;
-  uint32_t button_pressed_color =
-      theme::FixedColors().action_pressed;
+  uint32_t button_pressed_color = theme::FixedColors().action_pressed;
   uint32_t button_text_color = theme::FixedColors().on_action;
   lv_event_cb_t button_callback = nullptr;
   void* button_user_data = nullptr;

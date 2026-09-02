@@ -2,11 +2,9 @@
  * @Description: Settings power saving and battery page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-05-23 00:00:00
+ * @LastEditTime: 2026-09-02 17:56:47
  * @License: GPL 3.0
  */
-#include "ui/views/settings/settings_basic_view_common.h"
-
 #include <algorithm>
 #include <cerrno>
 #include <cstddef>
@@ -19,6 +17,7 @@
 #include "base/logger.h"
 #include "hal/providers/battery_management_provider.h"
 #include "ui/resources/fonts/icon_assets.h"
+#include "ui/views/settings/settings_basic_view_common.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -66,8 +65,7 @@ uint32_t BatteryOverviewFillColor(int percent, bool charging) {
  * @return 剩余区域颜色
  */
 uint32_t BatteryOverviewRestColor(int percent, bool charging) {
-  if (!charging && percent >= 0 &&
-      percent < kBatteryLowThresholdPercent) {
+  if (!charging && percent >= 0 && percent < kBatteryLowThresholdPercent) {
     return kBatteryLowRestColor;
   }
   return kBatteryRestColor;
@@ -79,8 +77,7 @@ uint32_t BatteryOverviewRestColor(int percent, bool charging) {
  * @param buffer 输出缓冲区
  * @param buffer_size 输出缓冲区大小
  */
-void FormatBatteryCapacity(
-    int capacity_mah, char* buffer, size_t buffer_size) {
+void FormatBatteryCapacity(int capacity_mah, char* buffer, size_t buffer_size) {
   if (buffer == nullptr || buffer_size == 0) {
     return;
   }
@@ -93,7 +90,8 @@ void FormatBatteryCapacity(
  * @param status 电池管理状态输出地址
  * @return 读取到有效状态返回 true，否则返回 false
  */
-bool ReadBatteryStatus(SettingsViewState* state, hal::BatteryManagementStatus* status) {
+bool ReadBatteryStatus(
+    SettingsViewState* state, hal::BatteryManagementStatus* status) {
   if (state == nullptr || status == nullptr ||
       state->config.system_status == nullptr) {
     return false;
@@ -124,8 +122,8 @@ void FormatDuration(int minutes, char* buffer, size_t buffer_size) {
     return;
   }
 
-  std::snprintf(buffer, buffer_size, "%d h %02d min", minutes / 60,
-      minutes % 60);
+  std::snprintf(
+      buffer, buffer_size, "%d h %02d min", minutes / 60, minutes % 60);
 }
 
 /**
@@ -134,8 +132,8 @@ void FormatDuration(int minutes, char* buffer, size_t buffer_size) {
  * @param buffer 输出缓冲区
  * @param buffer_size 输出缓冲区大小
  */
-void FormatBatterySummary(
-    const hal::BatteryManagementStatus& status, char* buffer, size_t buffer_size) {
+void FormatBatterySummary(const hal::BatteryManagementStatus& status,
+    char* buffer, size_t buffer_size) {
   if (buffer == nullptr || buffer_size == 0) {
     return;
   }
@@ -156,8 +154,8 @@ void FormatBatterySummary(
       std::snprintf(buffer, buffer_size,
           "Charging time estimate | Battery %d%%", status.charge_percent);
     } else {
-      std::snprintf(
-          buffer, buffer_size, "Charging | Battery %d%%", status.charge_percent);
+      std::snprintf(buffer, buffer_size, "Charging | Battery %d%%",
+          status.charge_percent);
     }
     return;
   }
@@ -166,8 +164,7 @@ void FormatBatterySummary(
     std::snprintf(buffer, buffer_size, "Available time | Battery %d%%",
         status.charge_percent);
   } else {
-    std::snprintf(
-        buffer, buffer_size, "Battery %d%%", status.charge_percent);
+    std::snprintf(buffer, buffer_size, "Battery %d%%", status.charge_percent);
   }
 }
 
@@ -212,8 +209,7 @@ void UpdateBatteryOverview(
     FormatDuration(
         BatteryEstimateMinutes(status), time_text, sizeof(time_text));
     lv_label_set_text(state->battery_overview_time_label, time_text);
-    lv_obj_clear_flag(
-        state->battery_overview_time_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(state->battery_overview_time_label, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_label_set_text(state->battery_overview_time_label, "");
     lv_obj_add_flag(state->battery_overview_time_label, LV_OBJ_FLAG_HIDDEN);
@@ -226,13 +222,13 @@ void UpdateBatteryOverview(
     if (status.charging && !status.full_charged) {
       lv_obj_clear_flag(
           state->battery_overview_status_icon_label, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_set_x(state->battery_overview_status_label,
-          kBatteryStatusChargingTextLeft);
+      lv_obj_set_x(
+          state->battery_overview_status_label, kBatteryStatusChargingTextLeft);
     } else {
       lv_obj_add_flag(
           state->battery_overview_status_icon_label, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_set_x(state->battery_overview_status_label,
-          kBatteryCardInnerPadding);
+      lv_obj_set_x(
+          state->battery_overview_status_label, kBatteryCardInnerPadding);
     }
   }
 }
@@ -284,8 +280,8 @@ void BatteryRefreshTimerCallback(lv_timer_t* timer) {
     return;
   }
 
-  RefreshBatteryPage(static_cast<SettingsViewState*>(lv_timer_get_user_data(
-      timer)));
+  RefreshBatteryPage(
+      static_cast<SettingsViewState*>(lv_timer_get_user_data(timer)));
 }
 
 /**
@@ -340,11 +336,10 @@ void BatteryProtectionDeleteEventCallback(lv_event_t* event) {
  * @param capacity_mah 解析后的容量输出地址
  * @return 输入为当前设备支持的有效容量时返回 true
  */
-bool ParseBatteryCapacityEdit(const char* text,
-    const SettingsViewState* state, int* capacity_mah) {
+bool ParseBatteryCapacityEdit(
+    const char* text, const SettingsViewState* state, int* capacity_mah) {
   if (text == nullptr || text[0] == '\0' || state == nullptr ||
-      state->config.battery_management == nullptr ||
-      capacity_mah == nullptr) {
+      state->config.battery_management == nullptr || capacity_mah == nullptr) {
     return false;
   }
 
@@ -370,8 +365,8 @@ bool ParseBatteryCapacityEdit(const char* text,
  */
 bool ValidateBatteryCapacityEdit(const char* text, void* context) {
   int capacity_mah = 0;
-  return ParseBatteryCapacityEdit(text,
-      static_cast<SettingsViewState*>(context), &capacity_mah);
+  return ParseBatteryCapacityEdit(
+      text, static_cast<SettingsViewState*>(context), &capacity_mah);
 }
 
 /**
@@ -395,8 +390,7 @@ bool SaveBatteryCapacityEdit(const char* text, void* context) {
   if (capacity_mah == previous_preferences.capacity_mah) {
     return true;
   }
-  if (!state->config.battery_management->SetBatteryCapacityMah(
-          capacity_mah)) {
+  if (!state->config.battery_management->SetBatteryCapacityMah(capacity_mah)) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Apply battery capacity failed: capacity=%d mAh\n", capacity_mah);
     return false;
@@ -448,8 +442,8 @@ bool ShowBatteryCapacityEditPage(SettingsViewState* state) {
       capacity_text, sizeof(capacity_text), "%d", preferences.capacity_mah);
   char help_text[80] = {};
   std::snprintf(help_text, sizeof(help_text),
-      "Enter the rated battery capacity in mAh (%d-%d).",
-      range.minimum_mah, range.maximum_mah);
+      "Enter the rated battery capacity in mAh (%d-%d).", range.minimum_mah,
+      range.maximum_mah);
 
   SettingsTextEditPageConfig config;
   config.parent = state->root;
@@ -617,8 +611,8 @@ bool CreateBatteryOverviewCard(
   lv_obj_remove_flag(fill, LV_OBJ_FLAG_SCROLLABLE);
   state->battery_overview_fill = fill;
 
-  lv_obj_t* time_label = CreateLabel(card, "-- h -- min",
-      lv_color_hex(kBatteryTextColor), Font64());
+  lv_obj_t* time_label = CreateLabel(
+      card, "-- h -- min", lv_color_hex(kBatteryTextColor), Font64());
   if (time_label == nullptr) {
     return false;
   }
@@ -626,13 +620,13 @@ bool CreateBatteryOverviewCard(
   lv_obj_set_pos(time_label, kBatteryCardInnerPadding, kBatteryMainTextTop);
   state->battery_overview_time_label = time_label;
 
-  lv_obj_t* status_icon_label = CreateLabel(card, icon::kBolt,
-      lv_color_hex(kBatteryTextColor), MaterialIconFont32());
+  lv_obj_t* status_icon_label = CreateLabel(
+      card, icon::kBolt, lv_color_hex(kBatteryTextColor), MaterialIconFont32());
   if (status_icon_label == nullptr) {
     return false;
   }
-  lv_obj_set_pos(status_icon_label, kBatteryStatusIconLeft,
-      kBatteryStatusIconTop);
+  lv_obj_set_pos(
+      status_icon_label, kBatteryStatusIconLeft, kBatteryStatusIconTop);
   state->battery_overview_status_icon_label = status_icon_label;
 
   lv_obj_t* status_label = CreateLabel(card, "Available time | Battery --%",
@@ -658,29 +652,29 @@ bool BuildPowerBatteryContent(lv_obj_t* body, SettingsViewState* state) {
     return false;
   }
 
-  lv_obj_add_event_cb(body, BatteryPageDeleteEventCallback, LV_EVENT_DELETE,
-      state);
+  lv_obj_add_event_cb(
+      body, BatteryPageDeleteEventCallback, LV_EVENT_DELETE, state);
 
   int y = 0;
   if (!CreateBatteryOverviewCard(body, state, y)) {
     return false;
   }
   y += 212;
-  if (!CreateArrowRow(body, "Current mode", "Balanced", y,
-          state->config.width, nullptr, state)) {
+  if (!CreateArrowRow(body, "Current mode", "Balanced", y, state->config.width,
+          nullptr, state)) {
     return false;
   }
   y += kBasicRowHeight;
-  if (!CreateArrowRow(body, "Battery protection", "", y,
-          state->config.width, BatteryProtectionClickedEventCallback, state)) {
+  if (!CreateArrowRow(body, "Battery protection", "", y, state->config.width,
+          BatteryProtectionClickedEventCallback, state)) {
     return false;
   }
   y += kBasicRowHeight;
   const app::BatteryPreferences battery_preferences =
       app::GetBatteryPreferences();
   char capacity_text[24] = {};
-  FormatBatteryCapacity(battery_preferences.capacity_mah, capacity_text,
-      sizeof(capacity_text));
+  FormatBatteryCapacity(
+      battery_preferences.capacity_mah, capacity_text, sizeof(capacity_text));
   if (!CreateArrowRow(body, "Battery capacity", capacity_text, y,
           state->config.width, BatteryCapacityClickedEventCallback, state)) {
     return false;
@@ -703,8 +697,8 @@ bool BuildPowerBatteryContent(lv_obj_t* body, SettingsViewState* state) {
 }  // namespace
 
 bool ShowPowerBatteryPage(SettingsViewState* state) {
-  return ShowBasicPage(state, "Power Saving & Battery",
-      BuildPowerBatteryContent);
+  return ShowBasicPage(
+      state, "Power Saving & Battery", BuildPowerBatteryContent);
 }
 
 }  // namespace lilygo_box::ui

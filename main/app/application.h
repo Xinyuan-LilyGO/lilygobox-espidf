@@ -2,7 +2,7 @@
  * @Description: 系统应用生命周期与启动协调接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-17 09:16:03
+ * @LastEditTime: 2026-09-02 17:50:58
  * @License: GPL 3.0
  */
 #pragma once
@@ -12,8 +12,8 @@
 
 #include "app/storage/display_storage.h"
 #include "freertos/FreeRTOS.h"
-#include "hal/lvgl_port.h"
 #include "hal/device_provider_factory.h"
+#include "hal/lvgl_port.h"
 #include "ui/ui_manager.h"
 
 namespace lilygo_box {
@@ -181,8 +181,7 @@ class Application final {
    *
    * 触摸手势与系统状态变化共用此最终处理，但触摸识别仍由调用方完成。
    */
-  bool ApplyScreenActivity(
-      uint32_t* last_touch_ms,
+  bool ApplyScreenActivity(uint32_t* last_touch_ms,
       uint32_t* lock_screen_last_interaction_ms,
       int restore_brightness_percent = -1);
 
@@ -296,8 +295,7 @@ class Application final {
    * @return 进入休眠成功返回 true，否则返回 false
    */
   bool SleepAwakeLockScreenWithTimeout(
-      uint32_t* last_touch_ms,
-      uint32_t* lock_screen_last_interaction_ms);
+      uint32_t* last_touch_ms, uint32_t* lock_screen_last_interaction_ms);
 
   /**
    * @brief 立即熄灭当前亮屏的锁屏页面
@@ -334,8 +332,8 @@ class Application final {
    * @param current 当前触摸点
    * @return 满足上滑解锁返回 true，否则返回 false
    */
-  bool IsUnlockSwipe(const hal::TouchPoint& start,
-      const hal::TouchPoint& current) const;
+  bool IsUnlockSwipe(
+      const hal::TouchPoint& start, const hal::TouchPoint& current) const;
 
   /**
    * @brief 通过统一触摸入口读取亮屏触摸状态
@@ -356,8 +354,8 @@ class Application final {
    * @return 检测到有效触摸返回 true
    */
   bool ReadScreenTouchWhileSleeping(hal::TouchPoint* point,
-      bool* access_available, bool* interrupt_edge_received,
-      bool force_read, bool refresh_wake_configuration);
+      bool* access_available, bool* interrupt_edge_received, bool force_read,
+      bool refresh_wake_configuration);
 
   /**
    * @brief 应用屏幕亮度并同步应用层当前值
@@ -417,8 +415,7 @@ class Application final {
   std::atomic<SystemActivityReason> pending_system_activity_reason_{
       SystemActivityReason::kNone};
   // 预熄屏任务已直接应用拔出活动时，主循环只补做状态栏和提示刷新。
-  std::atomic<bool> keyboard_expansion_disconnection_activity_reported_{
-      false};
+  std::atomic<bool> keyboard_expansion_disconnection_activity_reported_{false};
   // 状态栏电池缓存首次更新只建立充电状态基准，不生成系统活动。
   std::atomic<bool> battery_charging_state_known_{false};
   std::atomic<bool> battery_charging_{false};

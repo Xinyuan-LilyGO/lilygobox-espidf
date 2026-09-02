@@ -2,7 +2,7 @@
  * @Description: NVS 缓存与持久化内部协调接口
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
- * @LastEditTime: 2026-07-18 00:00:00
+ * @LastEditTime: 2026-09-02 17:51:49
  * @License: GPL 3.0
  */
 #pragma once
@@ -216,8 +216,8 @@ class NvsStorageCache final {
 
  private:
   void UpdateDirtyStateLocked() {
-    const bool dirty = flush_pending_ || retry_required_ ||
-        !equal_(current_, persisted_);
+    const bool dirty =
+        flush_pending_ || retry_required_ || !equal_(current_, persisted_);
     SetStorageDomainDirtyLocked(domain_, dirty);
   }
 

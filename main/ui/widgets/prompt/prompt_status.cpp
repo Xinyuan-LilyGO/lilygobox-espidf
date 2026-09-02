@@ -2,7 +2,7 @@
  * @Description: Shared in-page status prompt widget
  * @Author: LILYGO_L
  * @Date: 2026-08-22 00:00:00
- * @LastEditTime: 2026-08-22 00:00:00
+ * @LastEditTime: 2026-09-02 17:57:17
  * @License: GPL 3.0
  */
 #include "ui/widgets/prompt/prompt_status.h"
@@ -44,12 +44,12 @@ bool CreatePromptIcon(lv_obj_t* parent, const PromptStatusConfig& config) {
   }
   lv_obj_remove_style_all(background);
   lv_obj_remove_flag(background, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(background, config.icon_background_size,
-      config.icon_background_size);
+  lv_obj_set_size(
+      background, config.icon_background_size, config.icon_background_size);
   lv_obj_set_style_radius(
       background, config.icon_background_size / 2, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(background,
-      lv_color_hex(config.icon_background_color), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      background, lv_color_hex(config.icon_background_color), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(background, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_align(background, LV_ALIGN_TOP_MID, 0, config.visual_top);
 
@@ -63,14 +63,12 @@ bool CreatePromptIcon(lv_obj_t* parent, const PromptStatusConfig& config) {
   if (config.icon_font != nullptr) {
     lv_obj_set_style_text_font(icon_label, config.icon_font, LV_PART_MAIN);
   }
-  lv_obj_set_style_text_align(
-      icon_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_set_style_text_align(icon_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_center(icon_label);
   return true;
 }
 
-bool CreatePromptSpinner(
-    lv_obj_t* parent, const PromptStatusConfig& config) {
+bool CreatePromptSpinner(lv_obj_t* parent, const PromptStatusConfig& config) {
   if (config.spinner_size <= 0 || config.spinner_arc_width <= 0) {
     return false;
   }
@@ -81,12 +79,11 @@ bool CreatePromptSpinner(
   lv_obj_set_size(spinner, config.spinner_size, config.spinner_size);
   lv_spinner_set_anim_params(
       spinner, config.spinner_period_ms, config.spinner_arc_length);
-  lv_obj_set_style_arc_color(spinner,
-      lv_color_hex(config.spinner_track_color), LV_PART_MAIN);
-  lv_obj_set_style_arc_color(spinner,
-      lv_color_hex(config.spinner_indicator_color), LV_PART_INDICATOR);
-  lv_obj_set_style_arc_width(
-      spinner, config.spinner_arc_width, LV_PART_MAIN);
+  lv_obj_set_style_arc_color(
+      spinner, lv_color_hex(config.spinner_track_color), LV_PART_MAIN);
+  lv_obj_set_style_arc_color(
+      spinner, lv_color_hex(config.spinner_indicator_color), LV_PART_INDICATOR);
+  lv_obj_set_style_arc_width(spinner, config.spinner_arc_width, LV_PART_MAIN);
   lv_obj_set_style_arc_width(
       spinner, config.spinner_arc_width, LV_PART_INDICATOR);
   lv_obj_align(spinner, LV_ALIGN_TOP_MID, 0, config.visual_top);
@@ -109,11 +106,11 @@ bool CreatePromptButton(lv_obj_t* parent, const PromptStatusConfig& config) {
     lv_obj_add_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
   }
   lv_obj_set_size(button, config.button_width, config.button_height);
-  lv_obj_set_style_bg_color(button,
-      lv_color_hex(config.button_background_color), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      button, lv_color_hex(config.button_background_color), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(button,
-      lv_color_hex(config.button_pressed_color), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(
+      button, lv_color_hex(config.button_pressed_color), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
   int button_radius = config.button_radius;
   if (button_radius <= 0) {

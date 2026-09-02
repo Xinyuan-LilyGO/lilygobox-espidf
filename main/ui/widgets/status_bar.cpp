@@ -2,7 +2,7 @@
  * @Description: 系统时间、网络与电池状态栏显示实现
  * @Author: LILYGO_L
  * @Date: 2026-05-12 01:08:42
- * @LastEditTime: 2026-07-08 15:06:23
+ * @LastEditTime: 2026-09-02 17:54:58
  * @License: GPL 3.0
  */
 #include "ui/widgets/status_bar.h"
@@ -216,8 +216,8 @@ void UpdateBatteryFill(
     return;
   }
 
-  const int fill_width = std::max(
-      1, kStatusBarBatteryFillMaxWidth * clamped_percent / 100);
+  const int fill_width =
+      std::max(1, kStatusBarBatteryFillMaxWidth * clamped_percent / 100);
   lv_obj_set_size(fill, fill_width, kStatusBarBatteryFillHeight);
   lv_obj_set_style_bg_color(fill, lv_color_hex(color), LV_PART_MAIN);
   lv_obj_clear_flag(fill, LV_OBJ_FLAG_HIDDEN);
@@ -236,8 +236,8 @@ void AlignConnectivityIcons(lv_obj_t* keyboard_expansion, lv_obj_t* wifi,
   if (wifi == nullptr || battery_management == nullptr) {
     return;
   }
-  lv_obj_align_to(wifi, battery_management, LV_ALIGN_OUT_LEFT_MID,
-      kStatusBarIconGap, 0);
+  lv_obj_align_to(
+      wifi, battery_management, LV_ALIGN_OUT_LEFT_MID, kStatusBarIconGap, 0);
   if (keyboard_expansion != nullptr) {
     lv_obj_t* keyboard_anchor =
         lv_obj_has_flag(wifi, LV_OBJ_FLAG_HIDDEN) ? battery_management : wifi;
@@ -265,16 +265,14 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
   MakeTransparent(object_);
   lv_obj_set_size(object_, width, kStatusBarHeight);
   lv_obj_align(object_, LV_ALIGN_TOP_MID, 0, 0);
-  lv_obj_set_style_bg_color(
-      object_, lv_color_hex(theme::FixedColors().status_bar_background),
-      LV_PART_MAIN);
+  lv_obj_set_style_bg_color(object_,
+      lv_color_hex(theme::FixedColors().status_bar_background), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(object_, LV_OPA_10, LV_PART_MAIN);
   lv_obj_set_style_radius(object_, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_hor(object_, kStatusBarPadding, LV_PART_MAIN);
 
   time_label_ =
-      CreateLabel(object_, "09:15", lv_color_hex(text_color_hex_),
-          Font24());
+      CreateLabel(object_, "09:15", lv_color_hex(text_color_hex_), Font24());
   if (time_label_ == nullptr) {
     lv_obj_delete(object_);
     object_ = nullptr;
@@ -291,16 +289,15 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
   }
   lv_obj_align(battery_management_percent_label_, LV_ALIGN_RIGHT_MID, 0, 0);
 
-  battery_management_label_ =
-      CreateLabel(object_, icon::kBatteryAndroid0,
-          lv_color_hex(text_color_hex_), BatteryOutlineIconFont46());
+  battery_management_label_ = CreateLabel(object_, icon::kBatteryAndroid0,
+      lv_color_hex(text_color_hex_), BatteryOutlineIconFont46());
   if (battery_management_label_ == nullptr) {
     lv_obj_delete(object_);
     object_ = nullptr;
     return false;
   }
-  lv_obj_align_to(battery_management_label_, battery_management_percent_label_, LV_ALIGN_OUT_LEFT_MID,
-      -kStatusBarBatteryPercentGap, 0);
+  lv_obj_align_to(battery_management_label_, battery_management_percent_label_,
+      LV_ALIGN_OUT_LEFT_MID, -kStatusBarBatteryPercentGap, 0);
 
   battery_management_fill_ = lv_obj_create(object_);
   if (battery_management_fill_ == nullptr) {
@@ -319,9 +316,11 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
   lv_obj_set_style_radius(
       battery_management_fill_, kStatusBarBatteryFillRadius, LV_PART_MAIN);
   lv_obj_add_flag(battery_management_fill_, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_align_to(battery_management_fill_, battery_management_label_, LV_ALIGN_LEFT_MID,
-      kStatusBarBatteryFillOffsetX, kStatusBarBatteryFillOffsetY);
-  lv_obj_move_to_index(battery_management_fill_, lv_obj_get_index(battery_management_label_));
+  lv_obj_align_to(battery_management_fill_, battery_management_label_,
+      LV_ALIGN_LEFT_MID, kStatusBarBatteryFillOffsetX,
+      kStatusBarBatteryFillOffsetY);
+  lv_obj_move_to_index(
+      battery_management_fill_, lv_obj_get_index(battery_management_label_));
 
   battery_management_bolt_label_ = CreateLabel(object_, icon::kBolt,
       lv_color_hex(text_color_hex_), MaterialFillIconFont22());
@@ -331,8 +330,9 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
     return false;
   }
   lv_obj_add_flag(battery_management_bolt_label_, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_align_to(battery_management_bolt_label_, battery_management_label_, LV_ALIGN_CENTER,
-      kStatusBarBatteryBoltOffsetX, kStatusBarBatteryBoltOffsetY);
+  lv_obj_align_to(battery_management_bolt_label_, battery_management_label_,
+      LV_ALIGN_CENTER, kStatusBarBatteryBoltOffsetX,
+      kStatusBarBatteryBoltOffsetY);
   lv_obj_move_to_index(battery_management_bolt_label_, -1);
 
   wifi_label_ = CreateLabel(object_, icon::kSignalWifi4Bar,
@@ -352,8 +352,8 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
     return false;
   }
   lv_obj_add_flag(keyboard_expansion_label_, LV_OBJ_FLAG_HIDDEN);
-  AlignConnectivityIcons(keyboard_expansion_label_, wifi_label_,
-      battery_management_label_);
+  AlignConnectivityIcons(
+      keyboard_expansion_label_, wifi_label_, battery_management_label_);
 
   return true;
 }
@@ -370,7 +370,8 @@ void StatusBar::SetTimeText(const char* text) {
 }
 
 void StatusBar::SetBatteryStatus(int percent, bool charging) {
-  if (battery_management_label_ == nullptr || battery_management_percent_label_ == nullptr) {
+  if (battery_management_label_ == nullptr ||
+      battery_management_percent_label_ == nullptr) {
     return;
   }
 
@@ -378,15 +379,17 @@ void StatusBar::SetBatteryStatus(int percent, bool charging) {
   char percent_text[sizeof(battery_management_percent_text_)] = {};
   FormatBatteryPercent(clamped_percent, percent_text);
   const bool percent_changed =
-      std::strncmp(
-          battery_management_percent_text_, percent_text, sizeof(battery_management_percent_text_)) != 0;
+      std::strncmp(battery_management_percent_text_, percent_text,
+          sizeof(battery_management_percent_text_)) != 0;
   const bool charging_changed = battery_management_charging_ != charging;
   battery_management_percent_ = clamped_percent;
   if (percent_changed) {
-    std::strncpy(
-        battery_management_percent_text_, percent_text, sizeof(battery_management_percent_text_) - 1);
-    battery_management_percent_text_[sizeof(battery_management_percent_text_) - 1] = '\0';
-    lv_label_set_text(battery_management_percent_label_, battery_management_percent_text_);
+    std::strncpy(battery_management_percent_text_, percent_text,
+        sizeof(battery_management_percent_text_) - 1);
+    battery_management_percent_text_[sizeof(battery_management_percent_text_) -
+                                     1] = '\0';
+    lv_label_set_text(
+        battery_management_percent_label_, battery_management_percent_text_);
   }
   if (charging_changed) {
     battery_management_charging_ = charging;
@@ -404,16 +407,19 @@ void StatusBar::SetBatteryStatus(int percent, bool charging) {
     }
   }
 
-  lv_obj_align_to(battery_management_label_, battery_management_percent_label_, LV_ALIGN_OUT_LEFT_MID,
-      -kStatusBarBatteryPercentGap, 0);
+  lv_obj_align_to(battery_management_label_, battery_management_percent_label_,
+      LV_ALIGN_OUT_LEFT_MID, -kStatusBarBatteryPercentGap, 0);
   if (battery_management_bolt_label_ != nullptr) {
-    lv_obj_align_to(battery_management_bolt_label_, battery_management_label_, LV_ALIGN_CENTER,
-      kStatusBarBatteryBoltOffsetX, kStatusBarBatteryBoltOffsetY);
+    lv_obj_align_to(battery_management_bolt_label_, battery_management_label_,
+        LV_ALIGN_CENTER, kStatusBarBatteryBoltOffsetX,
+        kStatusBarBatteryBoltOffsetY);
     lv_obj_move_to_index(battery_management_bolt_label_, -1);
   }
-  UpdateBatteryFill(battery_management_fill_, battery_management_label_, clamped_percent, battery_color);
+  UpdateBatteryFill(battery_management_fill_, battery_management_label_,
+      clamped_percent, battery_color);
   if (battery_management_fill_ != nullptr) {
-    lv_obj_move_to_index(battery_management_fill_, lv_obj_get_index(battery_management_label_));
+    lv_obj_move_to_index(
+        battery_management_fill_, lv_obj_get_index(battery_management_label_));
   }
   if (battery_management_label_ != nullptr) {
     lv_obj_move_to_index(battery_management_label_, -1);
@@ -421,8 +427,8 @@ void StatusBar::SetBatteryStatus(int percent, bool charging) {
   if (battery_management_bolt_label_ != nullptr) {
     lv_obj_move_to_index(battery_management_bolt_label_, -1);
   }
-  AlignConnectivityIcons(keyboard_expansion_label_, wifi_label_,
-      battery_management_label_);
+  AlignConnectivityIcons(
+      keyboard_expansion_label_, wifi_label_, battery_management_label_);
 }
 
 void StatusBar::MoveToTop() {
@@ -442,8 +448,8 @@ void StatusBar::SetWifiStatus(
     wifi_internet_unavailable_ = false;
     wifi_signal_level_ = -1;
     lv_obj_add_flag(wifi_label_, LV_OBJ_FLAG_HIDDEN);
-    AlignConnectivityIcons(keyboard_expansion_label_, wifi_label_,
-        battery_management_label_);
+    AlignConnectivityIcons(
+        keyboard_expansion_label_, wifi_label_, battery_management_label_);
     return;
   }
 
@@ -457,11 +463,11 @@ void StatusBar::SetWifiStatus(
   wifi_internet_unavailable_ = internet_unavailable;
   wifi_signal_level_ = signal_level;
   lv_label_set_text(wifi_label_, internet_unavailable
-      ? icon::kSignalWifiStatusbarNotConnected
-      : WifiIconForSignalLevel(signal_level));
+                                     ? icon::kSignalWifiStatusbarNotConnected
+                                     : WifiIconForSignalLevel(signal_level));
   lv_obj_remove_flag(wifi_label_, LV_OBJ_FLAG_HIDDEN);
-  AlignConnectivityIcons(keyboard_expansion_label_, wifi_label_,
-      battery_management_label_);
+  AlignConnectivityIcons(
+      keyboard_expansion_label_, wifi_label_, battery_management_label_);
 }
 
 void StatusBar::SetKeyboardExpansionConnected(bool connected) {
@@ -472,13 +478,12 @@ void StatusBar::SetKeyboardExpansionConnected(bool connected) {
 
   keyboard_expansion_connected_ = connected;
   if (connected) {
-    lv_obj_remove_flag(
-        keyboard_expansion_label_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(keyboard_expansion_label_, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_obj_add_flag(keyboard_expansion_label_, LV_OBJ_FLAG_HIDDEN);
   }
-  AlignConnectivityIcons(keyboard_expansion_label_, wifi_label_,
-      battery_management_label_);
+  AlignConnectivityIcons(
+      keyboard_expansion_label_, wifi_label_, battery_management_label_);
 }
 
 void StatusBar::SetTextColor(lv_color_t color) {
@@ -490,22 +495,25 @@ void StatusBar::SetTextColor(lv_color_t color) {
     lv_obj_set_style_text_color(wifi_label_, color, LV_PART_MAIN);
   }
   if (keyboard_expansion_label_ != nullptr) {
-    lv_obj_set_style_text_color(
-        keyboard_expansion_label_, color, LV_PART_MAIN);
+    lv_obj_set_style_text_color(keyboard_expansion_label_, color, LV_PART_MAIN);
   }
   if (battery_management_label_ != nullptr) {
     lv_obj_set_style_text_color(
         battery_management_label_, lv_color_hex(text_color_hex_), LV_PART_MAIN);
   }
   if (battery_management_fill_ != nullptr) {
-    UpdateBatteryFill(battery_management_fill_, battery_management_label_, battery_management_percent_,
-        BatteryFillColor(battery_management_percent_, battery_management_charging_, text_color_hex_));
+    UpdateBatteryFill(battery_management_fill_, battery_management_label_,
+        battery_management_percent_,
+        BatteryFillColor(battery_management_percent_,
+            battery_management_charging_, text_color_hex_));
   }
   if (battery_management_bolt_label_ != nullptr) {
-    lv_obj_set_style_text_color(battery_management_bolt_label_, color, LV_PART_MAIN);
+    lv_obj_set_style_text_color(
+        battery_management_bolt_label_, color, LV_PART_MAIN);
   }
   if (battery_management_percent_label_ != nullptr) {
-    lv_obj_set_style_text_color(battery_management_percent_label_, color, LV_PART_MAIN);
+    lv_obj_set_style_text_color(
+        battery_management_percent_label_, color, LV_PART_MAIN);
   }
 }
 

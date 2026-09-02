@@ -2,7 +2,7 @@
  * @Description: 公共提示框控件
  * @Author: LILYGO_L
  * @Date: 2026-07-11 00:00:00
- * @LastEditTime: 2026-07-16 17:35:00
+ * @LastEditTime: 2026-09-02 17:57:09
  * @License: GPL 3.0
  */
 #pragma once
@@ -54,22 +54,18 @@ struct PromptDialogConfig {
   int action_button_gap = 20;
   int action_bottom_padding = 32;
   int bottom_margin = 0;
-  uint32_t dialog_color =
-      theme::ActiveThemeColors().surface_container_lowest;
+  uint32_t dialog_color = theme::ActiveThemeColors().surface_container_lowest;
   uint32_t primary_text_color = theme::ActiveThemeColors().on_surface;
-  uint32_t secondary_text_color =
-      theme::ActiveThemeColors().on_surface_variant;
+  uint32_t secondary_text_color = theme::ActiveThemeColors().on_surface_variant;
   uint32_t divider_color = theme::ActiveThemeColors().outline_variant;
   uint32_t pressed_color = theme::ActiveThemeColors().state_layer;
   uint32_t cancel_background_color =
       theme::ActiveThemeColors().button_secondary;
   uint32_t cancel_pressed_color =
       theme::ActiveThemeColors().button_secondary_pressed;
-  uint32_t cancel_text_color =
-      theme::ActiveThemeColors().on_button_secondary;
+  uint32_t cancel_text_color = theme::ActiveThemeColors().on_button_secondary;
   uint32_t confirm_background_color = theme::FixedColors().action;
-  uint32_t confirm_pressed_color =
-      theme::FixedColors().action_pressed;
+  uint32_t confirm_pressed_color = theme::FixedColors().action_pressed;
   uint32_t confirm_text_color = theme::FixedColors().on_action;
   lv_opa_t overlay_opacity = 115;
   uint32_t animation_ms = 180;

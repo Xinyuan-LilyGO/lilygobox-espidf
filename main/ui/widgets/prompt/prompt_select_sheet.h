@@ -2,7 +2,7 @@
  * @Description: Prompt select sheet widget
  * @Author: LILYGO_L
  * @Date: 2026-06-25 00:00:00
- * @LastEditTime: 2026-06-25 00:00:00
+ * @LastEditTime: 2026-09-02 17:57:12
  * @License: GPL 3.0
  */
 #pragma once
@@ -56,8 +56,7 @@ struct PromptSelectSheetConfig {
   uint32_t sheet_color = theme::ActiveThemeColors().surface_container_lowest;
   uint32_t selected_color = theme::FixedColors().action_container;
   uint32_t primary_text_color = theme::ActiveThemeColors().on_surface;
-  uint32_t secondary_text_color =
-      theme::ActiveThemeColors().on_surface_variant;
+  uint32_t secondary_text_color = theme::ActiveThemeColors().on_surface_variant;
   uint32_t selected_text_color = theme::FixedColors().action;
   uint32_t cancel_background_color =
       theme::ActiveThemeColors().button_secondary;

@@ -2,7 +2,7 @@
  * @Description: 系统设置应用页面创建接口
  * @Author: LILYGO_L
  * @Date: 2026-05-18 09:20:00
- * @LastEditTime: 2026-05-18 09:20:00
+ * @LastEditTime: 2026-09-02 17:54:48
  * @License: GPL 3.0
  */
 #pragma once
@@ -28,8 +28,7 @@ lv_obj_t* CreateSettingsView(lv_obj_t* parent, const app::AppEntry& app_entry,
  * @param settings_view 设置页面根对象
  * @param volume_percent 目标音量百分比
  */
-void UpdateSettingsViewVolume(
-    lv_obj_t* settings_view, int volume_percent);
+void UpdateSettingsViewVolume(lv_obj_t* settings_view, int volume_percent);
 
 /**
  * @brief 根据当前硬件状态刷新设置页面中的键盘扩展控件

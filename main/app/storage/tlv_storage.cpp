@@ -2,7 +2,7 @@
  * @Description: NVS 长期配置 TLV 编解码公共实现
  * @Author: LILYGO_L
  * @Date: 2026-07-22 00:00:00
- * @LastEditTime: 2026-07-22 00:00:00
+ * @LastEditTime: 2026-09-02 17:51:51
  * @License: GPL 3.0
  */
 #include "app/storage/tlv_storage.h"
@@ -22,15 +22,13 @@ constexpr size_t kFieldHeaderSize = 4;
 constexpr size_t kMaximumFieldSize = UINT16_MAX;
 
 uint16_t ReadLittleEndian16(const uint8_t* data) {
-  return static_cast<uint16_t>(data[0]) |
-      static_cast<uint16_t>(data[1]) << 8;
+  return static_cast<uint16_t>(data[0]) | static_cast<uint16_t>(data[1]) << 8;
 }
 
 uint32_t ReadLittleEndian32(const uint8_t* data) {
-  return static_cast<uint32_t>(data[0]) |
-      static_cast<uint32_t>(data[1]) << 8 |
-      static_cast<uint32_t>(data[2]) << 16 |
-      static_cast<uint32_t>(data[3]) << 24;
+  return static_cast<uint32_t>(data[0]) | static_cast<uint32_t>(data[1]) << 8 |
+         static_cast<uint32_t>(data[2]) << 16 |
+         static_cast<uint32_t>(data[3]) << 24;
 }
 
 void WriteLittleEndian16(uint8_t* output, uint16_t value) {
@@ -122,8 +120,7 @@ bool TlvField::CopyString(char* output, size_t capacity) const {
   return true;
 }
 
-TlvWriter::TlvWriter(
-    TlvDomain domain, uint8_t* output, size_t output_capacity)
+TlvWriter::TlvWriter(TlvDomain domain, uint8_t* output, size_t output_capacity)
     : output_(output), capacity_(output_capacity) {
   if (output_ == nullptr || capacity_ < kContainerHeaderSize) {
     return;
@@ -177,12 +174,10 @@ bool TlvWriter::WriteString(
   if (length == value_capacity) {
     return false;
   }
-  return WriteField(
-      tag, reinterpret_cast<const uint8_t*>(value), length);
+  return WriteField(tag, reinterpret_cast<const uint8_t*>(value), length);
 }
 
-bool TlvWriter::WriteBytes(
-    uint16_t tag, const uint8_t* value, size_t size) {
+bool TlvWriter::WriteBytes(uint16_t tag, const uint8_t* value, size_t size) {
   return WriteField(tag, value, size);
 }
 
@@ -194,8 +189,7 @@ bool TlvWriter::Finalize(size_t* encoded_size) {
   if (payload_size > UINT32_MAX) {
     return false;
   }
-  WriteLittleEndian32(
-      output_ + 8, static_cast<uint32_t>(payload_size));
+  WriteLittleEndian32(output_ + 8, static_cast<uint32_t>(payload_size));
   WriteLittleEndian32(output_ + 12,
       CalculateCrc32(output_ + kContainerHeaderSize, payload_size));
   finalized_ = true;
@@ -203,22 +197,19 @@ bool TlvWriter::Finalize(size_t* encoded_size) {
   return true;
 }
 
-bool TlvWriter::WriteField(
-    uint16_t tag, const uint8_t* value, size_t size) {
+bool TlvWriter::WriteField(uint16_t tag, const uint8_t* value, size_t size) {
   if (!valid_ || finalized_ || tag == 0 || size > kMaximumFieldSize ||
       (value == nullptr && size > 0) || cursor_ > capacity_) {
     valid_ = false;
     return false;
   }
   const size_t remaining = capacity_ - cursor_;
-  if (remaining < kFieldHeaderSize ||
-      size > remaining - kFieldHeaderSize) {
+  if (remaining < kFieldHeaderSize || size > remaining - kFieldHeaderSize) {
     valid_ = false;
     return false;
   }
   WriteLittleEndian16(output_ + cursor_, tag);
-  WriteLittleEndian16(
-      output_ + cursor_ + 2, static_cast<uint16_t>(size));
+  WriteLittleEndian16(output_ + cursor_ + 2, static_cast<uint16_t>(size));
   cursor_ += kFieldHeaderSize;
   if (size > 0) {
     std::memcpy(output_ + cursor_, value, size);
@@ -233,8 +224,7 @@ TlvReader::TlvReader(
   if (data_ == nullptr || size_ < kContainerHeaderSize ||
       ReadLittleEndian32(data_) != kContainerMagic ||
       ReadLittleEndian16(data_ + 4) != kContainerFormatVersion ||
-      ReadLittleEndian16(data_ + 6) !=
-          static_cast<uint16_t>(expected_domain)) {
+      ReadLittleEndian16(data_ + 6) != static_cast<uint16_t>(expected_domain)) {
     return;
   }
   const uint32_t payload_size = ReadLittleEndian32(data_ + 8);
@@ -242,8 +232,8 @@ TlvReader::TlvReader(
     return;
   }
   const uint32_t stored_crc = ReadLittleEndian32(data_ + 12);
-  const uint32_t calculated_crc = CalculateCrc32(
-      data_ + kContainerHeaderSize, payload_size);
+  const uint32_t calculated_crc =
+      CalculateCrc32(data_ + kContainerHeaderSize, payload_size);
   if (stored_crc != calculated_crc) {
     return;
   }

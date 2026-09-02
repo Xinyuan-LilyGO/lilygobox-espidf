@@ -2,7 +2,7 @@
  * @Description: 音乐源文件夹偏好存储接口
  * @Author: LILYGO_L
  * @Date: 2026-07-14 23:25:00
- * @LastEditTime: 2026-07-16 22:38:14
+ * @LastEditTime: 2026-09-02 17:51:34
  * @License: GPL 3.0
  */
 #pragma once
@@ -36,7 +36,6 @@ bool GetMusicSourcePreferences(MusicSourcePreferences* preferences);
  * @param preferences 音乐源配置
  * @return 无变化或 NVS 提交成功返回 true，否则返回 false
  */
-bool UpdateMusicSourcePreferences(
-    const MusicSourcePreferences& preferences);
+bool UpdateMusicSourcePreferences(const MusicSourcePreferences& preferences);
 
 }  // namespace lilygo_box::app

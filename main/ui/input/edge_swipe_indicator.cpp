@@ -2,7 +2,7 @@
  * @Description: 全局边缘滑动指示器实现
  * @Author: LILYGO_L
  * @Date: 2026-05-12 22:15:00
- * @LastEditTime: 2026-08-26 00:12:25
+ * @LastEditTime: 2026-09-02 17:54:21
  * @License: GPL 3.0
  */
 #include "ui/input/edge_swipe_indicator.h"
@@ -111,16 +111,13 @@ void SetIndicatorOpacity(void* object, int32_t value) {
     return;
   }
 
-  g_indicator_opacity = static_cast<lv_opa_t>(
-      ClampInt(static_cast<int>(value), 0, LV_OPA_COVER));
+  g_indicator_opacity =
+      static_cast<lv_opa_t>(ClampInt(static_cast<int>(value), 0, LV_OPA_COVER));
   auto* indicator = static_cast<lv_obj_t*>(object);
-  lv_obj_set_style_opa(
-      indicator, g_indicator_opacity, LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(
-      indicator, g_indicator_opacity, LV_PART_MAIN);
+  lv_obj_set_style_opa(indicator, g_indicator_opacity, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(indicator, g_indicator_opacity, LV_PART_MAIN);
   if (g_icon != nullptr) {
-    lv_obj_set_style_text_opa(
-        g_icon, g_indicator_opacity, LV_PART_MAIN);
+    lv_obj_set_style_text_opa(g_icon, g_indicator_opacity, LV_PART_MAIN);
   }
 }
 
@@ -129,8 +126,7 @@ void SetIndicatorOpacity(void* object, int32_t value) {
  * @param animation LVGL 动画对象
  */
 void IndicatorFadeCompletedCallback(lv_anim_t* animation) {
-  auto* indicator =
-      static_cast<lv_obj_t*>(lv_anim_get_user_data(animation));
+  auto* indicator = static_cast<lv_obj_t*>(lv_anim_get_user_data(animation));
   if (indicator != nullptr) {
     lv_obj_add_flag(indicator, LV_OBJ_FLAG_HIDDEN);
   }
@@ -143,8 +139,8 @@ void IndicatorFadeCompletedCallback(lv_anim_t* animation) {
 bool EnsureIndicator() {
   const theme::FixedUiColors& colors = theme::FixedColors();
   if (g_indicator != nullptr && g_icon != nullptr) {
-    lv_obj_set_style_bg_color(g_indicator,
-        lv_color_hex(colors.edge_swipe_indicator), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(
+        g_indicator, lv_color_hex(colors.edge_swipe_indicator), LV_PART_MAIN);
     lv_obj_set_style_text_color(
         g_icon, lv_color_hex(colors.on_edge_swipe_indicator), LV_PART_MAIN);
     return true;
@@ -164,14 +160,12 @@ bool EnsureIndicator() {
   lv_obj_add_flag(g_indicator, LV_OBJ_FLAG_IGNORE_LAYOUT);
   lv_obj_add_flag(g_indicator, LV_OBJ_FLAG_FLOATING);
   lv_obj_add_flag(g_indicator, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_set_style_bg_color(g_indicator,
-      lv_color_hex(colors.edge_swipe_indicator),
-      LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      g_indicator, lv_color_hex(colors.edge_swipe_indicator), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(g_indicator, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(g_indicator, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(g_indicator, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(
-      g_indicator, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_radius(g_indicator, LV_RADIUS_CIRCLE, LV_PART_MAIN);
   lv_obj_set_style_opa(g_indicator, LV_OPA_TRANSP, LV_PART_MAIN);
 
   g_icon = lv_label_create(g_indicator);
@@ -182,8 +176,8 @@ bool EnsureIndicator() {
   }
   lv_obj_remove_flag(g_icon, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(g_icon, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_style_text_color(g_icon,
-      lv_color_hex(colors.on_edge_swipe_indicator), LV_PART_MAIN);
+  lv_obj_set_style_text_color(
+      g_icon, lv_color_hex(colors.on_edge_swipe_indicator), LV_PART_MAIN);
   lv_obj_set_style_text_font(
       g_icon, &lvgl_font_material_symbols_fill_32, LV_PART_MAIN);
   lv_obj_set_style_text_align(g_icon, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
@@ -213,13 +207,11 @@ void HideIndicator(bool animated) {
   lv_anim_init(&animation);
   lv_anim_set_var(&animation, g_indicator);
   lv_anim_set_user_data(&animation, g_indicator);
-  lv_anim_set_values(
-      &animation, g_indicator_opacity, LV_OPA_TRANSP);
+  lv_anim_set_values(&animation, g_indicator_opacity, LV_OPA_TRANSP);
   lv_anim_set_duration(&animation, kIndicatorFadeDurationMs);
   lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
   lv_anim_set_exec_cb(&animation, SetIndicatorOpacity);
-  lv_anim_set_completed_cb(
-      &animation, IndicatorFadeCompletedCallback);
+  lv_anim_set_completed_cb(&animation, IndicatorFadeCompletedCallback);
   if (lv_anim_start(&animation) == nullptr) {
     SetIndicatorOpacity(g_indicator, LV_OPA_TRANSP);
     lv_obj_add_flag(g_indicator, LV_OBJ_FLAG_HIDDEN);
@@ -243,8 +235,7 @@ void ExecuteBackCallback(void* /*user_data*/) {
  * @param confirm_distance 确认返回所需距离
  */
 void UpdateBackCommitState(
-    EdgeSwipeIndicatorState* state, int inward_distance,
-    int confirm_distance) {
+    EdgeSwipeIndicatorState* state, int inward_distance, int confirm_distance) {
   if (state == nullptr) {
     return;
   }
@@ -264,19 +255,19 @@ void UpdateBackCommitState(
  * @param point 当前触摸坐标
  * @param reveal_distance 返回圆完全展开所需距离
  */
-void UpdateIndicator(const EdgeSwipeIndicatorState& state,
-    int screen_width, lv_point_t point, int reveal_distance) {
+void UpdateIndicator(const EdgeSwipeIndicatorState& state, int screen_width,
+    lv_point_t point, int reveal_distance) {
   if (!EnsureIndicator() || screen_width <= 0 || reveal_distance <= 0) {
     return;
   }
 
   lv_anim_delete(g_indicator, SetIndicatorOpacity);
-  const int distance = ClampInt(
-      InwardDistance(state, point), 0, reveal_distance);
+  const int distance =
+      ClampInt(InwardDistance(state, point), 0, reveal_distance);
   const int progress = distance * 1000 / reveal_distance;
-  const int diameter = kIndicatorMinimumDiameter +
-      (kIndicatorMaximumDiameter - kIndicatorMinimumDiameter) *
-          progress / 1000;
+  const int diameter =
+      kIndicatorMinimumDiameter +
+      (kIndicatorMaximumDiameter - kIndicatorMinimumDiameter) * progress / 1000;
   const int visible_width =
       diameter * progress / 1000 / kIndicatorVisibleDivisor;
   const int opacity =
@@ -286,17 +277,13 @@ void UpdateIndicator(const EdgeSwipeIndicatorState& state,
   if (layer_height <= 0) {
     layer_height = lv_obj_get_height(lv_screen_active());
   }
-  const int maximum_y = layer_height > diameter
-      ? layer_height - diameter
-      : 0;
-  const int y = ClampInt(
-      state.start_point.y - diameter / 2, 0, maximum_y);
-  const int x = state.from_left_edge
-      ? -(diameter - visible_width)
-      : screen_width - visible_width;
+  const int maximum_y = layer_height > diameter ? layer_height - diameter : 0;
+  const int y = ClampInt(state.start_point.y - diameter / 2, 0, maximum_y);
+  const int x = state.from_left_edge ? -(diameter - visible_width)
+                                     : screen_width - visible_width;
   const int icon_offset = state.from_left_edge
-      ? (diameter - visible_width) / 2
-      : -(diameter - visible_width) / 2;
+                              ? (diameter - visible_width) / 2
+                              : -(diameter - visible_width) / 2;
 
   lv_obj_remove_flag(g_indicator, LV_OBJ_FLAG_HIDDEN);
   lv_obj_move_to_index(g_indicator, -1);
@@ -375,11 +362,9 @@ void ObservePassthroughPointerInput(lv_indev_state_t input_state,
     g_state.active = true;
   }
 
-  UpdateBackCommitState(
-      &g_state, inward_distance, kPassthroughConfirmDistance);
+  UpdateBackCommitState(&g_state, inward_distance, kPassthroughConfirmDistance);
   if (inward_distance >= 0) {
-    UpdateIndicator(g_state, screen_width, point,
-        kPassthroughConfirmDistance);
+    UpdateIndicator(g_state, screen_width, point, kPassthroughConfirmDistance);
   } else {
     HideIndicator(false);
   }
@@ -392,11 +377,10 @@ void ObservePassthroughPointerInput(lv_indev_state_t input_state,
  * @param hardware_edge_hint 硬件是否提供了有效的边缘触摸提示
  * @return 本次输入被边缘返回手势占用时返回 true，否则返回 false
  */
-bool InterceptPointerInput(lv_indev_state_t input_state, lv_point_t point,
-    bool hardware_edge_hint) {
+bool InterceptPointerInput(
+    lv_indev_state_t input_state, lv_point_t point, bool hardware_edge_hint) {
   if (g_passthrough_mode && input_state != LV_INDEV_STATE_PRESSED) {
-    ObservePassthroughPointerInput(
-        input_state, point, hardware_edge_hint, 0);
+    ObservePassthroughPointerInput(input_state, point, hardware_edge_hint, 0);
     return false;
   }
 
@@ -432,21 +416,19 @@ bool InterceptPointerInput(lv_indev_state_t input_state, lv_point_t point,
     g_state.pointer_pressed = true;
     g_state.start_point = point;
     const int activation_width = hardware_edge_hint
-        ? kHardwareHintActivationWidth
-        : kActivationEdgeWidth;
+                                     ? kHardwareHintActivationWidth
+                                     : kActivationEdgeWidth;
     g_state.from_left_edge = point.x < activation_width;
     g_state.from_right_edge = point.x >= screen_width - activation_width;
     g_state.tracking = g_state.from_left_edge || g_state.from_right_edge;
     g_state.active = g_state.tracking;
     if (g_state.tracking) {
       if (hardware_edge_hint) {
-        g_state.start_point.x =
-            g_state.from_left_edge ? 0 : screen_width - 1;
+        g_state.start_point.x = g_state.from_left_edge ? 0 : screen_width - 1;
       }
-      UpdateBackCommitState(&g_state,
-          InwardDistance(g_state, point), kDefaultConfirmDistance);
-      UpdateIndicator(
-          g_state, screen_width, point, kDefaultConfirmDistance);
+      UpdateBackCommitState(
+          &g_state, InwardDistance(g_state, point), kDefaultConfirmDistance);
+      UpdateIndicator(g_state, screen_width, point, kDefaultConfirmDistance);
     }
     return g_state.tracking;
   }
@@ -456,11 +438,9 @@ bool InterceptPointerInput(lv_indev_state_t input_state, lv_point_t point,
   }
 
   const int inward_distance = InwardDistance(g_state, point);
-  UpdateBackCommitState(
-      &g_state, inward_distance, kDefaultConfirmDistance);
+  UpdateBackCommitState(&g_state, inward_distance, kDefaultConfirmDistance);
   if (inward_distance >= 0) {
-    UpdateIndicator(
-        g_state, screen_width, point, kDefaultConfirmDistance);
+    UpdateIndicator(g_state, screen_width, point, kDefaultConfirmDistance);
   } else {
     HideIndicator(false);
   }
@@ -474,8 +454,8 @@ bool InterceptPointerInput(lv_indev_state_t input_state, lv_point_t point,
  * @param lvgl_port LVGL 输入端口
  * @param back_callback 没有分层返回目标时执行的后备回调
  */
-void InitializeEdgeSwipeIndicator(hal::LvglPort* lvgl_port,
-    EdgeSwipeBackCallback back_callback) {
+void InitializeEdgeSwipeIndicator(
+    hal::LvglPort* lvgl_port, EdgeSwipeBackCallback back_callback) {
   g_back_callback = std::move(back_callback);
   if (g_lvgl_port == lvgl_port) {
     return;

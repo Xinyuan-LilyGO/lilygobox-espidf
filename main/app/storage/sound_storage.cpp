@@ -30,8 +30,7 @@ enum class SoundField : uint16_t {
   kVolumePercent = 1,
 };
 
-SoundPreferences NormalizeSoundPreferences(
-    const SoundPreferences& source) {
+SoundPreferences NormalizeSoundPreferences(const SoundPreferences& source) {
   SoundPreferences result;
   result.volume_percent = std::clamp(source.volume_percent, 0, 100);
   return result;
@@ -42,8 +41,8 @@ bool AreSoundPreferencesEqual(
   return left.volume_percent == right.volume_percent;
 }
 
-bool DecodeSoundPreferences(const storage::TlvBuffer& buffer,
-    SoundPreferences* preferences) {
+bool DecodeSoundPreferences(
+    const storage::TlvBuffer& buffer, SoundPreferences* preferences) {
   if (preferences == nullptr) {
     return false;
   }
@@ -60,8 +59,7 @@ bool DecodeSoundPreferences(const storage::TlvBuffer& buffer,
     if (result == storage::TlvReadResult::kInvalid) {
       return false;
     }
-    if (static_cast<SoundField>(field.tag()) ==
-        SoundField::kVolumePercent) {
+    if (static_cast<SoundField>(field.tag()) == SoundField::kVolumePercent) {
       uint8_t value = 0;
       if (!field.ReadUint8(&value)) {
         return false;
@@ -73,14 +71,11 @@ bool DecodeSoundPreferences(const storage::TlvBuffer& buffer,
 
 bool EncodeSoundPreferences(const SoundPreferences& preferences,
     uint8_t* output, size_t capacity, size_t* encoded_size) {
-  const SoundPreferences normalized =
-      NormalizeSoundPreferences(preferences);
-  storage::TlvWriter writer(
-      storage::TlvDomain::kSound, output, capacity);
-  return writer.WriteUint8(
-             static_cast<uint16_t>(SoundField::kVolumePercent),
+  const SoundPreferences normalized = NormalizeSoundPreferences(preferences);
+  storage::TlvWriter writer(storage::TlvDomain::kSound, output, capacity);
+  return writer.WriteUint8(static_cast<uint16_t>(SoundField::kVolumePercent),
              static_cast<uint8_t>(normalized.volume_percent)) &&
-      writer.Finalize(encoded_size);
+         writer.Finalize(encoded_size);
 }
 
 NvsStorageCache<SoundPreferences> g_sound_cache(
@@ -91,13 +86,12 @@ NvsStorageCache<SoundPreferences> g_sound_cache(
 void InitSoundCache() {
   SoundPreferences loaded;
   nvs_handle_t handle = 0;
-  if (OpenApplicationNvs(
-          kSoundNvsNamespace, NVS_READONLY, &handle) == ESP_OK) {
+  if (OpenApplicationNvs(kSoundNvsNamespace, NVS_READONLY, &handle) == ESP_OK) {
     storage::TlvBuffer buffer;
     esp_err_t error = ESP_OK;
-    const storage::TlvLoadResult result = storage::LoadTlvBuffer(handle,
-        kSoundNvsKey, storage::TlvDomain::kSound,
-        kSoundTlvCapacity, &buffer, &error);
+    const storage::TlvLoadResult result =
+        storage::LoadTlvBuffer(handle, kSoundNvsKey, storage::TlvDomain::kSound,
+            kSoundTlvCapacity, &buffer, &error);
     if (result == storage::TlvLoadResult::kLoaded &&
         !DecodeSoundPreferences(buffer, &loaded)) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
@@ -124,8 +118,7 @@ SoundPreferences GetSoundPreferences() {
 }
 
 bool UpdateSoundPreferences(const SoundPreferences& preferences) {
-  return g_sound_cache.UpdateAndPersist(
-      NormalizeSoundPreferences(preferences));
+  return g_sound_cache.UpdateAndPersist(NormalizeSoundPreferences(preferences));
 }
 
 StorageStageResult StageSoundStorage(nvs_handle_t handle) {
@@ -135,10 +128,10 @@ StorageStageResult StageSoundStorage(nvs_handle_t handle) {
   }
   std::array<uint8_t, kSoundTlvCapacity> buffer = {};
   size_t encoded_size = 0;
-  if (!EncodeSoundPreferences(*preferences, buffer.data(),
-          buffer.size(), &encoded_size) ||
-      nvs_set_blob(handle, kSoundNvsKey,
-          buffer.data(), encoded_size) != ESP_OK) {
+  if (!EncodeSoundPreferences(
+          *preferences, buffer.data(), buffer.size(), &encoded_size) ||
+      nvs_set_blob(handle, kSoundNvsKey, buffer.data(), encoded_size) !=
+          ESP_OK) {
     return StorageStageResult::kFailed;
   }
   return StorageStageResult::kStaged;

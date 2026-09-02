@@ -2,7 +2,7 @@
  * @Description: ST25R3916 NFC 发现与卡片状态公共辅助实现
  * @Author: LILYGO_L
  * @Date: 2026-08-21 00:00:00
- * @LastEditTime: 2026-08-21 00:00:00
+ * @LastEditTime: 2026-09-02 17:52:48
  * @License: GPL 3.0
  */
 #include "hal/device/common/st25r3916_nfc.h"
@@ -39,8 +39,7 @@ NfcRfInterface ToNfcRfInterface(rfalNfcRfInterface rf_interface) {
   }
 }
 
-bool NfcBytesEqualText(
-    const uint8_t* data, size_t length, const char* text) {
+bool NfcBytesEqualText(const uint8_t* data, size_t length, const char* text) {
   return data != nullptr && text != nullptr && std::strlen(text) == length &&
          std::memcmp(data, text, length) == 0;
 }
@@ -59,16 +58,13 @@ void AppendNfcDisplayText(const uint8_t* data, size_t length, char* output,
     const uint8_t value = data[index];
     const bool whitespace = value == '\r' || value == '\n' || value == '\t';
     const bool control_character = value < 0x20 || value == 0x7F;
-    output[(*used)++] = whitespace
-                            ? ' '
-                            : (control_character ? '.'
-                                                 : static_cast<char>(value));
+    output[(*used)++] =
+        whitespace ? ' ' : (control_character ? '.' : static_cast<char>(value));
   }
   output[*used] = '\0';
 }
 
-void AppendNfcContentText(
-    const char* text, NfcStatus* status, size_t* used) {
+void AppendNfcContentText(const char* text, NfcStatus* status, size_t* used) {
   if (text == nullptr || status == nullptr || used == nullptr) {
     return;
   }
@@ -84,8 +80,7 @@ void CopyNfcDisplayText(const uint8_t* data, size_t length, char* output,
   }
   output[0] = '\0';
   size_t used = 0;
-  AppendNfcDisplayText(
-      data, length, output, output_size, &used, truncated);
+  AppendNfcDisplayText(data, length, output, output_size, &used, truncated);
 }
 
 const char* NfcNdefUriPrefix(uint8_t code) {
@@ -244,8 +239,7 @@ void ParseNfcType2Tlvs(
         status->content_truncated = true;
         return;
       }
-      value_length =
-          static_cast<size_t>(data[offset]) << 8U | data[offset + 1];
+      value_length = static_cast<size_t>(data[offset]) << 8U | data[offset + 1];
       offset += 2;
     }
     const size_t available_length =
@@ -299,13 +293,11 @@ void ReadNfcType2Content(NfcStatus* status) {
     result = rfalT2TPollerRead(static_cast<uint8_t>(page), block.data(),
         static_cast<uint16_t>(block.size()), &received_length);
     if (result != RFAL_ERR_NONE || received_length < block.size()) {
-      status->content_error =
-          result == RFAL_ERR_NONE ? RFAL_ERR_PROTO : result;
+      status->content_error = result == RFAL_ERR_NONE ? RFAL_ERR_PROTO : result;
       status->content_truncated = true;
       break;
     }
-    const size_t copy_length =
-        std::min(block.size(), read_limit - bytes_read);
+    const size_t copy_length = std::min(block.size(), read_limit - bytes_read);
     std::memcpy(memory.data() + bytes_read, block.data(), copy_length);
     bytes_read += copy_length;
   }
@@ -344,9 +336,9 @@ void PopulateNfcTagDetails(const rfalNfcDevice& device, NfcStatus* status) {
 
   switch (device.type) {
     case RFAL_NFC_LISTEN_TYPE_NFCA:
-      status->atqa =
-          static_cast<uint16_t>(device.dev.nfca.sensRes.platformInfo) << 8U |
-          device.dev.nfca.sensRes.anticollisionInfo;
+      status->atqa = static_cast<uint16_t>(device.dev.nfca.sensRes.platformInfo)
+                         << 8U |
+                     device.dev.nfca.sensRes.anticollisionInfo;
       status->sak = device.dev.nfca.selRes.sak;
       switch (device.dev.nfca.type) {
         case RFAL_NFCA_T1T:
@@ -369,14 +361,14 @@ void PopulateNfcTagDetails(const rfalNfcDevice& device, NfcStatus* status) {
       break;
     case RFAL_NFC_LISTEN_TYPE_NFCB:
       status->tag_type = rfalNfcbIsIsoDepSupported(&device.dev.nfcb)
-          ? NfcTagType::kType4
-          : NfcTagType::kUnknown;
+                             ? NfcTagType::kType4
+                             : NfcTagType::kUnknown;
       status->afi = device.dev.nfcb.sensbRes.appData.AFI;
       break;
     case RFAL_NFC_LISTEN_TYPE_NFCF:
       status->tag_type = rfalNfcfIsNfcDepSupported(&device.dev.nfcf)
-          ? NfcTagType::kPeerToPeer
-          : NfcTagType::kType3;
+                             ? NfcTagType::kPeerToPeer
+                             : NfcTagType::kType3;
       status->system_code =
           static_cast<uint16_t>(device.dev.nfcf.sensfRes.RD[0]) << 8U |
           device.dev.nfcf.sensfRes.RD[1];

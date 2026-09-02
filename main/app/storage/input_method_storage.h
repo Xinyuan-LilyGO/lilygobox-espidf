@@ -2,7 +2,7 @@
  * @Description: Input method preference storage
  * @Author: LILYGO_L
  * @Date: 2026-08-20 00:00:00
- * @LastEditTime: 2026-08-20 00:00:00
+ * @LastEditTime: 2026-09-02 17:51:29
  * @License: GPL 3.0
  */
 #pragma once
@@ -30,7 +30,6 @@ InputMethodPreferences GetInputMethodPreferences();
  * @param preferences 新的输入法偏好
  * @return 无变化或 NVS 提交成功返回 true，否则返回 false
  */
-bool UpdateInputMethodPreferences(
-    const InputMethodPreferences& preferences);
+bool UpdateInputMethodPreferences(const InputMethodPreferences& preferences);
 
 }  // namespace lilygo_box::app

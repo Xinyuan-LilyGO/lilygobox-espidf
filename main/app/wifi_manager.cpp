@@ -2,7 +2,7 @@
  * @Description: App-level WiFi control helpers
  * @Author: LILYGO_L
  * @Date: 2026-06-25 00:00:00
- * @LastEditTime: 2026-07-22 00:00:00
+ * @LastEditTime: 2026-09-02 17:51:16
  * @License: GPL 3.0
  */
 #include "app/wifi_manager.h"
@@ -49,8 +49,8 @@ struct WifiAutoConnectCandidate {
  */
 bool IsWifiAuthenticationFailure(int reason) {
   return reason == WIFI_REASON_AUTH_FAIL ||
-      reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
-      reason == WIFI_REASON_HANDSHAKE_TIMEOUT;
+         reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
+         reason == WIFI_REASON_HANDSHAKE_TIMEOUT;
 }
 
 /**
@@ -123,8 +123,7 @@ bool WaitForWifiDriverReady(
  * @return 扫描完成、不可用或被暂停
  */
 WifiScanFilterResult WaitForWifiScan(hal::WifiProvider* wifi,
-    const WifiAutoConnectOptions& options,
-    hal::WifiScanStatus* scan_status) {
+    const WifiAutoConnectOptions& options, hal::WifiScanStatus* scan_status) {
   if (wifi == nullptr || scan_status == nullptr ||
       !wifi->ReadWifiScanStatus(scan_status)) {
     return WifiScanFilterResult::kUnavailable;
@@ -134,8 +133,8 @@ WifiScanFilterResult WaitForWifiScan(hal::WifiProvider* wifi,
     return WifiScanFilterResult::kUnavailable;
   }
 
-  const TickType_t deadline = xTaskGetTickCount() +
-      pdMS_TO_TICKS(options.scan_timeout_ms);
+  const TickType_t deadline =
+      xTaskGetTickCount() + pdMS_TO_TICKS(options.scan_timeout_ms);
   while (static_cast<int32_t>(xTaskGetTickCount() - deadline) < 0) {
     if (IsWifiAutoConnectPaused() ||
         ReadWifiStatusOrDefault(wifi).time_test_running) {
@@ -146,9 +145,8 @@ WifiScanFilterResult WaitForWifiScan(hal::WifiProvider* wifi,
     }
     if (scan_status->generation != initial_generation &&
         !scan_status->scan_running) {
-      return scan_status->scan_failed
-          ? WifiScanFilterResult::kUnavailable
-          : WifiScanFilterResult::kCompleted;
+      return scan_status->scan_failed ? WifiScanFilterResult::kUnavailable
+                                      : WifiScanFilterResult::kCompleted;
     }
     vTaskDelay(pdMS_TO_TICKS(options.poll_interval_ms));
   }
@@ -169,20 +167,18 @@ size_t FilterVisibleWifiCandidates(const hal::WifiScanStatus& scan_status,
   }
   size_t visible_count = 0;
   for (size_t candidate_index = 0; candidate_index < candidate_count;
-       ++candidate_index) {
+      ++candidate_index) {
     int strongest_rssi = kWifiUnknownRssi;
     bool visible = false;
     for (size_t scan_index = 0; scan_index < scan_status.network_count;
-         ++scan_index) {
-      const hal::WifiNetworkInfo& scanned =
-          scan_status.networks[scan_index];
-      if (std::strcmp(candidates[candidate_index].network.ssid,
-              scanned.ssid) != 0) {
+        ++scan_index) {
+      const hal::WifiNetworkInfo& scanned = scan_status.networks[scan_index];
+      if (std::strcmp(candidates[candidate_index].network.ssid, scanned.ssid) !=
+          0) {
         continue;
       }
-      strongest_rssi = visible
-          ? std::max(strongest_rssi, scanned.rssi)
-          : scanned.rssi;
+      strongest_rssi =
+          visible ? std::max(strongest_rssi, scanned.rssi) : scanned.rssi;
       visible = true;
     }
     if (!visible) {
@@ -218,8 +214,8 @@ size_t FilterVisibleWifiCandidates(const hal::WifiScanStatus& scan_status,
  */
 WifiConnectionWaitResult WaitForWifiConnection(hal::WifiProvider* wifi,
     const WifiAutoConnectOptions& options, hal::WifiStatus* final_status) {
-  const TickType_t deadline = xTaskGetTickCount() +
-      pdMS_TO_TICKS(options.connection_timeout_ms);
+  const TickType_t deadline =
+      xTaskGetTickCount() + pdMS_TO_TICKS(options.connection_timeout_ms);
   while (static_cast<int32_t>(xTaskGetTickCount() - deadline) < 0) {
     if (IsWifiAutoConnectPaused()) {
       return WifiConnectionWaitResult::kPaused;
@@ -237,8 +233,8 @@ WifiConnectionWaitResult WaitForWifiConnection(hal::WifiProvider* wifi,
     if (!status.connect_task_running &&
         (status.start_failed || status.disconnect_reason != 0)) {
       return IsWifiAuthenticationFailure(status.disconnect_reason)
-          ? WifiConnectionWaitResult::kAuthenticationFailure
-          : WifiConnectionWaitResult::kTransientFailure;
+                 ? WifiConnectionWaitResult::kAuthenticationFailure
+                 : WifiConnectionWaitResult::kTransientFailure;
     }
     vTaskDelay(pdMS_TO_TICKS(options.poll_interval_ms));
   }
@@ -251,18 +247,18 @@ WifiConnectionWaitResult WaitForWifiConnection(hal::WifiProvider* wifi,
  * @param options 自动连接控制选项
  * @return 等待完成返回 true，期间被暂停返回 false
  */
-bool WaitForWifiRetry(hal::WifiProvider* wifi,
-    const WifiAutoConnectOptions& options) {
+bool WaitForWifiRetry(
+    hal::WifiProvider* wifi, const WifiAutoConnectOptions& options) {
   uint32_t elapsed_ms = 0;
-  const uint32_t poll_interval_ms = std::max<uint32_t>(
-      1, options.poll_interval_ms);
+  const uint32_t poll_interval_ms =
+      std::max<uint32_t>(1, options.poll_interval_ms);
   while (elapsed_ms < options.retry_interval_ms) {
     if (IsWifiAutoConnectPaused() ||
         ReadWifiStatusOrDefault(wifi).time_test_running) {
       return false;
     }
-    const uint32_t delay_ms = std::min(
-        poll_interval_ms, options.retry_interval_ms - elapsed_ms);
+    const uint32_t delay_ms =
+        std::min(poll_interval_ms, options.retry_interval_ms - elapsed_ms);
     vTaskDelay(pdMS_TO_TICKS(delay_ms));
     elapsed_ms += delay_ms;
   }
@@ -278,8 +274,8 @@ bool WaitForWifiRetry(hal::WifiProvider* wifi,
  * @param status 最后一次 WiFi 状态
  */
 void LogWifiAutoConnectFailure(const WifiSavedNetwork& network,
-    uint32_t attempt, uint32_t attempt_limit,
-    WifiConnectionWaitResult result, const hal::WifiStatus& status) {
+    uint32_t attempt, uint32_t attempt_limit, WifiConnectionWaitResult result,
+    const hal::WifiStatus& status) {
   LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
       "WiFi auto-connect failed: ssid=%s, attempt=%lu/%lu, "
       "result=%s, reason=%d, error=%d\n",
@@ -295,9 +291,7 @@ void SetWifiAutoConnectPaused(bool paused) {
   g_wifi_auto_connect_paused.store(paused);
 }
 
-bool IsWifiAutoConnectPaused() {
-  return g_wifi_auto_connect_paused.load();
-}
+bool IsWifiAutoConnectPaused() { return g_wifi_auto_connect_paused.load(); }
 
 WifiAutoConnectResult TryStartWifiAutoConnect(
     hal::WifiProvider* wifi, const WifiAutoConnectOptions& options) {
@@ -331,8 +325,8 @@ WifiAutoConnectResult TryStartWifiAutoConnect(
     }
     if (!WaitForWifiDriverReady(wifi, options)) {
       return IsWifiAutoConnectPaused()
-          ? WifiAutoConnectResult::kPaused
-          : WifiAutoConnectResult::kWaitingForDriver;
+                 ? WifiAutoConnectResult::kPaused
+                 : WifiAutoConnectResult::kWaitingForDriver;
     }
     status = ReadWifiStatusOrDefault(wifi);
   }
@@ -345,8 +339,8 @@ WifiAutoConnectResult TryStartWifiAutoConnect(
 
   WifiSavedNetwork saved_networks[kWifiSavedNetworkCapacity] = {};
   size_t saved_network_count = 0;
-  if (!GetWifiSavedNetworks(saved_networks, kWifiSavedNetworkCapacity,
-          &saved_network_count)) {
+  if (!GetWifiSavedNetworks(
+          saved_networks, kWifiSavedNetworkCapacity, &saved_network_count)) {
     return WifiAutoConnectResult::kFailed;
   }
 
@@ -371,8 +365,8 @@ WifiAutoConnectResult TryStartWifiAutoConnect(
     return WifiAutoConnectResult::kPaused;
   }
   if (scan_result == WifiScanFilterResult::kCompleted) {
-    candidate_count = FilterVisibleWifiCandidates(
-        scan_status, candidates, candidate_count);
+    candidate_count =
+        FilterVisibleWifiCandidates(scan_status, candidates, candidate_count);
     if (candidate_count == 0) {
       return WifiAutoConnectResult::kNoVisibleTarget;
     }
@@ -393,16 +387,14 @@ WifiAutoConnectResult TryStartWifiAutoConnect(
       WifiConnectionWaitResult wait_result =
           WifiConnectionWaitResult::kTransientFailure;
       if (wifi->ConnectWifi(network.ssid, network.password)) {
-        wait_result = WaitForWifiConnection(
-            wifi, options, &final_status);
+        wait_result = WaitForWifiConnection(wifi, options, &final_status);
       } else {
         final_status = ReadWifiStatusOrDefault(wifi);
         if (final_status.got_ip) {
           return WifiAutoConnectResult::kConnected;
         }
         if (final_status.connect_task_running) {
-          wait_result = WaitForWifiConnection(
-              wifi, options, &final_status);
+          wait_result = WaitForWifiConnection(wifi, options, &final_status);
         }
       }
 
@@ -416,8 +408,7 @@ WifiAutoConnectResult TryStartWifiAutoConnect(
 
       LogWifiAutoConnectFailure(
           network, attempt, attempt_limit, wait_result, final_status);
-      if (wait_result ==
-              WifiConnectionWaitResult::kAuthenticationFailure ||
+      if (wait_result == WifiConnectionWaitResult::kAuthenticationFailure ||
           attempt == attempt_limit) {
         break;
       }

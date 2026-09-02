@@ -2,7 +2,7 @@
  * @Description: 屏幕显示、背光与触摸输入抽象接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-15 18:00:00
+ * @LastEditTime: 2026-09-02 17:52:38
  * @License: GPL 3.0
  */
 #pragma once
@@ -130,9 +130,7 @@ class ScreenProvider {
    * @brief 判断熄屏手势是否需要连续读取触摸状态
    * @return 需要连续读取以完成软件手势识别时返回 true
    */
-  virtual bool RequiresContinuousSleepingTouchPolling() const {
-    return false;
-  }
+  virtual bool RequiresContinuousSleepingTouchPolling() const { return false; }
 
   /**
    * @brief 刷新熄屏触摸唤醒配置
@@ -169,7 +167,6 @@ class ScreenProvider {
    * @return 恢复成功返回 true，否则返回 false
    */
   virtual bool ExitDeviceSleep(bool deep_sleep = false) = 0;
-
 };
 
 }  // namespace lilygo_box::hal

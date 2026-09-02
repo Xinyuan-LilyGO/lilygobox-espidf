@@ -2,7 +2,7 @@
  * @Description: MP3 文件元数据与音频流参数读取实现
  * @Author: LILYGO_L
  * @Date: 2026-07-14 22:45:00
- * @LastEditTime: 2026-07-15 10:40:33
+ * @LastEditTime: 2026-09-02 17:52:05
  * @License: GPL 3.0
  */
 #include "audio/mp3_metadata.h"
@@ -127,11 +127,11 @@ size_t ReadId3v2(FILE* file, Mp3Metadata* metadata) {
     }
     const bool is_title = std::memcmp(frame_header.data(), "TIT2", 4) == 0;
     const bool is_artist = std::memcmp(frame_header.data(), "TPE1", 4) == 0;
-    std::string* output = is_title
-                              ? &metadata->title
-                              : (is_artist ? &metadata->artist : nullptr);
+    std::string* output =
+        is_title ? &metadata->title : (is_artist ? &metadata->artist : nullptr);
     if (output == nullptr || !ReadTextFrame(file, frame_size, output)) {
-      if (fseek(file, static_cast<long>(position + frame_size), SEEK_SET) != 0) {
+      if (fseek(file, static_cast<long>(position + frame_size), SEEK_SET) !=
+          0) {
         break;
       }
     }
@@ -203,8 +203,8 @@ bool ParseFrameHeader(const uint8_t* header, FrameInfo* info) {
   const uint8_t bitrate_index = (header[2] >> 4) & 0x0FU;
   const uint8_t sample_rate_index = (header[2] >> 2) & 0x03U;
   const uint8_t padding = (header[2] >> 1) & 0x01U;
-  if (version == 1 || layer != 1 || bitrate_index == 0 ||
-      bitrate_index == 15 || sample_rate_index == 3) {
+  if (version == 1 || layer != 1 || bitrate_index == 0 || bitrate_index == 15 ||
+      sample_rate_index == 3) {
     return false;
   }
 
@@ -215,17 +215,44 @@ bool ParseFrameHeader(const uint8_t* header, FrameInfo* info) {
       {44100, 48000, 32000},
   };
   constexpr uint16_t kMpeg2Bitrates[16] = {
-      0, 8, 16, 24, 32, 40, 48, 56,
-      64, 80, 96, 112, 128, 144, 160, 0,
+      0,
+      8,
+      16,
+      24,
+      32,
+      40,
+      48,
+      56,
+      64,
+      80,
+      96,
+      112,
+      128,
+      144,
+      160,
+      0,
   };
   constexpr uint16_t kMpeg1Bitrates[16] = {
-      0, 32, 40, 48, 56, 64, 80, 96,
-      112, 128, 160, 192, 224, 256, 320, 0,
+      0,
+      32,
+      40,
+      48,
+      56,
+      64,
+      80,
+      96,
+      112,
+      128,
+      160,
+      192,
+      224,
+      256,
+      320,
+      0,
   };
   info->sample_rate_hz = kSampleRates[version][sample_rate_index];
-  info->bitrate_kbps = version == 3
-                           ? kMpeg1Bitrates[bitrate_index]
-                           : kMpeg2Bitrates[bitrate_index];
+  info->bitrate_kbps = version == 3 ? kMpeg1Bitrates[bitrate_index]
+                                    : kMpeg2Bitrates[bitrate_index];
   info->channel_count = ((header[3] >> 6) & 0x03U) == 3 ? 1 : 2;
   info->samples_per_frame = version == 3 ? 1152 : 576;
   const uint32_t frame_size_coefficient = version == 3 ? 144000 : 72000;
@@ -244,18 +271,16 @@ bool ParseFrameHeader(const uint8_t* header, FrameInfo* info) {
  * @param info 首个有效音频帧参数
  * @return 总时长，单位为毫秒；参数无效时返回 0
  */
-uint32_t CalculateFrameDurationMs(
-    uint32_t frame_count, const FrameInfo& info) {
+uint32_t CalculateFrameDurationMs(uint32_t frame_count, const FrameInfo& info) {
   if (frame_count == 0 || info.samples_per_frame == 0 ||
       info.sample_rate_hz == 0) {
     return 0;
   }
-  const uint64_t duration_ms =
-      static_cast<uint64_t>(frame_count) * info.samples_per_frame * 1000ULL /
-      info.sample_rate_hz;
-  return static_cast<uint32_t>(std::min<uint64_t>(
-      duration_ms,
-      std::numeric_limits<uint32_t>::max()));
+  const uint64_t duration_ms = static_cast<uint64_t>(frame_count) *
+                               info.samples_per_frame * 1000ULL /
+                               info.sample_rate_hz;
+  return static_cast<uint32_t>(
+      std::min<uint64_t>(duration_ms, std::numeric_limits<uint32_t>::max()));
 }
 
 /**
@@ -281,9 +306,8 @@ uint32_t ReadVbrDurationMs(
       std::min<size_t>(info.frame_size_bytes, kVbrHeaderSearchSize);
   const size_t bytes_read = fread(frame.get(), 1, bytes_to_read, file);
   for (size_t position = 0; position + 4 <= bytes_read; ++position) {
-    const bool has_xing =
-        std::memcmp(frame.get() + position, "Xing", 4) == 0 ||
-        std::memcmp(frame.get() + position, "Info", 4) == 0;
+    const bool has_xing = std::memcmp(frame.get() + position, "Xing", 4) == 0 ||
+                          std::memcmp(frame.get() + position, "Info", 4) == 0;
     if (has_xing && position + 12 <= bytes_read) {
       const uint32_t flags = DecodeBigEndian(frame.get() + position + 4);
       if ((flags & 0x00000001U) != 0) {
@@ -308,8 +332,8 @@ uint32_t ReadVbrDurationMs(
  * @param info 帧参数输出地址
  * @return 找到有效帧返回 true，否则返回 false
  */
-bool FindFirstFrame(FILE* file, size_t start_offset, size_t* frame_offset,
-    FrameInfo* info) {
+bool FindFirstFrame(
+    FILE* file, size_t start_offset, size_t* frame_offset, FrameInfo* info) {
   if (fseek(file, static_cast<long>(start_offset), SEEK_SET) != 0) {
     return false;
   }
@@ -368,13 +392,12 @@ bool ReadMp3Metadata(const char* path, Mp3Metadata* metadata) {
   metadata->channel_count = frame_info.channel_count;
   metadata->duration_ms = ReadVbrDurationMs(file, frame_offset, frame_info);
   if (metadata->duration_ms == 0) {
-    const uint64_t audio_end = static_cast<uint64_t>(file_size) -
-                               (has_id3v1 ? kId3v1TagSize : 0);
-    const uint64_t audio_bytes = audio_end > frame_offset
-                                     ? audio_end - frame_offset
-                                     : 0;
-    metadata->duration_ms = static_cast<uint32_t>(
-        audio_bytes * 8ULL / frame_info.bitrate_kbps);
+    const uint64_t audio_end =
+        static_cast<uint64_t>(file_size) - (has_id3v1 ? kId3v1TagSize : 0);
+    const uint64_t audio_bytes =
+        audio_end > frame_offset ? audio_end - frame_offset : 0;
+    metadata->duration_ms =
+        static_cast<uint32_t>(audio_bytes * 8ULL / frame_info.bitrate_kbps);
   }
   fclose(file);
   return true;

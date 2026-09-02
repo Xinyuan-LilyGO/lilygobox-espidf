@@ -2,7 +2,7 @@
  * @Description: 启动器、状态栏、应用窗口与系统覆盖层管理接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-30 18:00:00
+ * @LastEditTime: 2026-09-02 17:54:14
  * @License: GPL 3.0
  */
 #pragma once
@@ -77,25 +77,19 @@ class UiManager final {
    * @param cellular 蜂窝接口
    * @return 成功返回 true
    */
-  bool Init(hal::ScreenProvider* screen,
-      hal::LvglPort* lvgl_port,
+  bool Init(hal::ScreenProvider* screen, hal::LvglPort* lvgl_port,
       const hal::DeviceCapabilities& device_capabilities,
       hal::DeviceDiagnosticsProvider* diagnostics,
-      hal::DeviceInfoProvider* device_info,
-      hal::GpsProvider* gps,
-      hal::AudioProvider* audio,
-      hal::HapticProvider* haptic,
+      hal::DeviceInfoProvider* device_info, hal::GpsProvider* gps,
+      hal::AudioProvider* audio, hal::HapticProvider* haptic,
       hal::BatteryManagementProvider* battery_management,
-      hal::CameraProvider* camera,
-      hal::RtcProvider* rtc,
+      hal::CameraProvider* camera, hal::RtcProvider* rtc,
       hal::RadioProvider* radio,
-      hal::KeyboardExpansionProvider* keyboard_expansion,
-      hal::ImuProvider* imu,
-      hal::EthernetProvider* ethernet,
-      hal::WifiProvider* wifi,
+      hal::KeyboardExpansionProvider* keyboard_expansion, hal::ImuProvider* imu,
+      hal::EthernetProvider* ethernet, hal::WifiProvider* wifi,
       hal::StorageProvider* storage, hal::OtgProvider* otg,
-      hal::NfcProvider* nfc,
-      hal::InfraredProvider* infrared, hal::CellularProvider* cellular);
+      hal::NfcProvider* nfc, hal::InfraredProvider* infrared,
+      hal::CellularProvider* cellular);
 
   /**
    * @brief 设置系统重启和关机操作回调
@@ -136,8 +130,8 @@ class UiManager final {
    * @param callback 音量变化回调，第二个参数表示是否保存最终值
    * @return 浮层创建并开始显示时返回 true
    */
-  bool ShowVolumeOverlay(int volume_percent,
-      VolumeOverlay::VolumeChangeCallback callback);
+  bool ShowVolumeOverlay(
+      int volume_percent, VolumeOverlay::VolumeChangeCallback callback);
 
   /**
    * @brief 启动系统启动界面动画
@@ -184,8 +178,7 @@ class UiManager final {
    * @param completion_callback 关闭页面前更新 RAM 完成标志的回调
    * @return 页面已经显示或进入待显示状态返回 true，否则返回 false
    */
-  bool ShowFirstBootWelcome(
-      std::function<bool()> completion_callback);
+  bool ShowFirstBootWelcome(std::function<bool()> completion_callback);
 
   /**
    * @brief 判断首次开机欢迎页是否正在等待显示或已经显示

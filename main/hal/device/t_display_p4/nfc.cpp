@@ -2,11 +2,9 @@
  * @Description: T-Display-P4 键盘扩展 ST25R3916 NFC Provider 实现
  * @Author: LILYGO_L
  * @Date: 2026-08-21 00:00:00
- * @LastEditTime: 2026-08-21 00:00:00
+ * @LastEditTime: 2026-09-02 17:53:08
  * @License: GPL 3.0
  */
-#include "hal/device/t_display_p4/device.h"
-
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -16,6 +14,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal/device/common/st25r3916_nfc.h"
+#include "hal/device/t_display_p4/device.h"
 
 extern "C" {
 #include "rfal_nfc.h"
@@ -52,8 +51,7 @@ bool TDisplayP4Device::SetNfcPollingEnabled(bool enabled) {
       keyboard_expansion_.state.load() != KeyboardExpansionState::kReady ||
       keyboard_expansion_.st25r3916.load() !=
           KeyboardExpansionComponentState::kReady ||
-      !driver_.IsSt25r3916Ready() ||
-      driver_.chip().st25r3916 == nullptr) {
+      !driver_.IsSt25r3916Ready() || driver_.chip().st25r3916 == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Start keyboard expansion NFC polling failed: hardware is "
         "unavailable\n");
@@ -70,9 +68,9 @@ bool TDisplayP4Device::SetNfcPollingEnabled(bool enabled) {
 
   nfc_.stop_requested.store(false);
   nfc_.task_active.store(true);
-  const BaseType_t task_result = xTaskCreate(NfcPollingTaskEntry,
-      "keyboard_nfc", kNfcPollingTaskStackBytes, this,
-      kNfcPollingTaskPriority, nullptr);
+  const BaseType_t task_result =
+      xTaskCreate(NfcPollingTaskEntry, "keyboard_nfc",
+          kNfcPollingTaskStackBytes, this, kNfcPollingTaskPriority, nullptr);
   if (task_result != pdPASS) {
     nfc_.task_active.store(false);
     if (xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
@@ -103,8 +101,7 @@ bool TDisplayP4Device::ReadNfcStatus(NfcStatus* status) {
       keyboard_expansion_.st25r3916.load() ==
           KeyboardExpansionComponentState::kReady &&
       driver_.IsSt25r3916Ready();
-  status->polling =
-      nfc_.task_active.load() && !nfc_.stop_requested.load();
+  status->polling = nfc_.task_active.load() && !nfc_.stop_requested.load();
   xSemaphoreGive(nfc_.mutex);
   return true;
 }
@@ -130,8 +127,7 @@ void TDisplayP4Device::RunNfcPollingTask() {
       nfc_driver != nullptr &&
       keyboard_expansion_.state.load() == KeyboardExpansionState::kReady &&
       driver_.IsSt25r3916Ready() &&
-      driver_.SetSt25r3916OperatingMode(
-          lilygo_device_driver::TDisplayP4Driver::
+      driver_.SetSt25r3916OperatingMode(lilygo_device_driver::TDisplayP4Driver::
               St25r3916OperatingMode::kActive);
   if (!activated) {
     if (xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
@@ -154,8 +150,7 @@ void TDisplayP4Device::RunNfcPollingTask() {
       xSemaphoreGive(nfc_.mutex);
     }
     driver_.SetSt25r3916OperatingMode(
-        lilygo_device_driver::TDisplayP4Driver::
-            St25r3916OperatingMode::kSleep);
+        lilygo_device_driver::TDisplayP4Driver::St25r3916OperatingMode::kSleep);
     nfc_.task_active.store(false);
     return;
   }
@@ -166,8 +161,7 @@ void TDisplayP4Device::RunNfcPollingTask() {
   std::array<uint8_t, kNfcIdentifierCapacity> last_identifier = {};
   size_t last_identifier_length = 0;
   while (!nfc_.stop_requested.load() &&
-         keyboard_expansion_.state.load() ==
-             KeyboardExpansionState::kReady) {
+         keyboard_expansion_.state.load() == KeyboardExpansionState::kReady) {
     nfc_driver->NfcWorker();
     const auto platform_error = nfc_driver->platform_error();
     if (platform_error !=
@@ -192,10 +186,11 @@ void TDisplayP4Device::RunNfcPollingTask() {
           xSemaphoreGive(nfc_.mutex);
         }
       } else {
-        const size_t identifier_length = active_device->nfcid == nullptr
-            ? 0
-            : std::min<size_t>(
-                  active_device->nfcidLen, kNfcIdentifierCapacity);
+        const size_t identifier_length =
+            active_device->nfcid == nullptr
+                ? 0
+                : std::min<size_t>(
+                      active_device->nfcidLen, kNfcIdentifierCapacity);
         const NfcTechnology technology =
             st25r3916_nfc::ToNfcTechnology(active_device->type);
         const bool same_card =
@@ -224,8 +219,7 @@ void TDisplayP4Device::RunNfcPollingTask() {
             nfc_.status.card_present = true;
             nfc_.status.last_error = 0;
           } else {
-            detected_status.detection_count =
-                nfc_.status.detection_count + 1;
+            detected_status.detection_count = nfc_.status.detection_count + 1;
             nfc_.status = detected_status;
           }
           xSemaphoreGive(nfc_.mutex);
@@ -250,8 +244,7 @@ void TDisplayP4Device::RunNfcPollingTask() {
           nfc_.status.last_error = static_cast<int>(result);
           xSemaphoreGive(nfc_.mutex);
         }
-        vTaskDelay(
-            pdMS_TO_TICKS(st25r3916_nfc::kDiscoveryRestartDelayMs));
+        vTaskDelay(pdMS_TO_TICKS(st25r3916_nfc::kDiscoveryRestartDelayMs));
       }
     } else if (card_present && rfalNfcIsInDiscovery(nfc_state) &&
                xTaskGetTickCount() - last_card_tick >=
@@ -277,8 +270,7 @@ void TDisplayP4Device::RunNfcPollingTask() {
       vTaskDelay(pdMS_TO_TICKS(1));
     }
     driver_.SetSt25r3916OperatingMode(
-        lilygo_device_driver::TDisplayP4Driver::
-            St25r3916OperatingMode::kSleep);
+        lilygo_device_driver::TDisplayP4Driver::St25r3916OperatingMode::kSleep);
   }
 
   if (xSemaphoreTake(nfc_.mutex, pdMS_TO_TICKS(20)) == pdTRUE) {

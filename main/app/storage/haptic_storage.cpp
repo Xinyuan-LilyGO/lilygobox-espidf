@@ -31,23 +31,21 @@ enum class HapticField : uint16_t {
   kStrengthPercent = 2,
 };
 
-HapticPreferences NormalizeHapticPreferences(
-    const HapticPreferences& source) {
+HapticPreferences NormalizeHapticPreferences(const HapticPreferences& source) {
   HapticPreferences result;
   result.enabled = source.enabled;
-  result.strength_percent =
-      std::clamp(source.strength_percent, 0, 100);
+  result.strength_percent = std::clamp(source.strength_percent, 0, 100);
   return result;
 }
 
 bool AreHapticPreferencesEqual(
     const HapticPreferences& left, const HapticPreferences& right) {
   return left.enabled == right.enabled &&
-      left.strength_percent == right.strength_percent;
+         left.strength_percent == right.strength_percent;
 }
 
-bool DecodeHapticPreferences(const storage::TlvBuffer& buffer,
-    HapticPreferences* preferences) {
+bool DecodeHapticPreferences(
+    const storage::TlvBuffer& buffer, HapticPreferences* preferences) {
   if (preferences == nullptr) {
     return false;
   }
@@ -86,17 +84,13 @@ bool DecodeHapticPreferences(const storage::TlvBuffer& buffer,
 
 bool EncodeHapticPreferences(const HapticPreferences& preferences,
     uint8_t* output, size_t capacity, size_t* encoded_size) {
-  const HapticPreferences normalized =
-      NormalizeHapticPreferences(preferences);
-  storage::TlvWriter writer(
-      storage::TlvDomain::kHaptic, output, capacity);
-  return writer.WriteBool(
-             static_cast<uint16_t>(HapticField::kEnabled),
+  const HapticPreferences normalized = NormalizeHapticPreferences(preferences);
+  storage::TlvWriter writer(storage::TlvDomain::kHaptic, output, capacity);
+  return writer.WriteBool(static_cast<uint16_t>(HapticField::kEnabled),
              normalized.enabled) &&
-      writer.WriteUint8(
-          static_cast<uint16_t>(HapticField::kStrengthPercent),
-          static_cast<uint8_t>(normalized.strength_percent)) &&
-      writer.Finalize(encoded_size);
+         writer.WriteUint8(static_cast<uint16_t>(HapticField::kStrengthPercent),
+             static_cast<uint8_t>(normalized.strength_percent)) &&
+         writer.Finalize(encoded_size);
 }
 
 NvsStorageCache<HapticPreferences> g_haptic_cache(
@@ -107,13 +101,13 @@ NvsStorageCache<HapticPreferences> g_haptic_cache(
 void InitHapticCache() {
   HapticPreferences loaded;
   nvs_handle_t handle = 0;
-  if (OpenApplicationNvs(
-          kHapticNvsNamespace, NVS_READONLY, &handle) == ESP_OK) {
+  if (OpenApplicationNvs(kHapticNvsNamespace, NVS_READONLY, &handle) ==
+      ESP_OK) {
     storage::TlvBuffer buffer;
     esp_err_t error = ESP_OK;
-    const storage::TlvLoadResult result = storage::LoadTlvBuffer(handle,
-        kHapticNvsKey, storage::TlvDomain::kHaptic,
-        kHapticTlvCapacity, &buffer, &error);
+    const storage::TlvLoadResult result =
+        storage::LoadTlvBuffer(handle, kHapticNvsKey,
+            storage::TlvDomain::kHaptic, kHapticTlvCapacity, &buffer, &error);
     if (result == storage::TlvLoadResult::kLoaded &&
         !DecodeHapticPreferences(buffer, &loaded)) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
@@ -127,8 +121,7 @@ void InitHapticCache() {
     }
     nvs_close(handle);
   }
-  if (!g_haptic_cache.Initialize(
-          NormalizeHapticPreferences(loaded))) {
+  if (!g_haptic_cache.Initialize(NormalizeHapticPreferences(loaded))) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize haptic storage cache failed\n");
   }
@@ -152,10 +145,10 @@ StorageStageResult StageHapticStorage(nvs_handle_t handle) {
   }
   std::array<uint8_t, kHapticTlvCapacity> buffer = {};
   size_t encoded_size = 0;
-  if (!EncodeHapticPreferences(*preferences, buffer.data(),
-          buffer.size(), &encoded_size) ||
-      nvs_set_blob(handle, kHapticNvsKey,
-          buffer.data(), encoded_size) != ESP_OK) {
+  if (!EncodeHapticPreferences(
+          *preferences, buffer.data(), buffer.size(), &encoded_size) ||
+      nvs_set_blob(handle, kHapticNvsKey, buffer.data(), encoded_size) !=
+          ESP_OK) {
     return StorageStageResult::kFailed;
   }
   return StorageStageResult::kStaged;

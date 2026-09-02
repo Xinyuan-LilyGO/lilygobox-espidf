@@ -2,18 +2,16 @@
  * @Description: T-Display-P4-Air 摄像头预览硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-08-28 00:00:00
+ * @LastEditTime: 2026-09-02 17:53:22
  * @License: GPL 3.0
  */
-#include "hal/device/t_display_p4_air/device.h"
-
-#include <cerrno>
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
 #include <algorithm>
+#include <cerrno>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -30,6 +28,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal/device/common/camera_utils.h"
+#include "hal/device/t_display_p4_air/device.h"
 #include "linux/videodev2.h"
 
 namespace lilygo_box::hal {
@@ -42,8 +41,7 @@ constexpr UBaseType_t kCameraPreviewTaskPriority =
     camera_utils::kPreviewTaskPriority;
 constexpr uint32_t kCameraBufferCount = camera_utils::kBufferCount;
 constexpr uint32_t kCameraFrameIntervalMs = camera_utils::kFrameIntervalMs;
-constexpr uint32_t kCameraStopWaitTimeoutMs =
-    camera_utils::kStopWaitTimeoutMs;
+constexpr uint32_t kCameraStopWaitTimeoutMs = camera_utils::kStopWaitTimeoutMs;
 constexpr uint32_t kCameraSensorReadyPollIntervalMs =
     camera_utils::kSensorReadyPollIntervalMs;
 constexpr uint32_t kCameraStartupTimeoutMs = camera_utils::kStartupTimeoutMs;
@@ -91,8 +89,7 @@ bool TDisplayP4AirDevice::StartCameraPreview() {
   if (result != pdPASS) {
     camera_preview_.error.store(CameraError::kPreviewTaskCreateFailed);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Create camera preview task failed: %ld\n",
-        static_cast<long>(result));
+        "Create camera preview task failed: %ld\n", static_cast<long>(result));
     camera_preview_.task_active.store(false);
     camera_preview_.stop_requested.store(true);
     DeinitializeCameraPreview();
@@ -218,8 +215,7 @@ void TDisplayP4AirDevice::RunCameraPreviewTask() {
   vTaskDelete(nullptr);
 }
 
-bool TDisplayP4AirDevice::WaitForCameraSensorReady(
-    TickType_t startup_tick) {
+bool TDisplayP4AirDevice::WaitForCameraSensorReady(TickType_t startup_tick) {
   const auto& i2c_bus = driver_.bus().sgm38121_i2c_bus;
   if (i2c_bus == nullptr || i2c_bus->bus_handle() == nullptr) {
     camera_preview_.error.store(CameraError::kSensorNotDetected);
@@ -236,17 +232,19 @@ bool TDisplayP4AirDevice::WaitForCameraSensorReady(
 
     ++attempt;
     const TickType_t probe_tick = xTaskGetTickCount();
-    const uint32_t remaining_ms = camera_utils::StartupRemainingMs(startup_tick);
+    const uint32_t remaining_ms =
+        camera_utils::StartupRemainingMs(startup_tick);
     const uint32_t probe_timeout_ms =
         std::min(kCameraSensorReadyPollIntervalMs, remaining_ms);
-    const esp_err_t result = i2c_master_probe(i2c_bus->bus_handle(),
-        kCameraSensorI2cAddress, probe_timeout_ms);
+    const esp_err_t result = i2c_master_probe(
+        i2c_bus->bus_handle(), kCameraSensorI2cAddress, probe_timeout_ms);
     if (result == ESP_OK) {
       LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
           "Camera sensor ready (address: %#X, attempts: %lu, elapsed: %lu "
           "ms)\n",
           kCameraSensorI2cAddress, static_cast<unsigned long>(attempt),
-          static_cast<unsigned long>(camera_utils::StartupElapsedMs(startup_tick)));
+          static_cast<unsigned long>(
+              camera_utils::StartupElapsedMs(startup_tick)));
       return true;
     }
     if (result != ESP_ERR_NOT_FOUND && result != ESP_ERR_TIMEOUT) {
@@ -265,8 +263,8 @@ bool TDisplayP4AirDevice::WaitForCameraSensorReady(
         probe_elapsed_ms < kCameraSensorReadyPollIntervalMs
             ? kCameraSensorReadyPollIntervalMs - probe_elapsed_ms
             : 0;
-    const uint32_t delay_ms = std::min(
-        poll_delay_ms, camera_utils::StartupRemainingMs(startup_tick));
+    const uint32_t delay_ms =
+        std::min(poll_delay_ms, camera_utils::StartupRemainingMs(startup_tick));
     if (delay_ms > 0) {
       vTaskDelay(pdMS_TO_TICKS(delay_ms));
     }
@@ -308,7 +306,8 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
         LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
             "Camera startup recovered (attempts: %lu, elapsed: %lu ms)\n",
             static_cast<unsigned long>(attempt),
-            static_cast<unsigned long>(camera_utils::StartupElapsedMs(startup_tick)));
+            static_cast<unsigned long>(
+                camera_utils::StartupElapsedMs(startup_tick)));
       }
       return true;
     }
@@ -333,11 +332,12 @@ bool TDisplayP4AirDevice::InitializeCameraPreview() {
         "error: %s, reason: %s, elapsed: %lu ms)\n",
         static_cast<unsigned long>(attempt), diagnostic_error.code,
         diagnostic_error.text,
-        static_cast<unsigned long>(camera_utils::StartupElapsedMs(startup_tick)));
+        static_cast<unsigned long>(
+            camera_utils::StartupElapsedMs(startup_tick)));
     DeinitializeCameraPreview();
 
-    const uint32_t delay_ms = std::min(
-        kCameraPowerCycleOffDelayMs, camera_utils::StartupRemainingMs(startup_tick));
+    const uint32_t delay_ms = std::min(kCameraPowerCycleOffDelayMs,
+        camera_utils::StartupRemainingMs(startup_tick));
     if (delay_ms > 0) {
       vTaskDelay(pdMS_TO_TICKS(delay_ms));
     }
@@ -426,8 +426,7 @@ TDisplayP4AirDevice::InitializeCameraPreviewAttempt(TickType_t startup_tick) {
       camera_preview_.error.store(CameraError::kVideoInitFailed);
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "esp_video_deinit_with_flags failed: %s (%#X)\n",
-          esp_err_to_name(deinit_result),
-          static_cast<unsigned>(deinit_result));
+          esp_err_to_name(deinit_result), static_cast<unsigned>(deinit_result));
       return CameraStartupAttemptResult::kStop;
     }
     return camera_utils::IsRetryableIoError(open_error)
@@ -452,8 +451,8 @@ TDisplayP4AirDevice::InitializeCameraPreviewAttempt(TickType_t startup_tick) {
                  ? CameraStartupAttemptResult::kPowerCycle
                  : CameraStartupAttemptResult::kStop;
     }
-    if (ioctl(camera_preview_.video_fd, VIDIOC_S_SENSOR_FMT,
-            &sensor_format) != 0) {
+    if (ioctl(camera_preview_.video_fd, VIDIOC_S_SENSOR_FMT, &sensor_format) !=
+        0) {
       const int ioctl_error = errno;
       camera_preview_.error.store(CameraError::kSensorRestoreFailed);
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
@@ -505,8 +504,8 @@ TDisplayP4AirDevice::InitializeCameraPreviewAttempt(TickType_t startup_tick) {
   request.memory = V4L2_MEMORY_MMAP;
   if (ioctl(camera_preview_.video_fd, VIDIOC_REQBUFS, &request) != 0) {
     camera_preview_.error.store(CameraError::kBufferAllocationFailed);
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "VIDIOC_REQBUFS failed\n");
+    LogMessage(
+        LogLevel::kWarning, __FILE__, __LINE__, "VIDIOC_REQBUFS failed\n");
     return CameraStartupAttemptResult::kStop;
   }
   if (request.count < kCameraBufferCount) {
@@ -550,8 +549,7 @@ TDisplayP4AirDevice::InitializeCameraPreviewAttempt(TickType_t startup_tick) {
   if (camera_preview_.output_mutex == nullptr) {
     camera_preview_.output_mutex = xSemaphoreCreateMutex();
     if (camera_preview_.output_mutex == nullptr) {
-      camera_preview_.error.store(
-          CameraError::kOutputBufferAllocationFailed);
+      camera_preview_.error.store(CameraError::kOutputBufferAllocationFailed);
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Camera output mutex allocation failed\n");
       return CameraStartupAttemptResult::kStop;
@@ -564,8 +562,9 @@ TDisplayP4AirDevice::InitializeCameraPreviewAttempt(TickType_t startup_tick) {
     return CameraStartupAttemptResult::kStop;
   }
   const size_t bytes_per_pixel = ScreenBitsPerPixel() / 8;
-  camera_preview_.output_rotation_angle = camera_utils::NormalizePreviewRotationAngle(
-      app::GetDisplayPreferences().screen_rotation_angle);
+  camera_preview_.output_rotation_angle =
+      camera_utils::NormalizePreviewRotationAngle(
+          app::GetDisplayPreferences().screen_rotation_angle);
   const bool output_rotated = camera_preview_.output_rotation_angle == 90 ||
                               camera_preview_.output_rotation_angle == 270;
   const uint32_t output_screen_width =
@@ -587,8 +586,7 @@ TDisplayP4AirDevice::InitializeCameraPreviewAttempt(TickType_t startup_tick) {
       heap_caps_aligned_calloc(camera_preview_.ppa.CacheLineSize(), 1,
           camera_preview_.output_buffer_size, MALLOC_CAP_SPIRAM);
   if (output_buffer == nullptr) {
-    camera_preview_.error.store(
-        CameraError::kOutputBufferAllocationFailed);
+    camera_preview_.error.store(CameraError::kOutputBufferAllocationFailed);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Camera output buffer allocation failed\n");
     return CameraStartupAttemptResult::kStop;
@@ -726,7 +724,8 @@ bool TDisplayP4AirDevice::RenderCameraFrame(
       .color_mode = output_color_mode,
   };
   PpaSrmTransformConfig transform = {
-      .rotation_angle = camera_utils::ToPreviewPpaRotation(output_rotation_angle),
+      .rotation_angle =
+          camera_utils::ToPreviewPpaRotation(output_rotation_angle),
       .scale_x = scale,
       .scale_y = scale,
       .mirror_y = driver_.screen_type() == device::ScreenType::kHi8561,

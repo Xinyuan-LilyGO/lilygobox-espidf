@@ -2,11 +2,9 @@
  * @Description: T-Display-P4-Air 电源与 OTG 硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-08-28 00:00:00
+ * @LastEditTime: 2026-09-02 17:53:38
  * @License: GPL 3.0
  */
-#include "hal/device/t_display_p4_air/device.h"
-
 #include <cstdint>
 
 #include "base/logger.h"
@@ -17,6 +15,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "hal/device/t_display_p4_air/device.h"
 
 namespace lilygo_box::hal {
 namespace gpio = lilygo_device_driver::t_display_p4_air::gpio;
@@ -94,9 +93,8 @@ void TDisplayP4AirDevice::WaitForPowerButtonRelease() {
   }
 
   bool pressed = false;
-  for (uint32_t waited_ms = 0;
-       waited_ms < kPowerOffButtonReleaseTimeoutMs;
-       waited_ms += kPowerOffButtonPollMs) {
+  for (uint32_t waited_ms = 0; waited_ms < kPowerOffButtonReleaseTimeoutMs;
+      waited_ms += kPowerOffButtonPollMs) {
     if (!ReadPowerButtonPressed(&pressed) || !pressed) {
       return;
     }
@@ -112,8 +110,7 @@ bool TDisplayP4AirDevice::ConfigurePowerOffWakeSources() {
   if (disable_result != ESP_OK) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Disable previous sleep wake sources failed: %s (%#X)\n",
-        esp_err_to_name(disable_result),
-        static_cast<unsigned>(disable_result));
+        esp_err_to_name(disable_result), static_cast<unsigned>(disable_result));
     return false;
   }
 
@@ -223,12 +220,10 @@ PowerOffBootAction TDisplayP4AirDevice::ResolvePowerOffBoot(
   cpp_bus_driver::Axp517::IrqStatus1 irq_status1;
   cpp_bus_driver::Axp517::IrqStatus2 irq_status2;
   cpp_bus_driver::Axp517::IrqStatus3 irq_status3;
-  const bool irq_ready = axp517.GetIrqStatus(
-      irq_status0, irq_status1, irq_status2, irq_status3);
-  const bool axp_long_press =
-      irq_ready && irq_status1.pwr_on_long_press_flag;
-  const bool axp_short_press =
-      irq_ready && irq_status1.pwr_on_short_press_flag;
+  const bool irq_ready =
+      axp517.GetIrqStatus(irq_status0, irq_status1, irq_status2, irq_status3);
+  const bool axp_long_press = irq_ready && irq_status1.pwr_on_long_press_flag;
+  const bool axp_short_press = irq_ready && irq_status1.pwr_on_short_press_flag;
   const bool vbus_inserted = irq_ready && irq_status1.vbus_insert_flag;
   if (!axp517.ClearAllIrq()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
@@ -244,7 +239,7 @@ PowerOffBootAction TDisplayP4AirDevice::ResolvePowerOffBoot(
       (esp_sleep_get_gpio_wakeup_status() & power_button_mask) != 0;
   const esp_reset_reason_t reset_reason = esp_reset_reason();
   const bool usb_power_on = !power_off_requested && external_power_present &&
-      reset_reason == ESP_RST_POWERON && vbus_inserted;
+                            reset_reason == ESP_RST_POWERON && vbus_inserted;
 
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
       "Resolve Air power-off boot: requested=%d, reset=%d, wakeup=%d, "
@@ -340,8 +335,7 @@ PowerOffAction TDisplayP4AirDevice::RequestPowerOffInternal(
 
   cpp_bus_driver::Axp517::ChipStatus0 pre_hardware_shutdown_status0;
   if (axp517.GetChipStatus0(pre_hardware_shutdown_status0)) {
-    external_power_present =
-        pre_hardware_shutdown_status0.vbus_good_indication;
+    external_power_present = pre_hardware_shutdown_status0.vbus_good_indication;
   } else {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Re-read AXP517 VBUS status before hardware shutdown failed; "
@@ -487,8 +481,7 @@ bool TDisplayP4AirDevice::SetOtgPowerOutputEnabledLocked(bool enabled) {
   }
 
   if (enabled) {
-    if (!axp517->SetBoostEnable(true) ||
-        !axp517->SetForceRbfetEnable(true)) {
+    if (!axp517->SetBoostEnable(true) || !axp517->SetForceRbfetEnable(true)) {
       axp517->SetForceRbfetEnable(false);
       axp517->SetBoostEnable(false);
       otg_.power_output_enabled = false;
@@ -521,8 +514,7 @@ bool TDisplayP4AirDevice::ReadExternalPowerPresentLocked(bool* present) {
     return false;
   }
   *present = connection_status.sink_power_attached ||
-             (!otg_.power_output_enabled &&
-                 chip_status.vbus_good_indication);
+             (!otg_.power_output_enabled && chip_status.vbus_good_indication);
   return true;
 }
 

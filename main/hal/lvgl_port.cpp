@@ -2,7 +2,7 @@
  * @Description: LVGL 显示刷新、触摸读取与任务循环实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-08-24 09:50:51
+ * @LastEditTime: 2026-09-02 17:52:27
  * @License: GPL 3.0
  */
 #include "hal/lvgl_port.h"
@@ -11,13 +11,13 @@
 #include <utility>
 
 #include "base/logger.h"
+#include "draw/lv_draw_buf.h"
+#include "draw/sw/lv_draw_sw_utils.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "draw/lv_draw_buf.h"
-#include "draw/sw/lv_draw_sw_utils.h"
 
 namespace lilygo_box::hal {
 namespace {
@@ -32,8 +32,8 @@ constexpr int64_t kHardwareEdgeHintLifetimeMs = 200;
  * @param screen_height 屏幕高度。
  * @return 触摸点坐标有效返回 true，否则返回 false。
  */
-bool IsValidTouchPoint(const TouchPoint& point, int screen_width,
-    int screen_height) {
+bool IsValidTouchPoint(
+    const TouchPoint& point, int screen_width, int screen_height) {
   return point.x >= 0 && point.x < screen_width && point.y >= 0 &&
          point.y < screen_height;
 }
@@ -130,8 +130,7 @@ bool LvglPort::Init(
   lv_indev_set_user_data(input_device_, this);
   lv_indev_set_read_cb(input_device_, TouchReadCallback);
   lv_indev_set_display(input_device_, lvgl_display_);
-  lv_indev_set_long_press_repeat_time(
-      input_device_, kKeyboardRepeatIntervalMs);
+  lv_indev_set_long_press_repeat_time(input_device_, kKeyboardRepeatIntervalMs);
 
   if (keyboard_ != nullptr) {
     keyboard_group_ = lv_group_create();
@@ -179,17 +178,16 @@ bool LvglPort::Init(
   result = esp_timer_start_periodic(tick_timer, kLvglTickPeriodMs * 1000);
   if (result != ESP_OK) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "esp_timer_start_periodic failed: %s (%#X)\n",
-        esp_err_to_name(result), static_cast<unsigned>(result));
+        "esp_timer_start_periodic failed: %s (%#X)\n", esp_err_to_name(result),
+        static_cast<unsigned>(result));
     return false;
   }
   return true;
 }
 
 bool LvglPort::Start() {
-  const BaseType_t result = xTaskCreate(
-      TaskEntry, "lvgl", kLvglTaskStackBytes, this, kLvglTaskPriority,
-      &task_handle_);
+  const BaseType_t result = xTaskCreate(TaskEntry, "lvgl", kLvglTaskStackBytes,
+      this, kLvglTaskPriority, &task_handle_);
   return result == pdPASS;
 }
 
@@ -202,8 +200,7 @@ void LvglPort::SetKeyboardInputEventCallback(
  * @brief 设置 LVGL 控件处理前的已旋转指针输入拦截器
  * @param interceptor 指针输入拦截器，空回调表示停止拦截
  */
-void LvglPort::SetPointerInputInterceptor(
-    PointerInputInterceptor interceptor) {
+void LvglPort::SetPointerInputInterceptor(PointerInputInterceptor interceptor) {
   pointer_input_interceptor_ = std::move(interceptor);
 }
 
@@ -213,14 +210,13 @@ bool LvglPort::ConsumeKeyboardInputActivity() {
 
 bool LvglPort::IsKeyboardInputAllowedWhileBlocked() const {
   return input_blocked_.load(std::memory_order_acquire) &&
-      keyboard_input_allowed_while_blocked_.load(
-          std::memory_order_acquire) &&
-      sleep_input_block_count_.load(std::memory_order_acquire) == 0;
+         keyboard_input_allowed_while_blocked_.load(
+             std::memory_order_acquire) &&
+         sleep_input_block_count_.load(std::memory_order_acquire) == 0;
 }
 
 void LvglPort::SetInputBlocked(bool blocked, bool allow_keyboard_input) {
-  keyboard_input_allowed_while_blocked_.store(
-      blocked && allow_keyboard_input);
+  keyboard_input_allowed_while_blocked_.store(blocked && allow_keyboard_input);
   input_blocked_.store(blocked);
   active_edge_touch_flag_ = false;
   pending_edge_touch_flag_ = false;
@@ -340,8 +336,8 @@ void LvglPort::AcquireSleepInputBlock() {
 void LvglPort::ReleaseSleepInputBlock() {
   uint32_t count = sleep_input_block_count_.load(std::memory_order_acquire);
   while (count > 0 &&
-      !sleep_input_block_count_.compare_exchange_weak(count, count - 1,
-          std::memory_order_acq_rel, std::memory_order_acquire)) {
+         !sleep_input_block_count_.compare_exchange_weak(count, count - 1,
+             std::memory_order_acq_rel, std::memory_order_acquire)) {
   }
 }
 
@@ -363,8 +359,7 @@ void LvglPort::EndScreenTransition() {
 
 bool LvglPort::PauseDisplayFlush() {
   display_flush_pause_count_.fetch_add(1, std::memory_order_seq_cst);
-  const TickType_t poll_ticks =
-      std::max<TickType_t>(1, pdMS_TO_TICKS(1));
+  const TickType_t poll_ticks = std::max<TickType_t>(1, pdMS_TO_TICKS(1));
   const TickType_t timeout_ticks =
       std::max<TickType_t>(1, pdMS_TO_TICKS(kFlushPauseTimeoutMs));
   const TickType_t start_ticks = xTaskGetTickCount();
@@ -383,9 +378,7 @@ bool LvglPort::PauseDisplayFlush() {
   return false;
 }
 
-void LvglPort::ResumeDisplayFlush() {
-  ResumeDisplayFlushInternal();
-}
+void LvglPort::ResumeDisplayFlush() { ResumeDisplayFlushInternal(); }
 
 bool LvglPort::ResumeDisplayFlushAndWaitForRefresh() {
   const uint32_t generation = ResumeDisplayFlushInternal();
@@ -393,20 +386,19 @@ bool LvglPort::ResumeDisplayFlushAndWaitForRefresh() {
     return false;
   }
 
-  const TickType_t poll_ticks =
-      std::max<TickType_t>(1, pdMS_TO_TICKS(1));
+  const TickType_t poll_ticks = std::max<TickType_t>(1, pdMS_TO_TICKS(1));
   const TickType_t timeout_ticks =
       std::max<TickType_t>(1, pdMS_TO_TICKS(kDisplayRefreshTimeoutMs));
   const TickType_t start_ticks = xTaskGetTickCount();
   while (xTaskGetTickCount() - start_ticks < timeout_ticks) {
-    if (display_refresh_completed_generation_.load(
-            std::memory_order_acquire) == generation) {
+    if (display_refresh_completed_generation_.load(std::memory_order_acquire) ==
+        generation) {
       return true;
     }
     vTaskDelay(poll_ticks);
   }
-  if (display_refresh_completed_generation_.load(
-          std::memory_order_acquire) == generation) {
+  if (display_refresh_completed_generation_.load(std::memory_order_acquire) ==
+      generation) {
     return true;
   }
   LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
@@ -415,15 +407,15 @@ bool LvglPort::ResumeDisplayFlushAndWaitForRefresh() {
 }
 
 uint32_t LvglPort::ResumeDisplayFlushInternal() {
-  uint32_t count =
-      display_flush_pause_count_.load(std::memory_order_seq_cst);
+  uint32_t count = display_flush_pause_count_.load(std::memory_order_seq_cst);
   while (count > 0) {
     if (display_flush_pause_count_.compare_exchange_weak(count, count - 1,
             std::memory_order_seq_cst, std::memory_order_seq_cst)) {
       if (count == 1) {
         const uint32_t generation =
             display_refresh_request_generation_.fetch_add(
-                1, std::memory_order_acq_rel) + 1;
+                1, std::memory_order_acq_rel) +
+            1;
         display_refresh_rendering_generation_.store(
             0, std::memory_order_release);
         display_refresh_scanout_pending_.store(
@@ -454,10 +446,18 @@ void LvglPort::SetDisplayRotation(int angle) {
 
   lv_display_rotation_t rotation = LV_DISPLAY_ROTATION_0;
   switch (angle) {
-    case 90:  rotation = LV_DISPLAY_ROTATION_90;  break;
-    case 180: rotation = LV_DISPLAY_ROTATION_180; break;
-    case 270: rotation = LV_DISPLAY_ROTATION_270; break;
-    default:  rotation = LV_DISPLAY_ROTATION_0;   break;
+    case 90:
+      rotation = LV_DISPLAY_ROTATION_90;
+      break;
+    case 180:
+      rotation = LV_DISPLAY_ROTATION_180;
+      break;
+    case 270:
+      rotation = LV_DISPLAY_ROTATION_270;
+      break;
+    default:
+      rotation = LV_DISPLAY_ROTATION_0;
+      break;
   }
   // 回调在 LVGL 线程，无需额外加锁
   lv_display_set_rotation(lvgl_display_, rotation);
@@ -474,19 +474,16 @@ void LvglPort::FlushCallback(
     lv_display_flush_ready(lvgl_display);
     return;
   }
-  if (self->display_flush_pause_count_.load(
-          std::memory_order_seq_cst) > 0) {
+  if (self->display_flush_pause_count_.load(std::memory_order_seq_cst) > 0) {
     self->display_refresh_failed_.store(true, std::memory_order_release);
     lv_display_flush_ready(lvgl_display);
     return;
   }
 
   self->display_flush_in_progress_.store(true, std::memory_order_seq_cst);
-  if (self->display_flush_pause_count_.load(
-          std::memory_order_seq_cst) > 0) {
+  if (self->display_flush_pause_count_.load(std::memory_order_seq_cst) > 0) {
     self->display_refresh_failed_.store(true, std::memory_order_release);
-    self->display_flush_in_progress_.store(
-        false, std::memory_order_seq_cst);
+    self->display_flush_in_progress_.store(false, std::memory_order_seq_cst);
     lv_display_flush_ready(lvgl_display);
     return;
   }
@@ -496,16 +493,13 @@ void LvglPort::FlushCallback(
   if (!self->RotateFlushBuffer(
           lvgl_display, area, pixel_map, &flush_area, &flush_pixels)) {
     self->display_refresh_failed_.store(true, std::memory_order_release);
-    self->display_flush_in_progress_.store(
-        false, std::memory_order_seq_cst);
+    self->display_flush_in_progress_.store(false, std::memory_order_seq_cst);
     lv_display_flush_ready(lvgl_display);
     return;
   }
-  if (self->display_flush_pause_count_.load(
-          std::memory_order_seq_cst) > 0) {
+  if (self->display_flush_pause_count_.load(std::memory_order_seq_cst) > 0) {
     self->display_refresh_failed_.store(true, std::memory_order_release);
-    self->display_flush_in_progress_.store(
-        false, std::memory_order_seq_cst);
+    self->display_flush_in_progress_.store(false, std::memory_order_seq_cst);
     lv_display_flush_ready(lvgl_display);
     return;
   }
@@ -514,8 +508,7 @@ void LvglPort::FlushCallback(
       flush_area.y1, flush_area.x2 + 1, flush_area.y2 + 1, flush_pixels);
   if (!result) {
     self->display_refresh_failed_.store(true, std::memory_order_release);
-    self->display_flush_in_progress_.store(
-        false, std::memory_order_seq_cst);
+    self->display_flush_in_progress_.store(false, std::memory_order_seq_cst);
     LogMessage(
         LogLevel::kError, __FILE__, __LINE__, "WriteScreenPixels failed\n");
     lv_display_flush_ready(lvgl_display);
@@ -525,8 +518,7 @@ void LvglPort::FlushCallback(
 void LvglPort::FlushReadyCallback(void* context) {
   auto* self = static_cast<LvglPort*>(context);
   if (self != nullptr && self->lvgl_display_ != nullptr) {
-    const bool is_last_flush =
-        lv_display_flush_is_last(self->lvgl_display_);
+    const bool is_last_flush = lv_display_flush_is_last(self->lvgl_display_);
     if (is_last_flush &&
         !self->display_refresh_failed_.load(std::memory_order_acquire) &&
         self->display_refresh_rendering_generation_.load(
@@ -534,8 +526,7 @@ void LvglPort::FlushReadyCallback(void* context) {
       self->display_refresh_scanout_pending_.store(
           true, std::memory_order_release);
     }
-    self->display_flush_in_progress_.store(
-        false, std::memory_order_seq_cst);
+    self->display_flush_in_progress_.store(false, std::memory_order_seq_cst);
     lv_display_flush_ready(self->lvgl_display_);
   }
 }
@@ -698,9 +689,9 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
       return;
     }
 
-    self->active_edge_touch_flag_ = point.edge_touch_flag ||
-        self->pending_edge_touch_flag_.exchange(
-            false, std::memory_order_acq_rel);
+    self->active_edge_touch_flag_ =
+        point.edge_touch_flag || self->pending_edge_touch_flag_.exchange(
+                                     false, std::memory_order_acq_rel);
     self->pending_edge_touch_time_ms_ = 0;
     self->last_touch_point_.x = point.x;
     self->last_touch_point_.y = point.y;
@@ -733,10 +724,8 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
  * @param self LVGL 端口实例
  * @param data 本次指针输入数据
  */
-void LvglPort::NotifyPointerInput(
-    LvglPort* self, const lv_indev_data_t* data) {
-  if (self == nullptr || data == nullptr ||
-      !self->pointer_input_interceptor_) {
+void LvglPort::NotifyPointerInput(LvglPort* self, const lv_indev_data_t* data) {
+  if (self == nullptr || data == nullptr || !self->pointer_input_interceptor_) {
     return;
   }
 
@@ -758,8 +747,7 @@ void LvglPort::NotifyPointerInput(
   }
 }
 
-uint32_t LvglPort::KeyboardEventToLvglKey(
-    const KeyboardInputEvent& event) {
+uint32_t LvglPort::KeyboardEventToLvglKey(const KeyboardInputEvent& event) {
   switch (event.key) {
     case KeyboardKey::kCharacter:
       return event.character;
@@ -788,8 +776,7 @@ uint32_t LvglPort::KeyboardEventToLvglKey(
   }
 }
 
-void LvglPort::KeyboardReadCallback(
-    lv_indev_t* indev, lv_indev_data_t* data) {
+void LvglPort::KeyboardReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
   auto* self = static_cast<LvglPort*>(lv_indev_get_user_data(indev));
   if (self == nullptr || self->keyboard_ == nullptr) {
     data->key = 0;
@@ -798,11 +785,9 @@ void LvglPort::KeyboardReadCallback(
   }
 
   data->key = self->active_lvgl_key_;
-  data->state = self->active_keyboard_key_id_ == 0
-      ? LV_INDEV_STATE_RELEASED
-      : LV_INDEV_STATE_PRESSED;
-  if (self->IsInputBlocked() &&
-      !self->IsKeyboardInputAllowedWhileBlocked()) {
+  data->state = self->active_keyboard_key_id_ == 0 ? LV_INDEV_STATE_RELEASED
+                                                   : LV_INDEV_STATE_PRESSED;
+  if (self->IsInputBlocked() && !self->IsKeyboardInputAllowedWhileBlocked()) {
     self->active_keyboard_key_id_ = 0;
     self->active_lvgl_key_ = 0;
     data->key = 0;
@@ -901,15 +886,15 @@ void* LvglPort::EnsureRotationBuffer(size_t size) {
   }
 
   const size_t cache_line_size = ppa_rotation_.CacheLineSize();
-  const size_t alignment = cache_line_size > 0
-      ? std::max<size_t>(cache_line_size, sizeof(void*))
-      : sizeof(void*);
+  const size_t alignment =
+      cache_line_size > 0 ? std::max<size_t>(cache_line_size, sizeof(void*))
+                          : sizeof(void*);
   const size_t aligned_size = AlignUp(size, alignment);
   rotation_buffer_ = heap_caps_aligned_alloc(
       alignment, aligned_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (rotation_buffer_ == nullptr) {
-    rotation_buffer_ = heap_caps_aligned_alloc(
-        alignment, aligned_size, MALLOC_CAP_8BIT);
+    rotation_buffer_ =
+        heap_caps_aligned_alloc(alignment, aligned_size, MALLOC_CAP_8BIT);
   }
   if (rotation_buffer_ == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
@@ -986,10 +971,9 @@ void LvglPort::TaskLoop() {
   while (true) {
     uint32_t refresh_generation = 0;
     Lock();
-    if (display_refresh_requested_.exchange(
-            false, std::memory_order_acq_rel)) {
-      refresh_generation = display_refresh_request_generation_.load(
-          std::memory_order_acquire);
+    if (display_refresh_requested_.exchange(false, std::memory_order_acq_rel)) {
+      refresh_generation =
+          display_refresh_request_generation_.load(std::memory_order_acquire);
       display_refresh_rendering_generation_.store(
           refresh_generation, std::memory_order_release);
       lv_obj_t* active_screen = lv_screen_active();

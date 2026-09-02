@@ -2,7 +2,7 @@
  * @Description: Camera app view
  * @Author: LILYGO_L
  * @Date: 2026-07-02 00:00:00
- * @LastEditTime: 2026-08-27 16:30:22
+ * @LastEditTime: 2026-09-02 17:54:27
  * @License: GPL 3.0
  */
 #include "ui/views/camera_view.h"
@@ -16,7 +16,6 @@
 
 #include "base/logger.h"
 #include "esp_heap_caps.h"
-
 #include "hal/providers/camera_provider.h"
 #include "ui/input/edge_swipe_indicator.h"
 #include "ui/resources/fonts/font_assets.h"
@@ -95,8 +94,8 @@ void PositionCameraPromptStatus(CameraViewState* state, lv_obj_t* group) {
   }
   lv_display_t* display = lv_obj_get_display(group);
   const int display_height = display == nullptr
-      ? state->height
-      : lv_display_get_vertical_resolution(display);
+                                 ? state->height
+                                 : lv_display_get_vertical_resolution(display);
   const int height = lv_obj_get_height(group);
   const int centered_top =
       (display_height - height) / 2 + kCameraPromptGroupOffsetY;
@@ -113,12 +112,10 @@ void ApplyCameraPageColors(CameraViewState* state) {
   if (state == nullptr || state->container == nullptr) {
     return;
   }
-  lv_obj_set_style_bg_color(
-      state->container, lv_color_hex(theme::FixedColors().camera_background),
-      LV_PART_MAIN);
+  lv_obj_set_style_bg_color(state->container,
+      lv_color_hex(theme::FixedColors().camera_background), LV_PART_MAIN);
   if (state->set_status_bar_text_color) {
-    state->set_status_bar_text_color(
-        theme::FixedColors().camera_primary_text);
+    state->set_status_bar_text_color(theme::FixedColors().camera_primary_text);
   }
 }
 
@@ -187,8 +184,8 @@ void RenderCameraError(CameraViewState* state, CameraError error) {
   lv_obj_clean(state->status_layer);
 
   char hint_text[128] = {};
-  std::snprintf(hint_text, sizeof(hint_text), "%s: %s",
-      diagnostic_error.code, diagnostic_error.text);
+  std::snprintf(hint_text, sizeof(hint_text), "%s: %s", diagnostic_error.code,
+      diagnostic_error.text);
   PromptStatusConfig config;
   config.width = state->width;
   config.height = kCameraPromptGroupHeight;
@@ -276,8 +273,7 @@ void RetryCameraClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  auto* state =
-      static_cast<CameraViewState*>(lv_event_get_user_data(event));
+  auto* state = static_cast<CameraViewState*>(lv_event_get_user_data(event));
   if (state == nullptr) {
     return;
   }
@@ -320,8 +316,8 @@ bool EnsureFrameBuffer(CameraViewState* state, size_t required_size) {
     state->frame_buffer = nullptr;
     state->frame_buffer_size = 0;
   }
-  state->frame_buffer = static_cast<uint8_t*>(
-      heap_caps_malloc(required_size, MALLOC_CAP_SPIRAM));
+  state->frame_buffer =
+      static_cast<uint8_t*>(heap_caps_malloc(required_size, MALLOC_CAP_SPIRAM));
   if (state->frame_buffer == nullptr) {
     return false;
   }
@@ -359,8 +355,7 @@ void SetCameraLockScreenPaused(CameraViewState* state, bool visible) {
  * @param state 摄像头页面状态
  * @param visible true 表示锁屏显示，false 表示锁屏隐藏
  */
-void CameraLockScreenVisibilityCallback(
-    CameraViewState* state, bool visible) {
+void CameraLockScreenVisibilityCallback(CameraViewState* state, bool visible) {
   SetCameraLockScreenPaused(state, visible);
 }
 
@@ -402,11 +397,11 @@ void CameraRefreshTimerCallback(lv_timer_t* timer) {
   }
 
   state->last_sequence = info.sequence;
-  const bool source_changed =
-      state->image_dsc.data != state->frame_buffer ||
-      state->last_width != info.width || state->last_height != info.height ||
-      state->last_stride != info.stride ||
-      state->last_bits_per_pixel != info.bits_per_pixel;
+  const bool source_changed = state->image_dsc.data != state->frame_buffer ||
+                              state->last_width != info.width ||
+                              state->last_height != info.height ||
+                              state->last_stride != info.stride ||
+                              state->last_bits_per_pixel != info.bits_per_pixel;
   state->image_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
   state->image_dsc.header.cf = ColorFormatForBitsPerPixel(info.bits_per_pixel);
   state->image_dsc.header.flags = 0;
@@ -438,8 +433,7 @@ void CameraViewDeleteEventCallback(lv_event_t* event) {
     return;
   }
 
-  auto* state =
-      static_cast<CameraViewState*>(lv_event_get_user_data(event));
+  auto* state = static_cast<CameraViewState*>(lv_event_get_user_data(event));
   if (state == nullptr) {
     return;
   }
@@ -488,9 +482,8 @@ lv_obj_t* CreateCameraView(lv_obj_t* parent, const app::AppEntry& app_entry,
   lv_obj_remove_flag(container, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(container, config.width, config.height);
   lv_obj_align(container, LV_ALIGN_CENTER, 0, 0);
-  lv_obj_set_style_bg_color(
-      container, lv_color_hex(theme::FixedColors().camera_background),
-      LV_PART_MAIN);
+  lv_obj_set_style_bg_color(container,
+      lv_color_hex(theme::FixedColors().camera_background), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(container, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(container, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(container, 0, LV_PART_MAIN);

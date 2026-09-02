@@ -2,7 +2,7 @@
  * @Description: 扬声器与麦克风状态及控制接口
  * @Author: LILYGO_L
  * @Date: 2026-05-14 00:20:00
- * @LastEditTime: 2026-07-15 11:16:11
+ * @LastEditTime: 2026-09-02 17:52:34
  * @License: GPL 3.0
  */
 #pragma once
@@ -83,8 +83,7 @@ class AudioProvider {
    * @param status 播放状态输出地址
    * @return 读取成功返回 true，否则返回 false
    */
-  virtual bool ReadSpeakerToneStatus(
-      SpeakerStatus* status) = 0;
+  virtual bool ReadSpeakerToneStatus(SpeakerStatus* status) = 0;
 
   /**
    * @brief 创建后台任务解码并播放音频文件
@@ -92,8 +91,7 @@ class AudioProvider {
    * @param duration_ms 音频总时长，单位毫秒
    * @return 任务创建成功返回 true，否则返回 false
    */
-  virtual bool StartAudioFile(
-      const char* path, uint32_t duration_ms) = 0;
+  virtual bool StartAudioFile(const char* path, uint32_t duration_ms) = 0;
 
   /**
    * @brief 暂停当前音频文件播放
@@ -125,8 +123,7 @@ class AudioProvider {
    * @param status 播放状态输出地址
    * @return 读取成功返回 true，否则返回 false
    */
-  virtual bool ReadAudioFileStatus(
-      AudioFilePlaybackStatus* status) = 0;
+  virtual bool ReadAudioFileStatus(AudioFilePlaybackStatus* status) = 0;
 
   /**
    * @brief 创建后台任务读取麦克风采样数据

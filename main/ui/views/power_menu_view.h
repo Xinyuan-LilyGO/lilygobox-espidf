@@ -2,7 +2,7 @@
  * @Description: 关机菜单覆盖层创建与交互接口
  * @Author: LILYGO_L
  * @Date: 2026-07-07 11:18:34
- * @LastEditTime: 2026-07-14 21:08:13
+ * @LastEditTime: 2026-09-02 17:54:42
  * @License: GPL 3.0
  */
 #pragma once
@@ -27,7 +27,7 @@ struct PowerMenuViewOptions {
  * @param options 关机菜单创建参数
  * @return 创建成功返回关机菜单对象，失败返回 nullptr
  */
-lv_obj_t* CreatePowerMenuView(lv_obj_t* parent,
-    const PowerMenuViewOptions& options);
+lv_obj_t* CreatePowerMenuView(
+    lv_obj_t* parent, const PowerMenuViewOptions& options);
 
 }  // namespace lilygo_box::ui

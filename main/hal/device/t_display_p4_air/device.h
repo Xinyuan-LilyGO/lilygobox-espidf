@@ -2,7 +2,7 @@
  * @Description: T-Display-P4-Air 设备及硬件 Provider 适配接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-08-06 18:11:44
+ * @LastEditTime: 2026-09-02 17:53:28
  * @License: GPL 3.0
  */
 #pragma once
@@ -85,8 +85,7 @@ class TDisplayP4AirDevice final : public ScreenProvider,
    * @param power_off_requested 上次关机请求是否已持久化
    * @return 当前启动应继续、显示充电界面或重新进入关机状态
    */
-  PowerOffBootAction ResolvePowerOffBoot(
-      bool power_off_requested) override;
+  PowerOffBootAction ResolvePowerOffBoot(bool power_off_requested) override;
 
   /**
    * @brief 读取 Air 板上的物理电源键状态
@@ -413,8 +412,7 @@ class TDisplayP4AirDevice final : public ScreenProvider,
    * @param display_rotation_angle 显示旋转角度
    * @return HI8561 的硬件边缘提示可用时返回 true
    */
-  bool SupportsHardwareEdgeTouchHint(
-      int display_rotation_angle) const override;
+  bool SupportsHardwareEdgeTouchHint(int display_rotation_angle) const override;
 
   /**
    * @brief 判断是否已启用板载触摸中断通知
@@ -1023,8 +1021,7 @@ class TDisplayP4AirDevice final : public ScreenProvider,
    * @param level true 拉高 EN，false 拉低 EN
    * @return 引脚切换成功返回 ESP_OK，否则返回错误码
    */
-  static esp_err_t WifiCoprocessorResetCallback(
-      void* context, bool level);
+  static esp_err_t WifiCoprocessorResetCallback(void* context, bool level);
 
   /**
    * @brief hosted WiFi 扫描任务入口

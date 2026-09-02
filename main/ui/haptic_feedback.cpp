@@ -2,7 +2,7 @@
  * @Description: UI haptic feedback helpers
  * @Author: LILYGO_L
  * @Date: 2026-06-30 00:00:00
- * @LastEditTime: 2026-06-30 00:00:00
+ * @LastEditTime: 2026-09-02 17:54:10
  * @License: GPL 3.0
  */
 #include "ui/haptic_feedback.h"
@@ -57,8 +57,8 @@ void PlayUiHapticFeedback() {
     return;
   }
 
-  const uint8_t gain = static_cast<uint8_t>(
-      g_haptic_strength_percent * UINT8_MAX / 100);
+  const uint8_t gain =
+      static_cast<uint8_t>(g_haptic_strength_percent * UINT8_MAX / 100);
   g_haptic_provider->PlayHapticWaveform(1, 1, gain, true);
 }
 

@@ -2,7 +2,7 @@
  * @Description: 锁屏页面创建、时钟更新与滑动动画接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-06-25 10:18:00
+ * @LastEditTime: 2026-09-02 17:54:36
  * @License: GPL 3.0
  */
 #pragma once
@@ -25,8 +25,8 @@ struct LockScreenViewOptions {
  * @param options 锁屏视图配置
  * @return 创建成功返回对象指针，否则返回 nullptr
  */
-lv_obj_t* CreateLockScreenView(lv_obj_t* parent,
-    const LockScreenViewOptions& options);
+lv_obj_t* CreateLockScreenView(
+    lv_obj_t* parent, const LockScreenViewOptions& options);
 
 /**
  * @brief 更新锁屏页面时间日期文本

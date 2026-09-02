@@ -2,7 +2,7 @@
  * @Description: Settings Bluetooth page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-05-23 00:00:00
+ * @LastEditTime: 2026-09-02 17:56:35
  * @License: GPL 3.0
  */
 #include "ui/views/settings/settings_basic_view_common.h"
@@ -37,12 +37,12 @@ bool BuildPairedBluetoothPage(lv_obj_t* body, SettingsViewState* state) {
           width, nullptr, state)) {
     return false;
   }
-  if (!CreateBasicDivider(body, kBasicSectionHeight + kBasicRowHeight + 10,
-          width)) {
+  if (!CreateBasicDivider(
+          body, kBasicSectionHeight + kBasicRowHeight + 10, width)) {
     return false;
   }
-  return CreateArrowRow(body, "Unpair", "", kBasicSectionHeight +
-      kBasicRowHeight + 28, width, nullptr, state);
+  return CreateArrowRow(body, "Unpair", "",
+      kBasicSectionHeight + kBasicRowHeight + 28, width, nullptr, state);
 }
 
 /**

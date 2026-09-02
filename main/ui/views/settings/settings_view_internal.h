@@ -2,7 +2,7 @@
  * @Description: Settings view internal helpers
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-07-19 11:17:26
+ * @LastEditTime: 2026-09-02 17:56:55
  * @License: GPL 3.0
  */
 #pragma once
@@ -242,8 +242,8 @@ struct SettingsViewState {
   // WLAN 列表行点击参数池，避免 LVGL 回调使用临时地址。
   WifiNetworkAction wifi_actions[kWifiActionCapacity] = {};
   // 已保存网络删除按钮参数池，不占用 WLAN 列表行点击参数。
-  WifiNetworkAction wifi_saved_delete_actions[
-      app::kWifiSavedNetworkCapacity] = {};
+  WifiNetworkAction wifi_saved_delete_actions[app::kWifiSavedNetworkCapacity] =
+      {};
   // 当前弹窗正在处理的 WLAN，复制出来避免列表刷新后地址失效。
   WifiNetworkAction wifi_pending_action = {};
   size_t wifi_action_count = 0;
@@ -385,8 +385,7 @@ const lv_font_t* MaterialIconFont56();
  * @param font 文本字体
  * @return 创建成功返回对象指针，否则返回 nullptr
  */
-lv_obj_t* CreateLabel(
-    lv_obj_t* parent, const char* text, lv_color_t color,
+lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color,
     const lv_font_t* font);
 
 /**
@@ -442,8 +441,7 @@ lv_obj_t* CreateDivider(lv_obj_t* parent, int width);
  * @param state 设置页状态
  * @param fallback_enabled 未保存开关状态时使用的默认 WLAN 开关状态
  */
-void LoadWifiSettingsFromCache(
-    SettingsViewState* state, bool fallback_enabled);
+void LoadWifiSettingsFromCache(SettingsViewState* state, bool fallback_enabled);
 
 /**
  * @brief 按当前 WLAN 开关请求状态刷新设置主页 WLAN 行右侧文字
@@ -461,8 +459,7 @@ void UpdateSettingsWifiValue(SettingsViewState* state);
  * @return 创建成功返回按钮对象，否则返回 nullptr
  */
 lv_obj_t* CreateToolbarButton(
-    lv_obj_t* parent, int x, int y, lv_event_cb_t callback,
-    void* user_data);
+    lv_obj_t* parent, int x, int y, lv_event_cb_t callback, void* user_data);
 
 /**
  * @brief 从设置主页打开我的设备详情页

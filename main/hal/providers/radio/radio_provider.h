@@ -2,7 +2,7 @@
  * @Description: Radio 射频状态、配置与收发 Provider 接口
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
- * @LastEditTime: 2026-07-30 18:00:00
+ * @LastEditTime: 2026-09-02 17:53:46
  * @License: GPL 3.0
  */
 #pragma once
@@ -281,8 +281,7 @@ class RadioProvider {
    * @param status 射频状态输出地址
    * @return 状态读取成功时返回 true
    */
-  virtual bool ReadRadioStatus(
-      uint32_t client_token, RadioStatus* status) {
+  virtual bool ReadRadioStatus(uint32_t client_token, RadioStatus* status) {
     (void)client_token;
     return ReadRadioStatus(status);
   }

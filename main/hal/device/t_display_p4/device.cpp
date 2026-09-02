@@ -2,7 +2,7 @@
  * @Description: T-Display-P4 板级初始化与电源生命周期实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-08-28 00:00:00
+ * @LastEditTime: 2026-09-02 17:52:56
  * @License: GPL 3.0
  */
 #include "hal/device/t_display_p4/device.h"
@@ -55,8 +55,8 @@ bool TDisplayP4Device::InitDevice() {
     return false;
   }
   if (!driver_.SetScreenSleep(false)) {
-    LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Activate screen failed\n");
+    LogMessage(
+        LogLevel::kError, __FILE__, __LINE__, "Activate screen failed\n");
     return false;
   }
   if (!InitializeTouchInterrupt()) {
@@ -110,14 +110,12 @@ bool TDisplayP4Device::ReadDeviceInfo(DeviceInfo* info) {
   info->camera_bits_per_pixel = device_info.camera.bits_per_pixel;
   info->camera_buffer_count = device_info.camera.buffer_count;
   info->battery_charger_chip_name = device_info.battery.charger_chip_name;
-  info->battery_fuel_gauge_chip_name =
-      device_info.battery.fuel_gauge_chip_name;
+  info->battery_fuel_gauge_chip_name = device_info.battery.fuel_gauge_chip_name;
   info->battery_capacity_mah = device_info.battery.capacity_mah;
   return true;
 }
 
-bool TDisplayP4Device::ReadDeviceDiagnostics(
-    DeviceDiagnostics* diagnostics) {
+bool TDisplayP4Device::ReadDeviceDiagnostics(DeviceDiagnostics* diagnostics) {
   if (diagnostics == nullptr) {
     return false;
   }
@@ -141,9 +139,8 @@ bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
     }
     const bool keyboard_expansion_slept =
         keyboard_expansion_.state.load() != KeyboardExpansionState::kReady ||
-        driver_.SetKeyboardExpansionOperatingMode(
-            lilygo_device_driver::TDisplayP4Driver::
-                KeyboardExpansionOperatingMode::kSleep);
+        driver_.SetKeyboardExpansionOperatingMode(lilygo_device_driver::
+                TDisplayP4Driver::KeyboardExpansionOperatingMode::kSleep);
     touch_gesture_wake_enabled_ = SetTouchGestureWakeEnabled(true);
     const bool screen_slept = driver_.SetScreenSleep(true);
     if (!screen_slept && touch_gesture_wake_enabled_) {
@@ -173,21 +170,20 @@ bool TDisplayP4Device::RestoreKeyboardExpansionOperatingState() {
 
   bool keyboard_state_restored = SetKeyboardBacklightBrightnessPercent(
       keyboard_expansion_.backlight_brightness_percent.load());
-  keyboard_state_restored &= SetKeyboardExpansionLed(
-      KeyboardExpansionLed::kLed1,
-      keyboard_expansion_.caps_lock_enabled.load());
+  keyboard_state_restored &=
+      SetKeyboardExpansionLed(KeyboardExpansionLed::kLed1,
+          keyboard_expansion_.caps_lock_enabled.load());
   RadioState* extension_states[] = {&cc1101_radio_, &nrf24l01_radio_};
   for (RadioState* state : extension_states) {
     if (!state->active || state->mutex == nullptr ||
         xSemaphoreTake(state->mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
       continue;
     }
-    if (state->chip == radio::ChipType::kCc1101 &&
-        driver_.IsCc1101Ready()) {
+    if (state->chip == radio::ChipType::kCc1101 && driver_.IsCc1101Ready()) {
       auto* radio = driver_.chip().cc1101.get();
-      bool restored = driver_.SetCc1101OperatingMode(
-          lilygo_device_driver::TDisplayP4Driver::
-              Cc1101OperatingMode::kStandby) &&
+      bool restored =
+          driver_.SetCc1101OperatingMode(lilygo_device_driver::
+                  TDisplayP4Driver::Cc1101OperatingMode::kStandby) &&
           radio != nullptr && InitializeCc1101ReceiveInterrupt();
       if (restored) {
         state->receive_interrupt_pending.store(
@@ -200,9 +196,9 @@ bool TDisplayP4Device::RestoreKeyboardExpansionOperatingState() {
     } else if (state->chip == radio::ChipType::kNrf24l01 &&
                driver_.IsNrf24l01Ready()) {
       auto* radio = driver_.chip().nrf24l01.get();
-      const bool restored = driver_.SetNrf24l01OperatingMode(
-          lilygo_device_driver::TDisplayP4Driver::
-              Nrf24l01OperatingMode::kStandby) &&
+      const bool restored =
+          driver_.SetNrf24l01OperatingMode(lilygo_device_driver::
+                  TDisplayP4Driver::Nrf24l01OperatingMode::kStandby) &&
           radio != nullptr && radio->StartReceive();
       state->chip_error = !restored;
       state->active = restored;
@@ -254,8 +250,7 @@ bool TDisplayP4Device::PrepareForPowerOff() {
       speaker_.loop_enabled.store(false);
     }
   }
-  if (microphone_.running.load() ||
-      microphone_.adc_to_dac_enabled.load()) {
+  if (microphone_.running.load() || microphone_.adc_to_dac_enabled.load()) {
     result &= StopMicrophone();
   }
   if (camera_preview_.task_active.load() ||
@@ -281,16 +276,13 @@ bool TDisplayP4Device::PrepareForPowerOff() {
 bool TDisplayP4Device::WaitForPowerOffTasks() {
   for (int elapsed_ms = 0; elapsed_ms < kPowerOffTaskTimeoutMs;
       elapsed_ms += kPowerOffTaskPollMs) {
-    const bool tasks_running = speaker_.running.load() ||
-                               haptic_.running.load() ||
-                               microphone_.running.load() ||
-                               camera_preview_.task_active.load() ||
-                               ethernet_.init_task_running.load() ||
-                               keyboard_expansion_.task_running.load() ||
-                               nfc_.task_active.load() ||
-                               wifi_.init_task_running.load() ||
-                               wifi_.scan_task_running.load() ||
-                               wifi_.connect_task_running.load();
+    const bool tasks_running =
+        speaker_.running.load() || haptic_.running.load() ||
+        microphone_.running.load() || camera_preview_.task_active.load() ||
+        ethernet_.init_task_running.load() ||
+        keyboard_expansion_.task_running.load() || nfc_.task_active.load() ||
+        wifi_.init_task_running.load() || wifi_.scan_task_running.load() ||
+        wifi_.connect_task_running.load();
     if (!tasks_running) {
       return true;
     }

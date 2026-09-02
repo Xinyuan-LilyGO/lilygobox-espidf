@@ -2,7 +2,7 @@
  * @Description: System status runtime cache
  * @Author: LILYGO_L
  * @Date: 2026-06-24 00:00:00
- * @LastEditTime: 2026-07-19 00:20:12
+ * @LastEditTime: 2026-09-02 17:51:15
  * @License: GPL 3.0
  */
 #pragma once
@@ -25,8 +25,9 @@ class SystemStatusCache final {
    * @param battery_management 电池管理状态提供者
    * @param wifi WIFI 状态提供者
    */
-  void Init(
-      hal::RtcProvider* rtc, hal::BatteryManagementProvider* battery_management, hal::WifiProvider* wifi);
+  void Init(hal::RtcProvider* rtc,
+      hal::BatteryManagementProvider* battery_management,
+      hal::WifiProvider* wifi);
 
   /**
    * @brief 使用系统时钟刷新时间缓存，不再访问外部 RTC
@@ -61,7 +62,9 @@ class SystemStatusCache final {
    * @brief 获取电池管理状态缓存
    * @return 电池管理状态
    */
-  const hal::BatteryManagementStatus& battery_management_status() const { return battery_management_status_; }
+  const hal::BatteryManagementStatus& battery_management_status() const {
+    return battery_management_status_;
+  }
 
   /**
    * @brief 获取 WiFi 连接状态缓存
@@ -79,7 +82,9 @@ class SystemStatusCache final {
    * @brief 判断电池管理状态缓存是否有效
    * @return 电池管理缓存有效返回 true，否则返回 false
    */
-  bool battery_management_status_valid() const { return battery_management_status_valid_; }
+  bool battery_management_status_valid() const {
+    return battery_management_status_valid_;
+  }
 
   /**
    * @brief 判断 WiFi 连接状态缓存是否有效

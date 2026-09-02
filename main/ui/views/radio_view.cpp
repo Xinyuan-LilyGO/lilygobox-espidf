@@ -2,7 +2,7 @@
  * @Description: Radio 射频控制应用页面实现
  * @Author: LILYGO_L
  * @Date: 2026-07-12 00:00:00
- * @LastEditTime: 2026-08-21 16:15:55
+ * @LastEditTime: 2026-09-02 17:54:44
  * @License: GPL 3.0
  */
 #include "ui/views/radio_view.h"
@@ -193,8 +193,8 @@ bool IsProfileActivationBlocked(uint32_t profile_id) {
   const RadioActivationState state =
       GetRadioActivationRegistry().GetState(profile_id);
   return state == RadioActivationState::kPending ||
-      state == RadioActivationState::kInitializationFailed ||
-      state == RadioActivationState::kChipError;
+         state == RadioActivationState::kInitializationFailed ||
+         state == RadioActivationState::kChipError;
 }
 
 void SetProfileActivationState(
@@ -217,8 +217,7 @@ void CopyBoundedString(
     destination[0] = '\0';
     return;
   }
-  const size_t copy_size =
-      std::min(std::strlen(source), destination_size - 1);
+  const size_t copy_size = std::min(std::strlen(source), destination_size - 1);
   std::memmove(destination, source, copy_size);
   destination[copy_size] = '\0';
 }
@@ -237,8 +236,8 @@ void FormatQuarterDbValue(int16_t quarter_db_value, bool show_positive_sign,
   }
   const int32_t signed_value = quarter_db_value;
   const bool negative = signed_value < 0;
-  const uint32_t magnitude = static_cast<uint32_t>(
-      negative ? -signed_value : signed_value);
+  const uint32_t magnitude =
+      static_cast<uint32_t>(negative ? -signed_value : signed_value);
   const uint32_t integer_part = magnitude / 4;
   const uint32_t fraction = magnitude % 4;
   const char* sign = negative ? "-" : (show_positive_sign ? "+" : "");
@@ -250,8 +249,7 @@ void FormatQuarterDbValue(int16_t quarter_db_value, bool show_positive_sign,
         static_cast<unsigned long>(integer_part));
   } else {
     std::snprintf(output, output_size, "%s%lu.%s", sign,
-        static_cast<unsigned long>(integer_part),
-        fraction == 1 ? "25" : "75");
+        static_cast<unsigned long>(integer_part), fraction == 1 ? "25" : "75");
   }
 }
 
@@ -266,38 +264,32 @@ struct RadioModuleItem {
 
 constexpr size_t kRadioModuleCapacity = app::kRadioProfileCapacity;
 constexpr size_t kAddOutputPowerOptionCapacity = 8;
-constexpr const char* kLr2021BandwidthNames[] = {
-    "31.25", "41.67", "62.5", "83.34", "101.563", "125",
-    "203", "250", "406", "500", "812", "1000"};
-constexpr const char* kLr2021CodingRateNames[] = {
-    "4/5", "4/6", "4/7", "4/8", "LI 4/5", "LI 4/6", "LI 4/8",
-    "LI-C 4/6", "LI-C 4/8"};
+constexpr const char* kLr2021BandwidthNames[] = {"31.25", "41.67", "62.5",
+    "83.34", "101.563", "125", "203", "250", "406", "500", "812", "1000"};
+constexpr const char* kLr2021CodingRateNames[] = {"4/5", "4/6", "4/7", "4/8",
+    "LI 4/5", "LI 4/6", "LI 4/8", "LI-C 4/6", "LI-C 4/8"};
 constexpr const char* kLr2021RxBoostModeNames[] = {
     "Off", "1", "2", "3", "4", "5", "6", "7"};
-static_assert(std::size(radio::kLr2021BandwidthsHz) ==
-    std::size(kLr2021BandwidthNames));
-static_assert(std::size(radio::kLr2021CodingRates) ==
-    std::size(kLr2021CodingRateNames));
-constexpr int8_t kCc1101OutputPowers[] = {
-    -30, -20, -15, -10, 0, 5, 7, 10};
+static_assert(
+    std::size(radio::kLr2021BandwidthsHz) == std::size(kLr2021BandwidthNames));
+static_assert(
+    std::size(radio::kLr2021CodingRates) == std::size(kLr2021CodingRateNames));
+constexpr int8_t kCc1101OutputPowers[] = {-30, -20, -15, -10, 0, 5, 7, 10};
 constexpr const char* kCc1101OutputPowerNames[] = {
     "-30", "-20", "-15", "-10", "0", "5", "7", "10"};
 constexpr uint16_t kCc1101PreambleLengths[] = {
     16, 24, 32, 48, 64, 96, 128, 192};
 constexpr const char* kCc1101PreambleLengthNames[] = {
     "16", "24", "32", "48", "64", "96", "128", "192"};
-constexpr const char* kCc1101ReceiveBandwidthNames[] = {
-    "58.036", "67.708", "81.250", "101.563",
-    "116.071", "135.417", "162.500", "203.125",
-    "232.143", "270.833", "325.000", "406.250",
-    "464.286", "541.667", "650.000", "812.500"};
+constexpr const char* kCc1101ReceiveBandwidthNames[] = {"58.036", "67.708",
+    "81.250", "101.563", "116.071", "135.417", "162.500", "203.125", "232.143",
+    "270.833", "325.000", "406.250", "464.286", "541.667", "650.000",
+    "812.500"};
 static_assert(std::size(kCc1101ReceiveBandwidthNames) ==
-    std::size(radio::kCc1101ReceiveBandwidthsHz));
+              std::size(radio::kCc1101ReceiveBandwidthsHz));
 constexpr int8_t kNrf24l01OutputPowers[] = {-18, -12, -6, 0};
-constexpr const char* kNrf24l01OutputPowerNames[] = {
-    "-18", "-12", "-6", "0"};
-constexpr uint32_t kNrf24l01DataRates[] = {
-    250000, 1000000, 2000000};
+constexpr const char* kNrf24l01OutputPowerNames[] = {"-18", "-12", "-6", "0"};
+constexpr uint32_t kNrf24l01DataRates[] = {250000, 1000000, 2000000};
 constexpr const char* kNrf24l01DataRateNames[] = {"250K", "1M", "2M"};
 using app::RadioChatDeliveryState;
 using app::RadioChatMessage;
@@ -435,21 +427,19 @@ struct RadioViewState {
   lv_obj_t* add_chip_buttons[hal::kRadioCapabilityCapacity] = {};
   lv_obj_t* add_protocol_buttons[hal::kRadioCapabilityCapacity] = {};
   lv_obj_t* add_sf_buttons[8] = {};
-  lv_obj_t* add_bandwidth_buttons[
-      std::size(radio::kLr2021BandwidthsHz)] = {};
-  lv_obj_t* add_coding_rate_buttons[
-      std::size(radio::kLr2021CodingRates)] = {};
+  lv_obj_t* add_bandwidth_buttons[std::size(radio::kLr2021BandwidthsHz)] = {};
+  lv_obj_t* add_coding_rate_buttons[std::size(radio::kLr2021CodingRates)] = {};
   lv_obj_t* add_rx_boost_buttons[8] = {};
   lv_obj_t* add_output_power_buttons[kAddOutputPowerOptionCapacity] = {};
   lv_obj_t* add_preamble_buttons[std::size(kCc1101PreambleLengths)] = {};
-  lv_obj_t* add_receive_bandwidth_buttons[
-      std::size(radio::kCc1101ReceiveBandwidthsHz)] = {};
+  lv_obj_t* add_receive_bandwidth_buttons[std::size(
+      radio::kCc1101ReceiveBandwidthsHz)] = {};
   lv_obj_t* add_data_rate_buttons[std::size(kNrf24l01DataRates)] = {};
   NavigationDrawerState drawer;
   RadioModuleItem modules[kRadioModuleCapacity] = {};
   // 当前聊天页面最多保留 32 条轻量布局记录。
-  RenderedRadioChatMessage
-      rendered_chat_messages[app::kRadioChatPageCapacity] = {};
+  RenderedRadioChatMessage rendered_chat_messages[app::kRadioChatPageCapacity] =
+      {};
   char latest_messages[kRadioModuleCapacity][96] = {};
   char message_times[kRadioModuleCapacity][16] = {};
   uint16_t unread_counts[kRadioModuleCapacity] = {};
@@ -551,8 +541,7 @@ void ResetRenderedChatState(RadioViewState* state);
 void CloseSelectionMode(RadioViewState* state);
 bool ShowAddModulePage(RadioViewState* state);
 void CloseAddModulePage(RadioViewState* state);
-bool ShowModuleSettings(RadioViewState* state, size_t index,
-    bool from_detail);
+bool ShowModuleSettings(RadioViewState* state, size_t index, bool from_detail);
 bool ShowRadioSettingsPage(RadioViewState* state);
 bool ShowProfileSettingsPage(RadioViewState* state, size_t index);
 bool ShowProfileDeleteConfirmation(RadioViewState* state, size_t index);
@@ -590,8 +579,7 @@ bool ParseEnhancedShockBurstAddress(
     return false;
   }
   const size_t hex_digit_count = std::strlen(text);
-  if (hex_digit_count != 6 && hex_digit_count != 8 &&
-      hex_digit_count != 10) {
+  if (hex_digit_count != 6 && hex_digit_count != 8 && hex_digit_count != 10) {
     return false;
   }
   for (size_t index = 0; index < hex_digit_count; ++index) {
@@ -599,8 +587,7 @@ bool ParseEnhancedShockBurstAddress(
       return false;
     }
   }
-  if (!ParseTextAreaUint64(
-          input, 16, 1, 0xFFFFFFFFFFULL, address)) {
+  if (!ParseTextAreaUint64(input, 16, 1, 0xFFFFFFFFFFULL, address)) {
     return false;
   }
   *address_width = static_cast<uint8_t>(hex_digit_count / 2);
@@ -622,8 +609,7 @@ bool ShowAutoSendSettingsPage(RadioViewState* state);
  */
 void CloseAutoSendSettingsPage(RadioViewState* state, bool animated);
 void RefreshProfileSettingsPage(RadioViewState* state);
-bool SetProfileActiveState(
-    RadioViewState* state, size_t index, bool active);
+bool SetProfileActiveState(RadioViewState* state, size_t index, bool active);
 void UpdateChatComposerState(RadioViewState* state);
 
 /**
@@ -650,12 +636,12 @@ void ApplyRadioSwitchTheme(lv_obj_t* switch_object) {
   lv_obj_set_style_bg_color(switch_object,
       lv_color_hex(theme::ActiveThemeColors().surface_container_lowest),
       LV_PART_KNOB);
-  lv_obj_set_style_bg_color(switch_object, lv_color_hex(kOnPrimaryColor),
-      kCheckedKnobSelector);
+  lv_obj_set_style_bg_color(
+      switch_object, lv_color_hex(kOnPrimaryColor), kCheckedKnobSelector);
   lv_obj_set_style_bg_color(switch_object, lv_color_hex(kPrimaryColor),
       kProfileSwitchCheckedIndicatorSelector);
-  lv_obj_set_style_bg_opa(switch_object, LV_OPA_COVER,
-      kProfileSwitchCheckedIndicatorSelector);
+  lv_obj_set_style_bg_opa(
+      switch_object, LV_OPA_COVER, kProfileSwitchCheckedIndicatorSelector);
 }
 
 /**
@@ -726,8 +712,8 @@ const lv_font_t* FillIconFont56() {
  * @param font 文字字体
  * @return 创建成功返回标签对象，否则返回 nullptr
  */
-lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, uint32_t color,
-    const lv_font_t* font) {
+lv_obj_t* CreateLabel(
+    lv_obj_t* parent, const char* text, uint32_t color, const lv_font_t* font) {
   lv_obj_t* label = lv_label_create(parent);
   if (label == nullptr) {
     return nullptr;
@@ -750,8 +736,7 @@ bool SetLabelTextIfChanged(lv_obj_t* label, const char* text) {
   }
   const char* new_text = text == nullptr ? "" : text;
   const char* current_text = lv_label_get_text(label);
-  if (current_text != nullptr &&
-      std::strcmp(current_text, new_text) == 0) {
+  if (current_text != nullptr && std::strcmp(current_text, new_text) == 0) {
     return false;
   }
   lv_label_set_text(label, new_text);
@@ -764,91 +749,94 @@ hal::RadioConfig ToRadioConfig(const app::RadioProfile& profile) {
       .chip = profile.chip,
       .protocol = profile.protocol,
       .antenna = profile.antenna,
-      .lora = {
-          .frequency_hz = profile.frequency_hz,
-          .bandwidth_hz = profile.bandwidth_hz,
-          .preamble_length = profile.preamble_length,
-          .spreading_factor = profile.spreading_factor,
-          .coding_rate_denominator = profile.coding_rate_denominator,
-          .lr2021_coding_rate = profile.lr2021_coding_rate,
-          .sync_word = profile.sync_word,
-          .output_power_dbm = profile.output_power_dbm,
-          .crc_enabled = profile.crc_enabled,
-          .invert_iq = profile.invert_iq,
-          .rx_boosted = profile.rx_boosted,
-          .lr2021_rx_boost_mode = profile.lr2021_rx_boost_mode,
-      },
-      .gfsk = {
-          .frequency_hz = profile.frequency_hz,
-          .data_rate_bps = profile.gfsk_data_rate_bps,
-          .frequency_deviation_hz = profile.gfsk_frequency_deviation_hz,
-          .receive_bandwidth_hz = profile.gfsk_receive_bandwidth_hz,
-          .preamble_length_bits = profile.preamble_length,
-          .sync_word = profile.gfsk_sync_word,
-          .output_power_dbm = profile.output_power_dbm,
-          .crc_enabled = profile.crc_enabled,
-          .whitening_enabled = profile.gfsk_whitening_enabled,
-          .fec_enabled = profile.gfsk_fec_enabled,
-      },
-      .enhanced_shock_burst = {
-          .channel = profile.esb_channel,
-          .data_rate_bps = profile.esb_data_rate_bps,
-          .address = profile.esb_address,
-          .address_width = profile.esb_address_width,
-          .output_power_dbm = profile.output_power_dbm,
-          .crc_length_bits = profile.esb_crc_length_bits,
-          .retransmit_count = profile.esb_retransmit_count,
-          .retransmit_delay_us = profile.esb_retransmit_delay_us,
-          .auto_ack_enabled = profile.esb_auto_ack_enabled,
-          .dynamic_payload_enabled = profile.esb_dynamic_payload_enabled,
-      },
+      .lora =
+          {
+              .frequency_hz = profile.frequency_hz,
+              .bandwidth_hz = profile.bandwidth_hz,
+              .preamble_length = profile.preamble_length,
+              .spreading_factor = profile.spreading_factor,
+              .coding_rate_denominator = profile.coding_rate_denominator,
+              .lr2021_coding_rate = profile.lr2021_coding_rate,
+              .sync_word = profile.sync_word,
+              .output_power_dbm = profile.output_power_dbm,
+              .crc_enabled = profile.crc_enabled,
+              .invert_iq = profile.invert_iq,
+              .rx_boosted = profile.rx_boosted,
+              .lr2021_rx_boost_mode = profile.lr2021_rx_boost_mode,
+          },
+      .gfsk =
+          {
+              .frequency_hz = profile.frequency_hz,
+              .data_rate_bps = profile.gfsk_data_rate_bps,
+              .frequency_deviation_hz = profile.gfsk_frequency_deviation_hz,
+              .receive_bandwidth_hz = profile.gfsk_receive_bandwidth_hz,
+              .preamble_length_bits = profile.preamble_length,
+              .sync_word = profile.gfsk_sync_word,
+              .output_power_dbm = profile.output_power_dbm,
+              .crc_enabled = profile.crc_enabled,
+              .whitening_enabled = profile.gfsk_whitening_enabled,
+              .fec_enabled = profile.gfsk_fec_enabled,
+          },
+      .enhanced_shock_burst =
+          {
+              .channel = profile.esb_channel,
+              .data_rate_bps = profile.esb_data_rate_bps,
+              .address = profile.esb_address,
+              .address_width = profile.esb_address_width,
+              .output_power_dbm = profile.output_power_dbm,
+              .crc_length_bits = profile.esb_crc_length_bits,
+              .retransmit_count = profile.esb_retransmit_count,
+              .retransmit_delay_us = profile.esb_retransmit_delay_us,
+              .auto_ack_enabled = profile.esb_auto_ack_enabled,
+              .dynamic_payload_enabled = profile.esb_dynamic_payload_enabled,
+          },
   };
 }
 
 bool RadioConfigsEqual(
     const hal::RadioConfig& lhs, const hal::RadioConfig& rhs) {
   return lhs.client_token == rhs.client_token && lhs.chip == rhs.chip &&
-      lhs.protocol == rhs.protocol && lhs.antenna == rhs.antenna &&
-      lhs.lora.frequency_hz == rhs.lora.frequency_hz &&
-      lhs.lora.bandwidth_hz == rhs.lora.bandwidth_hz &&
-      lhs.lora.preamble_length == rhs.lora.preamble_length &&
-      lhs.lora.spreading_factor == rhs.lora.spreading_factor &&
-      lhs.lora.coding_rate_denominator == rhs.lora.coding_rate_denominator &&
-      lhs.lora.lr2021_coding_rate == rhs.lora.lr2021_coding_rate &&
-      lhs.lora.sync_word == rhs.lora.sync_word &&
-      lhs.lora.output_power_dbm == rhs.lora.output_power_dbm &&
-      lhs.lora.crc_enabled == rhs.lora.crc_enabled &&
-      lhs.lora.invert_iq == rhs.lora.invert_iq &&
-      lhs.lora.rx_boosted == rhs.lora.rx_boosted &&
-      lhs.lora.lr2021_rx_boost_mode == rhs.lora.lr2021_rx_boost_mode &&
-      lhs.gfsk.frequency_hz == rhs.gfsk.frequency_hz &&
-      lhs.gfsk.data_rate_bps == rhs.gfsk.data_rate_bps &&
-      lhs.gfsk.frequency_deviation_hz == rhs.gfsk.frequency_deviation_hz &&
-      lhs.gfsk.receive_bandwidth_hz == rhs.gfsk.receive_bandwidth_hz &&
-      lhs.gfsk.preamble_length_bits == rhs.gfsk.preamble_length_bits &&
-      lhs.gfsk.sync_word == rhs.gfsk.sync_word &&
-      lhs.gfsk.output_power_dbm == rhs.gfsk.output_power_dbm &&
-      lhs.gfsk.crc_enabled == rhs.gfsk.crc_enabled &&
-      lhs.gfsk.whitening_enabled == rhs.gfsk.whitening_enabled &&
-      lhs.gfsk.fec_enabled == rhs.gfsk.fec_enabled &&
-      lhs.enhanced_shock_burst.channel == rhs.enhanced_shock_burst.channel &&
-      lhs.enhanced_shock_burst.data_rate_bps ==
-          rhs.enhanced_shock_burst.data_rate_bps &&
-      lhs.enhanced_shock_burst.address == rhs.enhanced_shock_burst.address &&
-      lhs.enhanced_shock_burst.address_width ==
-          rhs.enhanced_shock_burst.address_width &&
-      lhs.enhanced_shock_burst.output_power_dbm ==
-          rhs.enhanced_shock_burst.output_power_dbm &&
-      lhs.enhanced_shock_burst.crc_length_bits ==
-          rhs.enhanced_shock_burst.crc_length_bits &&
-      lhs.enhanced_shock_burst.retransmit_count ==
-          rhs.enhanced_shock_burst.retransmit_count &&
-      lhs.enhanced_shock_burst.retransmit_delay_us ==
-          rhs.enhanced_shock_burst.retransmit_delay_us &&
-      lhs.enhanced_shock_burst.auto_ack_enabled ==
-          rhs.enhanced_shock_burst.auto_ack_enabled &&
-      lhs.enhanced_shock_burst.dynamic_payload_enabled ==
-          rhs.enhanced_shock_burst.dynamic_payload_enabled;
+         lhs.protocol == rhs.protocol && lhs.antenna == rhs.antenna &&
+         lhs.lora.frequency_hz == rhs.lora.frequency_hz &&
+         lhs.lora.bandwidth_hz == rhs.lora.bandwidth_hz &&
+         lhs.lora.preamble_length == rhs.lora.preamble_length &&
+         lhs.lora.spreading_factor == rhs.lora.spreading_factor &&
+         lhs.lora.coding_rate_denominator == rhs.lora.coding_rate_denominator &&
+         lhs.lora.lr2021_coding_rate == rhs.lora.lr2021_coding_rate &&
+         lhs.lora.sync_word == rhs.lora.sync_word &&
+         lhs.lora.output_power_dbm == rhs.lora.output_power_dbm &&
+         lhs.lora.crc_enabled == rhs.lora.crc_enabled &&
+         lhs.lora.invert_iq == rhs.lora.invert_iq &&
+         lhs.lora.rx_boosted == rhs.lora.rx_boosted &&
+         lhs.lora.lr2021_rx_boost_mode == rhs.lora.lr2021_rx_boost_mode &&
+         lhs.gfsk.frequency_hz == rhs.gfsk.frequency_hz &&
+         lhs.gfsk.data_rate_bps == rhs.gfsk.data_rate_bps &&
+         lhs.gfsk.frequency_deviation_hz == rhs.gfsk.frequency_deviation_hz &&
+         lhs.gfsk.receive_bandwidth_hz == rhs.gfsk.receive_bandwidth_hz &&
+         lhs.gfsk.preamble_length_bits == rhs.gfsk.preamble_length_bits &&
+         lhs.gfsk.sync_word == rhs.gfsk.sync_word &&
+         lhs.gfsk.output_power_dbm == rhs.gfsk.output_power_dbm &&
+         lhs.gfsk.crc_enabled == rhs.gfsk.crc_enabled &&
+         lhs.gfsk.whitening_enabled == rhs.gfsk.whitening_enabled &&
+         lhs.gfsk.fec_enabled == rhs.gfsk.fec_enabled &&
+         lhs.enhanced_shock_burst.channel == rhs.enhanced_shock_burst.channel &&
+         lhs.enhanced_shock_burst.data_rate_bps ==
+             rhs.enhanced_shock_burst.data_rate_bps &&
+         lhs.enhanced_shock_burst.address == rhs.enhanced_shock_burst.address &&
+         lhs.enhanced_shock_burst.address_width ==
+             rhs.enhanced_shock_burst.address_width &&
+         lhs.enhanced_shock_burst.output_power_dbm ==
+             rhs.enhanced_shock_burst.output_power_dbm &&
+         lhs.enhanced_shock_burst.crc_length_bits ==
+             rhs.enhanced_shock_burst.crc_length_bits &&
+         lhs.enhanced_shock_burst.retransmit_count ==
+             rhs.enhanced_shock_burst.retransmit_count &&
+         lhs.enhanced_shock_burst.retransmit_delay_us ==
+             rhs.enhanced_shock_burst.retransmit_delay_us &&
+         lhs.enhanced_shock_burst.auto_ack_enabled ==
+             rhs.enhanced_shock_burst.auto_ack_enabled &&
+         lhs.enhanced_shock_burst.dynamic_payload_enabled ==
+             rhs.enhanced_shock_burst.dynamic_payload_enabled;
 }
 
 const char* ChipDisplayName(radio::ChipType chip) {
@@ -910,8 +898,7 @@ bool IsFrequencySupported(
       capability.frequency_band_count, hal::kRadioFrequencyBandCapacity);
   for (size_t index = 0; index < band_count; ++index) {
     const hal::RadioFrequencyBand& band = capability.frequency_bands[index];
-    if (band.minimum_hz <= band.maximum_hz &&
-        frequency_hz >= band.minimum_hz &&
+    if (band.minimum_hz <= band.maximum_hz && frequency_hz >= band.minimum_hz &&
         frequency_hz <= band.maximum_hz) {
       return true;
     }
@@ -927,9 +914,8 @@ bool IsFrequencySupported(
  */
 bool AreProfileSettingsEqual(
     const app::RadioProfile& lhs, const app::RadioProfile& rhs) {
-  return std::strcmp(lhs.name, rhs.name) == 0 &&
-         lhs.chip == rhs.chip && lhs.protocol == rhs.protocol &&
-         lhs.frequency_hz == rhs.frequency_hz &&
+  return std::strcmp(lhs.name, rhs.name) == 0 && lhs.chip == rhs.chip &&
+         lhs.protocol == rhs.protocol && lhs.frequency_hz == rhs.frequency_hz &&
          lhs.bandwidth_hz == rhs.bandwidth_hz &&
          lhs.preamble_length == rhs.preamble_length &&
          lhs.spreading_factor == rhs.spreading_factor &&
@@ -937,13 +923,11 @@ bool AreProfileSettingsEqual(
          lhs.lr2021_coding_rate == rhs.lr2021_coding_rate &&
          lhs.sync_word == rhs.sync_word &&
          lhs.output_power_dbm == rhs.output_power_dbm &&
-         lhs.crc_enabled == rhs.crc_enabled &&
-         lhs.invert_iq == rhs.invert_iq &&
+         lhs.crc_enabled == rhs.crc_enabled && lhs.invert_iq == rhs.invert_iq &&
          lhs.rx_boosted == rhs.rx_boosted &&
          lhs.lr2021_rx_boost_mode == rhs.lr2021_rx_boost_mode &&
          lhs.gfsk_data_rate_bps == rhs.gfsk_data_rate_bps &&
-         lhs.gfsk_frequency_deviation_hz ==
-             rhs.gfsk_frequency_deviation_hz &&
+         lhs.gfsk_frequency_deviation_hz == rhs.gfsk_frequency_deviation_hz &&
          lhs.gfsk_receive_bandwidth_hz == rhs.gfsk_receive_bandwidth_hz &&
          lhs.gfsk_sync_word == rhs.gfsk_sync_word &&
          lhs.gfsk_whitening_enabled == rhs.gfsk_whitening_enabled &&
@@ -970,8 +954,7 @@ bool IsProfileSupported(
     return false;
   }
   for (size_t index = 0; index < state->capabilities.count; ++index) {
-    const hal::RadioCapability& capability =
-        state->capabilities.entries[index];
+    const hal::RadioCapability& capability = state->capabilities.entries[index];
     if (capability.chip == profile.chip &&
         capability.protocol == profile.protocol &&
         IsFrequencySupported(capability, profile.frequency_hz)) {
@@ -989,13 +972,13 @@ bool IsRadioConfigSupported(const hal::RadioCapabilities& capabilities,
   }
   const uint32_t frequency_hz =
       config.protocol == radio::ProtocolType::kEnhancedShockBurst
-      ? static_cast<uint32_t>(2400U + config.enhanced_shock_burst.channel) *
-          1000000U
-      : (config.protocol == radio::ProtocolType::kGfsk
-            ? config.gfsk.frequency_hz
-            : config.lora.frequency_hz);
-  const size_t capability_count = std::min(
-      capabilities.count, hal::kRadioCapabilityCapacity);
+          ? static_cast<uint32_t>(2400U + config.enhanced_shock_burst.channel) *
+                1000000U
+          : (config.protocol == radio::ProtocolType::kGfsk
+                    ? config.gfsk.frequency_hz
+                    : config.lora.frequency_hz);
+  const size_t capability_count =
+      std::min(capabilities.count, hal::kRadioCapabilityCapacity);
   for (size_t index = 0; index < capability_count; ++index) {
     const hal::RadioCapability& capability = capabilities.entries[index];
     if (capability.chip == config.chip &&
@@ -1019,8 +1002,7 @@ size_t MaximumPayloadSizeForProfile(
     return 0;
   }
   for (size_t index = 0; index < state->capabilities.count; ++index) {
-    const hal::RadioCapability& capability =
-        state->capabilities.entries[index];
+    const hal::RadioCapability& capability = state->capabilities.entries[index];
     if (capability.chip == profile.chip &&
         capability.protocol == profile.protocol) {
       return capability.maximum_payload_size;
@@ -1040,10 +1022,10 @@ const hal::RadioCapability* PrimaryRadioCapability(
     return nullptr;
   }
   const size_t index = state->selected_add_chip >= 0
-      ? static_cast<size_t>(state->selected_add_chip)
-      : 0;
-  return &state->capabilities.entries[
-      std::min(index, state->capabilities.count - 1)];
+                           ? static_cast<size_t>(state->selected_add_chip)
+                           : 0;
+  return &state->capabilities
+              .entries[std::min(index, state->capabilities.count - 1)];
 }
 
 /**
@@ -1096,13 +1078,12 @@ size_t AddProfileOutputPowerCount(const RadioViewState* state) {
 int8_t AddProfileOutputPower(const RadioViewState* state, size_t index) {
   switch (AddProfileChip(state)) {
     case radio::ChipType::kCc1101:
-      return index < std::size(kCc1101OutputPowers)
-          ? kCc1101OutputPowers[index]
-          : 0;
+      return index < std::size(kCc1101OutputPowers) ? kCc1101OutputPowers[index]
+                                                    : 0;
     case radio::ChipType::kNrf24l01:
       return index < std::size(kNrf24l01OutputPowers)
-          ? kNrf24l01OutputPowers[index]
-          : 0;
+                 ? kNrf24l01OutputPowers[index]
+                 : 0;
     default:
       return 0;
   }
@@ -1136,8 +1117,8 @@ uint32_t AddProfileBandwidth(const RadioViewState* state, size_t index) {
       62500, 125000, 200000, 250000, 400000, 500000, 800000};
   if (AddProfileChip(state) == radio::ChipType::kLr2021) {
     return index < std::size(radio::kLr2021BandwidthsHz)
-        ? radio::kLr2021BandwidthsHz[index]
-        : 0;
+               ? radio::kLr2021BandwidthsHz[index]
+               : 0;
   }
   if (AddProfileChip(state) == radio::ChipType::kLr1121) {
     return index < std::size(kLr1121Bandwidths) ? kLr1121Bandwidths[index] : 0;
@@ -1157,8 +1138,8 @@ const char* AddProfileBandwidthName(const RadioViewState* state, size_t index) {
       "62.5", "125", "203", "250", "406", "500", "812"};
   if (AddProfileChip(state) == radio::ChipType::kLr2021) {
     return index < std::size(kLr2021BandwidthNames)
-        ? kLr2021BandwidthNames[index]
-        : "";
+               ? kLr2021BandwidthNames[index]
+               : "";
   }
   if (AddProfileChip(state) == radio::ChipType::kLr1121) {
     return index < std::size(kLr1121Names) ? kLr1121Names[index] : "";
@@ -1168,8 +1149,8 @@ const char* AddProfileBandwidthName(const RadioViewState* state, size_t index) {
 
 size_t AddProfileCodingRateCount(const RadioViewState* state) {
   return AddProfileChip(state) == radio::ChipType::kLr2021
-      ? std::size(radio::kLr2021CodingRates)
-      : 4;
+             ? std::size(radio::kLr2021CodingRates)
+             : 4;
 }
 
 radio::Lr2021CodingRate AddProfileLr2021CodingRate(
@@ -1187,12 +1168,12 @@ const char* AddProfileCodingRateName(
       "4/5", "4/6", "4/7", "4/8"};
   if (AddProfileChip(state) == radio::ChipType::kLr2021) {
     return index < std::size(kLr2021CodingRateNames)
-        ? kLr2021CodingRateNames[index]
-        : "";
+               ? kLr2021CodingRateNames[index]
+               : "";
   }
   return index < std::size(kStandardCodingRateNames)
-      ? kStandardCodingRateNames[index]
-      : "";
+             ? kStandardCodingRateNames[index]
+             : "";
 }
 
 size_t FindProfileIndex(const RadioViewState* state, uint32_t profile_id) {
@@ -1207,24 +1188,23 @@ size_t FindProfileIndex(const RadioViewState* state, uint32_t profile_id) {
   return kRadioModuleCapacity;
 }
 
-void RecordProfileChipError(
-    RadioViewState* state, uint32_t profile_id) {
+void RecordProfileChipError(RadioViewState* state, uint32_t profile_id) {
   if (state == nullptr || profile_id == 0 ||
       GetRadioActivationRegistry().GetState(profile_id) ==
           RadioActivationState::kPending) {
     return;
   }
   const size_t profile_index = FindProfileIndex(state, profile_id);
-  const bool hardware_available = profile_index < state->module_count &&
-      IsProfileSupported(
-          state, state->preferences.profiles[profile_index]);
+  const bool hardware_available =
+      profile_index < state->module_count &&
+      IsProfileSupported(state, state->preferences.profiles[profile_index]);
   SetProfileActivationState(profile_id,
       hardware_available ? RadioActivationState::kChipError
                          : RadioActivationState::kHardwareUnavailable);
 }
 
-void FormatCurrentTime(const RadioViewState* state, char* output,
-    size_t output_size) {
+void FormatCurrentTime(
+    const RadioViewState* state, char* output, size_t output_size) {
   if (output == nullptr || output_size == 0) {
     return;
   }
@@ -1258,8 +1238,8 @@ bool IsProfileActivationPending(
     }
   }
   return state->radio_command_job != nullptr &&
-      state->radio_command_job->type == RadioCommandType::kActivate &&
-      state->radio_command_job->config.client_token == profile_id;
+         state->radio_command_job->type == RadioCommandType::kActivate &&
+         state->radio_command_job->config.client_token == profile_id;
 }
 
 /**
@@ -1287,8 +1267,7 @@ RadioComposerMode GetRadioComposerMode(
     return RadioComposerMode::kActivating;
   }
   if (!state->radio_status_available[index] ||
-      state->radio_statuses[index].state ==
-          hal::RadioLinkState::kChipError) {
+      state->radio_statuses[index].state == hal::RadioLinkState::kChipError) {
     return RadioComposerMode::kChipError;
   }
   if (state->radio_statuses[index].state == hal::RadioLinkState::kActive &&
@@ -1326,9 +1305,8 @@ uint32_t ProfileStatusColor(const char* status) {
   if (status != nullptr && std::strcmp(status, "Chip error") == 0) {
     return theme::FixedColors().error;
   }
-  if (status != nullptr &&
-      (std::strcmp(status, "Unsupported") == 0 ||
-          std::strcmp(status, "Unavailable") == 0)) {
+  if (status != nullptr && (std::strcmp(status, "Unsupported") == 0 ||
+                               std::strcmp(status, "Unavailable") == 0)) {
     return theme::FixedColors().warning;
   }
   return theme::ActiveThemeColors().on_surface_variant;
@@ -1340,8 +1318,7 @@ uint32_t ProfileStatusColor(const char* status) {
  * @param index 射频配置索引
  * @return 当前配置对应的状态标记颜色
  */
-uint32_t ProfileIndicatorColor(
-    const RadioViewState* state, size_t index) {
+uint32_t ProfileIndicatorColor(const RadioViewState* state, size_t index) {
   const char* status = ProfileStatusText(state, index);
   if (std::strcmp(status, "Active") == 0) {
     return theme::ActiveThemeColors().success;
@@ -1431,8 +1408,7 @@ void RadioViewDeleteEventCallback(lv_event_t* event) {
     // 页面销毁后尚未启动的队列项会随状态一起释放，不能把它们继续标记
     // 为正在初始化。已经进入 worker 的命令由 worker 发布最终状态。
     for (size_t index = 0; index < state->pending_control_count; ++index) {
-      if (state->pending_control_types[index] ==
-          RadioCommandType::kActivate) {
+      if (state->pending_control_types[index] == RadioCommandType::kActivate) {
         SetProfileActivationState(
             state->pending_control_configs[index].client_token,
             RadioActivationState::kNone);
@@ -1470,8 +1446,7 @@ void ModuleActionDeleteEventCallback(lv_event_t* event) {
  * @param animation LVGL 动画对象
  */
 void DetailCloseCompletedCallback(lv_anim_t* animation) {
-  auto* state = static_cast<RadioViewState*>(
-      lv_anim_get_user_data(animation));
+  auto* state = static_cast<RadioViewState*>(lv_anim_get_user_data(animation));
   if (state != nullptr && state->detail_page != nullptr) {
     lv_obj_t* page = state->detail_page;
     state->detail_page = nullptr;
@@ -1508,9 +1483,8 @@ void CloseModuleDetail(RadioViewState* state) {
   }
   HideSharedKeyboard(state->detail_keyboard);
   state->detail_closing = true;
-  if (!StartSlideRightWindowTransition(state->detail_page,
-      state->config.width, kAnimationMs, state,
-      DetailCloseCompletedCallback)) {
+  if (!StartSlideRightWindowTransition(state->detail_page, state->config.width,
+          kAnimationMs, state, DetailCloseCompletedCallback)) {
     lv_obj_t* page = state->detail_page;
     state->detail_page = nullptr;
     state->detail_input = nullptr;
@@ -1566,8 +1540,8 @@ void DetailHeaderClickedEventCallback(lv_event_t* event) {
  * @param color 填充颜色
  * @param radius 圆角半径
  */
-void DrawChatRectangle(lv_layer_t* layer, int x, int y, int width,
-    int height, uint32_t color, int radius) {
+void DrawChatRectangle(lv_layer_t* layer, int x, int y, int width, int height,
+    uint32_t color, int radius) {
   if (layer == nullptr || width <= 0 || height <= 0) {
     return;
   }
@@ -1603,8 +1577,8 @@ void DrawChatText(lv_layer_t* layer, const char* text, uint32_t color,
     const lv_font_t* font, int x, int y, int width, int height,
     lv_text_align_t alignment, bool local_text,
     lv_text_flag_t text_flags = LV_TEXT_FLAG_NONE) {
-  if (layer == nullptr || text == nullptr || font == nullptr ||
-      width <= 0 || height <= 0) {
+  if (layer == nullptr || text == nullptr || font == nullptr || width <= 0 ||
+      height <= 0) {
     return;
   }
   lv_draw_label_dsc_t descriptor;
@@ -1638,10 +1612,12 @@ void DrawSystemChatMessage(lv_layer_t* layer, int timeline_x, int row_y,
   }
   const int box_x = timeline_x + rendered.content_x;
   DrawChatRectangle(layer, box_x, row_y, rendered.content_width,
-      rendered.content_height, theme::ActiveThemeColors().surface_container_highest, 21);
-  DrawChatText(layer, message->text, theme::ActiveThemeColors().on_surface_variant, Font22(),
-      box_x + 14, row_y + 8, rendered.content_width - 28,
-      rendered.content_height - 16, LV_TEXT_ALIGN_CENTER, false);
+      rendered.content_height,
+      theme::ActiveThemeColors().surface_container_highest, 21);
+  DrawChatText(layer, message->text,
+      theme::ActiveThemeColors().on_surface_variant, Font22(), box_x + 14,
+      row_y + 8, rendered.content_width - 28, rendered.content_height - 16,
+      LV_TEXT_ALIGN_CENTER, false);
 }
 
 /**
@@ -1652,39 +1628,36 @@ void DrawSystemChatMessage(lv_layer_t* layer, int timeline_x, int row_y,
  * @param row_y 消息行顶部绝对坐标
  * @param rendered 消息布局
  */
-void DrawUserChatMessage(lv_layer_t* layer, int timeline_x,
-    int timeline_width, int row_y,
-    const RenderedRadioChatMessage& rendered) {
+void DrawUserChatMessage(lv_layer_t* layer, int timeline_x, int timeline_width,
+    int row_y, const RenderedRadioChatMessage& rendered) {
   const RadioChatMessage* message = rendered.message;
   if (message == nullptr) {
     return;
   }
-  const bool outgoing =
-      message->delivery != RadioChatDeliveryState::kReceived;
+  const bool outgoing = message->delivery != RadioChatDeliveryState::kReceived;
   const uint32_t bubble_color =
       outgoing ? kPrimaryColor : theme::ActiveThemeColors().surface_container;
-  const uint32_t text_color = outgoing ? kOnPrimaryColor : theme::ActiveThemeColors().on_surface;
+  const uint32_t text_color =
+      outgoing ? kOnPrimaryColor : theme::ActiveThemeColors().on_surface;
   const int bubble_x = timeline_x + rendered.content_x;
   DrawChatRectangle(layer, bubble_x, row_y, rendered.content_width,
       rendered.content_height, bubble_color, 20);
-  const int corner_x = outgoing
-      ? bubble_x + rendered.content_width - 20
-      : bubble_x;
-  DrawChatRectangle(layer, corner_x,
-      row_y + rendered.content_height - 20, 20, 20,
-      bubble_color, 6);
-  DrawChatText(layer, message->text, text_color, Font24(),
-      bubble_x + 18,
+  const int corner_x =
+      outgoing ? bubble_x + rendered.content_width - 20 : bubble_x;
+  DrawChatRectangle(layer, corner_x, row_y + rendered.content_height - 20, 20,
+      20, bubble_color, 6);
+  DrawChatText(layer, message->text, text_color, Font24(), bubble_x + 18,
       row_y + (rendered.content_height - rendered.text_height) / 2,
-      rendered.content_width - 36, rendered.text_height,
-      LV_TEXT_ALIGN_LEFT, false);
+      rendered.content_width - 36, rendered.text_height, LV_TEXT_ALIGN_LEFT,
+      false);
 
   const int status_y = row_y + rendered.status_y;
   if (!outgoing) {
     if (!message->rssi_valid && !message->snr_valid) {
-      DrawChatText(layer, message->time, theme::ActiveThemeColors().on_surface_variant, Font22(),
-          timeline_x + 28, status_y, 180, 30,
-          LV_TEXT_ALIGN_LEFT, false, LV_TEXT_FLAG_EXPAND);
+      DrawChatText(layer, message->time,
+          theme::ActiveThemeColors().on_surface_variant, Font22(),
+          timeline_x + 28, status_y, 180, 30, LV_TEXT_ALIGN_LEFT, false,
+          LV_TEXT_FLAG_EXPAND);
       return;
     }
     char rssi[32] = {};
@@ -1700,51 +1673,47 @@ void DrawUserChatMessage(lv_layer_t* layer, int timeline_x,
       CopyBoundedString(rssi, sizeof(rssi), "RSSI --");
     }
     lv_point_t rssi_size = {};
-    lv_text_get_size(&rssi_size, rssi, Font22(), 0, 0,
-        LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
+    lv_text_get_size(
+        &rssi_size, rssi, Font22(), 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
     const int rssi_width = std::max(1, static_cast<int>(rssi_size.x));
-    DrawChatText(layer, rssi,
-        theme::ActiveThemeColors().on_surface_variant, Font22(),
-        next_signal_metric_x, status_y, rssi_width, 30, LV_TEXT_ALIGN_LEFT,
-        true, LV_TEXT_FLAG_EXPAND);
+    DrawChatText(layer, rssi, theme::ActiveThemeColors().on_surface_variant,
+        Font22(), next_signal_metric_x, status_y, rssi_width, 30,
+        LV_TEXT_ALIGN_LEFT, true, LV_TEXT_FLAG_EXPAND);
     next_signal_metric_x += rssi_width + kChatSignalMetricGap;
     if (message->snr_valid) {
       char value[16] = {};
-      FormatQuarterDbValue(
-          message->snr_quarter_db, true, value, sizeof(value));
+      FormatQuarterDbValue(message->snr_quarter_db, true, value, sizeof(value));
       std::snprintf(snr, sizeof(snr), "SNR %s", value);
       lv_point_t snr_size = {};
-      lv_text_get_size(&snr_size, snr, Font22(), 0, 0,
-          LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
+      lv_text_get_size(
+          &snr_size, snr, Font22(), 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
       const int snr_width = std::max(1, static_cast<int>(snr_size.x));
-      DrawChatText(layer, snr, theme::ActiveThemeColors().on_surface_variant, Font22(),
-          next_signal_metric_x, status_y, snr_width, 30,
+      DrawChatText(layer, snr, theme::ActiveThemeColors().on_surface_variant,
+          Font22(), next_signal_metric_x, status_y, snr_width, 30,
           LV_TEXT_ALIGN_LEFT, true, LV_TEXT_FLAG_EXPAND);
     }
-    DrawChatText(layer, message->time, theme::ActiveThemeColors().on_surface_variant, Font22(),
-        timeline_x + 28, status_y + 28, 180, 30,
-        LV_TEXT_ALIGN_LEFT, false, LV_TEXT_FLAG_EXPAND);
+    DrawChatText(layer, message->time,
+        theme::ActiveThemeColors().on_surface_variant, Font22(),
+        timeline_x + 28, status_y + 28, 180, 30, LV_TEXT_ALIGN_LEFT, false,
+        LV_TEXT_FLAG_EXPAND);
     return;
   }
 
-  const bool sending =
-      message->delivery == RadioChatDeliveryState::kSending;
-  const bool success =
-      message->delivery == RadioChatDeliveryState::kSent;
+  const bool sending = message->delivery == RadioChatDeliveryState::kSending;
+  const bool success = message->delivery == RadioChatDeliveryState::kSent;
   char status_text[32] = {};
   std::snprintf(status_text, sizeof(status_text), "%s%s",
       sending ? "Sending  " : "", message->time);
-  const int time_right = timeline_x + timeline_width -
-      (sending ? 28 : 66);
-  DrawChatText(layer, status_text, theme::ActiveThemeColors().on_surface_variant, Font22(),
-      timeline_x + 28, status_y, time_right - timeline_x - 28, 30,
-      LV_TEXT_ALIGN_RIGHT, true);
+  const int time_right = timeline_x + timeline_width - (sending ? 28 : 66);
+  DrawChatText(layer, status_text,
+      theme::ActiveThemeColors().on_surface_variant, Font22(), timeline_x + 28,
+      status_y, time_right - timeline_x - 28, 30, LV_TEXT_ALIGN_RIGHT, true);
   if (!sending) {
     DrawChatText(layer, success ? icon::kCheck : icon::kClose,
         success ? theme::ActiveThemeColors().success
                 : theme::FixedColors().error,
-        FillIconFont32(), timeline_x + timeline_width - 62,
-        status_y - 5, 34, 40, LV_TEXT_ALIGN_RIGHT, false);
+        FillIconFont32(), timeline_x + timeline_width - 62, status_y - 5, 34,
+        40, LV_TEXT_ALIGN_RIGHT, false);
   }
 }
 
@@ -1756,8 +1725,7 @@ void ChatTimelineDrawEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_DRAW_MAIN) {
     return;
   }
-  auto* state =
-      static_cast<RadioViewState*>(lv_event_get_user_data(event));
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   lv_obj_t* timeline = lv_event_get_target_obj(event);
   lv_layer_t* layer = lv_event_get_layer(event);
   if (state == nullptr || timeline == nullptr || layer == nullptr ||
@@ -1773,8 +1741,7 @@ void ChatTimelineDrawEventCallback(lv_event_t* event) {
     const RenderedRadioChatMessage& rendered =
         state->rendered_chat_messages[index];
     const int row_y = timeline_area.y1 + rendered.y;
-    if (row_y + rendered.height < body_area.y1 ||
-        row_y > body_area.y2) {
+    if (row_y + rendered.height < body_area.y1 || row_y > body_area.y2) {
       continue;
     }
     if (rendered.message == nullptr ||
@@ -1782,11 +1749,10 @@ void ChatTimelineDrawEventCallback(lv_event_t* event) {
       continue;
     }
     if (rendered.message->type == RadioChatMessageType::kSystem) {
-      DrawSystemChatMessage(
-          layer, timeline_area.x1, row_y, rendered);
+      DrawSystemChatMessage(layer, timeline_area.x1, row_y, rendered);
     } else {
-      DrawUserChatMessage(layer, timeline_area.x1,
-          timeline_width, row_y, rendered);
+      DrawUserChatMessage(
+          layer, timeline_area.x1, timeline_width, row_y, rendered);
     }
   }
 }
@@ -1799,8 +1765,7 @@ void ResetRenderedChatState(RadioViewState* state) {
   if (state == nullptr) {
     return;
   }
-  for (RenderedRadioChatMessage& message :
-       state->rendered_chat_messages) {
+  for (RenderedRadioChatMessage& message : state->rendered_chat_messages) {
     message = RenderedRadioChatMessage();
   }
   state->rendered_chat_count = 0;
@@ -1822,9 +1787,8 @@ void ResetRenderedChatState(RadioViewState* state) {
  * @param output 布局输出
  * @return 参数和布局有效时返回 true
  */
-bool LayoutChatMessage(RadioViewState* state,
-    const RadioChatMessage& message, int y,
-    RenderedRadioChatMessage* output) {
+bool LayoutChatMessage(RadioViewState* state, const RadioChatMessage& message,
+    int y, RenderedRadioChatMessage* output) {
   if (state == nullptr || output == nullptr) {
     return false;
   }
@@ -1834,51 +1798,43 @@ bool LayoutChatMessage(RadioViewState* state,
   rendered.y = y;
   lv_point_t text_size = {};
   if (message.type == RadioChatMessageType::kSystem) {
-    const int max_label_width =
-        std::max(1, state->config.width - 92);
-    const int estimated_width = std::max(1,
-        static_cast<int>(std::strlen(message.text)) *
-            kSystemMessageGlyphWidthEstimate);
-    const int label_width =
-        std::min(estimated_width, max_label_width);
-    const int line_count = std::max(
-        1, (estimated_width + max_label_width - 1) / max_label_width);
-    const int text_height =
-        lv_font_get_line_height(Font22()) * line_count;
+    const int max_label_width = std::max(1, state->config.width - 92);
+    const int estimated_width =
+        std::max(1, static_cast<int>(std::strlen(message.text)) *
+                        kSystemMessageGlyphWidthEstimate);
+    const int label_width = std::min(estimated_width, max_label_width);
+    const int line_count =
+        std::max(1, (estimated_width + max_label_width - 1) / max_label_width);
+    const int text_height = lv_font_get_line_height(Font22()) * line_count;
     rendered.content_width = label_width + 28;
     rendered.content_height = text_height + 16;
-    rendered.content_x =
-        (state->config.width - rendered.content_width) / 2;
+    rendered.content_x = (state->config.width - rendered.content_width) / 2;
     rendered.text_height = text_height;
     rendered.height = rendered.content_height + 18;
     *output = rendered;
     return true;
   }
 
-  const int max_bubble_width =
-      std::max(90, state->config.width - 100);
-  lv_text_get_size(&text_size, message.text, Font24(), 0, 0,
-      LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+  const int max_bubble_width = std::max(90, state->config.width - 100);
+  lv_text_get_size(&text_size, message.text, Font24(), 0, 0, LV_COORD_MAX,
+      LV_TEXT_FLAG_NONE);
   const int unwrapped_width = static_cast<int>(text_size.x);
-  rendered.content_width = std::clamp(
-      unwrapped_width + 36, 90, max_bubble_width);
+  rendered.content_width =
+      std::clamp(unwrapped_width + 36, 90, max_bubble_width);
   const int label_width = rendered.content_width - 36;
   if (unwrapped_width > label_width) {
-    lv_text_get_size(&text_size, message.text, Font24(), 0, 0,
-        label_width, LV_TEXT_FLAG_NONE);
+    lv_text_get_size(&text_size, message.text, Font24(), 0, 0, label_width,
+        LV_TEXT_FLAG_NONE);
   }
   rendered.text_height = static_cast<int>(text_size.y);
   rendered.content_height = std::max(rendered.text_height + 28, 64);
-  const bool outgoing =
-      message.delivery != RadioChatDeliveryState::kReceived;
-  rendered.content_x = outgoing
-      ? state->config.width - rendered.content_width - 28
-      : 28;
+  const bool outgoing = message.delivery != RadioChatDeliveryState::kReceived;
+  rendered.content_x =
+      outgoing ? state->config.width - rendered.content_width - 28 : 28;
   rendered.status_y = rendered.content_height + 8;
-  const bool signal_metrics_available =
-      message.rssi_valid || message.snr_valid;
-  rendered.height = rendered.status_y +
-      (outgoing || !signal_metrics_available ? 48 : 76);
+  const bool signal_metrics_available = message.rssi_valid || message.snr_valid;
+  rendered.height =
+      rendered.status_y + (outgoing || !signal_metrics_available ? 48 : 76);
   *output = rendered;
   return true;
 }
@@ -1895,9 +1851,8 @@ int32_t ChatBottomScrollY(
   if (body == nullptr) {
     return 0;
   }
-  const int body_height = viewport_height >= 0
-      ? viewport_height
-      : lv_obj_get_height(body);
+  const int body_height =
+      viewport_height >= 0 ? viewport_height : lv_obj_get_height(body);
   return std::max<int32_t>(
       0, content_height + kChatTimelineInset - body_height);
 }
@@ -1911,10 +1866,9 @@ bool IsChatAtBottom(const RadioViewState* state) {
   if (state == nullptr || state->detail_chat_body == nullptr) {
     return true;
   }
-  const int32_t target = ChatBottomScrollY(state->detail_chat_body,
-      state->rendered_chat_y);
-  const int32_t current =
-      lv_obj_get_scroll_y(state->detail_chat_body);
+  const int32_t target =
+      ChatBottomScrollY(state->detail_chat_body, state->rendered_chat_y);
+  const int32_t current = lv_obj_get_scroll_y(state->detail_chat_body);
   return target - current <= kChatBottomTolerance;
 }
 
@@ -1939,8 +1893,8 @@ int ChatJumpButtonVisibleY(const RadioViewState* state) {
     return 0;
   }
   const int divider_y = state->detail_divider == nullptr
-      ? state->config.height - 108
-      : lv_obj_get_y(state->detail_divider);
+                            ? state->config.height - 108
+                            : lv_obj_get_y(state->detail_divider);
   return divider_y - kChatJumpButtonSize - kChatJumpButtonBottomGap;
 }
 
@@ -1954,8 +1908,8 @@ int ChatJumpButtonHiddenY(const RadioViewState* state) {
     return 0;
   }
   const int divider_y = state->detail_divider == nullptr
-      ? state->config.height - 108
-      : lv_obj_get_y(state->detail_divider);
+                            ? state->config.height - 108
+                            : lv_obj_get_y(state->detail_divider);
   return divider_y + kChatJumpButtonHiddenOffset;
 }
 
@@ -1964,15 +1918,13 @@ int ChatJumpButtonHiddenY(const RadioViewState* state) {
  * @param animation LVGL 动画对象
  */
 void ChatJumpButtonHideCompletedCallback(lv_anim_t* animation) {
-  auto* state = static_cast<RadioViewState*>(
-      lv_anim_get_user_data(animation));
+  auto* state = static_cast<RadioViewState*>(lv_anim_get_user_data(animation));
   if (state == nullptr || state->detail_chat_jump_button == nullptr ||
       state->chat_jump_button_visible) {
     return;
   }
   lv_obj_add_flag(state->detail_chat_jump_button, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_set_y(state->detail_chat_jump_button,
-      ChatJumpButtonHiddenY(state));
+  lv_obj_set_y(state->detail_chat_jump_button, ChatJumpButtonHiddenY(state));
 }
 
 /**
@@ -1985,19 +1937,13 @@ void PositionChatJumpButton(RadioViewState* state) {
   }
   lv_anim_delete(state->detail_chat_jump_button, SetChatJumpButtonY);
   if (state->chat_jump_button_visible) {
-    lv_obj_remove_flag(
-        state->detail_chat_jump_button, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(
-        state->detail_chat_jump_button, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_y(state->detail_chat_jump_button,
-        ChatJumpButtonVisibleY(state));
+    lv_obj_remove_flag(state->detail_chat_jump_button, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(state->detail_chat_jump_button, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_y(state->detail_chat_jump_button, ChatJumpButtonVisibleY(state));
   } else {
-    lv_obj_remove_flag(
-        state->detail_chat_jump_button, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_y(state->detail_chat_jump_button,
-        ChatJumpButtonHiddenY(state));
-    lv_obj_add_flag(
-        state->detail_chat_jump_button, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(state->detail_chat_jump_button, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_y(state->detail_chat_jump_button, ChatJumpButtonHiddenY(state));
+    lv_obj_add_flag(state->detail_chat_jump_button, LV_OBJ_FLAG_HIDDEN);
   }
 }
 
@@ -2019,12 +1965,10 @@ void SetChatJumpButtonVisible(RadioViewState* state, bool visible) {
     return;
   }
   const bool was_hidden = lv_obj_has_flag(button, LV_OBJ_FLAG_HIDDEN);
-  const int32_t start_y = was_hidden
-      ? ChatJumpButtonHiddenY(state)
-      : lv_obj_get_y(button);
-  const int32_t end_y = visible
-      ? ChatJumpButtonVisibleY(state)
-      : ChatJumpButtonHiddenY(state);
+  const int32_t start_y =
+      was_hidden ? ChatJumpButtonHiddenY(state) : lv_obj_get_y(button);
+  const int32_t end_y =
+      visible ? ChatJumpButtonVisibleY(state) : ChatJumpButtonHiddenY(state);
   lv_anim_delete(button, SetChatJumpButtonY);
   if (visible) {
     lv_obj_remove_flag(button, LV_OBJ_FLAG_HIDDEN);
@@ -2045,14 +1989,12 @@ void SetChatJumpButtonVisible(RadioViewState* state, bool visible) {
   lv_anim_set_var(&animation, button);
   lv_anim_set_values(&animation, start_y, end_y);
   lv_anim_set_duration(&animation, kChatJumpAnimationMs);
-  lv_anim_set_path_cb(&animation, visible
-      ? lv_anim_path_ease_out
-      : lv_anim_path_ease_in);
+  lv_anim_set_path_cb(
+      &animation, visible ? lv_anim_path_ease_out : lv_anim_path_ease_in);
   lv_anim_set_exec_cb(&animation, SetChatJumpButtonY);
   if (!visible) {
     lv_anim_set_user_data(&animation, state);
-    lv_anim_set_completed_cb(
-        &animation, ChatJumpButtonHideCompletedCallback);
+    lv_anim_set_completed_cb(&animation, ChatJumpButtonHideCompletedCallback);
   }
   lv_anim_start(&animation);
 }
@@ -2086,9 +2028,9 @@ void ScrollChatToBottom(
  */
 bool IsChatTimelineVisible(const RadioViewState* state) {
   return state != nullptr && state->detail_page != nullptr &&
-      state->profile_settings_page == nullptr &&
-      state->profile_name_edit.page == nullptr &&
-      state->add_page == nullptr && !state->detail_closing;
+         state->profile_settings_page == nullptr &&
+         state->profile_name_edit.page == nullptr &&
+         state->add_page == nullptr && !state->detail_closing;
 }
 
 /**
@@ -2107,11 +2049,10 @@ void RequestChatScrollToBottom(
   }
   state->chat_scroll_pending = false;
   state->chat_programmatic_scroll = true;
-  ScrollChatToBottom(state->detail_chat_body,
-      state->rendered_chat_y, viewport_height);
+  ScrollChatToBottom(
+      state->detail_chat_body, state->rendered_chat_y, viewport_height);
   state->chat_programmatic_scroll = false;
-  state->chat_last_scroll_y =
-      lv_obj_get_scroll_y(state->detail_chat_body);
+  state->chat_last_scroll_y = lv_obj_get_scroll_y(state->detail_chat_body);
   state->chat_follow_latest = true;
   SetChatJumpButtonVisible(state, false);
 }
@@ -2136,8 +2077,7 @@ void ChatJumpButtonClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  auto* state = static_cast<RadioViewState*>(
-      lv_event_get_user_data(event));
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   if (state == nullptr) {
     return;
   }
@@ -2154,8 +2094,7 @@ void ChatJumpButtonClickedEventCallback(lv_event_t* event) {
  * @param event 聊天滚动区域事件
  */
 void DetailChatScrollEventCallback(lv_event_t* event) {
-  auto* state = static_cast<RadioViewState*>(
-      lv_event_get_user_data(event));
+  auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   if (state == nullptr || state->detail_chat_body == nullptr) {
     return;
   }
@@ -2164,8 +2103,7 @@ void DetailChatScrollEventCallback(lv_event_t* event) {
       code != LV_EVENT_SCROLL_END) {
     return;
   }
-  const int32_t current =
-      lv_obj_get_scroll_y(state->detail_chat_body);
+  const int32_t current = lv_obj_get_scroll_y(state->detail_chat_body);
   if (state->chat_programmatic_scroll) {
     state->chat_last_scroll_y = current;
     return;
@@ -2174,8 +2112,8 @@ void DetailChatScrollEventCallback(lv_event_t* event) {
     state->chat_last_scroll_y = current;
     return;
   }
-  const int32_t target = ChatBottomScrollY(state->detail_chat_body,
-      state->rendered_chat_y);
+  const int32_t target =
+      ChatBottomScrollY(state->detail_chat_body, state->rendered_chat_y);
   const int32_t bottom_distance = std::max<int32_t>(0, target - current);
   const bool at_bottom = bottom_distance <= kChatBottomTolerance;
   if (code == LV_EVENT_SCROLL) {
@@ -2189,7 +2127,7 @@ void DetailChatScrollEventCallback(lv_event_t* event) {
       if (moving_page_up) {
         SetChatJumpButtonVisible(state, false);
       } else if (moving_page_down &&
-          bottom_distance >= kChatJumpRevealDistance) {
+                 bottom_distance >= kChatJumpRevealDistance) {
         SetChatJumpButtonVisible(state, true);
       }
     }
@@ -2221,15 +2159,14 @@ size_t FindChatLayoutOverlap(const RadioViewState* state,
   if (state == nullptr || messages == nullptr) {
     return 0;
   }
-  const size_t maximum =
-      std::min(state->rendered_chat_count, message_count);
+  const size_t maximum = std::min(state->rendered_chat_count, message_count);
   for (size_t overlap = maximum; overlap > 0; --overlap) {
     const size_t old_first = state->rendered_chat_count - overlap;
     bool matches = true;
     for (size_t index = 0; index < overlap; ++index) {
       matches = messages[index] != nullptr &&
-          state->rendered_chat_messages[old_first + index].sequence ==
-              messages[index]->sequence;
+                state->rendered_chat_messages[old_first + index].sequence ==
+                    messages[index]->sequence;
       if (!matches) {
         break;
       }
@@ -2275,31 +2212,27 @@ bool RenderChatMessages(RadioViewState* state) {
   const size_t message_count = app::GetRadioChatRepository().GetRecent(
       profile.id, messages, app::kRadioChatPageCapacity);
   const uint32_t repository_done_ms = lv_tick_get();
-  const bool same_profile =
-      state->rendered_chat_profile_id == profile.id;
-  const bool follow_latest =
-      !same_profile || state->chat_follow_latest;
+  const bool same_profile = state->rendered_chat_profile_id == profile.id;
+  const bool follow_latest = !same_profile || state->chat_follow_latest;
   const int32_t previous_scroll_y =
       lv_obj_get_scroll_y(state->detail_chat_body);
-  size_t overlap = same_profile
-      ? FindChatLayoutOverlap(state, messages, message_count)
-      : 0;
-  const bool full_historical_page = same_profile && !follow_latest &&
+  size_t overlap =
+      same_profile ? FindChatLayoutOverlap(state, messages, message_count) : 0;
+  const bool full_historical_page =
+      same_profile && !follow_latest &&
       state->rendered_chat_count == app::kRadioChatPageCapacity &&
       message_count == app::kRadioChatPageCapacity;
-  if (full_historical_page &&
-      (state->chat_latest_page_pending ||
-          overlap < state->rendered_chat_count)) {
+  if (full_historical_page && (state->chat_latest_page_pending ||
+                                  overlap < state->rendered_chat_count)) {
     // 历史窗口已满时保持当前页，避免每来一条消息就移除顶部内容。
     state->chat_latest_page_pending = true;
     lv_obj_invalidate(state->detail_chat_timeline);
     return true;
   }
-  const bool rebuild = !same_profile ||
-      (state->rendered_chat_count > 0 && message_count > 0 &&
-          overlap == 0);
-  bool timeline_changed = rebuild ||
-      state->rendered_chat_count != message_count;
+  const bool rebuild = !same_profile || (state->rendered_chat_count > 0 &&
+                                            message_count > 0 && overlap == 0);
+  bool timeline_changed =
+      rebuild || state->rendered_chat_count != message_count;
   int removed_height = 0;
   if (rebuild || message_count == 0) {
     ResetRenderedChatState(state);
@@ -2315,10 +2248,8 @@ bool RenderChatMessages(RadioViewState* state) {
       state->rendered_chat_messages[index] =
           state->rendered_chat_messages[removed_count + index];
     }
-    for (size_t index = overlap;
-         index < state->rendered_chat_count; ++index) {
-      state->rendered_chat_messages[index] =
-          RenderedRadioChatMessage();
+    for (size_t index = overlap; index < state->rendered_chat_count; ++index) {
+      state->rendered_chat_messages[index] = RenderedRadioChatMessage();
     }
     state->rendered_chat_count = overlap;
     RelayoutChatMessages(state);
@@ -2333,23 +2264,21 @@ bool RenderChatMessages(RadioViewState* state) {
   }
   const uint32_t diff_done_ms = lv_tick_get();
   for (size_t index = overlap; index < message_count; ++index) {
-    if (messages[index] == nullptr || !LayoutChatMessage(state,
-            *messages[index], state->rendered_chat_y,
+    if (messages[index] == nullptr ||
+        !LayoutChatMessage(state, *messages[index], state->rendered_chat_y,
             &state->rendered_chat_messages[index])) {
       return false;
     }
-    state->rendered_chat_y +=
-        state->rendered_chat_messages[index].height;
+    state->rendered_chat_y += state->rendered_chat_messages[index].height;
     ++state->rendered_chat_count;
     timeline_changed = true;
   }
   const uint32_t layout_done_ms = lv_tick_get();
   const int timeline_height = std::max(state->rendered_chat_y, 1);
-  if (lv_obj_get_width(state->detail_chat_timeline) !=
-          state->config.width ||
+  if (lv_obj_get_width(state->detail_chat_timeline) != state->config.width ||
       lv_obj_get_height(state->detail_chat_timeline) != timeline_height) {
-    lv_obj_set_size(state->detail_chat_timeline,
-        state->config.width, timeline_height);
+    lv_obj_set_size(
+        state->detail_chat_timeline, state->config.width, timeline_height);
   }
   const uint32_t size_done_ms = lv_tick_get();
   lv_obj_invalidate(state->detail_chat_timeline);
@@ -2362,11 +2291,10 @@ bool RenderChatMessages(RadioViewState* state) {
       if (removed_height > 0) {
         const int32_t target =
             std::max<int32_t>(0, previous_scroll_y - removed_height);
-        const int32_t current =
-            lv_obj_get_scroll_y(state->detail_chat_body);
+        const int32_t current = lv_obj_get_scroll_y(state->detail_chat_body);
         state->chat_programmatic_scroll = true;
-        lv_obj_scroll_by(state->detail_chat_body, 0,
-            current - target, LV_ANIM_OFF);
+        lv_obj_scroll_by(
+            state->detail_chat_body, 0, current - target, LV_ANIM_OFF);
         state->chat_programmatic_scroll = false;
         state->chat_last_scroll_y =
             lv_obj_get_scroll_y(state->detail_chat_body);
@@ -2397,8 +2325,8 @@ bool RenderChatMessages(RadioViewState* state) {
  * @param text 系统提示文本
  * @return 追加成功返回 true，否则返回 false
  */
-bool AppendSystemMessage(RadioViewState* state, size_t profile_index,
-    const char* text) {
+bool AppendSystemMessage(
+    RadioViewState* state, size_t profile_index, const char* text) {
   if (state == nullptr || text == nullptr ||
       profile_index >= state->preferences.profile_count) {
     return false;
@@ -2446,12 +2374,9 @@ void UpdateDetailStatus(RadioViewState* state) {
       state->profile_settings_index < state->module_count) {
     const char* status =
         ProfileStatusText(state, state->profile_settings_index);
-    const lv_color_t status_color =
-        lv_color_hex(ProfileStatusColor(status));
-    SetLabelTextIfChanged(
-        state->profile_settings_header_status_label, status);
-    lv_obj_set_style_text_color(
-        state->profile_settings_header_status_label,
+    const lv_color_t status_color = lv_color_hex(ProfileStatusColor(status));
+    SetLabelTextIfChanged(state->profile_settings_header_status_label, status);
+    lv_obj_set_style_text_color(state->profile_settings_header_status_label,
         status_color, LV_PART_MAIN);
   }
   UpdateChatComposerState(state);
@@ -2463,8 +2388,8 @@ void UpdateDetailStatus(RadioViewState* state) {
  * @param output 文本输出缓冲区
  * @param output_size 输出缓冲区容量
  */
-void FormatPacketText(const hal::RadioEvent& event, char* output,
-    size_t output_size) {
+void FormatPacketText(
+    const hal::RadioEvent& event, char* output, size_t output_size) {
   if (output == nullptr || output_size == 0) {
     return;
   }
@@ -2548,8 +2473,7 @@ const char* RadioFailureReasonText(hal::RadioFailureReason reason) {
  * @param context 共享射频命令任务上下文
  */
 void RadioCommandTaskEntry(void* context) {
-  auto* shared_job =
-      static_cast<std::shared_ptr<RadioCommandJob>*>(context);
+  auto* shared_job = static_cast<std::shared_ptr<RadioCommandJob>*>(context);
   if (shared_job == nullptr) {
     vTaskDelete(nullptr);
     return;
@@ -2560,8 +2484,7 @@ void RadioCommandTaskEntry(void* context) {
     switch (job->type) {
       case RadioCommandType::kActivate: {
         job->success = job->provider->ActivateRadio(job->config);
-        RadioActivationState activation_state =
-            RadioActivationState::kNone;
+        RadioActivationState activation_state = RadioActivationState::kNone;
         if (!job->success) {
           hal::RadioCapabilities capabilities;
           activation_state = RadioActivationState::kInitializationFailed;
@@ -2590,8 +2513,7 @@ void RadioCommandTaskEntry(void* context) {
         break;
       }
       case RadioCommandType::kDeactivate:
-        job->success = job->provider->DeactivateRadio(
-            job->config.client_token);
+        job->success = job->provider->DeactivateRadio(job->config.client_token);
         break;
       case RadioCommandType::kSend:
         job->success = job->provider->SendRadio(job->config.client_token,
@@ -2610,26 +2532,25 @@ void RadioCommandTaskEntry(void* context) {
  * @param job 射频命令任务
  * @return FreeRTOS 任务成功创建时返回 true
  */
-bool StartRadioCommand(RadioViewState* state,
-    const std::shared_ptr<RadioCommandJob>& job) {
+bool StartRadioCommand(
+    RadioViewState* state, const std::shared_ptr<RadioCommandJob>& job) {
   if (state == nullptr || job == nullptr ||
       state->radio_command_job != nullptr) {
     return false;
   }
   state->radio_command_job = job;
-  auto* task_context =
-      new (std::nothrow) std::shared_ptr<RadioCommandJob>(job);
+  auto* task_context = new (std::nothrow) std::shared_ptr<RadioCommandJob>(job);
   if (task_context != nullptr &&
       xTaskCreate(RadioCommandTaskEntry, "radio_cmd",
-          kRadioCommandTaskStackBytes, task_context,
-          kRadioCommandTaskPriority, nullptr) == pdPASS) {
+          kRadioCommandTaskStackBytes, task_context, kRadioCommandTaskPriority,
+          nullptr) == pdPASS) {
     return true;
   }
   delete task_context;
   job->success = false;
   if (job->type == RadioCommandType::kActivate) {
-    SetProfileActivationState(job->config.client_token,
-        RadioActivationState::kInitializationFailed);
+    SetProfileActivationState(
+        job->config.client_token, RadioActivationState::kInitializationFailed);
   }
   job->completed.store(true, std::memory_order_release);
   LogMessage(LogLevel::kError, __FILE__, __LINE__,
@@ -2669,8 +2590,8 @@ bool StartPendingRadioControlCommand(RadioViewState* state) {
  * @param type 激活或停用命令类型
  * @param config 激活配置，停用命令可传默认配置
  */
-void QueueRadioControlCommand(RadioViewState* state,
-    RadioCommandType type, const hal::RadioConfig& config) {
+void QueueRadioControlCommand(RadioViewState* state, RadioCommandType type,
+    const hal::RadioConfig& config) {
   if (state == nullptr || state->config.radio == nullptr) {
     return;
   }
@@ -2730,8 +2651,7 @@ bool FinishRadioCommand(RadioViewState* state) {
   if (state->radio_command_job == nullptr) {
     return true;
   }
-  if (!state->radio_command_job->completed.load(
-          std::memory_order_acquire)) {
+  if (!state->radio_command_job->completed.load(std::memory_order_acquire)) {
     return false;
   }
   const std::shared_ptr<RadioCommandJob> job = state->radio_command_job;
@@ -2742,8 +2662,7 @@ bool FinishRadioCommand(RadioViewState* state) {
         job->request_token, RadioChatDeliveryState::kFailed);
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Radio queued message start failed: message=%lu, size=%u bytes\n",
-        static_cast<unsigned long>(
-            static_cast<uint32_t>(job->request_token)),
+        static_cast<unsigned long>(static_cast<uint32_t>(job->request_token)),
         static_cast<unsigned>(job->payload_size));
     SyncModuleItems(state);
     if (state->detail_page != nullptr) {
@@ -2751,8 +2670,8 @@ bool FinishRadioCommand(RadioViewState* state) {
     }
     MarkModuleListDirty(state);
   } else if (job->type != RadioCommandType::kSend) {
-    const size_t profile_index = FindProfileIndex(
-        state, job->config.client_token);
+    const size_t profile_index =
+        FindProfileIndex(state, job->config.client_token);
     if (profile_index < state->module_count) {
       state->radio_status_available[profile_index] = false;
     }
@@ -2789,8 +2708,7 @@ bool TryStartNextPendingMessage(RadioViewState* state) {
   for (size_t index = 0; index < state->module_count; ++index) {
     const app::RadioProfile& profile = state->preferences.profiles[index];
     if (profile.active &&
-        app::GetRadioChatRepository().GetOldestPending(
-            profile.id, &message)) {
+        app::GetRadioChatRepository().GetOldestPending(profile.id, &message)) {
       profile_index = index;
       break;
     }
@@ -2799,10 +2717,11 @@ bool TryStartNextPendingMessage(RadioViewState* state) {
     return false;
   }
   const size_t length = std::strlen(message.text);
-  const size_t maximum_payload_size = profile_index < state->module_count
-      ? MaximumPayloadSizeForProfile(
-          state, state->preferences.profiles[profile_index])
-      : 0;
+  const size_t maximum_payload_size =
+      profile_index < state->module_count
+          ? MaximumPayloadSizeForProfile(
+                state, state->preferences.profiles[profile_index])
+          : 0;
   if (length == 0 || length > maximum_payload_size) {
     app::GetRadioChatRepository().UpdateDelivery(
         message.sequence, RadioChatDeliveryState::kFailed);
@@ -2836,8 +2755,7 @@ bool TryQueueAutomaticMessage(RadioViewState* state) {
   const uint32_t now = lv_tick_get();
   size_t index = state->module_count;
   for (size_t candidate = 0; candidate < state->module_count; ++candidate) {
-    const app::RadioProfile& profile =
-        state->preferences.profiles[candidate];
+    const app::RadioProfile& profile = state->preferences.profiles[candidate];
     if (!profile.active || !profile.auto_send_enabled ||
         profile.auto_send_text[0] == '\0' ||
         !state->radio_status_available[candidate] ||
@@ -2866,12 +2784,12 @@ bool TryQueueAutomaticMessage(RadioViewState* state) {
   message.profile_id = profile.id;
   message.delivery = RadioChatDeliveryState::kSending;
   FormatCurrentTime(state, message.time, sizeof(message.time));
-  CopyBoundedString(
-      message.text, sizeof(message.text), profile.auto_send_text);
+  CopyBoundedString(message.text, sizeof(message.text), profile.auto_send_text);
   if (app::GetRadioChatRepository().Append(message) == 0) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Radio automatic message rejected: chat cache is unavailable, "
-        "profile=%lu\n", static_cast<unsigned long>(profile.id));
+        "profile=%lu\n",
+        static_cast<unsigned long>(profile.id));
     return false;
   }
   SyncModuleItems(state);
@@ -2904,8 +2822,8 @@ bool RadioCapabilitiesEqual(
         left.frequency_band_count != right.frequency_band_count) {
       return false;
     }
-    for (size_t band_index = 0;
-         band_index < left.frequency_band_count; ++band_index) {
+    for (size_t band_index = 0; band_index < left.frequency_band_count;
+        ++band_index) {
       if (left.frequency_bands[band_index].minimum_hz !=
               right.frequency_bands[band_index].minimum_hz ||
           left.frequency_bands[band_index].maximum_hz !=
@@ -2935,12 +2853,12 @@ void RefreshRadioCapabilities(RadioViewState* state) {
   if (!state->config.radio->ReadRadioCapabilities(&capabilities)) {
     return;
   }
-  capabilities.count = std::min(
-      capabilities.count, hal::kRadioCapabilityCapacity);
+  capabilities.count =
+      std::min(capabilities.count, hal::kRadioCapabilityCapacity);
   for (size_t index = 0; index < capabilities.count; ++index) {
-    capabilities.entries[index].frequency_band_count = std::min(
-        capabilities.entries[index].frequency_band_count,
-        hal::kRadioFrequencyBandCapacity);
+    capabilities.entries[index].frequency_band_count =
+        std::min(capabilities.entries[index].frequency_band_count,
+            hal::kRadioFrequencyBandCapacity);
   }
   if (RadioCapabilitiesEqual(state->capabilities, capabilities)) {
     return;
@@ -2979,8 +2897,8 @@ void RefreshRadioCapabilities(RadioViewState* state) {
     }
     if (!IsProfileActivationBlocked(profile.id) &&
         !IsProfileActivationPending(state, profile.id)) {
-      QueueRadioControlCommand(state, RadioCommandType::kActivate,
-          ToRadioConfig(profile));
+      QueueRadioControlCommand(
+          state, RadioCommandType::kActivate, ToRadioConfig(profile));
     }
   }
   UpdateDetailStatus(state);
@@ -3015,17 +2933,17 @@ void RadioTimerCallback(lv_timer_t* timer) {
     }
     any_active_profile = true;
     hal::RadioStatus status;
-    const bool available = state->config.radio->ReadRadioStatus(
-        profile.id, &status);
-    status_changed |= state->radio_status_available[index] != available ||
-        (available &&
-            (state->radio_statuses[index].state != status.state ||
-                state->radio_statuses[index].active_client_token !=
-                    status.active_client_token ||
-                state->radio_statuses[index].hardware_ready !=
-                    status.hardware_ready ||
-                state->radio_statuses[index].transmitting !=
-                    status.transmitting));
+    const bool available =
+        state->config.radio->ReadRadioStatus(profile.id, &status);
+    status_changed |=
+        state->radio_status_available[index] != available ||
+        (available && (state->radio_statuses[index].state != status.state ||
+                          state->radio_statuses[index].active_client_token !=
+                              status.active_client_token ||
+                          state->radio_statuses[index].hardware_ready !=
+                              status.hardware_ready ||
+                          state->radio_statuses[index].transmitting !=
+                              status.transmitting));
     state->radio_status_available[index] = available;
     if (available) {
       state->radio_statuses[index] = status;
@@ -3236,10 +3154,10 @@ void DetailSendClickedEventCallback(lv_event_t* event) {
   lv_event_stop_bubbling(event);
   lv_event_stop_processing(event);
   auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
-  const bool keep_input_active = state != nullptr &&
-      state->detail_keyboard != nullptr && state->detail_input != nullptr &&
-      lv_keyboard_get_textarea(state->detail_keyboard) ==
-          state->detail_input;
+  const bool keep_input_active =
+      state != nullptr && state->detail_keyboard != nullptr &&
+      state->detail_input != nullptr &&
+      lv_keyboard_get_textarea(state->detail_keyboard) == state->detail_input;
   SendDetailMessage(state);
   if (keep_input_active) {
     lv_keyboard_set_textarea(state->detail_keyboard, state->detail_input);
@@ -3270,48 +3188,38 @@ void SetDetailKeyboardVisible(RadioViewState* state, bool visible) {
     }
     return;
   }
-  const bool follow_latest =
-      state->chat_follow_latest && IsChatAtBottom(state);
+  const bool follow_latest = state->chat_follow_latest && IsChatAtBottom(state);
   state->detail_keyboard_visible = keyboard_visible;
   // 视口改高会让 LVGL 在布局阶段自动校正滚动位置，整个过程必须视为
   // 程序滚动，否则校正事件会被误判为用户离开了最新消息。
-  const bool programmatic_scroll_was_active =
-      state->chat_programmatic_scroll;
+  const bool programmatic_scroll_was_active = state->chat_programmatic_scroll;
   state->chat_programmatic_scroll = true;
-  const int keyboard_height = state->config.height *
-      kAddKeyboardHeightPercent / 100;
+  const int keyboard_height =
+      state->config.height * kAddKeyboardHeightPercent / 100;
   const int offset = keyboard_visible ? keyboard_height : 0;
   const int composer_top = state->config.height - 108 - offset;
-  lv_obj_set_y(state->detail_composer_background,
-      composer_top);
-  lv_obj_set_y(state->detail_divider,
-      composer_top);
-  lv_obj_set_y(state->detail_input,
-      state->config.height - 89 - offset);
-  lv_obj_set_y(state->detail_send_button,
-      state->config.height - 87 - offset);
+  lv_obj_set_y(state->detail_composer_background, composer_top);
+  lv_obj_set_y(state->detail_divider, composer_top);
+  lv_obj_set_y(state->detail_input, state->config.height - 89 - offset);
+  lv_obj_set_y(state->detail_send_button, state->config.height - 87 - offset);
   if (state->detail_composer_action_button != nullptr) {
     lv_obj_set_y(state->detail_composer_action_button,
         state->config.height - 87 - offset);
   }
-  const int32_t chat_height = std::max<int32_t>(
-      0, static_cast<int32_t>(composer_top) -
-             lv_obj_get_y(state->detail_chat_body));
+  const int32_t chat_height =
+      std::max<int32_t>(0, static_cast<int32_t>(composer_top) -
+                               lv_obj_get_y(state->detail_chat_body));
   lv_obj_set_height(state->detail_chat_body, chat_height);
   lv_obj_update_layout(state->detail_chat_body);
   if (follow_latest) {
     // 布局完成后以 LVGL 的真实内容边界为准，避免手工高度公式与
     // 内边距或坐标边界存在少量误差，导致键盘关闭后消息轻微上移。
-    const int32_t current =
-        lv_obj_get_scroll_y(state->detail_chat_body);
-    const int32_t bottom =
-        lv_obj_get_scroll_bottom(state->detail_chat_body);
-    lv_obj_scroll_to_y(
-        state->detail_chat_body, current + bottom, LV_ANIM_OFF);
+    const int32_t current = lv_obj_get_scroll_y(state->detail_chat_body);
+    const int32_t bottom = lv_obj_get_scroll_bottom(state->detail_chat_body);
+    lv_obj_scroll_to_y(state->detail_chat_body, current + bottom, LV_ANIM_OFF);
   }
   state->chat_programmatic_scroll = programmatic_scroll_was_active;
-  state->chat_last_scroll_y =
-      lv_obj_get_scroll_y(state->detail_chat_body);
+  state->chat_last_scroll_y = lv_obj_get_scroll_y(state->detail_chat_body);
   state->chat_follow_latest = follow_latest;
   PositionChatJumpButton(state);
   if (follow_latest) {
@@ -3365,8 +3273,8 @@ void DetailComposerActionClickedEventCallback(lv_event_t* event) {
   }
   const app::RadioProfile& profile = state->preferences.profiles[index];
   SetProfileActivationState(profile.id, RadioActivationState::kNone);
-  QueueRadioControlCommand(state, RadioCommandType::kActivate,
-      ToRadioConfig(profile));
+  QueueRadioControlCommand(
+      state, RadioCommandType::kActivate, ToRadioConfig(profile));
   RefreshProfileSettingsPage(state);
   MarkModuleListDirty(state);
 }
@@ -3389,8 +3297,7 @@ void UpdateChatComposerState(RadioViewState* state) {
     lv_obj_remove_state(state->detail_input, LV_STATE_DISABLED);
     lv_obj_remove_flag(state->detail_input, LV_OBJ_FLAG_HIDDEN);
     lv_obj_remove_flag(state->detail_send_button, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(
-        state->detail_composer_action_button, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(state->detail_composer_action_button, LV_OBJ_FLAG_HIDDEN);
     return;
   }
 
@@ -3399,8 +3306,7 @@ void UpdateChatComposerState(RadioViewState* state) {
   lv_obj_add_state(state->detail_input, LV_STATE_DISABLED);
   lv_obj_add_flag(state->detail_input, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(state->detail_send_button, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_remove_flag(
-      state->detail_composer_action_button, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_remove_flag(state->detail_composer_action_button, LV_OBJ_FLAG_HIDDEN);
 
   const char* action_text = "Activate this profile";
   bool action_enabled = true;
@@ -3429,11 +3335,12 @@ void UpdateChatComposerState(RadioViewState* state) {
     lv_obj_remove_state(
         state->detail_composer_action_button, LV_STATE_DISABLED);
   } else {
-    lv_obj_add_state(
-        state->detail_composer_action_button, LV_STATE_DISABLED);
+    lv_obj_add_state(state->detail_composer_action_button, LV_STATE_DISABLED);
   }
   lv_obj_set_style_text_color(state->detail_composer_action_label,
-      lv_color_hex(action_enabled ? kOnPrimaryColor : theme::ActiveThemeColors().disabled_content),
+      lv_color_hex(action_enabled
+                       ? kOnPrimaryColor
+                       : theme::ActiveThemeColors().disabled_content),
       LV_PART_MAIN);
 }
 
@@ -3469,20 +3376,20 @@ bool CreateChatJumpButton(lv_obj_t* page, RadioViewState* state) {
   }
   state->detail_chat_jump_button = button;
   lv_obj_set_size(button, kChatJumpButtonSize, kChatJumpButtonSize);
-  lv_obj_set_x(button, state->config.width - kChatJumpButtonSize -
-      kChatJumpButtonRightMargin);
+  lv_obj_set_x(button,
+      state->config.width - kChatJumpButtonSize - kChatJumpButtonRightMargin);
   lv_obj_set_y(button, ChatJumpButtonHiddenY(state));
-  lv_obj_set_style_radius(
-      button, kChatJumpButtonSize / 2, LV_PART_MAIN);
+  lv_obj_set_style_radius(button, kChatJumpButtonSize / 2, LV_PART_MAIN);
   lv_obj_set_style_bg_color(
       button, lv_color_hex(theme::ActiveThemeColors().surface), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      button, lv_color_hex(theme::ActiveThemeColors().surface_container_high), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(button,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_high),
+      LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(button, 1, LV_PART_MAIN);
-  lv_obj_set_style_border_color(
-      button, lv_color_hex(theme::ActiveThemeColors().outline_variant), LV_PART_MAIN);
+  lv_obj_set_style_border_color(button,
+      lv_color_hex(theme::ActiveThemeColors().outline_variant), LV_PART_MAIN);
   lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
   lv_obj_add_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
@@ -3494,8 +3401,8 @@ bool CreateChatJumpButton(lv_obj_t* page, RadioViewState* state) {
     return false;
   }
   lv_obj_align(icon_label, LV_ALIGN_CENTER, 0, -1);
-  lv_obj_add_event_cb(button, ChatJumpButtonClickedEventCallback,
-      LV_EVENT_CLICKED, state);
+  lv_obj_add_event_cb(
+      button, ChatJumpButtonClickedEventCallback, LV_EVENT_CLICKED, state);
   return true;
 }
 
@@ -3528,8 +3435,8 @@ bool CreateChatComposer(lv_obj_t* page, RadioViewState* state) {
   lv_obj_set_style_radius(background, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(background, 0, LV_PART_MAIN);
   state->detail_composer_background = background;
-  lv_obj_add_event_cb(background,
-      DetailKeyboardDismissClickedEventCallback, LV_EVENT_CLICKED, state);
+  lv_obj_add_event_cb(background, DetailKeyboardDismissClickedEventCallback,
+      LV_EVENT_CLICKED, state);
 
   lv_obj_t* divider = lv_obj_create(page);
   if (divider == nullptr) {
@@ -3538,8 +3445,8 @@ bool CreateChatComposer(lv_obj_t* page, RadioViewState* state) {
   lv_obj_remove_flag(divider, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(divider, state->config.width, 1);
   lv_obj_set_pos(divider, 0, divider_y);
-  lv_obj_set_style_bg_color(
-      divider, lv_color_hex(theme::ActiveThemeColors().outline_variant), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(divider,
+      lv_color_hex(theme::ActiveThemeColors().outline_variant), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(divider, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(divider, 0, LV_PART_MAIN);
@@ -3551,30 +3458,33 @@ bool CreateChatComposer(lv_obj_t* page, RadioViewState* state) {
   }
   lv_obj_add_flag(input, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_textarea_set_one_line(input, false);
-  const size_t maximum_payload_size = state->detail_index < state->module_count
-      ? MaximumPayloadSizeForProfile(
-          state, state->preferences.profiles[state->detail_index])
-      : hal::kRadioPayloadCapacity;
-  lv_textarea_set_max_length(input, static_cast<uint32_t>(
-      std::max<size_t>(1, maximum_payload_size)));
+  const size_t maximum_payload_size =
+      state->detail_index < state->module_count
+          ? MaximumPayloadSizeForProfile(
+                state, state->preferences.profiles[state->detail_index])
+          : hal::kRadioPayloadCapacity;
+  lv_textarea_set_max_length(
+      input, static_cast<uint32_t>(std::max<size_t>(1, maximum_payload_size)));
   lv_obj_set_size(input, state->config.width - 142, kAddInputHeight);
   lv_obj_set_pos(input, 20, state->config.height - 89);
   lv_textarea_set_placeholder_text(input, "Enter a message to send...");
   lv_obj_set_style_text_font(input, Font22(), LV_PART_MAIN);
   lv_obj_set_style_text_color(
       input, lv_color_hex(theme::ActiveThemeColors().on_surface), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      input, lv_color_hex(theme::ActiveThemeColors().surface_container_low), LV_PART_MAIN);
   lv_obj_set_style_bg_color(input,
-      lv_color_hex(theme::ActiveThemeColors().surface_container_low), LV_STATE_FOCUSED);
+      lv_color_hex(theme::ActiveThemeColors().surface_container_low),
+      LV_PART_MAIN);
+  lv_obj_set_style_bg_color(input,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_low),
+      LV_STATE_FOCUSED);
   lv_obj_set_style_bg_opa(input, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(input, LV_OPA_COVER, LV_STATE_FOCUSED);
   lv_obj_set_style_border_width(input, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(input, 22, LV_PART_MAIN);
   lv_obj_set_style_pad_left(input, 20, LV_PART_MAIN);
   lv_obj_set_style_pad_right(input, 20, LV_PART_MAIN);
-  const int vertical_padding = (kAddInputHeight -
-      lv_font_get_line_height(Font22())) / 2;
+  const int vertical_padding =
+      (kAddInputHeight - lv_font_get_line_height(Font22())) / 2;
   lv_obj_set_style_pad_top(input, vertical_padding, LV_PART_MAIN);
   lv_obj_set_style_pad_bottom(input, vertical_padding, LV_PART_MAIN);
   lv_obj_t* input_label = lv_textarea_get_label(input);
@@ -3582,8 +3492,7 @@ bool CreateChatComposer(lv_obj_t* page, RadioViewState* state) {
     lv_obj_align(input_label, LV_ALIGN_LEFT_MID, 0, 0);
   }
   state->detail_input = input;
-  lv_obj_add_event_cb(
-      input, DetailInputEventCallback, LV_EVENT_ALL, state);
+  lv_obj_add_event_cb(input, DetailInputEventCallback, LV_EVENT_ALL, state);
 
   lv_obj_t* send = lv_button_create(page);
   if (send == nullptr) {
@@ -3592,12 +3501,11 @@ bool CreateChatComposer(lv_obj_t* page, RadioViewState* state) {
   lv_obj_add_flag(send, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_remove_flag(send, LV_OBJ_FLAG_CLICK_FOCUSABLE);
   lv_obj_set_size(send, 66, 66);
-  lv_obj_set_pos(send, state->config.width - 98,
-      state->config.height - 87);
+  lv_obj_set_pos(send, state->config.width - 98, state->config.height - 87);
   lv_obj_set_style_radius(send, 33, LV_PART_MAIN);
   lv_obj_set_style_bg_color(send, lv_color_hex(kPrimaryColor), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(send,
-      lv_color_hex(kPrimaryPressedColor), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(
+      send, lv_color_hex(kPrimaryPressedColor), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(send, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(send, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(send, 0, LV_PART_MAIN);
@@ -3606,8 +3514,8 @@ bool CreateChatComposer(lv_obj_t* page, RadioViewState* state) {
     return false;
   }
   state->detail_send_button = send;
-  lv_obj_add_event_cb(send, DetailSendClickedEventCallback,
-      LV_EVENT_CLICKED, state);
+  lv_obj_add_event_cb(
+      send, DetailSendClickedEventCallback, LV_EVENT_CLICKED, state);
 
   lv_obj_t* composer_action = lv_button_create(page);
   if (composer_action == nullptr) {
@@ -3620,10 +3528,11 @@ bool CreateChatComposer(lv_obj_t* page, RadioViewState* state) {
   lv_obj_set_style_radius(composer_action, 33, LV_PART_MAIN);
   lv_obj_set_style_bg_color(
       composer_action, lv_color_hex(kPrimaryColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      composer_action, lv_color_hex(kPrimaryPressedColor), LV_STATE_PRESSED);
   lv_obj_set_style_bg_color(composer_action,
-      lv_color_hex(kPrimaryPressedColor), LV_STATE_PRESSED);
-  lv_obj_set_style_bg_color(composer_action,
-      lv_color_hex(theme::ActiveThemeColors().disabled_container), LV_STATE_DISABLED);
+      lv_color_hex(theme::ActiveThemeColors().disabled_container),
+      LV_STATE_DISABLED);
   lv_obj_set_style_bg_opa(composer_action, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(composer_action, 0, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(composer_action, 0, LV_PART_MAIN);
@@ -3637,17 +3546,16 @@ bool CreateChatComposer(lv_obj_t* page, RadioViewState* state) {
     return false;
   }
   lv_obj_center(state->detail_composer_action_label);
-  lv_obj_add_event_cb(composer_action,
-      DetailComposerActionClickedEventCallback, LV_EVENT_CLICKED, state);
+  lv_obj_add_event_cb(composer_action, DetailComposerActionClickedEventCallback,
+      LV_EVENT_CLICKED, state);
 
   SharedKeyboardConfig keyboard_config;
   keyboard_config.width = state->config.width;
-  keyboard_config.height = state->config.height *
-      kAddKeyboardHeightPercent / 100;
+  keyboard_config.height =
+      state->config.height * kAddKeyboardHeightPercent / 100;
   state->detail_keyboard = CreateSharedKeyboard(page, keyboard_config);
   if (state->detail_keyboard == nullptr ||
-      !AttachSharedKeyboardToTextArea(
-          state->detail_keyboard, input, nullptr)) {
+      !AttachSharedKeyboardToTextArea(state->detail_keyboard, input, nullptr)) {
     return false;
   }
   lv_obj_add_flag(state->detail_keyboard, LV_OBJ_FLAG_GESTURE_BUBBLE);
@@ -3720,8 +3628,8 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
   lv_obj_set_pos(back, 18, 66);
   lv_obj_add_event_cb(
       back, DetailBackClickedEventCallback, LV_EVENT_CLICKED, state);
-  lv_obj_t* back_icon = CreateLabel(
-      back, icon::kArrowBack, theme::ActiveThemeColors().on_surface, OutlineIconFont44());
+  lv_obj_t* back_icon = CreateLabel(back, icon::kArrowBack,
+      theme::ActiveThemeColors().on_surface, OutlineIconFont44());
   if (back_icon != nullptr) {
     lv_obj_align(back_icon, LV_ALIGN_CENTER, -4, 0);
   }
@@ -3731,12 +3639,11 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
     lv_obj_set_size(avatar, 60, 60);
     lv_obj_set_pos(avatar, 92, 67);
     lv_obj_set_style_radius(avatar, 30, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(
-        avatar, lv_color_hex(item.color), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(avatar, lv_color_hex(item.color), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(avatar, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(avatar, 0, LV_PART_MAIN);
-    state->detail_chip_label = CreateLabel(
-        avatar, item.short_name, 0xFFFFFF, Font22());
+    state->detail_chip_label =
+        CreateLabel(avatar, item.short_name, 0xFFFFFF, Font22());
     if (state->detail_chip_label != nullptr) {
       lv_obj_center(state->detail_chip_label);
     }
@@ -3746,8 +3653,7 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
     lv_obj_remove_style_all(header_action);
     lv_obj_set_size(header_action, state->config.width - 90, 76);
     lv_obj_set_pos(header_action, 88, 60);
-    lv_obj_set_style_bg_opa(
-        header_action, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(header_action, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_add_event_cb(header_action, DetailHeaderClickedEventCallback,
         LV_EVENT_CLICKED, state);
     lv_obj_move_to_index(header_action, -1);
@@ -3761,8 +3667,8 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
     lv_obj_set_pos(title, 170, 72);
   }
   const char* status_text = ProfileStatusText(state, index);
-  lv_obj_t* status = CreateLabel(page, status_text,
-      ProfileStatusColor(status_text), Font22());
+  lv_obj_t* status =
+      CreateLabel(page, status_text, ProfileStatusColor(status_text), Font22());
   if (status != nullptr) {
     state->detail_status_label = status;
     lv_obj_set_pos(status, 170, 108);
@@ -3779,21 +3685,19 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
     return false;
   }
   lv_obj_set_pos(chat_body, 0, chat_top);
-  lv_obj_set_size(
-      chat_body, state->config.width, composer_top - chat_top);
+  lv_obj_set_size(chat_body, state->config.width, composer_top - chat_top);
   lv_obj_set_style_bg_opa(chat_body, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_border_width(chat_body, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(chat_body, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_bottom(
-      chat_body, kChatTimelineInset, LV_PART_MAIN);
+  lv_obj_set_style_pad_bottom(chat_body, kChatTimelineInset, LV_PART_MAIN);
   lv_obj_set_scroll_dir(chat_body, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(chat_body, LV_SCROLLBAR_MODE_AUTO);
   lv_obj_add_flag(chat_body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(chat_body, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_add_event_cb(chat_body,
-      DetailKeyboardDismissClickedEventCallback, LV_EVENT_CLICKED, state);
-  lv_obj_add_event_cb(chat_body,
-      DetailChatScrollEventCallback, LV_EVENT_ALL, state);
+  lv_obj_add_event_cb(chat_body, DetailKeyboardDismissClickedEventCallback,
+      LV_EVENT_CLICKED, state);
+  lv_obj_add_event_cb(
+      chat_body, DetailChatScrollEventCallback, LV_EVENT_ALL, state);
   state->detail_chat_body = chat_body;
   lv_obj_t* timeline = lv_obj_create(chat_body);
   if (timeline == nullptr) {
@@ -3810,8 +3714,8 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
   lv_obj_add_flag(timeline, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(timeline, state->config.width, 1);
   lv_obj_set_pos(timeline, 0, 0);
-  lv_obj_add_event_cb(timeline, ChatTimelineDrawEventCallback,
-      LV_EVENT_DRAW_MAIN, state);
+  lv_obj_add_event_cb(
+      timeline, ChatTimelineDrawEventCallback, LV_EVENT_DRAW_MAIN, state);
   state->detail_chat_timeline = timeline;
 
   if (!RenderChatMessages(state) || !CreateChatComposer(page, state)) {
@@ -3835,9 +3739,8 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
   StartSlideLeftWindowTransition(
       page, state->config.width, kAnimationMs, nullptr, nullptr);
   state->detail_opening = false;
-  if (!RegisterBackNavigationHandler(page, [state]() {
-        CloseModuleDetail(state);
-      })) {
+  if (!RegisterBackNavigationHandler(
+          page, [state]() { CloseModuleDetail(state); })) {
     CloseModuleDetail(state);
     return false;
   }
@@ -3852,8 +3755,7 @@ void ModuleRowClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  auto* action = static_cast<RadioModuleAction*>(
-      lv_event_get_user_data(event));
+  auto* action = static_cast<RadioModuleAction*>(lv_event_get_user_data(event));
   if (action == nullptr || action->state == nullptr) {
     return;
   }
@@ -3888,8 +3790,7 @@ void ModuleRowLongPressedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_LONG_PRESSED) {
     return;
   }
-  auto* action = static_cast<RadioModuleAction*>(
-      lv_event_get_user_data(event));
+  auto* action = static_cast<RadioModuleAction*>(lv_event_get_user_data(event));
   if (action == nullptr || action->state == nullptr ||
       action->index >= action->state->module_count) {
     return;
@@ -4000,8 +3901,8 @@ bool CreateRadioStorageSettingRow(lv_obj_t* page, RadioViewState* state) {
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
-  lv_obj_t* title =
-      CreateLabel(row, "Storage folder", theme::ActiveThemeColors().on_surface, Font28());
+  lv_obj_t* title = CreateLabel(
+      row, "Storage folder", theme::ActiveThemeColors().on_surface, Font28());
   if (title != nullptr) {
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 34, 23);
   }
@@ -4069,9 +3970,8 @@ bool ShowRadioSettingsPage(RadioViewState* state) {
     state->app_settings_page = nullptr;
     return false;
   }
-  if (!RegisterBackNavigationHandler(page, [state]() {
-        CloseRadioSettingsPage(state);
-      })) {
+  if (!RegisterBackNavigationHandler(
+          page, [state]() { CloseRadioSettingsPage(state); })) {
     CloseRadioSettingsPage(state);
     return false;
   }
@@ -4096,8 +3996,7 @@ void DrawerRefreshClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  CloseRadioDrawer(
-      static_cast<RadioViewState*>(lv_event_get_user_data(event)));
+  CloseRadioDrawer(static_cast<RadioViewState*>(lv_event_get_user_data(event)));
 }
 
 void DrawerSettingsClickedEventCallback(lv_event_t* event) {
@@ -4133,13 +4032,12 @@ void ShowRadioDrawer(RadioViewState* state) {
   config.title_font = Font36();
   config.item_font = Font28();
   config.icon_font = FillIconFont44();
-  if (OpenNavigationDrawer(
-      state->root, &state->drawer, config) == nullptr) {
+  if (OpenNavigationDrawer(state->root, &state->drawer, config) == nullptr) {
     return;
   }
   int y = kNavigationDrawerContentTop;
-  CreateNavigationDrawerItem(&state->drawer, icon::kRefresh,
-      "Refresh modules", y, DrawerRefreshClickedEventCallback, state);
+  CreateNavigationDrawerItem(&state->drawer, icon::kRefresh, "Refresh modules",
+      y, DrawerRefreshClickedEventCallback, state);
   y += kNavigationDrawerItemHeight + 12;
   CreateNavigationDrawerDivider(&state->drawer, y);
   y += 18;
@@ -4177,10 +4075,10 @@ bool CreateModuleAvatar(lv_obj_t* row, const RadioModuleItem& item,
   lv_obj_remove_flag(status_indicator, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(status_indicator, kProfileStatusIndicatorSize,
       kProfileStatusIndicatorSize);
-  lv_obj_align(status_indicator, LV_ALIGN_LEFT_MID,
-      -kProfileStatusIndicatorSize / 2, 0);
-  lv_obj_set_style_radius(status_indicator,
-      kProfileStatusIndicatorSize / 2, LV_PART_MAIN);
+  lv_obj_align(
+      status_indicator, LV_ALIGN_LEFT_MID, -kProfileStatusIndicatorSize / 2, 0);
+  lv_obj_set_style_radius(
+      status_indicator, kProfileStatusIndicatorSize / 2, LV_PART_MAIN);
   lv_obj_set_style_bg_color(status_indicator,
       lv_color_hex(ProfileIndicatorColor(state, index)), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(status_indicator, LV_OPA_COVER, LV_PART_MAIN);
@@ -4195,13 +4093,11 @@ bool CreateModuleAvatar(lv_obj_t* row, const RadioModuleItem& item,
   lv_obj_set_size(avatar, 68, 68);
   lv_obj_align(avatar, LV_ALIGN_LEFT_MID, 30, 0);
   lv_obj_set_style_radius(avatar, 34, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      avatar, lv_color_hex(item.color), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(avatar, lv_color_hex(item.color), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(avatar, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(avatar, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(avatar, 0, LV_PART_MAIN);
-  lv_obj_t* chip = CreateLabel(
-      avatar, item.short_name, 0xFFFFFF, Font22());
+  lv_obj_t* chip = CreateLabel(avatar, item.short_name, 0xFFFFFF, Font22());
   if (chip != nullptr) {
     lv_obj_center(chip);
   }
@@ -4252,8 +4148,8 @@ bool CreateModuleRow(lv_obj_t* parent, const RadioModuleItem& item,
   lv_obj_set_size(row, width, kRowHeight);
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(row, lv_color_hex(theme::ActiveThemeColors().state_layer),
-                            LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(row,
+      lv_color_hex(theme::ActiveThemeColors().state_layer), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
   if (!AddPressCancelOnLeave(row) ||
       !CreateModuleAvatar(row, item, state, index)) {
@@ -4261,12 +4157,12 @@ bool CreateModuleRow(lv_obj_t* parent, const RadioModuleItem& item,
     return false;
   }
   auto* action = new RadioModuleAction{.state = state, .index = index};
-  lv_obj_add_event_cb(row, ModuleRowClickedEventCallback,
-                      LV_EVENT_CLICKED, action);
-  lv_obj_add_event_cb(row, ModuleRowLongPressedEventCallback,
-                      LV_EVENT_LONG_PRESSED, action);
-  lv_obj_add_event_cb(row, ModuleActionDeleteEventCallback,
-                      LV_EVENT_DELETE, action);
+  lv_obj_add_event_cb(
+      row, ModuleRowClickedEventCallback, LV_EVENT_CLICKED, action);
+  lv_obj_add_event_cb(
+      row, ModuleRowLongPressedEventCallback, LV_EVENT_LONG_PRESSED, action);
+  lv_obj_add_event_cb(
+      row, ModuleActionDeleteEventCallback, LV_EVENT_DELETE, action);
   lv_obj_t* title = CreateLabel(
       row, item.name, theme::ActiveThemeColors().on_surface, Font28());
   if (title != nullptr) {
@@ -4295,24 +4191,23 @@ bool CreateModuleRow(lv_obj_t* parent, const RadioModuleItem& item,
       lv_obj_set_size(unread, unread_width, 32);
       lv_obj_align(unread, LV_ALIGN_TOP_RIGHT, -28, 54);
       lv_obj_set_style_radius(unread, 16, LV_PART_MAIN);
-      lv_obj_set_style_bg_color(unread,
-          lv_color_hex(theme::FixedColors().error), LV_PART_MAIN);
+      lv_obj_set_style_bg_color(
+          unread, lv_color_hex(theme::FixedColors().error), LV_PART_MAIN);
       lv_obj_set_style_bg_opa(unread, LV_OPA_COVER, LV_PART_MAIN);
       lv_obj_set_style_border_width(unread, 0, LV_PART_MAIN);
       lv_obj_set_style_pad_all(unread, 0, LV_PART_MAIN);
-      lv_obj_t* unread_label = CreateLabel(unread, unread_text,
-          theme::ActiveThemeColors().on_error, Font22());
+      lv_obj_t* unread_label = CreateLabel(
+          unread, unread_text, theme::ActiveThemeColors().on_error, Font22());
       if (unread_label != nullptr) {
         lv_obj_center(unread_label);
       }
     }
   }
   if (item.latest_message != nullptr && item.latest_message[0] != '\0') {
-    lv_obj_t* message = CreateLabel(
-        row, item.latest_message, theme::ActiveThemeColors().on_surface_variant, Font22());
+    lv_obj_t* message = CreateLabel(row, item.latest_message,
+        theme::ActiveThemeColors().on_surface_variant, Font22());
     if (message != nullptr) {
-      lv_obj_set_size(message,
-          width - (item.unread_count > 0 ? 230 : 174), 30);
+      lv_obj_set_size(message, width - (item.unread_count > 0 ? 230 : 174), 30);
       lv_label_set_long_mode(message, LV_LABEL_LONG_DOT);
       lv_obj_align(message, LV_ALIGN_TOP_LEFT, 120, 57);
     }
@@ -4322,8 +4217,8 @@ bool CreateModuleRow(lv_obj_t* parent, const RadioModuleItem& item,
     lv_obj_remove_flag(divider, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(divider, width - 120, 1);
     lv_obj_align(divider, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
-    lv_obj_set_style_bg_color(
-        divider, lv_color_hex(theme::ActiveThemeColors().outline_variant), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(divider,
+        lv_color_hex(theme::ActiveThemeColors().outline_variant), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(divider, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(divider, 0, LV_PART_MAIN);
@@ -4348,14 +4243,12 @@ void EmptyAddProfileClickedEventCallback(lv_event_t* event) {
  * @param group 状态提示容器
  * @param state Radio 页面状态
  */
-void PositionRadioPromptStatus(
-    lv_obj_t* group, const RadioViewState* state) {
+void PositionRadioPromptStatus(lv_obj_t* group, const RadioViewState* state) {
   if (group == nullptr || state == nullptr || state->module_list == nullptr) {
     return;
   }
   if (state->config.height > state->config.width) {
-    lv_obj_align(
-        group, LV_ALIGN_CENTER, 0, kEmptyStatusGroupOffsetY);
+    lv_obj_align(group, LV_ALIGN_CENTER, 0, kEmptyStatusGroupOffsetY);
     return;
   }
   lv_obj_set_pos(group, 0, kStatusGroupTopGap);
@@ -4380,8 +4273,7 @@ bool CreateEmptyRadioContent(RadioViewState* state) {
   config.title = "No Radio profiles";
   config.title_font = Font28();
   config.title_color = theme::ActiveThemeColors().on_surface;
-  config.message =
-      "Tap Add profile or use the + button in the bottom-right.";
+  config.message = "Tap Add profile or use the + button in the bottom-right.";
   config.message_font = Font22();
   config.message_color = theme::ActiveThemeColors().on_surface_variant;
   config.horizontal_padding = 48;
@@ -4420,8 +4312,7 @@ bool RenderModuleList(RadioViewState* state) {
   }
   for (size_t index = 0; index < state->module_count; ++index) {
     if (!CreateModuleRow(state->module_list, state->modules[index], state,
-        index, static_cast<int>(index) * kRowHeight,
-        state->config.width)) {
+            index, static_cast<int>(index) * kRowHeight, state->config.width)) {
       state->module_list_dirty = true;
       return false;
     }
@@ -4437,9 +4328,9 @@ bool RenderModuleList(RadioViewState* state) {
  */
 bool IsModuleListVisible(const RadioViewState* state) {
   return state != nullptr && state->detail_page == nullptr &&
-      state->app_settings_page == nullptr &&
-      state->profile_settings_page == nullptr &&
-      state->profile_name_edit.page == nullptr && state->add_page == nullptr;
+         state->app_settings_page == nullptr &&
+         state->profile_settings_page == nullptr &&
+         state->profile_name_edit.page == nullptr && state->add_page == nullptr;
 }
 
 /**
@@ -4467,8 +4358,8 @@ void MarkModuleListDirty(RadioViewState* state) {
 
 size_t SelectedModuleCount(const RadioViewState* state) {
   size_t count = 0;
-  for (size_t index = 0; state != nullptr &&
-       index < state->module_count; ++index) {
+  for (size_t index = 0; state != nullptr && index < state->module_count;
+      ++index) {
     if (state->selected_modules[index]) {
       ++count;
     }
@@ -4502,8 +4393,7 @@ void SelectionCloseClickedEventCallback(lv_event_t* event) {
  * @param active 是否启用该配置
  * @return 状态有效且更新完成时返回 true
  */
-bool SetProfileActiveState(
-    RadioViewState* state, size_t index, bool active) {
+bool SetProfileActiveState(RadioViewState* state, size_t index, bool active) {
   if (state == nullptr || index >= state->module_count) {
     return false;
   }
@@ -4523,15 +4413,15 @@ bool SetProfileActiveState(
     }
     profile.active = true;
     SetProfileActivationState(profile.id, RadioActivationState::kNone);
-    QueueRadioControlCommand(state, RadioCommandType::kActivate,
-        ToRadioConfig(profile));
+    QueueRadioControlCommand(
+        state, RadioCommandType::kActivate, ToRadioConfig(profile));
   } else {
     profile.active = false;
     FailPendingMessages(state, profile.id);
     hal::RadioConfig deactivate_config;
     deactivate_config.client_token = profile.id;
-    QueueRadioControlCommand(state, RadioCommandType::kDeactivate,
-        deactivate_config);
+    QueueRadioControlCommand(
+        state, RadioCommandType::kDeactivate, deactivate_config);
   }
   app::UpdateRadioPreferences(state->preferences);
   UpdateDetailStatus(state);
@@ -4549,8 +4439,8 @@ bool SetProfileActiveState(
 bool ValidateProfileNameEdit(const char* text, void* context) {
   const auto* state = static_cast<const RadioViewState*>(context);
   return state != nullptr &&
-      state->profile_settings_index < state->module_count &&
-      text != nullptr && text[0] != '\0';
+         state->profile_settings_index < state->module_count &&
+         text != nullptr && text[0] != '\0';
 }
 
 /**
@@ -4573,8 +4463,7 @@ bool SaveProfileNameEdit(const char* text, void* context) {
   app::UpdateRadioPreferences(state->preferences);
   AppendSystemMessage(state, index, kSettingsChangedMessage);
   SyncModuleItems(state);
-  if (state->detail_title_label != nullptr &&
-      state->detail_index == index) {
+  if (state->detail_title_label != nullptr && state->detail_index == index) {
     SetLabelTextIfChanged(state->detail_title_label, profile.name);
   }
   RefreshProfileSettingsPage(state);
@@ -4612,8 +4501,7 @@ bool ShowProfileNameEditPage(RadioViewState* state) {
   config.height = state->config.height;
   config.title = "Edit profile name";
   config.initial_text = profile.name;
-  config.help_text =
-      "This name is used to identify this Radio profile.";
+  config.help_text = "This name is used to identify this Radio profile.";
   config.accepted_chars = kProfileNameAcceptedChars;
   config.maximum_length = app::kRadioProfileNameCapacity - 1;
   config.save_callback = SaveProfileNameEdit;
@@ -4647,8 +4535,7 @@ void UpdateProfileSettingsNameLayout(RadioViewState* state) {
   if (state == nullptr || state->profile_settings_name_label == nullptr) {
     return;
   }
-  lv_obj_t* name_action =
-      lv_obj_get_parent(state->profile_settings_name_label);
+  lv_obj_t* name_action = lv_obj_get_parent(state->profile_settings_name_label);
   const char* name = lv_label_get_text(state->profile_settings_name_label);
   if (name_action == nullptr || name == nullptr) {
     return;
@@ -4659,14 +4546,14 @@ void UpdateProfileSettingsNameLayout(RadioViewState* state) {
       lv_obj_get_style_text_letter_space(
           state->profile_settings_name_label, LV_PART_MAIN),
       0, LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
-  const int max_action_width = state->config.width -
-      kProfileNameActionX - kProfileNameActionRightMargin;
+  const int max_action_width =
+      state->config.width - kProfileNameActionX - kProfileNameActionRightMargin;
   if (max_action_width <= 2 * kProfileNameActionHorizontalPadding) {
     return;
   }
   const int text_width = std::max(1, static_cast<int>(text_size.x));
-  const int action_width = std::min(max_action_width,
-      text_width + 2 * kProfileNameActionHorizontalPadding);
+  const int action_width = std::min(
+      max_action_width, text_width + 2 * kProfileNameActionHorizontalPadding);
   const int label_width =
       action_width - 2 * kProfileNameActionHorizontalPadding;
   const bool scroll_name = text_width > label_width;
@@ -4674,8 +4561,8 @@ void UpdateProfileSettingsNameLayout(RadioViewState* state) {
   lv_label_set_long_mode(state->profile_settings_name_label,
       scroll_name ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_CLIP);
   lv_obj_set_width(state->profile_settings_name_label, label_width);
-  lv_obj_align(state->profile_settings_name_label,
-      LV_ALIGN_LEFT_MID, kProfileNameActionHorizontalPadding, 0);
+  lv_obj_align(state->profile_settings_name_label, LV_ALIGN_LEFT_MID,
+      kProfileNameActionHorizontalPadding, 0);
 }
 
 /**
@@ -4690,8 +4577,8 @@ void RefreshProfileSettingsPage(RadioViewState* state) {
   const size_t index = state->profile_settings_index;
   const app::RadioProfile& profile = state->preferences.profiles[index];
   if (state->profile_settings_chip_label != nullptr) {
-    SetLabelTextIfChanged(state->profile_settings_chip_label,
-        ChipShortName(profile.chip));
+    SetLabelTextIfChanged(
+        state->profile_settings_chip_label, ChipShortName(profile.chip));
   }
   if (state->profile_settings_name_label != nullptr) {
     if (SetLabelTextIfChanged(
@@ -4701,19 +4588,15 @@ void RefreshProfileSettingsPage(RadioViewState* state) {
   }
   if (state->profile_settings_header_status_label != nullptr) {
     const char* status = ProfileStatusText(state, index);
-    const lv_color_t status_color =
-        lv_color_hex(ProfileStatusColor(status));
-    SetLabelTextIfChanged(
-        state->profile_settings_header_status_label, status);
-    lv_obj_set_style_text_color(
-        state->profile_settings_header_status_label,
+    const lv_color_t status_color = lv_color_hex(ProfileStatusColor(status));
+    SetLabelTextIfChanged(state->profile_settings_header_status_label, status);
+    lv_obj_set_style_text_color(state->profile_settings_header_status_label,
         status_color, LV_PART_MAIN);
   }
   if (state->profile_settings_active_switch != nullptr) {
     const bool active = profile.active;
     if (active) {
-      lv_obj_add_state(
-          state->profile_settings_active_switch, LV_STATE_CHECKED);
+      lv_obj_add_state(state->profile_settings_active_switch, LV_STATE_CHECKED);
     } else {
       lv_obj_clear_state(
           state->profile_settings_active_switch, LV_STATE_CHECKED);
@@ -4733,8 +4616,7 @@ void RefreshProfileSettingsPage(RadioViewState* state) {
  * @param animation LVGL 动画对象
  */
 void ProfileSettingsCloseCompletedCallback(lv_anim_t* animation) {
-  auto* state = static_cast<RadioViewState*>(
-      lv_anim_get_user_data(animation));
+  auto* state = static_cast<RadioViewState*>(lv_anim_get_user_data(animation));
   if (state == nullptr || state->profile_settings_page == nullptr) {
     return;
   }
@@ -4758,8 +4640,8 @@ void CloseProfileSettingsPage(RadioViewState* state) {
   CloseSettingsTextEditPage(&state->profile_name_edit, false);
   state->profile_settings_closing = true;
   if (!StartSlideRightWindowTransition(state->profile_settings_page,
-      state->config.width, kAnimationMs, state,
-      ProfileSettingsCloseCompletedCallback)) {
+          state->config.width, kAnimationMs, state,
+          ProfileSettingsCloseCompletedCallback)) {
     lv_obj_t* page = state->profile_settings_page;
     ResetProfileSettingsReferences(state);
     lv_obj_delete(page);
@@ -4792,8 +4674,8 @@ void ProfileSettingsActiveChangedEventCallback(lv_event_t* event) {
       state->profile_settings_index >= state->module_count) {
     return;
   }
-  const bool active = lv_obj_has_state(
-      lv_event_get_target_obj(event), LV_STATE_CHECKED);
+  const bool active =
+      lv_obj_has_state(lv_event_get_target_obj(event), LV_STATE_CHECKED);
   SetProfileActiveState(state, state->profile_settings_index, active);
 }
 
@@ -4806,8 +4688,7 @@ void ProfileRadioSettingsClickedEventCallback(lv_event_t* event) {
     return;
   }
   auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
-  if (state != nullptr &&
-      state->profile_settings_index < state->module_count) {
+  if (state != nullptr && state->profile_settings_index < state->module_count) {
     ShowModuleSettings(state, state->profile_settings_index, true);
   }
 }
@@ -4830,8 +4711,7 @@ void ProfileAutoSendClickedEventCallback(lv_event_t* event) {
  * @param y 顶部坐标
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateProfileSettingsSection(
-    lv_obj_t* parent, const char* text, int y) {
+bool CreateProfileSettingsSection(lv_obj_t* parent, const char* text, int y) {
   lv_obj_t* label = CreateLabel(parent, text, kPrimaryColor, Font22());
   if (label == nullptr) {
     return false;
@@ -4870,8 +4750,8 @@ lv_obj_t* CreateProfileSettingsRow(lv_obj_t* parent, RadioViewState* state,
   lv_obj_set_size(row, state->config.width, height);
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      row, lv_color_hex(theme::ActiveThemeColors().state_layer), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(row,
+      lv_color_hex(theme::ActiveThemeColors().state_layer), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
@@ -4886,22 +4766,20 @@ lv_obj_t* CreateProfileSettingsRow(lv_obj_t* parent, RadioViewState* state,
     lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
   }
 
-  lv_obj_t* title_label = CreateLabel(
-      row, title, theme::ActiveThemeColors().on_surface, Font28());
-  lv_obj_t* subtitle_label = CreateLabel(
-      row, subtitle, theme::ActiveThemeColors().outline, Font24());
+  lv_obj_t* title_label =
+      CreateLabel(row, title, theme::ActiveThemeColors().on_surface, Font28());
+  lv_obj_t* subtitle_label =
+      CreateLabel(row, subtitle, theme::ActiveThemeColors().outline, Font24());
   if (title_label == nullptr || subtitle_label == nullptr) {
     lv_obj_delete(row);
     return nullptr;
   }
   lv_obj_set_width(title_label, state->config.width - 166);
   lv_label_set_long_mode(title_label, LV_LABEL_LONG_DOT);
-  lv_obj_align(
-      title_label, LV_ALIGN_TOP_LEFT, 34, 23 + text_y_offset);
+  lv_obj_align(title_label, LV_ALIGN_TOP_LEFT, 34, 23 + text_y_offset);
   lv_obj_set_width(subtitle_label, state->config.width - 166);
   lv_label_set_long_mode(subtitle_label, LV_LABEL_LONG_DOT);
-  lv_obj_align(
-      subtitle_label, LV_ALIGN_TOP_LEFT, 34, 65 + text_y_offset);
+  lv_obj_align(subtitle_label, LV_ALIGN_TOP_LEFT, 34, 65 + text_y_offset);
   if (show_chevron) {
     lv_obj_t* chevron = CreateLabel(row, icon::kChevronRight,
         theme::ActiveThemeColors().on_surface_variant, OutlineIconFont44());
@@ -4937,8 +4815,7 @@ void ProfileDeleteClickedEventCallback(lv_event_t* event) {
  * @param y 顶部坐标
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateProfileDeleteRow(
-    lv_obj_t* parent, RadioViewState* state, int y) {
+bool CreateProfileDeleteRow(lv_obj_t* parent, RadioViewState* state, int y) {
   if (parent == nullptr || state == nullptr) {
     return false;
   }
@@ -4952,8 +4829,8 @@ bool CreateProfileDeleteRow(
   lv_obj_set_size(row, state->config.width, 108);
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      row, lv_color_hex(theme::ActiveThemeColors().state_layer), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(row,
+      lv_color_hex(theme::ActiveThemeColors().state_layer), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
@@ -4962,11 +4839,11 @@ bool CreateProfileDeleteRow(
     lv_obj_delete(row);
     return false;
   }
-  lv_obj_add_event_cb(row, ProfileDeleteClickedEventCallback,
-      LV_EVENT_CLICKED, state);
+  lv_obj_add_event_cb(
+      row, ProfileDeleteClickedEventCallback, LV_EVENT_CLICKED, state);
 
-  lv_obj_t* label = CreateLabel(row, "Delete profile",
-      theme::FixedColors().error, Font28());
+  lv_obj_t* label =
+      CreateLabel(row, "Delete profile", theme::FixedColors().error, Font28());
   lv_obj_t* chevron = CreateLabel(row, icon::kChevronRight,
       theme::ActiveThemeColors().on_surface_variant, OutlineIconFont44());
   if (label == nullptr || chevron == nullptr) {
@@ -5001,8 +4878,8 @@ bool CreateProfileActionDivider(
   lv_obj_remove_flag(divider, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(divider, state->config.width - 2 * kSidePadding, 1);
   lv_obj_set_pos(divider, kSidePadding, y);
-  lv_obj_set_style_bg_color(
-      divider, lv_color_hex(theme::ActiveThemeColors().outline_variant), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(divider,
+      lv_color_hex(theme::ActiveThemeColors().outline_variant), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(divider, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(divider, 0, LV_PART_MAIN);
@@ -5058,12 +4935,12 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
   lv_obj_set_pos(back, 18, 66);
   lv_obj_set_style_bg_opa(back, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(back, LV_OPA_TRANSP, LV_STATE_PRESSED);
-  lv_obj_add_event_cb(back, ProfileSettingsBackClickedEventCallback,
-      LV_EVENT_CLICKED, state);
-  lv_obj_t* back_icon = CreateLabel(
-      back, icon::kArrowBack, theme::ActiveThemeColors().on_surface, OutlineIconFont44());
-  lv_obj_t* page_title = CreateLabel(
-      page, "Profile settings", theme::ActiveThemeColors().on_surface, Font32());
+  lv_obj_add_event_cb(
+      back, ProfileSettingsBackClickedEventCallback, LV_EVENT_CLICKED, state);
+  lv_obj_t* back_icon = CreateLabel(back, icon::kArrowBack,
+      theme::ActiveThemeColors().on_surface, OutlineIconFont44());
+  lv_obj_t* page_title = CreateLabel(page, "Profile settings",
+      theme::ActiveThemeColors().on_surface, Font32());
   if (back_icon == nullptr || page_title == nullptr) {
     ResetProfileSettingsReferences(state);
     lv_obj_delete(page);
@@ -5071,8 +4948,7 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
   }
   lv_obj_align(back_icon, LV_ALIGN_CENTER, -4, 0);
   lv_obj_set_width(page_title, state->config.width);
-  lv_obj_set_style_text_align(
-      page_title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_set_style_text_align(page_title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_align(page_title, LV_ALIGN_TOP_MID, 0, kNavigationTitleTop);
 
   lv_obj_t* body = lv_obj_create(page);
@@ -5082,8 +4958,8 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
     return false;
   }
   lv_obj_set_pos(body, 0, kNavigationBodyTop);
-  lv_obj_set_size(body, state->config.width,
-      state->config.height - kNavigationBodyTop);
+  lv_obj_set_size(
+      body, state->config.width, state->config.height - kNavigationBodyTop);
   lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_border_width(body, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(body, 0, LV_PART_MAIN);
@@ -5102,12 +4978,11 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
   lv_obj_set_size(avatar, 112, 112);
   lv_obj_set_pos(avatar, 34, 18);
   lv_obj_set_style_radius(avatar, 56, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      avatar, lv_color_hex(item.color), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(avatar, lv_color_hex(item.color), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(avatar, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(avatar, 0, LV_PART_MAIN);
-  state->profile_settings_chip_label = CreateLabel(
-      avatar, item.short_name, kOnPrimaryColor, Font36());
+  state->profile_settings_chip_label =
+      CreateLabel(avatar, item.short_name, kOnPrimaryColor, Font36());
 
   lv_obj_t* name_action = lv_button_create(body);
   if (name_action == nullptr) {
@@ -5119,13 +4994,12 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
   lv_obj_remove_flag(name_action, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(name_action, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(name_action,
-      state->config.width - kProfileNameActionX -
-          kProfileNameActionRightMargin,
+      state->config.width - kProfileNameActionX - kProfileNameActionRightMargin,
       kProfileNameActionHeight);
   lv_obj_set_pos(name_action, kProfileNameActionX, 30);
   lv_obj_set_style_bg_opa(name_action, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      name_action, lv_color_hex(theme::ActiveThemeColors().state_layer), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(name_action,
+      lv_color_hex(theme::ActiveThemeColors().state_layer), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(name_action, LV_OPA_COVER, LV_STATE_PRESSED);
   lv_obj_set_style_radius(name_action, 22, LV_PART_MAIN);
   lv_obj_set_style_border_width(name_action, 0, LV_PART_MAIN);
@@ -5138,11 +5012,11 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
   }
   lv_obj_add_event_cb(name_action, ProfileNameAreaClickedEventCallback,
       LV_EVENT_CLICKED, state);
-  state->profile_settings_name_label = CreateLabel(
-      name_action, profile.name, theme::ActiveThemeColors().on_surface, Font36());
+  state->profile_settings_name_label = CreateLabel(name_action, profile.name,
+      theme::ActiveThemeColors().on_surface, Font36());
   const char* status = ProfileStatusText(state, index);
-  state->profile_settings_header_status_label = CreateLabel(
-      body, status, ProfileStatusColor(status), Font24());
+  state->profile_settings_header_status_label =
+      CreateLabel(body, status, ProfileStatusColor(status), Font24());
   if (state->profile_settings_chip_label == nullptr ||
       state->profile_settings_name_label == nullptr ||
       state->profile_settings_header_status_label == nullptr) {
@@ -5152,19 +5026,17 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
   }
   lv_obj_center(state->profile_settings_chip_label);
   UpdateProfileSettingsNameLayout(state);
-  lv_obj_set_pos(
-      state->profile_settings_header_status_label, 170, 94);
+  lv_obj_set_pos(state->profile_settings_header_status_label, 170, 94);
 
   if (!CreateProfileSettingsSection(body, "Radio PROFILE", 164)) {
     ResetProfileSettingsReferences(state);
     lv_obj_delete(page);
     return false;
   }
-  lv_obj_t* active_row = CreateProfileSettingsRow(body, state,
-      "Active profile",
+  lv_obj_t* active_row = CreateProfileSettingsRow(body, state, "Active profile",
       "Use this profile for sending and receiving", 196, nullptr, false);
-  lv_obj_t* radio_row = CreateProfileSettingsRow(body, state,
-      "Radio settings", "Manage radio parameters and behavior", 332,
+  lv_obj_t* radio_row = CreateProfileSettingsRow(body, state, "Radio settings",
+      "Manage radio parameters and behavior", 332,
       ProfileRadioSettingsClickedEventCallback, true, -2, 136);
   lv_obj_t* auto_send_row = CreateProfileSettingsRow(body, state,
       "Automatic send", "Configure repeated test transmissions", 468,
@@ -5185,31 +5057,28 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
   }
   lv_obj_add_flag(
       state->profile_settings_active_switch, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_size(state->profile_settings_active_switch,
-      kProfileSwitchWidth, kProfileSwitchHeight);
-  lv_obj_align(state->profile_settings_active_switch,
-      LV_ALIGN_RIGHT_MID, -34, 0);
+  lv_obj_set_size(state->profile_settings_active_switch, kProfileSwitchWidth,
+      kProfileSwitchHeight);
+  lv_obj_align(
+      state->profile_settings_active_switch, LV_ALIGN_RIGHT_MID, -34, 0);
   lv_obj_set_style_anim_duration(state->profile_settings_active_switch,
       kProfileSwitchAnimationMs, LV_PART_MAIN);
   ApplyRadioSwitchTheme(state->profile_settings_active_switch);
   lv_obj_add_event_cb(state->profile_settings_active_switch,
-      ProfileSettingsActiveChangedEventCallback,
-      LV_EVENT_VALUE_CHANGED, state);
+      ProfileSettingsActiveChangedEventCallback, LV_EVENT_VALUE_CHANGED, state);
   if (!IsProfileSupported(state, profile) && !profile.active) {
-    lv_obj_add_state(
-        state->profile_settings_active_switch, LV_STATE_DISABLED);
+    lv_obj_add_state(state->profile_settings_active_switch, LV_STATE_DISABLED);
   }
 
   RefreshProfileSettingsPage(state);
   if (!StartSlideLeftWindowTransition(
-      page, state->config.width, kAnimationMs, state, nullptr)) {
+          page, state->config.width, kAnimationMs, state, nullptr)) {
     ResetProfileSettingsReferences(state);
     lv_obj_delete(page);
     return false;
   }
-  if (!RegisterBackNavigationHandler(page, [state]() {
-        CloseProfileSettingsPage(state);
-      })) {
+  if (!RegisterBackNavigationHandler(
+          page, [state]() { CloseProfileSettingsPage(state); })) {
     CloseProfileSettingsPage(state);
     return false;
   }
@@ -5227,11 +5096,10 @@ void DeleteSelectedProfiles(RadioViewState* state) {
   app::RadioPreferences next = state->preferences;
   size_t write_index = 0;
   bool deleted_active_profile = false;
-  for (size_t read_index = 0;
-       read_index < state->module_count; ++read_index) {
+  for (size_t read_index = 0; read_index < state->module_count; ++read_index) {
     if (state->selected_modules[read_index]) {
-      SetProfileActivationState(next.profiles[read_index].id,
-          RadioActivationState::kNone);
+      SetProfileActivationState(
+          next.profiles[read_index].id, RadioActivationState::kNone);
       app::GetRadioChatRepository().RemoveProfile(next.profiles[read_index].id);
       if (next.profiles[read_index].active) {
         const uint32_t active_id = next.profiles[read_index].id;
@@ -5245,8 +5113,8 @@ void DeleteSelectedProfiles(RadioViewState* state) {
   }
   next.profile_count = write_index;
   if (deleted_active_profile) {
-    QueueRadioControlCommand(state, RadioCommandType::kDeactivate,
-        hal::RadioConfig());
+    QueueRadioControlCommand(
+        state, RadioCommandType::kDeactivate, hal::RadioConfig());
   }
   for (size_t index = write_index; index < kRadioModuleCapacity; ++index) {
     next.profiles[index] = app::RadioProfile{};
@@ -5271,8 +5139,8 @@ void DeleteProfileById(RadioViewState* state, uint32_t profile_id) {
     return;
   }
 
-  const bool close_detail = state->detail_page != nullptr &&
-      state->detail_index == index;
+  const bool close_detail =
+      state->detail_page != nullptr && state->detail_index == index;
   CloseProfileSettingsPage(state);
   if (close_detail) {
     CloseModuleDetail(state);
@@ -5285,11 +5153,11 @@ void DeleteProfileById(RadioViewState* state, uint32_t profile_id) {
     FailPendingMessages(state, profile_id);
     hal::RadioConfig deactivate_config;
     deactivate_config.client_token = profile_id;
-    QueueRadioControlCommand(state, RadioCommandType::kDeactivate,
-        deactivate_config);
+    QueueRadioControlCommand(
+        state, RadioCommandType::kDeactivate, deactivate_config);
   }
-  for (size_t read_index = index + 1;
-       read_index < next.profile_count; ++read_index) {
+  for (size_t read_index = index + 1; read_index < next.profile_count;
+      ++read_index) {
     next.profiles[read_index - 1] = next.profiles[read_index];
   }
   --next.profile_count;
@@ -5347,23 +5215,21 @@ bool ShowRadioDeletePrompt(RadioViewState* state, const char* title,
   PromptDialogConfig config;
   config.screen_width = state->config.width;
   config.screen_height = state->config.height;
-  config.dialog_width =
-      state->config.width - 2 * kDeletePromptSideMargin;
-  const int content_width =
-      config.dialog_width - 2 * kDeletePromptInnerPadding;
+  config.dialog_width = state->config.width - 2 * kDeletePromptSideMargin;
+  const int content_width = config.dialog_width - 2 * kDeletePromptInnerPadding;
   lv_point_t message_size = {};
-  lv_text_get_size(&message_size, message, Font24(), 0, 0,
-      content_width, LV_TEXT_FLAG_NONE);
-  config.dialog_height = kDeletePromptTitleTop +
-      kDeletePromptTitleHeight + kDeletePromptTitleMessageGap +
-      static_cast<int>(message_size.y) + kDeletePromptMessageButtonGap +
-      kDeletePromptButtonHeight + kDeletePromptInnerPadding;
+  lv_text_get_size(
+      &message_size, message, Font24(), 0, 0, content_width, LV_TEXT_FLAG_NONE);
+  config.dialog_height = kDeletePromptTitleTop + kDeletePromptTitleHeight +
+                         kDeletePromptTitleMessageGap +
+                         static_cast<int>(message_size.y) +
+                         kDeletePromptMessageButtonGap +
+                         kDeletePromptButtonHeight + kDeletePromptInnerPadding;
   config.dialog_radius = kDeletePromptRadius;
   config.inner_padding = kDeletePromptInnerPadding;
   config.header_height = 0;
   config.title_y = 0;
-  config.action_height =
-      kDeletePromptInnerPadding + kDeletePromptButtonHeight;
+  config.action_height = kDeletePromptInnerPadding + kDeletePromptButtonHeight;
   config.action_button_height = kDeletePromptButtonHeight;
   config.action_button_radius = kDeletePromptButtonRadius;
   config.action_button_gap = kDeletePromptButtonGap;
@@ -5379,27 +5245,23 @@ bool ShowRadioDeletePrompt(RadioViewState* state, const char* title,
   config.confirm_callback = confirm_callback;
   config.callback_context = state;
   config.slide_from_bottom = true;
-  lv_obj_t* body = ShowPromptDialog(
-      state->root, &state->delete_dialog, config);
+  lv_obj_t* body = ShowPromptDialog(state->root, &state->delete_dialog, config);
   if (body == nullptr || state->delete_dialog.panel == nullptr) {
     return false;
   }
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
 
-  lv_obj_t* title_label = CreateLabel(
-      body, title, theme::ActiveThemeColors().on_surface, Font32());
+  lv_obj_t* title_label =
+      CreateLabel(body, title, theme::ActiveThemeColors().on_surface, Font32());
   lv_obj_t* message_label = CreateLabel(
       body, message, theme::ActiveThemeColors().on_surface_variant, Font24());
   if (title_label == nullptr || message_label == nullptr) {
     ClosePromptDialog(&state->delete_dialog);
     return false;
   }
-  lv_obj_set_size(
-      title_label, content_width, kDeletePromptTitleHeight);
-  lv_obj_set_pos(
-      title_label, kDeletePromptInnerPadding, kDeletePromptTitleTop);
-  lv_obj_set_style_text_align(
-      title_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_obj_set_size(title_label, content_width, kDeletePromptTitleHeight);
+  lv_obj_set_pos(title_label, kDeletePromptInnerPadding, kDeletePromptTitleTop);
+  lv_obj_set_style_text_align(title_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_set_width(message_label, content_width);
   lv_obj_set_pos(message_label, kDeletePromptInnerPadding,
       kDeletePromptTitleTop + kDeletePromptTitleHeight +
@@ -5451,9 +5313,9 @@ void SelectionDeleteClickedEventCallback(lv_event_t* event) {
   }
 }
 
-lv_obj_t* CreateHeaderIconButton(lv_obj_t* parent, const char* icon_text,
-    int x, int size, const lv_font_t* icon_font,
-    lv_event_cb_t callback, RadioViewState* state) {
+lv_obj_t* CreateHeaderIconButton(lv_obj_t* parent, const char* icon_text, int x,
+    int size, const lv_font_t* icon_font, lv_event_cb_t callback,
+    RadioViewState* state) {
   if (parent == nullptr || icon_text == nullptr || icon_font == nullptr ||
       size <= 0 || callback == nullptr) {
     return nullptr;
@@ -5480,19 +5342,18 @@ bool RenderHeader(RadioViewState* state) {
   }
   lv_obj_clean(state->header_area);
   if (state->add_button != nullptr) {
-    if (state->selection_mode ||
-        state->module_count >= kRadioModuleCapacity) {
+    if (state->selection_mode || state->module_count >= kRadioModuleCapacity) {
       lv_obj_add_flag(state->add_button, LV_OBJ_FLAG_HIDDEN);
     } else {
       lv_obj_remove_flag(state->add_button, LV_OBJ_FLAG_HIDDEN);
     }
   }
   if (!state->selection_mode) {
-    lv_obj_t* menu = CreateHeaderIconButton(state->header_area,
-        icon::kMenu, 20, 72, &lvgl_font_material_symbols_fill_56,
-        MenuClickedEventCallback, state);
-    lv_obj_t* title = CreateLabel(
-        state->header_area, "Radio", theme::ActiveThemeColors().on_surface, Font36());
+    lv_obj_t* menu = CreateHeaderIconButton(state->header_area, icon::kMenu, 20,
+        72, &lvgl_font_material_symbols_fill_56, MenuClickedEventCallback,
+        state);
+    lv_obj_t* title = CreateLabel(state->header_area, "Radio",
+        theme::ActiveThemeColors().on_surface, Font36());
     if (menu == nullptr || title == nullptr) {
       return false;
     }
@@ -5506,8 +5367,8 @@ bool RenderHeader(RadioViewState* state) {
       std::snprintf(summary_text, sizeof(summary_text), "%u profiles",
           static_cast<unsigned>(state->module_count));
     }
-    lv_obj_t* summary_label = CreateLabel(state->header_area,
-        summary_text, theme::ActiveThemeColors().on_surface_variant, Font24());
+    lv_obj_t* summary_label = CreateLabel(state->header_area, summary_text,
+        theme::ActiveThemeColors().on_surface_variant, Font24());
     if (summary_label != nullptr) {
       lv_obj_set_pos(summary_label, 104, 44);
     }
@@ -5515,9 +5376,8 @@ bool RenderHeader(RadioViewState* state) {
   }
 
   const size_t selected_count = SelectedModuleCount(state);
-  lv_obj_t* close = CreateHeaderIconButton(state->header_area,
-      icon::kClose, 14, 64, OutlineIconFont44(),
-      SelectionCloseClickedEventCallback, state);
+  lv_obj_t* close = CreateHeaderIconButton(state->header_area, icon::kClose, 14,
+      64, OutlineIconFont44(), SelectionCloseClickedEventCallback, state);
   if (close == nullptr) {
     return false;
   }
@@ -5533,15 +5393,14 @@ bool RenderHeader(RadioViewState* state) {
   char count_text[12] = {};
   std::snprintf(count_text, sizeof(count_text), "%u",
       static_cast<unsigned>(selected_count));
-  lv_obj_t* count = CreateLabel(
-      state->header_area, count_text, theme::ActiveThemeColors().on_surface, Font36());
+  lv_obj_t* count = CreateLabel(state->header_area, count_text,
+      theme::ActiveThemeColors().on_surface, Font36());
   if (count != nullptr) {
     lv_obj_set_pos(count, 102, 10);
   }
   const int right = state->config.width;
-  CreateHeaderIconButton(state->header_area, icon::kDelete,
-      right - 74, 64, FillIconFont44(),
-      SelectionDeleteClickedEventCallback, state);
+  CreateHeaderIconButton(state->header_area, icon::kDelete, right - 74, 64,
+      FillIconFont44(), SelectionDeleteClickedEventCallback, state);
   return true;
 }
 
@@ -5592,8 +5451,9 @@ void UpdateOptionButtonGroup(
                               : theme::ActiveThemeColors().surface_container),
         LV_PART_MAIN);
     lv_obj_set_style_bg_color(button,
-        lv_color_hex(selected ? kPrimaryPressedColor
-                              : theme::ActiveThemeColors().surface_container_high),
+        lv_color_hex(selected
+                         ? kPrimaryPressedColor
+                         : theme::ActiveThemeColors().surface_container_high),
         LV_STATE_PRESSED);
     lv_obj_t* label = lv_obj_get_child(button, 0);
     if (label != nullptr) {
@@ -5613,22 +5473,19 @@ void UpdateAddOptionSelection(RadioViewState* state) {
   if (state == nullptr) {
     return;
   }
-  UpdateOptionButtonGroup(
-      state->add_chip_buttons,
-      static_cast<int>(state->capabilities.count),
-      state->selected_add_chip);
+  UpdateOptionButtonGroup(state->add_chip_buttons,
+      static_cast<int>(state->capabilities.count), state->selected_add_chip);
   UpdateOptionButtonGroup(
       state->add_protocol_buttons, 1, state->selected_add_protocol);
-  UpdateOptionButtonGroup(
-      state->add_sf_buttons, 8, state->selected_add_sf);
+  UpdateOptionButtonGroup(state->add_sf_buttons, 8, state->selected_add_sf);
   UpdateOptionButtonGroup(state->add_bandwidth_buttons,
       static_cast<int>(AddProfileBandwidthCount(state)),
       state->selected_add_bandwidth);
   UpdateOptionButtonGroup(state->add_coding_rate_buttons,
       static_cast<int>(AddProfileCodingRateCount(state)),
       state->selected_add_coding_rate);
-  UpdateOptionButtonGroup(state->add_rx_boost_buttons, 8,
-      state->selected_add_rx_boost_mode);
+  UpdateOptionButtonGroup(
+      state->add_rx_boost_buttons, 8, state->selected_add_rx_boost_mode);
   UpdateOptionButtonGroup(state->add_output_power_buttons,
       static_cast<int>(AddProfileOutputPowerCount(state)),
       state->selected_add_output_power);
@@ -5651,8 +5508,7 @@ void UpdateAddOptionSelection(RadioViewState* state) {
  */
 bool IsFrequencyValidForCapability(
     const hal::RadioCapability* capability, double frequency_mhz) {
-  if (capability == nullptr || frequency_mhz < 0.0 ||
-      frequency_mhz > 4294.0) {
+  if (capability == nullptr || frequency_mhz < 0.0 || frequency_mhz > 4294.0) {
     return false;
   }
   const uint32_t frequency_hz =
@@ -5714,8 +5570,7 @@ bool IsAddFrequencyValid(const RadioViewState* state) {
  * @return 组合有效返回 true
  */
 bool IsAddBandwidthValid(const RadioViewState* state) {
-  if (state == nullptr ||
-      state->add_frequency_input == nullptr ||
+  if (state == nullptr || state->add_frequency_input == nullptr ||
       state->selected_add_bandwidth < 0 ||
       static_cast<size_t>(state->selected_add_bandwidth) >=
           AddProfileBandwidthCount(state)) {
@@ -5795,9 +5650,8 @@ void UpdateAddBandwidthOptionLayout(RadioViewState* state) {
   bool option_visible[std::size(radio::kLr2021BandwidthsHz)] = {};
   size_t visible_count = 0;
   for (size_t index = 0; index < option_count; ++index) {
-    option_visible[index] = IsBandwidthValidForFrequency(
-        AddProfileChip(state), frequency_mhz,
-        AddProfileBandwidth(state, index));
+    option_visible[index] = IsBandwidthValidForFrequency(AddProfileChip(state),
+        frequency_mhz, AddProfileBandwidth(state, index));
     if (option_visible[index]) {
       ++visible_count;
     }
@@ -5815,17 +5669,14 @@ void UpdateAddBandwidthOptionLayout(RadioViewState* state) {
   constexpr int kOptionLeft = 28;
   constexpr int kOptionGap = 10;
   const int option_area_width = state->config.width - 56;
-  const size_t column_count = AddProfileChip(state) ==
-          radio::ChipType::kLr2021
-      ? 4
-      : visible_count;
+  const size_t column_count =
+      AddProfileChip(state) == radio::ChipType::kLr2021 ? 4 : visible_count;
   const int option_width =
-      (option_area_width -
-          static_cast<int>(column_count - 1) * kOptionGap) /
+      (option_area_width - static_cast<int>(column_count - 1) * kOptionGap) /
       static_cast<int>(column_count);
   const int first_row_y = state->add_bandwidth_buttons[0] == nullptr
-      ? 0
-      : lv_obj_get_y(state->add_bandwidth_buttons[0]);
+                              ? 0
+                              : lv_obj_get_y(state->add_bandwidth_buttons[0]);
   size_t visible_index = 0;
   for (size_t index = 0; index < option_count; ++index) {
     lv_obj_t* button = state->add_bandwidth_buttons[index];
@@ -5847,8 +5698,8 @@ void UpdateAddBandwidthOptionLayout(RadioViewState* state) {
   }
 }
 
-bool ParseTextAreaLong(lv_obj_t* input, int base, long minimum,
-    long maximum, long* value) {
+bool ParseTextAreaLong(
+    lv_obj_t* input, int base, long minimum, long maximum, long* value) {
   if (input == nullptr || value == nullptr) {
     return false;
   }
@@ -5876,8 +5727,7 @@ bool IsAddOutputPowerValid(const RadioViewState* state) {
     return false;
   }
   const radio::ChipType chip = AddProfileChip(state);
-  if (chip == radio::ChipType::kCc1101 ||
-      chip == radio::ChipType::kNrf24l01) {
+  if (chip == radio::ChipType::kCc1101 || chip == radio::ChipType::kNrf24l01) {
     return state->selected_add_output_power >= 0 &&
            static_cast<size_t>(state->selected_add_output_power) <
                AddProfileOutputPowerCount(state);
@@ -5896,9 +5746,8 @@ bool IsAddOutputPowerValid(const RadioViewState* state) {
                          end != nullptr && end[0] == '\0' &&
                          frequency_mhz >= 2400.0;
   long output_power = 0;
-  return ParseTextAreaLong(state->add_power_input, 10,
-      lr2021_hf ? -19 : -9, lr2021_hf ? 5 : (lr1121_hf ? 13 : 22),
-      &output_power);
+  return ParseTextAreaLong(state->add_power_input, 10, lr2021_hf ? -19 : -9,
+      lr2021_hf ? 5 : (lr1121_hf ? 13 : 22), &output_power);
 }
 
 /**
@@ -5911,17 +5760,16 @@ void UpdateAddTextAreaErrorStyle(lv_obj_t* input, bool valid) {
     return;
   }
   const char* text = lv_textarea_get_text(input);
-  const bool show_error = text != nullptr && text[0] != '\0' &&
-                          !valid;
+  const bool show_error = text != nullptr && text[0] != '\0' && !valid;
   const int outline_width = show_error ? 2 : 0;
   lv_obj_set_style_border_width(input, 0, LV_PART_MAIN);
   lv_obj_set_style_border_width(input, 0, LV_STATE_FOCUSED);
   lv_obj_set_style_outline_width(input, outline_width, LV_PART_MAIN);
   lv_obj_set_style_outline_width(input, outline_width, LV_STATE_FOCUSED);
-  lv_obj_set_style_outline_color(input,
-      lv_color_hex(theme::FixedColors().error), LV_PART_MAIN);
-  lv_obj_set_style_outline_color(input,
-      lv_color_hex(theme::FixedColors().error), LV_STATE_FOCUSED);
+  lv_obj_set_style_outline_color(
+      input, lv_color_hex(theme::FixedColors().error), LV_PART_MAIN);
+  lv_obj_set_style_outline_color(
+      input, lv_color_hex(theme::FixedColors().error), LV_STATE_FOCUSED);
   lv_obj_set_style_outline_opa(input, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_outline_opa(input, LV_OPA_COVER, LV_STATE_FOCUSED);
   lv_obj_set_style_outline_pad(input, -2, LV_PART_MAIN);
@@ -5944,41 +5792,41 @@ void UpdateAddInputErrorStyles(RadioViewState* state) {
         state->add_frequency_input, IsAddFrequencyValid(state));
     long data_rate = 0;
     UpdateAddTextAreaErrorStyle(state->add_data_rate_input,
-        ParseTextAreaLong(state->add_data_rate_input,
-            10, 600, 250000, &data_rate));
+        ParseTextAreaLong(
+            state->add_data_rate_input, 10, 600, 250000, &data_rate));
     UpdateAddTextAreaErrorStyle(state->add_frequency_deviation_input,
-        ParseTextAreaLong(state->add_frequency_deviation_input,
-            10, 1600, 380000, &parsed_value));
+        ParseTextAreaLong(state->add_frequency_deviation_input, 10, 1600,
+            380000, &parsed_value));
     UpdateAddTextAreaErrorStyle(state->add_sync_word_input,
-        ParseTextAreaLong(state->add_sync_word_input,
-            16, 0, 65535, &parsed_value));
+        ParseTextAreaLong(
+            state->add_sync_word_input, 16, 0, 65535, &parsed_value));
     return;
   }
   if (chip == radio::ChipType::kNrf24l01) {
     long retry_delay = 0;
     uint8_t address_width = 0;
-    const bool retry_delay_valid = ParseTextAreaLong(
-        state->add_retransmit_delay_input, 10, 250, 4000, &retry_delay) &&
+    const bool retry_delay_valid =
+        ParseTextAreaLong(
+            state->add_retransmit_delay_input, 10, 250, 4000, &retry_delay) &&
         retry_delay % 250 == 0;
-    UpdateAddTextAreaErrorStyle(
-        state->add_frequency_input,
-        ParseTextAreaLong(state->add_frequency_input,
-            10, 2400, 2525, &parsed_value));
+    UpdateAddTextAreaErrorStyle(state->add_frequency_input,
+        ParseTextAreaLong(
+            state->add_frequency_input, 10, 2400, 2525, &parsed_value));
     UpdateAddTextAreaErrorStyle(state->add_address_input,
-        ParseEnhancedShockBurstAddress(state->add_address_input,
-            &parsed_address, &address_width));
+        ParseEnhancedShockBurstAddress(
+            state->add_address_input, &parsed_address, &address_width));
     UpdateAddTextAreaErrorStyle(state->add_retransmit_count_input,
-        ParseTextAreaLong(state->add_retransmit_count_input,
-            10, 0, 15, &parsed_value));
+        ParseTextAreaLong(
+            state->add_retransmit_count_input, 10, 0, 15, &parsed_value));
     UpdateAddTextAreaErrorStyle(
         state->add_retransmit_delay_input, retry_delay_valid);
     return;
   }
   const bool power_valid = IsAddOutputPowerValid(state);
-  const bool preamble_valid = ParseTextAreaLong(
-      state->add_preamble_input, 10, 1, 65535, &parsed_value);
-  const bool sync_word_valid = ParseTextAreaLong(
-      state->add_sync_word_input, 16, 0, 255, &parsed_value);
+  const bool preamble_valid =
+      ParseTextAreaLong(state->add_preamble_input, 10, 1, 65535, &parsed_value);
+  const bool sync_word_valid =
+      ParseTextAreaLong(state->add_sync_word_input, 16, 0, 255, &parsed_value);
   UpdateAddTextAreaErrorStyle(
       state->add_frequency_input, IsAddFrequencyValid(state));
   UpdateAddTextAreaErrorStyle(state->add_power_input, power_valid);
@@ -5999,12 +5847,11 @@ bool IsAddModuleFormComplete(const RadioViewState* state) {
   if ((!editing && state->add_name_input == nullptr) ||
       (!editing && state->add_active_switch == nullptr) ||
       (state->editing_index >= state->module_count &&
-       state->module_count >= kRadioModuleCapacity)) {
+          state->module_count >= kRadioModuleCapacity)) {
     return false;
   }
-  const char* profile_name = editing
-      ? nullptr
-      : lv_textarea_get_text(state->add_name_input);
+  const char* profile_name =
+      editing ? nullptr : lv_textarea_get_text(state->add_name_input);
   if (!editing && (profile_name == nullptr || profile_name[0] == '\0')) {
     return false;
   }
@@ -6026,31 +5873,29 @@ bool IsAddModuleFormComplete(const RadioViewState* state) {
           state->add_external_antenna_switch == nullptr)) {
     return false;
   }
-  const char* frequency =
-      lv_textarea_get_text(state->add_frequency_input);
+  const char* frequency = lv_textarea_get_text(state->add_frequency_input);
   long preamble = 0;
   long sync_word = 0;
   return frequency != nullptr && frequency[0] != '\0' &&
          IsAddFrequencyValid(state) && IsAddBandwidthValid(state) &&
          IsAddOutputPowerValid(state) &&
-         ParseTextAreaLong(state->add_preamble_input, 10, 1, 65535,
-             &preamble) &&
-         ParseTextAreaLong(state->add_sync_word_input, 16, 0, 255,
-             &sync_word) &&
+         ParseTextAreaLong(
+             state->add_preamble_input, 10, 1, 65535, &preamble) &&
+         ParseTextAreaLong(
+             state->add_sync_word_input, 16, 0, 255, &sync_word) &&
          state->selected_add_chip >= 0 &&
          static_cast<size_t>(state->selected_add_chip) <
              state->capabilities.count &&
          state->selected_add_protocol >= 0 &&
          state->selected_add_protocol == 0 && state->selected_add_sf >= 0 &&
-         state->selected_add_sf < 8 &&
-         state->selected_add_bandwidth >= 0 &&
+         state->selected_add_sf < 8 && state->selected_add_bandwidth >= 0 &&
          static_cast<size_t>(state->selected_add_bandwidth) <
              AddProfileBandwidthCount(state) &&
          state->selected_add_coding_rate >= 0 &&
          static_cast<size_t>(state->selected_add_coding_rate) <
              AddProfileCodingRateCount(state) &&
          (!lr2021 || (state->selected_add_rx_boost_mode >= 0 &&
-             state->selected_add_rx_boost_mode <= 7));
+                         state->selected_add_rx_boost_mode <= 7));
 }
 
 /**
@@ -6066,11 +5911,11 @@ void UpdateAddSubmitButton(RadioViewState* state) {
   if (state->add_submitting) {
     lv_obj_remove_state(state->add_submit_button, LV_STATE_DISABLED);
     lv_obj_remove_flag(state->add_submit_button, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_color(state->add_submit_button,
-        lv_color_hex(kPrimaryColor), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(
+        state->add_submit_button, lv_color_hex(kPrimaryColor), LV_PART_MAIN);
     if (state->add_submit_label != nullptr) {
-      lv_obj_set_style_text_color(state->add_submit_label,
-          lv_color_hex(kOnPrimaryColor), LV_PART_MAIN);
+      lv_obj_set_style_text_color(
+          state->add_submit_label, lv_color_hex(kOnPrimaryColor), LV_PART_MAIN);
     }
     return;
   }
@@ -6082,11 +5927,13 @@ void UpdateAddSubmitButton(RadioViewState* state) {
     lv_obj_add_state(state->add_submit_button, LV_STATE_DISABLED);
   }
   lv_obj_set_style_bg_color(state->add_submit_button,
-      lv_color_hex(enabled ? kPrimaryColor : theme::ActiveThemeColors().disabled_container),
+      lv_color_hex(enabled ? kPrimaryColor
+                           : theme::ActiveThemeColors().disabled_container),
       LV_PART_MAIN);
   if (state->add_submit_label != nullptr) {
     lv_obj_set_style_text_color(state->add_submit_label,
-        lv_color_hex(enabled ? kOnPrimaryColor : theme::ActiveThemeColors().disabled_content),
+        lv_color_hex(enabled ? kOnPrimaryColor
+                             : theme::ActiveThemeColors().disabled_content),
         LV_PART_MAIN);
   }
 }
@@ -6099,8 +5946,8 @@ void AddOptionClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
   }
-  auto* action = static_cast<RadioAddOptionAction*>(
-      lv_event_get_user_data(event));
+  auto* action =
+      static_cast<RadioAddOptionAction*>(lv_event_get_user_data(event));
   if (action == nullptr || action->state == nullptr) {
     return;
   }
@@ -6111,9 +5958,11 @@ void AddOptionClickedEventCallback(lv_event_t* event) {
     }
     action->state->selected_add_chip = action->index;
     action->state->selected_add_protocol = 0;
-    lv_async_call([](void* context) {
-      RebuildAddModuleForm(static_cast<RadioViewState*>(context));
-    }, action->state);
+    lv_async_call(
+        [](void* context) {
+          RebuildAddModuleForm(static_cast<RadioViewState*>(context));
+        },
+        action->state);
     return;
   } else if (action->group == RadioAddOptionGroup::kProtocol) {
     action->state->selected_add_protocol = action->index;
@@ -6152,14 +6001,13 @@ void SetAddKeyboardVisible(
   }
   const bool input_active = visible;
   const bool keyboard_visible = input_active && ShouldShowSharedKeyboard();
-  const int normal_height = state->config.height -
-      kAddPageHeaderHeight - kAddPageActionHeight;
+  const int normal_height =
+      state->config.height - kAddPageHeaderHeight - kAddPageActionHeight;
   if (!keyboard_visible) {
     if (!input_active) {
       HideSharedKeyboard(state->add_keyboard);
     }
-    lv_obj_align(
-        state->add_action_area, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_align(state->add_action_area, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_height(state->add_body, normal_height);
     lv_obj_update_layout(state->add_body);
     return;
@@ -6168,7 +6016,8 @@ void SetAddKeyboardVisible(
   const int keyboard_height =
       state->config.height * kAddKeyboardHeightPercent / 100;
   const int visible_height = state->config.height - keyboard_height -
-      kAddPageHeaderHeight - kAddPageActionHeight - kAddKeyboardTopGap;
+                             kAddPageHeaderHeight - kAddPageActionHeight -
+                             kAddKeyboardTopGap;
   if (visible_height <= 0 || input == nullptr) {
     return;
   }
@@ -6194,12 +6043,10 @@ void UpdateEnhancedShockBurstDependencyControls(RadioViewState* state) {
     return;
   }
   if (lv_obj_has_state(state->add_auto_ack_switch, LV_STATE_CHECKED)) {
-    lv_obj_remove_state(
-        state->add_dynamic_payload_switch, LV_STATE_DISABLED);
+    lv_obj_remove_state(state->add_dynamic_payload_switch, LV_STATE_DISABLED);
     return;
   }
-  lv_obj_remove_state(
-      state->add_dynamic_payload_switch, LV_STATE_CHECKED);
+  lv_obj_remove_state(state->add_dynamic_payload_switch, LV_STATE_CHECKED);
   lv_obj_add_state(state->add_dynamic_payload_switch, LV_STATE_DISABLED);
 }
 
@@ -6260,8 +6107,7 @@ void AddInputEventCallback(lv_event_t* event) {
       if (lv_event_get_target_obj(event) == state->add_frequency_input) {
         NormalizeAddBandwidthSelection(state);
         UpdateAddBandwidthOptionLayout(state);
-      } else if (lv_event_get_target_obj(event) ==
-                 state->add_auto_ack_switch) {
+      } else if (lv_event_get_target_obj(event) == state->add_auto_ack_switch) {
         UpdateEnhancedShockBurstDependencyControls(state);
       }
     }
@@ -6269,13 +6115,11 @@ void AddInputEventCallback(lv_event_t* event) {
     return;
   }
   if (code == LV_EVENT_FOCUSED) {
-    SetAddKeyboardVisible(
-        state, lv_event_get_target_obj(event), true);
+    SetAddKeyboardVisible(state, lv_event_get_target_obj(event), true);
   } else if (code == LV_EVENT_CLICKED && state != nullptr &&
              state->add_keyboard != nullptr &&
              lv_obj_has_flag(state->add_keyboard, LV_OBJ_FLAG_HIDDEN)) {
-    SetAddKeyboardVisible(
-        state, lv_event_get_target_obj(event), true);
+    SetAddKeyboardVisible(state, lv_event_get_target_obj(event), true);
   } else if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
     SetAddKeyboardVisible(state, nullptr, false);
   }
@@ -6286,8 +6130,7 @@ void AddInputEventCallback(lv_event_t* event) {
  * @param animation LVGL 动画对象
  */
 void AddPageCloseCompletedCallback(lv_anim_t* animation) {
-  auto* state = static_cast<RadioViewState*>(
-      lv_anim_get_user_data(animation));
+  auto* state = static_cast<RadioViewState*>(lv_anim_get_user_data(animation));
   if (state == nullptr || state->add_page == nullptr) {
     return;
   }
@@ -6322,16 +6165,14 @@ void AddPageCloseCompletedCallback(lv_anim_t* animation) {
  * @param state 射频页面状态
  */
 void CloseAddModulePage(RadioViewState* state) {
-  if (state == nullptr || state->add_page == nullptr ||
-      state->add_closing) {
+  if (state == nullptr || state->add_page == nullptr || state->add_closing) {
     return;
   }
   // 键盘是 add_page 的子对象，会随页面一起滑出并删除。此处不再解绑
   // textarea，避免关闭回调中触发一次无意义的焦点和字体布局刷新。
   state->add_closing = true;
-  if (!StartSlideRightWindowTransition(state->add_page,
-      state->config.width, kAnimationMs, state,
-      AddPageCloseCompletedCallback)) {
+  if (!StartSlideRightWindowTransition(state->add_page, state->config.width,
+          kAnimationMs, state, AddPageCloseCompletedCallback)) {
     lv_obj_t* page = state->add_page;
     state->add_page = nullptr;
     state->add_body = nullptr;
@@ -6378,8 +6219,7 @@ void AddPageBackgroundClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_CLICKED &&
       lv_event_get_target_obj(event) ==
           lv_event_get_current_target_obj(event)) {
-    auto* state = static_cast<RadioViewState*>(
-        lv_event_get_user_data(event));
+    auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
     if (state != nullptr) {
       SetAddKeyboardVisible(state, nullptr, false);
     }
@@ -6405,12 +6245,9 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
   lv_event_stop_processing(event);
   const uint32_t started_ms = lv_tick_get();
   const bool editing = state->editing_index < state->module_count;
-  const size_t index = editing
-      ? state->editing_index
-      : state->module_count;
-  app::RadioProfile profile = editing
-      ? state->preferences.profiles[index]
-      : app::RadioProfile{};
+  const size_t index = editing ? state->editing_index : state->module_count;
+  app::RadioProfile profile =
+      editing ? state->preferences.profiles[index] : app::RadioProfile{};
   const app::RadioProfile previous_profile = profile;
   ApplyPrimaryRadioCapability(state, &profile);
   if (!editing) {
@@ -6434,38 +6271,33 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
   }
   profile.antenna = radio::AntennaType::kInternal;
   if (profile.protocol == radio::ProtocolType::kGfsk) {
-    const double frequency_mhz = std::strtod(
-        lv_textarea_get_text(state->add_frequency_input), nullptr);
+    const double frequency_mhz =
+        std::strtod(lv_textarea_get_text(state->add_frequency_input), nullptr);
     long data_rate = 0;
     long deviation = 0;
     long sync_word = 0;
-    ParseTextAreaLong(state->add_data_rate_input,
-        10, 600, 250000, &data_rate);
-    ParseTextAreaLong(state->add_frequency_deviation_input,
-        10, 1600, 380000, &deviation);
+    ParseTextAreaLong(state->add_data_rate_input, 10, 600, 250000, &data_rate);
     ParseTextAreaLong(
-        state->add_sync_word_input, 16, 0, 65535, &sync_word);
-    profile.frequency_hz = static_cast<uint32_t>(
-        frequency_mhz * 1000000.0 + 0.5);
+        state->add_frequency_deviation_input, 10, 1600, 380000, &deviation);
+    ParseTextAreaLong(state->add_sync_word_input, 16, 0, 65535, &sync_word);
+    profile.frequency_hz =
+        static_cast<uint32_t>(frequency_mhz * 1000000.0 + 0.5);
     profile.gfsk_data_rate_bps = static_cast<uint32_t>(data_rate);
-    profile.gfsk_frequency_deviation_hz =
-        static_cast<uint32_t>(deviation);
-    profile.gfsk_receive_bandwidth_hz =
-        radio::kCc1101ReceiveBandwidthsHz[
-            state->selected_add_receive_bandwidth];
-    profile.preamble_length = kCc1101PreambleLengths[
-        state->selected_add_preamble];
+    profile.gfsk_frequency_deviation_hz = static_cast<uint32_t>(deviation);
+    profile.gfsk_receive_bandwidth_hz = radio::kCc1101ReceiveBandwidthsHz[state
+            ->selected_add_receive_bandwidth];
+    profile.preamble_length =
+        kCc1101PreambleLengths[state->selected_add_preamble];
     profile.gfsk_sync_word = static_cast<uint16_t>(sync_word);
-    profile.crc_enabled = lv_obj_has_state(
-        state->add_crc_switch, LV_STATE_CHECKED);
-    profile.gfsk_whitening_enabled = lv_obj_has_state(
-        state->add_whitening_switch, LV_STATE_CHECKED);
+    profile.crc_enabled =
+        lv_obj_has_state(state->add_crc_switch, LV_STATE_CHECKED);
+    profile.gfsk_whitening_enabled =
+        lv_obj_has_state(state->add_whitening_switch, LV_STATE_CHECKED);
     if (state->add_fec_switch != nullptr) {
-      profile.gfsk_fec_enabled = lv_obj_has_state(
-          state->add_fec_switch, LV_STATE_CHECKED);
+      profile.gfsk_fec_enabled =
+          lv_obj_has_state(state->add_fec_switch, LV_STATE_CHECKED);
     }
-  } else if (profile.protocol ==
-             radio::ProtocolType::kEnhancedShockBurst) {
+  } else if (profile.protocol == radio::ProtocolType::kEnhancedShockBurst) {
     long frequency_mhz = 0;
     long retransmit_count = 0;
     long retransmit_delay = 0;
@@ -6475,76 +6307,71 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
         state->add_frequency_input, 10, 2400, 2525, &frequency_mhz);
     ParseEnhancedShockBurstAddress(
         state->add_address_input, &address, &address_width);
-    ParseTextAreaLong(state->add_retransmit_count_input,
-        10, 0, 15, &retransmit_count);
-    ParseTextAreaLong(state->add_retransmit_delay_input,
-        10, 250, 4000, &retransmit_delay);
+    ParseTextAreaLong(
+        state->add_retransmit_count_input, 10, 0, 15, &retransmit_count);
+    ParseTextAreaLong(
+        state->add_retransmit_delay_input, 10, 250, 4000, &retransmit_delay);
     profile.esb_channel = static_cast<uint8_t>(frequency_mhz - 2400);
-    profile.frequency_hz =
-        static_cast<uint32_t>(frequency_mhz) * 1000000U;
+    profile.frequency_hz = static_cast<uint32_t>(frequency_mhz) * 1000000U;
     profile.esb_data_rate_bps =
         kNrf24l01DataRates[state->selected_add_data_rate];
     profile.esb_address = address;
     profile.esb_address_width = address_width;
-    profile.esb_retransmit_count =
-        static_cast<uint8_t>(retransmit_count);
-    profile.esb_retransmit_delay_us =
-        static_cast<uint16_t>(retransmit_delay);
-    profile.esb_auto_ack_enabled = lv_obj_has_state(
-        state->add_auto_ack_switch, LV_STATE_CHECKED);
+    profile.esb_retransmit_count = static_cast<uint8_t>(retransmit_count);
+    profile.esb_retransmit_delay_us = static_cast<uint16_t>(retransmit_delay);
+    profile.esb_auto_ack_enabled =
+        lv_obj_has_state(state->add_auto_ack_switch, LV_STATE_CHECKED);
     profile.esb_dynamic_payload_enabled =
-        profile.esb_auto_ack_enabled && lv_obj_has_state(
-            state->add_dynamic_payload_switch, LV_STATE_CHECKED);
+        profile.esb_auto_ack_enabled &&
+        lv_obj_has_state(state->add_dynamic_payload_switch, LV_STATE_CHECKED);
   } else {
-    const char* frequency_text = lv_textarea_get_text(
-        state->add_frequency_input);
+    const char* frequency_text =
+        lv_textarea_get_text(state->add_frequency_input);
     const double frequency_mhz = std::strtod(frequency_text, nullptr);
     long preamble = 0;
     long sync_word = 0;
-    ParseTextAreaLong(state->add_preamble_input, 10, 1, 65535,
-        &preamble);
-    ParseTextAreaLong(state->add_sync_word_input, 16, 0, 255,
-        &sync_word);
-    profile.frequency_hz = static_cast<uint32_t>(
-        frequency_mhz * 1000000.0 + 0.5);
+    ParseTextAreaLong(state->add_preamble_input, 10, 1, 65535, &preamble);
+    ParseTextAreaLong(state->add_sync_word_input, 16, 0, 255, &sync_word);
+    profile.frequency_hz =
+        static_cast<uint32_t>(frequency_mhz * 1000000.0 + 0.5);
     profile.bandwidth_hz =
         AddProfileBandwidth(state, state->selected_add_bandwidth);
     profile.preamble_length = static_cast<uint16_t>(preamble);
-    profile.spreading_factor = static_cast<uint8_t>(
-        state->selected_add_sf + 5);
+    profile.spreading_factor = static_cast<uint8_t>(state->selected_add_sf + 5);
     if (profile.chip == radio::ChipType::kLr2021) {
-      profile.lr2021_coding_rate = AddProfileLr2021CodingRate(
-          state, state->selected_add_coding_rate);
+      profile.lr2021_coding_rate =
+          AddProfileLr2021CodingRate(state, state->selected_add_coding_rate);
       profile.coding_rate_denominator =
-          radio::Lr2021CodingRateDenominator(
-              profile.lr2021_coding_rate);
+          radio::Lr2021CodingRateDenominator(profile.lr2021_coding_rate);
     } else {
-      profile.coding_rate_denominator = static_cast<uint8_t>(
-          state->selected_add_coding_rate + 5);
+      profile.coding_rate_denominator =
+          static_cast<uint8_t>(state->selected_add_coding_rate + 5);
       profile.lr2021_coding_rate = static_cast<radio::Lr2021CodingRate>(
           profile.coding_rate_denominator - 4);
     }
     profile.sync_word = static_cast<uint8_t>(sync_word);
-    profile.crc_enabled = lv_obj_has_state(
-        state->add_crc_switch, LV_STATE_CHECKED);
-    profile.invert_iq = lv_obj_has_state(
-        state->add_iq_switch, LV_STATE_CHECKED);
+    profile.crc_enabled =
+        lv_obj_has_state(state->add_crc_switch, LV_STATE_CHECKED);
+    profile.invert_iq =
+        lv_obj_has_state(state->add_iq_switch, LV_STATE_CHECKED);
     if (profile.chip == radio::ChipType::kLr2021) {
-      profile.lr2021_rx_boost_mode = static_cast<uint8_t>(
-          state->selected_add_rx_boost_mode);
+      profile.lr2021_rx_boost_mode =
+          static_cast<uint8_t>(state->selected_add_rx_boost_mode);
       profile.rx_boosted = profile.lr2021_rx_boost_mode != 0;
     } else {
-      profile.rx_boosted = lv_obj_has_state(
-          state->add_rx_boost_switch, LV_STATE_CHECKED);
+      profile.rx_boosted =
+          lv_obj_has_state(state->add_rx_boost_switch, LV_STATE_CHECKED);
       profile.lr2021_rx_boost_mode = profile.rx_boosted ? 7 : 0;
     }
-    profile.antenna = state->add_external_antenna_switch != nullptr &&
-        lv_obj_has_state(state->add_external_antenna_switch, LV_STATE_CHECKED)
-        ? radio::AntennaType::kExternal
-        : radio::AntennaType::kInternal;
+    profile.antenna =
+        state->add_external_antenna_switch != nullptr &&
+                lv_obj_has_state(
+                    state->add_external_antenna_switch, LV_STATE_CHECKED)
+            ? radio::AntennaType::kExternal
+            : radio::AntennaType::kInternal;
   }
-  const bool settings_changed = editing &&
-      !AreProfileSettingsEqual(previous_profile, profile);
+  const bool settings_changed =
+      editing && !AreProfileSettingsEqual(previous_profile, profile);
   if (settings_changed) {
     SetProfileActivationState(profile.id, RadioActivationState::kNone);
   }
@@ -6552,15 +6379,15 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
   if (!editing) {
     ++state->preferences.profile_count;
   }
-  const bool activate_new_profile = !editing && lv_obj_has_state(
-      state->add_active_switch, LV_STATE_CHECKED);
+  const bool activate_new_profile =
+      !editing && lv_obj_has_state(state->add_active_switch, LV_STATE_CHECKED);
   const uint32_t form_done_ms = lv_tick_get();
-  const bool requires_reconfigure = editing && settings_changed &&
-      profile.active;
+  const bool requires_reconfigure =
+      editing && settings_changed && profile.active;
   bool preferences_persisted = false;
   if (activate_new_profile) {
-    for (size_t candidate = 0;
-         candidate < state->preferences.profile_count; ++candidate) {
+    for (size_t candidate = 0; candidate < state->preferences.profile_count;
+        ++candidate) {
       app::RadioProfile& other = state->preferences.profiles[candidate];
       if (candidate != index && other.active && other.chip == profile.chip) {
         FailPendingMessages(state, other.id);
@@ -6573,18 +6400,17 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
     SetProfileActivationState(profile.id, RadioActivationState::kNone);
     // 先持久化最终配置，再启动异步检测，保证任务结果能按完整配置身份
     // 校验，不会把新配置误认为已删除或已修改的旧请求。
-    preferences_persisted =
-        app::UpdateRadioPreferences(state->preferences);
-    QueueRadioControlCommand(state, RadioCommandType::kActivate,
-        ToRadioConfig(profile));
+    preferences_persisted = app::UpdateRadioPreferences(state->preferences);
+    QueueRadioControlCommand(
+        state, RadioCommandType::kActivate, ToRadioConfig(profile));
   } else if (requires_reconfigure) {
     if (previous_profile.chip != profile.chip) {
       hal::RadioConfig deactivate_config;
       deactivate_config.client_token = previous_profile.id;
-      QueueRadioControlCommand(state, RadioCommandType::kDeactivate,
-          deactivate_config);
-      for (size_t candidate = 0;
-           candidate < state->preferences.profile_count; ++candidate) {
+      QueueRadioControlCommand(
+          state, RadioCommandType::kDeactivate, deactivate_config);
+      for (size_t candidate = 0; candidate < state->preferences.profile_count;
+          ++candidate) {
         app::RadioProfile& other = state->preferences.profiles[candidate];
         if (candidate != index && other.active && other.chip == profile.chip) {
           FailPendingMessages(state, other.id);
@@ -6595,10 +6421,9 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
     }
     FailPendingMessages(state, profile.id);
     SetProfileActivationState(profile.id, RadioActivationState::kNone);
-    preferences_persisted =
-        app::UpdateRadioPreferences(state->preferences);
-    QueueRadioControlCommand(state, RadioCommandType::kActivate,
-        ToRadioConfig(profile));
+    preferences_persisted = app::UpdateRadioPreferences(state->preferences);
+    QueueRadioControlCommand(
+        state, RadioCommandType::kActivate, ToRadioConfig(profile));
   }
   const uint32_t command_done_ms = lv_tick_get();
   if (!preferences_persisted &&
@@ -6655,8 +6480,7 @@ void AddModuleSubmitClickedEventCallback(lv_event_t* event) {
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateAddParameterTitle(lv_obj_t* parent, const char* text, int y) {
-  lv_obj_t* label = CreateLabel(
-      parent, text, kPrimaryColor, Font22());
+  lv_obj_t* label = CreateLabel(parent, text, kPrimaryColor, Font22());
   if (label == nullptr) {
     return false;
   }
@@ -6689,10 +6513,11 @@ lv_obj_t* CreateAddOptionButton(lv_obj_t* parent, RadioViewState* state,
   lv_obj_set_size(button, width, height);
   lv_obj_set_pos(button, x, y);
   lv_obj_set_style_radius(button, height / 2, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      button, lv_color_hex(theme::ActiveThemeColors().surface_container), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      button, lv_color_hex(theme::ActiveThemeColors().surface_container_high), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(button,
+      lv_color_hex(theme::ActiveThemeColors().surface_container), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(button,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_high),
+      LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
@@ -6705,11 +6530,12 @@ lv_obj_t* CreateAddOptionButton(lv_obj_t* parent, RadioViewState* state,
       .group = group,
       .index = index,
   };
-  lv_obj_add_event_cb(button, AddOptionClickedEventCallback,
-      LV_EVENT_CLICKED, action);
-  lv_obj_add_event_cb(button, AddOptionActionDeleteEventCallback,
-      LV_EVENT_DELETE, action);
-  lv_obj_t* label = CreateLabel(button, text, theme::ActiveThemeColors().on_surface, Font22());
+  lv_obj_add_event_cb(
+      button, AddOptionClickedEventCallback, LV_EVENT_CLICKED, action);
+  lv_obj_add_event_cb(
+      button, AddOptionActionDeleteEventCallback, LV_EVENT_DELETE, action);
+  lv_obj_t* label = CreateLabel(
+      button, text, theme::ActiveThemeColors().on_surface, Font22());
   if (label == nullptr) {
     lv_obj_delete(button);
     return nullptr;
@@ -6739,8 +6565,7 @@ lv_obj_t* CreateAddTextArea(lv_obj_t* parent, RadioViewState* state,
   lv_obj_remove_flag(input, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
   lv_textarea_set_one_line(input, true);
   lv_obj_set_scrollbar_mode(input, LV_SCROLLBAR_MODE_OFF);
-  lv_obj_set_size(
-      input, state->config.width - 56, kAddInputHeight);
+  lv_obj_set_size(input, state->config.width - 56, kAddInputHeight);
   lv_obj_set_pos(input, 28, y);
   lv_textarea_set_max_length(input, max_length);
   lv_textarea_set_placeholder_text(input, placeholder);
@@ -6748,10 +6573,12 @@ lv_obj_t* CreateAddTextArea(lv_obj_t* parent, RadioViewState* state,
   lv_obj_set_style_text_font(input, Font24(), LV_PART_MAIN);
   lv_obj_set_style_text_color(
       input, lv_color_hex(theme::ActiveThemeColors().on_surface), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      input, lv_color_hex(theme::ActiveThemeColors().surface_container_low), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      input, lv_color_hex(theme::ActiveThemeColors().surface_container_low), LV_STATE_FOCUSED);
+  lv_obj_set_style_bg_color(input,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_low),
+      LV_PART_MAIN);
+  lv_obj_set_style_bg_color(input,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_low),
+      LV_STATE_FOCUSED);
   lv_obj_set_style_bg_opa(input, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(input, 0, LV_PART_MAIN);
   lv_obj_set_style_border_width(input, 0, LV_STATE_FOCUSED);
@@ -6769,8 +6596,7 @@ lv_obj_t* CreateAddTextArea(lv_obj_t* parent, RadioViewState* state,
   if (content_label != nullptr) {
     lv_obj_align(content_label, LV_ALIGN_LEFT_MID, 0, 0);
   }
-  lv_obj_add_event_cb(
-      input, AddInputEventCallback, LV_EVENT_ALL, state);
+  lv_obj_add_event_cb(input, AddInputEventCallback, LV_EVENT_ALL, state);
   return input;
 }
 
@@ -6782,8 +6608,8 @@ lv_obj_t* CreateAddTextArea(lv_obj_t* parent, RadioViewState* state,
  * @param y 输入框顶部坐标
  * @return 前缀创建成功返回 true，否则返回 false
  */
-bool CreateAddHexPrefix(lv_obj_t* parent, RadioViewState* state,
-    lv_obj_t* input, int y) {
+bool CreateAddHexPrefix(
+    lv_obj_t* parent, RadioViewState* state, lv_obj_t* input, int y) {
   if (parent == nullptr || state == nullptr || input == nullptr) {
     return false;
   }
@@ -6801,8 +6627,9 @@ bool CreateAddHexPrefix(lv_obj_t* parent, RadioViewState* state,
   lv_obj_remove_flag(prefix, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(prefix, kPrefixWidth, kAddInputHeight);
   lv_obj_set_pos(prefix, kSideMargin, y);
-  lv_obj_set_style_bg_color(
-      prefix, lv_color_hex(theme::ActiveThemeColors().surface_container_high), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(prefix,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_high),
+      LV_PART_MAIN);
   lv_obj_set_style_bg_opa(prefix, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(prefix, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(prefix, 22, LV_PART_MAIN);
@@ -6825,18 +6652,17 @@ lv_obj_t* CreateAddSwitchRow(lv_obj_t* parent, RadioViewState* state,
   }
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(row, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_size(
-      row, state->config.width - 56, kAddSwitchRowHeight);
+  lv_obj_set_size(row, state->config.width - 56, kAddSwitchRowHeight);
   lv_obj_set_pos(row, 28, y);
-  lv_obj_set_style_bg_color(
-      row, lv_color_hex(theme::ActiveThemeColors().surface_container_low),
+  lv_obj_set_style_bg_color(row,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_low),
       LV_PART_MAIN);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(row, 22, LV_PART_MAIN);
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
-  lv_obj_t* title_label = CreateLabel(
-      row, title, theme::ActiveThemeColors().on_surface, Font24());
+  lv_obj_t* title_label =
+      CreateLabel(row, title, theme::ActiveThemeColors().on_surface, Font24());
   lv_obj_t* subtitle_label = CreateLabel(
       row, subtitle, theme::ActiveThemeColors().on_surface_variant, Font22());
   lv_obj_t* toggle = lv_switch_create(row);
@@ -6848,18 +6674,14 @@ lv_obj_t* CreateAddSwitchRow(lv_obj_t* parent, RadioViewState* state,
   constexpr int kTitleHeight = 32;
   constexpr int kSubtitleHeight = 30;
   constexpr int kTextGap = 6;
-  const int text_top = (kAddSwitchRowHeight - kTitleHeight -
-      kTextGap - kSubtitleHeight) / 2;
-  lv_obj_set_size(
-      title_label, state->config.width - 190, kTitleHeight);
+  const int text_top =
+      (kAddSwitchRowHeight - kTitleHeight - kTextGap - kSubtitleHeight) / 2;
+  lv_obj_set_size(title_label, state->config.width - 190, kTitleHeight);
   lv_label_set_long_mode(title_label, LV_LABEL_LONG_DOT);
   lv_obj_set_pos(title_label, 20, text_top);
-  lv_obj_set_size(
-      subtitle_label, state->config.width - 190, kSubtitleHeight);
-  lv_label_set_long_mode(
-      subtitle_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
-  lv_obj_set_pos(
-      subtitle_label, 20, text_top + kTitleHeight + kTextGap);
+  lv_obj_set_size(subtitle_label, state->config.width - 190, kSubtitleHeight);
+  lv_label_set_long_mode(subtitle_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  lv_obj_set_pos(subtitle_label, 20, text_top + kTitleHeight + kTextGap);
   lv_obj_add_flag(toggle, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(toggle, kProfileSwitchWidth, kProfileSwitchHeight);
   lv_obj_align(toggle, LV_ALIGN_RIGHT_MID, -18, 0);
@@ -6897,8 +6719,7 @@ void ResetAutoSendReferences(RadioViewState* state) {
  * @param animation LVGL 动画对象
  */
 void AutoSendCloseCompletedCallback(lv_anim_t* animation) {
-  auto* state = static_cast<RadioViewState*>(
-      lv_anim_get_user_data(animation));
+  auto* state = static_cast<RadioViewState*>(lv_anim_get_user_data(animation));
   if (state == nullptr || state->auto_send_page == nullptr) {
     return;
   }
@@ -6918,9 +6739,9 @@ void CloseAutoSendSettingsPage(RadioViewState* state, bool animated) {
     return;
   }
   HideSharedKeyboard(state->auto_send_keyboard);
-  if (animated && StartSlideRightWindowTransition(
-      state->auto_send_page, state->config.width, kAnimationMs,
-      state, AutoSendCloseCompletedCallback)) {
+  if (animated && StartSlideRightWindowTransition(state->auto_send_page,
+                      state->config.width, kAnimationMs, state,
+                      AutoSendCloseCompletedCallback)) {
     state->auto_send_closing = true;
     return;
   }
@@ -6954,14 +6775,13 @@ void SetAutoSendKeyboardVisible(
   }
   const bool input_active = visible;
   const bool keyboard_visible = input_active && ShouldShowSharedKeyboard();
-  const int normal_height = state->config.height -
-      kAddPageHeaderHeight - kAddPageActionHeight;
+  const int normal_height =
+      state->config.height - kAddPageHeaderHeight - kAddPageActionHeight;
   if (!keyboard_visible) {
     if (!input_active) {
       HideSharedKeyboard(state->auto_send_keyboard);
     }
-    lv_obj_align(
-        state->auto_send_action_area, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_align(state->auto_send_action_area, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_height(state->auto_send_body, normal_height);
     lv_obj_update_layout(state->auto_send_body);
     return;
@@ -6969,7 +6789,8 @@ void SetAutoSendKeyboardVisible(
   const int keyboard_height =
       state->config.height * kAddKeyboardHeightPercent / 100;
   const int visible_height = state->config.height - keyboard_height -
-      kAddPageHeaderHeight - kAddPageActionHeight - kAddKeyboardTopGap;
+                             kAddPageHeaderHeight - kAddPageActionHeight -
+                             kAddKeyboardTopGap;
   if (input == nullptr || visible_height <= 0) {
     return;
   }
@@ -6981,8 +6802,7 @@ void SetAutoSendKeyboardVisible(
   if (scroll_y < 0) {
     scroll_y = 0;
   }
-  lv_obj_scroll_to_y(
-      state->auto_send_body, scroll_y, LV_ANIM_ON);
+  lv_obj_scroll_to_y(state->auto_send_body, scroll_y, LV_ANIM_ON);
 }
 
 /**
@@ -6993,14 +6813,11 @@ void AutoSendInputEventCallback(lv_event_t* event) {
   auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
   const lv_event_code_t code = lv_event_get_code(event);
   if (code == LV_EVENT_FOCUSED) {
-    SetAutoSendKeyboardVisible(
-        state, lv_event_get_target_obj(event), true);
+    SetAutoSendKeyboardVisible(state, lv_event_get_target_obj(event), true);
   } else if (code == LV_EVENT_CLICKED && state != nullptr &&
              state->auto_send_keyboard != nullptr &&
-             lv_obj_has_flag(
-                 state->auto_send_keyboard, LV_OBJ_FLAG_HIDDEN)) {
-    SetAutoSendKeyboardVisible(
-        state, lv_event_get_target_obj(event), true);
+             lv_obj_has_flag(state->auto_send_keyboard, LV_OBJ_FLAG_HIDDEN)) {
+    SetAutoSendKeyboardVisible(state, lv_event_get_target_obj(event), true);
   } else if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
     SetAutoSendKeyboardVisible(state, nullptr, false);
   }
@@ -7048,10 +6865,12 @@ lv_obj_t* CreateAutoSendTextArea(lv_obj_t* parent, RadioViewState* state,
   lv_obj_set_style_text_font(input, Font24(), LV_PART_MAIN);
   lv_obj_set_style_text_color(
       input, lv_color_hex(theme::ActiveThemeColors().on_surface), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      input, lv_color_hex(theme::ActiveThemeColors().surface_container_low), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      input, lv_color_hex(theme::ActiveThemeColors().surface_container_low), LV_STATE_FOCUSED);
+  lv_obj_set_style_bg_color(input,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_low),
+      LV_PART_MAIN);
+  lv_obj_set_style_bg_color(input,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_low),
+      LV_STATE_FOCUSED);
   lv_obj_set_style_bg_opa(input, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(input, 0, LV_PART_MAIN);
   lv_obj_set_style_border_width(input, 0, LV_STATE_FOCUSED);
@@ -7069,8 +6888,7 @@ lv_obj_t* CreateAutoSendTextArea(lv_obj_t* parent, RadioViewState* state,
   if (content_label != nullptr) {
     lv_obj_align(content_label, LV_ALIGN_LEFT_MID, 0, 0);
   }
-  lv_obj_add_event_cb(
-      input, AutoSendInputEventCallback, LV_EVENT_ALL, state);
+  lv_obj_add_event_cb(input, AutoSendInputEventCallback, LV_EVENT_ALL, state);
   return input;
 }
 
@@ -7092,16 +6910,16 @@ lv_obj_t* CreateAutoSendSwitch(
   lv_obj_add_flag(row, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(row, state->config.width - 56, kAddSwitchRowHeight);
   lv_obj_set_pos(row, 28, y);
-  lv_obj_set_style_bg_color(
-      row, lv_color_hex(theme::ActiveThemeColors().surface_container_low), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(row,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_low),
+      LV_PART_MAIN);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(row, 22, LV_PART_MAIN);
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
   lv_obj_t* title = CreateLabel(
       row, "Automatic send", theme::ActiveThemeColors().on_surface, Font24());
-  lv_obj_t* subtitle = CreateLabel(row,
-      "Repeat while this profile is active",
+  lv_obj_t* subtitle = CreateLabel(row, "Repeat while this profile is active",
       theme::ActiveThemeColors().on_surface_variant, Font22());
   lv_obj_t* toggle = lv_switch_create(row);
   if (title == nullptr || subtitle == nullptr || toggle == nullptr) {
@@ -7111,17 +6929,14 @@ lv_obj_t* CreateAutoSendSwitch(
   constexpr int kTitleHeight = 32;
   constexpr int kSubtitleHeight = 30;
   constexpr int kTextGap = 6;
-  const int text_top = (kAddSwitchRowHeight - kTitleHeight -
-      kTextGap - kSubtitleHeight) / 2;
-  lv_obj_set_size(
-      title, state->config.width - 190, kTitleHeight);
+  const int text_top =
+      (kAddSwitchRowHeight - kTitleHeight - kTextGap - kSubtitleHeight) / 2;
+  lv_obj_set_size(title, state->config.width - 190, kTitleHeight);
   lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
   lv_obj_set_pos(title, 20, text_top);
-  lv_obj_set_size(
-      subtitle, state->config.width - 190, kSubtitleHeight);
+  lv_obj_set_size(subtitle, state->config.width - 190, kSubtitleHeight);
   lv_label_set_long_mode(subtitle, LV_LABEL_LONG_SCROLL_CIRCULAR);
-  lv_obj_set_pos(
-      subtitle, 20, text_top + kTitleHeight + kTextGap);
+  lv_obj_set_pos(subtitle, 20, text_top + kTitleHeight + kTextGap);
   lv_obj_add_flag(toggle, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(toggle, kProfileSwitchWidth, kProfileSwitchHeight);
   lv_obj_align(toggle, LV_ALIGN_RIGHT_MID, -18, 0);
@@ -7153,11 +6968,11 @@ void AutoSendSaveClickedEventCallback(lv_event_t* event) {
   const char* interval_text =
       lv_textarea_get_text(state->auto_send_interval_area);
   char* interval_end = nullptr;
-  const unsigned long interval = interval_text == nullptr
-      ? 0
-      : std::strtoul(interval_text, &interval_end, 10);
-  const bool enabled = lv_obj_has_state(
-      state->auto_send_switch, LV_STATE_CHECKED);
+  const unsigned long interval =
+      interval_text == nullptr ? 0
+                               : std::strtoul(interval_text, &interval_end, 10);
+  const bool enabled =
+      lv_obj_has_state(state->auto_send_switch, LV_STATE_CHECKED);
   if (text == nullptr || (enabled && text[0] == '\0') ||
       interval_text == nullptr || interval_text[0] == '\0' ||
       interval_end == interval_text || *interval_end != '\0' ||
@@ -7168,8 +6983,8 @@ void AutoSendSaveClickedEventCallback(lv_event_t* event) {
   app::RadioProfile& profile =
       state->preferences.profiles[state->profile_settings_index];
   profile.auto_send_enabled = enabled;
-  CopyBoundedString(profile.auto_send_text,
-      sizeof(profile.auto_send_text), text);
+  CopyBoundedString(
+      profile.auto_send_text, sizeof(profile.auto_send_text), text);
   profile.auto_send_interval_ms = static_cast<uint32_t>(interval);
   app::UpdateRadioPreferences(state->preferences);
   if (profile.active) {
@@ -7224,10 +7039,10 @@ bool ShowAutoSendSettingsPage(RadioViewState* state) {
   lv_obj_add_flag(back, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(back, 62, 62);
   lv_obj_set_pos(back, 18, 66);
-  lv_obj_add_event_cb(back, AutoSendBackClickedEventCallback,
-      LV_EVENT_CLICKED, state);
-  lv_obj_t* back_icon = CreateLabel(
-      back, icon::kArrowBack, theme::ActiveThemeColors().on_surface, OutlineIconFont44());
+  lv_obj_add_event_cb(
+      back, AutoSendBackClickedEventCallback, LV_EVENT_CLICKED, state);
+  lv_obj_t* back_icon = CreateLabel(back, icon::kArrowBack,
+      theme::ActiveThemeColors().on_surface, OutlineIconFont44());
   lv_obj_t* title = CreateLabel(
       page, "Automatic send", theme::ActiveThemeColors().on_surface, Font32());
   if (back_icon == nullptr || title == nullptr) {
@@ -7255,16 +7070,16 @@ bool ShowAutoSendSettingsPage(RadioViewState* state) {
   lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_AUTO);
   lv_obj_add_flag(body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(body, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_add_event_cb(body, AutoSendBackgroundClickedEventCallback,
-      LV_EVENT_CLICKED, state);
+  lv_obj_add_event_cb(
+      body, AutoSendBackgroundClickedEventCallback, LV_EVENT_CLICKED, state);
 
   if (!CreateAddParameterTitle(body, "SEND TEXT", 8)) {
     CloseAutoSendSettingsPage(state, false);
     return false;
   }
-  state->auto_send_text_area = CreateAutoSendTextArea(body, state,
-      "Test characters", profile.auto_send_text, 44,
-      app::kRadioAutoSendTextCapacity - 1);
+  state->auto_send_text_area =
+      CreateAutoSendTextArea(body, state, "Test characters",
+          profile.auto_send_text, 44, app::kRadioAutoSendTextCapacity - 1);
   if (!CreateAddParameterTitle(body, "CYCLE INTERVAL (MS)", 140)) {
     CloseAutoSendSettingsPage(state, false);
     return false;
@@ -7272,10 +7087,10 @@ bool ShowAutoSendSettingsPage(RadioViewState* state) {
   char interval_text[12] = {};
   std::snprintf(interval_text, sizeof(interval_text), "%lu",
       static_cast<unsigned long>(profile.auto_send_interval_ms));
-  state->auto_send_interval_area = CreateAutoSendTextArea(body, state,
-      "100 - 60000", interval_text, 176, 5);
-  state->auto_send_switch = CreateAutoSendSwitch(
-      body, state, 326, profile.auto_send_enabled);
+  state->auto_send_interval_area =
+      CreateAutoSendTextArea(body, state, "100 - 60000", interval_text, 176, 5);
+  state->auto_send_switch =
+      CreateAutoSendSwitch(body, state, 326, profile.auto_send_enabled);
   if (state->auto_send_switch == nullptr ||
       state->auto_send_text_area == nullptr ||
       state->auto_send_interval_area == nullptr) {
@@ -7296,9 +7111,8 @@ bool ShowAutoSendSettingsPage(RadioViewState* state) {
   lv_obj_set_pos(interval_help, 38, 258);
 
   lv_obj_t* action_area = lv_obj_create(page);
-  lv_obj_t* save = action_area == nullptr
-      ? nullptr
-      : lv_button_create(action_area);
+  lv_obj_t* save =
+      action_area == nullptr ? nullptr : lv_button_create(action_area);
   if (action_area == nullptr || save == nullptr) {
     CloseAutoSendSettingsPage(state, false);
     return false;
@@ -7315,16 +7129,15 @@ bool ShowAutoSendSettingsPage(RadioViewState* state) {
   lv_obj_set_size(save, state->config.width - 96, 84);
   lv_obj_align(save, LV_ALIGN_CENTER, 0, 0);
   lv_obj_set_style_radius(save, 42, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      save, lv_color_hex(kPrimaryColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(save, lv_color_hex(kPrimaryColor), LV_PART_MAIN);
   lv_obj_set_style_bg_color(
       save, lv_color_hex(kPrimaryPressedColor), LV_STATE_PRESSED);
   lv_obj_set_style_border_width(save, 0, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(save, 0, LV_PART_MAIN);
-  lv_obj_add_event_cb(save, AutoSendSaveClickedEventCallback,
-      LV_EVENT_CLICKED, state);
-  lv_obj_t* save_label = CreateLabel(
-      save, "Save settings", kOnPrimaryColor, Font28());
+  lv_obj_add_event_cb(
+      save, AutoSendSaveClickedEventCallback, LV_EVENT_CLICKED, state);
+  lv_obj_t* save_label =
+      CreateLabel(save, "Save settings", kOnPrimaryColor, Font28());
   if (save_label == nullptr) {
     CloseAutoSendSettingsPage(state, false);
     return false;
@@ -7335,26 +7148,23 @@ bool ShowAutoSendSettingsPage(RadioViewState* state) {
   keyboard_config.width = state->config.width;
   keyboard_config.height =
       state->config.height * kAddKeyboardHeightPercent / 100;
-  state->auto_send_keyboard =
-      CreateSharedKeyboard(page, keyboard_config);
+  state->auto_send_keyboard = CreateSharedKeyboard(page, keyboard_config);
   if (state->auto_send_keyboard == nullptr ||
-      !AttachSharedKeyboardToTextArea(state->auto_send_keyboard,
-          state->auto_send_text_area, nullptr) ||
+      !AttachSharedKeyboardToTextArea(
+          state->auto_send_keyboard, state->auto_send_text_area, nullptr) ||
       !AttachSharedKeyboardToTextArea(state->auto_send_keyboard,
           state->auto_send_interval_area, kIntegerAcceptedChars)) {
     CloseAutoSendSettingsPage(state, false);
     return false;
   }
-  lv_obj_add_flag(
-      state->auto_send_keyboard, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  if (!StartSlideLeftWindowTransition(page, state->config.width,
-      kAnimationMs, state, nullptr)) {
+  lv_obj_add_flag(state->auto_send_keyboard, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  if (!StartSlideLeftWindowTransition(
+          page, state->config.width, kAnimationMs, state, nullptr)) {
     CloseAutoSendSettingsPage(state, false);
     return false;
   }
-  if (!RegisterBackNavigationHandler(page, [state]() {
-        CloseAutoSendSettingsPage(state, true);
-      })) {
+  if (!RegisterBackNavigationHandler(
+          page, [state]() { CloseAutoSendSettingsPage(state, true); })) {
     CloseAutoSendSettingsPage(state, false);
     return false;
   }
@@ -7391,16 +7201,15 @@ bool IsAddGfskFormComplete(const RadioViewState* state) {
   return IsAddFrequencyValid(state) && IsAddOutputPowerValid(state) &&
          ParseTextAreaLong(
              state->add_data_rate_input, 10, 600, 250000, &data_rate) &&
-         ParseTextAreaLong(state->add_frequency_deviation_input,
-             10, 1600, 380000, &value) &&
+         ParseTextAreaLong(
+             state->add_frequency_deviation_input, 10, 1600, 380000, &value) &&
          state->selected_add_receive_bandwidth >= 0 &&
          static_cast<size_t>(state->selected_add_receive_bandwidth) <
              std::size(radio::kCc1101ReceiveBandwidthsHz) &&
          state->selected_add_preamble >= 0 &&
          static_cast<size_t>(state->selected_add_preamble) <
              std::size(kCc1101PreambleLengths) &&
-         ParseTextAreaLong(
-             state->add_sync_word_input, 16, 0, 65535, &value) &&
+         ParseTextAreaLong(state->add_sync_word_input, 16, 0, 65535, &value) &&
          state->add_crc_switch != nullptr &&
          state->add_whitening_switch != nullptr;
 }
@@ -7420,31 +7229,28 @@ bool IsAddEnhancedShockBurstFormComplete(const RadioViewState* state) {
   uint64_t address = 0;
   uint8_t address_width = 0;
   if (!IsAddOutputPowerValid(state) ||
-      !ParseTextAreaLong(
-          state->add_frequency_input, 10, 2400, 2525, &value) ||
+      !ParseTextAreaLong(state->add_frequency_input, 10, 2400, 2525, &value) ||
       state->selected_add_data_rate < 0 ||
       static_cast<size_t>(state->selected_add_data_rate) >=
           std::size(kNrf24l01DataRates) ||
       !ParseEnhancedShockBurstAddress(
           state->add_address_input, &address, &address_width) ||
       !ParseTextAreaLong(
-          state->add_retransmit_count_input, 10, 0, 15,
-          &retransmit_count) ||
-      !ParseTextAreaLong(state->add_retransmit_delay_input,
-          10, 250, 4000, &retransmit_delay) ||
-      retransmit_delay % 250 != 0 ||
-      state->add_auto_ack_switch == nullptr ||
+          state->add_retransmit_count_input, 10, 0, 15, &retransmit_count) ||
+      !ParseTextAreaLong(state->add_retransmit_delay_input, 10, 250, 4000,
+          &retransmit_delay) ||
+      retransmit_delay % 250 != 0 || state->add_auto_ack_switch == nullptr ||
       state->add_dynamic_payload_switch == nullptr) {
     return false;
   }
-  const bool auto_ack_enabled = lv_obj_has_state(
-      state->add_auto_ack_switch, LV_STATE_CHECKED);
-  const bool dynamic_payload_enabled = lv_obj_has_state(
-      state->add_dynamic_payload_switch, LV_STATE_CHECKED);
+  const bool auto_ack_enabled =
+      lv_obj_has_state(state->add_auto_ack_switch, LV_STATE_CHECKED);
+  const bool dynamic_payload_enabled =
+      lv_obj_has_state(state->add_dynamic_payload_switch, LV_STATE_CHECKED);
   return (!dynamic_payload_enabled || auto_ack_enabled) &&
          (kNrf24l01DataRates[state->selected_add_data_rate] != 250000 ||
-             !auto_ack_enabled ||
-             retransmit_count == 0 || retransmit_delay >= 500);
+             !auto_ack_enabled || retransmit_count == 0 ||
+             retransmit_delay >= 500);
 }
 
 /**
@@ -7452,8 +7258,8 @@ bool IsAddEnhancedShockBurstFormComplete(const RadioViewState* state) {
  * @param capability 当前选择的射频能力
  * @param profile 待更新配置
  */
-void ApplyRadioCapabilityDefaults(const hal::RadioCapability& capability,
-    app::RadioProfile* profile) {
+void ApplyRadioCapabilityDefaults(
+    const hal::RadioCapability& capability, app::RadioProfile* profile) {
   if (profile == nullptr) {
     return;
   }
@@ -7467,13 +7273,11 @@ void ApplyRadioCapabilityDefaults(const hal::RadioCapability& capability,
     profile->crc_enabled = true;
     profile->gfsk_data_rate_bps = 4800;
     profile->gfsk_frequency_deviation_hz = 5000;
-    profile->gfsk_receive_bandwidth_hz =
-        radio::kCc1101ReceiveBandwidthsHz[0];
+    profile->gfsk_receive_bandwidth_hz = radio::kCc1101ReceiveBandwidthsHz[0];
     profile->gfsk_sync_word = 0x12AD;
     profile->gfsk_whitening_enabled = false;
     profile->gfsk_fec_enabled = false;
-  } else if (capability.protocol ==
-             radio::ProtocolType::kEnhancedShockBurst) {
+  } else if (capability.protocol == radio::ProtocolType::kEnhancedShockBurst) {
     profile->frequency_hz = 2400000000U;
     profile->output_power_dbm = 0;
     profile->esb_channel = 0;
@@ -7491,8 +7295,7 @@ void ApplyRadioCapabilityDefaults(const hal::RadioCapability& capability,
     profile->preamble_length = 8;
     profile->spreading_factor = 7;
     profile->coding_rate_denominator = 5;
-    profile->lr2021_coding_rate =
-        radio::Lr2021CodingRate::kStandard4_5;
+    profile->lr2021_coding_rate = radio::Lr2021CodingRate::kStandard4_5;
     profile->sync_word = 0x12;
     profile->output_power_dbm = 22;
     profile->crc_enabled = true;
@@ -7518,26 +7321,26 @@ bool CreateAddChipAndProtocolOptions(lv_obj_t* body, RadioViewState* state,
   constexpr int kOptionGap = 10;
   const int option_area_width = state->config.width - 56;
   const size_t capability_count = state->capabilities.count;
-  const int chip_width = capability_count == 0
-      ? option_area_width
-      : (option_area_width -
-            static_cast<int>(capability_count - 1) * kOptionGap) /
-            static_cast<int>(capability_count);
+  const int chip_width =
+      capability_count == 0
+          ? option_area_width
+          : (option_area_width -
+                static_cast<int>(capability_count - 1) * kOptionGap) /
+                static_cast<int>(capability_count);
   for (size_t index = 0; index < capability_count; ++index) {
     const char* chip_name =
         ChipDisplayName(state->capabilities.entries[index].chip);
     int button_width = chip_width;
     if (capability_count == 1) {
       lv_point_t text_size = {};
-      lv_text_get_size(&text_size, chip_name, Font22(), 0, 0,
-          LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
+      lv_text_get_size(&text_size, chip_name, Font22(), 0, 0, LV_COORD_MAX,
+          LV_TEXT_FLAG_EXPAND);
       constexpr int kHorizontalPadding = 28;
       button_width = std::min(option_area_width,
           static_cast<int>(text_size.x) + 2 * kHorizontalPadding);
     }
     state->add_chip_buttons[index] = CreateAddOptionButton(body, state,
-        RadioAddOptionGroup::kChip, static_cast<int>(index),
-        chip_name,
+        RadioAddOptionGroup::kChip, static_cast<int>(index), chip_name,
         28 + static_cast<int>(index) * (chip_width + kOptionGap),
         44 + content_offset, button_width, 62);
     if (state->add_chip_buttons[index] == nullptr) {
@@ -7548,11 +7351,9 @@ bool CreateAddChipAndProtocolOptions(lv_obj_t* body, RadioViewState* state,
     return false;
   }
   state->add_protocol_buttons[0] = CreateAddOptionButton(body, state,
-      RadioAddOptionGroup::kProtocol, 0,
-      ProtocolDisplayName(profile.protocol), 28, 170 + content_offset,
-      profile.protocol == radio::ProtocolType::kEnhancedShockBurst
-          ? 280
-          : 140,
+      RadioAddOptionGroup::kProtocol, 0, ProtocolDisplayName(profile.protocol),
+      28, 170 + content_offset,
+      profile.protocol == radio::ProtocolType::kEnhancedShockBurst ? 280 : 140,
       62);
   return state->add_protocol_buttons[0] != nullptr;
 }
@@ -7563,8 +7364,8 @@ bool CreateAddChipAndProtocolOptions(lv_obj_t* body, RadioViewState* state,
  * @param profile 当前表单配置
  * @return 创建成功返回 true
  */
-bool CreateNonLoraAddModuleContent(RadioViewState* state,
-    const app::RadioProfile& profile) {
+bool CreateNonLoraAddModuleContent(
+    RadioViewState* state, const app::RadioProfile& profile) {
   lv_obj_t* body = state->add_body;
   const bool editing = state->editing_index < state->module_count;
   const int content_offset = editing ? 0 : kAddProfileNameSectionHeight;
@@ -7576,16 +7377,15 @@ bool CreateNonLoraAddModuleContent(RadioViewState* state,
     if (!CreateAddParameterTitle(body, "PROFILE NAME", 8)) {
       return false;
     }
-    state->add_name_input = CreateAddTextArea(body, state,
-        "Profile name", "", 44, app::kRadioProfileNameCapacity - 1);
+    state->add_name_input = CreateAddTextArea(body, state, "Profile name", "",
+        44, app::kRadioProfileNameCapacity - 1);
     if (state->add_name_input == nullptr) {
       return false;
     }
     lv_textarea_set_accepted_chars(
         state->add_name_input, kProfileNameAcceptedChars);
   }
-  if (!CreateAddChipAndProtocolOptions(
-          body, state, profile, content_offset)) {
+  if (!CreateAddChipAndProtocolOptions(body, state, profile, content_offset)) {
     return false;
   }
 
@@ -7595,37 +7395,33 @@ bool CreateNonLoraAddModuleContent(RadioViewState* state,
   constexpr int kSwitchPitch = kAddSwitchRowHeight + kAddSwitchRowGap;
   int row = 0;
   int additional_content_height = 0;
-  const auto create_integer_input = [&](const char* title,
-                                        const char* placeholder,
-                                        uint64_t number,
-                                        int maximum_length) -> lv_obj_t* {
+  const auto create_integer_input =
+      [&](const char* title, const char* placeholder, uint64_t number,
+          int maximum_length) -> lv_obj_t* {
     const int title_y = kFirstTitleY + row * kRowPitch +
-        additional_content_height + content_offset;
+                        additional_content_height + content_offset;
     ++row;
-    std::snprintf(value, sizeof(value), "%llu",
-        static_cast<unsigned long long>(number));
+    std::snprintf(
+        value, sizeof(value), "%llu", static_cast<unsigned long long>(number));
     if (!CreateAddParameterTitle(body, title, title_y)) {
       return nullptr;
     }
-    lv_obj_t* input = CreateAddTextArea(body, state, placeholder, value,
-        title_y + 36, maximum_length);
+    lv_obj_t* input = CreateAddTextArea(
+        body, state, placeholder, value, title_y + 36, maximum_length);
     if (input != nullptr) {
       lv_textarea_set_accepted_chars(input, kIntegerAcceptedChars);
     }
     return input;
   };
-  const auto create_option_row = [&](const char* title,
-                                     RadioAddOptionGroup group,
-                                     lv_obj_t** buttons,
-                                     const char* const* names,
-                                     size_t count,
-                                     size_t column_count) -> bool {
+  const auto create_option_row =
+      [&](const char* title, RadioAddOptionGroup group, lv_obj_t** buttons,
+          const char* const* names, size_t count, size_t column_count) -> bool {
     if (buttons == nullptr || names == nullptr || count == 0 ||
         column_count == 0) {
       return false;
     }
     const int title_y = kFirstTitleY + row * kRowPitch +
-        additional_content_height + content_offset;
+                        additional_content_height + content_offset;
     ++row;
     if (!CreateAddParameterTitle(body, title, title_y)) {
       return false;
@@ -7634,26 +7430,24 @@ bool CreateNonLoraAddModuleContent(RadioViewState* state,
     constexpr int kOptionGap = 10;
     const int option_area_width = state->config.width - 56;
     const size_t visible_column_count = std::min(count, column_count);
-    const int option_width = (option_area_width -
-        static_cast<int>(visible_column_count - 1) * kOptionGap) /
+    const int option_width =
+        (option_area_width -
+            static_cast<int>(visible_column_count - 1) * kOptionGap) /
         static_cast<int>(visible_column_count);
     for (size_t index = 0; index < count; ++index) {
       const size_t option_row = index / column_count;
       const size_t option_column = index % column_count;
       buttons[index] = CreateAddOptionButton(body, state, group,
           static_cast<int>(index), names[index],
-          kOptionLeft + static_cast<int>(option_column) *
-              (option_width + kOptionGap),
-          title_y + 36 + static_cast<int>(option_row) * 68,
-          option_width, 62);
+          kOptionLeft +
+              static_cast<int>(option_column) * (option_width + kOptionGap),
+          title_y + 36 + static_cast<int>(option_row) * 68, option_width, 62);
       if (buttons[index] == nullptr) {
         return false;
       }
     }
-    const size_t option_row_count =
-        (count + column_count - 1) / column_count;
-    additional_content_height +=
-        static_cast<int>(option_row_count - 1) * 68;
+    const size_t option_row_count = (count + column_count - 1) / column_count;
+    additional_content_height += static_cast<int>(option_row_count - 1) * 68;
     return true;
   };
   state->add_active_switch = nullptr;
@@ -7661,22 +7455,21 @@ bool CreateNonLoraAddModuleContent(RadioViewState* state,
     if (editing) {
       return true;
     }
-    state->add_active_switch = CreateAddSwitchRow(body, state,
-        "Active profile", "Only one profile can use the radio chip",
-        y, true);
+    state->add_active_switch = CreateAddSwitchRow(body, state, "Active profile",
+        "Only one profile can use the radio chip", y, true);
     return state->add_active_switch != nullptr;
   };
 
   if (profile.protocol == radio::ProtocolType::kGfsk) {
     std::snprintf(value, sizeof(value), "%.6f",
         static_cast<double>(profile.frequency_hz) / 1000000.0);
-    if (!CreateAddParameterTitle(body, "WORKING FREQUENCY (MHz)",
-            kFirstTitleY + content_offset)) {
+    if (!CreateAddParameterTitle(
+            body, "WORKING FREQUENCY (MHz)", kFirstTitleY + content_offset)) {
       return false;
     }
-    state->add_frequency_input = CreateAddTextArea(body, state,
-        "Frequency", value, kFirstTitleY + 36 + content_offset,
-        kFrequencyInputMaximumLength);
+    state->add_frequency_input =
+        CreateAddTextArea(body, state, "Frequency", value,
+            kFirstTitleY + 36 + content_offset, kFrequencyInputMaximumLength);
     ++row;
     if (state->add_frequency_input == nullptr) {
       return false;
@@ -7685,17 +7478,18 @@ bool CreateNonLoraAddModuleContent(RadioViewState* state,
         state->add_frequency_input, kFrequencyAcceptedChars);
     state->add_data_rate_input = create_integer_input(
         "DATA RATE (bit/s)", "4800", profile.gfsk_data_rate_bps, 6);
-    state->add_frequency_deviation_input = create_integer_input(
-        "FREQUENCY DEVIATION (Hz)", "5000",
-        profile.gfsk_frequency_deviation_hz, 6);
+    state->add_frequency_deviation_input =
+        create_integer_input("FREQUENCY DEVIATION (Hz)", "5000",
+            profile.gfsk_frequency_deviation_hz, 6);
     state->selected_add_receive_bandwidth = 0;
     uint32_t smallest_bandwidth_difference = UINT32_MAX;
-    for (size_t index = 0;
-         index < std::size(radio::kCc1101ReceiveBandwidthsHz); ++index) {
+    for (size_t index = 0; index < std::size(radio::kCc1101ReceiveBandwidthsHz);
+        ++index) {
       const uint32_t bandwidth = radio::kCc1101ReceiveBandwidthsHz[index];
-      const uint32_t difference = profile.gfsk_receive_bandwidth_hz > bandwidth
-          ? profile.gfsk_receive_bandwidth_hz - bandwidth
-          : bandwidth - profile.gfsk_receive_bandwidth_hz;
+      const uint32_t difference =
+          profile.gfsk_receive_bandwidth_hz > bandwidth
+              ? profile.gfsk_receive_bandwidth_hz - bandwidth
+              : bandwidth - profile.gfsk_receive_bandwidth_hz;
       if (difference < smallest_bandwidth_difference) {
         smallest_bandwidth_difference = difference;
         state->selected_add_receive_bandwidth = static_cast<int>(index);
@@ -7703,8 +7497,7 @@ bool CreateNonLoraAddModuleContent(RadioViewState* state,
     }
     if (!create_option_row("RECEIVE BANDWIDTH (kHz)",
             RadioAddOptionGroup::kReceiveBandwidth,
-            state->add_receive_bandwidth_buttons,
-            kCc1101ReceiveBandwidthNames,
+            state->add_receive_bandwidth_buttons, kCc1101ReceiveBandwidthNames,
             std::size(kCc1101ReceiveBandwidthNames), 4)) {
       return false;
     }
@@ -7716,16 +7509,13 @@ bool CreateNonLoraAddModuleContent(RadioViewState* state,
         break;
       }
     }
-    if (!create_option_row("TX POWER (dBm)",
-            RadioAddOptionGroup::kOutputPower,
-            state->add_output_power_buttons,
-            kCc1101OutputPowerNames,
+    if (!create_option_row("TX POWER (dBm)", RadioAddOptionGroup::kOutputPower,
+            state->add_output_power_buttons, kCc1101OutputPowerNames,
             std::size(kCc1101OutputPowerNames), 4)) {
       return false;
     }
     state->selected_add_preamble = 2;
-    for (size_t index = 0;
-         index < std::size(kCc1101PreambleLengths); ++index) {
+    for (size_t index = 0; index < std::size(kCc1101PreambleLengths); ++index) {
       if (profile.preamble_length == kCc1101PreambleLengths[index]) {
         state->selected_add_preamble = static_cast<int>(index);
         break;
@@ -7733,33 +7523,30 @@ bool CreateNonLoraAddModuleContent(RadioViewState* state,
     }
     state->add_preamble_input = nullptr;
     if (!create_option_row("PREAMBLE LENGTH (bit)",
-            RadioAddOptionGroup::kPreamble,
-            state->add_preamble_buttons,
-            kCc1101PreambleLengthNames,
-            std::size(kCc1101PreambleLengthNames), 4)) {
+            RadioAddOptionGroup::kPreamble, state->add_preamble_buttons,
+            kCc1101PreambleLengthNames, std::size(kCc1101PreambleLengthNames),
+            4)) {
       return false;
     }
-    const int sync_title_y =
-        kFirstTitleY + row * kRowPitch + additional_content_height +
-        content_offset;
+    const int sync_title_y = kFirstTitleY + row * kRowPitch +
+                             additional_content_height + content_offset;
     ++row;
     std::snprintf(value, sizeof(value), "%04X", profile.gfsk_sync_word);
     if (!CreateAddParameterTitle(body, "SYNC WORD (HEX)", sync_title_y)) {
       return false;
     }
-    state->add_sync_word_input = CreateAddTextArea(body, state,
-        "12AD", value, sync_title_y + 36, 4);
+    state->add_sync_word_input =
+        CreateAddTextArea(body, state, "12AD", value, sync_title_y + 36, 4);
     if (state->add_sync_word_input != nullptr) {
       lv_textarea_set_accepted_chars(
           state->add_sync_word_input, kHexAcceptedChars);
     }
-    if (!CreateAddHexPrefix(body, state, state->add_sync_word_input,
-            sync_title_y + 36)) {
+    if (!CreateAddHexPrefix(
+            body, state, state->add_sync_word_input, sync_title_y + 36)) {
       return false;
     }
-    const int switches_y =
-        kFirstTitleY + row * kRowPitch + additional_content_height +
-        content_offset;
+    const int switches_y = kFirstTitleY + row * kRowPitch +
+                           additional_content_height + content_offset;
     int switch_row = 0;
     if (!create_active_switch(switches_y)) {
       return false;
@@ -7767,20 +7554,17 @@ bool CreateNonLoraAddModuleContent(RadioViewState* state,
     if (!editing) {
       ++switch_row;
     }
-    state->add_crc_switch = CreateAddSwitchRow(body, state,
-        "CRC", "Reject damaged GFSK packets",
-        switches_y + switch_row++ * kSwitchPitch,
-        profile.crc_enabled);
+    state->add_crc_switch =
+        CreateAddSwitchRow(body, state, "CRC", "Reject damaged GFSK packets",
+            switches_y + switch_row++ * kSwitchPitch, profile.crc_enabled);
     state->add_whitening_switch = CreateAddSwitchRow(body, state,
         "Data whitening", "Enable only when the peer also uses whitening",
-        switches_y + switch_row * kSwitchPitch,
-        profile.gfsk_whitening_enabled);
+        switches_y + switch_row * kSwitchPitch, profile.gfsk_whitening_enabled);
     // FEC 属于少用高级参数，保留底层配置和存储兼容但不占用常用界面。
     state->add_fec_switch = nullptr;
   } else {
     state->add_frequency_input = create_integer_input(
-        "WORKING FREQUENCY (MHz)", "2400",
-        2400U + profile.esb_channel, 4);
+        "WORKING FREQUENCY (MHz)", "2400", 2400U + profile.esb_channel, 4);
     state->selected_add_data_rate = 0;
     for (size_t index = 0; index < std::size(kNrf24l01DataRates); ++index) {
       if (profile.esb_data_rate_bps == kNrf24l01DataRates[index]) {
@@ -7789,16 +7573,13 @@ bool CreateNonLoraAddModuleContent(RadioViewState* state,
       }
     }
     state->add_data_rate_input = nullptr;
-    if (!create_option_row("DATA RATE",
-            RadioAddOptionGroup::kDataRate,
-            state->add_data_rate_buttons,
-            kNrf24l01DataRateNames,
+    if (!create_option_row("DATA RATE", RadioAddOptionGroup::kDataRate,
+            state->add_data_rate_buttons, kNrf24l01DataRateNames,
             std::size(kNrf24l01DataRateNames), 3)) {
       return false;
     }
-    const int address_title_y =
-        kFirstTitleY + row * kRowPitch + additional_content_height +
-        content_offset;
+    const int address_title_y = kFirstTitleY + row * kRowPitch +
+                                additional_content_height + content_offset;
     ++row;
     const int address_hex_digits =
         std::clamp<int>(profile.esb_address_width, 3, 5) * 2;
@@ -7807,14 +7588,14 @@ bool CreateNonLoraAddModuleContent(RadioViewState* state,
     if (!CreateAddParameterTitle(body, "ADDRESS (HEX)", address_title_y)) {
       return false;
     }
-    state->add_address_input = CreateAddTextArea(body, state,
-        "E7E7E7E7E7", value, address_title_y + 36, 10);
+    state->add_address_input = CreateAddTextArea(
+        body, state, "E7E7E7E7E7", value, address_title_y + 36, 10);
     if (state->add_address_input != nullptr) {
       lv_textarea_set_accepted_chars(
           state->add_address_input, kHexAcceptedChars);
     }
-    if (!CreateAddHexPrefix(body, state, state->add_address_input,
-            address_title_y + 36)) {
+    if (!CreateAddHexPrefix(
+            body, state, state->add_address_input, address_title_y + 36)) {
       return false;
     }
     // 地址宽度由输入的 6、8 或 10 位十六进制字符自动确定。
@@ -7828,10 +7609,8 @@ bool CreateNonLoraAddModuleContent(RadioViewState* state,
         break;
       }
     }
-    if (!create_option_row("TX POWER (dBm)",
-            RadioAddOptionGroup::kOutputPower,
-            state->add_output_power_buttons,
-            kNrf24l01OutputPowerNames,
+    if (!create_option_row("TX POWER (dBm)", RadioAddOptionGroup::kOutputPower,
+            state->add_output_power_buttons, kNrf24l01OutputPowerNames,
             std::size(kNrf24l01OutputPowerNames), 4)) {
       return false;
     }
@@ -7839,11 +7618,9 @@ bool CreateNonLoraAddModuleContent(RadioViewState* state,
     state->add_retransmit_count_input = create_integer_input(
         "RETRANSMIT COUNT", "3", profile.esb_retransmit_count, 2);
     state->add_retransmit_delay_input = create_integer_input(
-        "RETRANSMIT DELAY (us)", "750",
-        profile.esb_retransmit_delay_us, 4);
-    const int switches_y =
-        kFirstTitleY + row * kRowPitch + additional_content_height +
-        content_offset;
+        "RETRANSMIT DELAY (us)", "750", profile.esb_retransmit_delay_us, 4);
+    const int switches_y = kFirstTitleY + row * kRowPitch +
+                           additional_content_height + content_offset;
     int switch_row = 0;
     if (!create_active_switch(switches_y)) {
       return false;
@@ -7853,8 +7630,7 @@ bool CreateNonLoraAddModuleContent(RadioViewState* state,
     }
     state->add_auto_ack_switch = CreateAddSwitchRow(body, state,
         "Auto acknowledgment", "Use Enhanced ShockBurst ACK and retries",
-        switches_y + switch_row++ * kSwitchPitch,
-        profile.esb_auto_ack_enabled);
+        switches_y + switch_row++ * kSwitchPitch, profile.esb_auto_ack_enabled);
     state->add_dynamic_payload_switch = CreateAddSwitchRow(body, state,
         "Dynamic payload", "Transmit only the bytes used by each message",
         switches_y + switch_row * kSwitchPitch,
@@ -7863,21 +7639,21 @@ bool CreateNonLoraAddModuleContent(RadioViewState* state,
   }
   UpdateAddOptionSelection(state);
   const bool common_ready = IsAddOutputPowerValid(state) &&
-      (editing || state->add_active_switch != nullptr);
+                            (editing || state->add_active_switch != nullptr);
   if (profile.protocol == radio::ProtocolType::kGfsk) {
     return common_ready && state->add_frequency_input != nullptr &&
-        state->add_data_rate_input != nullptr &&
-        state->add_frequency_deviation_input != nullptr &&
-        state->add_sync_word_input != nullptr &&
-        state->add_crc_switch != nullptr &&
-        state->add_whitening_switch != nullptr;
+           state->add_data_rate_input != nullptr &&
+           state->add_frequency_deviation_input != nullptr &&
+           state->add_sync_word_input != nullptr &&
+           state->add_crc_switch != nullptr &&
+           state->add_whitening_switch != nullptr;
   }
   return common_ready && state->add_frequency_input != nullptr &&
-      state->add_address_input != nullptr &&
-      state->add_retransmit_count_input != nullptr &&
-      state->add_retransmit_delay_input != nullptr &&
-      state->add_auto_ack_switch != nullptr &&
-      state->add_dynamic_payload_switch != nullptr;
+         state->add_address_input != nullptr &&
+         state->add_retransmit_count_input != nullptr &&
+         state->add_retransmit_delay_input != nullptr &&
+         state->add_auto_ack_switch != nullptr &&
+         state->add_dynamic_payload_switch != nullptr;
 }
 
 /**
@@ -7889,9 +7665,9 @@ bool CreateAddModuleContent(RadioViewState* state) {
   lv_obj_t* body = state->add_body;
   const bool editing = state->editing_index < state->module_count;
   const int content_offset = editing ? 0 : kAddProfileNameSectionHeight;
-  app::RadioProfile profile = editing
-      ? state->preferences.profiles[state->editing_index]
-      : app::RadioProfile{};
+  app::RadioProfile profile =
+      editing ? state->preferences.profiles[state->editing_index]
+              : app::RadioProfile{};
   const hal::RadioCapability* capability = PrimaryRadioCapability(state);
   if (capability == nullptr) {
     return false;
@@ -7909,8 +7685,8 @@ bool CreateAddModuleContent(RadioViewState* state) {
   char sync_word[3] = {};
   std::snprintf(frequency, sizeof(frequency), "%.6f",
       static_cast<double>(profile.frequency_hz) / 1000000.0);
-  std::snprintf(power, sizeof(power), "%d",
-      static_cast<int>(profile.output_power_dbm));
+  std::snprintf(
+      power, sizeof(power), "%d", static_cast<int>(profile.output_power_dbm));
   std::snprintf(preamble, sizeof(preamble), "%u",
       static_cast<unsigned>(profile.preamble_length));
   std::snprintf(sync_word, sizeof(sync_word), "%02hhX",
@@ -7923,8 +7699,8 @@ bool CreateAddModuleContent(RadioViewState* state) {
     if (!CreateAddParameterTitle(body, "PROFILE NAME", 8)) {
       return false;
     }
-    state->add_name_input = CreateAddTextArea(body, state,
-        "Profile name", "", 44, app::kRadioProfileNameCapacity - 1);
+    state->add_name_input = CreateAddTextArea(body, state, "Profile name", "",
+        44, app::kRadioProfileNameCapacity - 1);
     if (state->add_name_input == nullptr) {
       return false;
     }
@@ -7933,25 +7709,22 @@ bool CreateAddModuleContent(RadioViewState* state) {
   }
   const int option_gap = 10;
   const int option_area_width = state->config.width - 56;
-  if (!CreateAddChipAndProtocolOptions(
-          body, state, profile, content_offset)) {
+  if (!CreateAddChipAndProtocolOptions(body, state, profile, content_offset)) {
     return false;
   }
 
   if (!CreateAddParameterTitle(
-      body, "WORKING FREQUENCY", 262 + content_offset)) {
+          body, "WORKING FREQUENCY", 262 + content_offset)) {
     return false;
   }
-  state->add_frequency_input = CreateAddTextArea(
-      body, state, "Frequency", frequency, 298 + content_offset,
-      kFrequencyInputMaximumLength);
+  state->add_frequency_input = CreateAddTextArea(body, state, "Frequency",
+      frequency, 298 + content_offset, kFrequencyInputMaximumLength);
   if (state->add_frequency_input == nullptr) {
     return false;
   }
   lv_textarea_set_accepted_chars(
       state->add_frequency_input, kFrequencyAcceptedChars);
-  lv_obj_set_width(
-      state->add_frequency_input, state->config.width - 152);
+  lv_obj_set_width(state->add_frequency_input, state->config.width - 152);
 
   lv_obj_t* unit = lv_obj_create(body);
   if (unit == nullptr) {
@@ -7959,10 +7732,10 @@ bool CreateAddModuleContent(RadioViewState* state) {
   }
   lv_obj_remove_flag(unit, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(unit, 84, 62);
-  lv_obj_set_pos(unit, state->config.width - 112,
-      302 + content_offset);
-  lv_obj_set_style_bg_color(
-      unit, lv_color_hex(theme::ActiveThemeColors().surface_container_high), LV_PART_MAIN);
+  lv_obj_set_pos(unit, state->config.width - 112, 302 + content_offset);
+  lv_obj_set_style_bg_color(unit,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_high),
+      LV_PART_MAIN);
   lv_obj_set_style_bg_opa(unit, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(unit, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(unit, 22, LV_PART_MAIN);
@@ -7975,12 +7748,11 @@ bool CreateAddModuleContent(RadioViewState* state) {
   lv_obj_center(unit_label);
 
   if (!CreateAddParameterTitle(
-      body, "SPREADING FACTOR", 400 + content_offset)) {
+          body, "SPREADING FACTOR", 400 + content_offset)) {
     return false;
   }
   const int option_width = (option_area_width - 3 * option_gap) / 4;
-  const char* sf_names[] = {
-      "5", "6", "7", "8", "9", "10", "11", "12"};
+  const char* sf_names[] = {"5", "6", "7", "8", "9", "10", "11", "12"};
   for (int index = 0; index < 8; ++index) {
     const int column = index % 4;
     const int row = index / 4;
@@ -7993,8 +7765,7 @@ bool CreateAddModuleContent(RadioViewState* state) {
     }
   }
 
-  if (!CreateAddParameterTitle(
-      body, "BANDWIDTH (kHz)", 582 + content_offset)) {
+  if (!CreateAddParameterTitle(body, "BANDWIDTH (kHz)", 582 + content_offset)) {
     return false;
   }
   const bool lr2021 = profile.chip == radio::ChipType::kLr2021;
@@ -8007,11 +7778,10 @@ bool CreateAddModuleContent(RadioViewState* state) {
   for (size_t index = 0; index < bandwidth_count; ++index) {
     const size_t column = index % bandwidth_column_count;
     const size_t row = index / bandwidth_column_count;
-    state->add_bandwidth_buttons[index] = CreateAddOptionButton(
-        body, state, RadioAddOptionGroup::kBandwidth,
-        static_cast<int>(index), AddProfileBandwidthName(state, index),
-        28 + static_cast<int>(column) *
-            (bandwidth_option_width + option_gap),
+    state->add_bandwidth_buttons[index] = CreateAddOptionButton(body, state,
+        RadioAddOptionGroup::kBandwidth, static_cast<int>(index),
+        AddProfileBandwidthName(state, index),
+        28 + static_cast<int>(column) * (bandwidth_option_width + option_gap),
         618 + content_offset + static_cast<int>(row) * 70,
         bandwidth_option_width, 60);
     if (state->add_bandwidth_buttons[index] == nullptr) {
@@ -8020,8 +7790,7 @@ bool CreateAddModuleContent(RadioViewState* state) {
   }
 
   const int lr2021_bandwidth_extra = lr2021 ? 140 : 0;
-  const int coding_title_y =
-      710 + content_offset + lr2021_bandwidth_extra;
+  const int coding_title_y = 710 + content_offset + lr2021_bandwidth_extra;
   if (!CreateAddParameterTitle(body, "CODING RATE", coding_title_y)) {
     return false;
   }
@@ -8034,37 +7803,32 @@ bool CreateAddModuleContent(RadioViewState* state) {
   for (size_t index = 0; index < coding_rate_count; ++index) {
     const size_t column = index % coding_column_count;
     const size_t row = index / coding_column_count;
-    state->add_coding_rate_buttons[index] = CreateAddOptionButton(
-        body, state, RadioAddOptionGroup::kCodingRate,
-        static_cast<int>(index), AddProfileCodingRateName(state, index),
-        28 + static_cast<int>(column) *
-            (coding_option_width + option_gap),
-        coding_title_y + 36 + static_cast<int>(row) * 70,
-        coding_option_width, 60);
+    state->add_coding_rate_buttons[index] =
+        CreateAddOptionButton(body, state, RadioAddOptionGroup::kCodingRate,
+            static_cast<int>(index), AddProfileCodingRateName(state, index),
+            28 + static_cast<int>(column) * (coding_option_width + option_gap),
+            coding_title_y + 36 + static_cast<int>(row) * 70,
+            coding_option_width, 60);
     if (state->add_coding_rate_buttons[index] == nullptr) {
       return false;
     }
   }
 
   const int lr2021_coding_extra = lr2021 ? 140 : 0;
-  const int lr2021_option_extra =
-      lr2021_bandwidth_extra + lr2021_coding_extra;
+  const int lr2021_option_extra = lr2021_bandwidth_extra + lr2021_coding_extra;
   constexpr int kLr2021RxBoostSectionHeight = 198;
   state->add_rx_boost_switch = nullptr;
   if (lr2021) {
-    const int rx_boost_title_y =
-        838 + content_offset + lr2021_option_extra;
+    const int rx_boost_title_y = 838 + content_offset + lr2021_option_extra;
     if (!CreateAddParameterTitle(body, "RX BOOST MODE", rx_boost_title_y)) {
       return false;
     }
-    const int rx_boost_option_width =
-        (option_area_width - 3 * option_gap) / 4;
+    const int rx_boost_option_width = (option_area_width - 3 * option_gap) / 4;
     for (int index = 0; index < 8; ++index) {
       const int column = index % 4;
       const int row = index / 4;
-      state->add_rx_boost_buttons[index] = CreateAddOptionButton(
-          body, state, RadioAddOptionGroup::kRxBoost, index,
-          kLr2021RxBoostModeNames[index],
+      state->add_rx_boost_buttons[index] = CreateAddOptionButton(body, state,
+          RadioAddOptionGroup::kRxBoost, index, kLr2021RxBoostModeNames[index],
           28 + column * (rx_boost_option_width + option_gap),
           rx_boost_title_y + 36 + row * 70, rx_boost_option_width, 60);
       if (state->add_rx_boost_buttons[index] == nullptr) {
@@ -8073,90 +7837,78 @@ bool CreateAddModuleContent(RadioViewState* state) {
     }
   }
   const int following_content_extra =
-      lr2021_option_extra +
-      (lr2021 ? kLr2021RxBoostSectionHeight : 0);
+      lr2021_option_extra + (lr2021 ? kLr2021RxBoostSectionHeight : 0);
   if (!CreateAddParameterTitle(
-      body, "TX POWER", 838 + content_offset + following_content_extra)) {
+          body, "TX POWER", 838 + content_offset + following_content_extra)) {
     return false;
   }
-  state->add_power_input = CreateAddTextArea(
-      body, state, "Output power", power,
+  state->add_power_input = CreateAddTextArea(body, state, "Output power", power,
       874 + content_offset + following_content_extra, 3);
   if (state->add_power_input == nullptr) {
     return false;
   }
-  lv_textarea_set_accepted_chars(
-      state->add_power_input, "-0123456789");
+  lv_textarea_set_accepted_chars(state->add_power_input, "-0123456789");
 
-  if (!CreateAddParameterTitle(
-      body, "PREAMBLE LENGTH",
-      976 + content_offset + following_content_extra)) {
+  if (!CreateAddParameterTitle(body, "PREAMBLE LENGTH",
+          976 + content_offset + following_content_extra)) {
     return false;
   }
-  state->add_preamble_input = CreateAddTextArea(
-      body, state, "Preamble symbols", preamble,
-      1012 + content_offset + following_content_extra, 5);
+  state->add_preamble_input = CreateAddTextArea(body, state, "Preamble symbols",
+      preamble, 1012 + content_offset + following_content_extra, 5);
   if (state->add_preamble_input == nullptr) {
     return false;
   }
   lv_textarea_set_accepted_chars(
       state->add_preamble_input, kIntegerAcceptedChars);
 
-  if (!CreateAddParameterTitle(
-      body, "SYNC WORD (HEX)",
-      1114 + content_offset + following_content_extra)) {
+  if (!CreateAddParameterTitle(body, "SYNC WORD (HEX)",
+          1114 + content_offset + following_content_extra)) {
     return false;
   }
-  state->add_sync_word_input = CreateAddTextArea(
-      body, state, "12", sync_word,
+  state->add_sync_word_input = CreateAddTextArea(body, state, "12", sync_word,
       1150 + content_offset + following_content_extra, 2);
   if (state->add_sync_word_input == nullptr) {
     return false;
   }
-  lv_textarea_set_accepted_chars(state->add_sync_word_input,
-      kHexAcceptedChars);
+  lv_textarea_set_accepted_chars(state->add_sync_word_input, kHexAcceptedChars);
   if (!CreateAddHexPrefix(body, state, state->add_sync_word_input,
           1150 + content_offset + following_content_extra)) {
     return false;
   }
 
-  const int switch_rows_top =
-      1258 + content_offset + following_content_extra;
-  constexpr int kSwitchRowPitch =
-      kAddSwitchRowHeight + kAddSwitchRowGap;
+  const int switch_rows_top = 1258 + content_offset + following_content_extra;
+  constexpr int kSwitchRowPitch = kAddSwitchRowHeight + kAddSwitchRowGap;
   int switch_row_index = 0;
   state->add_active_switch = nullptr;
   if (!editing) {
-    state->add_active_switch = CreateAddSwitchRow(body, state,
-        "Active profile",
+    state->add_active_switch = CreateAddSwitchRow(body, state, "Active profile",
         "Only one profile can use the radio chip",
         switch_rows_top + switch_row_index++ * kSwitchRowPitch, true);
   }
   state->add_external_antenna_switch = nullptr;
   if (state->capabilities.supports_external_antenna) {
-    state->add_external_antenna_switch = CreateAddSwitchRow(body, state,
-        "External antenna",
-        "Enabling without an external antenna may cause permanent damage",
-        switch_rows_top + switch_row_index * kSwitchRowPitch,
-        profile.antenna == radio::AntennaType::kExternal);
+    state->add_external_antenna_switch =
+        CreateAddSwitchRow(body, state, "External antenna",
+            "Enabling without an external antenna may cause permanent damage",
+            switch_rows_top + switch_row_index * kSwitchRowPitch,
+            profile.antenna == radio::AntennaType::kExternal);
     ++switch_row_index;
   }
-  state->add_crc_switch = CreateAddSwitchRow(body, state,
-      "CRC", "Reject damaged LoRa packets",
-      switch_rows_top + switch_row_index++ * kSwitchRowPitch,
-      profile.crc_enabled);
-  state->add_iq_switch = CreateAddSwitchRow(body, state,
-      "Invert IQ", "Enable only when the peer also inverts IQ",
+  state->add_crc_switch =
+      CreateAddSwitchRow(body, state, "CRC", "Reject damaged LoRa packets",
+          switch_rows_top + switch_row_index++ * kSwitchRowPitch,
+          profile.crc_enabled);
+  state->add_iq_switch = CreateAddSwitchRow(body, state, "Invert IQ",
+      "Enable only when the peer also inverts IQ",
       switch_rows_top + switch_row_index++ * kSwitchRowPitch,
       profile.invert_iq);
   if (!lr2021) {
-    state->add_rx_boost_switch = CreateAddSwitchRow(body, state,
-        "RX boost", "Higher receive sensitivity",
+    state->add_rx_boost_switch = CreateAddSwitchRow(body, state, "RX boost",
+        "Higher receive sensitivity",
         switch_rows_top + switch_row_index++ * kSwitchRowPitch,
         profile.rx_boosted);
   }
-  if (state->add_crc_switch == nullptr ||
-      state->add_iq_switch == nullptr ||
+  if (state->add_crc_switch == nullptr || state->add_iq_switch == nullptr ||
       (!lr2021 && state->add_rx_boost_switch == nullptr) ||
       (state->capabilities.supports_external_antenna &&
           state->add_external_antenna_switch == nullptr) ||
@@ -8240,15 +7992,13 @@ bool CreateAddModuleKeyboard(RadioViewState* state) {
   keyboard_config.width = state->config.width;
   keyboard_config.height =
       state->config.height * kAddKeyboardHeightPercent / 100;
-  state->add_keyboard = CreateSharedKeyboard(
-      state->add_page, keyboard_config);
+  state->add_keyboard = CreateSharedKeyboard(state->add_page, keyboard_config);
   if (state->add_keyboard == nullptr) {
     return false;
   }
-  const auto attach = [&](lv_obj_t* input,
-                          const char* accepted_chars) -> bool {
+  const auto attach = [&](lv_obj_t* input, const char* accepted_chars) -> bool {
     return input == nullptr || AttachSharedKeyboardToTextArea(
-        state->add_keyboard, input, accepted_chars);
+                                   state->add_keyboard, input, accepted_chars);
   };
   const bool editing = state->editing_index < state->module_count;
   const bool result =
@@ -8322,18 +8072,17 @@ bool CreateAddModuleHeader(lv_obj_t* page, RadioViewState* state) {
   lv_obj_add_flag(back, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(back, 62, 62);
   lv_obj_set_pos(back, 18, 66);
-  lv_obj_add_event_cb(back, AddPageBackClickedEventCallback,
-      LV_EVENT_CLICKED, state);
-  lv_obj_t* icon_label = CreateLabel(
-      back, icon::kArrowBack, theme::ActiveThemeColors().on_surface, OutlineIconFont44());
+  lv_obj_add_event_cb(
+      back, AddPageBackClickedEventCallback, LV_EVENT_CLICKED, state);
+  lv_obj_t* icon_label = CreateLabel(back, icon::kArrowBack,
+      theme::ActiveThemeColors().on_surface, OutlineIconFont44());
   if (icon_label == nullptr) {
     return false;
   }
   lv_obj_align(icon_label, LV_ALIGN_CENTER, -4, 0);
-  lv_obj_t* title = CreateLabel(
-      page, state->editing_index < state->module_count
-          ? "Radio settings"
-          : "Add Radio profile",
+  lv_obj_t* title = CreateLabel(page,
+      state->editing_index < state->module_count ? "Radio settings"
+                                                 : "Add Radio profile",
       theme::ActiveThemeColors().on_surface, Font32());
   if (title == nullptr) {
     return false;
@@ -8374,19 +8123,20 @@ bool CreateAddModuleActionArea(lv_obj_t* page, RadioViewState* state) {
   lv_obj_align(button, LV_ALIGN_CENTER, 0, 0);
   lv_obj_set_style_radius(button, 42, LV_PART_MAIN);
   lv_obj_set_style_bg_color(button,
-      lv_color_hex(theme::ActiveThemeColors().disabled_container), LV_PART_MAIN);
+      lv_color_hex(theme::ActiveThemeColors().disabled_container),
+      LV_PART_MAIN);
   lv_obj_set_style_bg_color(
       button, lv_color_hex(kPrimaryPressedColor), LV_STATE_PRESSED);
   lv_obj_set_style_bg_color(button,
-      lv_color_hex(theme::ActiveThemeColors().disabled_container), LV_STATE_DISABLED);
+      lv_color_hex(theme::ActiveThemeColors().disabled_container),
+      LV_STATE_DISABLED);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
-  lv_obj_add_event_cb(button, AddModuleSubmitClickedEventCallback,
-      LV_EVENT_CLICKED, state);
-  state->add_submit_label = CreateLabel(
-      button, state->editing_index < state->module_count
-          ? "Save profile"
-          : "Add profile",
+  lv_obj_add_event_cb(
+      button, AddModuleSubmitClickedEventCallback, LV_EVENT_CLICKED, state);
+  state->add_submit_label = CreateLabel(button,
+      state->editing_index < state->module_count ? "Save profile"
+                                                 : "Add profile",
       theme::ActiveThemeColors().disabled_content, Font28());
   if (state->add_submit_label == nullptr) {
     return false;
@@ -8416,13 +8166,13 @@ bool ShowAddModulePage(RadioViewState* state) {
   state->selected_add_chip = 0;
   state->selected_add_protocol = 0;
   const bool editing = state->editing_index < state->module_count;
-  app::RadioProfile profile = editing
-      ? state->preferences.profiles[state->editing_index]
-      : app::RadioProfile{};
+  app::RadioProfile profile =
+      editing ? state->preferences.profiles[state->editing_index]
+              : app::RadioProfile{};
   if (editing) {
     bool capability_found = false;
     for (size_t capability_index = 0;
-         capability_index < state->capabilities.count; ++capability_index) {
+        capability_index < state->capabilities.count; ++capability_index) {
       const hal::RadioCapability& capability =
           state->capabilities.entries[capability_index];
       if (capability.chip == profile.chip &&
@@ -8439,22 +8189,21 @@ bool ShowAddModulePage(RadioViewState* state) {
   } else {
     ApplyPrimaryRadioCapability(state, &profile);
   }
-  state->selected_add_sf = editing
-      ? std::clamp(static_cast<int>(profile.spreading_factor) - 5, 0, 7)
-      : kDefaultSpreadingFactorIndex;
+  state->selected_add_sf =
+      editing ? std::clamp(static_cast<int>(profile.spreading_factor) - 5, 0, 7)
+              : kDefaultSpreadingFactorIndex;
   state->selected_add_bandwidth = 1;
   for (size_t index = 0; index < AddProfileBandwidthCount(state); ++index) {
     if (profile.bandwidth_hz == AddProfileBandwidth(state, index)) {
       state->selected_add_bandwidth = static_cast<int>(index);
     }
   }
-  state->selected_add_coding_rate = std::clamp(
-      static_cast<int>(profile.coding_rate_denominator) - 5, 0, 3);
+  state->selected_add_coding_rate =
+      std::clamp(static_cast<int>(profile.coding_rate_denominator) - 5, 0, 3);
   if (profile.chip == radio::ChipType::kLr2021) {
-    for (size_t index = 0;
-         index < std::size(radio::kLr2021CodingRates); ++index) {
-      if (profile.lr2021_coding_rate ==
-          radio::kLr2021CodingRates[index]) {
+    for (size_t index = 0; index < std::size(radio::kLr2021CodingRates);
+        ++index) {
+      if (profile.lr2021_coding_rate == radio::kLr2021CodingRates[index]) {
         state->selected_add_coding_rate = static_cast<int>(index);
         break;
       }
@@ -8483,8 +8232,8 @@ bool ShowAddModulePage(RadioViewState* state) {
   lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
-  lv_obj_add_event_cb(page, AddPageBackgroundClickedEventCallback,
-      LV_EVENT_CLICKED, state);
+  lv_obj_add_event_cb(
+      page, AddPageBackgroundClickedEventCallback, LV_EVENT_CLICKED, state);
 
   if (!CreateAddModuleHeader(page, state)) {
     lv_obj_delete(page);
@@ -8499,8 +8248,7 @@ bool ShowAddModulePage(RadioViewState* state) {
   }
   lv_obj_set_pos(state->add_body, 0, kAddPageHeaderHeight);
   lv_obj_set_size(state->add_body, state->config.width,
-      state->config.height - kAddPageHeaderHeight -
-          kAddPageActionHeight);
+      state->config.height - kAddPageHeaderHeight - kAddPageActionHeight);
   lv_obj_set_style_bg_opa(state->add_body, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_border_width(state->add_body, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(state->add_body, 0, LV_PART_MAIN);
@@ -8508,8 +8256,8 @@ bool ShowAddModulePage(RadioViewState* state) {
   lv_obj_set_scrollbar_mode(state->add_body, LV_SCROLLBAR_MODE_AUTO);
   lv_obj_add_flag(state->add_body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(state->add_body, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_add_event_cb(state->add_body,
-      AddPageBackgroundClickedEventCallback, LV_EVENT_CLICKED, state);
+  lv_obj_add_event_cb(state->add_body, AddPageBackgroundClickedEventCallback,
+      LV_EVENT_CLICKED, state);
 
   if (!CreateAddModuleContent(state) ||
       !CreateAddModuleActionArea(page, state)) {
@@ -8528,8 +8276,8 @@ bool ShowAddModulePage(RadioViewState* state) {
     state->add_keyboard = nullptr;
     return false;
   }
-  if (!StartSlideLeftWindowTransition(page, state->config.width,
-      kAnimationMs, state, nullptr)) {
+  if (!StartSlideLeftWindowTransition(
+          page, state->config.width, kAnimationMs, state, nullptr)) {
     lv_obj_delete(page);
     state->add_page = nullptr;
     state->add_body = nullptr;
@@ -8537,17 +8285,15 @@ bool ShowAddModulePage(RadioViewState* state) {
     state->add_keyboard = nullptr;
     return false;
   }
-  if (!RegisterBackNavigationHandler(page, [state]() {
-        CloseAddModulePage(state);
-      })) {
+  if (!RegisterBackNavigationHandler(
+          page, [state]() { CloseAddModulePage(state); })) {
     CloseAddModulePage(state);
     return false;
   }
   return true;
 }
 
-bool ShowModuleSettings(RadioViewState* state, size_t index,
-    bool from_detail) {
+bool ShowModuleSettings(RadioViewState* state, size_t index, bool from_detail) {
   if (state == nullptr || index >= state->module_count) {
     return false;
   }
@@ -8564,8 +8310,7 @@ bool ShowModuleSettings(RadioViewState* state, size_t index,
  */
 void AddButtonClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
-    auto* state = static_cast<RadioViewState*>(
-        lv_event_get_user_data(event));
+    auto* state = static_cast<RadioViewState*>(lv_event_get_user_data(event));
     if (state != nullptr) {
       state->editing_index = kRadioModuleCapacity;
       ShowAddModulePage(state);
@@ -8632,15 +8377,13 @@ bool CreateAddButton(lv_obj_t* parent, RadioViewState* state) {
   lv_obj_set_size(button, 96, 96);
   lv_obj_align(button, LV_ALIGN_BOTTOM_RIGHT, -40, -42);
   lv_obj_set_style_radius(button, 48, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      button, lv_color_hex(kPrimaryColor), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(button, lv_color_hex(kPrimaryColor), LV_PART_MAIN);
   lv_obj_set_style_bg_color(
       button, lv_color_hex(kPrimaryPressedColor), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(button, 14, LV_PART_MAIN);
-  lv_obj_set_style_shadow_color(
-      button, lv_color_hex(0x8A8095), LV_PART_MAIN);
+  lv_obj_set_style_shadow_color(button, lv_color_hex(0x8A8095), LV_PART_MAIN);
   lv_obj_set_style_shadow_opa(button, LV_OPA_40, LV_PART_MAIN);
   lv_obj_add_event_cb(
       button, AddButtonClickedEventCallback, LV_EVENT_CLICKED, state);
@@ -8655,28 +8398,27 @@ bool CreateAddButton(lv_obj_t* parent, RadioViewState* state) {
 
 lv_obj_t* CreateRadioView(lv_obj_t* parent, const app::AppEntry& app_entry,
     const AppViewConfig& config) {
-  if (parent == nullptr || app_entry.id == nullptr ||
-      config.width <= 0 || config.height <= 0) {
+  if (parent == nullptr || app_entry.id == nullptr || config.width <= 0 ||
+      config.height <= 0) {
     return nullptr;
   }
   auto* state = new RadioViewState{};
   state->config = config;
   if (config.radio != nullptr) {
     if (config.radio->ReadRadioCapabilities(&state->capabilities)) {
-      state->capabilities.count = std::min(
-          state->capabilities.count, hal::kRadioCapabilityCapacity);
+      state->capabilities.count =
+          std::min(state->capabilities.count, hal::kRadioCapabilityCapacity);
       for (size_t index = 0; index < state->capabilities.count; ++index) {
-        state->capabilities.entries[index].frequency_band_count = std::min(
-            state->capabilities.entries[index].frequency_band_count,
-            hal::kRadioFrequencyBandCapacity);
+        state->capabilities.entries[index].frequency_band_count =
+            std::min(state->capabilities.entries[index].frequency_band_count,
+                hal::kRadioFrequencyBandCapacity);
       }
     }
   }
   app::GetRadioPreferences(&state->preferences);
   app::RadioChatRepository& chat_repository = app::GetRadioChatRepository();
   chat_repository.Initialize();
-  for (size_t index = 0;
-       index < state->preferences.profile_count; ++index) {
+  for (size_t index = 0; index < state->preferences.profile_count; ++index) {
     if (state->preferences.profiles[index].active) {
       chat_repository.TouchProfile(state->preferences.profiles[index].id);
     }
@@ -8703,8 +8445,8 @@ lv_obj_t* CreateRadioView(lv_obj_t* parent, const app::AppEntry& app_entry,
         SetProfileActivationState(profile.id, RadioActivationState::kNone);
       }
       if (!IsProfileActivationBlocked(profile.id)) {
-        QueueRadioControlCommand(state, RadioCommandType::kActivate,
-            ToRadioConfig(profile));
+        QueueRadioControlCommand(
+            state, RadioCommandType::kActivate, ToRadioConfig(profile));
       }
     }
   }
@@ -8753,8 +8495,7 @@ lv_obj_t* CreateRadioView(lv_obj_t* parent, const app::AppEntry& app_entry,
     lv_obj_delete(root);
     return nullptr;
   }
-  state->radio_timer = lv_timer_create(
-      RadioTimerCallback, 120, state);
+  state->radio_timer = lv_timer_create(RadioTimerCallback, 120, state);
   return root;
 }
 

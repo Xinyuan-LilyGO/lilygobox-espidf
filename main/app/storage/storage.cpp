@@ -2,7 +2,7 @@
  * @Description: NVS 与 LittleFS 即时持久化统一管理实现
  * @Author: LILYGO_L
  * @Date: 2026-07-03 00:00:00
- * @LastEditTime: 2026-07-18 00:00:00
+ * @LastEditTime: 2026-09-02 17:51:45
  * @License: GPL 3.0
  */
 #include "app/storage/storage.h"
@@ -102,14 +102,12 @@ bool InitializeApplicationNvs() {
     return true;
   }
 
-  esp_err_t result =
-      nvs_flash_init_partition(kApplicationNvsPartitionName);
+  esp_err_t result = nvs_flash_init_partition(kApplicationNvsPartitionName);
   const char* recovery_reason = nullptr;
   if (result == ESP_ERR_NVS_NO_FREE_PAGES ||
       result == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    recovery_reason = result == ESP_ERR_NVS_NO_FREE_PAGES
-                          ? "no free pages"
-                          : "new version found";
+    recovery_reason = result == ESP_ERR_NVS_NO_FREE_PAGES ? "no free pages"
+                                                          : "new version found";
     result = nvs_flash_erase_partition(kApplicationNvsPartitionName);
     if (result == ESP_OK) {
       result = nvs_flash_init_partition(kApplicationNvsPartitionName);
@@ -170,8 +168,8 @@ bool InitializeStorageCoordinator() {
   return false;
 }
 
-void StageStorageBackends(nvs_handle_t handle,
-    StorageStageResults* stages, bool* has_staged, bool* has_failed) {
+void StageStorageBackends(nvs_handle_t handle, StorageStageResults* stages,
+    bool* has_staged, bool* has_failed) {
   if (stages == nullptr || has_staged == nullptr || has_failed == nullptr) {
     return;
   }
@@ -191,28 +189,24 @@ void FinishStorageBackends(
     const StorageStageResults& stages, bool transaction_committed) {
   for (size_t index = 0; index < kStorageBackendCount; ++index) {
     const bool domain_committed =
-        transaction_committed &&
-        stages[index] == StorageStageResult::kStaged;
+        transaction_committed && stages[index] == StorageStageResult::kStaged;
     kStorageBackends[index].finish(domain_committed);
   }
 }
 
 bool FlushStoragePass() {
   nvs_handle_t handle = 0;
-  esp_err_t result =
-      OpenApplicationNvs(kNvsNamespace, NVS_READWRITE, &handle);
+  esp_err_t result = OpenApplicationNvs(kNvsNamespace, NVS_READWRITE, &handle);
   if (result != ESP_OK) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Open NVS for storage flush failed: %s\n",
-        esp_err_to_name(result));
+        "Open NVS for storage flush failed: %s\n", esp_err_to_name(result));
     return false;
   }
 
   StorageStageResults stages = {};
   bool has_staged = false;
   bool has_failed = false;
-  StageStorageBackends(
-      handle, &stages, &has_staged, &has_failed);
+  StageStorageBackends(handle, &stages, &has_staged, &has_failed);
   if (has_staged) {
     result = nvs_commit(handle);
   }
@@ -249,8 +243,8 @@ bool FlushLittleFsStorageBatch() {
       xSemaphoreTake(g_storage_io_mutex, portMAX_DELAY) != pdTRUE) {
     return false;
   }
-  const bool success = GetRadioChatRepository().FlushPending(
-      kRadioChatPendingCapacity);
+  const bool success =
+      GetRadioChatRepository().FlushPending(kRadioChatPendingCapacity);
   xSemaphoreGive(g_storage_io_mutex);
   return success;
 }
@@ -266,11 +260,10 @@ void LittleFsStorageTaskEntry(void* context) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     if (!g_littlefs_flush_urgent.exchange(false)) {
       const TickType_t merge_start = xTaskGetTickCount();
-      const TickType_t merge_ticks =
-          pdMS_TO_TICKS(kLittleFsFlushMergeDelayMs);
+      const TickType_t merge_ticks = pdMS_TO_TICKS(kLittleFsFlushMergeDelayMs);
       TickType_t elapsed = 0;
-      while (!g_littlefs_flush_urgent.exchange(false) &&
-             elapsed < merge_ticks) {
+      while (
+          !g_littlefs_flush_urgent.exchange(false) && elapsed < merge_ticks) {
         ulTaskNotifyTake(pdTRUE, merge_ticks - elapsed);
         elapsed = xTaskGetTickCount() - merge_start;
       }
@@ -323,8 +316,8 @@ void InitRadioChatCache() {
     return;
   }
 
-  auto preferences = std::unique_ptr<RadioPreferences>(
-      new (std::nothrow) RadioPreferences{});
+  auto preferences =
+      std::unique_ptr<RadioPreferences>(new (std::nothrow) RadioPreferences{});
   if (preferences == nullptr || !GetRadioPreferences(preferences.get())) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Read Radio preferences for chat cache failed\n");
@@ -385,14 +378,12 @@ bool EnsureStorageCoordinatorInitialized() {
   return InitializeStorageCoordinator();
 }
 
-bool EnsureApplicationNvsInitialized() {
-  return InitializeApplicationNvs();
-}
+bool EnsureApplicationNvsInitialized() { return InitializeApplicationNvs(); }
 
 esp_err_t OpenApplicationNvs(const char* namespace_name,
     nvs_open_mode_t open_mode, nvs_handle_t* handle) {
-  return nvs_open_from_partition(kApplicationNvsPartitionName,
-      namespace_name, open_mode, handle);
+  return nvs_open_from_partition(
+      kApplicationNvsPartitionName, namespace_name, open_mode, handle);
 }
 
 StorageCacheLock::StorageCacheLock() {
@@ -420,9 +411,7 @@ bool IsStorageDomainDirtyLocked(StorageDomain domain) {
   return (g_dirty_domains & DomainBit(domain)) != 0;
 }
 
-bool AreStorageUpdatesFrozenLocked() {
-  return g_updates_frozen;
-}
+bool AreStorageUpdatesFrozenLocked() { return g_updates_frozen; }
 
 void RequestLittleFsStorageFlush(bool urgent) {
   if (urgent) {
@@ -434,8 +423,8 @@ void RequestLittleFsStorageFlush(bool urgent) {
   }
 }
 
-void InitStorage(radio::ChipMask supported_radio_chips,
-    radio::ChipType primary_radio_chip) {
+void InitStorage(
+    radio::ChipMask supported_radio_chips, radio::ChipType primary_radio_chip) {
   if (!EnsureStorageCoordinatorInitialized()) {
     return;
   }
@@ -472,7 +461,7 @@ void InitStorage(radio::ChipMask supported_radio_chips,
 
 bool HasPendingStorageWrites() {
   return HasPendingNvsStorageWrites() ||
-      GetRadioChatRepository().HasPendingWrites();
+         GetRadioChatRepository().HasPendingWrites();
 }
 
 bool FlushPendingNvsStorage() {
@@ -501,8 +490,7 @@ bool FlushPendingStorageBeforeShutdown() {
   }
 
   for (size_t pass = 0;
-       pass < kMaximumShutdownFlushPasses &&
-       HasPendingStorageWrites(); ++pass) {
+      pass < kMaximumShutdownFlushPasses && HasPendingStorageWrites(); ++pass) {
     if (HasPendingNvsStorageWrites()) {
       FlushStoragePass();
     }

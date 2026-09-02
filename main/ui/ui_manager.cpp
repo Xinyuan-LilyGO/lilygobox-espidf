@@ -2,7 +2,7 @@
  * @Description: 启动器布局、应用切换与系统覆盖层管理实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-30 18:00:00
+ * @LastEditTime: 2026-09-02 17:54:12
  * @License: GPL 3.0
  */
 #include "ui/ui_manager.h"
@@ -257,9 +257,8 @@ int DockColumnCount(int screen_width, int screen_height) {
  * @return dock 高度
  */
 int DockHeight(int screen_width, int screen_height) {
-  return screen_width > screen_height
-             ? IconCellHeight() + kDockTopPadding
-             : kDockHeight;
+  return screen_width > screen_height ? IconCellHeight() + kDockTopPadding
+                                      : kDockHeight;
 }
 
 /**
@@ -289,7 +288,8 @@ int ClockTop(int screen_width, int screen_height) {
  * @return 时钟区域高度
  */
 int ClockGroupHeight(int screen_width, int screen_height) {
-  return screen_width > screen_height ? std::max(230, screen_height * 38 / 100) : 282;
+  return screen_width > screen_height ? std::max(230, screen_height * 38 / 100)
+                                      : 282;
 }
 
 /**
@@ -507,9 +507,8 @@ void SetIconGlowStyle(lv_obj_t* object, lv_opa_t opacity) {
   lv_obj_set_style_shadow_offset_y(object, 0, LV_STATE_PRESSED);
   lv_obj_set_style_shadow_color(
       object, lv_color_hex(theme::FixedColors().home_icon_glow), LV_PART_MAIN);
-  lv_obj_set_style_shadow_color(
-      object, lv_color_hex(theme::FixedColors().home_icon_glow),
-      LV_STATE_PRESSED);
+  lv_obj_set_style_shadow_color(object,
+      lv_color_hex(theme::FixedColors().home_icon_glow), LV_STATE_PRESSED);
   lv_obj_set_style_shadow_opa(object, opacity, LV_PART_MAIN);
   lv_obj_set_style_shadow_opa(
       object, kIconPressedGlowOpacity, LV_STATE_PRESSED);
@@ -638,9 +637,8 @@ void UpdatePressedFeedback(
   const bool pressed = code == LV_EVENT_PRESSED;
   const bool press_cancelled =
       code == LV_EVENT_PRESSING && !IsPointerInsideObject(object);
-  const bool released =
-      code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST ||
-      press_cancelled;
+  const bool released = code == LV_EVENT_RELEASED ||
+                        code == LV_EVENT_PRESS_LOST || press_cancelled;
   if (!pressed && !released) {
     return;
   }
@@ -864,24 +862,17 @@ lv_obj_t* CreateCircle(lv_obj_t* parent, int size, int x, int y,
 
 }  // namespace
 
-bool UiManager::Init(hal::ScreenProvider* screen,
-    hal::LvglPort* lvgl_port,
+bool UiManager::Init(hal::ScreenProvider* screen, hal::LvglPort* lvgl_port,
     const hal::DeviceCapabilities& device_capabilities,
     hal::DeviceDiagnosticsProvider* diagnostics,
-    hal::DeviceInfoProvider* device_info,
-    hal::GpsProvider* gps,
-    hal::AudioProvider* audio,
-    hal::HapticProvider* haptic,
+    hal::DeviceInfoProvider* device_info, hal::GpsProvider* gps,
+    hal::AudioProvider* audio, hal::HapticProvider* haptic,
     hal::BatteryManagementProvider* battery_management,
-    hal::CameraProvider* camera,
-    hal::RtcProvider* rtc,
+    hal::CameraProvider* camera, hal::RtcProvider* rtc,
     hal::RadioProvider* radio,
-    hal::KeyboardExpansionProvider* keyboard_expansion,
-    hal::ImuProvider* imu,
-    hal::EthernetProvider* ethernet,
-    hal::WifiProvider* wifi,
-    hal::StorageProvider* storage, hal::OtgProvider* otg,
-    hal::NfcProvider* nfc,
+    hal::KeyboardExpansionProvider* keyboard_expansion, hal::ImuProvider* imu,
+    hal::EthernetProvider* ethernet, hal::WifiProvider* wifi,
+    hal::StorageProvider* storage, hal::OtgProvider* otg, hal::NfcProvider* nfc,
     hal::InfraredProvider* infrared, hal::CellularProvider* cellular) {
   if (screen == nullptr || lvgl_port == nullptr) {
     return false;
@@ -900,8 +891,7 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   rtc_provider_ = rtc;
   radio_provider_ = radio;
   keyboard_expansion_provider_ = keyboard_expansion;
-  RegisterSharedKeyboardPhysicalKeyboardProvider(
-      keyboard_expansion_provider_);
+  RegisterSharedKeyboardPhysicalKeyboardProvider(keyboard_expansion_provider_);
   imu_provider_ = imu;
   ethernet_provider_ = ethernet;
   wifi_provider_ = wifi;
@@ -910,7 +900,8 @@ bool UiManager::Init(hal::ScreenProvider* screen,
   nfc_provider_ = nfc;
   infrared_provider_ = infrared;
   cellular_provider_ = cellular;
-  system_status_cache_.Init(rtc_provider_, battery_management_provider_, wifi_provider_);
+  system_status_cache_.Init(
+      rtc_provider_, battery_management_provider_, wifi_provider_);
 
   root_screen_ = lv_obj_create(nullptr);
   if (root_screen_ == nullptr) {
@@ -923,13 +914,12 @@ bool UiManager::Init(hal::ScreenProvider* screen,
       lv_color_hex(theme_provider_.colors().surface_dim), LV_PART_MAIN);
   lv_obj_set_style_border_width(root_screen_, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(root_screen_, 0, LV_PART_MAIN);
-  InitializeEdgeSwipeIndicator(lvgl_port_, [this]() {
-    HandleEdgeSwipeBackRequest();
-  });
+  InitializeEdgeSwipeIndicator(
+      lvgl_port_, [this]() { HandleEdgeSwipeBackRequest(); });
   lv_obj_add_event_cb(root_screen_, RootLayoutRefreshEventCallback,
       LV_EVENT_SIZE_CHANGED, this);
-  lv_obj_add_event_cb(root_screen_, RootLayoutRefreshEventCallback,
-      LV_EVENT_REFRESH, this);
+  lv_obj_add_event_cb(
+      root_screen_, RootLayoutRefreshEventCallback, LV_EVENT_REFRESH, this);
 
   layout_width_ = LayoutWidth();
   layout_height_ = LayoutHeight();
@@ -1002,9 +992,8 @@ bool UiManager::ShowBatteryStartupWarning(const char* icon_text,
   lv_obj_add_flag(warning, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(warning, LayoutWidth(), LayoutHeight());
   lv_obj_set_pos(warning, 0, 0);
-  lv_obj_set_style_bg_color(
-      warning, lv_color_hex(theme::FixedColors().startup_background),
-      LV_PART_MAIN);
+  lv_obj_set_style_bg_color(warning,
+      lv_color_hex(theme::FixedColors().startup_background), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(warning, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(warning, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(warning, 0, LV_PART_MAIN);
@@ -1030,8 +1019,7 @@ bool UiManager::ShowBatteryStartupWarning(const char* icon_text,
     }
     lv_obj_remove_flag(fill, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(fill, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_color(
-        fill, lv_color_hex(icon_color), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(fill, lv_color_hex(icon_color), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(fill, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(fill, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(fill, 0, LV_PART_MAIN);
@@ -1040,13 +1028,12 @@ bool UiManager::ShowBatteryStartupWarning(const char* icon_text,
       lv_obj_set_size(fill, 1, kStartupBatteryFillHeight);
       lv_obj_add_flag(fill, LV_OBJ_FLAG_HIDDEN);
     } else {
-      const int fill_width = std::max(
-          kStartupBatteryFillMinVisibleWidth,
+      const int fill_width = std::max(kStartupBatteryFillMinVisibleWidth,
           kStartupBatteryFillMaxWidth * clamped_percent / 100);
       lv_obj_set_size(fill, fill_width, kStartupBatteryFillHeight);
     }
-    lv_obj_align_to(fill, icon, LV_ALIGN_LEFT_MID,
-        kStartupBatteryFillOffsetX, kStartupBatteryFillOffsetY);
+    lv_obj_align_to(fill, icon, LV_ALIGN_LEFT_MID, kStartupBatteryFillOffsetX,
+        kStartupBatteryFillOffsetY);
     lv_obj_move_to_index(fill, lv_obj_get_index(icon));
     lv_obj_move_to_index(icon, -1);
   }
@@ -1057,10 +1044,10 @@ bool UiManager::ShowBatteryStartupWarning(const char* icon_text,
     return false;
   }
   lv_label_set_text(label, message);
-  SetTextStyle(label,
-      lv_color_hex(theme::FixedColors().startup_text), Font32());
-  lv_obj_align_to(label, icon, LV_ALIGN_OUT_BOTTOM_MID, 0,
-      kLowBatteryStartupPercentGap);
+  SetTextStyle(
+      label, lv_color_hex(theme::FixedColors().startup_text), Font32());
+  lv_obj_align_to(
+      label, icon, LV_ALIGN_OUT_BOTTOM_MID, 0, kLowBatteryStartupPercentGap);
 
   if (startup_background_ != nullptr) {
     lv_obj_delete(startup_background_);
@@ -1084,8 +1071,8 @@ bool UiManager::ShowKeyboardExpansionUnavailablePrompt() {
   config.dialog_width =
       config.screen_width - 2 * kKeyboardExpansionPromptSideMargin;
   config.dialog_height = config.screen_width > config.screen_height
-      ? kKeyboardExpansionPromptLandscapeHeight
-      : kKeyboardExpansionPromptHeight;
+                             ? kKeyboardExpansionPromptLandscapeHeight
+                             : kKeyboardExpansionPromptHeight;
   config.dialog_radius = kKeyboardExpansionPromptRadius;
   config.inner_padding = kKeyboardExpansionPromptInnerPadding;
   config.header_height = 78;
@@ -1114,11 +1101,10 @@ bool UiManager::ShowKeyboardExpansionUnavailablePrompt() {
   config.cancel_pressed_color = theme::FixedColors().action_pressed;
   config.cancel_text_color = theme::FixedColors().on_action;
   config.confirm_text = nullptr;
-  config.cancel_callback =
-      KeyboardExpansionUnavailablePromptDismissedCallback;
+  config.cancel_callback = KeyboardExpansionUnavailablePromptDismissedCallback;
   config.callback_context = this;
-  if (ShowPromptDialog(root_screen_,
-          &keyboard_expansion_unavailable_prompt_, config) == nullptr) {
+  if (ShowPromptDialog(root_screen_, &keyboard_expansion_unavailable_prompt_,
+          config) == nullptr) {
     return false;
   }
 
@@ -1146,11 +1132,10 @@ bool UiManager::ShowPowerOffChargingScreen(
   const int clamped_percent = std::clamp(battery_percent, 0, 100);
   char message[32] = {};
   if (full_charged) {
-    std::snprintf(message, sizeof(message), "%d%%  Fully charged",
-        clamped_percent);
-  } else {
     std::snprintf(
-        message, sizeof(message), "%d%%  Charging", clamped_percent);
+        message, sizeof(message), "%d%%  Fully charged", clamped_percent);
+  } else {
+    std::snprintf(message, sizeof(message), "%d%%  Charging", clamped_percent);
   }
 
   if (!ShowBatteryStartupWarning(icon::kBatteryAndroid0,
@@ -1254,13 +1239,13 @@ bool UiManager::ShowPowerMenu(std::function<void()> restart_callback,
   PowerMenuViewOptions options = {
       .screen_width = LayoutWidth(),
       .screen_height = LayoutHeight(),
-      .dismiss_callback = [this, dismiss_callback = std::move(
-                              dismiss_callback)]() {
-        HidePowerMenu();
-        if (dismiss_callback) {
-          dismiss_callback();
-        }
-      },
+      .dismiss_callback =
+          [this, dismiss_callback = std::move(dismiss_callback)]() {
+            HidePowerMenu();
+            if (dismiss_callback) {
+              dismiss_callback();
+            }
+          },
       .restart_callback = std::move(restart_callback),
       .power_off_callback = std::move(power_off_callback),
   };
@@ -1272,8 +1257,7 @@ bool UiManager::ShowPowerMenu(std::function<void()> restart_callback,
   return true;
 }
 
-void UiManager::SetSystemPowerCallbacks(
-    std::function<void()> restart_callback,
+void UiManager::SetSystemPowerCallbacks(std::function<void()> restart_callback,
     std::function<void()> power_off_callback) {
   restart_device_callback_ = std::move(restart_callback);
   power_off_device_callback_ = std::move(power_off_callback);
@@ -1283,15 +1267,14 @@ void UiManager::SetScreenLockCallback(std::function<void()> callback) {
   screen_lock_callback_ = std::move(callback);
 }
 
-void UiManager::SetScreenBrightnessCallback(
-    std::function<bool(int)> callback) {
+void UiManager::SetScreenBrightnessCallback(std::function<bool(int)> callback) {
   screen_brightness_callback_ = std::move(callback);
 }
 
 void UiManager::ApplyThemePreference(bool enabled) {
   pending_dark_theme_enabled_ = enabled;
-  theme_provider_.SetMode(enabled ? theme::ThemeMode::kDark
-                                  : theme::ThemeMode::kLight);
+  theme_provider_.SetMode(
+      enabled ? theme::ThemeMode::kDark : theme::ThemeMode::kLight);
   if (root_screen_ != nullptr) {
     lv_obj_set_style_bg_color(root_screen_,
         lv_color_hex(theme_provider_.colors().surface_dim), LV_PART_MAIN);
@@ -1309,19 +1292,19 @@ void UiManager::SetBatteryManagementStatusCallback(
   }
 }
 
-bool UiManager::ShowVolumeOverlay(int volume_percent,
-    VolumeOverlay::VolumeChangeCallback callback) {
+bool UiManager::ShowVolumeOverlay(
+    int volume_percent, VolumeOverlay::VolumeChangeCallback callback) {
   if (root_screen_ == nullptr) {
     return false;
   }
-  auto synchronized_callback =
-      [this, callback = std::move(callback)](int percent, bool commit) {
-        if (!callback || !callback(percent, commit)) {
-          return false;
-        }
-        UpdateActiveSettingsVolume(percent);
-        return true;
-      };
+  auto synchronized_callback = [this, callback = std::move(callback)](
+                                   int percent, bool commit) {
+    if (!callback || !callback(percent, commit)) {
+      return false;
+    }
+    UpdateActiveSettingsVolume(percent);
+    return true;
+  };
   const bool shown = volume_overlay_.Show(root_screen_, LayoutWidth(),
       LayoutHeight(), volume_percent, std::move(synchronized_callback));
   if (shown) {
@@ -1409,8 +1392,7 @@ bool UiManager::ShowFirstBootWelcome(
 }
 
 bool UiManager::IsFirstBootWelcomeActive() const {
-  return first_boot_welcome_pending_ ||
-         first_boot_welcome_screen_ != nullptr;
+  return first_boot_welcome_pending_ || first_boot_welcome_screen_ != nullptr;
 }
 
 void UiManager::AppButtonEventCallback(lv_event_t* event) {
@@ -1455,8 +1437,7 @@ void UiManager::ResetAppIconPressedFeedback(AppButtonContext* context) {
 }
 
 void UiManager::AppButtonOpenDelayCallback(lv_timer_t* timer) {
-  auto* context =
-      static_cast<AppButtonContext*>(lv_timer_get_user_data(timer));
+  auto* context = static_cast<AppButtonContext*>(lv_timer_get_user_data(timer));
   if (context == nullptr || context->manager == nullptr ||
       context->app_entry == nullptr) {
     return;
@@ -1535,9 +1516,9 @@ void UiManager::ApplyPendingThemeAsync(void* context) {
     return;
   }
   self->theme_refresh_pending_ = false;
-  self->theme_provider_.SetMode(
-      self->pending_dark_theme_enabled_ ? theme::ThemeMode::kDark
-                                        : theme::ThemeMode::kLight);
+  self->theme_provider_.SetMode(self->pending_dark_theme_enabled_
+                                    ? theme::ThemeMode::kDark
+                                    : theme::ThemeMode::kLight);
   self->volume_overlay_.Reset();
   if (self->root_screen_ != nullptr) {
     lv_obj_set_style_bg_color(self->root_screen_,
@@ -1573,8 +1554,8 @@ void UiManager::RootLayoutRefreshEventCallback(lv_event_t* event) {
 int UiManager::LayoutWidth() const {
   lv_display_t* display = lv_display_get_default();
   if (display != nullptr) {
-    const int width = static_cast<int>(
-        lv_display_get_horizontal_resolution(display));
+    const int width =
+        static_cast<int>(lv_display_get_horizontal_resolution(display));
     if (width > 0) {
       return width;
     }
@@ -1591,8 +1572,8 @@ int UiManager::LayoutWidth() const {
 int UiManager::LayoutHeight() const {
   lv_display_t* display = lv_display_get_default();
   if (display != nullptr) {
-    const int height = static_cast<int>(
-        lv_display_get_vertical_resolution(display));
+    const int height =
+        static_cast<int>(lv_display_get_vertical_resolution(display));
     if (height > 0) {
       return height;
     }
@@ -1625,11 +1606,11 @@ void UiManager::RelayoutForScreenSize() {
   active_app_entry_ = nullptr;
   const bool startup_background_active = startup_background_ != nullptr;
   const bool startup_active = startup_screen_ != nullptr;
-  const bool first_boot_welcome_visible =
-      first_boot_welcome_screen_ != nullptr;
+  const bool first_boot_welcome_visible = first_boot_welcome_screen_ != nullptr;
   const bool first_boot_welcome_closing = first_boot_welcome_closing_;
-  const int startup_percent = std::max(startup_progress_percent_,
-      std::max(startup_progress_target_percent_, startup_progress_pending_percent_));
+  const int startup_percent = std::max(
+      startup_progress_percent_, std::max(startup_progress_target_percent_,
+                                     startup_progress_pending_percent_));
   lv_anim_delete(this, SetStartupProgressWidth);
   lv_anim_delete(this, SetFirstBootWelcomeOpacity);
   startup_progress_animating_ = false;
@@ -1711,8 +1692,8 @@ void UiManager::RelayoutForScreenSize() {
         lv_obj_t* track = lv_obj_get_parent(startup_progress_fill_);
         if (track != nullptr) {
           lv_obj_set_width(startup_progress_fill_,
-              lv_obj_get_width(track) *
-                  std::clamp(startup_percent, 0, 100) / 100);
+              lv_obj_get_width(track) * std::clamp(startup_percent, 0, 100) /
+                  100);
         }
       }
     }
@@ -1756,8 +1737,7 @@ lv_obj_t* UiManager::CreateLauncher(lv_obj_t* parent) {
   lv_obj_align(launcher, LV_ALIGN_CENTER, 0, 0);
 
   WallpaperObjects wallpaper;
-  CreateWallpaperObjects(
-      launcher, LayoutWidth(), LayoutHeight(), &wallpaper);
+  CreateWallpaperObjects(launcher, LayoutWidth(), LayoutHeight(), &wallpaper);
 
   page_scroller_ = CreatePageScroller(launcher);
   if (page_scroller_ == nullptr) {
@@ -1851,41 +1831,38 @@ lv_obj_t* UiManager::CreateClockGroup(lv_obj_t* parent) {
   lv_obj_align(group, LV_ALIGN_TOP_LEFT, kHorizontalPadding,
       ClockTop(screen_width, screen_height));
 
-  lv_obj_t* time_label =
-      CreateLabel(group, clock_time_text_,
-          lv_color_hex(theme::FixedColors().home_content));
+  lv_obj_t* time_label = CreateLabel(
+      group, clock_time_text_, lv_color_hex(theme::FixedColors().home_content));
   if (time_label == nullptr) {
     lv_obj_delete(group);
     return nullptr;
   }
-  SetTextStyle(time_label,
-      lv_color_hex(theme::FixedColors().home_content), HomeTimeFont());
+  SetTextStyle(time_label, lv_color_hex(theme::FixedColors().home_content),
+      HomeTimeFont());
   lv_obj_set_size(time_label, 400, 110);
   lv_obj_set_style_text_opa(time_label, 245, LV_PART_MAIN);
   lv_obj_align(time_label, LV_ALIGN_TOP_LEFT, 0, 0);
 
-  lv_obj_t* date_label =
-      CreateLabel(group, home_date_text_,
-          lv_color_hex(theme::FixedColors().home_content));
+  lv_obj_t* date_label = CreateLabel(
+      group, home_date_text_, lv_color_hex(theme::FixedColors().home_content));
   if (date_label == nullptr) {
     lv_obj_delete(group);
     return nullptr;
   }
-  SetTextStyle(date_label,
-      lv_color_hex(theme::FixedColors().home_content), HomeDateFont());
+  SetTextStyle(date_label, lv_color_hex(theme::FixedColors().home_content),
+      HomeDateFont());
   lv_obj_set_size(date_label, 400, 70);
   lv_obj_set_style_text_opa(date_label, 220, LV_PART_MAIN);
   lv_obj_align(date_label, LV_ALIGN_TOP_LEFT, 10, 110);
 
-  lv_obj_t* week_label =
-      CreateLabel(group, home_week_text_,
-          lv_color_hex(theme::FixedColors().home_content));
+  lv_obj_t* week_label = CreateLabel(
+      group, home_week_text_, lv_color_hex(theme::FixedColors().home_content));
   if (week_label == nullptr) {
     lv_obj_delete(group);
     return nullptr;
   }
-  SetTextStyle(week_label,
-      lv_color_hex(theme::FixedColors().home_content), HomeDateFont());
+  SetTextStyle(week_label, lv_color_hex(theme::FixedColors().home_content),
+      HomeDateFont());
   lv_obj_set_size(week_label, 400, 50);
   lv_obj_set_style_text_opa(week_label, 220, LV_PART_MAIN);
   lv_obj_align(week_label, LV_ALIGN_TOP_LEFT, 10, 172);
@@ -1909,15 +1886,13 @@ void UiManager::RefreshSystemStatus() {
   UpdateKeyboardExpansionStatus();
 }
 
-void UiManager::RefreshSystemStatusNow() {
-  RefreshSystemStatus();
-}
+void UiManager::RefreshSystemStatusNow() { RefreshSystemStatus(); }
 
 void UiManager::UpdateClockLabels(const hal::RtcStatus& status) {
   char time_text[sizeof(clock_time_text_)] = {};
   FormatClockTime(status, time_text);
-  if (std::strncmp(
-          clock_time_text_, time_text, sizeof(clock_time_text_)) != 0) {
+  if (std::strncmp(clock_time_text_, time_text, sizeof(clock_time_text_)) !=
+      0) {
     std::memcpy(clock_time_text_, time_text, sizeof(clock_time_text_));
     status_bar_.SetTimeText(clock_time_text_);
     if (home_time_label_ != nullptr) {
@@ -1957,7 +1932,8 @@ void UiManager::UpdateClockLabels(const hal::RtcStatus& status) {
   }
 }
 
-void UiManager::UpdateBatteryStatus(const hal::BatteryManagementStatus& status) {
+void UiManager::UpdateBatteryStatus(
+    const hal::BatteryManagementStatus& status) {
   status_bar_.SetBatteryStatus(status.charge_percent, status.charging);
   if (battery_management_status_callback_) {
     battery_management_status_callback_(status);
@@ -1967,16 +1943,18 @@ void UiManager::UpdateBatteryStatus(const hal::BatteryManagementStatus& status) 
 void UiManager::UpdateWifiStatus(const hal::WifiStatus& status) {
   const app::InternetAccessState internet_state =
       app::NetworkMonitor::Instance().GetStatus().internet_state;
-  const bool internet_unavailable = status.time_test_running
-      ? !status.time_synced
-      : internet_state != app::InternetAccessState::kAvailable;
-  status_bar_.SetWifiStatus(status.connected, status.rssi,
-      internet_unavailable);
+  const bool internet_unavailable =
+      status.time_test_running
+          ? !status.time_synced
+          : internet_state != app::InternetAccessState::kAvailable;
+  status_bar_.SetWifiStatus(
+      status.connected, status.rssi, internet_unavailable);
 }
 
 void UiManager::UpdateKeyboardExpansionStatus() {
   hal::KeyboardExpansionStatus status;
-  const bool connected = keyboard_expansion_provider_ != nullptr &&
+  const bool connected =
+      keyboard_expansion_provider_ != nullptr &&
       keyboard_expansion_provider_->ReadKeyboardExpansionStatus(&status) &&
       status.state == hal::KeyboardExpansionState::kReady;
   status_bar_.SetKeyboardExpansionConnected(connected);
@@ -2015,16 +1993,16 @@ lv_obj_t* UiManager::CreateAppGrid(lv_obj_t* parent) {
     const int clock_right = kHorizontalPadding + kLandscapeClockWidth;
     const int grid_x = clock_right + kHorizontalPadding;
     const int grid_width = screen_width - grid_x;
-    inset_x = ClampInset(grid_width, std::max(8, screen_height / 25),
-        columns, cell_width);
+    inset_x = ClampInset(
+        grid_width, std::max(8, screen_height / 25), columns, cell_width);
     column_gap = ColumnGap(grid_width, inset_x, columns, cell_width);
     lv_obj_set_size(grid, grid_width, grid_height);
     lv_obj_align(grid, LV_ALIGN_TOP_LEFT, grid_x,
         ClockTop(screen_width, screen_height) + 20);
   } else {
     lv_obj_set_size(grid, screen_width, grid_height);
-    lv_obj_align(grid, LV_ALIGN_TOP_LEFT, 0,
-        HomeGridTop(screen_width, screen_height));
+    lv_obj_align(
+        grid, LV_ALIGN_TOP_LEFT, 0, HomeGridTop(screen_width, screen_height));
   }
 
   for (size_t i = 0; i < button_context_count_; ++i) {
@@ -2108,8 +2086,8 @@ lv_obj_t* UiManager::CreateAppIcon(
       lv_image_set_src(icon, style.image);
     }
   } else if (style.symbol != nullptr) {
-    icon = CreateLabel(button, style.symbol,
-        lv_color_hex(theme::FixedColors().home_content));
+    icon = CreateLabel(
+        button, style.symbol, lv_color_hex(theme::FixedColors().home_content));
     if (icon != nullptr) {
       SetTextStyle(icon, lv_color_hex(theme::FixedColors().home_content),
           MaterialOutlineIconFont56());
@@ -2127,16 +2105,15 @@ lv_obj_t* UiManager::CreateAppIcon(
     lv_obj_center(icon);
   }
 
-  lv_obj_t* title =
-      CreateLabel(cell, context->app_entry->title,
-          lv_color_hex(theme::FixedColors().home_content));
+  lv_obj_t* title = CreateLabel(cell, context->app_entry->title,
+      lv_color_hex(theme::FixedColors().home_content));
   if (title == nullptr) {
     lv_obj_delete(cell);
     return nullptr;
   }
   lv_obj_set_width(title, cell_width);
-  SetTextStyle(title,
-      lv_color_hex(theme::FixedColors().home_content), Font22());
+  SetTextStyle(
+      title, lv_color_hex(theme::FixedColors().home_content), Font22());
   lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_set_style_text_opa(title, 235, LV_PART_MAIN);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0,
@@ -2158,18 +2135,18 @@ lv_obj_t* UiManager::CreateDock(lv_obj_t* parent) {
   const int dock_columns = DockColumnCount(screen_width, screen_height);
   lv_obj_set_size(dock, screen_width, DockHeight(screen_width, screen_height));
   lv_obj_align(dock, LV_ALIGN_BOTTOM_MID, 0, 0);
-  lv_obj_set_style_bg_color(dock,
-      lv_color_hex(theme::FixedColors().home_dock), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      dock, lv_color_hex(theme::FixedColors().home_dock), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(dock, 28, LV_PART_MAIN);
   lv_obj_set_style_border_width(dock, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(dock, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(dock, 0, LV_PART_MAIN);
 
   const int cell_width = IconCellWidth();
-  const int dock_inset = screen_width > screen_height
-                             ? std::max(8, screen_height / 8)
-                             : ScreenEdgeInset(screen_width, screen_height) +
-                                   kDockInsetExtra;
+  const int dock_inset =
+      screen_width > screen_height
+          ? std::max(8, screen_height / 8)
+          : ScreenEdgeInset(screen_width, screen_height) + kDockInsetExtra;
   const int inset_x =
       ClampInset(screen_width, dock_inset, dock_columns, cell_width);
   const int column_gap =
@@ -2282,16 +2259,15 @@ lv_obj_t* UiManager::CreateDockIcon(
     lv_obj_center(icon);
   }
 
-  lv_obj_t* title_label =
-      CreateLabel(cell, entry.title,
-          lv_color_hex(theme::FixedColors().home_content));
+  lv_obj_t* title_label = CreateLabel(
+      cell, entry.title, lv_color_hex(theme::FixedColors().home_content));
   if (title_label == nullptr) {
     lv_obj_delete(cell);
     return nullptr;
   }
   lv_obj_set_width(title_label, cell_width);
-  SetTextStyle(title_label,
-      lv_color_hex(theme::FixedColors().home_content), Font22());
+  SetTextStyle(
+      title_label, lv_color_hex(theme::FixedColors().home_content), Font22());
   lv_obj_set_style_text_align(title_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_set_style_text_opa(title_label, 235, LV_PART_MAIN);
   lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0,
@@ -2312,12 +2288,10 @@ lv_obj_t* UiManager::CreatePageIndicator(lv_obj_t* parent) {
   lv_obj_align(indicator, LV_ALIGN_BOTTOM_MID, 0,
       -PageIndicatorBottom(LayoutWidth(), LayoutHeight()));
 
-  first_page_dot_ =
-      CreateCircle(indicator, 12, -10, 0, LV_ALIGN_CENTER,
-          theme::FixedColors().home_content, 240);
-  second_page_dot_ =
-      CreateCircle(indicator, 12, 10, 0, LV_ALIGN_CENTER,
-          theme::FixedColors().home_content, 110);
+  first_page_dot_ = CreateCircle(indicator, 12, -10, 0, LV_ALIGN_CENTER,
+      theme::FixedColors().home_content, 240);
+  second_page_dot_ = CreateCircle(indicator, 12, 10, 0, LV_ALIGN_CENTER,
+      theme::FixedColors().home_content, 110);
   if (first_page_dot_ == nullptr || second_page_dot_ == nullptr) {
     lv_obj_delete(indicator);
     first_page_dot_ = nullptr;
@@ -2383,8 +2357,7 @@ lv_obj_t* UiManager::CreateStartupScreen(lv_obj_t* parent) {
   lv_obj_add_flag(brand, LV_OBJ_FLAG_GESTURE_BUBBLE);
   MakeTransparent(brand);
 
-  lv_obj_t* brand_icon =
-      CreateLilygoBoxBrandIcon(brand, kStartupBrandIconSize);
+  lv_obj_t* brand_icon = CreateLilygoBoxBrandIcon(brand, kStartupBrandIconSize);
   if (brand_icon == nullptr) {
     lv_obj_delete(startup);
     return nullptr;
@@ -2396,19 +2369,19 @@ lv_obj_t* UiManager::CreateStartupScreen(lv_obj_t* parent) {
     return nullptr;
   }
   lv_label_set_text(title, "LilygoBox");
-  SetTextStyle(title, lv_color_hex(theme::ActiveThemeColors().on_surface), Font32());
+  SetTextStyle(
+      title, lv_color_hex(theme::ActiveThemeColors().on_surface), Font32());
   lv_obj_update_layout(title);
-  const int brand_width = kStartupBrandIconSize + kStartupBrandIconGap +
-                          lv_obj_get_width(title);
+  const int brand_width =
+      kStartupBrandIconSize + kStartupBrandIconGap + lv_obj_get_width(title);
   lv_obj_set_size(brand, brand_width, kStartupBrandIconSize);
   lv_obj_align(brand_icon, LV_ALIGN_LEFT_MID, 0, 0);
-  lv_obj_align_to(title, brand_icon, LV_ALIGN_OUT_RIGHT_MID,
-      kStartupBrandIconGap, 0);
+  lv_obj_align_to(
+      title, brand_icon, LV_ALIGN_OUT_RIGHT_MID, kStartupBrandIconGap, 0);
 
   const int progress_width = std::min(kStartupProgressMaxWidth,
       LayoutWidth() * kStartupProgressWidthPercent / 100);
-  const int progress_height = std::max(
-      kStartupProgressMinHeight,
+  const int progress_height = std::max(kStartupProgressMinHeight,
       LayoutHeight() / kStartupProgressHeightDivisor);
   lv_obj_t* track = lv_obj_create(startup);
   if (track == nullptr) {
@@ -2419,8 +2392,9 @@ lv_obj_t* UiManager::CreateStartupScreen(lv_obj_t* parent) {
   lv_obj_remove_flag(track, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(track, progress_width, progress_height);
   lv_obj_align(track, LV_ALIGN_CENTER, 0, kStartupProgressOffsetY);
-  lv_obj_set_style_bg_color(
-      track, lv_color_hex(theme::ActiveThemeColors().surface_container_high), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(track,
+      lv_color_hex(theme::ActiveThemeColors().surface_container_high),
+      LV_PART_MAIN);
   lv_obj_set_style_bg_opa(track, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(track, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(track, 0, LV_PART_MAIN);
@@ -2466,15 +2440,13 @@ void UiManager::SetStartupScreenOpacity(void* user_data, int32_t opacity) {
   lv_obj_set_style_opa(self->startup_screen_, opacity, LV_PART_MAIN);
 }
 
-void UiManager::SetFirstBootWelcomeOpacity(
-    void* user_data, int32_t opacity) {
+void UiManager::SetFirstBootWelcomeOpacity(void* user_data, int32_t opacity) {
   auto* self = static_cast<UiManager*>(user_data);
   if (self == nullptr || self->first_boot_welcome_screen_ == nullptr) {
     return;
   }
 
-  lv_obj_set_style_opa(
-      self->first_boot_welcome_screen_, opacity, LV_PART_MAIN);
+  lv_obj_set_style_opa(self->first_boot_welcome_screen_, opacity, LV_PART_MAIN);
 }
 
 void UiManager::StartupProgressCompletedCallback(lv_anim_t* animation) {
@@ -2495,8 +2467,7 @@ void UiManager::StartupProgressCompletedCallback(lv_anim_t* animation) {
     }
   }
 
-  if (self->startup_progress_percent_ >= 100 &&
-      !self->StartStartupFadeOut()) {
+  if (self->startup_progress_percent_ >= 100 && !self->StartStartupFadeOut()) {
     self->DestroyStartupScreen();
   }
 }
@@ -2510,8 +2481,7 @@ void UiManager::StartupFadeCompletedCallback(lv_anim_t* animation) {
   self->DestroyStartupScreen();
 }
 
-void UiManager::FirstBootWelcomeFadeCompletedCallback(
-    lv_anim_t* animation) {
+void UiManager::FirstBootWelcomeFadeCompletedCallback(lv_anim_t* animation) {
   auto* self = static_cast<UiManager*>(lv_anim_get_user_data(animation));
   if (self == nullptr) {
     return;
@@ -2540,8 +2510,8 @@ bool UiManager::StartStartupProgressAnimation(int target_percent) {
     return true;
   }
 
-  const int start_width = std::max(
-      1, track_width * startup_progress_percent_ / 100);
+  const int start_width =
+      std::max(1, track_width * startup_progress_percent_ / 100);
   const int end_width = std::max(1, track_width * clamped_percent / 100);
   const int progress_delta = clamped_percent - startup_progress_percent_;
   const uint32_t duration_ms = std::max(kStartupProgressMinStepMs,
@@ -2586,8 +2556,7 @@ bool UiManager::StartStartupFadeOut() {
 void UiManager::DestroyStartupScreen() {
   lv_anim_delete(this, SetStartupProgressWidth);
   // 兜底时也先创建欢迎页，再删除启动页，避免中间帧显示主界面。
-  if (first_boot_welcome_pending_ &&
-      first_boot_welcome_screen_ == nullptr &&
+  if (first_boot_welcome_pending_ && first_boot_welcome_screen_ == nullptr &&
       !CreateFirstBootWelcomeScreen()) {
     first_boot_welcome_pending_ = false;
     first_boot_welcome_completion_callback_ = nullptr;
@@ -2621,9 +2590,7 @@ bool UiManager::CreateFirstBootWelcomeScreen() {
   options.screen_width = LayoutWidth();
   options.screen_height = LayoutHeight();
   options.colors = &theme_provider_.colors();
-  options.completion_callback = [this]() {
-    return CompleteFirstBootWelcome();
-  };
+  options.completion_callback = [this]() { return CompleteFirstBootWelcome(); };
   first_boot_welcome_screen_ =
       CreateFirstBootWelcomeView(root_screen_, options);
   if (first_boot_welcome_screen_ == nullptr) {
@@ -2641,19 +2608,17 @@ bool UiManager::StartFirstBootWelcomeFadeOut() {
   }
 
   lv_anim_delete(this, SetFirstBootWelcomeOpacity);
-  const int current_opacity = lv_obj_get_style_opa(
-      first_boot_welcome_screen_, LV_PART_MAIN);
+  const int current_opacity =
+      lv_obj_get_style_opa(first_boot_welcome_screen_, LV_PART_MAIN);
   lv_anim_t animation;
   lv_anim_init(&animation);
   lv_anim_set_var(&animation, this);
   lv_anim_set_user_data(&animation, this);
-  lv_anim_set_values(
-      &animation, current_opacity, LV_OPA_TRANSP);
+  lv_anim_set_values(&animation, current_opacity, LV_OPA_TRANSP);
   lv_anim_set_duration(&animation, kFirstBootWelcomeFadeOutMs);
   lv_anim_set_path_cb(&animation, lv_anim_path_linear);
   lv_anim_set_exec_cb(&animation, SetFirstBootWelcomeOpacity);
-  lv_anim_set_completed_cb(
-      &animation, FirstBootWelcomeFadeCompletedCallback);
+  lv_anim_set_completed_cb(&animation, FirstBootWelcomeFadeCompletedCallback);
   return lv_anim_start(&animation) != nullptr;
 }
 
@@ -2673,8 +2638,7 @@ bool UiManager::CompleteFirstBootWelcome() {
   if (first_boot_welcome_closing_) {
     return true;
   }
-  if (!first_boot_welcome_pending_ ||
-      first_boot_welcome_screen_ == nullptr) {
+  if (!first_boot_welcome_pending_ || first_boot_welcome_screen_ == nullptr) {
     return false;
   }
   if (first_boot_welcome_completion_callback_ &&
@@ -2731,18 +2695,18 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   config.set_status_bar_visible = [this](bool visible) {
     SetStatusBarVisible(visible);
   };
-  config.set_lock_screen_visibility_callback = [this](
-      std::function<void(bool visible)> callback) {
-    active_view_lock_screen_callback_ = std::move(callback);
-  };
+  config.set_lock_screen_visibility_callback =
+      [this](std::function<void(bool visible)> callback) {
+        active_view_lock_screen_callback_ = std::move(callback);
+      };
   config.request_screen_lock = screen_lock_callback_;
   config.set_screen_brightness = screen_brightness_callback_;
   config.set_dark_theme_enabled = [this](bool enabled) {
     RequestDarkThemeEnabled(enabled);
   };
   config.show_power_options = [this]() {
-    return ShowPowerMenu(restart_device_callback_,
-        power_off_device_callback_, std::function<void()>());
+    return ShowPowerMenu(restart_device_callback_, power_off_device_callback_,
+        std::function<void()>());
   };
 
   SetStatusBarVisible(true);

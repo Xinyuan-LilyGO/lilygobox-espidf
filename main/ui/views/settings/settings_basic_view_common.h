@@ -2,7 +2,7 @@
  * @Description: Settings basic page shared helpers
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-07-19 11:17:26
+ * @LastEditTime: 2026-09-02 17:56:33
  * @License: GPL 3.0
  */
 #pragma once
@@ -37,8 +37,7 @@ const char* ReadBasicDeviceName();
  * @param builder 内容构建函数
  * @return 打开成功返回 true，否则返回 false
  */
-bool ShowBasicPage(
-    SettingsViewState* state, const char* title,
+bool ShowBasicPage(SettingsViewState* state, const char* title,
     SettingsContentBuilder builder);
 
 /**
@@ -48,8 +47,7 @@ bool ShowBasicPage(
  * @param builder 内容构建函数
  * @return 打开成功返回 true，否则返回 false
  */
-bool ShowNestedPage(
-    SettingsViewState* state, const char* title,
+bool ShowNestedPage(SettingsViewState* state, const char* title,
     SettingsContentBuilder builder);
 
 /**
@@ -135,8 +133,8 @@ void ApplySettingsSwitchTheme(lv_obj_t* switch_object);
  * @param state 设置页状态
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateSliderRow(lv_obj_t* parent, const char* icon_text,
-    const char* title, int value, int y, int width, lv_event_cb_t callback,
+bool CreateSliderRow(lv_obj_t* parent, const char* icon_text, const char* title,
+    int value, int y, int width, lv_event_cb_t callback,
     SettingsViewState* state);
 
 /**

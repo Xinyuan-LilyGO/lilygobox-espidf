@@ -2,7 +2,7 @@
  * @Description: 公共导航抽屉控件
  * @Author: LILYGO_L
  * @Date: 2026-07-11 00:00:00
- * @LastEditTime: 2026-07-11 00:00:00
+ * @LastEditTime: 2026-09-02 17:54:50
  * @License: GPL 3.0
  */
 #include "ui/widgets/navigation_drawer.h"
@@ -31,8 +31,8 @@ void SetObjectX(void* object, int32_t x) {
  * @param font 文本字体
  * @return 创建成功返回标签，否则返回 nullptr
  */
-lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, uint32_t color,
-                      const lv_font_t* font) {
+lv_obj_t* CreateLabel(
+    lv_obj_t* parent, const char* text, uint32_t color, const lv_font_t* font) {
   lv_obj_t* label = lv_label_create(parent);
   if (label == nullptr) {
     return nullptr;
@@ -50,8 +50,8 @@ lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, uint32_t color,
  * @param animation LVGL 动画对象
  */
 void CloseCompletedCallback(lv_anim_t* animation) {
-  auto* state = static_cast<NavigationDrawerState*>(
-      lv_anim_get_user_data(animation));
+  auto* state =
+      static_cast<NavigationDrawerState*>(lv_anim_get_user_data(animation));
   if (state != nullptr && state->overlay != nullptr) {
     lv_obj_t* overlay = state->overlay;
     state->overlay = nullptr;
@@ -71,14 +71,14 @@ void OverlayClickedEventCallback(lv_event_t* event) {
           lv_event_get_current_target_obj(event)) {
     return;
   }
-  CloseNavigationDrawer(static_cast<NavigationDrawerState*>(
-      lv_event_get_user_data(event)));
+  CloseNavigationDrawer(
+      static_cast<NavigationDrawerState*>(lv_event_get_user_data(event)));
 }
 
 }  // namespace
 
-lv_obj_t* OpenNavigationDrawer(lv_obj_t* parent,
-    NavigationDrawerState* state, const NavigationDrawerConfig& config) {
+lv_obj_t* OpenNavigationDrawer(lv_obj_t* parent, NavigationDrawerState* state,
+    const NavigationDrawerConfig& config) {
   if (parent == nullptr || state == nullptr || state->overlay != nullptr ||
       config.screen_width <= 0 || config.screen_height <= 0) {
     return nullptr;
@@ -91,25 +91,23 @@ lv_obj_t* OpenNavigationDrawer(lv_obj_t* parent,
   state->config = config;
   state->overlay = overlay;
   lv_obj_set_size(overlay, config.screen_width, config.screen_height);
-  lv_obj_set_style_bg_color(overlay, lv_color_hex(config.scrim_color),
-                            LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      overlay, lv_color_hex(config.scrim_color), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(overlay, LV_OPA_50, LV_PART_MAIN);
   lv_obj_set_style_border_width(overlay, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(overlay, 0, LV_PART_MAIN);
   lv_obj_remove_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(overlay, LV_OBJ_FLAG_EVENT_BUBBLE);
-  lv_obj_add_event_cb(overlay, OverlayClickedEventCallback,
-                      LV_EVENT_CLICKED, state);
-  if (!RegisterBackNavigationHandler(overlay, [state]() {
-        CloseNavigationDrawer(state);
-      })) {
+  lv_obj_add_event_cb(
+      overlay, OverlayClickedEventCallback, LV_EVENT_CLICKED, state);
+  if (!RegisterBackNavigationHandler(
+          overlay, [state]() { CloseNavigationDrawer(state); })) {
     state->overlay = nullptr;
     lv_obj_delete(overlay);
     return nullptr;
   }
 
-  const int drawer_width =
-      config.screen_width * config.width_percent / 100;
+  const int drawer_width = config.screen_width * config.width_percent / 100;
   lv_obj_t* panel = lv_obj_create(overlay);
   if (panel == nullptr) {
     state->overlay = nullptr;
@@ -120,8 +118,8 @@ lv_obj_t* OpenNavigationDrawer(lv_obj_t* parent,
   state->panel_width = drawer_width;
   lv_obj_set_size(panel, drawer_width, config.screen_height);
   lv_obj_set_pos(panel, -drawer_width, 0);
-  lv_obj_set_style_bg_color(panel, lv_color_hex(config.background_color),
-                            LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      panel, lv_color_hex(config.background_color), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(panel, 0, LV_PART_MAIN);
   lv_obj_set_style_radius(panel, 0, LV_PART_MAIN);
@@ -130,11 +128,10 @@ lv_obj_t* OpenNavigationDrawer(lv_obj_t* parent,
   lv_obj_set_scrollbar_mode(panel, LV_SCROLLBAR_MODE_ACTIVE);
   lv_obj_remove_flag(panel, LV_OBJ_FLAG_EVENT_BUBBLE);
 
-  lv_obj_t* title = CreateLabel(panel, config.title,
-      config.primary_text_color, config.title_font);
+  lv_obj_t* title = CreateLabel(
+      panel, config.title, config.primary_text_color, config.title_font);
   if (title != nullptr) {
-    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 34,
-        kNavigationDrawerTitleTop);
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 34, kNavigationDrawerTitleTop);
   }
 
   return panel;
@@ -214,21 +211,21 @@ lv_obj_t* CreateNavigationDrawerItem(NavigationDrawerState* state,
   lv_obj_set_pos(row, 0, y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
   if (callback != nullptr) {
-    lv_obj_set_style_bg_color(row,
-        lv_color_hex(state->config.pressed_color), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(
+        row, lv_color_hex(state->config.pressed_color), LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
     lv_obj_add_event_cb(row, callback, LV_EVENT_CLICKED, callback_context);
   } else {
     lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
   }
 
-  lv_obj_t* icon = CreateLabel(row, symbol, state->config.icon_color,
-                               state->config.icon_font);
+  lv_obj_t* icon = CreateLabel(
+      row, symbol, state->config.icon_color, state->config.icon_font);
   if (icon != nullptr) {
     lv_obj_align(icon, LV_ALIGN_LEFT_MID, 34, 0);
   }
-  lv_obj_t* label = CreateLabel(row, text,
-      state->config.primary_text_color, state->config.item_font);
+  lv_obj_t* label = CreateLabel(
+      row, text, state->config.primary_text_color, state->config.item_font);
   if (label != nullptr) {
     lv_obj_set_width(label, drawer_width - 130);
     lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
@@ -237,8 +234,7 @@ lv_obj_t* CreateNavigationDrawerItem(NavigationDrawerState* state,
   return row;
 }
 
-lv_obj_t* CreateNavigationDrawerDivider(
-    NavigationDrawerState* state, int y) {
+lv_obj_t* CreateNavigationDrawerDivider(NavigationDrawerState* state, int y) {
   if (state == nullptr || state->panel == nullptr) {
     return nullptr;
   }
@@ -248,8 +244,8 @@ lv_obj_t* CreateNavigationDrawerDivider(
   }
   lv_obj_set_size(divider, NavigationDrawerWidth(state), 2);
   lv_obj_set_pos(divider, 0, y);
-  lv_obj_set_style_bg_color(divider,
-      lv_color_hex(state->config.divider_color), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(
+      divider, lv_color_hex(state->config.divider_color), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(divider, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(divider, 0, LV_PART_MAIN);

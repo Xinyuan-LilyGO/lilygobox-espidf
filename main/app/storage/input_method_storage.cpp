@@ -2,7 +2,7 @@
  * @Description: Input method preference storage implementation
  * @Author: LILYGO_L
  * @Date: 2026-08-20 00:00:00
- * @LastEditTime: 2026-08-20 00:00:00
+ * @LastEditTime: 2026-09-02 17:51:27
  * @License: GPL 3.0
  */
 #include "app/storage/input_method_storage.h"
@@ -28,8 +28,8 @@ enum class InputMethodField : uint16_t {
   kUseOnScreenKeyboard = 1,
 };
 
-bool AreInputMethodPreferencesEqual(const InputMethodPreferences& left,
-    const InputMethodPreferences& right) {
+bool AreInputMethodPreferencesEqual(
+    const InputMethodPreferences& left, const InputMethodPreferences& right) {
   return left.use_on_screen_keyboard == right.use_on_screen_keyboard;
 }
 
@@ -66,13 +66,11 @@ bool DecodeInputMethodPreferences(
 
 bool EncodeInputMethodPreferences(const InputMethodPreferences& preferences,
     uint8_t* output, size_t capacity, size_t* encoded_size) {
-  storage::TlvWriter writer(
-      storage::TlvDomain::kInputMethod, output, capacity);
+  storage::TlvWriter writer(storage::TlvDomain::kInputMethod, output, capacity);
   return writer.WriteBool(
-             static_cast<uint16_t>(
-                 InputMethodField::kUseOnScreenKeyboard),
+             static_cast<uint16_t>(InputMethodField::kUseOnScreenKeyboard),
              preferences.use_on_screen_keyboard) &&
-      writer.Finalize(encoded_size);
+         writer.Finalize(encoded_size);
 }
 
 NvsStorageCache<InputMethodPreferences> g_input_method_cache(
@@ -83,8 +81,8 @@ NvsStorageCache<InputMethodPreferences> g_input_method_cache(
 void InitInputMethodCache() {
   InputMethodPreferences loaded;
   nvs_handle_t handle = 0;
-  if (OpenApplicationNvs(
-          kInputMethodNvsNamespace, NVS_READONLY, &handle) == ESP_OK) {
+  if (OpenApplicationNvs(kInputMethodNvsNamespace, NVS_READONLY, &handle) ==
+      ESP_OK) {
     storage::TlvBuffer buffer;
     esp_err_t error = ESP_OK;
     const storage::TlvLoadResult result = storage::LoadTlvBuffer(handle,
@@ -115,8 +113,7 @@ InputMethodPreferences GetInputMethodPreferences() {
   return preferences;
 }
 
-bool UpdateInputMethodPreferences(
-    const InputMethodPreferences& preferences) {
+bool UpdateInputMethodPreferences(const InputMethodPreferences& preferences) {
   return g_input_method_cache.UpdateAndPersist(preferences);
 }
 
@@ -127,10 +124,10 @@ StorageStageResult StageInputMethodStorage(nvs_handle_t handle) {
   }
   std::array<uint8_t, kInputMethodTlvCapacity> buffer = {};
   size_t encoded_size = 0;
-  if (!EncodeInputMethodPreferences(*preferences, buffer.data(),
-          buffer.size(), &encoded_size) ||
-      nvs_set_blob(handle, kInputMethodNvsKey,
-          buffer.data(), encoded_size) != ESP_OK) {
+  if (!EncodeInputMethodPreferences(
+          *preferences, buffer.data(), buffer.size(), &encoded_size) ||
+      nvs_set_blob(handle, kInputMethodNvsKey, buffer.data(), encoded_size) !=
+          ESP_OK) {
     return StorageStageResult::kFailed;
   }
   return StorageStageResult::kStaged;

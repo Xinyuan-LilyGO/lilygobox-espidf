@@ -2,7 +2,7 @@
  * @Description: 应用页面路由、创建与占位页面实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-12 01:08:42
+ * @LastEditTime: 2026-09-02 17:54:09
  * @License: GPL 3.0
  */
 #include "ui/app_view_factory.h"
@@ -81,8 +81,8 @@ lv_obj_t* CreateLabel(lv_obj_t* parent, const char* text, lv_color_t color,
 lv_obj_t* CreateBackButton(lv_obj_t* parent, const AppViewConfig& config) {
   lv_obj_t* button = lv_button_create(parent);
   if (button == nullptr) {
-    LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Create back button failed\n");
+    LogMessage(
+        LogLevel::kError, __FILE__, __LINE__, "Create back button failed\n");
     return nullptr;
   }
 
@@ -98,9 +98,8 @@ lv_obj_t* CreateBackButton(lv_obj_t* parent, const AppViewConfig& config) {
         button, config.back_callback, LV_EVENT_CLICKED, config.back_context);
   }
 
-  lv_obj_t* label =
-      CreateLabel(button, "Back",
-          lv_color_hex(theme::ActiveThemeColors().on_surface), Font24());
+  lv_obj_t* label = CreateLabel(button, "Back",
+      lv_color_hex(theme::ActiveThemeColors().on_surface), Font24());
   if (label == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Create back button label failed\n");
@@ -153,9 +152,8 @@ lv_obj_t* CreatePlaceholderAppView(lv_obj_t* parent,
   lv_obj_set_size(container, config.width, config.height);
   lv_obj_align(container, LV_ALIGN_CENTER, 0, 0);
 
-  lv_obj_t* title =
-      CreateLabel(container, app_entry.title,
-          lv_color_hex(theme::ActiveThemeColors().on_surface), Font48());
+  lv_obj_t* title = CreateLabel(container, app_entry.title,
+      lv_color_hex(theme::ActiveThemeColors().on_surface), Font48());
   if (title == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Create placeholder app title failed, app_id=%s\n",
@@ -165,8 +163,7 @@ lv_obj_t* CreatePlaceholderAppView(lv_obj_t* parent,
   }
   lv_obj_align(title, LV_ALIGN_TOP_LEFT, 0, 0);
 
-  lv_obj_t* subtitle = CreateLabel(
-      container, app_entry.subtitle,
+  lv_obj_t* subtitle = CreateLabel(container, app_entry.subtitle,
       lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font24());
   if (subtitle == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
@@ -205,7 +202,8 @@ lv_obj_t* CreateAppView(lv_obj_t* parent, const app::AppEntry& app_entry,
     const AppViewConfig& config) {
   if (parent == nullptr || config.width <= 0 || config.height <= 0) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "CreateAppView received invalid input, parent=%p, width=%d, height=%d\n",
+        "CreateAppView received invalid input, parent=%p, width=%d, "
+        "height=%d\n",
         parent, config.width, config.height);
     return nullptr;
   }

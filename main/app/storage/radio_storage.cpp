@@ -2,7 +2,7 @@
  * @Description: Radio 配置列表与按芯片激活状态持久化实现
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
- * @LastEditTime: 2026-07-30 18:00:00
+ * @LastEditTime: 2026-09-02 17:51:40
  * @License: GPL 3.0
  */
 #include "app/storage/radio_storage.h"
@@ -56,17 +56,17 @@ enum class RadioProfileField : uint16_t {
   kActive = 19,              // 配置是否处于激活状态。
 
   // LoRa 字段。
-  kLoraFrequencyHz = 5,          // LoRa 中心频率，单位为 Hz。
-  kLoraBandwidthHz = 6,          // LoRa 信号带宽，单位为 Hz。
-  kLoraPreambleLength = 7,       // LoRa 前导码符号数量。
-  kLoraSpreadingFactor = 8,      // LoRa 扩频因子。
+  kLoraFrequencyHz = 5,            // LoRa 中心频率，单位为 Hz。
+  kLoraBandwidthHz = 6,            // LoRa 信号带宽，单位为 Hz。
+  kLoraPreambleLength = 7,         // LoRa 前导码符号数量。
+  kLoraSpreadingFactor = 8,        // LoRa 扩频因子。
   kLoraCodingRateDenominator = 9,  // 兼容旧配置的编码率分母。
   kLoraSyncWord = 10,              // LoRa 网络同步字。
-  kLoraCrcEnabled = 12,             // 是否启用 LoRa CRC。
-  kLoraInvertIq = 13,               // 是否反转 LoRa IQ 极性。
-  kLoraRxBoosted = 14,              // 兼容旧配置的接收增强开关。
-  kLoraCodingRateMode = 38,          // 完整的 LoRa 编码率模式。
-  kLoraRxBoostMode = 39,             // LoRa 接收增强档位。
+  kLoraCrcEnabled = 12,            // 是否启用 LoRa CRC。
+  kLoraInvertIq = 13,              // 是否反转 LoRa IQ 极性。
+  kLoraRxBoosted = 14,             // 兼容旧配置的接收增强开关。
+  kLoraCodingRateMode = 38,        // 完整的 LoRa 编码率模式。
+  kLoraRxBoostMode = 39,           // LoRa 接收增强档位。
 
   // GFSK 字段。
   kGfskFrequencyHz = 20,           // GFSK 中心频率，单位为 Hz。
@@ -130,7 +130,8 @@ bool IsSupportedBandwidth(
   if (chip == radio::ChipType::kLr2021) {
     return radio::IsLr2021BandwidthSupported(frequency_hz, bandwidth_hz);
   }
-  const bool common_bandwidth = bandwidth_hz == 62500 || bandwidth_hz == 125000 ||
+  const bool common_bandwidth =
+      bandwidth_hz == 62500 || bandwidth_hz == 125000 ||
       bandwidth_hz == 250000 || bandwidth_hz == 500000;
   if (chip == radio::ChipType::kLr1121 && frequency_hz >= 2400000000U) {
     return bandwidth_hz == 200000 || bandwidth_hz == 400000 ||
@@ -145,25 +146,23 @@ bool IsSupportedBandwidth(
  * @return 芯片类型有效返回 true
  */
 bool IsSupportedChip(radio::ChipType chip) {
-  return chip == radio::ChipType::kSx1262 ||
-         chip == radio::ChipType::kLr2021 ||
-         chip == radio::ChipType::kLr1121 ||
-         chip == radio::ChipType::kCc1101 ||
+  return chip == radio::ChipType::kSx1262 || chip == radio::ChipType::kLr2021 ||
+         chip == radio::ChipType::kLr1121 || chip == radio::ChipType::kCc1101 ||
          chip == radio::ChipType::kNrf24l01;
 }
 
 bool IsChipSupportedByDevice(radio::ChipType chip) {
   const bool primary_chip = chip == radio::ChipType::kSx1262 ||
-      chip == radio::ChipType::kLr2021 ||
-      chip == radio::ChipType::kLr1121;
+                            chip == radio::ChipType::kLr2021 ||
+                            chip == radio::ChipType::kLr1121;
   if (primary_chip) {
     // 检测失败时保留已有主射频配置，避免一次硬件异常破坏用户数据。
     return g_primary_radio_chip == radio::ChipType::kUnknown ||
-        chip == g_primary_radio_chip;
+           chip == g_primary_radio_chip;
   }
   const radio::ChipMask chip_mask = radio::ChipMaskFor(chip);
   return IsSupportedChip(chip) && chip_mask != 0 &&
-      (g_supported_radio_chips & chip_mask) != 0;
+         (g_supported_radio_chips & chip_mask) != 0;
 }
 
 /**
@@ -184,8 +183,7 @@ bool IsSupportedFrequency(radio::ChipType chip, uint32_t frequency_hz) {
   if (chip == radio::ChipType::kLr2021) {
     return radio::IsLr2021FrequencySupported(frequency_hz);
   }
-  const bool sub_ghz =
-      frequency_hz >= 150000000U && frequency_hz <= 960000000U;
+  const bool sub_ghz = frequency_hz >= 150000000U && frequency_hz <= 960000000U;
   const bool lr1121_hf = chip == radio::ChipType::kLr1121 &&
                          frequency_hz >= 2400000000U &&
                          frequency_hz <= 2500000000U;
@@ -259,11 +257,9 @@ bool IsEnhancedShockBurstDataRate(uint32_t data_rate_bps) {
  * @return 长度受支持时返回 true
  */
 bool IsCc1101PreambleLength(uint16_t length_bits) {
-  constexpr uint16_t kPreambleLengths[] = {
-      16, 24, 32, 48, 64, 96, 128, 192};
-  return std::find(std::begin(kPreambleLengths),
-             std::end(kPreambleLengths), length_bits) !=
-         std::end(kPreambleLengths);
+  constexpr uint16_t kPreambleLengths[] = {16, 24, 32, 48, 64, 96, 128, 192};
+  return std::find(std::begin(kPreambleLengths), std::end(kPreambleLengths),
+             length_bits) != std::end(kPreambleLengths);
 }
 
 /**
@@ -274,12 +270,12 @@ bool IsCc1101PreambleLength(uint16_t length_bits) {
 uint32_t NormalizeCc1101ReceiveBandwidth(uint32_t bandwidth_hz) {
   uint32_t selected = radio::kCc1101ReceiveBandwidthsHz[0];
   uint32_t smallest_difference = bandwidth_hz > selected
-      ? bandwidth_hz - selected
-      : selected - bandwidth_hz;
+                                     ? bandwidth_hz - selected
+                                     : selected - bandwidth_hz;
   for (uint32_t candidate : radio::kCc1101ReceiveBandwidthsHz) {
     const uint32_t difference = bandwidth_hz > candidate
-        ? bandwidth_hz - candidate
-        : candidate - bandwidth_hz;
+                                    ? bandwidth_hz - candidate
+                                    : candidate - bandwidth_hz;
     if (difference < smallest_difference) {
       selected = candidate;
       smallest_difference = difference;
@@ -362,8 +358,8 @@ void NormalizePreferences(RadioPreferences* preferences) {
     NormalizeString(profile.name);
     NormalizeString(profile.auto_send_text);
     if (profile.name[0] == '\0') {
-      std::snprintf(profile.name, sizeof(profile.name),
-          "Radio profile %u", static_cast<unsigned>(index + 1));
+      std::snprintf(profile.name, sizeof(profile.name), "Radio profile %u",
+          static_cast<unsigned>(index + 1));
       NormalizeString(profile.name);
     }
     const size_t chip_index = static_cast<size_t>(profile.chip);
@@ -381,9 +377,8 @@ void NormalizePreferences(RadioPreferences* preferences) {
       profile.protocol = radio::ProtocolType::kLora;
     }
     if (!IsSupportedFrequency(profile.chip, profile.frequency_hz)) {
-      profile.frequency_hz = profile.chip == radio::ChipType::kNrf24l01
-                                 ? 2400000000U
-                                 : 868000000U;
+      profile.frequency_hz =
+          profile.chip == radio::ChipType::kNrf24l01 ? 2400000000U : 868000000U;
     }
     if (profile.protocol == radio::ProtocolType::kLora &&
         !IsSupportedBandwidth(
@@ -397,8 +392,7 @@ void NormalizePreferences(RadioPreferences* preferences) {
       if (profile.preamble_length == 0) {
         profile.preamble_length = 8;
       }
-      if (profile.spreading_factor < 5 ||
-          profile.spreading_factor > 12) {
+      if (profile.spreading_factor < 5 || profile.spreading_factor > 12) {
         profile.spreading_factor = 7;
       }
       if (profile.coding_rate_denominator < 5 ||
@@ -408,30 +402,27 @@ void NormalizePreferences(RadioPreferences* preferences) {
       if (profile.chip == radio::ChipType::kLr2021) {
         if (!radio::IsLr2021CodingRate(profile.lr2021_coding_rate)) {
           profile.lr2021_coding_rate =
-              radio::StandardLr2021CodingRate(
-                  profile.coding_rate_denominator);
+              radio::StandardLr2021CodingRate(profile.coding_rate_denominator);
         }
         profile.coding_rate_denominator =
-            radio::Lr2021CodingRateDenominator(
-                profile.lr2021_coding_rate);
+            radio::Lr2021CodingRateDenominator(profile.lr2021_coding_rate);
         profile.lr2021_rx_boost_mode =
             std::min<uint8_t>(profile.lr2021_rx_boost_mode, 7);
         profile.rx_boosted = profile.lr2021_rx_boost_mode != 0;
       }
-      profile.output_power_dbm = std::clamp<int8_t>(
-          profile.output_power_dbm,
+      profile.output_power_dbm = std::clamp<int8_t>(profile.output_power_dbm,
           MinimumOutputPowerDbm(profile.chip, profile.frequency_hz),
           MaximumOutputPowerDbm(profile.chip, profile.frequency_hz));
     } else if (profile.protocol == radio::ProtocolType::kGfsk) {
       if (!IsCc1101PreambleLength(profile.preamble_length)) {
         profile.preamble_length = 32;
       }
-      profile.gfsk_data_rate_bps = std::clamp<uint32_t>(
-          profile.gfsk_data_rate_bps, 600, 250000);
+      profile.gfsk_data_rate_bps =
+          std::clamp<uint32_t>(profile.gfsk_data_rate_bps, 600, 250000);
       profile.gfsk_frequency_deviation_hz = std::clamp<uint32_t>(
           profile.gfsk_frequency_deviation_hz, 1600, 380000);
-      profile.gfsk_receive_bandwidth_hz = NormalizeCc1101ReceiveBandwidth(
-          profile.gfsk_receive_bandwidth_hz);
+      profile.gfsk_receive_bandwidth_hz =
+          NormalizeCc1101ReceiveBandwidth(profile.gfsk_receive_bandwidth_hz);
       if (!IsCc1101OutputPower(profile.output_power_dbm)) {
         profile.output_power_dbm = 10;
       }
@@ -442,11 +433,12 @@ void NormalizePreferences(RadioPreferences* preferences) {
       if (!IsEnhancedShockBurstDataRate(profile.esb_data_rate_bps)) {
         profile.esb_data_rate_bps = 250000;
       }
-      profile.esb_address_width = std::clamp<uint8_t>(
-          profile.esb_address_width, 3, 5);
-      const uint64_t address_mask = profile.esb_address_width == 5
-          ? 0xFFFFFFFFFFULL
-          : ((1ULL << (profile.esb_address_width * 8)) - 1ULL);
+      profile.esb_address_width =
+          std::clamp<uint8_t>(profile.esb_address_width, 3, 5);
+      const uint64_t address_mask =
+          profile.esb_address_width == 5
+              ? 0xFFFFFFFFFFULL
+              : ((1ULL << (profile.esb_address_width * 8)) - 1ULL);
       profile.esb_address &= address_mask;
       if (profile.esb_address == 0) {
         profile.esb_address = 0xE7E7E7E7E7ULL & address_mask;
@@ -460,12 +452,12 @@ void NormalizePreferences(RadioPreferences* preferences) {
       }
       profile.esb_retransmit_count =
           std::min<uint8_t>(profile.esb_retransmit_count, 15);
-      profile.esb_retransmit_delay_us = std::clamp<uint16_t>(
-          profile.esb_retransmit_delay_us, 250, 4000);
-      profile.esb_retransmit_delay_us = static_cast<uint16_t>(
-          (profile.esb_retransmit_delay_us / 250) * 250);
-      if (profile.esb_data_rate_bps == 250000 &&
-          profile.esb_auto_ack_enabled && profile.esb_retransmit_count != 0) {
+      profile.esb_retransmit_delay_us =
+          std::clamp<uint16_t>(profile.esb_retransmit_delay_us, 250, 4000);
+      profile.esb_retransmit_delay_us =
+          static_cast<uint16_t>((profile.esb_retransmit_delay_us / 250) * 250);
+      if (profile.esb_data_rate_bps == 250000 && profile.esb_auto_ack_enabled &&
+          profile.esb_retransmit_count != 0) {
         profile.esb_retransmit_delay_us =
             std::max<uint16_t>(profile.esb_retransmit_delay_us, 500);
       }
@@ -477,66 +469,62 @@ void NormalizePreferences(RadioPreferences* preferences) {
         profile.antenna != radio::AntennaType::kExternal) {
       profile.antenna = radio::AntennaType::kInternal;
     }
-    profile.auto_send_interval_ms = std::clamp(
-        profile.auto_send_interval_ms, kRadioAutoSendMinimumIntervalMs,
-        kRadioAutoSendMaximumIntervalMs);
+    profile.auto_send_interval_ms = std::clamp(profile.auto_send_interval_ms,
+        kRadioAutoSendMinimumIntervalMs, kRadioAutoSendMaximumIntervalMs);
     if (profile.auto_send_text[0] == '\0') {
       profile.auto_send_enabled = false;
     }
-    if (profile.id == 0 ||
-        HasProfileIdBefore(result, index, profile.id)) {
-      profile.id = NextUnusedProfileId(
-          result, index, maximum_id + 1);
+    if (profile.id == 0 || HasProfileIdBefore(result, index, profile.id)) {
+      profile.id = NextUnusedProfileId(result, index, maximum_id + 1);
     }
     maximum_id = std::max(maximum_id, profile.id);
   }
-  const uint32_t next_start = std::max(
-      result.next_profile_id, maximum_id + 1);
-  result.next_profile_id = NextUnusedProfileId(
-      result, result.profile_count, next_start);
-  for (size_t index = result.profile_count;
-       index < kRadioProfileCapacity; ++index) {
+  const uint32_t next_start = std::max(result.next_profile_id, maximum_id + 1);
+  result.next_profile_id =
+      NextUnusedProfileId(result, result.profile_count, next_start);
+  for (size_t index = result.profile_count; index < kRadioProfileCapacity;
+      ++index) {
     ResetProfile(&result.profiles[index]);
   }
 }
 
-bool RadioProfileEqual(
-    const RadioProfile& left, const RadioProfile& right) {
+bool RadioProfileEqual(const RadioProfile& left, const RadioProfile& right) {
   return left.id == right.id && left.active == right.active &&
-      std::strcmp(left.name, right.name) == 0 &&
-      left.chip == right.chip && left.protocol == right.protocol &&
-      left.frequency_hz == right.frequency_hz &&
-      left.bandwidth_hz == right.bandwidth_hz &&
-      left.preamble_length == right.preamble_length &&
-      left.spreading_factor == right.spreading_factor &&
-      left.coding_rate_denominator == right.coding_rate_denominator &&
-      left.lr2021_coding_rate == right.lr2021_coding_rate &&
-      left.sync_word == right.sync_word &&
-      left.output_power_dbm == right.output_power_dbm &&
-      left.crc_enabled == right.crc_enabled &&
-      left.invert_iq == right.invert_iq &&
-      left.rx_boosted == right.rx_boosted &&
-      left.lr2021_rx_boost_mode == right.lr2021_rx_boost_mode &&
-      left.gfsk_data_rate_bps == right.gfsk_data_rate_bps &&
-      left.gfsk_frequency_deviation_hz ==
-          right.gfsk_frequency_deviation_hz &&
-      left.gfsk_receive_bandwidth_hz == right.gfsk_receive_bandwidth_hz &&
-      left.gfsk_sync_word == right.gfsk_sync_word &&
-      left.gfsk_whitening_enabled == right.gfsk_whitening_enabled &&
-      left.gfsk_fec_enabled == right.gfsk_fec_enabled &&
-      left.esb_channel == right.esb_channel &&
-      left.esb_data_rate_bps == right.esb_data_rate_bps &&
-      left.esb_address == right.esb_address &&
-      left.esb_address_width == right.esb_address_width &&
-      left.esb_crc_length_bits == right.esb_crc_length_bits &&
-      left.esb_retransmit_count == right.esb_retransmit_count &&
-      left.esb_retransmit_delay_us == right.esb_retransmit_delay_us &&
-      left.esb_auto_ack_enabled == right.esb_auto_ack_enabled &&
-      left.esb_dynamic_payload_enabled == right.esb_dynamic_payload_enabled &&
-      left.antenna == right.antenna &&
-      left.auto_send_enabled == right.auto_send_enabled &&
-      std::strcmp(left.auto_send_text, right.auto_send_text) == 0 &&
-      left.auto_send_interval_ms == right.auto_send_interval_ms;
+         std::strcmp(left.name, right.name) == 0 && left.chip == right.chip &&
+         left.protocol == right.protocol &&
+         left.frequency_hz == right.frequency_hz &&
+         left.bandwidth_hz == right.bandwidth_hz &&
+         left.preamble_length == right.preamble_length &&
+         left.spreading_factor == right.spreading_factor &&
+         left.coding_rate_denominator == right.coding_rate_denominator &&
+         left.lr2021_coding_rate == right.lr2021_coding_rate &&
+         left.sync_word == right.sync_word &&
+         left.output_power_dbm == right.output_power_dbm &&
+         left.crc_enabled == right.crc_enabled &&
+         left.invert_iq == right.invert_iq &&
+         left.rx_boosted == right.rx_boosted &&
+         left.lr2021_rx_boost_mode == right.lr2021_rx_boost_mode &&
+         left.gfsk_data_rate_bps == right.gfsk_data_rate_bps &&
+         left.gfsk_frequency_deviation_hz ==
+             right.gfsk_frequency_deviation_hz &&
+         left.gfsk_receive_bandwidth_hz == right.gfsk_receive_bandwidth_hz &&
+         left.gfsk_sync_word == right.gfsk_sync_word &&
+         left.gfsk_whitening_enabled == right.gfsk_whitening_enabled &&
+         left.gfsk_fec_enabled == right.gfsk_fec_enabled &&
+         left.esb_channel == right.esb_channel &&
+         left.esb_data_rate_bps == right.esb_data_rate_bps &&
+         left.esb_address == right.esb_address &&
+         left.esb_address_width == right.esb_address_width &&
+         left.esb_crc_length_bits == right.esb_crc_length_bits &&
+         left.esb_retransmit_count == right.esb_retransmit_count &&
+         left.esb_retransmit_delay_us == right.esb_retransmit_delay_us &&
+         left.esb_auto_ack_enabled == right.esb_auto_ack_enabled &&
+         left.esb_dynamic_payload_enabled ==
+             right.esb_dynamic_payload_enabled &&
+         left.antenna == right.antenna &&
+         left.auto_send_enabled == right.auto_send_enabled &&
+         std::strcmp(left.auto_send_text, right.auto_send_text) == 0 &&
+         left.auto_send_interval_ms == right.auto_send_interval_ms;
 }
 
 bool RadioPreferencesEqual(
@@ -553,14 +541,14 @@ bool RadioPreferencesEqual(
   return true;
 }
 
-bool EncodeRadioProfile(const RadioProfile& profile,
-    uint8_t* output, size_t capacity, size_t* encoded_size) {
+bool EncodeRadioProfile(const RadioProfile& profile, uint8_t* output,
+    size_t capacity, size_t* encoded_size) {
   storage::TlvWriter writer(
       storage::TlvDomain::kRadioProfile, output, capacity);
   if (!writer.WriteUint32(
           static_cast<uint16_t>(RadioProfileField::kId), profile.id) ||
-      !writer.WriteBool(static_cast<uint16_t>(RadioProfileField::kActive),
-          profile.active) ||
+      !writer.WriteBool(
+          static_cast<uint16_t>(RadioProfileField::kActive), profile.active) ||
       !writer.WriteString(static_cast<uint16_t>(RadioProfileField::kName),
           profile.name, sizeof(profile.name)) ||
       !writer.WriteUint8(static_cast<uint16_t>(RadioProfileField::kChip),
@@ -570,8 +558,7 @@ bool EncodeRadioProfile(const RadioProfile& profile,
       !writer.WriteInt8(
           static_cast<uint16_t>(RadioProfileField::kOutputPowerDbm),
           profile.output_power_dbm) ||
-      !writer.WriteUint8(
-          static_cast<uint16_t>(RadioProfileField::kAntenna),
+      !writer.WriteUint8(static_cast<uint16_t>(RadioProfileField::kAntenna),
           static_cast<uint8_t>(profile.antenna)) ||
       !writer.WriteBool(
           static_cast<uint16_t>(RadioProfileField::kAutoSendEnabled),
@@ -588,29 +575,25 @@ bool EncodeRadioProfile(const RadioProfile& profile,
   switch (profile.protocol) {
     case radio::ProtocolType::kLora:
       if (!writer.WriteUint32(
-              static_cast<uint16_t>(
-                  RadioProfileField::kLoraFrequencyHz),
+              static_cast<uint16_t>(RadioProfileField::kLoraFrequencyHz),
               profile.frequency_hz) ||
           !writer.WriteUint32(
               static_cast<uint16_t>(RadioProfileField::kLoraBandwidthHz),
               profile.bandwidth_hz) ||
           !writer.WriteUint16(
-              static_cast<uint16_t>(
-                  RadioProfileField::kLoraPreambleLength),
+              static_cast<uint16_t>(RadioProfileField::kLoraPreambleLength),
               profile.preamble_length) ||
           !writer.WriteUint8(
-              static_cast<uint16_t>(
-                  RadioProfileField::kLoraSpreadingFactor),
+              static_cast<uint16_t>(RadioProfileField::kLoraSpreadingFactor),
               profile.spreading_factor) ||
           !writer.WriteUint8(static_cast<uint16_t>(
-              RadioProfileField::kLoraCodingRateDenominator),
+                                 RadioProfileField::kLoraCodingRateDenominator),
               profile.coding_rate_denominator) ||
           !writer.WriteUint8(
               static_cast<uint16_t>(RadioProfileField::kLoraSyncWord),
               profile.sync_word) ||
           !writer.WriteBool(
-              static_cast<uint16_t>(
-                  RadioProfileField::kLoraCrcEnabled),
+              static_cast<uint16_t>(RadioProfileField::kLoraCrcEnabled),
               profile.crc_enabled) ||
           !writer.WriteBool(
               static_cast<uint16_t>(RadioProfileField::kLoraInvertIq),
@@ -618,42 +601,39 @@ bool EncodeRadioProfile(const RadioProfile& profile,
           !writer.WriteBool(
               static_cast<uint16_t>(RadioProfileField::kLoraRxBoosted),
               profile.rx_boosted) ||
-          !writer.WriteUint8(static_cast<uint16_t>(
-              RadioProfileField::kLoraCodingRateMode),
+          !writer.WriteUint8(
+              static_cast<uint16_t>(RadioProfileField::kLoraCodingRateMode),
               static_cast<uint8_t>(profile.lr2021_coding_rate)) ||
-          !writer.WriteUint8(static_cast<uint16_t>(
-              RadioProfileField::kLoraRxBoostMode),
+          !writer.WriteUint8(
+              static_cast<uint16_t>(RadioProfileField::kLoraRxBoostMode),
               profile.lr2021_rx_boost_mode)) {
         return false;
       }
       break;
     case radio::ProtocolType::kGfsk:
       if (!writer.WriteUint32(
-              static_cast<uint16_t>(
-                  RadioProfileField::kGfskFrequencyHz),
+              static_cast<uint16_t>(RadioProfileField::kGfskFrequencyHz),
               profile.frequency_hz) ||
           !writer.WriteUint16(
-              static_cast<uint16_t>(
-                  RadioProfileField::kGfskPreambleLength),
+              static_cast<uint16_t>(RadioProfileField::kGfskPreambleLength),
               profile.preamble_length) ||
           !writer.WriteBool(
-              static_cast<uint16_t>(
-                  RadioProfileField::kGfskCrcEnabled),
+              static_cast<uint16_t>(RadioProfileField::kGfskCrcEnabled),
               profile.crc_enabled) ||
           !writer.WriteUint32(
               static_cast<uint16_t>(RadioProfileField::kGfskDataRateBps),
               profile.gfsk_data_rate_bps) ||
           !writer.WriteUint32(static_cast<uint16_t>(
-              RadioProfileField::kGfskFrequencyDeviationHz),
+                                  RadioProfileField::kGfskFrequencyDeviationHz),
               profile.gfsk_frequency_deviation_hz) ||
-          !writer.WriteUint32(static_cast<uint16_t>(
-              RadioProfileField::kGfskReceiveBandwidthHz),
+          !writer.WriteUint32(
+              static_cast<uint16_t>(RadioProfileField::kGfskReceiveBandwidthHz),
               profile.gfsk_receive_bandwidth_hz) ||
           !writer.WriteUint16(
               static_cast<uint16_t>(RadioProfileField::kGfskSyncWord),
               profile.gfsk_sync_word) ||
-          !writer.WriteBool(static_cast<uint16_t>(
-              RadioProfileField::kGfskWhiteningEnabled),
+          !writer.WriteBool(
+              static_cast<uint16_t>(RadioProfileField::kGfskWhiteningEnabled),
               profile.gfsk_whitening_enabled) ||
           !writer.WriteBool(
               static_cast<uint16_t>(RadioProfileField::kGfskFecEnabled),
@@ -679,17 +659,17 @@ bool EncodeRadioProfile(const RadioProfile& profile,
           !writer.WriteUint8(
               static_cast<uint16_t>(RadioProfileField::kEsbCrcLengthBits),
               profile.esb_crc_length_bits) ||
-          !writer.WriteUint8(static_cast<uint16_t>(
-              RadioProfileField::kEsbRetransmitCount),
+          !writer.WriteUint8(
+              static_cast<uint16_t>(RadioProfileField::kEsbRetransmitCount),
               profile.esb_retransmit_count) ||
-          !writer.WriteUint16(static_cast<uint16_t>(
-              RadioProfileField::kEsbRetransmitDelayUs),
+          !writer.WriteUint16(
+              static_cast<uint16_t>(RadioProfileField::kEsbRetransmitDelayUs),
               profile.esb_retransmit_delay_us) ||
-          !writer.WriteBool(static_cast<uint16_t>(
-              RadioProfileField::kEsbAutoAckEnabled),
+          !writer.WriteBool(
+              static_cast<uint16_t>(RadioProfileField::kEsbAutoAckEnabled),
               profile.esb_auto_ack_enabled) ||
           !writer.WriteBool(static_cast<uint16_t>(
-              RadioProfileField::kEsbDynamicPayloadEnabled),
+                                RadioProfileField::kEsbDynamicPayloadEnabled),
               profile.esb_dynamic_payload_enabled)) {
         return false;
       }
@@ -709,16 +689,14 @@ bool DecodeRadioProfile(
   RadioProfile decoded;
   bool has_lora_coding_rate_mode = false;
   bool has_lora_rx_boost_mode = false;
-  storage::TlvReader reader(
-      storage::TlvDomain::kRadioProfile, data, size);
+  storage::TlvReader reader(storage::TlvDomain::kRadioProfile, data, size);
   storage::TlvField field;
   while (true) {
     const storage::TlvReadResult result = reader.Next(&field);
     if (result == storage::TlvReadResult::kEnd) {
       if (!has_lora_coding_rate_mode) {
         decoded.lr2021_coding_rate =
-            radio::StandardLr2021CodingRate(
-                decoded.coding_rate_denominator);
+            radio::StandardLr2021CodingRate(decoded.coding_rate_denominator);
       }
       if (!has_lora_rx_boost_mode) {
         decoded.lr2021_rx_boost_mode = decoded.rx_boosted ? 7 : 0;
@@ -841,8 +819,8 @@ bool DecodeRadioProfile(
         }
         break;
       case RadioProfileField::kAutoSendText:
-        if (!field.CopyString(decoded.auto_send_text,
-                sizeof(decoded.auto_send_text))) {
+        if (!field.CopyString(
+                decoded.auto_send_text, sizeof(decoded.auto_send_text))) {
           return false;
         }
         break;
@@ -969,10 +947,9 @@ bool EncodeRadioPreferences(const RadioPreferences& preferences,
   std::array<uint8_t, kRadioProfileTlvCapacity> profile_buffer = {};
   for (size_t index = 0; index < preferences.profile_count; ++index) {
     size_t profile_size = 0;
-    if (!EncodeRadioProfile(preferences.profiles[index],
-            profile_buffer.data(), profile_buffer.size(), &profile_size) ||
-        !writer.WriteBytes(
-            static_cast<uint16_t>(RadioProfilesField::kProfile),
+    if (!EncodeRadioProfile(preferences.profiles[index], profile_buffer.data(),
+            profile_buffer.size(), &profile_size) ||
+        !writer.WriteBytes(static_cast<uint16_t>(RadioProfilesField::kProfile),
             profile_buffer.data(), profile_size)) {
       return false;
     }
@@ -980,15 +957,15 @@ bool EncodeRadioPreferences(const RadioPreferences& preferences,
   return writer.Finalize(encoded_size);
 }
 
-bool DecodeRadioPreferences(const storage::TlvBuffer& buffer,
-    RadioPreferences* preferences) {
+bool DecodeRadioPreferences(
+    const storage::TlvBuffer& buffer, RadioPreferences* preferences) {
   if (preferences == nullptr) {
     return false;
   }
   ResetPreferences(preferences);
   uint32_t legacy_active_profile_id = 0;
-  storage::TlvReader reader(storage::TlvDomain::kRadioProfiles,
-      buffer.data.get(), buffer.size);
+  storage::TlvReader reader(
+      storage::TlvDomain::kRadioProfiles, buffer.data.get(), buffer.size);
   storage::TlvField field;
   while (true) {
     const storage::TlvReadResult result = reader.Next(&field);
@@ -1052,16 +1029,16 @@ void InitRadioCache(
     radio::ChipMask supported_chips, radio::ChipType primary_chip) {
   g_supported_radio_chips = supported_chips;
   g_primary_radio_chip = primary_chip;
-  auto preferences = std::unique_ptr<RadioPreferences>(
-      new (std::nothrow) RadioPreferences());
+  auto preferences =
+      std::unique_ptr<RadioPreferences>(new (std::nothrow) RadioPreferences());
   if (preferences == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Allocate Radio profile initialization buffer failed\n");
     return;
   }
   nvs_handle_t handle = 0;
-  const esp_err_t open_result = OpenApplicationNvs(
-      kRadioProfilesNvsNamespace, NVS_READONLY, &handle);
+  const esp_err_t open_result =
+      OpenApplicationNvs(kRadioProfilesNvsNamespace, NVS_READONLY, &handle);
   if (open_result == ESP_OK) {
     storage::TlvBuffer buffer;
     esp_err_t error = ESP_OK;
@@ -1138,8 +1115,8 @@ StorageStageResult StageRadioStorage(nvs_handle_t handle) {
           kRadioProfilesTlvCapacity, &encoded_size)) {
     return StorageStageResult::kFailed;
   }
-  const esp_err_t result = nvs_set_blob(
-      handle, kRadioProfilesNvsKey, buffer.get(), encoded_size);
+  const esp_err_t result =
+      nvs_set_blob(handle, kRadioProfilesNvsKey, buffer.get(), encoded_size);
   if (result != ESP_OK) {
     LogRadioStorageError("stage", result);
     return StorageStageResult::kFailed;

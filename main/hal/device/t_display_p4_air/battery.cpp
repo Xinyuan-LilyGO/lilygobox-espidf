@@ -2,15 +2,15 @@
  * @Description: T-Display-P4-Air AXP517 电池管理实现
  * @Author: LILYGO_L
  * @Date: 2026-09-01 00:00:00
- * @LastEditTime: 2026-09-01 00:00:00
+ * @LastEditTime: 2026-09-02 17:53:21
  * @License: GPL 3.0
  */
-#include "hal/device/t_display_p4_air/device.h"
-
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <limits>
+
+#include "hal/device/t_display_p4_air/device.h"
 
 namespace lilygo_box::hal {
 namespace {
@@ -44,11 +44,11 @@ int EstimateUsableBatteryCapacityMah(
  * @param charging true 估算充满时间，false 估算放空时间
  * @return 预计分钟数，电流过小时返回 0
  */
-int EstimateBatteryRemainingMinutes(int capacity_mah, int charge_percent,
-    int current_ma, bool charging) {
+int EstimateBatteryRemainingMinutes(
+    int capacity_mah, int charge_percent, int current_ma, bool charging) {
   const int64_t current_magnitude = current_ma < 0
-      ? -static_cast<int64_t>(current_ma)
-      : static_cast<int64_t>(current_ma);
+                                        ? -static_cast<int64_t>(current_ma)
+                                        : static_cast<int64_t>(current_ma);
   if (capacity_mah <= 0 ||
       current_magnitude < kMinimumBatteryEstimateCurrentMa) {
     return 0;
@@ -56,9 +56,9 @@ int EstimateBatteryRemainingMinutes(int capacity_mah, int charge_percent,
   const int percent = std::clamp(charge_percent, 0, 100);
   const int remaining_percent = charging ? 100 - percent : percent;
   const int64_t minutes = static_cast<int64_t>(capacity_mah) *
-      remaining_percent * 60 / (100 * current_magnitude);
-  return static_cast<int>(std::clamp<int64_t>(
-      minutes, 0, std::numeric_limits<int>::max()));
+                          remaining_percent * 60 / (100 * current_magnitude);
+  return static_cast<int>(
+      std::clamp<int64_t>(minutes, 0, std::numeric_limits<int>::max()));
 }
 
 }  // namespace
@@ -92,24 +92,25 @@ bool TDisplayP4AirDevice::ReadBatteryManagementStatus(
     return false;
   }
   const bool health_valid = health_percent > 0 && health_percent <= 100;
-  const int usable_capacity_mah = EstimateUsableBatteryCapacityMah(
-      capacity_mah, health_percent);
+  const int usable_capacity_mah =
+      EstimateUsableBatteryCapacityMah(capacity_mah, health_percent);
 
   status->capabilities.capacity = capacity_mah > 0;
   status->capabilities.remaining_time = capacity_mah > 0;
   status->ready = true;
   status->pack_present = chip_status0.battery_present_status;
-  status->charging = status->pack_present && chip_status0.vbus_good_indication &&
-                     (chip_status1.charging_status ==
-                             cpp_bus_driver::Axp517::ChargeStatus::kTrickleCharge ||
-                         chip_status1.charging_status ==
-                             cpp_bus_driver::Axp517::ChargeStatus::kPrecharge ||
-                         chip_status1.charging_status ==
-                             cpp_bus_driver::Axp517::ChargeStatus::kConstantCurrent ||
-                         chip_status1.charging_status ==
-                             cpp_bus_driver::Axp517::ChargeStatus::kConstantVoltage ||
-                         chip_status1.charging_status ==
-                             cpp_bus_driver::Axp517::ChargeStatus::kChargeDone);
+  status->charging =
+      status->pack_present && chip_status0.vbus_good_indication &&
+      (chip_status1.charging_status ==
+              cpp_bus_driver::Axp517::ChargeStatus::kTrickleCharge ||
+          chip_status1.charging_status ==
+              cpp_bus_driver::Axp517::ChargeStatus::kPrecharge ||
+          chip_status1.charging_status ==
+              cpp_bus_driver::Axp517::ChargeStatus::kConstantCurrent ||
+          chip_status1.charging_status ==
+              cpp_bus_driver::Axp517::ChargeStatus::kConstantVoltage ||
+          chip_status1.charging_status ==
+              cpp_bus_driver::Axp517::ChargeStatus::kChargeDone);
   status->full_charged =
       chip_status1.charging_status ==
           cpp_bus_driver::Axp517::ChargeStatus::kChargeDone ||
@@ -166,8 +167,7 @@ BatteryCapacityRange TDisplayP4AirDevice::GetBatteryCapacityRange() const {
 
 bool TDisplayP4AirDevice::SetBatteryCapacityMah(int capacity_mah) {
   const BatteryCapacityRange range = GetBatteryCapacityRange();
-  if (capacity_mah < range.minimum_mah ||
-      capacity_mah > range.maximum_mah) {
+  if (capacity_mah < range.minimum_mah || capacity_mah > range.maximum_mah) {
     return false;
   }
   battery_capacity_mah_.store(capacity_mah);

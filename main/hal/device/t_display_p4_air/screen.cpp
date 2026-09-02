@@ -2,11 +2,9 @@
  * @Description: T-Display-P4-Air 显示、触摸与背光实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-08-28 00:00:00
+ * @LastEditTime: 2026-09-02 17:53:41
  * @License: GPL 3.0
  */
-#include "hal/device/t_display_p4_air/device.h"
-
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
@@ -17,6 +15,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal/device/common/device_utils.h"
+#include "hal/device/t_display_p4_air/device.h"
 
 namespace lilygo_box::hal {
 namespace device = lilygo_device_driver::t_display_p4_air::device;
@@ -52,15 +51,13 @@ bool TDisplayP4AirDevice::InitializeTouchInterrupt() {
 
   touch_interrupt_pending_.store(false, std::memory_order_relaxed);
   if (!tool_->InitGpioInterrupt(gpio::hi8561::kTouchInt,
-          cpp_bus_driver::Tool::InterruptMode::kFalling,
-          TouchInterruptHandler, this,
-          cpp_bus_driver::Tool::GpioStatus::kPullup)) {
+          cpp_bus_driver::Tool::InterruptMode::kFalling, TouchInterruptHandler,
+          this, cpp_bus_driver::Tool::GpioStatus::kPullup)) {
     return false;
   }
 
   touch_interrupt_initialized_ = true;
-  touch_interrupt_line_active_ =
-      !tool_->GpioRead(gpio::hi8561::kTouchInt);
+  touch_interrupt_line_active_ = !tool_->GpioRead(gpio::hi8561::kTouchInt);
   if (touch_interrupt_line_active_) {
     touch_interrupt_pending_.store(true, std::memory_order_relaxed);
   }
@@ -175,8 +172,8 @@ bool TDisplayP4AirDevice::ReadScreenTouch(TouchPoint* point) {
     point->report_sequence = frame.sequence;
     point->report_sequence_valid = true;
   }
-  if (frame.gesture == static_cast<uint8_t>(
-          cpp_bus_driver::Hi8561Touch::Gesture::kDoubleTap)) {
+  if (frame.gesture ==
+      static_cast<uint8_t>(cpp_bus_driver::Hi8561Touch::Gesture::kDoubleTap)) {
     point->x = -1;
     point->y = -1;
     point->gesture = TouchGesture::kDoubleTap;
@@ -280,8 +277,7 @@ bool TDisplayP4AirDevice::RequiresContinuousSleepingTouchPolling() const {
 }
 
 bool TDisplayP4AirDevice::RefreshTouchWakeConfiguration() {
-  if (!driver_.IsHi8561TouchReady() ||
-      driver_.chip().hi8561_touch == nullptr) {
+  if (!driver_.IsHi8561TouchReady() || driver_.chip().hi8561_touch == nullptr) {
     return false;
   }
 

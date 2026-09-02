@@ -2,15 +2,16 @@
  * @Description: System status runtime cache
  * @Author: LILYGO_L
  * @Date: 2026-06-24 00:00:00
- * @LastEditTime: 2026-07-19 00:23:38
+ * @LastEditTime: 2026-09-02 17:51:13
  * @License: GPL 3.0
  */
 #include "app/system_status_cache.h"
 
+#include <sys/time.h>
+
 #include <cstdio>
 #include <cstring>
 #include <ctime>
-#include <sys/time.h>
 
 #include "base/logger.h"
 #include "freertos/FreeRTOS.h"
@@ -57,13 +58,23 @@ bool InitializeSystemClockFromBuildTime() {
   }
 
   constexpr const char* kMonthNames[] = {
-      "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
   };
   int month = -1;
   for (int index = 0;
-       index < static_cast<int>(sizeof(kMonthNames) / sizeof(kMonthNames[0]));
-       ++index) {
+      index < static_cast<int>(sizeof(kMonthNames) / sizeof(kMonthNames[0]));
+      ++index) {
     if (std::strcmp(month_name, kMonthNames[index]) == 0) {
       month = index;
       break;
@@ -148,8 +159,9 @@ bool ReadSystemClock(bool clock_integrity, hal::RtcStatus* status) {
 
 }  // namespace
 
-void SystemStatusCache::Init(
-    hal::RtcProvider* rtc, hal::BatteryManagementProvider* battery_management, hal::WifiProvider* wifi) {
+void SystemStatusCache::Init(hal::RtcProvider* rtc,
+    hal::BatteryManagementProvider* battery_management,
+    hal::WifiProvider* wifi) {
   battery_management_ = battery_management;
   wifi_ = wifi;
   rtc_status_ = hal::RtcStatus();
@@ -175,9 +187,8 @@ void SystemStatusCache::Init(
     }
   }
 
-  const bool rtc_reliable =
-      rtc_read && startup_rtc_status.clock_integrity &&
-      IsValidRtcTime(startup_rtc_status);
+  const bool rtc_reliable = rtc_read && startup_rtc_status.clock_integrity &&
+                            IsValidRtcTime(startup_rtc_status);
   if (rtc_reliable && InitializeSystemClock(startup_rtc_status)) {
     system_clock_initialized_ = true;
     rtc_clock_integrity_ = true;
@@ -248,7 +259,8 @@ bool SystemStatusCache::RefreshBattery() {
   }
 
   hal::BatteryManagementStatus status;
-  if (!battery_management_->ReadBatteryManagementStatus(&status) || !status.ready) {
+  if (!battery_management_->ReadBatteryManagementStatus(&status) ||
+      !status.ready) {
     battery_management_status_valid_ = false;
     return false;
   }

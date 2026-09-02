@@ -2,7 +2,7 @@
  * @Description: 锁屏时钟布局、拖动回弹与解锁动画实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-07-07 09:19:14
+ * @LastEditTime: 2026-09-02 17:54:35
  * @License: GPL 3.0
  */
 #include "ui/views/lock_screen_view.h"
@@ -106,12 +106,12 @@ lv_obj_t* CreateClockGroup(
   }
   lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
   MakeTransparent(group);
-  lv_obj_set_size(group, options.screen_width - 2 * kLockHorizontalPadding, 282);
+  lv_obj_set_size(
+      group, options.screen_width - 2 * kLockHorizontalPadding, 282);
   lv_obj_align(group, LV_ALIGN_TOP_LEFT, kLockHorizontalPadding, kLockClockTop);
 
-  lv_obj_t* time_label =
-      CreateLabel(group, options.time_text,
-          lv_color_hex(theme::FixedColors().lock_screen_text), HomeTimeFont());
+  lv_obj_t* time_label = CreateLabel(group, options.time_text,
+      lv_color_hex(theme::FixedColors().lock_screen_text), HomeTimeFont());
   if (time_label == nullptr) {
     lv_obj_delete(group);
     return nullptr;
@@ -120,9 +120,8 @@ lv_obj_t* CreateClockGroup(
   lv_obj_set_style_text_opa(time_label, 245, LV_PART_MAIN);
   lv_obj_align(time_label, LV_ALIGN_TOP_LEFT, 0, 0);
 
-  lv_obj_t* date_label =
-      CreateLabel(group, options.date_text,
-          lv_color_hex(theme::FixedColors().lock_screen_text), HomeDateFont());
+  lv_obj_t* date_label = CreateLabel(group, options.date_text,
+      lv_color_hex(theme::FixedColors().lock_screen_text), HomeDateFont());
   if (date_label == nullptr) {
     lv_obj_delete(group);
     return nullptr;
@@ -131,9 +130,8 @@ lv_obj_t* CreateClockGroup(
   lv_obj_set_style_text_opa(date_label, 220, LV_PART_MAIN);
   lv_obj_align(date_label, LV_ALIGN_TOP_LEFT, 10, 110);
 
-  lv_obj_t* week_label =
-      CreateLabel(group, options.week_text,
-          lv_color_hex(theme::FixedColors().lock_screen_text), HomeDateFont());
+  lv_obj_t* week_label = CreateLabel(group, options.week_text,
+      lv_color_hex(theme::FixedColors().lock_screen_text), HomeDateFont());
   if (week_label == nullptr) {
     lv_obj_delete(group);
     return nullptr;
@@ -166,8 +164,8 @@ lv_obj_t* LockClockGroup(lv_obj_t* lock_screen) {
 
 }  // namespace
 
-lv_obj_t* CreateLockScreenView(lv_obj_t* parent,
-    const LockScreenViewOptions& options) {
+lv_obj_t* CreateLockScreenView(
+    lv_obj_t* parent, const LockScreenViewOptions& options) {
   if (parent == nullptr) {
     return nullptr;
   }

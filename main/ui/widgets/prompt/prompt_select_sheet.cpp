@@ -2,7 +2,7 @@
  * @Description: Prompt select sheet widget
  * @Author: LILYGO_L
  * @Date: 2026-06-25 00:00:00
- * @LastEditTime: 2026-06-25 00:00:00
+ * @LastEditTime: 2026-09-02 17:57:10
  * @License: GPL 3.0
  */
 #include "ui/widgets/prompt/prompt_select_sheet.h"
@@ -90,8 +90,9 @@ void PromptSelectOptionClickedEventCallback(lv_event_t* event) {
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreatePromptSelectOptionRow(lv_obj_t* parent,
-    PromptSelectSheetOptionAction* action, const PromptSelectSheetConfig& config,
-    const char* text, int y, bool selected) {
+    PromptSelectSheetOptionAction* action,
+    const PromptSelectSheetConfig& config, const char* text, int y,
+    bool selected) {
   if (parent == nullptr || action == nullptr || text == nullptr) {
     return false;
   }
@@ -123,14 +124,14 @@ bool CreatePromptSelectOptionRow(lv_obj_t* parent,
       lv_color_hex(selected ? config.selected_color : config.sheet_color),
       LV_PART_MAIN);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(row, lv_color_hex(config.pressed_color),
-      LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(
+      row, lv_color_hex(config.pressed_color), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(row, config.pressed_opacity, LV_STATE_PRESSED);
   if (!AddPressCancelOnLeave(row)) {
     return false;
   }
-  lv_obj_add_event_cb(row, PromptSelectOptionClickedEventCallback,
-      LV_EVENT_CLICKED, action);
+  lv_obj_add_event_cb(
+      row, PromptSelectOptionClickedEventCallback, LV_EVENT_CLICKED, action);
 
   lv_obj_t* label = CreatePromptSheetLabel(row, text,
       selected ? config.selected_text_color : config.primary_text_color,
@@ -141,8 +142,8 @@ bool CreatePromptSelectOptionRow(lv_obj_t* parent,
   lv_obj_align(label, LV_ALIGN_LEFT_MID, config.inner_padding, 0);
 
   if (selected && config.check_icon != nullptr && config.icon_font != nullptr) {
-    lv_obj_t* check = CreatePromptSheetLabel(row, config.check_icon,
-        config.selected_text_color, config.icon_font);
+    lv_obj_t* check = CreatePromptSheetLabel(
+        row, config.check_icon, config.selected_text_color, config.icon_font);
     if (check == nullptr) {
       return false;
     }
@@ -217,9 +218,8 @@ bool ShowPromptSelectSheet(
 
   const int effective_bottom_margin =
       std::min(config.bottom_margin, std::max(0, config.screen_height - 1));
-  const int effective_sheet_height =
-      std::min(config.sheet_height,
-          config.screen_height - effective_bottom_margin);
+  const int effective_sheet_height = std::min(
+      config.sheet_height, config.screen_height - effective_bottom_margin);
   if (effective_sheet_height <= 0) {
     return false;
   }
@@ -240,9 +240,8 @@ bool ShowPromptSelectSheet(
     return false;
   }
   config.state->overlay = overlay;
-  if (!RegisterBackNavigationHandler(overlay, [state = config.state]() {
-        ClosePromptSelectSheet(state);
-      })) {
+  if (!RegisterBackNavigationHandler(overlay,
+          [state = config.state]() { ClosePromptSelectSheet(state); })) {
     ClosePromptSelectSheetImmediately(config.state);
     return false;
   }
@@ -258,8 +257,8 @@ bool ShowPromptSelectSheet(
   lv_obj_add_event_cb(sheet, PromptSelectSheetClickedEventCallback,
       LV_EVENT_CLICKED, config.state);
 
-  lv_obj_t* title = CreatePromptSheetLabel(sheet, config.title,
-      config.primary_text_color, config.title_font);
+  lv_obj_t* title = CreatePromptSheetLabel(
+      sheet, config.title, config.primary_text_color, config.title_font);
   if (title == nullptr) {
     ClosePromptSelectSheetImmediately(config.state);
     return false;
@@ -276,18 +275,17 @@ bool ShowPromptSelectSheet(
     lv_obj_set_width(message, config.sheet_width - 2 * config.inner_padding);
     lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_label_set_long_mode(message, LV_LABEL_LONG_WRAP);
-    AlignPromptSheetSubtitle(
-        message, title, config.title_message_gap);
+    AlignPromptSheetSubtitle(message, title, config.title_message_gap);
   }
 
   const int cancel_y =
       effective_sheet_height - config.inner_padding - config.button_height;
   const bool sheet_compacted = effective_sheet_height < config.sheet_height;
-  const int effective_option_top =
-      sheet_compacted ? std::max(118, config.option_top - 28)
-                      : config.option_top;
-  const int option_area_height = cancel_y - effective_option_top -
-      config.inner_padding;
+  const int effective_option_top = sheet_compacted
+                                       ? std::max(118, config.option_top - 28)
+                                       : config.option_top;
+  const int option_area_height =
+      cancel_y - effective_option_top - config.inner_padding;
   lv_obj_t* option_container = CreatePromptSelectOptionContainer(
       sheet, config, effective_option_top, option_area_height);
   if (option_container == nullptr) {
@@ -303,8 +301,8 @@ bool ShowPromptSelectSheet(
     action.value = config.options[i].value;
     const bool selected = config.options[i].value == config.selected_value;
     if (!CreatePromptSelectOptionRow(option_container, &action, config,
-            config.options[i].text,
-            static_cast<int>(i) * config.option_height, selected)) {
+            config.options[i].text, static_cast<int>(i) * config.option_height,
+            selected)) {
       ClosePromptSelectSheetImmediately(config.state);
       return false;
     }

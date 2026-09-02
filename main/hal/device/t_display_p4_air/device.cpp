@@ -2,7 +2,7 @@
  * @Description: T-Display-P4-Air 板级初始化与设备信息实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-08-28 00:00:00
+ * @LastEditTime: 2026-09-02 17:53:26
  * @License: GPL 3.0
  */
 #include "hal/device/t_display_p4_air/device.h"
@@ -30,10 +30,9 @@ TDisplayP4AirDevice::TDisplayP4AirDevice()
 
 bool TDisplayP4AirDevice::InitDevice() {
   if (wifi_.scan_results_mutex == nullptr || radio_.mutex == nullptr ||
-      otg_.mutex == nullptr ||
-      nrf9151_mutex_ == nullptr || imu_.mutex == nullptr ||
-      nfc_.mutex == nullptr || infrared_.mutex == nullptr ||
-      cellular_.status_mutex == nullptr) {
+      otg_.mutex == nullptr || nrf9151_mutex_ == nullptr ||
+      imu_.mutex == nullptr || nfc_.mutex == nullptr ||
+      infrared_.mutex == nullptr || cellular_.status_mutex == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Create T-Display-P4-Air synchronization resources failed\n");
     return false;
@@ -57,8 +56,8 @@ bool TDisplayP4AirDevice::InitDevice() {
     return false;
   }
   if (!driver_.SetScreenSleep(false)) {
-    LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Activate screen failed\n");
+    LogMessage(
+        LogLevel::kError, __FILE__, __LINE__, "Activate screen failed\n");
     return false;
   }
   if (!InitializePowerButton()) {
@@ -106,8 +105,7 @@ bool TDisplayP4AirDevice::ReadDeviceInfo(DeviceInfo* info) {
   info->camera_bits_per_pixel = device_info.camera.bits_per_pixel;
   info->camera_buffer_count = device_info.camera.buffer_count;
   info->battery_charger_chip_name = device_info.battery.charger_chip_name;
-  info->battery_fuel_gauge_chip_name =
-      device_info.battery.fuel_gauge_chip_name;
+  info->battery_fuel_gauge_chip_name = device_info.battery.fuel_gauge_chip_name;
   info->battery_capacity_mah = device_info.battery.capacity_mah;
   return true;
 }
