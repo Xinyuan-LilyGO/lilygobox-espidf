@@ -23,7 +23,8 @@ struct DeviceInfo {
   const char* camera_pixel_format = "unknown";
   int camera_bits_per_pixel = 0;
   int camera_buffer_count = 0;
-  const char* battery_fuel_gauge_name = "unknown";
+  const char* battery_charger_chip_name = "unknown";
+  const char* battery_fuel_gauge_chip_name = "unknown";
   int battery_capacity_mah = 0;
 };
 

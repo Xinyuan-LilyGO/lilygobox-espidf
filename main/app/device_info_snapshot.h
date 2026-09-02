@@ -71,7 +71,8 @@ struct CurrentDeviceCameraInfo {
 
 // 当前电池信息快照
 struct CurrentDeviceBatteryInfo {
-  const char* fuel_gauge_name = "unknown";
+  const char* charger_chip_name = "unknown";
+  const char* fuel_gauge_chip_name = "unknown";
   int capacity_mah = 0;
 };
 
