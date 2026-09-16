@@ -922,9 +922,9 @@ bool TDisplayP4Device::InitializeCc1101ReceiveInterrupt() {
   cc1101_radio_.receive_interrupt_pending.store(
       false, std::memory_order_relaxed);
   if (!tool_->InitGpioInterrupt(keyboard_gpio::t_mix_rf::cc1101::kGdo0,
-          cpp_bus_driver::Tool::InterruptMode::kFalling,
+          cpp_bus_driver::PlatformHal::InterruptMode::kFalling,
           Cc1101ReceiveInterruptHandler, this,
-          cpp_bus_driver::Tool::GpioStatus::kDisable)) {
+          cpp_bus_driver::PlatformHal::GpioStatus::kDisable)) {
     return false;
   }
   cc1101_radio_.receive_interrupt_initialized = true;

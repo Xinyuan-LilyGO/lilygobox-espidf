@@ -22,7 +22,7 @@
 #include "hal/ppa/ppa_srm_helper.h"
 #include "hal/providers/providers.h"
 #include "hal/usb/usb_storage_manager.h"
-#include "t_display_p4_driver.h"
+#include "device/t_display_p4/driver.h"
 
 namespace lilygo_box::hal {
 class TDisplayP4Device final : public ScreenProvider,
@@ -37,9 +37,11 @@ class TDisplayP4Device final : public ScreenProvider,
                                public BatteryManagementProvider,
                                public RtcProvider,
                                public RadioProvider,
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
                                public KeyboardExpansionProvider,
                                public NfcProvider,
                                public EthernetProvider,
+#endif
                                public WifiProvider,
                                public StorageProvider,
                                private audio::PcmOutput {
@@ -56,10 +58,52 @@ class TDisplayP4Device final : public ScreenProvider,
   bool InitDevice() override;
 
   /**
-   * @brief 完成设备关机准备并请求进入 ESP 深度睡眠。
-   * @return 关机准备成功时返回 kEnterDeepSleep，否则返回 kFailed。
+   * @brief 完成设备关机准备并返回当前硬件版本对应的关机动作
+   * @return 关机动作，准备失败时返回 kFailed
    */
   PowerOffAction RequestPowerOff() override;
+
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+  /**
+   * @brief 关闭关机充电界面并根据供电状态请求运输模式或深度睡眠
+   * @return 最终关机动作，准备失败时返回 kFailed
+   */
+  PowerOffAction RequestPowerOffFromChargingScreen() override;
+
+  /**
+   * @brief V2 使用 AXP517 管理关机充电与电源键开机
+   * @return V2 支持关机充电，返回 true
+   */
+  bool SupportsPowerOffCharging() const override { return true; }
+
+  /**
+   * @brief 在完整初始化前处理 V2 的关机持久状态和唤醒原因
+   * @param power_off_requested 是否已持久保存关机请求
+   * @return 本次启动应执行的动作
+   */
+  PowerOffBootAction ResolvePowerOffBoot(bool power_off_requested) override;
+
+  /**
+   * @brief 读取 V2 电源键的原始状态
+   * @param pressed 输出按键是否按下
+   * @return GPIO 读取成功返回 true
+   */
+  bool ReadPowerButtonPressed(bool* pressed) override;
+
+  /**
+   * @brief 读取 V2 BOOT 音量加按键的原始状态
+   * @param pressed 输出按键是否按下
+   * @return GPIO 读取成功返回 true
+   */
+  bool ReadVolumeUpButtonPressed(bool* pressed) override;
+
+  /**
+   * @brief 读取 V2 KEY 音量减按键的原始状态
+   * @param pressed 输出按键是否按下
+   * @return GPIO 读取成功返回 true
+   */
+  bool ReadVolumeDownButtonPressed(bool* pressed) override;
+#endif
 
   /**
    * @brief 读取当前 T-Display-P4 设备信息
@@ -105,39 +149,39 @@ class TDisplayP4Device final : public ScreenProvider,
       uint8_t gain, bool auto_brake) override;
 
   /**
-   * @brief 播放 ES8311 扬声器音频提示
+   * @brief 播放扬声器音频提示
    * @param bytes_written 实际写入 I2S 的字节数输出地址
    * @return 播放成功返回 true，否则返回 false
    */
   bool PlaySpeakerTone(size_t* bytes_written) override;
 
   /**
-   * @brief 创建后台任务播放 ES8311 扬声器音频
+   * @brief 创建后台任务播放扬声器音频
    * @return 任务创建成功返回 true，否则返回 false
    */
   bool StartSpeakerTone() override;
 
   /**
-   * @brief 创建后台任务循环播放 ES8311 扬声器音频预览
+   * @brief 创建后台任务循环播放扬声器音频预览
    * @return 任务创建成功或已经在播放返回 true，否则返回 false
    */
   bool StartSpeakerToneLoop() override;
 
   /**
-   * @brief 停止后台循环播放 ES8311 扬声器音频预览
+   * @brief 停止后台循环播放扬声器音频预览
    * @return 停止命令发送成功返回 true，否则返回 false
    */
   bool StopSpeakerToneLoop() override;
 
   /**
-   * @brief 设置 ES8311 扬声器播放音量百分比
+   * @brief 设置扬声器播放音量百分比
    * @param percent 音量百分比，范围 0~100
    * @return 设置成功返回 true，否则返回 false
    */
   bool SetSpeakerVolumePercent(int percent) override;
 
   /**
-   * @brief 读取 ES8311 扬声器播放状态
+   * @brief 读取扬声器播放状态
    * @param status 播放状态输出地址
    * @return 读取成功返回 true，否则返回 false
    */
@@ -184,26 +228,26 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ReadAudioFileStatus(AudioFilePlaybackStatus* status) override;
 
   /**
-   * @brief 创建后台任务读取 ES8311 麦克风采样数据
+   * @brief 创建后台任务读取麦克风采样数据
    * @return 任务创建成功返回 true，否则返回 false
    */
   bool StartMicrophone() override;
 
   /**
-   * @brief 停止 ES8311 麦克风采样并关闭 ADC PCM 到 DAC 的实时转送
+   * @brief 停止麦克风采样并关闭 ADC PCM 到 DAC 的实时转送
    * @return 停止命令发送成功返回 true，否则返回 false
    */
   bool StopMicrophone() override;
 
   /**
-   * @brief 设置是否将 ES8311 麦克风 ADC PCM 数据实时转送到 DAC
+   * @brief 设置是否将麦克风 ADC PCM 数据实时转送到 DAC
    * @param enable true 表示打开实时转送，false 表示关闭实时转送
    * @return 设置成功返回 true，否则返回 false
    */
   bool SetAudioAdcToDac(bool enable) override;
 
   /**
-   * @brief 读取 ES8311 麦克风状态
+   * @brief 读取麦克风状态
    * @param status 麦克风状态输出地址
    * @return 读取成功返回 true，否则返回 false
    */
@@ -314,7 +358,7 @@ class TDisplayP4Device final : public ScreenProvider,
   bool SupportsTouchInterrupt() const override;
 
   /**
-   * @brief 消费一个 XL9535 汇总输入变化通知
+   * @brief 消费一个触摸输入变化通知
    * @param edge_received 可选返回本次是否收到新的中断下降沿
    * @return 存在需要检查的触摸报告返回 true，否则返回 false
    */
@@ -354,27 +398,27 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ReadBatteryLevel(int* percent) override;
 
   /**
-   * @brief 获取 BQ27220 支持的电池额定容量范围
+   * @brief 获取 当前硬件版本支持的电池额定容量范围
    * @return 最小和最大额定容量，单位为 mAh
    */
   BatteryCapacityRange GetBatteryCapacityRange() const override;
 
   /**
-   * @brief 设置 BQ27220 使用的电池额定容量
+   * @brief 设置电量统计使用的电池额定容量
    * @param capacity_mah 电池额定容量，单位为 mAh
-   * @return 容量参数已保存到 BQ27220 时返回 true
+   * @return 容量参数已接受时返回 true
    */
   bool SetBatteryCapacityMah(int capacity_mah) override;
 
   /**
-   * @brief 读取 PCF8563 RTC 日期时间和时钟完整性状态
+   * @brief 读取当前硬件版本的 RTC 日期时间和时钟完整性状态
    * @param status RTC 状态输出地址
    * @return 读取到有效 RTC 数据返回 true，否则返回 false
    */
   bool ReadRtcStatus(RtcStatus* status) override;
 
   /**
-   * @brief 将 UTC Unix 时间转换为当前本地时区并写入 PCF8563
+   * @brief 将 UTC Unix 时间转换为当前本地时区并写入板级 RTC
    * @param unix_time UTC Unix 时间戳
    * @return 写入成功返回 true，否则返回 false
    */
@@ -451,19 +495,20 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ReadRadioStatus(uint32_t client_token, RadioStatus* status) override;
 
   /**
-   * @brief 启用或停用 ICM20948 IMU 数据采集
+   * @brief 启用或停用板载 IMU 数据采集
    * @param enabled true 唤醒 IMU，false 使 IMU 进入睡眠
    * @return IMU 目标工作状态设置成功返回 true，否则返回 false
    */
   bool SetImuEnabled(bool enabled) override;
 
   /**
-   * @brief 读取 ICM20948 姿态角状态
+   * @brief 读取板载 IMU 姿态角状态
    * @param status IMU 姿态状态输出地址
    * @return IMU 已启用且姿态数据读取成功返回 true，否则返回 false
    */
   bool ReadImuStatus(ImuStatus* status) override;
 
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   /**
    * @brief 异步启用或停用 IP101 以太网
    * @param enabled true 启动以太网，false 停止协议栈并关闭硬件电源
@@ -477,9 +522,10 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 读取成功返回 true，否则返回 false
    */
   bool ReadEthernetStatus(EthernetStatus* status) override;
+#endif
 
   /**
-   * @brief 异步启用或停用 ESP32-C6 hosted WiFi
+   * @brief 异步启用或停用 ESP32-C5/C6 hosted WiFi
    * @param enabled true 启动 WiFi，false 停止连接并关闭桥接芯片电源
    * @return 状态切换请求成功接受返回 true，否则返回 false
    */
@@ -568,8 +614,8 @@ class TDisplayP4Device final : public ScreenProvider,
   bool StartUsbStorage() override;
 
   /**
-   * @brief 停止 USB Host MSC 监控并关闭 USB Host 供电
-   * @return USB 资源和供电均成功释放返回 true，否则返回 false
+   * @brief 停止 USB Host MSC 监控并释放 USB 资源
+   * @return USB 资源成功释放返回 true，否则返回 false
    */
   bool StopUsbStorage() override;
 
@@ -610,6 +656,7 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   bool ExitDeviceSleep(bool deep_sleep = false) override;
 
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   /**
    * @brief 启动一次键盘扩展硬件扫描和初始化任务
    * @return 任务已启动或扩展已经就绪时返回 true，否则返回 false
@@ -702,8 +749,62 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 状态读取成功返回 true，否则返回 false
    */
   bool ReadNfcStatus(NfcStatus* status) override;
+#endif
 
  private:
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+  /**
+   * @brief 初始化 V2 电源键上拉输入
+   * @return GPIO 配置成功返回 true
+   */
+  bool InitializePowerButton();
+
+  /**
+   * @brief 初始化 V2 两个音量按键的上拉输入
+   * @return 两个 GPIO 均配置成功返回 true
+   */
+  bool InitializeVolumeButtons();
+
+  /**
+   * @brief 确认关机状态下的电源键持续长按
+   * @return 持续按住达到开机阈值返回 true
+   */
+  bool IsPowerButtonHeldForStartup();
+
+  /**
+   * @brief 在睡眠前限时等待电源键释放
+   */
+  void WaitForPowerButtonRelease();
+
+  /**
+   * @brief 配置电源键与关机充电巡检定时唤醒源
+   * @return 两种唤醒源均配置成功返回 true
+   */
+  bool ConfigurePowerOffWakeSources();
+
+  /**
+   * @brief 释放最小电源管理路径并准备关机充电深度睡眠
+   * @return 本次关机启动处理应执行的动作
+   */
+  PowerOffBootAction PreparePowerOffDeepSleep();
+
+  /**
+   * @brief 电池独立供电时请求运输模式并保留定时唤醒后备
+   * @return 本次关机启动处理应执行的动作
+   */
+  PowerOffBootAction PreparePowerOffShippingMode();
+
+  /**
+   * @brief 按供电状态处理常规关机或关机充电界面结束
+   * @param prepare_device_services 是否先停止正常应用服务
+   * @return 最终关机动作
+   */
+  PowerOffAction RequestPowerOffInternal(bool prepare_device_services);
+
+  bool power_button_initialized_ = false;
+  bool volume_buttons_initialized_ = false;
+#endif
+
   enum class CameraStartupAttemptResult : uint8_t {
     kSuccess,
     kStop,
@@ -720,25 +821,28 @@ class TDisplayP4Device final : public ScreenProvider,
   static constexpr int kScreenReadyPollMs = 20;
   static constexpr int kPowerOffTaskTimeoutMs = 5000;
   static constexpr int kPowerOffTaskPollMs = 20;
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   static constexpr uint32_t kKeyboardExpansionTaskStackBytes = 4096;
   static constexpr UBaseType_t kKeyboardExpansionTaskPriority = 1;
   static constexpr uint8_t kKeyboardExpansionDisconnectFailureThreshold = 3;
   static constexpr uint32_t kKeyboardExpansionConnectionDebounceMs = 50;
   static constexpr uint32_t kNfcPollingTaskStackBytes = 6 * 1024;
   static constexpr UBaseType_t kNfcPollingTaskPriority = 3;
+#endif
 
   /**
-   * @brief 初始化 XL9535 汇总中断对应的 ESP32-P4 GPIO
+   * @brief 初始化当前硬件版本的触摸中断 GPIO
    * @return 初始化成功返回 true，否则返回 false
    */
   bool InitializeTouchInterrupt();
 
   /**
-   * @brief 记录 XL9535 汇总中断，实际 I2C 读取由任务上下文完成
+   * @brief 记录触摸中断，实际 I2C 读取由任务上下文完成
    * @param context 当前设备对象
    */
   static void TouchInterruptHandler(void* context);
 
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   /**
    * @brief 启用键盘扩展重新连接上升沿监听
    * @param detect_current_level true 时同时检查当前连接电平
@@ -823,6 +927,7 @@ class TDisplayP4Device final : public ScreenProvider,
    * @brief 执行键盘扩展 ST25R3916 NFC 发现和卡片状态维护
    */
   void RunNfcPollingTask();
+#endif
 
   /**
    * @brief 等待异步屏幕初始化进入可用状态
@@ -904,13 +1009,13 @@ class TDisplayP4Device final : public ScreenProvider,
   bool WaitForPausedAudioFile();
 
   /**
-   * @brief 根据扬声器和麦克风的实际占用情况选择 ES8311 工作模式
+   * @brief 根据扬声器和麦克风的实际占用情况选择音频编解码器工作模式
    * @return 工作模式更新成功返回 true，否则返回 false
    */
   bool UpdateAudioCodecOperatingMode();
 
   /**
-   * @brief 根据 MP3 流参数配置 ES8311 PCM 输出
+   * @brief 根据 MP3 流参数配置音频编解码器 PCM 输出
    * @param sample_rate_hz 采样率
    * @param channel_count 声道数
    * @param bits_per_sample 采样位宽
@@ -933,7 +1038,7 @@ class TDisplayP4Device final : public ScreenProvider,
   bool TakeSeekRequest(uint32_t* position_ms) override;
 
   /**
-   * @brief 向 ES8311 写入解码后的 PCM 数据
+   * @brief 向音频编解码器写入解码后的 PCM 数据
    * @param data PCM 数据地址
    * @param size PCM 数据字节数
    * @return 完整写入返回 true，否则返回 false
@@ -1014,6 +1119,7 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   bool RenderCameraFrame(uint8_t* buffer, uint32_t width, uint32_t height);
 
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   /**
    * @brief 以太网初始化任务入口
    * @param context 设备对象指针
@@ -1056,6 +1162,7 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   static void EthernetGotIpEventHandler(
       void* arg, const char* event_base, int32_t event_id, void* event_data);
+#endif
 
   /**
    * @brief hosted WiFi 初始化任务入口
@@ -1091,7 +1198,7 @@ class TDisplayP4Device final : public ScreenProvider,
   void RunWifiConnectTask();
 
   /**
-   * @brief 等待 ESP32-C6 桥接芯片完成上电复位
+   * @brief 等待 ESP32-C5/C6 桥接芯片完成上电复位
    * @return 就绪返回 true，否则返回 false
    */
   bool WaitForWifiHardwareReady();
@@ -1143,13 +1250,13 @@ class TDisplayP4Device final : public ScreenProvider,
   static void WifiSntpAttemptTimerCallback(void* argument);
 
   /**
-   * @brief 将最近一次有效网络时间异步写入外部 RTC
+   * @brief 将最近一次有效网络时间异步写入板级 RTC
    * @param unix_time UTC Unix 时间戳
    */
   void ScheduleRtcSync(int64_t unix_time);
 
   /**
-   * @brief 外部 RTC 网络校时任务入口
+   * @brief 板级 RTC 网络校时任务入口
    * @param argument 设备对象指针
    */
   static void RtcSyncTaskEntry(void* argument);
@@ -1228,7 +1335,7 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<bool> seek_requested{false};
     // MP3 文件待定位的播放时间，单位毫秒
     std::atomic<uint32_t> seek_position_ms{0};
-    // 当前 ES8311 输出采样率
+    // 当前音频编解码器输出采样率
     std::atomic<uint32_t> sample_rate_hz{44100};
     // 当前 MP3 文件绝对路径
     char audio_file_path[512] = {};
@@ -1332,6 +1439,7 @@ class TDisplayP4Device final : public ScreenProvider,
     PpaSrmHelper ppa;
   };
 
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   struct EthernetState {
     // 用户是否已经请求停止以太网。
     std::atomic<bool> stop_requested{false};
@@ -1362,6 +1470,7 @@ class TDisplayP4Device final : public ScreenProvider,
     // ESP-IDF 以太网驱动句柄
     void* handle = nullptr;
   };
+#endif
 
   struct WifiState {
     // esp_hosted 桥接组件是否已经初始化完成
@@ -1443,9 +1552,9 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<int> sntp_attempt_count{0};
     // 每 10 秒触发下一次尝试，并在 30 秒时结束检测
     esp_timer_handle_t sntp_attempt_timer = nullptr;
-    // 外部 RTC 网络校时任务是否正在运行
+    // 板级 RTC 网络校时任务是否正在运行
     std::atomic<bool> rtc_sync_task_running{false};
-    // 最近一次写入外部 RTC 的 UTC Unix 时间戳
+    // 最近一次写入板级 RTC 的 UTC Unix 时间戳
     std::atomic<int64_t> rtc_sync_unix_time{0};
     // 进入测试前驱动是否已启动
     bool previous_running = false;
@@ -1508,6 +1617,7 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   RadioState* RadioStateForChip(radio::ChipType chip);
 
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   /**
    * @brief 启用 CC1101 完整数据包结束下降沿监听
    * @return 监听启用成功或已经启用返回 true，否则返回 false
@@ -1525,6 +1635,7 @@ class TDisplayP4Device final : public ScreenProvider,
    * @param context 当前设备对象
    */
   static void Cc1101ReceiveInterruptHandler(void* context);
+#endif
 
   /**
    * @brief 停止指定射频会话并清理芯片收发状态
@@ -1549,6 +1660,7 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   bool ReadRadioStateStatus(RadioState* state, RadioStatus* status);
 
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   static constexpr int kDefaultKeyboardBacklightBrightnessPercent = 10;
 
   struct KeyboardExpansionRuntimeState {
@@ -1593,15 +1705,16 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<bool> stop_requested{false};
     NfcStatus status;
   };
+#endif
 
   lilygo_device_driver::TDisplayP4Driver& driver_;
-  std::unique_ptr<cpp_bus_driver::Tool> tool_;
+  std::unique_ptr<cpp_bus_driver::PlatformHal> tool_;
   UsbStorageManager usb_storage_manager_;
   ScreenProviderDisplayCallbacks display_callbacks_;
-  // 应用层配置的电池额定容量，供设备信息和 BQ27220 配置使用。
+  // 应用层配置的电池额定容量，供电量统计和可配置电量计使用。
   std::atomic<int> battery_capacity_mah_{
       lilygo_device_driver::t_display_p4::device::kBatteryInfo.capacity_mah};
-  // XL9535 汇总中断是否已经完成注册。
+  // 当前硬件版本的触摸中断是否已经完成注册。
   bool touch_interrupt_initialized_ = false;
   // 中断服务等待任务上下文处理的通知标志。
   std::atomic<bool> touch_interrupt_pending_{false};
@@ -1617,14 +1730,17 @@ class TDisplayP4Device final : public ScreenProvider,
   MicrophoneState microphone_;
   // 摄像头预览状态，供 UI 和后台预览任务共享
   CameraPreviewState camera_preview_;
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   // 以太网运行状态，供事件回调和 UI 查询共享
   EthernetState ethernet_;
+#endif
   // WiFi 运行状态，供事件回调和 UI 查询共享
   WifiState wifi_;
   // WiFi 获取时间测试状态，保存测试流程和进入前配置
   WifiTimeTestState wifi_time_test_;
-  // 板载射频和两颗键盘扩展射频分别维护会话，同一芯片仅保留一条配置。
+  // 板载射频维护独立会话，同一芯片仅保留一条配置。
   RadioState radio_;
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   RadioState cc1101_radio_;
   RadioState nrf24l01_radio_;
   uint8_t radio_poll_index_ = 0;
@@ -1632,7 +1748,10 @@ class TDisplayP4Device final : public ScreenProvider,
   KeyboardExpansionRuntimeState keyboard_expansion_;
   // 键盘扩展 ST25R3916 的 CIT 轮询状态。
   NfcState nfc_;
+#endif
   std::atomic<bool> imu_enabled_{false};
+  // 保留跨 UART 读取的半包和多语句卫星聚合状态。
+  cpp_bus_driver::NmeaParser gps_parser_;
   bool gps_running_ = false;
   GpsStatus gps_status_;
 };

@@ -41,7 +41,7 @@ constexpr uint32_t kWifiConnectTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kWifiConnectTaskPriority = 3;
 constexpr uint32_t kWifiHardwareReadyTimeoutMs = 8000;
 constexpr uint32_t kWifiHardwareReadyPollMs = 50;
-constexpr uint32_t kWifiEsp32c6BootDelayMs = 500;
+constexpr uint32_t kWifiCoprocessorBootDelayMs = 500;
 constexpr uint32_t kWifiScanTimeoutMs = 8000;
 constexpr uint32_t kWifiScanStateRetryIntervalMs = 500;
 constexpr const char* kFactoryWifiSsid = "LilyGo-AABB";
@@ -55,6 +55,21 @@ static_assert(kWifiSntpAttemptIntervalMs * kWifiSntpMaxAttemptCount ==
 constexpr int kWifiMaxReconnectCount = 8;
 constexpr uint32_t kRtcSyncTaskStackBytes = 4 * 1024;
 constexpr UBaseType_t kRtcSyncTaskPriority = 3;
+
+/**
+ * @brief 根据 P4 硬件版本控制 WiFi 协处理器电源
+ * @param driver 板级驱动
+ * @param enabled 是否启用协处理器
+ * @return 电源状态设置成功返回 true
+ */
+bool SetWifiCoprocessorPowerEnabled(
+    lilygo_device_driver::TDisplayP4Driver& driver, bool enabled) {
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+  return driver.SetEsp32c5PowerEnabled(enabled);
+#else
+  return driver.SetEsp32c6PowerEnabled(enabled);
+#endif
+}
 
 /**
  * @brief 获取当前接收 SNTP 时间同步回调的设备实例
@@ -77,7 +92,7 @@ esp_err_t SetWifiCoprocessorResetLevel(void* user_data, bool level) {
   if (driver == nullptr) {
     return ESP_ERR_INVALID_ARG;
   }
-  return driver->SetEsp32c6PowerEnabled(level) ? ESP_OK : ESP_FAIL;
+  return SetWifiCoprocessorPowerEnabled(*driver, level) ? ESP_OK : ESP_FAIL;
 }
 
 }  // namespace
@@ -115,7 +130,7 @@ bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
       wifi_.running.store(false);
       wifi_.connected.store(false);
       wifi_.got_ip.store(false);
-      return driver_.SetEsp32c6PowerEnabled(false);
+      return SetWifiCoprocessorPowerEnabled(driver_, false);
     }
 
     if (wifi_.scan_running.load() || wifi_.scan_task_running.load()) {
@@ -124,7 +139,7 @@ bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
           scan_result != ESP_ERR_INVALID_STATE &&
           scan_result != ESP_ERR_WIFI_STATE) {
         SetWifiFailure(scan_result);
-        driver_.SetEsp32c6PowerEnabled(false);
+        SetWifiCoprocessorPowerEnabled(driver_, false);
         return false;
       }
     }
@@ -134,14 +149,14 @@ bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
     esp_err_t result = esp_wifi_stop();
     if (result != ESP_OK && result != ESP_ERR_WIFI_NOT_STARTED) {
       SetWifiFailure(result);
-      driver_.SetEsp32c6PowerEnabled(false);
+      SetWifiCoprocessorPowerEnabled(driver_, false);
       return false;
     }
 
     result = esp_wifi_set_mode(WIFI_MODE_NULL);
     if (result != ESP_OK) {
       SetWifiFailure(result);
-      driver_.SetEsp32c6PowerEnabled(false);
+      SetWifiCoprocessorPowerEnabled(driver_, false);
       return false;
     }
 
@@ -152,7 +167,7 @@ bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
     result = esp_wifi_deinit();
     if (result != ESP_OK && result != ESP_ERR_WIFI_NOT_INIT) {
       SetWifiFailure(result);
-      driver_.SetEsp32c6PowerEnabled(false);
+      SetWifiCoprocessorPowerEnabled(driver_, false);
       return false;
     }
     wifi_.driver_initialized.store(false);
@@ -164,7 +179,7 @@ bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
       result = static_cast<esp_err_t>(esp_hosted_deinit());
       if (result != ESP_OK) {
         SetWifiFailure(result);
-        driver_.SetEsp32c6PowerEnabled(false);
+        SetWifiCoprocessorPowerEnabled(driver_, false);
         return false;
       }
     }
@@ -185,7 +200,7 @@ bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
     wifi_.ip_address.store(0);
     wifi_.netmask.store(0);
     wifi_.gateway.store(0);
-    return driver_.SetEsp32c6PowerEnabled(false);
+    return SetWifiCoprocessorPowerEnabled(driver_, false);
   }
 
   wifi_.stop_requested.store(false);
@@ -193,7 +208,7 @@ bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
     return true;
   }
 
-  if (!driver_.SetEsp32c6PowerEnabled(true)) {
+  if (!SetWifiCoprocessorPowerEnabled(driver_, true)) {
     SetWifiFailure(ESP_FAIL);
     return false;
   }
@@ -209,7 +224,7 @@ bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
       kWifiInitTaskStackBytes, this, kWifiInitTaskPriority, nullptr);
   if (result != pdPASS) {
     SetWifiFailure(ESP_ERR_NO_MEM);
-    driver_.SetEsp32c6PowerEnabled(false);
+    SetWifiCoprocessorPowerEnabled(driver_, false);
     return false;
   }
   return true;
@@ -748,7 +763,7 @@ bool TDisplayP4Device::WaitForWifiHardwareReady() {
     return false;
   }
 
-  vTaskDelay(pdMS_TO_TICKS(kWifiEsp32c6BootDelayMs));
+  vTaskDelay(pdMS_TO_TICKS(kWifiCoprocessorBootDelayMs));
   return true;
 }
 
@@ -1155,7 +1170,7 @@ void TDisplayP4Device::RtcSyncTaskEntry(void* argument) {
   if (!self->WriteRtcUnixTime(unix_time)) {
     self->wifi_time_test_.rtc_sync_unix_time.store(0);
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Write network time to PCF8563 failed\n");
+        "Write network time to RTC failed\n");
   }
   self->wifi_time_test_.rtc_sync_task_running.store(false);
   vTaskDelete(nullptr);

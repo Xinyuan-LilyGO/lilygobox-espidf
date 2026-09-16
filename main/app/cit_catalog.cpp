@@ -34,19 +34,23 @@ constexpr CitTestEntry kCitTestEntries[] = {
         .name = "Battery Management Test",
         .status = CitTestStatus::kPending},
     {.id = "gps", .name = "GPS Test", .status = CitTestStatus::kPending},
-#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4) && \
+    !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
     {.id = "keyboard",
         .name = "Keyboard Expansion - Keyboard Test",
         .status = CitTestStatus::kPending},
     {.id = "ethernet",
         .name = "Ethernet Test",
         .status = CitTestStatus::kPending},
+#endif
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
     {.id = "rtc", .name = "RTC Test", .status = CitTestStatus::kPending},
 #endif
     {.id = "wifi",
         .name = "WIFI Get Time Test",
         .status = CitTestStatus::kPending},
-#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4) && \
+    !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
     {.id = "nfc",
         .name = "Keyboard Expansion - NFC Test",
         .status = CitTestStatus::kPending},

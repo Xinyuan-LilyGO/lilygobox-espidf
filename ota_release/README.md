@@ -150,7 +150,8 @@ Beta channels remain discoverable.
 ```text
 ota_release/
 ├─ devices/
-│  ├─ t-display-p4.json
+│  ├─ t-display-p4-v1.json
+│  ├─ t-display-p4-v2.json
 │  └─ t-display-p4-air.json
 ├─ input/                           User-provided, ignored by Git
 ├─ output/                          Generated, ignored by Git
@@ -164,13 +165,13 @@ ota_release/
 Generated files are stored in:
 
 ```text
-output/<deviceId>/<channel>/<Release tag>/
+output/<deviceId or deviceId-vHardwareVersion>/<channel>/<Release tag>/
 ```
 
 ## Usage
 
 Run these single-line commands from `lilygobox-espidf/ota_release`.
-The generator defaults to `devices/t-display-p4.json`. For T-Display-P4-Air,
+The generator defaults to `devices/t-display-p4-v1.json`. For T-Display-P4-Air,
 add `--config .\devices\t-display-p4-air.json` to the command.
 
 The project defaults `PROJECT_VER` to `1.0.0`. Supply the matching embedded
@@ -195,10 +196,54 @@ version. An explicit `--release` is still required when updating only wireless
 firmware or otherwise omitting the main firmware. If supplied alongside a main
 firmware image, `--release` must match the main firmware version.
 
+### Independent T-Display-P4 V1 / V2 Releases
+
+Select the board with `--config`. Each first release requires only that board's
+Main and Wireless images. Build and version V1 and V2 independently;
+`--device-version` is no longer used.
+
+| Configuration | deviceId | Hardware version | Wireless chip |
+| --- | --- | --- | --- |
+| `t-display-p4-v1.json` (default) | `t-display-p4` | `1.0` | ESP32-C6 rev0.0 |
+| `t-display-p4-v2.json` | `t-display-p4` | `2.0` | ESP32-C5 rev1.0 |
+
+V1 and V2 share the device identity; `deviceVersion` distinguishes hardware
+compatibility. Manifest names and output directories derive directly from
+`deviceId` and `deviceVersion`. Hardware version `1.0` retains its historical
+paths; other versions append the full version, such as `t-display-p4-v2.0`.
+Firmware file IDs already contain the hardware version, so their filename
+prefix uses only `deviceId`. Each independent configuration contains one
+hardware version and may include multiple silicon revision targets for it.
+
+First V1 release:
+
+```bat
+python .\generate_manifest.py --config .\devices\t-display-p4-v1.json --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\v1\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\v1\network_adapter.bin"
+```
+
+First V2 release:
+
+```bat
+python .\generate_manifest.py --config .\devices\t-display-p4-v2.json --channel stable --firmware-file "device-v2.0-esp32p4-rev1.0=.\input\v2\lilygobox-espidf.bin" --firmware-file "device-v2.0-esp32c5-rev1.0=.\input\v2\network_adapter.bin"
+```
+
+For later releases, inherit only the same board's manifest from the same channel
+with `--previous-manifest`. No images from the other board are needed.
+Both Main targets use ESP32-P4 silicon revision `1.0`, independently of PCB
+version. File IDs must match the actual board build configuration.
+
+V1 keeps its existing OTA URL. V2 uses
+`lilygobox-t-display-p4-v2.0-ota-manifest-<channel>-v1.json`, with output under
+`output/t-display-p4-v2.0/<channel>/<Release tag>/`.
+Both manifests coexist in a channel Release: replace only the selected board's
+manifest and retain the other assets. Older V2 firmware using the original P4
+URL must first be updated to firmware using the new V2 URL.
+Examples below without `--config` apply to V1.
+
 ### First Stable Release
 
 ```bat
-python .\generate_manifest.py --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\network_adapter.bin" --note "Initial LilygoBox firmware release"
+python .\generate_manifest.py --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\v1\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\v1\network_adapter.bin" --note "Initial LilygoBox firmware release"
 ```
 
 T-Display-P4-Air uses its independent device ID and ESP32-C5 Wireless image:
@@ -227,13 +272,13 @@ and continue to reference the historical Release containing each BIN.
 First Alpha example:
 
 ```bat
-python .\generate_manifest.py --channel alpha --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\network_adapter.bin" --note "1.1.0 alpha build"
+python .\generate_manifest.py --channel alpha --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\v1\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\v1\network_adapter.bin" --note "1.1.0 alpha build"
 ```
 
 First Beta example:
 
 ```bat
-python .\generate_manifest.py --channel beta --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\network_adapter.bin" --note "1.1.0 public beta"
+python .\generate_manifest.py --channel beta --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\v1\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\v1\network_adapter.bin" --note "1.1.0 public beta"
 ```
 
 Later Alpha or Beta releases inherit unchanged files from the previous
@@ -243,7 +288,7 @@ uses one hardware configuration file shared by all three channels.
 
 ## Add a Board or Chip Revision
 
-Edit the matching file under `devices/`, such as `t-display-p4.json` or
+Edit the matching file under `devices/`, such as `t-display-p4-v1.json` or
 `t-display-p4-air.json`:
 
 1. Add a file ID with its trusted `chip` and `projectName`.

@@ -51,8 +51,8 @@ bool TDisplayP4AirDevice::InitializeTouchInterrupt() {
 
   touch_interrupt_pending_.store(false, std::memory_order_relaxed);
   if (!tool_->InitGpioInterrupt(gpio::hi8561::kTouchInt,
-          cpp_bus_driver::Tool::InterruptMode::kFalling, TouchInterruptHandler,
-          this, cpp_bus_driver::Tool::GpioStatus::kPullup)) {
+          cpp_bus_driver::PlatformHal::InterruptMode::kFalling, TouchInterruptHandler,
+          this, cpp_bus_driver::PlatformHal::GpioStatus::kPullup)) {
     return false;
   }
 

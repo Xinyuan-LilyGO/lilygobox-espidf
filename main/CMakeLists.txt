@@ -25,6 +25,12 @@ if(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
         "hal/device/common"
         "hal/device/t_display_p4"
         "hal/usb")
+    if(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+        list(APPEND src_dirs "hal/device/t_display_p4/v2")
+        set(exclude_srcs "hal/device/common/st25r3916_nfc.cpp")
+    else()
+        list(APPEND src_dirs "hal/device/t_display_p4/v1")
+    endif()
 elseif(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
     list(APPEND src_dirs
         "hal/device/common"
@@ -34,6 +40,7 @@ endif()
 
 idf_component_register(
     SRC_DIRS ${src_dirs}
+    EXCLUDE_SRCS ${exclude_srcs}
     INCLUDE_DIRS "."
     REQUIRES
         esp_driver_ppa

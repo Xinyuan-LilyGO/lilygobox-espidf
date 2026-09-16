@@ -41,14 +41,23 @@ const char* TDisplayP4Device::SdCardBasePath() const {
 }
 
 bool TDisplayP4Device::StartUsbStorage() {
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   if (!driver_.SetUsbHostPowerEnabled(true)) {
     return false;
   }
+  if (!usb_storage_manager_.Start()) {
+    // 任务创建失败不会进入 Host 停止回调，需要在这里撤销 Type-A 供电。
+    driver_.SetUsbHostPowerEnabled(false);
+    return false;
+  }
+  return true;
+#else
   return usb_storage_manager_.Start();
+#endif
 }
 
 bool TDisplayP4Device::StopUsbStorage() {
-  // USB PHY 供电保持开启可避免 ESP32-P4 产生约 20 mA 的额外功耗。
+  // V2 在 Host 完全停止后的回调中关闭 Type-A 供电。
   return usb_storage_manager_.Stop();
 }
 

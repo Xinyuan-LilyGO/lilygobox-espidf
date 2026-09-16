@@ -668,11 +668,24 @@ def validate_config(config: dict[str, Any]) -> None:
         )
 
 
+def device_release_name(config: dict[str, Any]) -> str:
+    """根据已有硬件版本区分清单和目录，保留 1.0 的历史发布路径。"""
+    versions = {
+        target["compatibility"]["deviceVersion"] for target in config["targets"]
+    }
+    if len(versions) != 1:
+        raise ValueError("独立发布配置只能包含一个 deviceVersion")
+    version = next(iter(versions))
+    if version == "1.0":
+        return config["deviceId"]
+    return f"{config['deviceId']}-v{version}"
+
+
 def build_manifest_filename(config: dict[str, Any], channel: str) -> str:
     """根据设备标识和格式版本生成固定 Manifest 资产文件名。"""
     major_version = config["manifestVersion"].split(".", 1)[0]
     return (
-        f"lilygobox-{config['deviceId']}-ota-manifest-"
+        f"lilygobox-{device_release_name(config)}-ota-manifest-"
         f"{channel}-v{major_version}.json"
     )
 
@@ -984,7 +997,7 @@ def build_argument_parser(default_config: Path) -> argparse.ArgumentParser:
 def main() -> int:
     """生成仅包含本次需要上传资源的 Release 目录。"""
     script_directory = Path(__file__).resolve().parent
-    default_config = script_directory / "devices" / "t-display-p4.json"
+    default_config = script_directory / "devices" / "t-display-p4-v1.json"
     parser = build_argument_parser(default_config)
     args = parser.parse_args()
 
@@ -1088,7 +1101,7 @@ def main() -> int:
         )
         output_directory = (
             output_root
-            / config["deviceId"]
+            / device_release_name(config)
             / args.channel
             / release_tag
         )

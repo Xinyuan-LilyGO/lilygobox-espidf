@@ -26,7 +26,7 @@
 #include "hal/ppa/ppa_srm_helper.h"
 #include "hal/providers/providers.h"
 #include "hal/usb/usb_storage_manager.h"
-#include "t_display_p4_air_driver.h"
+#include "device/t_display_p4_air/driver.h"
 
 namespace lilygo_box::hal {
 
@@ -1483,7 +1483,7 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   // Air 设备独占的底层板级驱动实例。
   TDisplayP4AirBoardDriver& driver_;
   // 底层驱动异步初始化与任务调度工具。
-  std::unique_ptr<cpp_bus_driver::Tool> tool_;
+  std::unique_ptr<cpp_bus_driver::PlatformHal> tool_;
   // SD 卡与 USB Host MSC 的统一存储管理器。
   UsbStorageManager usb_storage_manager_;
   // LVGL 端注册的像素传输和物理刷新回调。
@@ -1530,9 +1530,7 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   // 保护 nRF9151 的 AT 指令和异步 NMEA 串口数据，避免 GNSS 与蜂窝业务抢占。
   SemaphoreHandle_t nrf9151_mutex_ = nullptr;
   // Air 板使用独立解析器处理 nRF9151 输出的标准 NMEA 语句。
-  cpp_bus_driver::GnssParser gps_parser_;
-  // 保存尚未接收到换行符的 nRF9151 UART 半包。
-  std::string gps_pending_data_;
+  cpp_bus_driver::NmeaParser gps_parser_;
   bool gps_running_ = false;
   GpsStatus gps_status_;
 };

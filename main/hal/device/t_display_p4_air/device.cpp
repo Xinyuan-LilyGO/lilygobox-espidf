@@ -17,7 +17,7 @@ namespace lilygo_box::hal {
 
 TDisplayP4AirDevice::TDisplayP4AirDevice()
     : driver_(TDisplayP4AirBoardDriver::GetInstance()),
-      tool_(std::make_unique<cpp_bus_driver::Tool>()) {
+      tool_(std::make_unique<cpp_bus_driver::PlatformHal>()) {
   wifi_.scan_results_mutex = xSemaphoreCreateMutex();
   radio_.mutex = xSemaphoreCreateMutex();
   otg_.mutex = xSemaphoreCreateMutex();

@@ -10,11 +10,11 @@
 
 #include "app/application.h"
 #include "base/logger.h"
-#include "cpp_bus_driver_library.h"
+#include "cpp_bus_driver.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "lilygo_device_driver_library.h"
+#include "lilygo_device_driver.h"
 
 namespace {
 
@@ -41,8 +41,8 @@ constexpr uint32_t kInitializationFailureRestartDelayMs = 1000;
 
 extern "C" void app_main() {
   // lilygo_box::SetMinimumLogLevel(lilygo_box::LogLevel::kDebug);
-  // cpp_bus_driver::Tool::SetMinimumLogLevel(
-  //     cpp_bus_driver::Tool::LogLevel::kDebug);
+  // cpp_bus_driver::Logger::SetMinimumLogLevel(
+  //     cpp_bus_driver::Logger::LogLevel::kDebug);
   // lilygo_device_driver::SetMinimumLogLevel(
   //     lilygo_device_driver::LogLevel::kDebug);
 

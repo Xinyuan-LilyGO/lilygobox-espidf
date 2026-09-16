@@ -1,5 +1,5 @@
 /*
- * @Description: T-Display-P4-Air 电源与 OTG 硬件实现
+ * @Description: T-Display-P4 V2 电源、实体按键与关机充电实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
  * @LastEditTime: 2026-09-02 17:53:38
@@ -15,10 +15,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "hal/device/t_display_p4_air/device.h"
+#include "hal/device/t_display_p4/device.h"
 
 namespace lilygo_box::hal {
-namespace gpio = lilygo_device_driver::t_display_p4_air::gpio;
+namespace gpio = lilygo_device_driver::t_display_p4::gpio;
 namespace {
 
 // 关机充电状态每 5 秒短暂唤醒一次，仅用于检查 USB 是否已经拔出。
@@ -34,7 +34,7 @@ RTC_DATA_ATTR bool g_power_off_charging_screen_pending = false;
 
 }  // namespace
 
-bool TDisplayP4AirDevice::InitializePowerButton() {
+bool TDisplayP4Device::InitializePowerButton() {
   if (power_button_initialized_) {
     return true;
   }
@@ -48,7 +48,7 @@ bool TDisplayP4AirDevice::InitializePowerButton() {
   return power_button_initialized_;
 }
 
-bool TDisplayP4AirDevice::InitializeVolumeButtons() {
+bool TDisplayP4Device::InitializeVolumeButtons() {
   if (volume_buttons_initialized_) {
     return true;
   }
@@ -60,13 +60,13 @@ bool TDisplayP4AirDevice::InitializeVolumeButtons() {
       tool_->SetGpioMode(gpio::button::kEsp32p4Boot,
           cpp_bus_driver::PlatformHal::GpioMode::kInput,
           cpp_bus_driver::PlatformHal::GpioStatus::kPullup) &&
-      tool_->SetGpioMode(gpio::button::kKey1,
+      tool_->SetGpioMode(gpio::button::kKey,
           cpp_bus_driver::PlatformHal::GpioMode::kInput,
           cpp_bus_driver::PlatformHal::GpioStatus::kPullup);
   return volume_buttons_initialized_;
 }
 
-bool TDisplayP4AirDevice::IsPowerButtonHeldForStartup() {
+bool TDisplayP4Device::IsPowerButtonHeldForStartup() {
   if (!InitializePowerButton()) {
     return false;
   }
@@ -87,7 +87,7 @@ bool TDisplayP4AirDevice::IsPowerButtonHeldForStartup() {
   return true;
 }
 
-void TDisplayP4AirDevice::WaitForPowerButtonRelease() {
+void TDisplayP4Device::WaitForPowerButtonRelease() {
   if (!InitializePowerButton()) {
     return;
   }
@@ -104,7 +104,7 @@ void TDisplayP4AirDevice::WaitForPowerButtonRelease() {
       "Power button remained pressed before power-off deep sleep\n");
 }
 
-bool TDisplayP4AirDevice::ConfigurePowerOffWakeSources() {
+bool TDisplayP4Device::ConfigurePowerOffWakeSources() {
   const esp_err_t disable_result =
       esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
   if (disable_result != ESP_OK) {
@@ -136,7 +136,7 @@ bool TDisplayP4AirDevice::ConfigurePowerOffWakeSources() {
   return true;
 }
 
-PowerOffBootAction TDisplayP4AirDevice::PreparePowerOffDeepSleep() {
+PowerOffBootAction TDisplayP4Device::PreparePowerOffDeepSleep() {
   WaitForPowerButtonRelease();
   if (!ConfigurePowerOffWakeSources()) {
     return PowerOffBootAction::kFailed;
@@ -148,7 +148,7 @@ PowerOffBootAction TDisplayP4AirDevice::PreparePowerOffDeepSleep() {
   return PowerOffBootAction::kEnterDeepSleep;
 }
 
-PowerOffBootAction TDisplayP4AirDevice::PreparePowerOffShippingMode() {
+PowerOffBootAction TDisplayP4Device::PreparePowerOffShippingMode() {
   WaitForPowerButtonRelease();
   if (!ConfigurePowerOffWakeSources()) {
     return PowerOffBootAction::kFailed;
@@ -168,7 +168,7 @@ PowerOffBootAction TDisplayP4AirDevice::PreparePowerOffShippingMode() {
   return PowerOffBootAction::kEnterDeepSleep;
 }
 
-bool TDisplayP4AirDevice::ReadPowerButtonPressed(bool* pressed) {
+bool TDisplayP4Device::ReadPowerButtonPressed(bool* pressed) {
   if (pressed == nullptr || !power_button_initialized_ || tool_ == nullptr) {
     return false;
   }
@@ -178,7 +178,7 @@ bool TDisplayP4AirDevice::ReadPowerButtonPressed(bool* pressed) {
   return true;
 }
 
-bool TDisplayP4AirDevice::ReadVolumeUpButtonPressed(bool* pressed) {
+bool TDisplayP4Device::ReadVolumeUpButtonPressed(bool* pressed) {
   if (pressed == nullptr || !volume_buttons_initialized_ || tool_ == nullptr) {
     return false;
   }
@@ -188,17 +188,17 @@ bool TDisplayP4AirDevice::ReadVolumeUpButtonPressed(bool* pressed) {
   return true;
 }
 
-bool TDisplayP4AirDevice::ReadVolumeDownButtonPressed(bool* pressed) {
+bool TDisplayP4Device::ReadVolumeDownButtonPressed(bool* pressed) {
   if (pressed == nullptr || !volume_buttons_initialized_ || tool_ == nullptr) {
     return false;
   }
 
   // KEY1 音量减按键使用上拉输入，按下时把 GPIO 拉低。
-  *pressed = !tool_->GpioRead(gpio::button::kKey1);
+  *pressed = !tool_->GpioRead(gpio::button::kKey);
   return true;
 }
 
-PowerOffBootAction TDisplayP4AirDevice::ResolvePowerOffBoot(
+PowerOffBootAction TDisplayP4Device::ResolvePowerOffBoot(
     bool power_off_requested) {
   if (!driver_.InitMinimal() || !InitializePowerButton() ||
       !driver_.IsAxp517Ready() || driver_.chip().axp517 == nullptr) {
@@ -242,7 +242,7 @@ PowerOffBootAction TDisplayP4AirDevice::ResolvePowerOffBoot(
                             reset_reason == ESP_RST_POWERON && vbus_inserted;
 
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-      "Resolve Air power-off boot: requested=%d, reset=%d, wakeup=%d, "
+      "Resolve P4 V2 power-off boot: requested=%d, reset=%d, wakeup=%d, "
       "vbus=%d, button=%d, usb_insert=%d\n",
       power_off_requested ? 1 : 0, static_cast<int>(reset_reason),
       static_cast<int>(wakeup_cause), external_power_present ? 1 : 0,
@@ -289,15 +289,15 @@ PowerOffBootAction TDisplayP4AirDevice::ResolvePowerOffBoot(
   return PowerOffBootAction::kShowChargingScreen;
 }
 
-PowerOffAction TDisplayP4AirDevice::RequestPowerOff() {
+PowerOffAction TDisplayP4Device::RequestPowerOff() {
   return RequestPowerOffInternal(true);
 }
 
-PowerOffAction TDisplayP4AirDevice::RequestPowerOffFromChargingScreen() {
+PowerOffAction TDisplayP4Device::RequestPowerOffFromChargingScreen() {
   return RequestPowerOffInternal(false);
 }
 
-PowerOffAction TDisplayP4AirDevice::RequestPowerOffInternal(
+PowerOffAction TDisplayP4Device::RequestPowerOffInternal(
     bool prepare_device_services) {
   if (!driver_.IsAxp517Ready() || driver_.chip().axp517 == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
@@ -326,7 +326,7 @@ PowerOffAction TDisplayP4AirDevice::RequestPowerOffInternal(
 
   if (prepare_device_services && !PrepareForPowerOff()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Prepare Air device for power off failed\n");
+        "Prepare P4 V2 device for power off failed\n");
     // 不再访问可能仍由应用任务占用的硬件，定时唤醒后重新处理关机状态。
     g_power_off_rtc_magic = kPowerOffRtcMagic;
     g_power_off_charging_screen_pending = true;
@@ -350,8 +350,18 @@ PowerOffAction TDisplayP4AirDevice::RequestPowerOffInternal(
 
   if (!driver_.PrepareDriversForPowerOff()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Prepare Air board hardware for power off failed\n");
+        "Prepare P4 V2 board hardware for power off failed\n");
     // 不再访问可能仍由初始化任务占用的硬件，定时唤醒后重新处理关机状态。
+    g_power_off_rtc_magic = kPowerOffRtcMagic;
+    g_power_off_charging_screen_pending = true;
+    return PowerOffAction::kEnterDeepSleep;
+  }
+
+  // V2 的完整关机准备会释放电源管理总线，重新建立最小路径后才能读取
+  // VBUS 和请求运输模式。此时后台外设任务已经退出，不会再次启动。
+  if (!driver_.InitMinimal() || !driver_.IsAxp517Ready()) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Restore V2 power management path after hardware shutdown failed\n");
     g_power_off_rtc_magic = kPowerOffRtcMagic;
     g_power_off_charging_screen_pending = true;
     return PowerOffAction::kEnterDeepSleep;
@@ -397,260 +407,6 @@ PowerOffAction TDisplayP4AirDevice::RequestPowerOffInternal(
   }
   // 正常情况下 BATFET 会立即断开；深度睡眠是 USB 同时插入时的安全后备。
   return PowerOffAction::kEnterDeepSleep;
-}
-
-bool TDisplayP4AirDevice::SetOtgPowerEnabled(bool enabled) {
-  if (otg_.mutex == nullptr ||
-      xSemaphoreTake(otg_.mutex, pdMS_TO_TICKS(kOtgMutexTimeoutMs)) != pdTRUE) {
-    return false;
-  }
-
-  auto* axp517 =
-      driver_.IsAxp517Ready() ? driver_.chip().axp517.get() : nullptr;
-  bool result = axp517 != nullptr || !enabled;
-  if (axp517 == nullptr) {
-    otg_.source_role_enabled = false;
-    otg_.power_output_enabled = false;
-  } else if (!enabled) {
-    otg_.source_role_enabled = false;
-    result = SetOtgPowerOutputEnabledLocked(false);
-    result &= axp517->SetVbusDetectEnable(true);
-    result &= axp517->SetPdRole(false, false);
-  } else {
-    bool external_power_present = false;
-    result = ReadExternalPowerPresentLocked(&external_power_present);
-    if (result && external_power_present) {
-      otg_.source_role_enabled = false;
-      bool safe_state_result = SetOtgPowerOutputEnabledLocked(false);
-      safe_state_result &= axp517->SetPdRole(false, false);
-      if (!safe_state_result) {
-        LogMessage(LogLevel::kError, __FILE__, __LINE__,
-            "Keep OTG disabled while external power is present failed\n");
-      }
-      result = false;
-    } else if (result) {
-      result = SetOtgPowerOutputEnabledLocked(false);
-      result &= axp517->SetVbusDetectEnable(true);
-      result &= axp517->SetPdRole(true, true);
-      if (result) {
-        otg_.source_role_enabled = true;
-        result = UpdateOtgPowerStateLocked();
-      } else {
-        otg_.source_role_enabled = false;
-        SetOtgPowerOutputEnabledLocked(false);
-        axp517->SetPdRole(false, false);
-      }
-    }
-  }
-
-  xSemaphoreGive(otg_.mutex);
-  return result;
-}
-
-bool TDisplayP4AirDevice::UpdateOtgPowerState() {
-  if (otg_.mutex == nullptr ||
-      xSemaphoreTake(otg_.mutex, pdMS_TO_TICKS(kOtgMutexTimeoutMs)) != pdTRUE) {
-    return false;
-  }
-  const bool result = driver_.IsAxp517Ready() &&
-                      driver_.chip().axp517 != nullptr &&
-                      UpdateOtgPowerStateLocked();
-  xSemaphoreGive(otg_.mutex);
-  return result;
-}
-
-bool TDisplayP4AirDevice::ReadExternalPowerPresent(bool* present) {
-  if (present == nullptr || otg_.mutex == nullptr ||
-      xSemaphoreTake(otg_.mutex, pdMS_TO_TICKS(kOtgMutexTimeoutMs)) != pdTRUE) {
-    return false;
-  }
-  const bool result = driver_.IsAxp517Ready() &&
-                      driver_.chip().axp517 != nullptr &&
-                      ReadExternalPowerPresentLocked(present);
-  xSemaphoreGive(otg_.mutex);
-  return result;
-}
-
-bool TDisplayP4AirDevice::SetOtgPowerOutputEnabledLocked(bool enabled) {
-  auto* axp517 = driver_.chip().axp517.get();
-  if (axp517 == nullptr) {
-    return false;
-  }
-  if (otg_.power_output_enabled == enabled) {
-    return true;
-  }
-
-  if (enabled) {
-    if (!axp517->SetBoostEnable(true) || !axp517->SetForceRbfetEnable(true)) {
-      axp517->SetForceRbfetEnable(false);
-      axp517->SetBoostEnable(false);
-      otg_.power_output_enabled = false;
-      return false;
-    }
-  } else {
-    bool result = axp517->SetForceRbfetEnable(false);
-    result &= axp517->SetBoostEnable(false);
-    if (!result) {
-      return false;
-    }
-  }
-
-  otg_.power_output_enabled = enabled;
-  LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-      enabled ? "OTG reverse-power output enabled\n"
-              : "OTG reverse-power output disabled\n");
-  return true;
-}
-
-bool TDisplayP4AirDevice::ReadExternalPowerPresentLocked(bool* present) {
-  auto* axp517 = driver_.chip().axp517.get();
-  if (axp517 == nullptr) {
-    return false;
-  }
-  cpp_bus_driver::Axp517::PdConnectionStatus connection_status;
-  cpp_bus_driver::Axp517::ChipStatus0 chip_status;
-  if (!axp517->GetPdConnectionStatus(connection_status) ||
-      !axp517->GetChipStatus0(chip_status)) {
-    return false;
-  }
-  *present = connection_status.sink_power_attached ||
-             (!otg_.power_output_enabled && chip_status.vbus_good_indication);
-  return true;
-}
-
-bool TDisplayP4AirDevice::UpdateOtgPowerStateLocked() {
-  auto* axp517 = driver_.chip().axp517.get();
-  if (axp517 == nullptr) {
-    return false;
-  }
-  if (!otg_.source_role_enabled) {
-    return SetOtgPowerOutputEnabledLocked(false);
-  }
-
-  cpp_bus_driver::Axp517::PdConnectionStatus connection_status;
-  cpp_bus_driver::Axp517::ChipStatus0 chip_status;
-  if (!axp517->GetPdConnectionStatus(connection_status) ||
-      !axp517->GetChipStatus0(chip_status)) {
-    return false;
-  }
-  const bool external_power_present =
-      connection_status.sink_power_attached ||
-      (!otg_.power_output_enabled && chip_status.vbus_good_indication);
-  if (external_power_present) {
-    otg_.source_role_enabled = false;
-    bool result = SetOtgPowerOutputEnabledLocked(false);
-    result &= axp517->SetPdRole(false, false);
-    return result;
-  }
-  if (connection_status.looking_for_connection) {
-    return SetOtgPowerOutputEnabledLocked(false);
-  }
-  if (connection_status.source_device_attached) {
-    return SetOtgPowerOutputEnabledLocked(true);
-  }
-  if (!SetOtgPowerOutputEnabledLocked(false)) {
-    return false;
-  }
-  return axp517->SetPdRole(true, true);
-}
-
-bool TDisplayP4AirDevice::EnterDeviceSleep(bool deep_sleep) {
-  if (!deep_sleep && !WaitForScreenReady()) {
-    return false;
-  }
-  if (!deep_sleep) {
-    touch_gesture_wake_enabled_ =
-        driver_.IsHi8561TouchReady() &&
-        driver_.chip().hi8561_touch->SetGestureWakeEnabled(true);
-    const bool screen_slept = driver_.SetScreenSleep(true);
-    if (!screen_slept && touch_gesture_wake_enabled_) {
-      driver_.chip().hi8561_touch->SetGestureWakeEnabled(false);
-      touch_gesture_wake_enabled_ = false;
-    }
-    return screen_slept;
-  }
-
-  const bool prepared = PrepareForPowerOff();
-  if (!prepared) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Prepare device for power off failed\n");
-    return false;
-  }
-  if (!driver_.PrepareDriversForPowerOff()) {
-    return false;
-  }
-  return driver_.PrepareMinimalDriversForPowerOff();
-}
-
-bool TDisplayP4AirDevice::ExitDeviceSleep(bool deep_sleep) {
-  if (deep_sleep) {
-    return false;
-  }
-  const bool result = driver_.SetScreenSleep(false);
-  if (!result) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Wake device from chip sleep failed\n");
-    return false;
-  }
-  if (touch_gesture_wake_enabled_) {
-    if (!driver_.chip().hi8561_touch->SetGestureWakeEnabled(false)) {
-      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Disable HI8561 touch gesture wake failed\n");
-    }
-    touch_gesture_wake_enabled_ = false;
-  }
-  return WaitForScreenReady();
-}
-
-bool TDisplayP4AirDevice::PrepareForPowerOff() {
-  bool result = true;
-
-  if (speaker_.running.load()) {
-    if (speaker_.playback_kind.load() ==
-        SpeakerState::PlaybackKind::kAudioFile) {
-      result &= StopAudioFile();
-    } else {
-      speaker_.stop_requested.store(true);
-      speaker_.loop_enabled.store(false);
-    }
-  }
-  if (microphone_.running.load() || microphone_.adc_to_dac_enabled.load()) {
-    result &= StopMicrophone();
-  }
-  if (camera_preview_.task_active.load() ||
-      camera_preview_.initialized.load()) {
-    result &= StopCameraPreview();
-  }
-  if (radio_.active || radio_.transmitting) {
-    result &= DeactivateRadio();
-  }
-  result &= SetNfcPollingEnabled(false);
-  result &= SetInfraredReceiverEnabled(false);
-  result &= SetCellularEnabled(false);
-  result &= SetGpsEnabled(false);
-  result &= SetImuEnabled(false);
-  result &= SetWifiEnabled(false);
-  result &= SetOtgPowerEnabled(false);
-  result &= StopUsbStorage();
-  result &= WaitForPowerOffTasks();
-  return result;
-}
-
-bool TDisplayP4AirDevice::WaitForPowerOffTasks() {
-  for (int elapsed_ms = 0; elapsed_ms < kPowerOffTaskTimeoutMs;
-      elapsed_ms += kPowerOffTaskPollMs) {
-    const bool tasks_running =
-        speaker_.running.load() || haptic_.running.load() ||
-        microphone_.running.load() || camera_preview_.task_active.load() ||
-        nfc_.task_active.load() || cellular_.task_active.load() ||
-        wifi_.init_task_running.load() || wifi_.scan_task_running.load() ||
-        wifi_.connect_task_running.load();
-    if (!tasks_running) {
-      return true;
-    }
-    vTaskDelay(pdMS_TO_TICKS(kPowerOffTaskPollMs));
-  }
-  return false;
 }
 
 }  // namespace lilygo_box::hal

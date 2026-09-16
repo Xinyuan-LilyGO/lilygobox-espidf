@@ -23,14 +23,33 @@ namespace device = lilygo_device_driver::t_display_p4::device;
 namespace gpio = lilygo_device_driver::t_display_p4::gpio;
 namespace {
 
-constexpr uint32_t kPt4103DutyScale = 1000;
+constexpr uint32_t kBacklightDutyScale = 1000;
 constexpr uint32_t kScreenBrightnessFadeUpdateMs = 10;
 constexpr uint8_t kRm69a10BrightnessMax = UINT8_MAX;
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+constexpr int kTouchInterruptGpio = gpio::hi8561::kTouchInt;
+#else
+constexpr int kTouchInterruptGpio = gpio::xl9535::kInt;
+#endif
+
+/**
+ * @brief 获取当前硬件版本的 LCD 背光驱动
+ * @param driver 板级驱动
+ * @return 背光就绪时返回 PWM 驱动，否则返回 nullptr
+ */
+cpp_bus_driver::Pwm* GetScreenBacklight(
+    lilygo_device_driver::TDisplayP4Driver& driver) {
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+  return driver.IsSy7200aReady() ? driver.chip().sy7200a.get() : nullptr;
+#else
+  return driver.IsPt4103Ready() ? driver.chip().pt4103.get() : nullptr;
+#endif
+}
 
 cpp_bus_driver::Pwm::DutyCycle ScreenBrightnessPercentToHi8561DutyCycle(
     int clamped_percent) {
   return device_utils::ScreenBrightnessPercentToDutyCycle(
-      clamped_percent, kPt4103DutyScale);
+      clamped_percent, kBacklightDutyScale);
 }
 
 uint8_t ScreenBrightnessPercentToRm69a10Value(int clamped_percent) {
@@ -44,25 +63,28 @@ bool TDisplayP4Device::InitializeTouchInterrupt() {
   if (touch_interrupt_initialized_) {
     return true;
   }
-  if (tool_ == nullptr || !driver_.IsTouchReady() || !driver_.IsXl9535Ready() ||
-      driver_.chip().xl9535 == nullptr) {
+  if (tool_ == nullptr || !driver_.IsTouchReady()) {
     return false;
   }
 
-  if (!driver_.chip().xl9535->ClearIrqFlag()) {
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+  if (!driver_.IsXl9535Ready() || driver_.chip().xl9535 == nullptr ||
+      !driver_.chip().xl9535->ClearIrqFlag()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Clear XL9535 interrupt failed during initialization\n");
     return false;
   }
+#endif
   touch_interrupt_pending_.store(false, std::memory_order_relaxed);
-  if (!tool_->InitGpioInterrupt(gpio::xl9535::kInt,
-          cpp_bus_driver::Tool::InterruptMode::kFalling, TouchInterruptHandler,
-          this, cpp_bus_driver::Tool::GpioStatus::kPullup)) {
+  if (!tool_->InitGpioInterrupt(kTouchInterruptGpio,
+          cpp_bus_driver::PlatformHal::InterruptMode::kFalling,
+          TouchInterruptHandler, this,
+          cpp_bus_driver::PlatformHal::GpioStatus::kPullup)) {
     return false;
   }
 
   touch_interrupt_initialized_ = true;
-  if (!tool_->GpioRead(gpio::xl9535::kInt)) {
+  if (!tool_->GpioRead(kTouchInterruptGpio)) {
     touch_interrupt_pending_.store(true, std::memory_order_relaxed);
   }
   return true;
@@ -168,7 +190,7 @@ bool TDisplayP4Device::ReadScreenTouch(TouchPoint* point) {
     return false;
   }
 
-  // 亮屏轮询也需要清除 XL9535 的汇总中断锁存，确保后续边沿可继续上报。
+  // 亮屏轮询也需要消费中断；V1 同时清除 XL9535 的汇总中断锁存。
   const bool touch_interrupt_received = ConsumeTouchInterrupt();
 
   cpp_bus_driver::TouchFrame frame;
@@ -343,10 +365,11 @@ bool TDisplayP4Device::ConsumeTouchInterrupt(bool* edge_received) {
     *edge_received = interrupt_pending;
   }
   const bool interrupt_line_active =
-      tool_ != nullptr && !tool_->GpioRead(gpio::xl9535::kInt);
+      tool_ != nullptr && !tool_->GpioRead(kTouchInterruptGpio);
   if (!interrupt_pending && !interrupt_line_active) {
     return false;
   }
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   if (!driver_.IsXl9535Ready() || driver_.chip().xl9535 == nullptr) {
     return false;
   }
@@ -358,6 +381,7 @@ bool TDisplayP4Device::ConsumeTouchInterrupt(bool* edge_received) {
         "Clear XL9535 interrupt failed\n");
     return false;
   }
+#endif
   return true;
 }
 
@@ -404,10 +428,10 @@ bool TDisplayP4Device::SetScreenBrightnessPercent(int percent) {
   const int clamped_percent = device_utils::ClampPercent(percent);
   switch (driver_.screen_type()) {
     case device::ScreenType::kHi8561:
-      if (driver_.IsPt4103Ready()) {
+      if (auto* backlight = GetScreenBacklight(driver_); backlight != nullptr) {
         const cpp_bus_driver::Pwm::DutyCycle duty =
             ScreenBrightnessPercentToHi8561DutyCycle(clamped_percent);
-        return driver_.chip().pt4103->SetDuty(duty);
+        return backlight->SetDuty(duty);
       }
       break;
     case device::ScreenType::kRm69a10:
@@ -440,10 +464,10 @@ bool TDisplayP4Device::FadeScreenBrightnessPercent(
 
   switch (driver_.screen_type()) {
     case device::ScreenType::kHi8561:
-      if (driver_.IsPt4103Ready()) {
+      if (auto* backlight = GetScreenBacklight(driver_); backlight != nullptr) {
         const cpp_bus_driver::Pwm::DutyCycle target_duty =
             ScreenBrightnessPercentToHi8561DutyCycle(clamped_percent);
-        if (driver_.chip().pt4103->FadeTo(target_duty, duration_ms,
+        if (backlight->FadeTo(target_duty, duration_ms,
                 cpp_bus_driver::Pwm::FadeMode::kWaitForCompletion)) {
           return true;
         }

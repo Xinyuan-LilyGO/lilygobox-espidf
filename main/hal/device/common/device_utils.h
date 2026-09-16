@@ -11,7 +11,7 @@
 #include <cstdint>
 #include <string>
 
-#include "cpp_bus_driver_library.h"
+#include "cpp_bus_driver.h"
 #include "hal/providers/screen_provider.h"
 
 namespace lilygo_box::hal::device_utils {

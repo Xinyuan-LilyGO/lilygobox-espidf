@@ -19,18 +19,34 @@ namespace device = lilygo_device_driver::t_display_p4::device;
 
 TDisplayP4Device::TDisplayP4Device()
     : driver_(lilygo_device_driver::TDisplayP4Driver::GetInstance()),
-      tool_(std::make_unique<cpp_bus_driver::Tool>()) {
+      tool_(std::make_unique<cpp_bus_driver::PlatformHal>()),
+      usb_storage_manager_([this]() {
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+        // 异步启动失败或正常停止时，均在 Host 释放后关闭 Type-A 供电。
+        if (!driver_.SetUsbHostPowerEnabled(false)) {
+          LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+              "Disable USB host power after storage shutdown failed\n");
+        }
+#endif
+      }) {
   wifi_.scan_results_mutex = xSemaphoreCreateMutex();
   radio_.mutex = xSemaphoreCreateMutex();
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   cc1101_radio_.mutex = xSemaphoreCreateMutex();
   nrf24l01_radio_.mutex = xSemaphoreCreateMutex();
   nfc_.mutex = xSemaphoreCreateMutex();
+#endif
 }
 
 bool TDisplayP4Device::InitDevice() {
-  if (nfc_.mutex == nullptr) {
+  if (wifi_.scan_results_mutex == nullptr || radio_.mutex == nullptr
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+      || nfc_.mutex == nullptr || cc1101_radio_.mutex == nullptr ||
+      nrf24l01_radio_.mutex == nullptr
+#endif
+  ) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Create T-Display-P4 NFC synchronization resource failed\n");
+        "Create T-Display-P4 synchronization resources failed\n");
     return false;
   }
   const bool result =
@@ -38,11 +54,25 @@ bool TDisplayP4Device::InitDevice() {
   if (!result) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "Init failed\n");
   }
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+  // Type-A 供电使能经 XL9535 控制，必须先配置输出方向和 Boost 参数。
+  if (!driver_.InitUsbHostPower()) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Initialize USB host power failed\n");
+    return false;
+  }
+  if (!InitializePowerButton() || !InitializeVolumeButtons()) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Initialize V2 physical buttons failed\n");
+    return false;
+  }
+#else
   if (driver_.IsBq27220Ready() &&
       !SetBatteryCapacityMah(battery_capacity_mah_.load())) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Apply configured battery capacity failed\n");
   }
+#endif
 
   if (!WaitForScreenReady()) {
     LogMessage(
@@ -66,6 +96,7 @@ bool TDisplayP4Device::InitDevice() {
   return true;
 }
 
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
 PowerOffAction TDisplayP4Device::RequestPowerOff() {
   if (!PrepareForPowerOff()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
@@ -79,6 +110,7 @@ PowerOffAction TDisplayP4Device::RequestPowerOff() {
   }
   return PowerOffAction::kEnterDeepSleep;
 }
+#endif
 
 int TDisplayP4Device::ScreenWidth() const {
   return driver_.screen_info().width;
@@ -132,6 +164,7 @@ bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
     return false;
   }
   if (!deep_sleep) {
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
     if (keyboard_expansion_.task_running.load()) {
       if (!WaitForKeyboardExpansionTask()) {
         return false;
@@ -141,16 +174,19 @@ bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
         keyboard_expansion_.state.load() != KeyboardExpansionState::kReady ||
         driver_.SetKeyboardExpansionOperatingMode(lilygo_device_driver::
                 TDisplayP4Driver::KeyboardExpansionOperatingMode::kSleep);
+#endif
     touch_gesture_wake_enabled_ = SetTouchGestureWakeEnabled(true);
     const bool screen_slept = driver_.SetScreenSleep(true);
     if (!screen_slept && touch_gesture_wake_enabled_) {
       SetTouchGestureWakeEnabled(false);
       touch_gesture_wake_enabled_ = false;
     }
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
     if (!keyboard_expansion_slept) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Sleep keyboard expansion failed; continue sleeping the screen\n");
     }
+#endif
     return screen_slept;
   }
 
@@ -163,6 +199,7 @@ bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
   return driver_.PrepareDriversForPowerOff();
 }
 
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
 bool TDisplayP4Device::RestoreKeyboardExpansionOperatingState() {
   if (keyboard_expansion_.state.load() != KeyboardExpansionState::kReady) {
     return true;
@@ -208,6 +245,7 @@ bool TDisplayP4Device::RestoreKeyboardExpansionOperatingState() {
   }
   return keyboard_state_restored;
 }
+#endif
 
 bool TDisplayP4Device::ExitDeviceSleep(bool deep_sleep) {
   if (deep_sleep) {
@@ -229,12 +267,14 @@ bool TDisplayP4Device::ExitDeviceSleep(bool deep_sleep) {
   if (!WaitForScreenReady()) {
     return false;
   }
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   if (!keyboard_expansion_.screen_lock_suspended.load() &&
       !RestoreKeyboardExpansionOperatingState()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Restore keyboard expansion state failed; "
         "continue waking the screen\n");
   }
+#endif
   return true;
 }
 
@@ -257,18 +297,24 @@ bool TDisplayP4Device::PrepareForPowerOff() {
       camera_preview_.initialized.load()) {
     result &= StopCameraPreview();
   }
-  if (radio_.active || radio_.transmitting || cc1101_radio_.active ||
+  if (radio_.active || radio_.transmitting
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+      || cc1101_radio_.active ||
       cc1101_radio_.transmitting || nrf24l01_radio_.active ||
-      nrf24l01_radio_.transmitting) {
+      nrf24l01_radio_.transmitting
+#endif
+  ) {
     result &= DeactivateRadio();
   }
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   result &= SetNfcPollingEnabled(false);
+  result &= SetEthernetEnabled(false);
+  result &= DisableKeyboardExpansion();
+#endif
   result &= SetGpsEnabled(false);
   result &= SetImuEnabled(false);
-  result &= SetEthernetEnabled(false);
   result &= SetWifiEnabled(false);
   result &= StopUsbStorage();
-  result &= DisableKeyboardExpansion();
   result &= WaitForPowerOffTasks();
   return result;
 }
@@ -279,10 +325,13 @@ bool TDisplayP4Device::WaitForPowerOffTasks() {
     const bool tasks_running =
         speaker_.running.load() || haptic_.running.load() ||
         microphone_.running.load() || camera_preview_.task_active.load() ||
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
         ethernet_.init_task_running.load() ||
         keyboard_expansion_.task_running.load() || nfc_.task_active.load() ||
+#endif
         wifi_.init_task_running.load() || wifi_.scan_task_running.load() ||
-        wifi_.connect_task_running.load();
+        wifi_.connect_task_running.load() ||
+        wifi_time_test_.rtc_sync_task_running.load();
     if (!tasks_running) {
       return true;
     }

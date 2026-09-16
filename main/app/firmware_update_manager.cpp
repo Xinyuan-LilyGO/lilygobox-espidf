@@ -47,9 +47,9 @@
 #include "mbedtls/sha256.h"
 
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
-#include "t_display_p4_air_driver.h"
+#include "device/t_display_p4_air/driver.h"
 #elif defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
-#include "t_display_p4_driver.h"
+#include "device/t_display_p4/driver.h"
 #endif
 
 namespace lilygo_box::app {
@@ -99,7 +99,9 @@ constexpr char kPendingUpdatePath[] = "/littlefs/lilygobox/ota/pending-update";
 constexpr char kMainFirmwareProjectName[] = "lilygobox-espidf";
 constexpr char kWirelessFirmwareProjectName[] = "network_adapter";
 // 当前 ESP-Hosted 接口不提供协处理器芯片修订号，使用各板型固定的修订号。
-#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR) || \
+    (defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4) && \
+        defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2))
 constexpr esp_chip_id_t kExpectedWirelessChipId = ESP_CHIP_ID_ESP32C5;
 constexpr char kCurrentWirelessChipModel[] = "esp32c5";
 constexpr char kCurrentWirelessChipRevision[] = "1.0";
@@ -156,6 +158,10 @@ constexpr const char* ManifestGithubUrl(ReleaseChannel channel) {
       return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
              "releases/download/ota-alpha/"
              "lilygobox-t-display-p4-air-ota-manifest-alpha-v1.json";
+#elif defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+      return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
+             "releases/download/ota-alpha/"
+             "lilygobox-t-display-p4-v2.0-ota-manifest-alpha-v1.json";
 #else
       return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
              "releases/download/ota-alpha/"
@@ -166,6 +172,10 @@ constexpr const char* ManifestGithubUrl(ReleaseChannel channel) {
       return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
              "releases/download/ota-beta/"
              "lilygobox-t-display-p4-air-ota-manifest-beta-v1.json";
+#elif defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+      return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
+             "releases/download/ota-beta/"
+             "lilygobox-t-display-p4-v2.0-ota-manifest-beta-v1.json";
 #else
       return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
              "releases/download/ota-beta/"
@@ -176,6 +186,10 @@ constexpr const char* ManifestGithubUrl(ReleaseChannel channel) {
       return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
              "releases/download/ota-stable/"
              "lilygobox-t-display-p4-air-ota-manifest-stable-v1.json";
+#elif defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+      return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
+             "releases/download/ota-stable/"
+             "lilygobox-t-display-p4-v2.0-ota-manifest-stable-v1.json";
 #else
       return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
              "releases/download/ota-stable/"
@@ -197,6 +211,10 @@ constexpr const char* ManifestProxyUrl(ReleaseChannel channel) {
       return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
              "lilygobox-espidf/releases/download/ota-alpha/"
              "lilygobox-t-display-p4-air-ota-manifest-alpha-v1.json";
+#elif defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+      return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
+             "lilygobox-espidf/releases/download/ota-alpha/"
+             "lilygobox-t-display-p4-v2.0-ota-manifest-alpha-v1.json";
 #else
       return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
              "lilygobox-espidf/releases/download/ota-alpha/"
@@ -207,6 +225,10 @@ constexpr const char* ManifestProxyUrl(ReleaseChannel channel) {
       return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
              "lilygobox-espidf/releases/download/ota-beta/"
              "lilygobox-t-display-p4-air-ota-manifest-beta-v1.json";
+#elif defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+      return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
+             "lilygobox-espidf/releases/download/ota-beta/"
+             "lilygobox-t-display-p4-v2.0-ota-manifest-beta-v1.json";
 #else
       return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
              "lilygobox-espidf/releases/download/ota-beta/"
@@ -217,6 +239,10 @@ constexpr const char* ManifestProxyUrl(ReleaseChannel channel) {
       return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
              "lilygobox-espidf/releases/download/ota-stable/"
              "lilygobox-t-display-p4-air-ota-manifest-stable-v1.json";
+#elif defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+      return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
+             "lilygobox-espidf/releases/download/ota-stable/"
+             "lilygobox-t-display-p4-v2.0-ota-manifest-stable-v1.json";
 #else
       return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
              "lilygobox-espidf/releases/download/ota-stable/"

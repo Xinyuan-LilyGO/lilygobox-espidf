@@ -152,17 +152,17 @@ bool TDisplayP4Device::InitializeKeyboardExpansionConnectionInterrupt(
   keyboard_expansion_.connection_interrupt_pending.store(
       false, std::memory_order_relaxed);
   if (!tool_->SetGpioMode(keyboard_gpio::tca8418::kInt,
-          cpp_bus_driver::Tool::GpioMode::kInput,
-          cpp_bus_driver::Tool::GpioStatus::kPulldown)) {
+          cpp_bus_driver::PlatformHal::GpioMode::kInput,
+          cpp_bus_driver::PlatformHal::GpioStatus::kPulldown)) {
     keyboard_expansion_.interrupt_initialized.store(false);
     return false;
   }
   const bool connected_before_interrupt =
       tool_->GpioRead(keyboard_gpio::tca8418::kInt);
   if (!tool_->InitGpioInterrupt(keyboard_gpio::tca8418::kInt,
-          cpp_bus_driver::Tool::InterruptMode::kRising,
+          cpp_bus_driver::PlatformHal::InterruptMode::kRising,
           KeyboardExpansionConnectionInterruptHandler, this,
-          cpp_bus_driver::Tool::GpioStatus::kPulldown)) {
+          cpp_bus_driver::PlatformHal::GpioStatus::kPulldown)) {
     keyboard_expansion_.interrupt_initialized.store(false);
     return false;
   }
@@ -195,9 +195,9 @@ bool TDisplayP4Device::InitializeKeyboardInputInterrupt() {
   keyboard_expansion_.disconnection_check_pending.store(
       false, std::memory_order_relaxed);
   if (!tool_->InitGpioInterrupt(keyboard_gpio::tca8418::kInt,
-          cpp_bus_driver::Tool::InterruptMode::kFalling,
+          cpp_bus_driver::PlatformHal::InterruptMode::kFalling,
           KeyboardInputInterruptHandler, this,
-          cpp_bus_driver::Tool::GpioStatus::kPulldown)) {
+          cpp_bus_driver::PlatformHal::GpioStatus::kPulldown)) {
     keyboard_expansion_.interrupt_initialized.store(false);
     return false;
   }
