@@ -41,9 +41,6 @@ const char* TDisplayP4AirDevice::SdCardBasePath() const {
 }
 
 bool TDisplayP4AirDevice::StartUsbStorage() {
-  if (!driver_.SetUsbHostPowerEnabled(true)) {
-    return false;
-  }
   return usb_storage_manager_.Start();
 }
 

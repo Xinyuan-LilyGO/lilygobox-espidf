@@ -77,7 +77,8 @@ void RefreshOtgSwitch(SettingsViewState* state) {
     lv_obj_remove_state(state->otg_switch, LV_STATE_CHECKED);
   }
 
-  if (status_available && !external_power_present) {
+  if (status_available && (!external_power_present ||
+                             state->config.otg->SupportsOtgWhileCharging())) {
     lv_obj_remove_state(state->otg_switch, LV_STATE_DISABLED);
   } else {
     lv_obj_add_state(state->otg_switch, LV_STATE_DISABLED);
@@ -163,7 +164,10 @@ bool BuildOtgContent(lv_obj_t* body, SettingsViewState* state) {
 
   if (!CreateSwitchRow(body, "OTG switch", 0, state->config.width, false,
           OtgSwitchChangedEventCallback, state, false, &state->otg_switch,
-          "Power USB devices when USB input is disconnected.")) {
+          state->config.otg->SupportsOtgWhileCharging()
+              ? "Power Type-A and compatible Type-C devices. Type-C output "
+                "pauses while charging."
+              : "Power USB devices when USB input is disconnected.")) {
     return false;
   }
   if (state->otg_refresh_timer != nullptr) {

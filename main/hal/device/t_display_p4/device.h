@@ -37,6 +37,9 @@ class TDisplayP4Device final : public ScreenProvider,
                                public BatteryManagementProvider,
                                public RtcProvider,
                                public RadioProvider,
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+                               public OtgProvider,
+#endif
 #if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
                                public KeyboardExpansionProvider,
                                public NfcProvider,
@@ -56,6 +59,34 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 初始化成功返回 true，否则返回 false
    */
   bool InitDevice() override;
+
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+  /**
+   * @brief 设置 Type-A 供电，并允许 Type-C 按连接角色反向供电
+   * @param enabled true 开启供电，false 关闭供电
+   * @return 设置成功返回 true，否则返回 false
+   */
+  bool SetOtgPowerEnabled(bool enabled) override;
+
+  /**
+   * @brief Type-C 充电时保留 Type-A 供电，Type-C 反向输出单独暂停
+   * @return 返回 true
+   */
+  bool SupportsOtgWhileCharging() const override { return true; }
+
+  /**
+   * @brief 更新 Type-C 角色与 RBFET，保持 Type-A 使用的共用 Boost
+   * @return 状态更新成功返回 true，否则返回 false
+   */
+  bool UpdateOtgPowerState() override;
+
+  /**
+   * @brief 读取 Type-C 外部供电状态
+   * @param present 外部供电状态输出地址
+   * @return 读取成功返回 true，否则返回 false
+   */
+  bool ReadExternalPowerPresent(bool* present) override;
+#endif
 
   /**
    * @brief 完成设备关机准备并返回当前硬件版本对应的关机动作
@@ -753,6 +784,11 @@ class TDisplayP4Device final : public ScreenProvider,
 
  private:
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+  // 以下辅助函数要求调用方持有 otg_mutex_。
+  bool UpdateOtgPowerStateLocked();
+  bool SetTypeCOutputEnabledLocked(bool enabled);
+  bool DisableOtgPowerLocked();
+
   /**
    * @brief 初始化 V2 电源键上拉输入
    * @return GPIO 配置成功返回 true
@@ -1708,6 +1744,13 @@ class TDisplayP4Device final : public ScreenProvider,
 #endif
 
   lilygo_device_driver::TDisplayP4Driver& driver_;
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+  // 串行化两路 USB 供电和 Type-C 外部电源检测。
+  SemaphoreHandle_t otg_mutex_ = nullptr;
+  bool otg_enabled_ = false;
+  bool type_c_source_role_enabled_ = false;
+  bool type_c_output_enabled_ = false;
+#endif
   std::unique_ptr<cpp_bus_driver::PlatformHal> tool_;
   UsbStorageManager usb_storage_manager_;
   ScreenProviderDisplayCallbacks display_callbacks_;

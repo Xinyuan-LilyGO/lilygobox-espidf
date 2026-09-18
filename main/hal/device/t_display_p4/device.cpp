@@ -19,18 +19,12 @@ namespace device = lilygo_device_driver::t_display_p4::device;
 
 TDisplayP4Device::TDisplayP4Device()
     : driver_(lilygo_device_driver::TDisplayP4Driver::GetInstance()),
-      tool_(std::make_unique<cpp_bus_driver::PlatformHal>()),
-      usb_storage_manager_([this]() {
-#if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
-        // 异步启动失败或正常停止时，均在 Host 释放后关闭 Type-A 供电。
-        if (!driver_.SetUsbHostPowerEnabled(false)) {
-          LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-              "Disable USB host power after storage shutdown failed\n");
-        }
-#endif
-      }) {
+      tool_(std::make_unique<cpp_bus_driver::PlatformHal>()) {
   wifi_.scan_results_mutex = xSemaphoreCreateMutex();
   radio_.mutex = xSemaphoreCreateMutex();
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+  otg_mutex_ = xSemaphoreCreateMutex();
+#endif
 #if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   cc1101_radio_.mutex = xSemaphoreCreateMutex();
   nrf24l01_radio_.mutex = xSemaphoreCreateMutex();
@@ -40,6 +34,9 @@ TDisplayP4Device::TDisplayP4Device()
 
 bool TDisplayP4Device::InitDevice() {
   if (wifi_.scan_results_mutex == nullptr || radio_.mutex == nullptr
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+      || otg_mutex_ == nullptr
+#endif
 #if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
       || nfc_.mutex == nullptr || cc1101_radio_.mutex == nullptr ||
       nrf24l01_radio_.mutex == nullptr
@@ -55,12 +52,15 @@ bool TDisplayP4Device::InitDevice() {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "Init failed\n");
   }
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
-  // Type-A 供电使能经 XL9535 控制，必须先配置输出方向和 Boost 参数。
+  // Type-A 供电由 XL9535 IO10 控制，必须先配置输出方向和 Boost 参数。
   if (!driver_.InitUsbHostPower()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Initialize USB host power failed\n");
     return false;
   }
+  otg_enabled_ = false;
+  type_c_source_role_enabled_ = false;
+  type_c_output_enabled_ = false;
   if (!InitializePowerButton() || !InitializeVolumeButtons()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Initialize V2 physical buttons failed\n");
@@ -315,6 +315,9 @@ bool TDisplayP4Device::PrepareForPowerOff() {
   result &= SetImuEnabled(false);
   result &= SetWifiEnabled(false);
   result &= StopUsbStorage();
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+  result &= SetOtgPowerEnabled(false);
+#endif
   result &= WaitForPowerOffTasks();
   return result;
 }

@@ -15,13 +15,19 @@ class OtgProvider {
 
   /**
    * @brief 设置 OTG 反向供电状态
-   * @param enabled true 开启 Type-C Source 反向供电，false 保持受电角色
+   * @param enabled true 开启 USB 供电，false 关闭 USB 供电
    * @return 设置成功返回 true，否则返回 false
    */
   virtual bool SetOtgPowerEnabled(bool enabled) = 0;
 
   /**
-   * @brief 根据 Type-C 连接角色更新 OTG 反向供电状态
+   * @brief 是否支持外部电源接入时向独立 USB 接口供电
+   * @return 独立供电接口返回 true，共用 Type-C 接口返回 false
+   */
+  virtual bool SupportsOtgWhileCharging() const { return false; }
+
+  /**
+   * @brief 根据设备供电路径更新 OTG 状态
    * @return 状态更新成功返回 true，否则返回 false
    */
   virtual bool UpdateOtgPowerState() = 0;

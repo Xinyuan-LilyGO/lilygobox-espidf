@@ -27,12 +27,154 @@ constexpr uint32_t kPowerOffStartupHoldMs = 2 * 1000;
 constexpr uint32_t kPowerOffButtonPollMs = 20;
 constexpr uint32_t kPowerOffButtonReleaseTimeoutMs = 3000;
 constexpr uint32_t kPowerOffRtcMagic = 0x504F4646;  // "POFF"
+constexpr uint32_t kOtgMutexTimeoutMs = 50;
 
 // RTC 内存只跨越深度睡眠保留，用于避免每次 5 秒巡检都点亮充电界面。
 RTC_DATA_ATTR uint32_t g_power_off_rtc_magic = 0;
 RTC_DATA_ATTR bool g_power_off_charging_screen_pending = false;
 
 }  // namespace
+
+bool TDisplayP4Device::SetOtgPowerEnabled(bool enabled) {
+  if (otg_mutex_ == nullptr ||
+      xSemaphoreTake(otg_mutex_, pdMS_TO_TICKS(kOtgMutexTimeoutMs)) != pdTRUE) {
+    return false;
+  }
+  bool result = false;
+  if (!enabled) {
+    result = DisableOtgPowerLocked();
+  } else if (driver_.IsAxp517Ready() && driver_.IsXl9535Ready() &&
+             driver_.chip().axp517 != nullptr) {
+    // IO10 和 Boost 维持 Type-A 供电；Type-C 只单独切换 RBFET。
+    result = driver_.chip().axp517->SetVbusDetectEnable(true) &&
+             driver_.SetUsbHostPowerEnabled(true);
+    if (result) {
+      otg_enabled_ = true;
+      result = UpdateOtgPowerStateLocked();
+    }
+    if (!result && !DisableOtgPowerLocked()) {
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "Restore USB power after OTG enable failure failed\n");
+    }
+  }
+  xSemaphoreGive(otg_mutex_);
+  return result;
+}
+
+bool TDisplayP4Device::UpdateOtgPowerState() {
+  if (otg_mutex_ == nullptr ||
+      xSemaphoreTake(otg_mutex_, pdMS_TO_TICKS(kOtgMutexTimeoutMs)) != pdTRUE) {
+    return false;
+  }
+  const bool result = driver_.IsAxp517Ready() && driver_.IsXl9535Ready() &&
+                      driver_.chip().axp517 != nullptr &&
+                      UpdateOtgPowerStateLocked();
+  xSemaphoreGive(otg_mutex_);
+  return result;
+}
+
+bool TDisplayP4Device::ReadExternalPowerPresent(bool* present) {
+  if (present == nullptr || otg_mutex_ == nullptr ||
+      xSemaphoreTake(otg_mutex_, pdMS_TO_TICKS(kOtgMutexTimeoutMs)) != pdTRUE) {
+    return false;
+  }
+  auto* axp517 =
+      driver_.IsAxp517Ready() ? driver_.chip().axp517.get() : nullptr;
+  cpp_bus_driver::Axp517::PdConnectionStatus connection_status;
+  cpp_bus_driver::Axp517::ChipStatus0 chip_status;
+  const bool result = axp517 != nullptr &&
+                      axp517->GetPdConnectionStatus(connection_status) &&
+                      axp517->GetChipStatus0(chip_status);
+  if (result) {
+    // 排除 Type-C 自身反向输出的 VBUS，Type-A 是否开启不影响此判断。
+    *present = connection_status.sink_power_attached ||
+               (!type_c_output_enabled_ && chip_status.vbus_good_indication);
+  } else if (axp517 != nullptr) {
+    // 应用策略在读取失败时会跳过更新，因此在这里也撤销 Type-C 输出。
+    SetTypeCOutputEnabledLocked(false);
+  }
+  xSemaphoreGive(otg_mutex_);
+  return result;
+}
+
+bool TDisplayP4Device::SetTypeCOutputEnabledLocked(bool enabled) {
+  auto* axp517 = driver_.chip().axp517.get();
+  if (axp517 == nullptr || (enabled && !otg_enabled_)) {
+    return false;
+  }
+  if (!axp517->SetForceRbfetEnable(enabled)) {
+    return false;
+  }
+  if (type_c_output_enabled_ != enabled) {
+    LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+        "Type-C reverse-power output %s\n",
+        enabled ? "enabled" : "disabled");
+  }
+  type_c_output_enabled_ = enabled;
+  return true;
+}
+
+bool TDisplayP4Device::DisableOtgPowerLocked() {
+  otg_enabled_ = false;
+  bool result = true;
+  if (driver_.IsAxp517Ready() && driver_.chip().axp517 != nullptr) {
+    // 先断开 Type-C 输出，再关闭 Type-A 和共用 Boost。
+    result = SetTypeCOutputEnabledLocked(false);
+    const bool role_reset = driver_.chip().axp517->SetPdRole(false, false);
+    result &= role_reset;
+    if (role_reset) {
+      type_c_source_role_enabled_ = false;
+    }
+  }
+  result &= driver_.SetUsbHostPowerEnabled(false);
+  return result;
+}
+
+bool TDisplayP4Device::UpdateOtgPowerStateLocked() {
+  if (!otg_enabled_) {
+    return DisableOtgPowerLocked();
+  }
+  auto* axp517 = driver_.chip().axp517.get();
+  cpp_bus_driver::Axp517::PdConnectionStatus connection_status;
+  cpp_bus_driver::Axp517::ChipStatus0 chip_status;
+  if (!axp517->GetPdConnectionStatus(connection_status) ||
+      !axp517->GetChipStatus0(chip_status)) {
+    // 检测失败时撤销 Type-C 输出，保留已开启的 Type-A 电源。
+    SetTypeCOutputEnabledLocked(false);
+    return false;
+  }
+  const bool external_power_present =
+      connection_status.sink_power_attached ||
+      (!type_c_output_enabled_ && chip_status.vbus_good_indication);
+  if (external_power_present) {
+    bool result = SetTypeCOutputEnabledLocked(false);
+    const bool role_reset = axp517->SetPdRole(false, false);
+    result &= role_reset;
+    if (role_reset) {
+      type_c_source_role_enabled_ = false;
+    }
+    return result;
+  }
+  if (!type_c_source_role_enabled_) {
+    if (!SetTypeCOutputEnabledLocked(false) ||
+        !axp517->SetPdRole(true, true)) {
+      return false;
+    }
+    type_c_source_role_enabled_ = true;
+    // 角色刚切换，等待下次轮询取得新的连接状态。
+    return true;
+  }
+  if (connection_status.looking_for_connection) {
+    return SetTypeCOutputEnabledLocked(false);
+  }
+  if (connection_status.source_device_attached) {
+    return SetTypeCOutputEnabledLocked(true);
+  }
+  if (!SetTypeCOutputEnabledLocked(false)) {
+    return false;
+  }
+  return axp517->SetPdRole(true, true);
+}
 
 bool TDisplayP4Device::InitializePowerButton() {
   if (power_button_initialized_) {

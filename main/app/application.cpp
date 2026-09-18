@@ -1391,8 +1391,10 @@ bool Application::UpdateOtgPowerPolicy() {
   }
 
   const bool requested = app::GetOtgPreferences().enabled;
-  bool enable_hardware = requested && !external_power_present;
-  if (external_power_present) {
+  const bool blocked_by_external_power =
+      external_power_present && !otg->SupportsOtgWhileCharging();
+  bool enable_hardware = requested && !blocked_by_external_power;
+  if (blocked_by_external_power) {
     if (requested && !otg_suspended_for_external_power_) {
       LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
           "External power connected; OTG reverse power suspended\n");
