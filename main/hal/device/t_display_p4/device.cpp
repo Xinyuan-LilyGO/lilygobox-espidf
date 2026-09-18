@@ -25,11 +25,9 @@ TDisplayP4Device::TDisplayP4Device()
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   otg_mutex_ = xSemaphoreCreateMutex();
 #endif
-#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   cc1101_radio_.mutex = xSemaphoreCreateMutex();
   nrf24l01_radio_.mutex = xSemaphoreCreateMutex();
   nfc_.mutex = xSemaphoreCreateMutex();
-#endif
 }
 
 bool TDisplayP4Device::InitDevice() {
@@ -37,10 +35,8 @@ bool TDisplayP4Device::InitDevice() {
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
       || otg_mutex_ == nullptr
 #endif
-#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
-      || nfc_.mutex == nullptr || cc1101_radio_.mutex == nullptr ||
-      nrf24l01_radio_.mutex == nullptr
-#endif
+      || cc1101_radio_.mutex == nullptr || nrf24l01_radio_.mutex == nullptr
+      || nfc_.mutex == nullptr
   ) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Create T-Display-P4 synchronization resources failed\n");
@@ -164,7 +160,6 @@ bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
     return false;
   }
   if (!deep_sleep) {
-#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
     if (keyboard_expansion_.task_running.load()) {
       if (!WaitForKeyboardExpansionTask()) {
         return false;
@@ -174,19 +169,16 @@ bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
         keyboard_expansion_.state.load() != KeyboardExpansionState::kReady ||
         driver_.SetKeyboardExpansionOperatingMode(lilygo_device_driver::
                 TDisplayP4Driver::KeyboardExpansionOperatingMode::kSleep);
-#endif
     touch_gesture_wake_enabled_ = SetTouchGestureWakeEnabled(true);
     const bool screen_slept = driver_.SetScreenSleep(true);
     if (!screen_slept && touch_gesture_wake_enabled_) {
       SetTouchGestureWakeEnabled(false);
       touch_gesture_wake_enabled_ = false;
     }
-#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
     if (!keyboard_expansion_slept) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Sleep keyboard expansion failed; continue sleeping the screen\n");
     }
-#endif
     return screen_slept;
   }
 
@@ -198,54 +190,6 @@ bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
   }
   return driver_.PrepareDriversForPowerOff();
 }
-
-#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
-bool TDisplayP4Device::RestoreKeyboardExpansionOperatingState() {
-  if (keyboard_expansion_.state.load() != KeyboardExpansionState::kReady) {
-    return true;
-  }
-
-  bool keyboard_state_restored = SetKeyboardBacklightBrightnessPercent(
-      keyboard_expansion_.backlight_brightness_percent.load());
-  keyboard_state_restored &=
-      SetKeyboardExpansionLed(KeyboardExpansionLed::kLed1,
-          keyboard_expansion_.caps_lock_enabled.load());
-  RadioState* extension_states[] = {&cc1101_radio_, &nrf24l01_radio_};
-  for (RadioState* state : extension_states) {
-    if (!state->active || state->mutex == nullptr ||
-        xSemaphoreTake(state->mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
-      continue;
-    }
-    if (state->chip == radio::ChipType::kCc1101 && driver_.IsCc1101Ready()) {
-      auto* radio = driver_.chip().cc1101.get();
-      bool restored =
-          driver_.SetCc1101OperatingMode(lilygo_device_driver::
-                  TDisplayP4Driver::Cc1101OperatingMode::kStandby) &&
-          radio != nullptr && InitializeCc1101ReceiveInterrupt();
-      if (restored) {
-        state->receive_interrupt_pending.store(
-            false, std::memory_order_relaxed);
-        restored = radio->StartReceive();
-      }
-      state->chip_error = !restored;
-      state->active = restored;
-      keyboard_state_restored &= restored;
-    } else if (state->chip == radio::ChipType::kNrf24l01 &&
-               driver_.IsNrf24l01Ready()) {
-      auto* radio = driver_.chip().nrf24l01.get();
-      const bool restored =
-          driver_.SetNrf24l01OperatingMode(lilygo_device_driver::
-                  TDisplayP4Driver::Nrf24l01OperatingMode::kStandby) &&
-          radio != nullptr && radio->StartReceive();
-      state->chip_error = !restored;
-      state->active = restored;
-      keyboard_state_restored &= restored;
-    }
-    xSemaphoreGive(state->mutex);
-  }
-  return keyboard_state_restored;
-}
-#endif
 
 bool TDisplayP4Device::ExitDeviceSleep(bool deep_sleep) {
   if (deep_sleep) {
@@ -267,14 +211,12 @@ bool TDisplayP4Device::ExitDeviceSleep(bool deep_sleep) {
   if (!WaitForScreenReady()) {
     return false;
   }
-#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   if (!keyboard_expansion_.screen_lock_suspended.load() &&
       !RestoreKeyboardExpansionOperatingState()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Restore keyboard expansion state failed; "
         "continue waking the screen\n");
   }
-#endif
   return true;
 }
 
@@ -297,20 +239,16 @@ bool TDisplayP4Device::PrepareForPowerOff() {
       camera_preview_.initialized.load()) {
     result &= StopCameraPreview();
   }
-  if (radio_.active || radio_.transmitting
-#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
-      || cc1101_radio_.active ||
+  if (radio_.active || radio_.transmitting || cc1101_radio_.active ||
       cc1101_radio_.transmitting || nrf24l01_radio_.active ||
-      nrf24l01_radio_.transmitting
-#endif
-  ) {
+      nrf24l01_radio_.transmitting) {
     result &= DeactivateRadio();
   }
 #if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
-  result &= SetNfcPollingEnabled(false);
   result &= SetEthernetEnabled(false);
-  result &= DisableKeyboardExpansion();
 #endif
+  result &= SetNfcPollingEnabled(false);
+  result &= DisableKeyboardExpansion();
   result &= SetGpsEnabled(false);
   result &= SetImuEnabled(false);
   result &= SetWifiEnabled(false);
@@ -330,8 +268,9 @@ bool TDisplayP4Device::WaitForPowerOffTasks() {
         microphone_.running.load() || camera_preview_.task_active.load() ||
 #if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
         ethernet_.init_task_running.load() ||
-        keyboard_expansion_.task_running.load() || nfc_.task_active.load() ||
 #endif
+        nfc_.task_active.load() ||
+        keyboard_expansion_.task_running.load() ||
         wifi_.init_task_running.load() || wifi_.scan_task_running.load() ||
         wifi_.connect_task_running.load() ||
         wifi_time_test_.rtc_sync_task_running.load();

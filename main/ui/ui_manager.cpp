@@ -288,7 +288,7 @@ int ClockTop(int screen_width, int screen_height) {
  * @return 时钟区域高度
  */
 int ClockGroupHeight(int screen_width, int screen_height) {
-  return screen_width > screen_height ? std::max(230, screen_height * 38 / 100)
+  return screen_width > screen_height ? std::max(240, screen_height * 38 / 100)
                                       : 282;
 }
 
@@ -348,36 +348,36 @@ int HomeGridTop(int screen_width, int screen_height) {
 }
 
 /**
- * @brief 获取月份显示名称
+ * @brief 获取月份英文缩写，避免长月份使主界面和锁屏日期换行
  * @param month 月份，范围 1~12
- * @return 月份文本
+ * @return 三字母月份缩写，无效月份返回 Unknown
  */
 const char* MonthName(uint8_t month) {
   switch (month) {
     case 1:
-      return "January";
+      return "Jan";
     case 2:
-      return "February";
+      return "Feb";
     case 3:
-      return "March";
+      return "Mar";
     case 4:
-      return "April";
+      return "Apr";
     case 5:
       return "May";
     case 6:
-      return "June";
+      return "Jun";
     case 7:
-      return "July";
+      return "Jul";
     case 8:
-      return "August";
+      return "Aug";
     case 9:
-      return "September";
+      return "Sep";
     case 10:
-      return "October";
+      return "Oct";
     case 11:
-      return "November";
+      return "Nov";
     case 12:
-      return "December";
+      return "Dec";
     default:
       return "Unknown";
   }
@@ -413,19 +413,19 @@ const char* DaySuffix(uint8_t day) {
 const char* WeekName(uint8_t week) {
   switch (week) {
     case 0:
-      return "Sun";
+      return "Sunday";
     case 1:
-      return "Mon";
+      return "Monday";
     case 2:
-      return "Tue";
+      return "Tuesday";
     case 3:
-      return "Wed";
+      return "Wednesday";
     case 4:
-      return "Thu";
+      return "Thursday";
     case 5:
-      return "Fri";
+      return "Friday";
     case 6:
-      return "Sat";
+      return "Saturday";
     default:
       return "Unknown";
   }
@@ -1863,7 +1863,7 @@ lv_obj_t* UiManager::CreateClockGroup(lv_obj_t* parent) {
   }
   SetTextStyle(week_label, lv_color_hex(theme::FixedColors().home_content),
       HomeDateFont());
-  lv_obj_set_size(week_label, 400, 50);
+  lv_obj_set_size(week_label, 400, LV_SIZE_CONTENT);
   lv_obj_set_style_text_opa(week_label, 220, LV_PART_MAIN);
   lv_obj_align(week_label, LV_ALIGN_TOP_LEFT, 10, 172);
   home_time_label_ = time_label;

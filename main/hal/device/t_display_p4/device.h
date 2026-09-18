@@ -37,12 +37,12 @@ class TDisplayP4Device final : public ScreenProvider,
                                public BatteryManagementProvider,
                                public RtcProvider,
                                public RadioProvider,
+                               public KeyboardExpansionProvider,
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
                                public OtgProvider,
 #endif
-#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
-                               public KeyboardExpansionProvider,
                                public NfcProvider,
+#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
                                public EthernetProvider,
 #endif
                                public WifiProvider,
@@ -687,7 +687,6 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   bool ExitDeviceSleep(bool deep_sleep = false) override;
 
-#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   /**
    * @brief 启动一次键盘扩展硬件扫描和初始化任务
    * @return 任务已启动或扩展已经就绪时返回 true，否则返回 false
@@ -780,7 +779,6 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 状态读取成功返回 true，否则返回 false
    */
   bool ReadNfcStatus(NfcStatus* status) override;
-#endif
 
  private:
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
@@ -857,14 +855,12 @@ class TDisplayP4Device final : public ScreenProvider,
   static constexpr int kScreenReadyPollMs = 20;
   static constexpr int kPowerOffTaskTimeoutMs = 5000;
   static constexpr int kPowerOffTaskPollMs = 20;
-#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   static constexpr uint32_t kKeyboardExpansionTaskStackBytes = 4096;
   static constexpr UBaseType_t kKeyboardExpansionTaskPriority = 1;
   static constexpr uint8_t kKeyboardExpansionDisconnectFailureThreshold = 3;
   static constexpr uint32_t kKeyboardExpansionConnectionDebounceMs = 50;
   static constexpr uint32_t kNfcPollingTaskStackBytes = 6 * 1024;
   static constexpr UBaseType_t kNfcPollingTaskPriority = 3;
-#endif
 
   /**
    * @brief 初始化当前硬件版本的触摸中断 GPIO
@@ -878,7 +874,6 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   static void TouchInterruptHandler(void* context);
 
-#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   /**
    * @brief 启用键盘扩展重新连接上升沿监听
    * @param detect_current_level true 时同时检查当前连接电平
@@ -963,7 +958,6 @@ class TDisplayP4Device final : public ScreenProvider,
    * @brief 执行键盘扩展 ST25R3916 NFC 发现和卡片状态维护
    */
   void RunNfcPollingTask();
-#endif
 
   /**
    * @brief 等待异步屏幕初始化进入可用状态
@@ -1653,7 +1647,6 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   RadioState* RadioStateForChip(radio::ChipType chip);
 
-#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   /**
    * @brief 启用 CC1101 完整数据包结束下降沿监听
    * @return 监听启用成功或已经启用返回 true，否则返回 false
@@ -1671,7 +1664,6 @@ class TDisplayP4Device final : public ScreenProvider,
    * @param context 当前设备对象
    */
   static void Cc1101ReceiveInterruptHandler(void* context);
-#endif
 
   /**
    * @brief 停止指定射频会话并清理芯片收发状态
@@ -1696,7 +1688,6 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   bool ReadRadioStateStatus(RadioState* state, RadioStatus* status);
 
-#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   static constexpr int kDefaultKeyboardBacklightBrightnessPercent = 10;
 
   struct KeyboardExpansionRuntimeState {
@@ -1741,7 +1732,6 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<bool> stop_requested{false};
     NfcStatus status;
   };
-#endif
 
   lilygo_device_driver::TDisplayP4Driver& driver_;
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
@@ -1783,7 +1773,6 @@ class TDisplayP4Device final : public ScreenProvider,
   WifiTimeTestState wifi_time_test_;
   // 板载射频维护独立会话，同一芯片仅保留一条配置。
   RadioState radio_;
-#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   RadioState cc1101_radio_;
   RadioState nrf24l01_radio_;
   uint8_t radio_poll_index_ = 0;
@@ -1791,7 +1780,6 @@ class TDisplayP4Device final : public ScreenProvider,
   KeyboardExpansionRuntimeState keyboard_expansion_;
   // 键盘扩展 ST25R3916 的 CIT 轮询状态。
   NfcState nfc_;
-#endif
   std::atomic<bool> imu_enabled_{false};
   // 保留跨 UART 读取的半包和多语句卫星聚合状态。
   cpp_bus_driver::NmeaParser gps_parser_;

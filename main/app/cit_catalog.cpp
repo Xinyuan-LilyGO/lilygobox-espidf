@@ -34,11 +34,13 @@ constexpr CitTestEntry kCitTestEntries[] = {
         .name = "Battery Management Test",
         .status = CitTestStatus::kPending},
     {.id = "gps", .name = "GPS Test", .status = CitTestStatus::kPending},
-#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4) && \
-    !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
     {.id = "keyboard",
         .name = "Keyboard Expansion - Keyboard Test",
         .status = CitTestStatus::kPending},
+#endif
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4) && \
+    !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
     {.id = "ethernet",
         .name = "Ethernet Test",
         .status = CitTestStatus::kPending},
@@ -49,15 +51,12 @@ constexpr CitTestEntry kCitTestEntries[] = {
     {.id = "wifi",
         .name = "WIFI Get Time Test",
         .status = CitTestStatus::kPending},
-#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4) && \
-    !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
     {.id = "nfc",
         .name = "Keyboard Expansion - NFC Test",
         .status = CitTestStatus::kPending},
 #elif defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
     {.id = "nfc", .name = "NFC Test", .status = CitTestStatus::kPending},
-#endif
-#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
     {.id = "infrared",
         .name = "Infrared Test",
         .status = CitTestStatus::kPending},

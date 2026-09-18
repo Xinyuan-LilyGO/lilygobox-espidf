@@ -136,7 +136,7 @@ lv_obj_t* CreateClockGroup(
     lv_obj_delete(group);
     return nullptr;
   }
-  lv_obj_set_size(week_label, 400, 50);
+  lv_obj_set_size(week_label, 400, LV_SIZE_CONTENT);
   lv_obj_set_style_text_opa(week_label, 220, LV_PART_MAIN);
   lv_obj_align(week_label, LV_ALIGN_TOP_LEFT, 10, 172);
   return group;

@@ -17,12 +17,11 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "hal/device/t_display_p4/device.h"
+#include "hal/device/t_display_p4/keyboard_expansion.h"
 
 namespace lilygo_box::hal {
 namespace device = lilygo_device_driver::t_display_p4::device;
 namespace gpio = lilygo_device_driver::t_display_p4::gpio;
-namespace keyboard_gpio =
-    lilygo_device_driver::t_display_p4::keyboard_expansion::gpio;
 namespace {
 
 // Radio 发送硬件超时的最小值和额外保护时间。
@@ -335,74 +334,6 @@ bool CalculateLoraTransmitTiming(const LoraRadioConfig& config,
 }
 
 /**
- * @brief 将公共 GFSK 参数转换为 CC1101 驱动配置
- * @param source 公共 GFSK 参数
- * @param target CC1101 驱动配置输出
- * @return 参数有效时返回 true
- */
-bool BuildCc1101Config(
-    const GfskRadioConfig& source, cpp_bus_driver::Cc1101::Config* target) {
-  if (target == nullptr || source.frequency_hz == 0 ||
-      source.data_rate_bps == 0 || source.frequency_deviation_hz == 0 ||
-      source.receive_bandwidth_hz == 0 || source.preamble_length_bits == 0) {
-    return false;
-  }
-  *target = cpp_bus_driver::Cc1101::Config{};
-  target->frequency_mhz = static_cast<double>(source.frequency_hz) / 1000000.0;
-  target->data_rate_kbaud = static_cast<double>(source.data_rate_bps) / 1000.0;
-  target->frequency_deviation_khz =
-      static_cast<double>(source.frequency_deviation_hz) / 1000.0;
-  target->receive_bandwidth_khz =
-      static_cast<double>(source.receive_bandwidth_hz) / 1000.0;
-  target->output_power_dbm = source.output_power_dbm;
-  target->preamble_length_bits = source.preamble_length_bits;
-  target->sync_word_high = static_cast<uint8_t>(source.sync_word >> 8);
-  target->sync_word_low = static_cast<uint8_t>(source.sync_word);
-  target->modulation = cpp_bus_driver::Cc1101::Modulation::kGfsk;
-  target->encoding = source.whitening_enabled
-                         ? cpp_bus_driver::Cc1101::Encoding::kWhitening
-                         : cpp_bus_driver::Cc1101::Encoding::kNrz;
-  target->maximum_packet_length = 60;
-  target->packet_length_mode =
-      source.fec_enabled ? cpp_bus_driver::Cc1101::PacketLengthMode::kFixed
-                         : cpp_bus_driver::Cc1101::PacketLengthMode::kVariable;
-  target->crc_enabled = source.crc_enabled;
-  target->crc_autoflush = source.crc_enabled;
-  target->append_status = true;
-  target->fec_enabled = source.fec_enabled;
-  return true;
-}
-
-/**
- * @brief 根据中心频率选择键盘扩展板上的 CC1101 射频通路
- * @param frequency_hz 中心频率，单位为 Hz
- * @param rf_switch 射频开关输出
- * @return 频率属于板级支持频段时返回 true
- */
-bool SelectCc1101RfSwitch(uint32_t frequency_hz,
-    lilygo_device_driver::TDisplayP4Driver::Cc1101RfSwitch* rf_switch) {
-  if (rf_switch == nullptr) {
-    return false;
-  }
-  if (frequency_hz >= 300000000U && frequency_hz <= 348000000U) {
-    *rf_switch =
-        lilygo_device_driver::TDisplayP4Driver::Cc1101RfSwitch::k315Mhz;
-    return true;
-  }
-  if (frequency_hz >= 387000000U && frequency_hz <= 464000000U) {
-    *rf_switch =
-        lilygo_device_driver::TDisplayP4Driver::Cc1101RfSwitch::k434Mhz;
-    return true;
-  }
-  if (frequency_hz >= 779000000U && frequency_hz <= 928000000U) {
-    *rf_switch =
-        lilygo_device_driver::TDisplayP4Driver::Cc1101RfSwitch::k868_915Mhz;
-    return true;
-  }
-  return false;
-}
-
-/**
  * @brief 根据配置选择主板 SKY13453 射频天线通路
  * @param antenna 应用层天线类型
  * @param rf_switch 射频开关输出
@@ -427,61 +358,6 @@ bool SelectSky13453RfSwitch(radio::AntennaType antenna,
 }
 
 /**
- * @brief 将空中数据速率转换为 nRF24L01 驱动枚举
- * @param data_rate_bps 空中数据速率，单位为 bit/s
- * @param data_rate 驱动数据速率输出
- * @return 速率受芯片支持时返回 true
- */
-bool SelectNrf24l01DataRate(
-    uint32_t data_rate_bps, cpp_bus_driver::Nrf24l01x::DataRate* data_rate) {
-  if (data_rate == nullptr) {
-    return false;
-  }
-  switch (data_rate_bps) {
-    case 250000:
-      *data_rate = cpp_bus_driver::Nrf24l01x::DataRate::k250Kbps;
-      return true;
-    case 1000000:
-      *data_rate = cpp_bus_driver::Nrf24l01x::DataRate::k1Mbps;
-      return true;
-    case 2000000:
-      *data_rate = cpp_bus_driver::Nrf24l01x::DataRate::k2Mbps;
-      return true;
-    default:
-      return false;
-  }
-}
-
-/**
- * @brief 将发射功率转换为 nRF24L01 驱动枚举
- * @param output_power_dbm 发射功率，单位为 dBm
- * @param output_power 驱动发射功率输出
- * @return 功率受芯片支持时返回 true
- */
-bool SelectNrf24l01OutputPower(int8_t output_power_dbm,
-    cpp_bus_driver::Nrf24l01x::OutputPower* output_power) {
-  if (output_power == nullptr) {
-    return false;
-  }
-  switch (output_power_dbm) {
-    case -18:
-      *output_power = cpp_bus_driver::Nrf24l01x::OutputPower::kMinus18Dbm;
-      return true;
-    case -12:
-      *output_power = cpp_bus_driver::Nrf24l01x::OutputPower::kMinus12Dbm;
-      return true;
-    case -6:
-      *output_power = cpp_bus_driver::Nrf24l01x::OutputPower::kMinus6Dbm;
-      return true;
-    case 0:
-      *output_power = cpp_bus_driver::Nrf24l01x::OutputPower::kZeroDbm;
-      return true;
-    default:
-      return false;
-  }
-}
-
-/**
  * @brief 获取 nRF24L01 发射结果的日志说明
  * @param result nRF24L01 发射结果
  * @return 静态结果说明
@@ -502,61 +378,6 @@ const char* Nrf24l01TransmitResultName(
       return "bus or GPIO error";
   }
   return "unknown";
-}
-
-/**
- * @brief 将公共 Enhanced ShockBurst 参数转换为 nRF24L01 驱动配置
- * @param source 公共 Enhanced ShockBurst 参数
- * @param target nRF24L01 驱动配置输出
- * @return 参数有效时返回 true
- */
-bool BuildNrf24l01Config(const EnhancedShockBurstRadioConfig& source,
-    cpp_bus_driver::Nrf24l01x::Config* target) {
-  cpp_bus_driver::Nrf24l01x::DataRate data_rate;
-  cpp_bus_driver::Nrf24l01x::OutputPower output_power;
-  if (target == nullptr || source.channel > 125 || source.address_width < 3 ||
-      source.address_width > 5 ||
-      (source.crc_length_bits != 8 && source.crc_length_bits != 16) ||
-      (source.dynamic_payload_enabled && !source.auto_ack_enabled) ||
-      source.retransmit_count > 15 || source.retransmit_delay_us < 250 ||
-      source.retransmit_delay_us > 4000 ||
-      source.retransmit_delay_us % 250 != 0 ||
-      !SelectNrf24l01DataRate(source.data_rate_bps, &data_rate) ||
-      !SelectNrf24l01OutputPower(source.output_power_dbm, &output_power)) {
-    return false;
-  }
-  *target = cpp_bus_driver::Nrf24l01x::Config{};
-  target->operation_mode =
-      cpp_bus_driver::Nrf24l01x::OperationMode::kPrimaryReceiver;
-  target->power_mode = cpp_bus_driver::Nrf24l01x::PowerMode::kPowerUp;
-  target->crc_mode = source.crc_length_bits == 16
-                         ? cpp_bus_driver::Nrf24l01x::CrcMode::k16Bit
-                         : cpp_bus_driver::Nrf24l01x::CrcMode::k8Bit;
-  target->output_power = output_power;
-  target->data_rate = data_rate;
-  target->address_width = static_cast<cpp_bus_driver::Nrf24l01x::AddressWidth>(
-      source.address_width);
-  target->rf_channel = source.channel;
-  target->retransmit_count = source.retransmit_count;
-  target->retransmit_delay_us = source.retransmit_delay_us;
-  target->enabled_pipe_mask = 0x01;
-  target->auto_ack_pipe_mask = source.auto_ack_enabled ? 0x01 : 0;
-  target->dynamic_payload_enabled = source.dynamic_payload_enabled;
-  target->dynamic_payload_pipe_mask =
-      source.dynamic_payload_enabled && source.auto_ack_enabled ? 0x01 : 0;
-  target->rx_payload_width[0] = source.dynamic_payload_enabled ? 0 : 32;
-  return true;
-}
-
-/**
- * @brief 按 nRF24L01 寄存器写入顺序编码五字节地址
- * @param address 数值形式的空中地址
- * @param output 五字节地址输出
- */
-void EncodeNrf24l01Address(uint64_t address, uint8_t* output) {
-  for (size_t index = 0; index < 5; ++index) {
-    output[index] = static_cast<uint8_t>(address >> (index * 8));
-  }
 }
 
 struct Lr2021LfPaTableEntry {
@@ -911,51 +732,6 @@ bool TDisplayP4Device::ReadRadioCapabilities(RadioCapabilities* capabilities) {
   return true;
 }
 
-bool TDisplayP4Device::InitializeCc1101ReceiveInterrupt() {
-  if (cc1101_radio_.receive_interrupt_initialized) {
-    return true;
-  }
-  if (tool_ == nullptr || !driver_.IsCc1101Ready()) {
-    return false;
-  }
-
-  cc1101_radio_.receive_interrupt_pending.store(
-      false, std::memory_order_relaxed);
-  if (!tool_->InitGpioInterrupt(keyboard_gpio::t_mix_rf::cc1101::kGdo0,
-          cpp_bus_driver::PlatformHal::InterruptMode::kFalling,
-          Cc1101ReceiveInterruptHandler, this,
-          cpp_bus_driver::PlatformHal::GpioStatus::kDisable)) {
-    return false;
-  }
-  cc1101_radio_.receive_interrupt_initialized = true;
-  return true;
-}
-
-bool TDisplayP4Device::DeinitializeCc1101ReceiveInterrupt() {
-  cc1101_radio_.receive_interrupt_pending.store(
-      false, std::memory_order_relaxed);
-  if (!cc1101_radio_.receive_interrupt_initialized) {
-    return true;
-  }
-
-  const bool result =
-      tool_ != nullptr &&
-      tool_->DeinitGpioInterrupt(keyboard_gpio::t_mix_rf::cc1101::kGdo0);
-  cc1101_radio_.receive_interrupt_initialized = false;
-  cc1101_radio_.receive_interrupt_pending.store(
-      false, std::memory_order_relaxed);
-  return result;
-}
-
-void TDisplayP4Device::Cc1101ReceiveInterruptHandler(void* context) {
-  if (context == nullptr) {
-    return;
-  }
-  auto* device = static_cast<TDisplayP4Device*>(context);
-  device->cc1101_radio_.receive_interrupt_pending.store(
-      true, std::memory_order_release);
-}
-
 TDisplayP4Device::RadioState* TDisplayP4Device::RadioStateForChip(
     radio::ChipType chip) {
   switch (chip) {
@@ -1094,8 +870,8 @@ bool TDisplayP4Device::ActivateRadio(const RadioConfig& config) {
     cpp_bus_driver::Cc1101::Config driver_config;
     lilygo_device_driver::TDisplayP4Driver::Cc1101RfSwitch rf_switch;
     result = driver_.IsCc1101Ready() &&
-             BuildCc1101Config(config.gfsk, &driver_config) &&
-             SelectCc1101RfSwitch(config.gfsk.frequency_hz, &rf_switch) &&
+             keyboard_expansion::BuildCc1101Config(config.gfsk, &driver_config) &&
+             keyboard_expansion::SelectCc1101RfSwitch(config.gfsk.frequency_hz, &rf_switch) &&
              driver_.SetCc1101RfSwitch(rf_switch) &&
              driver_.SetCc1101OperatingMode(lilygo_device_driver::
                      TDisplayP4Driver::Cc1101OperatingMode::kStandby);
@@ -1123,12 +899,12 @@ bool TDisplayP4Device::ActivateRadio(const RadioConfig& config) {
                  KeyboardExpansionState::kReady) {
     cpp_bus_driver::Nrf24l01x::Config driver_config;
     result = driver_.IsNrf24l01Ready() &&
-             BuildNrf24l01Config(config.enhanced_shock_burst, &driver_config) &&
+             keyboard_expansion::BuildNrf24l01Config(config.enhanced_shock_burst, &driver_config) &&
              driver_.SetNrf24l01OperatingMode(lilygo_device_driver::
                      TDisplayP4Driver::Nrf24l01OperatingMode::kStandby);
     if (result) {
       uint8_t address[5] = {};
-      EncodeNrf24l01Address(config.enhanced_shock_burst.address, address);
+      keyboard_expansion::EncodeNrf24l01Address(config.enhanced_shock_burst.address, address);
       auto* radio = driver_.chip().nrf24l01.get();
       const size_t address_width = config.enhanced_shock_burst.address_width;
       result = radio != nullptr && radio->Configure(driver_config) &&

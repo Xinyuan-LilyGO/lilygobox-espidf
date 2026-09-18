@@ -40,9 +40,11 @@ constexpr int kTouchInterruptGpio = gpio::xl9535::kInt;
 cpp_bus_driver::Pwm* GetScreenBacklight(
     lilygo_device_driver::TDisplayP4Driver& driver) {
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
-  return driver.IsSy7200aReady() ? driver.chip().sy7200a.get() : nullptr;
+  return driver.IsScreenBacklightReady() ? driver.chip().sy7200a.get()
+                                         : nullptr;
 #else
-  return driver.IsPt4103Ready() ? driver.chip().pt4103.get() : nullptr;
+  return driver.IsScreenBacklightReady() ? driver.chip().pt4103.get()
+                                         : nullptr;
 #endif
 }
 
@@ -406,11 +408,11 @@ bool TDisplayP4Device::RefreshTouchWakeConfiguration() {
 bool TDisplayP4Device::SetTouchGestureWakeEnabled(bool enabled) {
   switch (driver_.screen_type()) {
     case device::ScreenType::kHi8561:
-      return driver_.IsHi8561TouchReady() &&
+      return driver_.IsTouchReady() &&
              driver_.chip().hi8561_touch != nullptr &&
              driver_.chip().hi8561_touch->SetGestureWakeEnabled(enabled);
     case device::ScreenType::kRm69a10:
-      if (!driver_.IsGt9895Ready() || driver_.chip().gt9895 == nullptr) {
+      if (!driver_.IsTouchReady() || driver_.chip().gt9895 == nullptr) {
         return false;
       }
       return enabled ? driver_.chip().gt9895->EnterGestureMode()
@@ -435,7 +437,7 @@ bool TDisplayP4Device::SetScreenBrightnessPercent(int percent) {
       }
       break;
     case device::ScreenType::kRm69a10:
-      if (driver_.IsRm69a10Ready()) {
+      if (driver_.IsScreenReady()) {
         const uint8_t brightness =
             ScreenBrightnessPercentToRm69a10Value(clamped_percent);
         const bool result = driver_.chip().rm69a10->SetBrightness(brightness);
@@ -474,7 +476,7 @@ bool TDisplayP4Device::FadeScreenBrightnessPercent(
       }
       break;
     case device::ScreenType::kRm69a10:
-      if (driver_.IsRm69a10Ready()) {
+      if (driver_.IsScreenReady()) {
         const int start_percent = rm69a10_brightness_percent_;
         const int brightness_delta = std::abs(clamped_percent - start_percent);
         if (brightness_delta == 0) {

@@ -53,16 +53,13 @@ DeviceProviderContext CreateDeviceProviderContext() {
   context.haptic = device.get();
   context.battery_management = device.get();
   context.camera = device.get();
-#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4) && \
-    !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
   context.capabilities.supports_keyboard_expansion = true;
   context.capabilities.supported_radio_chips =
       radio::ChipMaskFor(radio::ChipType::kCc1101) |
       radio::ChipMaskFor(radio::ChipType::kNrf24l01);
   context.keyboard_expansion = device.get();
   context.nfc = device.get();
-#endif
-#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
   context.rtc = device.get();
 #endif
   context.radio = device.get();

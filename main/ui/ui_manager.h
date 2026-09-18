@@ -654,8 +654,8 @@ class UiManager final {
   size_t dock_button_context_count_ = 0;
   size_t page_index_ = 0;
   char clock_time_text_[6] = "09:15";
-  char home_date_text_[24] = "June 21th";
-  char home_week_text_[8] = "Sat";
+  char home_date_text_[24] = "Jun 21st";
+  char home_week_text_[16] = "Saturday";
 };
 
 }  // namespace lilygo_box::ui
