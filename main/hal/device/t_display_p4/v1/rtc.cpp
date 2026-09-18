@@ -26,12 +26,14 @@ bool TDisplayP4Device::ReadRtcStatus(RtcStatus* status) {
   }
 
   cpp_bus_driver::Pcf8563x::Time time;
-  if (!driver_.chip().pcf8563->GetTime(time)) {
+  bool voltage_low = false;
+  if (!driver_.chip().pcf8563->GetTime(time, voltage_low)) {
     return false;
   }
 
   status->ready = true;
-  status->clock_integrity = driver_.chip().pcf8563->CheckClockIntegrityFlag();
+  // PCF8563 的 VL（voltage low）位置一表示时钟完整性无法保证。
+  status->clock_integrity = !voltage_low;
   status->year = static_cast<uint16_t>(time.year) + 2000;
   status->month = time.month;
   status->day = time.day;
@@ -64,8 +66,8 @@ bool TDisplayP4Device::WriteRtcUnixTime(int64_t unix_time) {
   rtc_time.hour = static_cast<uint8_t>(local_time.tm_hour);
   rtc_time.minute = static_cast<uint8_t>(local_time.tm_min);
   rtc_time.second = static_cast<uint8_t>(local_time.tm_sec);
-  return driver_.chip().pcf8563->SetTime(rtc_time) &&
-         driver_.chip().pcf8563->ClearClockIntegrityFlag();
+  // SetTime 会按驱动接口约定同时清除 VL（时钟完整性）标志。
+  return driver_.chip().pcf8563->SetTime(rtc_time);
 }
 
 }  // namespace lilygo_box::hal

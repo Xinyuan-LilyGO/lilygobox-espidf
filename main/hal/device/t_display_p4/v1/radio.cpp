@@ -785,20 +785,21 @@ bool TDisplayP4Device::ActivateRadio(const RadioConfig& config) {
     previous_session_stopped &= DeinitializeCc1101ReceiveInterrupt();
   }
   if (state->active) {
-    if (state->chip == radio::ChipType::kSx1262 && driver_.IsSx1262Ready()) {
+    if (state->chip == radio::ChipType::kSx1262 &&
+        driver_.IsRadioReady()) {
       auto* radio = driver_.chip().sx1262.get();
       previous_session_stopped =
           radio != nullptr && radio->Invoke(sx126x_set_standby,
                                   SX126X_STANDBY_CFG_RC) == SX126X_STATUS_OK;
     } else if (state->chip == radio::ChipType::kLr2021 &&
-               driver_.IsLr2021Ready()) {
+               driver_.IsRadioReady()) {
       auto* radio = driver_.chip().lr2021.get();
       previous_session_stopped =
           radio != nullptr &&
           radio->Invoke(lr20xx_system_set_dio_irq_cfg, LR20XX_SYSTEM_DIO_11,
               LR20XX_SYSTEM_IRQ_NONE) == LR20XX_STATUS_OK &&
-          driver_.SetLr2021OperatingMode(lilygo_device_driver::
-                  TDisplayP4Driver::Lr2021OperatingMode::kStandby);
+          driver_.SetRadioOperatingMode(lilygo_device_driver::
+                  TDisplayP4Driver::RadioOperatingMode::kStandby);
     } else if (state->chip == radio::ChipType::kCc1101 &&
                driver_.IsCc1101Ready()) {
       auto* radio = driver_.chip().cc1101.get();
@@ -833,8 +834,8 @@ bool TDisplayP4Device::ActivateRadio(const RadioConfig& config) {
              SelectSky13453RfSwitch(config.antenna, &rf_switch) &&
              driver_.SetSky13453RfSwitch(rf_switch);
     if (result) {
-      result = driver_.SetSx1262OperatingMode(lilygo_device_driver::
-              TDisplayP4Driver::Sx1262OperatingMode::kStandby);
+      result = driver_.SetRadioOperatingMode(lilygo_device_driver::
+              TDisplayP4Driver::RadioOperatingMode::kStandby);
     }
     if (result) {
       auto* radio = driver_.chip().sx1262.get();
@@ -842,25 +843,25 @@ bool TDisplayP4Device::ActivateRadio(const RadioConfig& config) {
                radio->StartReceive();
     }
     if (!result) {
-      driver_.SetSx1262OperatingMode(
-          lilygo_device_driver::TDisplayP4Driver::Sx1262OperatingMode::kSleep);
+      driver_.SetRadioOperatingMode(
+          lilygo_device_driver::TDisplayP4Driver::RadioOperatingMode::kSleep);
     }
   } else if (config.chip == radio::ChipType::kLr2021 &&
              config.protocol == radio::ProtocolType::kLora) {
     lilygo_device_driver::TDisplayP4Driver::Sky13453RfSwitch rf_switch;
-    result = driver_.IsLr2021Ready() &&
+    result = driver_.IsRadioReady() &&
              SelectSky13453RfSwitch(config.antenna, &rf_switch) &&
              driver_.SetSky13453RfSwitch(rf_switch);
     if (result) {
-      result = driver_.SetLr2021OperatingMode(lilygo_device_driver::
-              TDisplayP4Driver::Lr2021OperatingMode::kStandby);
+      result = driver_.SetRadioOperatingMode(lilygo_device_driver::
+              TDisplayP4Driver::RadioOperatingMode::kStandby);
     }
     if (result) {
       result = ConfigureLr2021Receive(driver_.chip().lr2021.get(), config.lora);
     }
     if (!result) {
-      driver_.SetLr2021OperatingMode(
-          lilygo_device_driver::TDisplayP4Driver::Lr2021OperatingMode::kSleep);
+      driver_.SetRadioOperatingMode(
+          lilygo_device_driver::TDisplayP4Driver::RadioOperatingMode::kSleep);
     }
   } else if (config.chip == radio::ChipType::kCc1101 &&
              config.protocol == radio::ProtocolType::kGfsk &&
@@ -971,7 +972,8 @@ bool TDisplayP4Device::DeactivateRadioState(RadioState* state) {
   if (state->chip == radio::ChipType::kCc1101) {
     result &= DeinitializeCc1101ReceiveInterrupt();
   }
-  if (state->chip == radio::ChipType::kSx1262 && driver_.IsSx1262Ready()) {
+  if (state->chip == radio::ChipType::kSx1262 &&
+      driver_.IsRadioReady()) {
     auto* radio = driver_.chip().sx1262.get();
     if (state->active) {
       result = radio != nullptr &&
@@ -979,10 +981,10 @@ bool TDisplayP4Device::DeactivateRadioState(RadioState* state) {
                    SX126X_STATUS_OK &&
                radio->ClearIrqStatus(SX126X_IRQ_ALL);
     }
-    result &= driver_.SetSx1262OperatingMode(
-        lilygo_device_driver::TDisplayP4Driver::Sx1262OperatingMode::kStandby);
+    result &= driver_.SetRadioOperatingMode(
+        lilygo_device_driver::TDisplayP4Driver::RadioOperatingMode::kStandby);
   } else if (state->chip == radio::ChipType::kLr2021 &&
-             driver_.IsLr2021Ready()) {
+             driver_.IsRadioReady()) {
     auto* radio = driver_.chip().lr2021.get();
     if (state->active) {
       result =
@@ -992,8 +994,8 @@ bool TDisplayP4Device::DeactivateRadioState(RadioState* state) {
           radio->Invoke(lr20xx_system_clear_irq_status,
               LR20XX_SYSTEM_IRQ_ALL_MASK) == LR20XX_STATUS_OK;
     }
-    result &= driver_.SetLr2021OperatingMode(
-        lilygo_device_driver::TDisplayP4Driver::Lr2021OperatingMode::kStandby);
+    result &= driver_.SetRadioOperatingMode(
+        lilygo_device_driver::TDisplayP4Driver::RadioOperatingMode::kStandby);
   } else if (state->chip == radio::ChipType::kCc1101 &&
              keyboard_expansion_.state.load() ==
                  KeyboardExpansionState::kReady &&
@@ -1089,7 +1091,7 @@ bool TDisplayP4Device::SendRadio(uint32_t client_token, const uint8_t* data,
   uint32_t estimated_time_ms = 0;
   if (state->chip == radio::ChipType::kSx1262 &&
       state->protocol == radio::ProtocolType::kLora &&
-      driver_.IsSx1262Ready()) {
+      driver_.IsRadioReady()) {
     LoraTransmitTiming timing;
     if (CalculateLoraTransmitTiming(state->lora_config, size, &timing)) {
       auto* radio = driver_.chip().sx1262.get();
@@ -1104,7 +1106,7 @@ bool TDisplayP4Device::SendRadio(uint32_t client_token, const uint8_t* data,
     }
   } else if (state->chip == radio::ChipType::kLr2021 &&
              state->protocol == radio::ProtocolType::kLora &&
-             driver_.IsLr2021Ready()) {
+             driver_.IsRadioReady()) {
     LoraTransmitTiming timing;
     usp_cpp_bus_driver::Lr20xx::LoraConfig driver_config;
     if (CalculateLoraTransmitTiming(state->lora_config, size, &timing) &&
@@ -1267,8 +1269,9 @@ bool TDisplayP4Device::PollRadioState(RadioState* state, RadioEvent* event) {
     return true;
   }
   const bool hardware_ready =
-      (state->chip == radio::ChipType::kSx1262 && driver_.IsSx1262Ready()) ||
-      (state->chip == radio::ChipType::kLr2021 && driver_.IsLr2021Ready()) ||
+      ((state->chip == radio::ChipType::kSx1262 ||
+           state->chip == radio::ChipType::kLr2021) &&
+          driver_.IsRadioReady()) ||
       (state->chip == radio::ChipType::kCc1101 &&
           keyboard_expansion_.state.load() == KeyboardExpansionState::kReady &&
           driver_.IsCc1101Ready()) ||
@@ -1672,10 +1675,8 @@ bool TDisplayP4Device::ReadRadioStateStatus(
   *status = RadioStatus();
   switch (state->chip) {
     case radio::ChipType::kSx1262:
-      status->hardware_ready = driver_.IsSx1262Ready();
-      break;
     case radio::ChipType::kLr2021:
-      status->hardware_ready = driver_.IsLr2021Ready();
+      status->hardware_ready = driver_.IsRadioReady();
       break;
     case radio::ChipType::kCc1101:
       status->hardware_ready =

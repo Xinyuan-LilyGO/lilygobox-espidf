@@ -535,7 +535,7 @@ bool TDisplayP4Device::Configure(
   if (!driver_.chip().es8311->SetI2sChannelEnable(false)) {
     return false;
   }
-  const bool clock_reconfigured = driver_.chip().es8311->SetClockReconfig(
+  const bool clock_reconfigured = driver_.chip().es8311->ReconfigureClock(
       device::es8311::kMclkMultiple, sample_rate_hz);
   const bool channels_restored =
       driver_.chip().es8311->SetI2sChannelEnable(true);
