@@ -20,6 +20,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "hal/usb/usb_host_service.h"
 #include "usb/msc_host.h"
 #include "usb/msc_host_vfs.h"
 #include "usb/usb_host.h"
@@ -287,29 +288,17 @@ void FinishUsbHost(
     UsbStorageManagerState* state, bool msc_installed, bool host_installed) {
   ReleaseAllUsbDevices(state);
   if (msc_installed) {
-    const esp_err_t result = msc_host_uninstall();
-    if (result != ESP_OK) {
+    esp_err_t result = msc_host_uninstall();
+    while (result != ESP_OK) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Uninstall USB MSC host failed: %s\n", esp_err_to_name(result));
+      vTaskDelay(pdMS_TO_TICKS(kUsbStopPollMs));
+      result = msc_host_uninstall();
     }
   }
 
   if (host_installed) {
-    bool no_clients = false;
-    for (int elapsed_ms = 0; elapsed_ms < kUsbStopTimeoutMs;
-        elapsed_ms += kUsbStopPollMs) {
-      uint32_t event_flags = 0;
-      usb_host_lib_handle_events(pdMS_TO_TICKS(kUsbStopPollMs), &event_flags);
-      if ((event_flags & USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS) != 0) {
-        no_clients = true;
-        usb_host_device_free_all();
-      }
-      if (no_clients &&
-          (event_flags & USB_HOST_LIB_EVENT_FLAGS_ALL_FREE) != 0) {
-        break;
-      }
-    }
-    const esp_err_t result = usb_host_uninstall();
+    const esp_err_t result = usb_host_service::Release();
     if (result != ESP_OK) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Uninstall USB host failed: %s\n", esp_err_to_name(result));
@@ -327,9 +316,7 @@ void UsbStorageTaskEntry(void* context) {
   bool host_installed = false;
   bool msc_installed = false;
 
-  usb_host_config_t host_config = {};
-  host_config.intr_flags = ESP_INTR_FLAG_LEVEL1;
-  esp_err_t result = usb_host_install(&host_config);
+  esp_err_t result = usb_host_service::Acquire();
   if (result == ESP_OK) {
     host_installed = true;
   } else {
@@ -360,11 +347,9 @@ void UsbStorageTaskEntry(void* context) {
     state->start_failed.store(false);
     MarkSnapshotChanged(state);
     while (!state->stop_requested.load()) {
-      uint32_t event_flags = 0;
-      usb_host_lib_handle_events(pdMS_TO_TICKS(kUsbEventPollMs), &event_flags);
-
       UsbStorageEvent event;
-      while (xQueueReceive(state->event_queue, &event, 0) == pdTRUE) {
+      if (xQueueReceive(state->event_queue, &event,
+              pdMS_TO_TICKS(kUsbEventPollMs)) == pdTRUE) {
         HandleUsbStorageEvent(state, event);
       }
     }
@@ -395,6 +380,10 @@ UsbStorageManager::UsbStorageManager(HostStoppedCallback host_stopped_callback)
 
 UsbStorageManager::~UsbStorageManager() {
   Stop();
+  // 回调可引用板级对象；销毁对象前必须等后台清理退出，不能遗留悬空回调。
+  while (state_->start_requested.load()) {
+    vTaskDelay(pdMS_TO_TICKS(kUsbStopPollMs));
+  }
   if (state_->event_queue != nullptr) {
     vQueueDelete(state_->event_queue);
   }

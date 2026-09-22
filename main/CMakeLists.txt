@@ -26,7 +26,8 @@ if(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
         "hal/device/t_display_p4"
         "hal/usb")
     if(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
-        list(APPEND src_dirs "hal/device/t_display_p4/v2")
+        list(APPEND src_dirs "hal/device/t_display_p4/v2" "hal/usb/ethernet")
+        list(APPEND ethernet_requires iot_eth iot_usbh_ecm iot_usbh_cdc)
     else()
         list(APPEND src_dirs "hal/device/t_display_p4/v1")
     endif()
@@ -49,6 +50,7 @@ idf_component_register(
         lvgl
         lilygo_device_driver
     PRIV_REQUIRES
+        ${ethernet_requires}
         app_update
         bootloader_support
         esp_app_format
@@ -75,3 +77,13 @@ idf_component_register(
         spi_flash
         usb
         usb_host_msc)
+
+if(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4 AND
+   CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+    # 板载 Hub 端口筛选、已有设备补扫、RTL8152B 帧尾短包和软件 MAC 接收过滤。
+    foreach(symbol usb_host_client_register usb_host_client_handle_events
+                   usb_host_transfer_submit usbh_cdc_send_custom_request)
+        target_link_options(${COMPONENT_LIB} INTERFACE
+            "-Wl,--wrap=${symbol}" "-Wl,--undefined=__wrap_${symbol}")
+    endforeach()
+endif()

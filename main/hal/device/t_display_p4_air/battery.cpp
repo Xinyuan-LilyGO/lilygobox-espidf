@@ -76,43 +76,54 @@ bool TDisplayP4AirDevice::ReadBatteryManagementStatus(
   }
 
   auto& axp517 = *driver_.chip().axp517;
-  cpp_bus_driver::Axp517::ChipStatus0 chip_status0;
-  cpp_bus_driver::Axp517::ChipStatus1 chip_status1;
-  if (!axp517.GetChipStatus0(chip_status0) ||
-      !axp517.GetChipStatus1(chip_status1)) {
+  cpp_bus_driver::Axp517::Status power_status;
+  if (!axp517.GetStatus(power_status)) {
     return false;
   }
+  status->pack_present = power_status.battery_present;
+  if (!status->pack_present) {
+    status->ready = true;
+    return true;
+  }
 
-  const uint16_t voltage_mv = axp517.GetBatteryVoltage();
-  const uint8_t charge_percent = axp517.GetBatteryLevel();
-  const uint8_t health_percent = axp517.GetBatteryHealth();
-  const float current_ma = axp517.GetBatteryCurrent();
+  uint16_t voltage_mv = 0;
+  uint8_t charge_percent = 0;
+  uint8_t health_percent = 0;
+  float current_ma = 0.0F;
+  if (!axp517.GetBatteryVoltage(voltage_mv) ||
+      !axp517.GetBatteryLevel(charge_percent) ||
+      !axp517.GetBatteryCurrent(current_ma) || !std::isfinite(current_ma)) {
+    return false;
+  }
+  // SOH 是容量健康度百分比；新版 GetBatteryHealth 返回的是故障枚举。
+  const bool soh_read = axp517.GetBatterySoh(health_percent);
   const int capacity_mah = battery_capacity_mah_.load();
   if (charge_percent > 100) {
     return false;
   }
-  const bool health_valid = health_percent > 0 && health_percent <= 100;
-  const int usable_capacity_mah =
-      EstimateUsableBatteryCapacityMah(capacity_mah, health_percent);
+  const bool health_valid =
+      soh_read && health_percent > 0 && health_percent <= 100;
+  const int usable_capacity_mah = EstimateUsableBatteryCapacityMah(
+      capacity_mah, health_valid ? health_percent : 100);
 
   status->capabilities.capacity = capacity_mah > 0;
   status->capabilities.remaining_time = capacity_mah > 0;
   status->ready = true;
-  status->pack_present = chip_status0.battery_present_status;
+  status->pack_present = power_status.battery_present;
   status->charging =
-      status->pack_present && chip_status0.vbus_good_indication &&
-      (chip_status1.charging_status ==
+      status->pack_present && power_status.vbus_good &&
+      (power_status.charge ==
               cpp_bus_driver::Axp517::ChargeStatus::kTrickleCharge ||
-          chip_status1.charging_status ==
+          power_status.charge ==
               cpp_bus_driver::Axp517::ChargeStatus::kPrecharge ||
-          chip_status1.charging_status ==
+          power_status.charge ==
               cpp_bus_driver::Axp517::ChargeStatus::kConstantCurrent ||
-          chip_status1.charging_status ==
+          power_status.charge ==
               cpp_bus_driver::Axp517::ChargeStatus::kConstantVoltage ||
-          chip_status1.charging_status ==
+          power_status.charge ==
               cpp_bus_driver::Axp517::ChargeStatus::kChargeDone);
   status->full_charged =
-      chip_status1.charging_status ==
+      power_status.charge ==
           cpp_bus_driver::Axp517::ChargeStatus::kChargeDone ||
       charge_percent == 100;
   status->full_discharged = status->pack_present && charge_percent == 0;
@@ -131,11 +142,11 @@ bool TDisplayP4AirDevice::ReadBatteryManagementStatus(
     status->time_to_empty_min = EstimateBatteryRemainingMinutes(
         usable_capacity_mah, charge_percent, status->current_ma, false);
   }
-  status->pack_temperature_c = axp517.GetBatteryTemperatureCelsius();
-  if (axp517.SetAdcDataSelect(
-          cpp_bus_driver::Axp517::AdcData::kChipTemperatureCelsius)) {
-    status->chip_temperature_c = axp517.GetChipDieJunctionTemperatureCelsius();
-  }
+  // 读取失败时保留未知值，避免把通信失败误报为 0 ℃。
+  status->pack_temperature_c = std::numeric_limits<float>::quiet_NaN();
+  status->chip_temperature_c = std::numeric_limits<float>::quiet_NaN();
+  axp517.GetBatteryTemperature(status->pack_temperature_c);
+  axp517.GetDieTemperature(status->chip_temperature_c);
   return true;
 }
 
@@ -145,13 +156,14 @@ bool TDisplayP4AirDevice::ReadBatteryLevel(int* percent) {
     return false;
   }
 
-  cpp_bus_driver::Axp517::ChipStatus0 chip_status;
-  if (!driver_.chip().axp517->GetChipStatus0(chip_status) ||
-      !chip_status.battery_present_status) {
+  cpp_bus_driver::Axp517::Status chip_status;
+  if (!driver_.chip().axp517->GetStatus(chip_status) ||
+      !chip_status.battery_present) {
     return false;
   }
-  const uint8_t charge_percent = driver_.chip().axp517->GetBatteryLevel();
-  if (charge_percent > 100) {
+  uint8_t charge_percent = 0;
+  if (!driver_.chip().axp517->GetBatteryLevel(charge_percent) ||
+      charge_percent > 100) {
     return false;
   }
   *percent = charge_percent;

@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -2518,12 +2519,23 @@ void RefreshActiveTestData(CitViewState* state) {
           battery_management.time_to_empty_min,
           battery_management.time_to_full_min);
     }
+    char pack_temperature[24] = "--";
+    char chip_temperature[24] = "--";
+    if (battery_management.ready && battery_management.pack_present &&
+        std::isfinite(battery_management.pack_temperature_c)) {
+      std::snprintf(pack_temperature, sizeof(pack_temperature), "%.2f",
+          battery_management.pack_temperature_c);
+    }
+    if (battery_management.ready &&
+        std::isfinite(battery_management.chip_temperature_c)) {
+      std::snprintf(chip_temperature, sizeof(chip_temperature), "%.2f",
+          battery_management.chip_temperature_c);
+    }
     AppendFormatted(text, sizeof(text), &used,
         "temperature:\n"
-        "     pack: %.2f C\n"
-        "     chip: %.2f C",
-        battery_management.pack_temperature_c,
-        battery_management.chip_temperature_c);
+        "     pack: %s C\n"
+        "     chip: %s C",
+        pack_temperature, chip_temperature);
     lv_label_set_text(state->test_data_label, text);
   }
 }

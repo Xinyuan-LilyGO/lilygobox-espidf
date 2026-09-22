@@ -208,29 +208,30 @@ PowerOffBootAction TDisplayP4AirDevice::ResolvePowerOffBoot(
   }
 
   auto& axp517 = *driver_.chip().axp517;
-  cpp_bus_driver::Axp517::ChipStatus0 chip_status0;
-  if (!axp517.GetChipStatus0(chip_status0)) {
+  cpp_bus_driver::Axp517::Status chip_status0;
+  if (!axp517.GetStatus(chip_status0)) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Read AXP517 VBUS status during power-off boot failed\n");
     driver_.PrepareMinimalDriversForPowerOff();
     return PowerOffBootAction::kFailed;
   }
 
-  cpp_bus_driver::Axp517::IrqStatus0 irq_status0;
-  cpp_bus_driver::Axp517::IrqStatus1 irq_status1;
-  cpp_bus_driver::Axp517::IrqStatus2 irq_status2;
-  cpp_bus_driver::Axp517::IrqStatus3 irq_status3;
-  const bool irq_ready =
-      axp517.GetIrqStatus(irq_status0, irq_status1, irq_status2, irq_status3);
-  const bool axp_long_press = irq_ready && irq_status1.pwr_on_long_press_flag;
-  const bool axp_short_press = irq_ready && irq_status1.pwr_on_short_press_flag;
-  const bool vbus_inserted = irq_ready && irq_status1.vbus_insert_flag;
-  if (!axp517.ClearAllIrq()) {
+  cpp_bus_driver::Axp517::InterruptStatus irq_status;
+  const bool irq_ready = axp517.GetInterruptStatus(irq_status);
+  const bool axp_long_press =
+      irq_ready &&
+      irq_status.Has(cpp_bus_driver::Axp517::Irq::kPowerKeyLongPress);
+  const bool axp_short_press =
+      irq_ready &&
+      irq_status.Has(cpp_bus_driver::Axp517::Irq::kPowerKeyShortPress);
+  const bool vbus_inserted =
+      irq_ready && irq_status.Has(cpp_bus_driver::Axp517::Irq::kVbusInserted);
+  if (!axp517.ClearAllIrqs()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Clear AXP517 power-off boot IRQ flags failed\n");
   }
 
-  const bool external_power_present = chip_status0.vbus_good_indication;
+  const bool external_power_present = chip_status0.vbus_good;
   const esp_sleep_wakeup_cause_t wakeup_cause = esp_sleep_get_wakeup_cause();
   const uint64_t power_button_mask =
       uint64_t{1} << static_cast<unsigned>(gpio::button::kPower);
@@ -306,20 +307,20 @@ PowerOffAction TDisplayP4AirDevice::RequestPowerOffInternal(
   }
 
   auto& axp517 = *driver_.chip().axp517;
-  cpp_bus_driver::Axp517::ChipStatus0 chip_status0;
-  if (!axp517.GetChipStatus0(chip_status0)) {
+  cpp_bus_driver::Axp517::Status chip_status0;
+  if (!axp517.GetStatus(chip_status0)) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Read AXP517 VBUS status before power off failed\n");
     return PowerOffAction::kFailed;
   }
-  bool external_power_present = chip_status0.vbus_good_indication;
+  bool external_power_present = chip_status0.vbus_good;
 
   // 先准备两种唤醒源，避免 USB 在外设关闭期间插入时落入运输模式等待死区。
   WaitForPowerButtonRelease();
   if (!ConfigurePowerOffWakeSources()) {
     return PowerOffAction::kFailed;
   }
-  if (!axp517.ClearAllIrq()) {
+  if (!axp517.ClearAllIrqs()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Clear AXP517 IRQ flags before power off failed\n");
   }
@@ -333,9 +334,9 @@ PowerOffAction TDisplayP4AirDevice::RequestPowerOffInternal(
     return PowerOffAction::kEnterDeepSleep;
   }
 
-  cpp_bus_driver::Axp517::ChipStatus0 pre_hardware_shutdown_status0;
-  if (axp517.GetChipStatus0(pre_hardware_shutdown_status0)) {
-    external_power_present = pre_hardware_shutdown_status0.vbus_good_indication;
+  cpp_bus_driver::Axp517::Status pre_hardware_shutdown_status0;
+  if (axp517.GetStatus(pre_hardware_shutdown_status0)) {
+    external_power_present = pre_hardware_shutdown_status0.vbus_good;
   } else {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Re-read AXP517 VBUS status before hardware shutdown failed; "
@@ -357,9 +358,9 @@ PowerOffAction TDisplayP4AirDevice::RequestPowerOffInternal(
     return PowerOffAction::kEnterDeepSleep;
   }
 
-  cpp_bus_driver::Axp517::ChipStatus0 final_chip_status0;
-  if (axp517.GetChipStatus0(final_chip_status0)) {
-    external_power_present = final_chip_status0.vbus_good_indication;
+  cpp_bus_driver::Axp517::Status final_chip_status0;
+  if (axp517.GetStatus(final_chip_status0)) {
+    external_power_present = final_chip_status0.vbus_good;
   } else {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Re-read AXP517 VBUS status after hardware shutdown failed; "
@@ -415,14 +416,15 @@ bool TDisplayP4AirDevice::SetOtgPowerEnabled(bool enabled) {
     otg_.source_role_enabled = false;
     result = SetOtgPowerOutputEnabledLocked(false);
     result &= axp517->SetVbusDetectEnable(true);
-    result &= axp517->SetPdRole(false, false);
+    result &= axp517->SetTypeCRole(cpp_bus_driver::Axp517::TypeCRole::kSink);
   } else {
     bool external_power_present = false;
     result = ReadExternalPowerPresentLocked(&external_power_present);
     if (result && external_power_present) {
       otg_.source_role_enabled = false;
       bool safe_state_result = SetOtgPowerOutputEnabledLocked(false);
-      safe_state_result &= axp517->SetPdRole(false, false);
+      safe_state_result &=
+          axp517->SetTypeCRole(cpp_bus_driver::Axp517::TypeCRole::kSink);
       if (!safe_state_result) {
         LogMessage(LogLevel::kError, __FILE__, __LINE__,
             "Keep OTG disabled while external power is present failed\n");
@@ -431,14 +433,15 @@ bool TDisplayP4AirDevice::SetOtgPowerEnabled(bool enabled) {
     } else if (result) {
       result = SetOtgPowerOutputEnabledLocked(false);
       result &= axp517->SetVbusDetectEnable(true);
-      result &= axp517->SetPdRole(true, true);
+      result &=
+          axp517->SetTypeCRole(cpp_bus_driver::Axp517::TypeCRole::kDualRole);
       if (result) {
         otg_.source_role_enabled = true;
         result = UpdateOtgPowerStateLocked();
       } else {
         otg_.source_role_enabled = false;
         SetOtgPowerOutputEnabledLocked(false);
-        axp517->SetPdRole(false, false);
+        axp517->SetTypeCRole(cpp_bus_driver::Axp517::TypeCRole::kSink);
       }
     }
   }
@@ -481,14 +484,14 @@ bool TDisplayP4AirDevice::SetOtgPowerOutputEnabledLocked(bool enabled) {
   }
 
   if (enabled) {
-    if (!axp517->SetBoostEnable(true) || !axp517->SetForceRbfetEnable(true)) {
-      axp517->SetForceRbfetEnable(false);
+    if (!axp517->SetBoostEnable(true) || !axp517->SetRbfetForceEnable(true)) {
+      axp517->SetRbfetForceEnable(false);
       axp517->SetBoostEnable(false);
       otg_.power_output_enabled = false;
       return false;
     }
   } else {
-    bool result = axp517->SetForceRbfetEnable(false);
+    bool result = axp517->SetRbfetForceEnable(false);
     result &= axp517->SetBoostEnable(false);
     if (!result) {
       return false;
@@ -507,14 +510,14 @@ bool TDisplayP4AirDevice::ReadExternalPowerPresentLocked(bool* present) {
   if (axp517 == nullptr) {
     return false;
   }
-  cpp_bus_driver::Axp517::PdConnectionStatus connection_status;
-  cpp_bus_driver::Axp517::ChipStatus0 chip_status;
-  if (!axp517->GetPdConnectionStatus(connection_status) ||
-      !axp517->GetChipStatus0(chip_status)) {
+  cpp_bus_driver::Axp517::CcStatus connection_status;
+  cpp_bus_driver::Axp517::Status chip_status;
+  if (!axp517->GetCcStatus(connection_status) ||
+      !axp517->GetStatus(chip_status)) {
     return false;
   }
-  *present = connection_status.sink_power_attached ||
-             (!otg_.power_output_enabled && chip_status.vbus_good_indication);
+  *present = connection_status.sink_attached ||
+             (!otg_.power_output_enabled && chip_status.vbus_good);
   return true;
 }
 
@@ -527,31 +530,31 @@ bool TDisplayP4AirDevice::UpdateOtgPowerStateLocked() {
     return SetOtgPowerOutputEnabledLocked(false);
   }
 
-  cpp_bus_driver::Axp517::PdConnectionStatus connection_status;
-  cpp_bus_driver::Axp517::ChipStatus0 chip_status;
-  if (!axp517->GetPdConnectionStatus(connection_status) ||
-      !axp517->GetChipStatus0(chip_status)) {
+  cpp_bus_driver::Axp517::CcStatus connection_status;
+  cpp_bus_driver::Axp517::Status chip_status;
+  if (!axp517->GetCcStatus(connection_status) ||
+      !axp517->GetStatus(chip_status)) {
     return false;
   }
   const bool external_power_present =
-      connection_status.sink_power_attached ||
-      (!otg_.power_output_enabled && chip_status.vbus_good_indication);
+      connection_status.sink_attached ||
+      (!otg_.power_output_enabled && chip_status.vbus_good);
   if (external_power_present) {
     otg_.source_role_enabled = false;
     bool result = SetOtgPowerOutputEnabledLocked(false);
-    result &= axp517->SetPdRole(false, false);
+    result &= axp517->SetTypeCRole(cpp_bus_driver::Axp517::TypeCRole::kSink);
     return result;
   }
   if (connection_status.looking_for_connection) {
     return SetOtgPowerOutputEnabledLocked(false);
   }
-  if (connection_status.source_device_attached) {
+  if (connection_status.source_attached) {
     return SetOtgPowerOutputEnabledLocked(true);
   }
   if (!SetOtgPowerOutputEnabledLocked(false)) {
     return false;
   }
-  return axp517->SetPdRole(true, true);
+  return axp517->SetTypeCRole(cpp_bus_driver::Axp517::TypeCRole::kDualRole);
 }
 
 bool TDisplayP4AirDevice::EnterDeviceSleep(bool deep_sleep) {

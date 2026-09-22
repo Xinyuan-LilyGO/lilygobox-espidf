@@ -174,7 +174,7 @@ void TDisplayP4AirDevice::RunNfcPollingTask() {
   const bool initialized = nfc_driver != nullptr && driver_.InitSt25r3916() &&
                            driver_.IsSt25r3916Ready();
   if (!initialized) {
-    const auto& driver_status = driver_.status().st25r3916;
+    const auto& driver_status = driver_.chip_status().st25r3916;
     int error = RFAL_ERR_INTERNAL;
     if (driver_status.result != RFAL_ERR_NONE) {
       error = static_cast<int>(driver_status.result);

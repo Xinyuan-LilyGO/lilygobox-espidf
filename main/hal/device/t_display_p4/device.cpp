@@ -35,9 +35,8 @@ bool TDisplayP4Device::InitDevice() {
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
       || otg_mutex_ == nullptr
 #endif
-      || cc1101_radio_.mutex == nullptr || nrf24l01_radio_.mutex == nullptr
-      || nfc_.mutex == nullptr
-  ) {
+      || cc1101_radio_.mutex == nullptr || nrf24l01_radio_.mutex == nullptr ||
+      nfc_.mutex == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Create T-Display-P4 synchronization resources failed\n");
     return false;
@@ -244,9 +243,7 @@ bool TDisplayP4Device::PrepareForPowerOff() {
       nrf24l01_radio_.transmitting) {
     result &= DeactivateRadio();
   }
-#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   result &= SetEthernetEnabled(false);
-#endif
   result &= SetNfcPollingEnabled(false);
   result &= DisableKeyboardExpansion();
   result &= SetGpsEnabled(false);
@@ -268,9 +265,10 @@ bool TDisplayP4Device::WaitForPowerOffTasks() {
         microphone_.running.load() || camera_preview_.task_active.load() ||
 #if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
         ethernet_.init_task_running.load() ||
+#else
+        usb_ethernet_manager_.IsActive() ||
 #endif
-        nfc_.task_active.load() ||
-        keyboard_expansion_.task_running.load() ||
+        nfc_.task_active.load() || keyboard_expansion_.task_running.load() ||
         wifi_.init_task_running.load() || wifi_.scan_task_running.load() ||
         wifi_.connect_task_running.load() ||
         wifi_time_test_.rtc_sync_task_running.load();

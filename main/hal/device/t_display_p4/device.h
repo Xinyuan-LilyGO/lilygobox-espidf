@@ -13,6 +13,7 @@
 #include <memory>
 
 #include "audio/mp3_decoder.h"
+#include "device/t_display_p4/driver.h"
 #include "esp_cam_sensor_types.h"
 #include "esp_timer.h"
 #include "esp_wifi_types.h"
@@ -22,7 +23,9 @@
 #include "hal/ppa/ppa_srm_helper.h"
 #include "hal/providers/providers.h"
 #include "hal/usb/usb_storage_manager.h"
-#include "device/t_display_p4/driver.h"
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+#include "hal/usb/ethernet/usb_ethernet_manager.h"
+#endif
 
 namespace lilygo_box::hal {
 class TDisplayP4Device final : public ScreenProvider,
@@ -42,9 +45,7 @@ class TDisplayP4Device final : public ScreenProvider,
                                public OtgProvider,
 #endif
                                public NfcProvider,
-#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
                                public EthernetProvider,
-#endif
                                public WifiProvider,
                                public StorageProvider,
                                private audio::PcmOutput {
@@ -539,21 +540,19 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   bool ReadImuStatus(ImuStatus* status) override;
 
-#if !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   /**
-   * @brief 异步启用或停用 IP101 以太网
+   * @brief 异步启用或停用以太网（V1 IP101 / V2 USB RTL8152B）
    * @param enabled true 启动以太网，false 停止协议栈并关闭硬件电源
    * @return 状态切换请求成功接受返回 true，否则返回 false
    */
   bool SetEthernetEnabled(bool enabled) override;
 
   /**
-   * @brief 读取 IP101 以太网链路和 DHCP 状态
+   * @brief 读取以太网链路和 DHCP 状态
    * @param status 以太网状态输出地址
    * @return 读取成功返回 true，否则返回 false
    */
   bool ReadEthernetStatus(EthernetStatus* status) override;
-#endif
 
   /**
    * @brief 异步启用或停用 ESP32-C5/C6 hosted WiFi
@@ -782,6 +781,12 @@ class TDisplayP4Device final : public ScreenProvider,
 
  private:
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+  /**
+   * @brief 申请或释放网卡使用的共用 Boost，不改变用户的 OTG 开关
+   * @param enabled true 申请供电，false 释放供电
+   * @return 供电状态更新成功返回 true，否则返回 false
+   */
+  bool SetEthernetPowerEnabled(bool enabled);
   // 以下辅助函数要求调用方持有 otg_mutex_。
   bool UpdateOtgPowerStateLocked();
   bool SetTypeCOutputEnabledLocked(bool enabled);
@@ -1738,8 +1743,11 @@ class TDisplayP4Device final : public ScreenProvider,
   // 串行化两路 USB 供电和 Type-C 外部电源检测。
   SemaphoreHandle_t otg_mutex_ = nullptr;
   bool otg_enabled_ = false;
+  bool ethernet_power_enabled_ = false;
   bool type_c_source_role_enabled_ = false;
   bool type_c_output_enabled_ = false;
+  UsbEthernetManager usb_ethernet_manager_{
+      [this](bool enabled) { return SetEthernetPowerEnabled(enabled); }};
 #endif
   std::unique_ptr<cpp_bus_driver::PlatformHal> tool_;
   UsbStorageManager usb_storage_manager_;

@@ -1,4 +1,14 @@
 menu "LilygoBox Configuration"
+    config LILYGO_BOX_USB_ETHERNET
+        bool
+        depends on LILYGO_DEVICE_DRIVER_T_DISPLAY_P4 && LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2
+        default y
+        select USB_HOST_HUBS_SUPPORTED
+        select USB_HOST_HUB_MULTI_LEVEL
+        select USB_HOST_ENABLE_ENUM_FILTER_CALLBACK
+        help
+            P4 V2 uses the onboard hub and RTL8152B ECM configuration 2.
+
     choice LILYGO_BOX_LOG_LEVEL
         prompt "Select default LilygoBox log level"
         default LILYGO_BOX_LOG_LEVEL_INFO

@@ -13,12 +13,12 @@
     defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
 #error \
     "T-Display-P4-Air and T-Display-P4 are different devices; select only one"
-#elif (defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR) || \
-       (defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4) && \
-        defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2))) && \
+#elif (defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR) ||        \
+       (defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4) &&           \
+           defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2))) && \
     !defined(CONFIG_SLAVE_IDF_TARGET_ESP32C5)
 #error "T-Display-P4 V2 and Air require the ESP32-C5 ESP-Hosted slave target"
-#elif defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4) && \
+#elif defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4) &&     \
     !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2) && \
     !defined(CONFIG_SLAVE_IDF_TARGET_ESP32C6)
 #error "T-Display-P4 V1 requires the ESP32-C6 ESP-Hosted slave target"
@@ -53,6 +53,7 @@ DeviceProviderContext CreateDeviceProviderContext() {
   context.haptic = device.get();
   context.battery_management = device.get();
   context.camera = device.get();
+  context.radio = device.get();
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4)
   context.capabilities.supports_keyboard_expansion = true;
   context.capabilities.supported_radio_chips =
@@ -61,21 +62,15 @@ DeviceProviderContext CreateDeviceProviderContext() {
   context.keyboard_expansion = device.get();
   context.nfc = device.get();
   context.rtc = device.get();
-#endif
-  context.radio = device.get();
-#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4) && \
-    defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+  context.ethernet = device.get();
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   context.otg = device.get();
 #endif
-#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
+#elif defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
   context.otg = device.get();
   context.nfc = device.get();
   context.infrared = device.get();
   context.cellular = device.get();
-#endif
-#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4) && \
-    !defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
-  context.ethernet = device.get();
 #endif
   context.wifi = device.get();
   context.storage = device.get();
