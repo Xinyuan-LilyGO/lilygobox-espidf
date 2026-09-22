@@ -24,6 +24,10 @@ class UsbStorageManager {
    * @param host_stopped_callback USB Host 完全停止后的通知回调
    */
   explicit UsbStorageManager(HostStoppedCallback host_stopped_callback = {});
+
+  /**
+   * @brief 停止存储监控，等待后台清理完成后释放队列与互斥锁
+   */
   ~UsbStorageManager();
 
   UsbStorageManager(const UsbStorageManager&) = delete;

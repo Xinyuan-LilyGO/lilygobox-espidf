@@ -787,9 +787,27 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 供电状态更新成功返回 true，否则返回 false
    */
   bool SetEthernetPowerEnabled(bool enabled);
-  // 以下辅助函数要求调用方持有 otg_mutex_。
+
+  /**
+   * @brief 根据 Type-C 连接状态同步角色与反向供电输出
+   * @return 状态读取和所需设置成功返回 true，否则返回 false
+   * @note 调用方须持有 otg_mutex_，本函数不重复加锁
+   */
   bool UpdateOtgPowerStateLocked();
+
+  /**
+   * @brief 设置 Type-C 反向供电 RBFET 并更新输出状态
+   * @param enabled true 开启输出，false 关闭输出
+   * @return 设置成功返回 true，否则返回 false
+   * @note 调用方须持有 otg_mutex_；开启输出前须已启用 OTG
+   */
   bool SetTypeCOutputEnabledLocked(bool enabled);
+
+  /**
+   * @brief 关闭 OTG 输出并复位 Type-C 角色，保留网卡所需的共用 Boost
+   * @return 对已就绪驱动的关闭设置均成功返回 true，否则返回 false
+   * @note 调用方须持有 otg_mutex_，本函数不重复加锁
+   */
   bool DisableOtgPowerLocked();
 
   /**

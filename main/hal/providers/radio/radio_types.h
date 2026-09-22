@@ -22,6 +22,11 @@ enum class ChipType : uint8_t {
 
 using ChipMask = uint32_t;
 
+/**
+ * @brief 将无线芯片类型转换为对应的能力位掩码
+ * @param chip 无线芯片类型
+ * @return 对应位掩码，未知类型或编号超出范围时返回 0
+ */
 constexpr ChipMask ChipMaskFor(ChipType chip) {
   const uint8_t value = static_cast<uint8_t>(chip);
   return value == 0 || value >= 32 ? 0U : (1U << value);

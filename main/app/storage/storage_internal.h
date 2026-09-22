@@ -129,12 +129,22 @@ class NvsStorageCache final {
  public:
   using EqualFunction = bool (*)(const T&, const T&);
 
+  /**
+   * @brief 创建指定配置域的缓存，数据由 Initialize 初始化
+   * @param domain 缓存所属配置域
+   * @param equal 比较两个配置快照是否相等的函数
+   */
   NvsStorageCache(StorageDomain domain, EqualFunction equal)
       : domain_(domain), equal_(equal) {}
 
   NvsStorageCache(const NvsStorageCache&) = delete;
   NvsStorageCache& operator=(const NvsStorageCache&) = delete;
 
+  /**
+   * @brief 初始化当前值与已落盘快照，并清除待提交和重试状态
+   * @param value 初始配置快照
+   * @return 初始化成功返回 true，加锁失败或比较函数为空时返回 false
+   */
   bool Initialize(const T& value) {
     StorageCacheLock lock;
     if (!lock.IsLocked() || equal_ == nullptr) {
@@ -150,6 +160,11 @@ class NvsStorageCache final {
     return true;
   }
 
+  /**
+   * @brief 在存储缓存锁保护下读取当前配置快照
+   * @param value 配置快照输出地址
+   * @return 读取成功返回 true，空指针、加锁失败或尚未初始化时返回 false
+   */
   bool Read(T* value) const {
     if (value == nullptr) {
       return false;
@@ -184,6 +199,12 @@ class NvsStorageCache final {
     return !flush_required || FlushPendingNvsStorage();
   }
 
+  /**
+   * @brief 为待落盘配置固定事务快照
+   * @param value 本次事务快照的只读指针输出地址
+   * @return 成功创建待提交快照返回 true，否则返回 false
+   * @note 返回指针由缓存持有，仅在本次提交结束前使用
+   */
   bool BeginFlush(const T** value) {
     if (value == nullptr) {
       return false;
@@ -199,6 +220,10 @@ class NvsStorageCache final {
     return true;
   }
 
+  /**
+   * @brief 结束待提交事务并更新已落盘快照或保留重试状态
+   * @param committed 本次 NVS 事务是否成功提交
+   */
   void FinishFlush(bool committed) {
     StorageCacheLock lock;
     if (!lock.IsLocked() || !initialized_ || !flush_pending_) {
@@ -215,6 +240,10 @@ class NvsStorageCache final {
   }
 
  private:
+  /**
+   * @brief 根据待提交、重试及快照差异更新配置域脏标记
+   * @note 调用方须持有 StorageCacheLock
+   */
   void UpdateDirtyStateLocked() {
     const bool dirty =
         flush_pending_ || retry_required_ || !equal_(current_, persisted_);

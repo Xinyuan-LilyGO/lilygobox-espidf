@@ -283,6 +283,9 @@ class Application final {
    */
   bool WakeScreenFromLock();
 
+  /**
+   * @brief 阻止输入、关闭背光并暂停显示刷新后重启系统
+   */
   void RestartSystem();
 
   /**
