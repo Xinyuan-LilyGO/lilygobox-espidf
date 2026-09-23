@@ -1,8 +1,8 @@
 /*
- * @Description: Settings view internal helpers
+ * @Description: 设置视图内部实现
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-09-02 17:56:55
+ * @LastEditTime: 2026-09-23 17:52:50
  * @License: GPL 3.0
  */
 #pragma once
@@ -129,6 +129,20 @@ inline const theme::ThemeColors& SettingsThemeColors() {
 
 struct SettingsViewState;
 
+enum class SettingsLogSource : uint8_t {
+  kApp,
+  kCppBusDriver,
+  kLilygoDeviceDriver,
+  kCount,
+};
+
+// 每个日志设置行持有独立上下文，共用日志等级选择弹窗。
+struct SettingsLogLevelAction {
+  SettingsViewState* state = nullptr;
+  SettingsLogSource source = SettingsLogSource::kApp;
+  lv_obj_t* value_label = nullptr;
+};
+
 // WLAN 列表行的点击动作参数，LVGL 回调会读取这些稳定地址。
 struct WifiNetworkAction {
   // 所属设置页状态，用于回调里发起连接请求。
@@ -209,6 +223,9 @@ struct SettingsViewState {
   lv_obj_t* wifi_connect_button_label = nullptr;
   lv_obj_t* auto_lock_value_label = nullptr;
   PromptSelectSheetState auto_lock_select_sheet = {};
+  SettingsLogLevelAction log_level_actions[
+      static_cast<size_t>(SettingsLogSource::kCount)] = {};
+  PromptSelectSheetState log_level_select_sheet = {};
   bool lock_screen_double_tap_to_turn_screen_on_and_off = true;
   bool dark_theme_enabled = false;
   lv_obj_t* screen_rotation_value_label = nullptr;
@@ -516,6 +533,13 @@ bool ShowLockScreenPage(SettingsViewState* state);
  * @return 打开成功返回 true，否则返回 false
  */
 bool ShowMoreSettingsPage(SettingsViewState* state);
+
+/**
+ * @brief 从更多设置打开开发者选项页
+ * @param state 设置页状态
+ * @return 打开成功返回 true，否则返回 false
+ */
+bool ShowDeveloperOptionsPage(SettingsViewState* state);
 
 /**
  * @brief 根据当前硬件状态刷新键盘扩展页面控件

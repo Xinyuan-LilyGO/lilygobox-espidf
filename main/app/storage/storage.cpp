@@ -16,6 +16,7 @@
 
 #include "app/radio_chat_repository.h"
 #include "app/storage/battery_storage.h"
+#include "app/storage/developer_storage.h"
 #include "app/storage/display_storage.h"
 #include "app/storage/first_boot_storage.h"
 #include "app/storage/haptic_storage.h"
@@ -69,6 +70,7 @@ constexpr StorageBackend kStorageBackends[] = {
     {StageInputMethodStorage, FinishInputMethodStorage},
     {StageKeyboardExpansionStorage, FinishKeyboardExpansionStorage},
     {StageBatteryStorage, FinishBatteryStorage},
+    {StageDeveloperStorage, FinishDeveloperStorage},
 };
 constexpr size_t kStorageBackendCount =
     sizeof(kStorageBackends) / sizeof(kStorageBackends[0]);
@@ -435,6 +437,7 @@ void InitStorage(
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize power-state storage failed\n");
   }
+  InitDeveloperCache();
   InitDisplayCache();
   InitFirstBootCache();
   InitHapticCache();

@@ -29,6 +29,7 @@ enum class StorageDomain : uint8_t {
   kInputMethod,
   kKeyboardExpansion,
   kBattery,
+  kDeveloper,
   kCount,
 };
 
@@ -436,5 +437,18 @@ StorageStageResult StageWifiSavedNetworksStorage(nvs_handle_t handle);
  * @param committed 事务是否提交成功
  */
 void FinishWifiSavedNetworksStorage(bool committed);
+
+/**
+ * @brief 将开发者偏好脏快照暂存到当前 NVS 事务
+ * @param handle 已打开的共享 NVS 句柄
+ * @return 无修改、暂存成功或暂存失败
+ */
+StorageStageResult StageDeveloperStorage(nvs_handle_t handle);
+
+/**
+ * @brief 根据 NVS 事务提交结果结束开发者偏好快照
+ * @param committed 事务是否提交成功
+ */
+void FinishDeveloperStorage(bool committed);
 
 }  // namespace lilygo_box::app

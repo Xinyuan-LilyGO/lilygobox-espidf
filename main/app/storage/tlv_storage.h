@@ -32,6 +32,7 @@ enum class TlvDomain : uint16_t {
   kKeyboardExpansion = 12,
   kInputMethod = 13,
   kBattery = 14,
+  kDeveloper = 15,
 };
 
 enum class TlvReadResult : uint8_t {

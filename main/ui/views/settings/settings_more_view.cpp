@@ -736,6 +736,18 @@ void KeyboardExpansionClickedEventCallback(lv_event_t* event) {
 }
 
 /**
+ * @brief 打开开发者选项页面
+ * @param event LVGL 事件对象
+ */
+void DeveloperOptionsClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  ShowDeveloperOptionsPage(
+      static_cast<SettingsViewState*>(lv_event_get_user_data(event)));
+}
+
+/**
  * @brief 构建更多设置页面内容
  * @param body 内容容器
  * @param state 设置页状态
@@ -774,30 +786,27 @@ bool BuildMoreSettingsContent(lv_obj_t* body, SettingsViewState* state) {
   }
   y += kBasicRowHeight + 12;
 
-  const bool show_special_features =
-      supports_keyboard_expansion || state->config.otg != nullptr;
-  if (show_special_features) {
-    if (!CreateSectionLabel(body, "Special features", y, state->config.width)) {
+  if (!CreateSectionLabel(body, "Special features", y, state->config.width)) {
+    return false;
+  }
+  y += kBasicSectionHeight;
+  if (supports_keyboard_expansion) {
+    if (!CreateArrowRow(body, "Keyboard Expansion", "", y,
+            state->config.width, KeyboardExpansionClickedEventCallback,
+            state)) {
       return false;
     }
-    y += kBasicSectionHeight;
-    if (supports_keyboard_expansion) {
-      if (!CreateArrowRow(body, "Keyboard Expansion", "", y,
-              state->config.width, KeyboardExpansionClickedEventCallback,
-              state)) {
-        return false;
-      }
-      y += kBasicRowHeight;
-    }
-    if (state->config.otg != nullptr) {
-      if (!CreateArrowRow(body, "OTG", "", y, state->config.width,
-              OtgClickedEventCallback, state)) {
-        return false;
-      }
-    }
+    y += kBasicRowHeight;
   }
-
-  return true;
+  if (state->config.otg != nullptr) {
+    if (!CreateArrowRow(body, "OTG", "", y, state->config.width,
+            OtgClickedEventCallback, state)) {
+      return false;
+    }
+    y += kBasicRowHeight;
+  }
+  return CreateArrowRow(body, "Developer options", "", y, state->config.width,
+      DeveloperOptionsClickedEventCallback, state);
 }
 
 }  // namespace
