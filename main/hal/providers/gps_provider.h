@@ -50,6 +50,38 @@ struct GpsCoordinate {
   char direction[3] = {};
 };
 
+// 星座和卫星列表使用固定大小快照，便于通过 FreeRTOS 队列传递。
+enum class GpsConstellation : uint8_t {
+  kUnknown,
+  kGps,
+  kBeidou,
+  kGlonass,
+  kGalileo,
+  kQzss,
+  kSbas,
+  kNavic,
+  kCount
+};
+inline constexpr size_t kGpsConstellationCount =
+    static_cast<size_t>(GpsConstellation::kCount);
+inline constexpr size_t kGpsSatelliteDisplayCount = 20;
+
+struct GpsSatellite {
+  GpsConstellation constellation = GpsConstellation::kUnknown;
+  uint16_t id = 0;
+  bool cn0_ready = false;
+  uint8_t cn0 = 0;
+  bool used_ready = false;
+  bool used = false;
+};
+
+struct GpsConstellationStatus {
+  bool used_ready = false;
+  bool visible_ready = false;
+  uint16_t used = 0;
+  uint16_t visible = 0;
+};
+
 // GPS 运行状态和最近一次 GNSS 解析结果。
 struct GpsStatus {
   // GPS 模块是否已唤醒运行。
@@ -103,9 +135,14 @@ struct GpsStatus {
   // 可见卫星数字段是否有效。
   bool satellites_in_view_ready = false;
   // 当前可见卫星数。
-  uint8_t satellites_in_view = 0;
+  uint16_t satellites_in_view = 0;
   // 已解析的卫星信息条目数量。
   size_t satellite_info_count = 0;
+  // 按载噪比降序排列的前 20 颗卫星；统计数量不受此显示上限限制。
+  GpsSatellite satellites[kGpsSatelliteDisplayCount] = {};
+  size_t satellite_display_count = 0;
+  GpsConstellationStatus constellations[kGpsConstellationCount] = {};
+  GpsConstellation strongest_satellite_constellation = GpsConstellation::kUnknown;
   // 最强卫星字段是否有效。
   bool strongest_satellite_ready = false;
   // 最强卫星 ID。

@@ -123,6 +123,7 @@ bool TDisplayP4AirDevice::SetGpsEnabled(bool enabled) {
     return false;
   }
 
+  gps_satellites_.Reset();
   gps_status_ = GpsStatus();
   gps_status_.running = true;
   gps_status_.update_interval_ms = kNrf9151GnssUpdateIntervalMs;
@@ -155,6 +156,8 @@ bool TDisplayP4AirDevice::ReadGpsStatus(GpsStatus* status) {
     return false;
   }
 
+  gps_satellites_.Refresh(&gps_status_);
+  *status = gps_status_;
   auto& uart = *driver_.bus().nrf9151_uart_bus;
   const size_t rx_buffer_length = uart.GetRxBufferLength();
   if (rx_buffer_length == 0) {
@@ -196,7 +199,7 @@ bool TDisplayP4AirDevice::ReadGpsStatus(GpsStatus* status) {
   const auto* update = gps_parser_.update();
   next_status.parse_success = feed_result.HasParsedSentence();
   if (next_status.parse_success && update != nullptr) {
-    gnss_utils::ApplyUpdate(*update, &next_status);
+    gnss_utils::ApplyUpdate(*update, gps_satellites_, &next_status);
   }
 
   gps_status_ = next_status;

@@ -23,6 +23,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "hal/device/common/gnss_utils.h"
 #include "hal/ppa/ppa_srm_helper.h"
 #include "hal/providers/providers.h"
 #include "hal/usb/usb_storage_manager.h"
@@ -1531,6 +1532,7 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   SemaphoreHandle_t nrf9151_mutex_ = nullptr;
   // Air 板使用独立解析器处理 nRF9151 输出的标准 NMEA 语句。
   cpp_bus_driver::NmeaParser gps_parser_;
+  gnss_utils::SatelliteTracker gps_satellites_;
   bool gps_running_ = false;
   GpsStatus gps_status_;
 };

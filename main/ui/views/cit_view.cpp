@@ -87,6 +87,9 @@ constexpr EventBits_t kImuCompletedBit = BIT1;
 constexpr uint32_t kGpsWorkerTaskStackBytes = 8 * 1024;
 constexpr UBaseType_t kGpsWorkerTaskPriority = tskIDLE_PRIORITY;
 constexpr uint32_t kGpsDefaultSamplePeriodMs = 1000;
+constexpr int kGpsSatelliteRowHeight = 36;
+constexpr int kGpsSatelliteListHeight =
+    kGpsSatelliteRowHeight * static_cast<int>(hal::kGpsSatelliteDisplayCount);
 constexpr UBaseType_t kGpsSampleQueueLength = 1;
 constexpr EventBits_t kGpsStopRequestedBit = BIT0;
 constexpr EventBits_t kGpsCompletedBit = BIT1;
@@ -202,6 +205,10 @@ struct CitViewState {
   lv_obj_t* test_page = nullptr;
   lv_obj_t* test_content = nullptr;
   lv_obj_t* test_data_label = nullptr;
+  std::array<lv_obj_t*, 2> gps_coordinate_labels = {};
+  lv_obj_t* gps_satellite_summary = nullptr;
+  std::array<std::array<lv_obj_t*, 5>, hal::kGpsSatelliteDisplayCount>
+      gps_satellite_rows = {};
   lv_obj_t* screen_color_overlay = nullptr;
   lv_obj_t* touch_trace_surface = nullptr;
   lv_obj_t* touch_trace_line = nullptr;
@@ -731,6 +738,9 @@ void ClearTestPageState(CitViewState* state) {
   state->test_page = nullptr;
   state->test_content = nullptr;
   state->test_data_label = nullptr;
+  state->gps_coordinate_labels = {};
+  state->gps_satellite_summary = nullptr;
+  state->gps_satellite_rows = {};
   state->screen_color_overlay = nullptr;
   state->touch_trace_surface = nullptr;
   state->touch_trace_line = nullptr;
@@ -1339,6 +1349,169 @@ void RefreshMicrophoneTestData(CitViewState* state) {
 }
 
 /**
+ * @brief 获取 GPS 测试页面使用的星座名称
+ * @param constellation 星座类型
+ * @param short_name 是否使用适合表格列宽的缩写
+ * @return 星座显示文本；未知星座返回 --
+ */
+const char* GpsConstellationName(hal::GpsConstellation constellation,
+    bool short_name = false) {
+  switch (constellation) {
+    case hal::GpsConstellation::kGps:
+      return "GPS";
+    case hal::GpsConstellation::kBeidou:
+      return "BDS";
+    case hal::GpsConstellation::kGlonass:
+      return short_name ? "GLO" : "GLONASS";
+    case hal::GpsConstellation::kGalileo:
+      return short_name ? "GAL" : "Galileo";
+    case hal::GpsConstellation::kQzss:
+      return "QZSS";
+    case hal::GpsConstellation::kSbas:
+      return "SBAS";
+    case hal::GpsConstellation::kNavic:
+      return "NavIC";
+    default:
+      return "--";
+  }
+}
+
+/**
+ * @brief 追加一行参与定位和可见卫星数量，未知数量显示 --
+ * @param text 目标文本缓冲区
+ * @param size 目标缓冲区容量，单位为字节
+ * @param used 缓冲区已用长度，追加后更新
+ * @param name 统计项名称，如 Satellites 或 GPS
+ * @param used_ready 参与定位数量是否有效
+ * @param used_count 参与定位的卫星数
+ * @param visible_ready 可见数量是否有效
+ * @param visible_count 可见卫星数
+ */
+void AppendGpsSatelliteCounts(char* text, size_t size, size_t* used,
+    const char* name, bool used_ready, unsigned int used_count,
+    bool visible_ready, unsigned int visible_count) {
+  char used_text[12] = "--";
+  char visible_text[12] = "--";
+  if (used_ready) {
+    std::snprintf(used_text, sizeof(used_text), "%u", used_count);
+  }
+  if (visible_ready) {
+    std::snprintf(visible_text, sizeof(visible_text), "%u", visible_count);
+  }
+  AppendFormatted(text, size, used, "%s: %s used / %s visible\n",
+      name, used_text, visible_text);
+}
+
+/**
+ * @brief 仅在文本变化时更新 GPS 数据标签
+ * @param label 已创建的标签对象
+ * @param text 待显示的文本
+ */
+void SetGpsLabelText(lv_obj_t* label, const char* text) {
+  if (std::strcmp(lv_label_get_text(label), text) != 0) {
+    lv_label_set_text(label, text);
+  }
+}
+
+/**
+ * @brief 更新已有的卫星统计和 20 行列表标签，保留页面滚动位置
+ * @param state 已创建卫星信息控件的 CIT 页面状态
+ * @param status 最新 GPS 状态；为 nullptr 时显示未知统计和占位行
+ */
+void RefreshGpsSatelliteData(CitViewState* state, const hal::GpsStatus* status) {
+  if (state->gps_satellite_summary == nullptr) {
+    return;
+  }
+  char text[768] = {};
+  size_t used = 0;
+  AppendGpsSatelliteCounts(text, sizeof(text), &used, "Satellites",
+      status != nullptr && status->satellites_used_ready,
+      status != nullptr ? status->satellites_used : 0,
+      status != nullptr && status->satellites_in_view_ready,
+      status != nullptr ? status->satellites_in_view : 0);
+  for (size_t i = 1; i < hal::kGpsConstellationCount; ++i) {
+    const auto constellation = static_cast<hal::GpsConstellation>(i);
+    const hal::GpsConstellationStatus counts =
+        status != nullptr ? status->constellations[i] : hal::GpsConstellationStatus{};
+    if (i > static_cast<size_t>(hal::GpsConstellation::kGlonass) &&
+        counts.used == 0 && counts.visible == 0) {
+      continue;
+    }
+    AppendGpsSatelliteCounts(text, sizeof(text), &used,
+        GpsConstellationName(constellation), counts.used_ready, counts.used,
+        counts.visible_ready, counts.visible);
+  }
+  if (status != nullptr && status->strongest_satellite_ready) {
+    AppendFormatted(text, sizeof(text), &used, "Strongest: %s %02u, %d dB-Hz",
+        GpsConstellationName(status->strongest_satellite_constellation, true),
+        static_cast<unsigned int>(status->strongest_satellite_id),
+        static_cast<int>(status->strongest_satellite_cn0));
+  } else {
+    AppendFormatted(text, sizeof(text), &used, "Strongest: --");
+  }
+  SetGpsLabelText(state->gps_satellite_summary, text);
+  for (size_t i = 0; i < state->gps_satellite_rows.size(); ++i) {
+    const auto& cells = state->gps_satellite_rows[i];
+    if (status == nullptr || i >= status->satellite_display_count) {
+      for (size_t column = 1; column < cells.size(); ++column) {
+        SetGpsLabelText(cells[column], "--");
+      }
+      continue;
+    }
+    const auto& satellite = status->satellites[i];
+    SetGpsLabelText(cells[1],
+        GpsConstellationName(satellite.constellation, true));
+    char value[24];
+    std::snprintf(value, sizeof(value), "%02u",
+        static_cast<unsigned int>(satellite.id));
+    SetGpsLabelText(cells[2], value);
+    if (satellite.cn0_ready) {
+      std::snprintf(value, sizeof(value), "%u dB-Hz",
+          static_cast<unsigned int>(satellite.cn0));
+      SetGpsLabelText(cells[3], value);
+    } else {
+      SetGpsLabelText(cells[3], "--");
+    }
+    SetGpsLabelText(cells[4], satellite.used_ready
+        ? (satellite.used ? "Used" : "Visible") : "--");
+  }
+}
+
+/**
+ * @brief 更新经纬度的度、分、合成值和方向，无效字段显示 -- 占位
+ * @param state 已创建坐标标签的 CIT 页面状态
+ * @param status 最新 GPS 状态；为空或坐标无效时保留字段名称及占位符
+ */
+void RefreshGpsCoordinates(CitViewState* state, const hal::GpsStatus* status) {
+  constexpr const char* kNames[] = {"lat", "lon"};
+  for (size_t i = 0; i < state->gps_coordinate_labels.size(); ++i) {
+    lv_obj_t* label = state->gps_coordinate_labels[i];
+    if (label == nullptr) {
+      continue;
+    }
+    const hal::GpsCoordinate* coordinate = status == nullptr ? nullptr
+        : (i == 0 ? &status->latitude : &status->longitude);
+    char values[4][32] = {"--", "--", "--", "--"};
+    if (coordinate != nullptr && coordinate->ready) {
+      std::snprintf(values[0], sizeof(values[0]), "%u",
+          static_cast<unsigned int>(coordinate->degrees));
+      std::snprintf(values[1], sizeof(values[1]), "%.6f", coordinate->minutes);
+      std::snprintf(values[2], sizeof(values[2]), "%.8f",
+          coordinate->degrees_minutes);
+      std::snprintf(values[3], sizeof(values[3]), "%s",
+          coordinate->direction[0] == '\0' ? "--" : coordinate->direction);
+    }
+    char text[256];
+    std::snprintf(text, sizeof(text),
+        "%s degrees: %s\n%s minutes: %s\n"
+        "%s degrees_minutes: %s\n%s direction: %s",
+        kNames[i], values[0], kNames[i], values[1],
+        kNames[i], values[2], kNames[i], values[3]);
+    SetGpsLabelText(label, text);
+  }
+}
+
+/**
  * @brief 刷新 GPS 测试页面的 GNSS 定位数据
  * @param state CIT 页面状态
  */
@@ -1376,6 +1549,10 @@ void RefreshGpsTestData(CitViewState* state) {
       }
     }
   }
+  RefreshGpsCoordinates(state,
+      state->gps_status_valid ? &state->gps_status : nullptr);
+  RefreshGpsSatelliteData(state,
+      state->gps_status_valid ? &state->gps_status : nullptr);
   if (!state->gps_status_valid) {
     const bool read_failed =
         state->gps_session->read_failed.load(std::memory_order_acquire);
@@ -1414,18 +1591,16 @@ void RefreshGpsTestData(CitViewState* state) {
       "location status: %s\n"
       "mode: %s  nav: %s\n\n",
       static_cast<unsigned int>(state->gps_update_interval_ms),
-      status.location_status[0] == '\0' ? "unknown" : status.location_status,
-      status.mode_indicator[0] == '\0' ? "unknown" : status.mode_indicator,
-      status.navigational_status[0] == '\0' ? "unknown"
+      status.location_status[0] == '\0' ? "--" : status.location_status,
+      status.mode_indicator[0] == '\0' ? "--" : status.mode_indicator,
+      status.navigational_status[0] == '\0' ? "--"
                                             : status.navigational_status);
 
-  char fix_quality_text[16] = "unknown";
-  char fix_mode_text[16] = "unknown";
-  char satellites_used_text[16] = "unknown";
-  char satellites_in_view_text[16] = "unknown";
-  char hdop_text[16] = "unknown";
-  char pdop_text[16] = "unknown";
-  char vdop_text[16] = "unknown";
+  char fix_quality_text[16] = "--";
+  char fix_mode_text[16] = "--";
+  char hdop_text[16] = "--";
+  char pdop_text[16] = "--";
+  char vdop_text[16] = "--";
   if (status.fix_quality_ready) {
     std::snprintf(fix_quality_text, sizeof(fix_quality_text), "%u",
         static_cast<unsigned int>(status.fix_quality));
@@ -1433,14 +1608,6 @@ void RefreshGpsTestData(CitViewState* state) {
   if (status.fix_mode_ready) {
     std::snprintf(fix_mode_text, sizeof(fix_mode_text), "%u",
         static_cast<unsigned int>(status.fix_mode));
-  }
-  if (status.satellites_used_ready) {
-    std::snprintf(satellites_used_text, sizeof(satellites_used_text), "%u",
-        static_cast<unsigned int>(status.satellites_used));
-  }
-  if (status.satellites_in_view_ready) {
-    std::snprintf(satellites_in_view_text, sizeof(satellites_in_view_text),
-        "%u", static_cast<unsigned int>(status.satellites_in_view));
   }
   if (status.hdop_ready) {
     std::snprintf(hdop_text, sizeof(hdop_text), "%.2f", status.hdop);
@@ -1454,20 +1621,6 @@ void RefreshGpsTestData(CitViewState* state) {
 
   AppendFormatted(text, sizeof(text), &used, "fix quality: %s\nfix mode: %s\n",
       fix_quality_text, fix_mode_text);
-  AppendFormatted(text, sizeof(text), &used,
-      "satellites used: %s\nsatellites in view: %s\n"
-      "satellite records: %u\n",
-      satellites_used_text, satellites_in_view_text,
-      static_cast<unsigned int>(status.satellite_info_count));
-  if (status.strongest_satellite_ready) {
-    AppendFormatted(text, sizeof(text), &used,
-        "strongest satellite: %u  C/N0: %d\n",
-        static_cast<unsigned int>(status.strongest_satellite_id),
-        static_cast<int>(status.strongest_satellite_cn0));
-  } else {
-    AppendFormatted(
-        text, sizeof(text), &used, "strongest satellite: unknown\n");
-  }
   AppendFormatted(text, sizeof(text), &used, "HDOP: %s  PDOP: %s  VDOP: %s\n",
       hdop_text, pdop_text, vdop_text);
   if (status.altitude_ready) {
@@ -1475,19 +1628,19 @@ void RefreshGpsTestData(CitViewState* state) {
         status.altitude,
         status.altitude_unit[0] == '\0' ? "m" : status.altitude_unit);
   } else {
-    AppendFormatted(text, sizeof(text), &used, "altitude: unknown\n");
+    AppendFormatted(text, sizeof(text), &used, "altitude: --\n");
   }
   if (status.speed_ready) {
     AppendFormatted(text, sizeof(text), &used, "speed: %.2f km/h  %.2f kn\n",
         status.speed_kmh, status.speed_knots);
   } else {
-    AppendFormatted(text, sizeof(text), &used, "speed: unknown\n");
+    AppendFormatted(text, sizeof(text), &used, "speed: --\n");
   }
   if (status.course_ready) {
     AppendFormatted(text, sizeof(text), &used, "course: %.2f deg\n\n",
         status.course_degree);
   } else {
-    AppendFormatted(text, sizeof(text), &used, "course: unknown\n\n");
+    AppendFormatted(text, sizeof(text), &used, "course: --\n\n");
   }
 
   if (status.utc.ready) {
@@ -1495,7 +1648,7 @@ void RefreshGpsTestData(CitViewState* state) {
         static_cast<unsigned int>(status.utc.hour),
         static_cast<unsigned int>(status.utc.minute), status.utc.second);
   } else {
-    AppendFormatted(text, sizeof(text), &used, "utc: unknown\n");
+    AppendFormatted(text, sizeof(text), &used, "utc: --\n");
   }
 
   if (status.date.ready) {
@@ -1504,31 +1657,7 @@ void RefreshGpsTestData(CitViewState* state) {
         static_cast<unsigned int>(status.date.month),
         static_cast<unsigned int>(status.date.day));
   } else {
-    AppendFormatted(text, sizeof(text), &used, "date: unknown\n");
-  }
-
-  if (status.latitude.ready) {
-    AppendFormatted(text, sizeof(text), &used,
-        "\nlat degrees: %u\nlat minutes: %.6f\n"
-        "lat degrees_minutes: %.8f\nlat direction: %s\n",
-        static_cast<unsigned int>(status.latitude.degrees),
-        status.latitude.minutes, status.latitude.degrees_minutes,
-        status.latitude.direction[0] == '\0' ? "unknown"
-                                             : status.latitude.direction);
-  } else {
-    AppendFormatted(text, sizeof(text), &used, "\nlat: unknown\n");
-  }
-
-  if (status.longitude.ready) {
-    AppendFormatted(text, sizeof(text), &used,
-        "\nlon degrees: %u\nlon minutes: %.6f\n"
-        "lon degrees_minutes: %.8f\nlon direction: %s",
-        static_cast<unsigned int>(status.longitude.degrees),
-        status.longitude.minutes, status.longitude.degrees_minutes,
-        status.longitude.direction[0] == '\0' ? "unknown"
-                                              : status.longitude.direction);
-  } else {
-    AppendFormatted(text, sizeof(text), &used, "\nlon: unknown");
+    AppendFormatted(text, sizeof(text), &used, "date: --\n");
   }
 
   lv_label_set_text(state->test_data_label, text);
@@ -3725,6 +3854,131 @@ bool AddDiagnosticsContent(
 }
 
 /**
+ * @brief 按 lat、lon 上下两组预留坐标字段，每组固定四行并显示占位符
+ * @param content GPS 测试内容容器
+ * @param state 接收坐标标签指针的 CIT 页面状态
+ * @return 两组坐标标签均创建成功返回 true，否则返回 false
+ */
+bool CreateGpsCoordinateContent(lv_obj_t* content, CitViewState* state) {
+  lv_obj_t* coordinates = lv_obj_create(content);
+  if (coordinates == nullptr) {
+    return false;
+  }
+  lv_obj_remove_style_all(coordinates);
+  lv_obj_remove_flag(coordinates, LV_OBJ_FLAG_SCROLLABLE);
+  constexpr int kLineSpace = 4;
+  const int group_height = Font28()->line_height * 4 + kLineSpace * 3;
+  const int group_gap = Font28()->line_height;
+  lv_obj_set_size(coordinates, LV_PCT(100), group_height * 2 + group_gap);
+  lv_obj_set_flex_flow(coordinates, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(coordinates, group_gap, LV_PART_MAIN);
+  for (size_t i = 0; i < state->gps_coordinate_labels.size(); ++i) {
+    lv_obj_t* label = CreateLabel(coordinates, "",
+        lv_color_hex(theme::ActiveThemeColors().on_surface), Font28());
+    if (label == nullptr) {
+      return false;
+    }
+    state->gps_coordinate_labels[i] = label;
+    lv_obj_set_size(label, LV_PCT(100), group_height);
+    lv_obj_set_style_text_line_space(label, kLineSpace, LV_PART_MAIN);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+  }
+  RefreshGpsCoordinates(state, nullptr);
+  return true;
+}
+
+/**
+ * @brief 按独立列宽创建卫星列表的表头或数据行
+ * @param parent 行对象的父容器
+ * @param cells 输出序号、星座、编号、信号和状态的标签指针
+ * @param header 是否创建表头
+ * @param index 数据行的零基索引，表头不使用此参数
+ * @return 整行创建成功返回 true，否则返回 false
+ */
+bool CreateGpsSatelliteRow(lv_obj_t* parent,
+    std::array<lv_obj_t*, 5>* cells, bool header, size_t index = 0) {
+  lv_obj_t* row = lv_obj_create(parent);
+  if (row == nullptr) {
+    return false;
+  }
+  lv_obj_remove_style_all(row);
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(row, LV_PCT(100), kGpsSatelliteRowHeight);
+  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+      LV_FLEX_ALIGN_CENTER);
+  constexpr int kWidths[] = {8, 18, 12, 32, 30};
+  constexpr const char* kHeadings[] = {"#", "GNSS", "ID", "C/N0", "Status"};
+  const auto& colors = theme::ActiveThemeColors();
+  for (size_t column = 0; column < cells->size(); ++column) {
+    (*cells)[column] = CreateLabel(row, header ? kHeadings[column] : "--",
+        lv_color_hex(header ? colors.on_surface_variant : colors.on_surface),
+        Font28());
+    if ((*cells)[column] == nullptr) {
+      return false;
+    }
+    lv_obj_set_width((*cells)[column], LV_PCT(kWidths[column]));
+    lv_label_set_long_mode((*cells)[column], LV_LABEL_LONG_CLIP);
+  }
+  if (!header) {
+    lv_label_set_text_fmt((*cells)[0], "%u",
+        static_cast<unsigned int>(index + 1));
+  }
+  return true;
+}
+
+/**
+ * @brief 创建卫星统计和完整 20 行列表，随 GPS 页面整体滚动
+ * @param content GPS 测试内容容器
+ * @param state 接收统计标签和列表标签指针的 CIT 页面状态
+ * @return 所有控件创建成功返回 true，否则返回 false
+ */
+bool CreateGpsSatelliteList(lv_obj_t* content, CitViewState* state) {
+  lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(content, 12, LV_PART_MAIN);
+  state->gps_satellite_summary = CreateLabel(content, "",
+      lv_color_hex(theme::ActiveThemeColors().on_surface),
+      Font28());
+  if (state->gps_satellite_summary == nullptr) {
+    return false;
+  }
+  lv_obj_set_width(state->gps_satellite_summary, LV_PCT(100));
+  lv_label_set_long_mode(state->gps_satellite_summary, LV_LABEL_LONG_WRAP);
+
+  lv_obj_t* panel = lv_obj_create(content);
+  if (panel == nullptr) {
+    return false;
+  }
+  lv_obj_remove_style_all(panel);
+  lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(panel, LV_PCT(100),
+      kGpsSatelliteRowHeight + kGpsSatelliteListHeight);
+  lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
+  std::array<lv_obj_t*, 5> headings = {};
+  if (!CreateGpsSatelliteRow(panel, &headings, true)) {
+    return false;
+  }
+
+  lv_obj_t* list = lv_obj_create(panel);
+  if (list == nullptr) {
+    return false;
+  }
+  lv_obj_remove_style_all(list);
+  // 固定排出全部 20 行，随 GPS 页面整体滚动。
+  lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_OFF);
+  lv_obj_set_size(list, LV_PCT(100), kGpsSatelliteListHeight);
+  lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+  for (size_t i = 0; i < state->gps_satellite_rows.size(); ++i) {
+    if (!CreateGpsSatelliteRow(list, &state->gps_satellite_rows[i], false, i)) {
+      return false;
+    }
+  }
+  RefreshGpsSatelliteData(state, nullptr);
+  return true;
+}
+
+/**
  * @brief 添加 GPS 测试内容并启动后台采集会话
  * @param content 内容容器
  * @param state CIT 页面状态
@@ -3743,6 +3997,12 @@ bool AddGpsContent(lv_obj_t* content, CitViewState* state) {
   state->test_data_label =
       CreateDataLabel(content, "GPS data:\nstatus: starting");
   if (state->test_data_label == nullptr) {
+    return false;
+  }
+  if (!CreateGpsCoordinateContent(content, state)) {
+    return false;
+  }
+  if (!CreateGpsSatelliteList(content, state)) {
     return false;
   }
 

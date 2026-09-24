@@ -20,6 +20,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "hal/device/common/gnss_utils.h"
 #include "hal/ppa/ppa_srm_helper.h"
 #include "hal/providers/providers.h"
 #include "hal/usb/usb_storage_manager.h"
@@ -1813,6 +1814,7 @@ class TDisplayP4Device final : public ScreenProvider,
   std::atomic<bool> imu_enabled_{false};
   // 保留跨 UART 读取的半包和多语句卫星聚合状态。
   cpp_bus_driver::NmeaParser gps_parser_;
+  gnss_utils::SatelliteTracker gps_satellites_;
   bool gps_running_ = false;
   GpsStatus gps_status_;
 };

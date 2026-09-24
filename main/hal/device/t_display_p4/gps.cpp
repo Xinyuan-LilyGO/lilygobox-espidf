@@ -43,6 +43,29 @@ bool TDisplayP4Device::SetGpsEnabled(bool enabled) {
     return false;
   }
 
+  // CIT GPS 测试同时接收 GPS、北斗和 GLONASS，并输出定位与卫星信息。
+  auto& l76k = driver_.chip().l76k;
+  cpp_bus_driver::L76k::NmeaOutputConfig nmea_config;
+  nmea_config.rmc = 1;
+  nmea_config.gga = 1;
+  nmea_config.gsa = 1;
+  // 多星座 GSV 数据较多，沿用示例的每五次定位输出一次。
+  nmea_config.gsv = 5;
+  if (!l76k->SetGnssConstellation(
+          cpp_bus_driver::L76k::GnssConstellation::kGpsBeidouGlonass) ||
+      !l76k->SetNmeaOutputConfig(nmea_config)) {
+    gps_running_ = false;
+    gps_status_.running = false;
+    driver_.SetL76kSleep(true);
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Configure GPS + BeiDou + GLONASS test output failed\n");
+    return false;
+  }
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "GPS test configured: GPS + BeiDou + GLONASS, GSA every update, "
+      "GSV every five updates\n");
+
+  gps_satellites_.Reset();
   gps_status_ = GpsStatus();
   gps_parser_.Reset();
   gps_running_ = true;
@@ -62,6 +85,7 @@ bool TDisplayP4Device::ReadGpsStatus(GpsStatus* status) {
     return false;
   }
 
+  gps_satellites_.Refresh(&gps_status_);
   gps_status_.running = gps_running_;
   if (driver_.IsL76kReady()) {
     gps_status_.update_interval_ms = driver_.chip().l76k->update_interval_ms();
@@ -107,7 +131,7 @@ bool TDisplayP4Device::ReadGpsStatus(GpsStatus* status) {
   const auto* update = gps_parser_.update();
   next_status.parse_success = feed_result.HasParsedSentence();
   if (next_status.parse_success && update != nullptr) {
-    gnss_utils::ApplyUpdate(*update, &next_status);
+    gnss_utils::ApplyUpdate(*update, gps_satellites_, &next_status);
   }
 
   gps_status_ = next_status;
