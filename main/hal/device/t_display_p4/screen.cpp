@@ -25,6 +25,8 @@ namespace {
 
 constexpr uint32_t kBacklightDutyScale = 1000;
 constexpr uint32_t kScreenBrightnessFadeUpdateMs = 10;
+constexpr uint32_t kTouchReadDiagnosticIntervalMs = 1000;
+constexpr uint8_t kTouchBusErrorRecoveryThreshold = 3;
 constexpr uint8_t kRm69a10BrightnessMax = UINT8_MAX;
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
 constexpr int kTouchInterruptGpio = gpio::hi8561::kTouchInt;
@@ -97,6 +99,8 @@ void TDisplayP4Device::TouchInterruptHandler(void* context) {
     return;
   }
   auto* device = static_cast<TDisplayP4Device*>(context);
+  static_assert(std::atomic<bool>::is_always_lock_free,
+      "Touch interrupt notification must be lock-free");
   device->touch_interrupt_pending_.store(true, std::memory_order_relaxed);
 }
 
@@ -188,7 +192,18 @@ bool TDisplayP4Device::ReadScreenTouch(TouchPoint* point) {
   }
   *point = TouchPoint();
 
+  const uint32_t now_ms =
+      static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+  const bool log_diagnostics = ShouldLog(LogLevel::kDebug) &&
+      now_ms - last_touch_read_diagnostic_ms_ >= kTouchReadDiagnosticIntervalMs;
+  if (log_diagnostics) {
+    last_touch_read_diagnostic_ms_ = now_ms;
+  }
   if (!driver_.IsTouchReady()) {
+    if (log_diagnostics) {
+      LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+          "Touch read skipped (driver not ready)\n");
+    }
     return false;
   }
 
@@ -207,6 +222,50 @@ bool TDisplayP4Device::ReadScreenTouch(TouchPoint* point) {
       break;
     default:
       return false;
+  }
+  if (read_status == cpp_bus_driver::TouchReadStatus::kBusError) {
+    if (consecutive_touch_bus_errors_ < kTouchBusErrorRecoveryThreshold) {
+      ++consecutive_touch_bus_errors_;
+    }
+    if (touch_gesture_wake_enabled_ &&
+        consecutive_touch_bus_errors_ >= kTouchBusErrorRecoveryThreshold) {
+      // 仅明确的连续通信失败触发恢复，空报告、固定序号及 INT 低电平
+      // 本身都不代表手势配置失效。
+      touch_gesture_wake_enabled_ = false;
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Touch wake recovery requested after %u consecutive bus read errors\n",
+          static_cast<unsigned int>(consecutive_touch_bus_errors_));
+    }
+  } else {
+    consecutive_touch_bus_errors_ = 0;
+  }
+  if (log_diagnostics) {
+    const char* status_name = "invalid data";
+    switch (read_status) {
+      case cpp_bus_driver::TouchReadStatus::kSuccess:
+        status_name = "success";
+        break;
+      case cpp_bus_driver::TouchReadStatus::kNoData:
+        status_name = "no data";
+        break;
+      case cpp_bus_driver::TouchReadStatus::kBusError:
+        status_name = "bus error";
+        break;
+      case cpp_bus_driver::TouchReadStatus::kInvalidData:
+        break;
+    }
+    const bool interrupt_low =
+        tool_ != nullptr && !tool_->GpioRead(kTouchInterruptGpio);
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Touch read result (status: %s, sequence: %u, gesture: 0X%02X, "
+        "contacts: %u, INT GPIO: %d, INT low: %s, interrupt registered: %s, "
+        "gesture wake configured: %s)\n",
+        status_name, static_cast<unsigned int>(frame.sequence),
+        static_cast<unsigned int>(frame.gesture),
+        static_cast<unsigned int>(frame.contact_count), kTouchInterruptGpio,
+        interrupt_low ? "yes" : "no",
+        touch_interrupt_initialized_ ? "yes" : "no",
+        touch_gesture_wake_enabled_ ? "yes" : "no");
   }
   if (read_status == cpp_bus_driver::TouchReadStatus::kSuccess ||
       read_status == cpp_bus_driver::TouchReadStatus::kNoData) {
@@ -399,8 +458,10 @@ bool TDisplayP4Device::RequiresContinuousSleepingTouchPolling() const {
 
 bool TDisplayP4Device::RefreshTouchWakeConfiguration() {
   const bool refreshed = SetTouchGestureWakeEnabled(true);
+  // 刷新失败后不能继续假定固件手势有效，恢复连续读取作为软件识别后备。
+  touch_gesture_wake_enabled_ = refreshed;
   if (refreshed) {
-    touch_gesture_wake_enabled_ = true;
+    consecutive_touch_bus_errors_ = 0;
   }
   return refreshed;
 }

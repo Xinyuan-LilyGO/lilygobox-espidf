@@ -1143,8 +1143,10 @@ void RefreshTouchState(CitViewState* state) {
     return;
   }
 
+  // CIT 只观察 LVGL 已采集的触摸，避免熄屏确认期间争用触摸硬件。
   hal::TouchPoint point;
-  if (state->lvgl_port->ReadTouch(&point)) {
+  size_t point_count = 0;
+  if (state->lvgl_port->ReadTouchPoints(&point, 1, &point_count)) {
     state->touch_was_seen = true;
   }
 }

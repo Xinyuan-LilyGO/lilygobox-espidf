@@ -69,7 +69,8 @@ constexpr uint32_t kScreenLockPollMs = 100;
 constexpr uint32_t kKeyboardExpansionConnectionUpdateWaitMs = 5000;
 constexpr uint32_t kScreenTouchPollMs = 30;
 constexpr uint32_t kSleepingTouchRecoveryPollMs = 1000;
-constexpr uint32_t kSleepingTouchWakeRefreshMs = 30 * 1000;
+constexpr uint32_t kSleepingTouchWakeRefreshRetryMs = 1000;
+constexpr uint32_t kSleepingTouchDiagnosticMs = 1000;
 // 防止触发熄屏的双击被触摸固件延迟上报为新的唤醒手势。
 constexpr uint32_t kScreenWakeInputGuardMs = 200;
 constexpr uint32_t kScreenLockSleepConfirmMs = 3 * 1000;
@@ -78,6 +79,8 @@ constexpr uint32_t kLowBatteryStartupWarningMs = 10 * 1000;
 constexpr uint32_t kScreenStartupFadeMs = 500;
 constexpr uint32_t kScreenLockFadeMs = 300;
 constexpr uint32_t kScreenBrightnessTransitionWaitMs = 10;
+constexpr uint32_t kScreenTouchAccessRetryMs = 300;
+constexpr uint32_t kScreenBrightnessRestoreRetryMs = 1000;
 constexpr int kScreenUnlockSwipeMinDistance = 120;
 constexpr uint32_t kScreenUnlockAnimationWaitMs = 240;
 constexpr int kScreenUnlockSwipeMaxHorizontalDrift = 90;
@@ -1253,7 +1256,7 @@ bool Application::ApplyScreenActivity(uint32_t* last_touch_ms,
     result = WakeScreenFromLock();
   } else if (restore_brightness_percent >= 0) {
     result =
-        FadeScreenBrightnessTo(restore_brightness_percent, kScreenLockFadeMs);
+        RestoreScreenBrightnessAfterCanceledSleep(restore_brightness_percent);
     if (screen_lock_state != ScreenLockState::kUnlocked) {
       screen_lock_state_.store(ScreenLockState::kAwake);
     }
@@ -1567,9 +1570,12 @@ void Application::RunScreenLockTask() {
   uint32_t last_touch_ms =
       static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
   uint32_t lock_screen_last_interaction_ms = last_touch_ms;
+  uint32_t last_brightness_restore_ms =
+      last_touch_ms - kScreenBrightnessRestoreRetryMs;
   uint32_t screen_sleep_started_ms = last_touch_ms;
   uint32_t last_sleep_touch_recovery_ms = last_touch_ms;
-  uint32_t last_sleep_touch_wake_refresh_ms = last_touch_ms;
+  uint32_t last_sleep_touch_wake_refresh_attempt_ms = last_touch_ms;
+  uint32_t last_sleep_touch_diagnostic_ms = last_touch_ms;
   bool unlock_touch_active = false;
   bool unlock_drag_ready = false;
   ScreenLockState observed_screen_lock_state = screen_lock_state_.load();
@@ -1624,7 +1630,9 @@ void Application::RunScreenLockTask() {
       if (screen_lock_state == ScreenLockState::kAsleep) {
         screen_sleep_started_ms = now_ms;
         last_sleep_touch_recovery_ms = now_ms - kSleepingTouchRecoveryPollMs;
-        last_sleep_touch_wake_refresh_ms = now_ms - kSleepingTouchWakeRefreshMs;
+        // EnterDeviceSleep 已尝试开启手势；仅失败时在一秒后重试。
+        last_sleep_touch_wake_refresh_attempt_ms = now_ms;
+        last_sleep_touch_diagnostic_ms = now_ms - kSleepingTouchDiagnosticMs;
         screen_wake_input_armed = false;
       }
     }
@@ -1661,6 +1669,23 @@ void Application::RunScreenLockTask() {
       wake_double_tap_recognizer.Reset();
       if (!recovery_performed) {
         sleep_double_tap_recognizer.Reset();
+      }
+    }
+    // 取消熄屏时恢复亮度可能暂时拿不到屏幕锁，不能等下一轮锁屏才处理。
+    if (screen_brightness_restore_pending_.load() &&
+        screen_lock_state_.load() != ScreenLockState::kAsleep &&
+        now_ms - last_brightness_restore_ms >= kScreenBrightnessRestoreRetryMs) {
+      last_brightness_restore_ms = now_ms;
+      LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+          "Retry brightness restore after canceled screen sleep\n");
+      if (RestoreScreenBrightnessAfterCanceledSleep(
+              LoadDisplayPreferencesOrDefault().brightness_percent)) {
+        const uint32_t restored_ms =
+            static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        last_touch_ms = restored_ms;
+        lock_screen_last_interaction_ms = restored_ms;
+        // 下一轮使用新的 now_ms，避免无符号减法误判为超时。
+        continue;
       }
     }
     if (lvgl_port_.ConsumeKeyboardInputActivity() &&
@@ -1731,9 +1756,19 @@ void Application::RunScreenLockTask() {
     }
     if (screen_lock_state_.load() != ScreenLockState::kUnlocked) {
       if (screen_lock_state_.load() == ScreenLockState::kAsleep) {
+        const bool log_touch_diagnostics =
+            now_ms - last_sleep_touch_diagnostic_ms >=
+            kSleepingTouchDiagnosticMs;
+        if (log_touch_diagnostics) {
+          last_sleep_touch_diagnostic_ms = now_ms;
+        }
         const app::DisplayPreferences preferences =
             LoadDisplayPreferencesOrDefault();
         if (!preferences.lock_screen_double_tap_to_turn_screen_on_and_off) {
+          if (log_touch_diagnostics) {
+            LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+                "Sleeping touch wake disabled by display preferences\n");
+          }
           wake_double_tap_recognizer.Reset();
           sleep_double_tap_recognizer.Reset();
           firmware_double_tap_latched = false;
@@ -1761,18 +1796,16 @@ void Application::RunScreenLockTask() {
         const bool force_touch_recovery =
             now_ms - last_sleep_touch_recovery_ms >=
             kSleepingTouchRecoveryPollMs;
-        const bool refresh_touch_wake_configuration =
-            force_touch_recovery && now_ms - last_sleep_touch_wake_refresh_ms >=
-                                        kSleepingTouchWakeRefreshMs;
+        const bool retry_touch_wake_configuration =
+            software_double_tap_fallback_required &&
+            now_ms - last_sleep_touch_wake_refresh_attempt_ms >=
+                kSleepingTouchWakeRefreshRetryMs;
         const bool screen_off_sample_available =
             ReadScreenTouchWhileSleeping(&screen_off_point,
                 &touch_access_available, &touch_interrupt_edge_received,
-                force_touch_recovery, refresh_touch_wake_configuration);
+                force_touch_recovery, log_touch_diagnostics);
         if (touch_access_available && force_touch_recovery) {
           last_sleep_touch_recovery_ms = now_ms;
-        }
-        if (touch_access_available && refresh_touch_wake_configuration) {
-          last_sleep_touch_wake_refresh_ms = now_ms;
         }
         const bool firmware_double_tap_active =
             screen_off_sample_available &&
@@ -1790,15 +1823,40 @@ void Application::RunScreenLockTask() {
         if (touch_access_available) {
           firmware_double_tap_latched = firmware_double_tap_active;
           if (screen_off_point.report_sequence_valid) {
-            firmware_double_tap_sequence_valid = true;
-            last_firmware_double_tap_sequence =
-                screen_off_point.report_sequence;
+            // 有效的非手势报告说明上一次手势已释放。后续双击即使复用
+            // 序号也应重新识别；读取失败不能清除旧序号的去重保护。
+            firmware_double_tap_sequence_valid = firmware_double_tap_active;
+            if (firmware_double_tap_active) {
+              last_firmware_double_tap_sequence =
+                  screen_off_point.report_sequence;
+            }
           }
         }
         const bool screen_off_touched =
             screen_off_sample_available &&
             IsScreenTouchPointValid(screen_off_point, screen->ScreenWidth(),
                 screen->ScreenHeight());
+        if (log_touch_diagnostics || firmware_double_tap_detected) {
+          LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+              "Sleeping touch wake check (access: %s, sample: %s, edge: %s, "
+              "sequence: %u, sequence valid: %s, double tap: %s, new report: %s, "
+              "armed: %s, waiting release: %s, polling: %s)\n",
+              touch_access_available ? "yes" : "no",
+              screen_off_sample_available ? "yes" : "no",
+              touch_interrupt_edge_received ? "yes" : "no",
+              static_cast<unsigned int>(screen_off_point.report_sequence),
+              screen_off_point.report_sequence_valid ? "yes" : "no",
+              firmware_double_tap_active ? "yes" : "no",
+              firmware_report_changed ? "yes" : "no",
+              screen_wake_input_armed ? "yes" : "no",
+              discard_transition_touch_until_release ? "yes" : "no",
+              software_double_tap_fallback_required ? "yes" : "no");
+          if (firmware_double_tap_active && !firmware_report_changed) {
+            LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+                "Sleeping double-tap report ignored (duplicate sequence, "
+                "no new interrupt edge)\n");
+          }
+        }
         if (firmware_double_tap_detected) {
           LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
               "Lock screen firmware double-tap report received (armed: %s)\n",
@@ -1818,10 +1876,21 @@ void Application::RunScreenLockTask() {
           vTaskDelay(pdMS_TO_TICKS(kScreenTouchPollMs));
           continue;
         }
-        if (touch_access_available && discard_transition_touch_until_release) {
+        if (touch_access_available && discard_transition_touch_until_release &&
+            !firmware_double_tap_detected) {
           wake_double_tap_recognizer.Reset();
           discard_transition_touch_until_release = screen_off_touched;
+          if (log_touch_diagnostics || !discard_transition_touch_until_release) {
+            LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+                "Sleeping touch release guard: %s\n",
+                discard_transition_touch_until_release ? "waiting" : "cleared");
+          }
         } else if (touch_access_available) {
+          if (firmware_double_tap_detected &&
+              discard_transition_touch_until_release) {
+            LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+                "New firmware double tap accepted while waiting for touch release\n");
+          }
           const DoubleTapEvent event =
               firmware_double_tap_detected
                   ? DoubleTapEvent::kCompleted
@@ -1847,6 +1916,17 @@ void Application::RunScreenLockTask() {
               sleep_double_tap_recognizer.Reset();
               discard_transition_touch_until_release = true;
             }
+          }
+        }
+        // 手势配置正常时只补读报告，不定期重写。配置失败或设备报告
+        // 通信异常后才重试；新双击和正在进行的触摸优先处理。
+        if (retry_touch_wake_configuration && touch_access_available &&
+            !firmware_double_tap_detected && !screen_off_touched &&
+            screen_lock_state_.load() == ScreenLockState::kAsleep) {
+          last_sleep_touch_wake_refresh_attempt_ms =
+              static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+          if (RefreshSleepingTouchWakeConfiguration()) {
+            software_double_tap_fallback_active = false;
           }
         }
         vTaskDelay(pdMS_TO_TICKS(kScreenTouchPollMs));
@@ -1955,7 +2035,8 @@ void Application::RunScreenLockTask() {
             now_ms - lock_screen_last_interaction_ms;
         const uint32_t lock_screen_dim_start_ms =
             kAwakeLockScreenSleepTimeoutMs - kScreenLockSleepConfirmMs;
-        if (lock_screen_idle_ms >= lock_screen_dim_start_ms) {
+        if (!screen_brightness_restore_pending_.load() &&
+            lock_screen_idle_ms >= lock_screen_dim_start_ms) {
           const bool screen_slept = SleepAwakeLockScreenWithTimeout(
               &last_touch_ms, &lock_screen_last_interaction_ms);
           if (!screen_slept) {
@@ -1992,7 +2073,8 @@ void Application::RunScreenLockTask() {
         std::min(lock_timeout_ms, kScreenLockSleepConfirmMs);
     const uint32_t dim_start_ms = lock_timeout_ms - sleep_confirm_ms;
     const uint32_t idle_ms = now_ms - last_touch_ms;
-    if (preferences.lock_timeout_seconds ==
+    if (screen_brightness_restore_pending_.load() ||
+        preferences.lock_timeout_seconds ==
             app::kDisplayLockTimeoutDisabledSeconds ||
         idle_ms < dim_start_ms) {
       vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
@@ -2006,6 +2088,13 @@ void Application::RunScreenLockTask() {
       continue;
     }
 
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Automatic screen lock dimming started (idle: %lu ms, timeout: %lu "
+        "ms, brightness: %d%% -> %d%%)\n",
+        static_cast<unsigned long>(idle_ms),
+        static_cast<unsigned long>(lock_timeout_ms),
+        preferences.brightness_percent,
+        app::kUserDisplayBrightnessMinPercent);
     const int start_brightness = preferences.brightness_percent;
     const int target_brightness = app::kUserDisplayBrightnessMinPercent;
     bool fade_canceled = false;
@@ -2022,12 +2111,17 @@ void Application::RunScreenLockTask() {
     }
     lvgl_port_.SetInputBlocked(true, true);
     if (!FadeScreenBrightnessTo(target_brightness, kScreenLockFadeMs)) {
+      RestoreScreenBrightnessAfterCanceledSleep(start_brightness);
       lvgl_port_.SetInputBlocked(false);
       screen_lock_transition_in_progress_.store(false);
       last_touch_ms = now_ms;
       continue;
     }
 
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Automatic screen lock dimming completed; confirmation started "
+        "(duration: %lu ms)\n",
+        static_cast<unsigned long>(sleep_confirm_ms));
     const uint32_t confirm_start_ms =
         static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
     while (static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) -
@@ -2045,13 +2139,15 @@ void Application::RunScreenLockTask() {
         break;
       }
       bool touch_access_available = false;
-      const bool touched =
-          ReadScreenTouchWhileAwake(&point, &touch_access_available);
+      const bool touched = ReadScreenTouchWhileAwake(
+          &point, &touch_access_available, kScreenTouchAccessRetryMs);
       if (!touch_access_available) {
         screen_access_interrupted = true;
         break;
       }
       if (touched) {
+        LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+            "Automatic screen lock canceled (touch during confirmation)\n");
         ApplyScreenActivity(
             &last_touch_ms, &lock_screen_last_interaction_ms, start_brightness);
         screen_lock_transition_in_progress_.store(false);
@@ -2061,7 +2157,9 @@ void Application::RunScreenLockTask() {
       vTaskDelay(pdMS_TO_TICKS(kScreenTouchPollMs));
     }
     if (screen_access_interrupted) {
-      FadeScreenBrightnessTo(start_brightness, kScreenLockFadeMs);
+      LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+          "Automatic screen lock canceled (touch access unavailable)\n");
+      RestoreScreenBrightnessAfterCanceledSleep(start_brightness);
       lvgl_port_.SetInputBlocked(false);
       screen_lock_transition_in_progress_.store(false);
       last_touch_ms = now_ms;
@@ -2070,6 +2168,8 @@ void Application::RunScreenLockTask() {
     if (fade_canceled) {
       continue;
     }
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Automatic screen lock confirmation completed; waiting for keyboard idle\n");
 
     transition_activity_reason = ConsumeScreenTransitionActivity();
     if (transition_activity_reason != SystemActivityReason::kNone) {
@@ -2086,7 +2186,7 @@ void Application::RunScreenLockTask() {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Cancel automatic screen lock because keyboard expansion "
           "connection update did not finish\n");
-      FadeScreenBrightnessTo(start_brightness, kScreenLockFadeMs);
+      RestoreScreenBrightnessAfterCanceledSleep(start_brightness);
       lvgl_port_.SetInputBlocked(false);
       screen_lock_transition_in_progress_.store(false);
       last_touch_ms = now_ms;
@@ -2105,11 +2205,15 @@ void Application::RunScreenLockTask() {
     lvgl_port_.SetInputBlocked(true);
     if (EnterScreenLockSleep()) {
       screen_lock_state_.store(ScreenLockState::kAsleep);
+      LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+          "Automatic screen lock completed (display asleep)\n");
     } else {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Automatic screen lock failed; restoring awake screen\n");
       lvgl_port_.Lock();
       ui_manager_.HideLockScreen();
       lvgl_port_.Unlock();
-      FadeScreenBrightnessTo(start_brightness, kScreenLockFadeMs);
+      RestoreScreenBrightnessAfterCanceledSleep(start_brightness);
       lvgl_port_.SetInputBlocked(false);
       last_touch_ms =
           static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
@@ -2123,6 +2227,9 @@ void Application::HandlePowerButtonShortPress() {
     return;
   }
 
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Power button short press (screen state: %u)\n",
+      static_cast<unsigned int>(screen_lock_state_.load()));
   const bool physical_menu_was_active =
       physical_power_menu_active_.exchange(false);
   lvgl_port_.Lock();
@@ -2152,6 +2259,9 @@ void Application::HandlePowerButtonShortPress() {
       result = WakeScreenFromLock();
       break;
   }
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Power button screen action completed (action: %s, result: %s)\n",
+      action, result ? "success" : "failed");
   if (!result) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Screen lock or wake action failed: %s\n", action);
@@ -2220,14 +2330,20 @@ bool Application::WaitForKeyboardExpansionConnectionIdle() {
 }
 
 bool Application::LockScreenNow() {
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Immediate screen lock requested\n");
   if (screen_lock_state_.load() != ScreenLockState::kUnlocked) {
     return true;
   }
   bool transition_expected = false;
   if (!screen_lock_transition_in_progress_.compare_exchange_strong(
           transition_expected, true)) {
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Immediate screen lock canceled (transition already in progress)\n");
     return false;
   }
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Immediate screen lock waiting for keyboard idle\n");
   if (!WaitForKeyboardExpansionConnectionIdle()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Cancel screen lock because keyboard expansion connection update "
@@ -2235,23 +2351,34 @@ bool Application::LockScreenNow() {
     screen_lock_transition_in_progress_.store(false);
     return false;
   }
-  const int previous_brightness = current_screen_brightness_percent_.load();
+  const int previous_brightness = screen_brightness_restore_pending_.load()
+                                      ? LoadDisplayPreferencesOrDefault()
+                                            .brightness_percent
+                                      : current_screen_brightness_percent_.load();
   lvgl_port_.SetInputBlocked(true);
   if (!EnterScreenLockSleep()) {
-    FadeScreenBrightnessTo(previous_brightness, kScreenLockFadeMs);
+    RestoreScreenBrightnessAfterCanceledSleep(previous_brightness);
     lvgl_port_.SetInputBlocked(false);
     screen_lock_transition_in_progress_.store(false);
     return false;
   }
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Immediate screen lock completed (display asleep)\n");
   screen_lock_state_.store(ScreenLockState::kAsleep);
   screen_lock_transition_in_progress_.store(false);
   return true;
 }
 
 bool Application::EnterScreenLockSleep() {
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Screen lock preparation: turning backlight off\n");
   if (!SetScreenBrightnessWhileAwake(0)) {
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Screen lock preparation failed (backlight off unavailable)\n");
     return false;
   }
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Screen lock preparation: backlight off; suspending keyboard\n");
 
   if (device_provider_context_.keyboard_expansion != nullptr &&
       !device_provider_context_.keyboard_expansion
@@ -2260,9 +2387,15 @@ bool Application::EnterScreenLockSleep() {
         "Suspend keyboard expansion for screen lock failed\n");
   }
 
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Screen lock preparation: waiting for LVGL lock\n");
   lvgl_port_.Lock();
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Screen lock preparation: LVGL lock acquired; showing lock screen\n");
   const bool lock_screen_shown = ui_manager_.ShowLockScreen();
   lvgl_port_.Unlock();
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Screen lock page creation: %s\n", lock_screen_shown ? "success" : "failed");
   if (!lock_screen_shown) {
     if (device_provider_context_.keyboard_expansion != nullptr) {
       device_provider_context_.keyboard_expansion
@@ -2273,10 +2406,19 @@ bool Application::EnterScreenLockSleep() {
 
   // 背光关闭后先把锁屏页面完整写入显示缓冲区，避免面板唤醒时短暂显示
   // 进入休眠前的应用页面。
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Screen lock preparation: pausing display flush\n");
   const bool flush_paused = lvgl_port_.PauseDisplayFlush();
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Screen lock preparation: flush paused: %s; requesting first frame\n",
+      flush_paused ? "yes" : "no");
   const bool lock_screen_refreshed =
       flush_paused && lvgl_port_.ResumeDisplayFlushAndWaitForRefresh();
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Screen lock first frame: %s\n", lock_screen_refreshed ? "ready" : "failed");
   if (!lock_screen_refreshed || !EnterScreenSleep()) {
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Screen lock preparation failed; restoring application page\n");
     if (flush_paused && lvgl_port_.IsDisplayFlushPaused()) {
       lvgl_port_.ResumeDisplayFlush();
     }
@@ -2293,6 +2435,8 @@ bool Application::EnterScreenLockSleep() {
 }
 
 bool Application::WakeScreenFromLock() {
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Lock screen wake requested; checking screen state\n");
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
   if (screen == nullptr ||
       screen_lock_state_.load() != ScreenLockState::kAsleep) {
@@ -2303,12 +2447,18 @@ bool Application::WakeScreenFromLock() {
     return false;
   }
 
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Lock screen wake waiting for screen transition lock\n");
   if (!lvgl_port_.BeginScreenTransition()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Lock screen wake failed (screen transition unavailable)\n");
     return false;
   }
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Lock screen wake acquired screen transition; waiting for LVGL lock\n");
   lvgl_port_.Lock();
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Lock screen wake acquired LVGL lock; showing lock screen\n");
   const bool shown = ui_manager_.ShowLockScreen();
   lvgl_port_.Unlock();
   if (!shown) {
@@ -2317,6 +2467,8 @@ bool Application::WakeScreenFromLock() {
         "Lock screen wake failed (lock screen unavailable)\n");
     return false;
   }
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Lock screen wake page ready; restoring display\n");
   const bool screen_restored = RestoreScreenAfterSleep();
   lvgl_port_.EndScreenTransition();
   if (!screen_restored) {
@@ -2440,6 +2592,8 @@ void Application::PowerOffDevice() {
 
 bool Application::SleepAwakeLockScreenWithTimeout(
     uint32_t* last_touch_ms, uint32_t* lock_screen_last_interaction_ms) {
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Awake lock screen timeout reached; preparing dimming\n");
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
   if (screen == nullptr) {
     return false;
@@ -2449,7 +2603,11 @@ bool Application::SleepAwakeLockScreenWithTimeout(
           transition_expected, true)) {
     return false;
   }
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Awake lock screen waiting for keyboard idle\n");
   if (!WaitForKeyboardExpansionConnectionIdle()) {
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Awake lock screen sleep canceled (keyboard busy)\n");
     screen_lock_transition_in_progress_.store(false);
     return false;
   }
@@ -2466,11 +2624,16 @@ bool Application::SleepAwakeLockScreenWithTimeout(
   }
   const int target_brightness = app::kUserDisplayBrightnessMinPercent;
   if (!FadeScreenBrightnessTo(target_brightness, kScreenLockFadeMs)) {
+    RestoreScreenBrightnessAfterCanceledSleep(preferences.brightness_percent);
     screen_lock_state_.store(ScreenLockState::kAwake);
     screen_lock_transition_in_progress_.store(false);
     return false;
   }
 
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Awake lock screen dimming completed; confirmation started "
+      "(duration: %lu ms)\n",
+      static_cast<unsigned long>(kScreenLockSleepConfirmMs));
   const uint32_t confirm_start_ms =
       static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
   while (static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) -
@@ -2488,15 +2651,19 @@ bool Application::SleepAwakeLockScreenWithTimeout(
     }
     hal::TouchPoint point;
     bool touch_access_available = false;
-    const bool touched =
-        ReadScreenTouchWhileAwake(&point, &touch_access_available);
+    const bool touched = ReadScreenTouchWhileAwake(
+        &point, &touch_access_available, kScreenTouchAccessRetryMs);
     if (!touch_access_available) {
-      FadeScreenBrightnessTo(preferences.brightness_percent, kScreenLockFadeMs);
+      LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+          "Awake lock screen sleep canceled (touch access unavailable)\n");
+      RestoreScreenBrightnessAfterCanceledSleep(preferences.brightness_percent);
       screen_lock_state_.store(ScreenLockState::kAwake);
       screen_lock_transition_in_progress_.store(false);
       return false;
     }
     if (touched) {
+      LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+          "Awake lock screen sleep canceled (touch during confirmation)\n");
       ApplyScreenActivity(last_touch_ms, lock_screen_last_interaction_ms,
           preferences.brightness_percent);
       screen_lock_transition_in_progress_.store(false);
@@ -2516,14 +2683,18 @@ bool Application::SleepAwakeLockScreenWithTimeout(
     return false;
   }
 
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Awake lock screen confirmation completed; entering sleep\n");
   if (!EnterScreenSleep()) {
-    FadeScreenBrightnessTo(preferences.brightness_percent, kScreenLockFadeMs);
+    RestoreScreenBrightnessAfterCanceledSleep(preferences.brightness_percent);
     screen_lock_state_.store(ScreenLockState::kAwake);
     screen_lock_transition_in_progress_.store(false);
     return false;
   }
 
   lvgl_port_.SetInputBlocked(true);
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Awake lock screen timeout completed (display asleep)\n");
   screen_lock_state_.store(ScreenLockState::kAsleep);
   screen_lock_transition_in_progress_.store(false);
   return true;
@@ -2551,28 +2722,48 @@ bool Application::SleepLockScreenNow() {
 }
 
 bool Application::EnterScreenSleep() {
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Screen sleep requested; checking screen and waiting for transition lock\n");
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
   if (screen == nullptr) {
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Screen sleep failed (screen unavailable)\n");
     return false;
   }
   if (!lvgl_port_.BeginScreenTransition()) {
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Screen sleep failed (screen transition unavailable)\n");
     return false;
   }
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Screen sleep acquired transition lock\n");
   if (lvgl_port_.IsDisplayFlushPaused()) {
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Screen sleep skipped (display flush already paused)\n");
     lvgl_port_.EndScreenTransition();
     return false;
   }
 
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Screen sleep turning backlight off\n");
   const int previous_brightness = current_screen_brightness_percent_.load();
   if (previous_brightness != 0 && !ApplyScreenBrightness(0)) {
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Screen sleep failed (backlight off failed)\n");
     lvgl_port_.EndScreenTransition();
     return false;
   }
 
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Screen sleep backlight off; blocking input and pausing display flush\n");
   lvgl_port_.AcquireSleepInputBlock();
   if (!lvgl_port_.PauseDisplayFlush()) {
-    if (previous_brightness != 0) {
-      ApplyScreenBrightness(previous_brightness);
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Screen sleep failed (display flush pause failed)\n");
+    if (previous_brightness != 0 && !ApplyScreenBrightness(previous_brightness)) {
+      screen_brightness_restore_pending_.store(true);
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Screen sleep rollback brightness restore queued\n");
     }
     lvgl_port_.ReleaseSleepInputBlock();
     lvgl_port_.EndScreenTransition();
@@ -2584,7 +2775,15 @@ bool Application::EnterScreenSleep() {
       "Lock screen display sleep started (brightness: %d%%, flush paused: "
       "%s)\n",
       previous_brightness, lvgl_port_.IsDisplayFlushPaused() ? "yes" : "no");
+  const uint32_t sleep_started_ms =
+      static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
   const bool screen_off = screen->EnterDeviceSleep(false);
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Display EnterDeviceSleep completed (result: %s, elapsed: %lu ms)\n",
+      screen_off ? "success" : "failed",
+      static_cast<unsigned long>(
+          static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) -
+          sleep_started_ms));
   if (!screen_off) {
     const bool screen_restored = RestoreScreenAfterSleep();
     lvgl_port_.EndScreenTransition();
@@ -2595,6 +2794,7 @@ bool Application::EnterScreenSleep() {
     return false;
   }
   screen_off_confirmed_.store(true);
+  screen_brightness_restore_pending_.store(false);
   LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
       "Lock screen display sleep completed\n");
 
@@ -2687,20 +2887,37 @@ bool Application::PreparePowerActionStorage() {
 bool Application::RestoreScreenAfterSleep() {
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
   if (screen == nullptr) {
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Display wake failed (screen unavailable)\n");
     return false;
   }
   screen_off_confirmed_.store(false);
   if (!lvgl_port_.IsDisplayFlushPaused()) {
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Display wake skipped (display flush already active)\n");
     return true;
   }
 
   LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
       "Lock screen display wake started\n");
-  if (!screen->ExitDeviceSleep(false)) {
+  const uint32_t wake_started_ms =
+      static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+  const bool screen_awake = screen->ExitDeviceSleep(false);
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Display ExitDeviceSleep completed (result: %s, elapsed: %lu ms)\n",
+      screen_awake ? "success" : "failed",
+      static_cast<unsigned long>(
+          static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) -
+          wake_started_ms));
+  if (!screen_awake) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Lock screen display wake failed (ExitDeviceSleep failed)\n");
     return false;
   }
 
   // 面板保持亮度 0，直到专用 LVGL 任务确认锁屏完整帧传输结束。
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Display wake waiting for first complete frame\n");
   if (!lvgl_port_.ResumeDisplayFlushAndWaitForRefresh()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Screen woke, but lock screen refresh did not complete\n");
@@ -2709,6 +2926,9 @@ bool Application::RestoreScreenAfterSleep() {
   }
 
   const app::DisplayPreferences preferences = LoadDisplayPreferencesOrDefault();
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Display wake first frame ready; restoring brightness (target: %d%%)\n",
+      preferences.brightness_percent);
   if (!ApplyScreenBrightness(preferences.brightness_percent)) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Screen woke, but restoring brightness failed\n");
@@ -2718,6 +2938,7 @@ bool Application::RestoreScreenAfterSleep() {
   LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
       "Lock screen display wake completed (brightness: %d%%)\n",
       preferences.brightness_percent);
+  screen_brightness_restore_pending_.store(false);
   lvgl_port_.ReleaseSleepInputBlock();
   return true;
 }
@@ -2758,7 +2979,7 @@ bool Application::IsUnlockSwipe(
 }
 
 bool Application::ReadScreenTouchWhileAwake(
-    hal::TouchPoint* point, bool* access_available) {
+    hal::TouchPoint* point, bool* access_available, uint32_t access_timeout_ms) {
   if (access_available != nullptr) {
     *access_available = false;
   }
@@ -2766,14 +2987,36 @@ bool Application::ReadScreenTouchWhileAwake(
     return false;
   }
 
-  const bool can_access = !power_action_in_progress_.load() &&
-                          !lvgl_port_.IsDisplayFlushPaused() &&
-                          !screen_off_confirmed_.load();
+  const uint32_t started_ms =
+      static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
   bool touch_access_available = false;
-  const bool touched =
-      can_access && lvgl_port_.ReadTouch(point, &touch_access_available);
+  bool touched = false;
+  bool retried = false;
+  while (!power_action_in_progress_.load() &&
+         !lvgl_port_.IsDisplayFlushPaused() && !screen_off_confirmed_.load()) {
+    touched = lvgl_port_.ReadTouch(point, &touch_access_available);
+    if (touch_access_available || access_timeout_ms == 0 ||
+        static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) -
+                started_ms >= access_timeout_ms) {
+      break;
+    }
+    if (!retried) {
+      LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+          "Screen sleep confirmation waiting for touch access\n");
+      retried = true;
+    }
+    vTaskDelay(pdMS_TO_TICKS(kScreenTouchPollMs));
+  }
+  if (retried) {
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Screen sleep confirmation touch access: %s (elapsed: %lu ms)\n",
+        touch_access_available ? "available" : "unavailable",
+        static_cast<unsigned long>(
+            static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) -
+            started_ms));
+  }
   if (access_available != nullptr) {
-    *access_available = can_access && touch_access_available;
+    *access_available = touch_access_available;
   }
   if (!touched) {
     return false;
@@ -2790,44 +3033,64 @@ bool Application::ReadScreenTouchWhileAwake(
 
 bool Application::ReadScreenTouchWhileSleeping(hal::TouchPoint* point,
     bool* access_available, bool* interrupt_edge_received, bool force_read,
-    bool refresh_wake_configuration) {
+    bool log_diagnostics) {
   if (access_available != nullptr) {
     *access_available = false;
   }
   if (interrupt_edge_received != nullptr) {
     *interrupt_edge_received = false;
   }
+  if (point != nullptr) {
+    *point = hal::TouchPoint();
+  }
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
   if (point == nullptr || screen == nullptr ||
       power_action_in_progress_.load() ||
       screen_lock_state_.load() != ScreenLockState::kAsleep ||
       !screen_off_confirmed_.load() || !lvgl_port_.IsDisplayFlushPaused()) {
+    if (log_diagnostics) {
+      LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+          "Sleeping touch read skipped (screen: %s, state: %u, power action: %s, "
+          "screen off: %s, flush paused: %s)\n",
+          screen != nullptr ? "ready" : "missing",
+          static_cast<unsigned int>(screen_lock_state_.load()),
+          power_action_in_progress_.load() ? "yes" : "no",
+          screen_off_confirmed_.load() ? "yes" : "no",
+          lvgl_port_.IsDisplayFlushPaused() ? "yes" : "no");
+    }
     return false;
   }
 
   if (!lvgl_port_.TryBeginScreenTransition()) {
+    if (log_diagnostics) {
+      LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+          "Sleeping touch read skipped (screen transition busy)\n");
+    }
     return false;
   }
 
-  // 先取得屏幕事务所有权再消费通知，防止竞争时丢失事件。低频恢复读取
-  // 用于重新同步漏掉的边沿或持续有效的中断线。
+  // 先取得屏幕事务所有权再消费通知，防止竞争时丢失事件。
   bool touch_report_pending = false;
   bool fresh_interrupt_edge_received = false;
-  if (!screen->RequiresContinuousSleepingTouchPolling() &&
-      screen->SupportsTouchInterrupt()) {
+  const bool continuous_polling =
+      screen->RequiresContinuousSleepingTouchPolling();
+  const bool has_interrupt = screen->SupportsTouchInterrupt();
+  if (has_interrupt) {
     touch_report_pending =
         screen->ConsumeTouchInterrupt(&fresh_interrupt_edge_received);
-    if (!touch_report_pending && !force_read) {
-      lvgl_port_.EndScreenTransition();
-      return false;
-    }
   }
-
-  // 待处理报告必须先读取，避免重复下发配置时覆盖刚到达的固件手势。
-  if (refresh_wake_configuration && !touch_report_pending &&
-      !screen->RefreshTouchWakeConfiguration()) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Refresh sleeping touch wake configuration failed\n");
+  if (log_diagnostics) {
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Sleeping touch read (interrupt supported: %s, pending: %s, edge: %s, "
+        "forced: %s, continuous: %s)\n",
+        has_interrupt ? "yes" : "no", touch_report_pending ? "yes" : "no",
+        fresh_interrupt_edge_received ? "yes" : "no",
+        force_read ? "yes" : "no", continuous_polling ? "yes" : "no");
+  }
+  if (!continuous_polling && has_interrupt && !touch_report_pending &&
+      !force_read) {
+    lvgl_port_.EndScreenTransition();
+    return false;
   }
 
   const bool can_access =
@@ -2841,6 +3104,41 @@ bool Application::ReadScreenTouchWhileSleeping(hal::TouchPoint* point,
   const bool touched = can_access && screen->ReadScreenTouch(point);
   lvgl_port_.EndScreenTransition();
   return touched;
+}
+
+bool Application::RefreshSleepingTouchWakeConfiguration() {
+  hal::ScreenProvider* screen = device_provider_context_.screen.get();
+  if (screen == nullptr || !lvgl_port_.TryBeginScreenTransition()) {
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Sleeping touch wake refresh deferred (screen or transition unavailable)\n");
+    return false;
+  }
+  if (power_action_in_progress_.load() ||
+      screen_lock_state_.load() != ScreenLockState::kAsleep ||
+      !screen_off_confirmed_.load() || !lvgl_port_.IsDisplayFlushPaused()) {
+    lvgl_port_.EndScreenTransition();
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Sleeping touch wake refresh deferred (screen state changed)\n");
+    return false;
+  }
+
+  if (!screen->RequiresContinuousSleepingTouchPolling()) {
+    lvgl_port_.EndScreenTransition();
+    return true;
+  }
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Sleeping touch wake configuration recovery started\n");
+  const bool refreshed = screen->RefreshTouchWakeConfiguration();
+  lvgl_port_.EndScreenTransition();
+  if (refreshed) {
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Sleeping touch wake configuration recovered; retries stopped\n");
+  } else {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Sleeping touch wake configuration recovery failed (retry: %lu ms)\n",
+        static_cast<unsigned long>(kSleepingTouchWakeRefreshRetryMs));
+  }
+  return refreshed;
 }
 
 bool Application::SetScreenBrightnessWhileAwake(int percent) {
@@ -2879,11 +3177,20 @@ bool Application::StartScreenBacklight(int target_percent) {
 
 bool Application::FadeScreenBrightnessTo(
     int target_percent, uint32_t duration_ms) {
+  const uint32_t started_ms =
+      static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Screen brightness fade requested (from: %d%%, target: %d%%, duration: "
+      "%lu ms); waiting for screen transition\n",
+      current_screen_brightness_percent_.load(), target_percent,
+      static_cast<unsigned long>(duration_ms));
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
   const TickType_t timeout_ticks =
       pdMS_TO_TICKS(kScreenBrightnessTransitionWaitMs);
   if (screen == nullptr ||
       !lvgl_port_.TryBeginScreenTransition(timeout_ticks)) {
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Screen brightness fade failed (screen or transition unavailable)\n");
     return false;
   }
 
@@ -2891,13 +3198,37 @@ bool Application::FadeScreenBrightnessTo(
   const bool can_access = !power_action_in_progress_.load() &&
                           !lvgl_port_.IsDisplayFlushPaused() &&
                           !screen_off_confirmed_.load();
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Screen brightness fade acquired transition (hardware accessible: %s)\n",
+      can_access ? "yes" : "no");
   const bool updated = can_access && screen->FadeScreenBrightnessPercent(
                                          clamped_percent, duration_ms);
   if (updated) {
     current_screen_brightness_percent_.store(clamped_percent);
   }
   lvgl_port_.EndScreenTransition();
+  LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+      "Screen brightness fade completed (target: %d%%, result: %s, "
+      "elapsed: %lu ms)\n",
+      clamped_percent, updated ? "success" : "failed",
+      static_cast<unsigned long>(
+          static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) -
+          started_ms));
   return updated;
+}
+
+bool Application::RestoreScreenBrightnessAfterCanceledSleep(int percent) {
+  const bool restored = FadeScreenBrightnessTo(percent, kScreenLockFadeMs);
+  const bool was_pending = screen_brightness_restore_pending_.exchange(!restored);
+  if (!restored && !was_pending) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Screen sleep canceled; brightness restore pending (target: %d%%)\n",
+        percent);
+  } else if (restored) {
+    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
+        "Screen sleep canceled; brightness restored (target: %d%%)\n", percent);
+  }
+  return restored;
 }
 
 app::DisplayPreferences Application::LoadDisplayPreferencesOrDefault() const {

@@ -1775,10 +1775,14 @@ class TDisplayP4Device final : public ScreenProvider,
       lilygo_device_driver::t_display_p4::device::kBatteryInfo.capacity_mah};
   // 当前硬件版本的触摸中断是否已经完成注册。
   bool touch_interrupt_initialized_ = false;
-  // 中断服务等待任务上下文处理的通知标志。
+  // ISR 与任务共享的原子通知标志；不依赖 volatile，也不在 ISR 中记录日志。
   std::atomic<bool> touch_interrupt_pending_{false};
+  // 触摸读取诊断限频；只在屏幕事务保护的任务上下文中访问。
+  uint32_t last_touch_read_diagnostic_ms_ = 0;
   // 轻度熄屏期间是否启用了触摸固件双击唤醒。
   bool touch_gesture_wake_enabled_ = false;
+  // 连续总线读取错误计数，正常空报告也会清零。
+  uint8_t consecutive_touch_bus_errors_ = 0;
   // RM69A10 软件渐变使用的当前亮度百分比。
   int rm69a10_brightness_percent_ = 0;
   // 扬声器播放状态，供 UI 和后台播放任务共享

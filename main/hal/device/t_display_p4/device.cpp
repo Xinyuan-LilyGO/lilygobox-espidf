@@ -168,7 +168,12 @@ bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
         keyboard_expansion_.state.load() != KeyboardExpansionState::kReady ||
         driver_.SetKeyboardExpansionOperatingMode(lilygo_device_driver::
                 TDisplayP4Driver::KeyboardExpansionOperatingMode::kSleep);
+    consecutive_touch_bus_errors_ = 0;
     touch_gesture_wake_enabled_ = SetTouchGestureWakeEnabled(true);
+    if (!touch_gesture_wake_enabled_) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Enable sleeping touch gesture failed; polling and retry required\n");
+    }
     const bool screen_slept = driver_.SetScreenSleep(true);
     if (!screen_slept && touch_gesture_wake_enabled_) {
       SetTouchGestureWakeEnabled(false);
@@ -200,13 +205,14 @@ bool TDisplayP4Device::ExitDeviceSleep(bool deep_sleep) {
         "Wake device from chip sleep failed\n");
     return false;
   }
-  if (touch_gesture_wake_enabled_) {
-    if (!SetTouchGestureWakeEnabled(false)) {
-      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Disable touch gesture wake failed\n");
-    }
-    touch_gesture_wake_enabled_ = false;
-  }
+  // 熄屏维护失败时软件标志可能为 false，硬件仍可能停留在手势模式。
+  // 每次亮屏都显式退出手势模式，使电源键唤醒也能恢复普通触摸。
+  const bool gesture_disabled = SetTouchGestureWakeEnabled(false);
+  LogMessage(gesture_disabled ? LogLevel::kDebug : LogLevel::kWarning,
+      __FILE__, __LINE__, "Exit touch gesture wake mode: %s\n",
+      gesture_disabled ? "success" : "failed");
+  touch_gesture_wake_enabled_ = false;
+  consecutive_touch_bus_errors_ = 0;
   if (!WaitForScreenReady()) {
     return false;
   }

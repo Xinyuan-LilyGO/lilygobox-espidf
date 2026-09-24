@@ -342,10 +342,12 @@ class Application final {
    * @brief 通过统一触摸入口读取亮屏触摸状态
    * @param point 触摸点输出
    * @param access_available 可选返回当前触摸源是否可访问
+   * @param access_timeout_ms 触摸源暂不可用时的重试时限，0 表示不重试
    * @return 检测到有效触摸返回 true
    */
   bool ReadScreenTouchWhileAwake(
-      hal::TouchPoint* point, bool* access_available = nullptr);
+      hal::TouchPoint* point, bool* access_available = nullptr,
+      uint32_t access_timeout_ms = 0);
 
   /**
    * @brief 在面板熄屏且 LVGL 刷新暂停时直接读取触摸控制器
@@ -353,12 +355,18 @@ class Application final {
    * @param access_available 可选返回当前触摸源是否可访问
    * @param interrupt_edge_received 可选返回本次是否收到新的触摸中断下降沿
    * @param force_read 是否在没有中断通知时执行恢复读取
-   * @param refresh_wake_configuration 是否刷新触摸唤醒配置
+   * @param log_diagnostics 是否输出本次读取的诊断日志
    * @return 检测到有效触摸返回 true
    */
   bool ReadScreenTouchWhileSleeping(hal::TouchPoint* point,
       bool* access_available, bool* interrupt_edge_received, bool force_read,
-      bool refresh_wake_configuration);
+      bool log_diagnostics);
+
+  /**
+   * @brief 在屏幕事务内恢复失败的熄屏手势配置，已启用时不重复写入
+   * @return 配置已启用或恢复成功返回 true，暂不可访问或恢复失败返回 false
+   */
+  bool RefreshSleepingTouchWakeConfiguration();
 
   /**
    * @brief 应用屏幕亮度并同步应用层当前值
@@ -390,6 +398,13 @@ class Application final {
   bool FadeScreenBrightnessTo(int target_percent, uint32_t duration_ms);
 
   /**
+   * @brief 取消熄屏后恢复亮度，失败时交由锁屏任务继续重试
+   * @param percent 目标亮度百分比
+   * @return 本次恢复成功返回 true
+   */
+  bool RestoreScreenBrightnessAfterCanceledSleep(int percent);
+
+  /**
    * @brief 读取当前显示偏好，读取失败时使用默认值
    * @return 显示偏好
    */
@@ -399,6 +414,7 @@ class Application final {
   hal::LvglPort lvgl_port_;
   ui::UiManager ui_manager_;
   std::atomic<int> current_screen_brightness_percent_{90};
+  std::atomic<bool> screen_brightness_restore_pending_{false};
   std::atomic<ScreenLockState> screen_lock_state_{ScreenLockState::kUnlocked};
   std::atomic<bool> screen_lock_requested_{false};
   // 锁屏页面创建到锁屏状态发布期间禁止显示普通提示框。
