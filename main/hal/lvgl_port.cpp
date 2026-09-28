@@ -185,6 +185,23 @@ bool LvglPort::Init(
   return true;
 }
 
+bool LvglPort::PauseForSystemRestart() {
+  // 菜单回调正在 LVGL 任务的锁内执行，不能再次获取非递归锁。
+  if (xTaskGetCurrentTaskHandle() != task_handle_) {
+    const TickType_t started = xTaskGetTickCount();
+    while (_lock_try_acquire(&lock_) != 0) {
+      if (xTaskGetTickCount() - started >= pdMS_TO_TICKS(kFlushPauseTimeoutMs)) {
+        LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+            "Wait for LVGL lock before system restart timed out\n");
+        return false;
+      }
+      vTaskDelay(std::max<TickType_t>(1, pdMS_TO_TICKS(1)));
+    }
+  }
+  SetInputBlocked(true);
+  return PauseDisplayFlush();
+}
+
 bool LvglPort::Start() {
   const BaseType_t result = xTaskCreate(TaskEntry, "lvgl", kLvglTaskStackBytes,
       this, kLvglTaskPriority, &task_handle_);

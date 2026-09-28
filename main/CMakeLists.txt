@@ -56,6 +56,8 @@ idf_component_register(
         esp_app_format
         esp_common
         esp_audio_codec
+        esp_driver_gpio
+        esp_driver_uart
         esp_driver_rmt
         esp_eth
         esp_event

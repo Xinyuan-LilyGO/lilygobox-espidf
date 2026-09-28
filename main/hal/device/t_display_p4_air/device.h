@@ -739,6 +739,12 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   bool ConfigurePowerOffWakeSources();
 
   /**
+   * @brief 配置睡眠 GPIO 隔离并显式关闭外设 3.3V 电源
+   * @return 配置成功返回 true，否则返回 false
+   */
+  bool ConfigureDeepSleepGpioIsolation();
+
+  /**
    * @brief 在已持有 OTG 互斥锁时切换 AXP517 Boost 和 RBFET 输出
    * @param enabled true 开启反向供电输出，false 关闭输出
    * @return 输出状态设置成功时返回 true

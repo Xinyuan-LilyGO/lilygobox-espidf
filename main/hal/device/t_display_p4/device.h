@@ -841,6 +841,12 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ConfigurePowerOffWakeSources();
 
   /**
+   * @brief 配置睡眠 GPIO 隔离并显式关闭外设 3.3V 电源
+   * @return 配置成功返回 true，否则返回 false
+   */
+  bool ConfigureDeepSleepGpioIsolation();
+
+  /**
    * @brief 释放最小电源管理路径并准备关机充电深度睡眠
    * @return 本次关机启动处理应执行的动作
    */

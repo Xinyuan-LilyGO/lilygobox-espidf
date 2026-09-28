@@ -8,6 +8,7 @@
 #include <cstdint>
 
 #include "base/logger.h"
+#include "driver/gpio.h"
 #include "esp_attr.h"
 #include "esp_err.h"
 #include "esp_sleep.h"
@@ -255,6 +256,25 @@ void TDisplayP4Device::WaitForPowerButtonRelease() {
       "Power button remained pressed before power-off deep sleep\n");
 }
 
+/**
+ * @brief 配置外设信号 GPIO 的睡眠高阻隔离，并关闭外设 3.3V 电源使能
+ * @return 电源使能及睡眠引脚配置成功返回 true，否则返回 false
+ */
+bool TDisplayP4Device::ConfigureDeepSleepGpioIsolation() {
+  // 仅关闭 3.3V 时，信号 IO 可能反向供电，使板上芯片断电不完全，
+  // 导致下次芯片初始化锁死。必须搭配无上下拉的高阻隔离，在实际断电
+  // 状态下等待放电再启动。
+  esp_sleep_config_gpio_isolate();
+  esp_sleep_enable_gpio_switch(true);
+  // 电源键不在这里单独处理：关机路径的深睡 GPIO 唤醒由 IDF 在
+  // esp_deep_sleep_start() 内部负责（CONFIG_ESP_SLEEP_GPIO_ENABLE_INTERNAL_RESISTORS
+  // 打开时会为唤醒脚启用内部上拉并 gpio_hold_en），时机在本函数之后，
+  // 不会被这里的隔离配置破坏；重启路径只依赖定时唤醒，无需保留电源键输入。
+  // 电源使能脚有外部下拉，进入睡眠高阻态后由外部电阻保持关闭，无需 GPIO hold。
+  // 这里只切断外设 3.3V，不保证仍由电池或 VBUS 供电的 AXP517 本体完全掉电。
+  return driver_.SetPower3v3Enabled(false);
+}
+
 bool TDisplayP4Device::ConfigurePowerOffWakeSources() {
   const esp_err_t disable_result =
       esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
@@ -292,9 +312,10 @@ PowerOffBootAction TDisplayP4Device::PreparePowerOffDeepSleep() {
   if (!ConfigurePowerOffWakeSources()) {
     return PowerOffBootAction::kFailed;
   }
-  if (!driver_.PrepareMinimalDriversForPowerOff()) {
+  if (!driver_.PrepareMinimalDriversForPowerOff() ||
+      !ConfigureDeepSleepGpioIsolation()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Prepare minimal power management path for deep sleep failed\n");
+        "Prepare minimal power management path and GPIO isolation failed\n");
   }
   return PowerOffBootAction::kEnterDeepSleep;
 }
@@ -307,7 +328,8 @@ PowerOffBootAction TDisplayP4Device::PreparePowerOffShippingMode() {
   const bool shipping_mode_enabled =
       driver_.IsAxp517Ready() && driver_.chip().axp517 != nullptr &&
       driver_.chip().axp517->SetShippingModeEnable(true);
-  const bool sleep_prepared = driver_.PrepareMinimalDriversForPowerOff();
+  const bool sleep_prepared = driver_.PrepareMinimalDriversForPowerOff() &&
+                              ConfigureDeepSleepGpioIsolation();
   if (!shipping_mode_enabled) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Enter AXP517 shipping mode failed; retrying after timer wakeup\n");
@@ -509,11 +531,17 @@ PowerOffAction TDisplayP4Device::RequestPowerOffInternal(
     return PowerOffAction::kEnterDeepSleep;
   }
 
-  // V2 的完整关机准备会释放电源管理总线，重新建立最小路径后才能读取
-  // VBUS 和请求运输模式。此时后台外设任务已经退出，不会再次启动。
+  // V2 的完整关机准备会释放电源管理总线，但保留外设 3.3V；重新建立
+  // 最小路径后读取 VBUS 和请求运输模式，最后配合 GPIO 隔离关闭 3.3V。
+  // 此时后台外设任务已经退出，不会再次启动。
   if (!driver_.InitMinimal() || !driver_.IsAxp517Ready()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Restore V2 power management path after hardware shutdown failed\n");
+    // 完整驱动清理已成功，最小路径为同步初始化，此处可直接隔离断电。
+    if (!ConfigureDeepSleepGpioIsolation()) {
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "Configure GPIO isolation after power management failure failed\n");
+    }
     g_power_off_rtc_magic = kPowerOffRtcMagic;
     g_power_off_charging_screen_pending = true;
     return PowerOffAction::kEnterDeepSleep;
@@ -535,9 +563,10 @@ PowerOffAction TDisplayP4Device::RequestPowerOffInternal(
     }
     LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
         "External power present; entering power-off charging deep sleep\n");
-    if (!driver_.PrepareMinimalDriversForPowerOff()) {
+    if (!driver_.PrepareMinimalDriversForPowerOff() ||
+        !ConfigureDeepSleepGpioIsolation()) {
       LogMessage(LogLevel::kError, __FILE__, __LINE__,
-          "Prepare power management path for deep sleep failed\n");
+          "Prepare power management path and GPIO isolation failed\n");
     }
     return PowerOffAction::kEnterDeepSleep;
   }
@@ -548,7 +577,8 @@ PowerOffAction TDisplayP4Device::RequestPowerOffInternal(
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
       "Battery-only power off; entering AXP517 shipping mode\n");
   const bool shipping_mode_enabled = axp517.SetShippingModeEnable(true);
-  const bool sleep_prepared = driver_.PrepareMinimalDriversForPowerOff();
+  const bool sleep_prepared = driver_.PrepareMinimalDriversForPowerOff() &&
+                              ConfigureDeepSleepGpioIsolation();
   if (!shipping_mode_enabled) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Enter AXP517 shipping mode failed; retrying after timer wakeup\n");

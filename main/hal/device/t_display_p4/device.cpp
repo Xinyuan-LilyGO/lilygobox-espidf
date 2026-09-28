@@ -192,7 +192,15 @@ bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
         "Prepare device for power off failed\n");
     return false;
   }
-  return driver_.PrepareDriversForPowerOff();
+  if (!driver_.PrepareDriversForPowerOff()) {
+    return false;
+  }
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+  // 驱动释放不再隐含关闭外设 3.3V，由此处配合 GPIO 隔离统一收尾。
+  return ConfigureDeepSleepGpioIsolation();
+#else
+  return true;
+#endif
 }
 
 bool TDisplayP4Device::ExitDeviceSleep(bool deep_sleep) {

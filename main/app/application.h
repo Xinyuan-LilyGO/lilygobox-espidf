@@ -34,9 +34,14 @@ class Application final {
   void Run();
 
   /**
-   * @brief 完成存储落盘后执行不切断设备电源轨的软件重启
+   * @brief 统一处理正常重启和初始化失败重启
+   * @param prepare_storage true 先完成正常关机状态清理与存储落盘；false 用于
+   * 初始化未完成或调用方已处理存储的路径，直接进入重启收尾
+   *
+   * V2 和 Air 优先断电隔离并深睡眠 5 秒后启动；OTA 分区切换、待验证
+   * 固件或准备失败时软件复位。正常存储准备失败时取消重启并返回。
    */
-  void RestartDevice();
+  void RestartDevice(bool prepare_storage = true);
 
  private:
   // 锁屏页面与物理屏幕完成状态转换后的稳定状态。
@@ -284,9 +289,12 @@ class Application final {
   bool WakeScreenFromLock();
 
   /**
-   * @brief 阻止输入、关闭背光并暂停显示刷新后重启系统
+   * @brief 暂停应用外设访问并复用设备断电准备流程
+   * @return 准备成功返回 true，否则返回 false，由调用方立即软件复位
+   *
+   * 调用后不再恢复应用运行，只允许立即进入深睡眠或复位。
    */
-  void RestartSystem();
+  bool PrepareForSystemRestart();
 
   /**
    * @brief 完成存储落盘后执行设备完整关机
@@ -425,6 +433,8 @@ class Application final {
   std::atomic<bool> screen_off_confirmed_{false};
   // 防止重启与关机流程并发进入最终熄屏和存储事务。
   std::atomic<bool> power_action_in_progress_{false};
+  // 断电重启前等待已经开始的自动连接调用退出，防止重新启用 WiFi 电源。
+  std::atomic<bool> wifi_auto_connect_active_{false};
   // 启动页结束前只跟踪按键状态，不向界面投递事件。
   std::atomic<bool> physical_button_events_enabled_{false};
   // 由电源键轮询任务写入，由锁屏任务交换取走。

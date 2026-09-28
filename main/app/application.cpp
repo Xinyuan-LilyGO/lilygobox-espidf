@@ -26,7 +26,9 @@
 #include "app/storage/storage.h"
 #include "app/wifi_manager.h"
 #include "base/logger.h"
+#include "driver/uart.h"
 #include "esp_err.h"
+#include "esp_ota_ops.h"
 #include "esp_sleep.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
@@ -89,6 +91,13 @@ constexpr uint32_t kDoubleTapMaximumIntervalMs = 550;
 constexpr uint32_t kDoubleTapPressConfirmationMs = 30;
 constexpr int kDoubleTapMaximumDistance = 100;
 constexpr uint32_t kPowerActionPreSleepSettleMs = 30;
+constexpr uint32_t kSystemRestartPrepareTimeoutMs = 5000;
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR) || \
+    (defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4) && \
+        defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2))
+// 在实际断电、IO 高阻隔离期间等待放电，避免板上芯片断电不完全导致初始化锁死。
+constexpr uint64_t kSystemRestartSleepUs = 5ULL * 1000 * 1000;
+#endif
 constexpr int kLowBatteryStartupThresholdPercent = 10;
 constexpr uint32_t kLowBatteryStartupIconColor = 0xFF3B30;
 constexpr uint32_t kBatteryFaultStartupIconColor = 0xFF9500;
@@ -460,6 +469,28 @@ int RotatedScreenHeight(
 
 Application::Application()
     : device_provider_context_(hal::CreateDeviceProviderContext()) {}
+
+bool Application::PrepareForSystemRestart() {
+  hal::ScreenProvider* screen = device_provider_context_.screen.get();
+  if (screen == nullptr || !lvgl_port_.PauseForSystemRestart()) {
+    return false;
+  }
+  // 禁止自动重连，并等待已经开始的连接调用退出后再关闭设备电源。
+  app::SetWifiAutoConnectPaused(true);
+  const TickType_t started = xTaskGetTickCount();
+  while (wifi_auto_connect_active_.load()) {
+    if (xTaskGetTickCount() - started >=
+        pdMS_TO_TICKS(kSystemRestartPrepareTimeoutMs)) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Wait for WiFi auto connect before system restart timed out\n");
+      return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(kStartupWifiAutoConnectPollMs));
+  }
+  // 深睡眠分支复用 PrepareForPowerOff 和 PrepareDriversForPowerOff，
+  // 停止设备任务并释放外设，不请求运输模式、不写入关机充电状态。
+  return screen->EnterDeviceSleep(true);
+}
 
 bool Application::Init() {
   if (!ConfigureChinaTimeZone()) {
@@ -891,7 +922,7 @@ void Application::RunPowerOffChargingScreen() {
           LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
               "Long power-button press accepted from power-off charging; "
               "restarting for normal startup\n");
-          RestartSystem();
+          RestartDevice(false);
           return;
         }
         LogMessage(LogLevel::kError, __FILE__, __LINE__,
@@ -1335,8 +1366,16 @@ void Application::RunStartupWifiAutoConnectTask() {
   options.connection_timeout_ms = kStartupWifiAutoConnectWaitMs;
   options.poll_interval_ms = kStartupWifiAutoConnectPollMs;
   while (true) {
+    // 先声明本轮正在访问，再检查电源操作标志，使重启方可等待本轮退出。
+    wifi_auto_connect_active_.store(true);
+    if (power_action_in_progress_.load()) {
+      wifi_auto_connect_active_.store(false);
+      vTaskDelay(pdMS_TO_TICKS(kWifiAutoConnectIdleMs));
+      continue;
+    }
     const app::WifiAutoConnectResult result =
         app::TryStartWifiAutoConnect(device_provider_context_.wifi, options);
+    wifi_auto_connect_active_.store(false);
     const bool failed = result == app::WifiAutoConnectResult::kFailed;
     const bool retry_later =
         failed || result == app::WifiAutoConnectResult::kNoVisibleTarget;
@@ -2483,47 +2522,64 @@ bool Application::WakeScreenFromLock() {
   return true;
 }
 
-void Application::RestartDevice() {
-  bool expected = false;
-  if (!power_action_in_progress_.compare_exchange_strong(expected, true)) {
-    return;
+void Application::RestartDevice(bool prepare_storage) {
+  if (prepare_storage) {
+    bool expected = false;
+    if (!power_action_in_progress_.compare_exchange_strong(expected, true)) {
+      return;
+    }
+    hal::DeviceProvider* device = device_provider_context_.device;
+    if (device != nullptr && device->SupportsPowerOffCharging() &&
+        !app::WritePowerOffRequested(false)) {
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "Clear persistent power-off state before restart failed\n");
+      power_action_in_progress_.store(false);
+      return;
+    }
+    vTaskDelay(pdMS_TO_TICKS(kPowerActionPreSleepSettleMs));
+    if (!PreparePowerActionStorage()) {
+      power_action_in_progress_.store(false);
+      return;
+    }
+  } else {
+    // 初始化失败或关机充电转开机：不依赖完整 UI，也不重复进入存储收尾。
+    power_action_in_progress_.store(true);
   }
-  hal::DeviceProvider* device = device_provider_context_.device;
-  if (device != nullptr && device->SupportsPowerOffCharging() &&
-      !app::WritePowerOffRequested(false)) {
-    LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Clear persistent power-off state before restart failed\n");
-    power_action_in_progress_.store(false);
-    return;
-  }
-  vTaskDelay(pdMS_TO_TICKS(kPowerActionPreSleepSettleMs));
-  if (!PreparePowerActionStorage()) {
-    power_action_in_progress_.store(false);
-    return;
-  }
-  // 重启仅复位处理器，不进入设备关机准备，避免关闭外设电源轨。
-  LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-      "Restarting system without powering off device rails\n");
-  RestartSystem();
-}
 
-void Application::RestartSystem() {
-  lvgl_port_.SetInputBlocked(true);
-  if (current_screen_brightness_percent_.load() != 0 &&
-      !ApplyScreenBrightness(0)) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Turn off screen backlight before restart failed\n");
+  LogMessage(LogLevel::kInfo, __FILE__, __LINE__, "Preparing system restart\n");
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR) || \
+    (defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4) && \
+        defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2))
+  esp_ota_img_states_t ota_state = ESP_OTA_IMG_UNDEFINED;
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  const esp_partition_t* boot = esp_ota_get_boot_partition();
+  const bool pending_verify = running != nullptr &&
+      esp_ota_get_state_partition(running, &ota_state) == ESP_OK &&
+      ota_state == ESP_OTA_IMG_PENDING_VERIFY;
+  // 深睡眠可能走快速启动路径；切换固件与待验证固件必须正常经过 bootloader。
+  const bool partition_changed = running != nullptr && boot != nullptr &&
+      running->address != boot->address;
+  if (pending_verify || partition_changed) {
+    LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+        "OTA verification or boot partition change requires software reset\n");
+  } else if (esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL) == ESP_OK &&
+             esp_sleep_enable_timer_wakeup(kSystemRestartSleepUs) == ESP_OK &&
+             PrepareForSystemRestart()) {
+    LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+        "Peripheral power off and GPIO isolation ready; deep sleep for 5000 ms\n");
+    std::fflush(stdout);
+#if defined(CONFIG_ESP_CONSOLE_UART)
+    uart_wait_tx_idle_polling(
+        static_cast<uart_port_t>(CONFIG_ESP_CONSOLE_UART_NUM));
+#endif
+    esp_deep_sleep_start();
+  } else {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "System restart sleep preparation failed; using software reset\n");
   }
-  if (!lvgl_port_.IsDisplayFlushPaused() && !lvgl_port_.PauseDisplayFlush()) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Pause display refresh before restart failed\n");
-  }
-  hal::ScreenProvider* screen = device_provider_context_.screen.get();
-  if (screen != nullptr && !screen->EnterDeviceSleep(false)) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Put screen to sleep before restart failed\n");
-  }
-  vTaskDelay(pdMS_TO_TICKS(kPowerActionPreSleepSettleMs));
+#endif
+  // 其他板型、OTA 切换或断电准备失败时，沿用处理器软件复位兜底。
+  std::fflush(stdout);
   esp_restart();
 }
 

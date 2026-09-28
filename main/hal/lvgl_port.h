@@ -59,6 +59,15 @@ class LvglPort final {
   bool Start();
 
   /**
+   * @brief 在系统重启前停止 LVGL 外设访问并等待正在进行的刷屏完成
+   * @return 已停止访问返回 true，等待超时返回 false
+   *
+   * 从 LVGL 任务调用时复用已有锁，其他任务限时取得锁后一直持有；
+   * 调用方随后必须深睡眠或复位，不可恢复 UI 运行。
+   */
+  bool PauseForSystemRestart();
+
+  /**
    * @brief 设置实体键盘原始输入事件观察回调
    * @param callback 按键事件回调，空回调表示停止观察
    */
