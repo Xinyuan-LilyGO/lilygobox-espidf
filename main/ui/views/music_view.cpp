@@ -170,6 +170,7 @@ MusicPlaybackSession* GetMusicPlaybackSession() {
 struct MusicTrackAction {
   MusicViewState* state = nullptr;
   size_t track_index = 0;
+  lv_obj_t* current_indicator = nullptr;
 };
 
 struct MusicSourceAction {
@@ -224,6 +225,19 @@ void FinishMusicLibraryScan(MusicPlaybackSession* session);
  * @param animated 是否播放圆角切换动画
  */
 void UpdatePlayButton(MusicViewState* state, bool animated);
+
+/**
+ * @brief 更新曲目列表中当前曲目的指示条
+ * @param state 音乐视图状态
+ */
+void UpdateMusicTrackIndicators(MusicViewState* state);
+
+/**
+ * @brief 创建播放器详情页
+ * @param state 音乐视图状态
+ * @return 创建成功返回 true，否则返回 false
+ */
+bool CreatePlayerPage(MusicViewState* state);
 
 /**
  * @brief 处理刷新曲库按钮点击事件
@@ -916,6 +930,26 @@ void SetMiniPlayerVisible(MusicViewState* state, bool visible) {
   }
 }
 
+void UpdateMusicTrackIndicators(MusicViewState* state) {
+  if (state == nullptr || state->session == nullptr) {
+    return;
+  }
+  const int current_track = state->session->current_track;
+  for (const auto& action : state->track_actions) {
+    if (action == nullptr || action->current_indicator == nullptr) {
+      continue;
+    }
+    const bool is_current =
+        current_track >= 0 &&
+        action->track_index == static_cast<size_t>(current_track);
+    if (is_current) {
+      lv_obj_remove_flag(action->current_indicator, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(action->current_indicator, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+}
+
 void SetMusicPlaying(
     MusicPlaybackSession* session, bool playing, bool animated) {
   if (session == nullptr) {
@@ -944,6 +978,7 @@ bool StartMusicTrack(MusicPlaybackSession* session, size_t track_index) {
   session->current_track = static_cast<int>(track_index);
   session->completion_handled = false;
   MusicViewState* state = session->view;
+  UpdateMusicTrackIndicators(state);
   if (state != nullptr) {
     SetMiniPlayerVisible(state, true);
     UpdateCurrentTrackLabels(state);
@@ -2136,10 +2171,20 @@ void MusicTrackClickedEventCallback(lv_event_t* event) {
     return;
   }
   auto* action = static_cast<MusicTrackAction*>(lv_event_get_user_data(event));
-  if (action == nullptr || action->state == nullptr) {
+  if (action == nullptr || action->state == nullptr ||
+      action->state->session == nullptr) {
     return;
   }
-  StartMusicTrack(action->state->session, action->track_index);
+  MusicViewState* state = action->state;
+  MusicPlaybackSession* session = state->session;
+  if (session->current_track == static_cast<int>(action->track_index)) {
+    // 再次点击当前曲目只打开播放详情页，不暂停或重新开始当前曲目。
+    if (state->player_page == nullptr) {
+      CreatePlayerPage(state);
+    }
+  } else {
+    StartMusicTrack(session, action->track_index);
+  }
   lv_event_stop_bubbling(event);
 }
 
@@ -2196,6 +2241,22 @@ bool CreateMusicTrackRow(MusicViewState* state, size_t track_index, int y) {
     lv_label_set_long_mode(artist, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_align(artist, LV_ALIGN_TOP_LEFT, 116, 57);
   }
+  lv_obj_t* current_indicator = lv_obj_create(row);
+  if (current_indicator != nullptr) {
+    lv_obj_remove_flag(current_indicator, LV_OBJ_FLAG_SCROLLABLE);
+    // 指示条中心落在列表左边界，边缘裁掉左半部分。
+    lv_obj_set_size(current_indicator, 16, 48);
+    lv_obj_align(current_indicator, LV_ALIGN_LEFT_MID, -8, 0);
+    lv_obj_set_style_bg_color(current_indicator,
+        lv_color_hex(kPrimaryColor), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(current_indicator, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(current_indicator, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(current_indicator, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    if (state->session->current_track != static_cast<int>(track_index)) {
+      lv_obj_add_flag(current_indicator, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+
   lv_obj_t* divider = lv_obj_create(row);
   if (divider != nullptr) {
     lv_obj_remove_flag(divider, LV_OBJ_FLAG_SCROLLABLE);
@@ -2210,6 +2271,7 @@ bool CreateMusicTrackRow(MusicViewState* state, size_t track_index, int y) {
   auto action = std::make_unique<MusicTrackAction>();
   action->state = state;
   action->track_index = track_index;
+  action->current_indicator = current_indicator;
   MusicTrackAction* action_pointer = action.get();
   state->track_actions.push_back(std::move(action));
   lv_obj_add_event_cb(
@@ -2236,6 +2298,7 @@ bool RenderMusicLibrary(MusicViewState* state) {
     }
     y += kMusicTrackRowHeight;
   }
+  UpdateMusicTrackIndicators(state);
   lv_obj_set_scrollbar_mode(state->library_content, LV_SCROLLBAR_MODE_AUTO);
   return true;
 }
