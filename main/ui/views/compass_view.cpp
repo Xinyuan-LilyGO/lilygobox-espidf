@@ -632,7 +632,7 @@ bool CreateDial(lv_obj_t* parent, CompassViewState* state, int diameter) {
   constexpr const char* kDirections[] = {"N", "E", "S", "W"};
   for (int i = 0; i < 4; ++i) {
     lv_obj_t* label = Label(state->dial, kDirections[i],
-        &lvgl_font_google_sans_flex_32, 0x000000);
+        &lvgl_font_google_sans_flex_32, colors.on_surface);
     if (label == nullptr) {
       return false;
     }
