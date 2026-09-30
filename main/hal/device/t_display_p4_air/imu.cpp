@@ -10,6 +10,7 @@
 
 #include "base/logger.h"
 #include "bhy2_parse.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -20,6 +21,7 @@ namespace {
 
 constexpr float kRadiansToDegrees = 57.2957795F;
 constexpr float kDegreesToRadians = 0.0174532925F;
+constexpr float kBhi260apGyroscopeScale = 2000.0F / 32768.0F;
 constexpr float kBhi260apAccelerometerScale = 1.0F / 4096.0F;
 constexpr float kBhi260apSampleRateHz = 100.0F;
 constexpr uint32_t kBhi260apReportLatencyMs = 0;
@@ -44,6 +46,21 @@ void TDisplayP4AirDevice::Bhi260apAccelerationCallback(
   self->imu_.acceleration_ready = true;
 }
 
+void TDisplayP4AirDevice::Bhi260apAngularVelocityCallback(
+    const struct bhy2_fifo_parse_data_info* callback_info, void* context) {
+  auto* self = static_cast<TDisplayP4AirDevice*>(context);
+  if (self == nullptr || callback_info == nullptr ||
+      callback_info->data_ptr == nullptr || callback_info->data_size < 6) {
+    return;
+  }
+  struct bhy2_data_xyz data = {};
+  bhy2_parse_xyz(callback_info->data_ptr, &data);
+  self->imu_.angular_velocity[0] = data.x * kBhi260apGyroscopeScale;
+  self->imu_.angular_velocity[1] = data.y * kBhi260apGyroscopeScale;
+  self->imu_.angular_velocity[2] = data.z * kBhi260apGyroscopeScale;
+  self->imu_.angular_velocity_ready = true;
+}
+
 bool TDisplayP4AirDevice::SetImuEnabled(bool enabled) {
   if (imu_.mutex == nullptr ||
       xSemaphoreTake(imu_.mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
@@ -58,11 +75,14 @@ bool TDisplayP4AirDevice::SetImuEnabled(bool enabled) {
         driver_.chip().bhi260ap != nullptr) {
       result &= driver_.chip().bhi260ap->ConfigureSensor(
           BHY2_SENSOR_ID_ACC_PASS, 0.0F, kBhi260apReportLatencyMs);
+      result &= driver_.chip().bhi260ap->ConfigureSensor(
+          BHY2_SENSOR_ID_GYRO_PASS, 0.0F, kBhi260apReportLatencyMs);
     }
     result &= driver_.SetBhi260apSleep(true);
     result &= driver_.SetQmc6310nSleep(true);
     imu_.configured = false;
     imu_.acceleration_ready = false;
+    imu_.angular_velocity_ready = false;
     imu_.magnetic_field_ready = false;
     imu_enabled_.store(false);
     xSemaphoreGive(imu_.mutex);
@@ -111,6 +131,8 @@ bool TDisplayP4AirDevice::SetImuEnabled(bool enabled) {
   if (result) {
     result = bhi260ap.RegisterFifoCallback(
         BHY2_SENSOR_ID_ACC_PASS, Bhi260apAccelerationCallback, this);
+    result &= bhi260ap.RegisterFifoCallback(
+        BHY2_SENSOR_ID_GYRO_PASS, Bhi260apAngularVelocityCallback, this);
     if (!result) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Enable IMU failed: register BHI260AP FIFO callback failed "
@@ -139,18 +161,23 @@ bool TDisplayP4AirDevice::SetImuEnabled(bool enabled) {
   if (result) {
     result = bhi260ap.ConfigureSensor(BHY2_SENSOR_ID_ACC_PASS,
         kBhi260apSampleRateHz, kBhi260apReportLatencyMs);
+    result &= bhi260ap.ConfigureSensor(BHY2_SENSOR_ID_GYRO_PASS,
+        kBhi260apSampleRateHz, kBhi260apReportLatencyMs);
     if (!result) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Enable IMU failed: configure BHI260AP accelerometer failed "
+          "Enable IMU failed: configure BHI260AP motion sensors failed "
           "(error code: %d)\n",
           static_cast<int>(bhi260ap.last_error()));
     }
   }
   imu_.configured = result;
   imu_.acceleration_ready = false;
+  imu_.angular_velocity_ready = false;
   imu_.magnetic_field_ready = false;
   imu_enabled_.store(result);
   if (!result) {
+    bhi260ap.ConfigureSensor(BHY2_SENSOR_ID_ACC_PASS, 0.0F, kBhi260apReportLatencyMs);
+    bhi260ap.ConfigureSensor(BHY2_SENSOR_ID_GYRO_PASS, 0.0F, kBhi260apReportLatencyMs);
     driver_.SetBhi260apSleep(true);
     driver_.SetQmc6310nSleep(true);
   }
@@ -182,6 +209,8 @@ bool TDisplayP4AirDevice::ReadImuStatus(ImuStatus* status) {
     return false;
   }
 
+  imu_.acceleration_ready = false;
+  imu_.angular_velocity_ready = false;
   bool result = driver_.chip().bhi260ap->ProcessFifo();
   if (!result) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
@@ -190,7 +219,9 @@ bool TDisplayP4AirDevice::ReadImuStatus(ImuStatus* status) {
         static_cast<int>(driver_.chip().bhi260ap->last_error()));
   }
   MagnetometerData magnetic_data;
-  if (driver_.chip().qmc6310n->readData(magnetic_data)) {
+  const bool magnetic_sample_ready =
+      driver_.chip().qmc6310n->readData(magnetic_data) && !magnetic_data.overflow;
+  if (magnetic_sample_ready) {
     imu_.magnetic_field[0] = magnetic_data.magnetic_field.x;
     imu_.magnetic_field[1] = magnetic_data.magnetic_field.y;
     imu_.magnetic_field[2] = magnetic_data.magnetic_field.z;
@@ -231,12 +262,34 @@ bool TDisplayP4AirDevice::ReadImuStatus(ImuStatus* status) {
     yaw += 360.0F;
   }
 
+  status->sample_time_us = esp_timer_get_time();
+  status->acceleration_g[0] = imu_.acceleration[0];
+  status->acceleration_g[1] = imu_.acceleration[1];
+  status->acceleration_g[2] = acceleration_z;
+  status->angular_velocity_ready = imu_.angular_velocity_ready;
+  // 与现有 Z 反射坐标一致，角速度按轴向量转换。
+  status->angular_velocity_dps[0] = -imu_.angular_velocity[0];
+  status->angular_velocity_dps[1] = -imu_.angular_velocity[1];
+  status->angular_velocity_dps[2] = imu_.angular_velocity[2];
   status->ready = true;
   status->pitch_deg = pitch;
   status->yaw_deg = yaw;
   status->roll_deg = roll;
+  // SensorLib 返回 Gauss，统一转换为应用层使用的 uT。
+  status->magnetic_field_ready = magnetic_sample_ready;
+  status->magnetic_field_ut[0] = imu_.magnetic_field[0] * 100.0F;
+  status->magnetic_field_ut[1] = imu_.magnetic_field[1] * 100.0F;
+  status->magnetic_field_ut[2] = imu_.magnetic_field[2] * 100.0F;
   xSemaphoreGive(imu_.mutex);
   return true;
+}
+
+float TDisplayP4AirDevice::ConvertImuHeading(float yaw_deg) const {
+  float heading = std::fmod(yaw_deg, 360.0F);
+  if (heading < 0.0F) {
+    heading += 360.0F;
+  }
+  return heading;
 }
 
 }  // namespace lilygo_box::hal

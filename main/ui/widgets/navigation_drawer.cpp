@@ -8,6 +8,7 @@
 #include "ui/widgets/navigation_drawer.h"
 
 #include "ui/input/back_navigation_controller.h"
+#include "ui/resources/fonts/font_assets.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -76,6 +77,18 @@ void OverlayClickedEventCallback(lv_event_t* event) {
 }
 
 }  // namespace
+
+NavigationDrawerConfig MakeNavigationDrawerConfig(
+    int width, int height, const char* title) {
+  NavigationDrawerConfig config;
+  config.screen_width = width;
+  config.screen_height = height;
+  config.title = title;
+  config.title_font = &lvgl_font_google_sans_flex_36;
+  config.item_font = &lvgl_font_google_sans_flex_28;
+  config.icon_font = &lvgl_font_material_symbols_fill_44;
+  return config;
+}
 
 lv_obj_t* OpenNavigationDrawer(lv_obj_t* parent, NavigationDrawerState* state,
     const NavigationDrawerConfig& config) {
@@ -232,6 +245,19 @@ lv_obj_t* CreateNavigationDrawerItem(NavigationDrawerState* state,
     lv_obj_align(label, LV_ALIGN_LEFT_MID, 94, 0);
   }
   return row;
+}
+
+bool SetNavigationDrawerItemText(lv_obj_t* item, const char* text) {
+  if (item == nullptr || text == nullptr) {
+    return false;
+  }
+  // 标准操作行依次创建图标和标题，调用方不需要依赖内部对象顺序。
+  lv_obj_t* label = lv_obj_get_child(item, 1);
+  if (label == nullptr || !lv_obj_check_type(label, &lv_label_class)) {
+    return false;
+  }
+  lv_label_set_text(label, text);
+  return true;
 }
 
 lv_obj_t* CreateNavigationDrawerDivider(NavigationDrawerState* state, int y) {

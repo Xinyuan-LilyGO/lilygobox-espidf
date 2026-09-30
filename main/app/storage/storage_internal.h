@@ -30,6 +30,7 @@ enum class StorageDomain : uint8_t {
   kKeyboardExpansion,
   kBattery,
   kDeveloper,
+  kCompass,
   kCount,
 };
 
@@ -450,5 +451,18 @@ StorageStageResult StageDeveloperStorage(nvs_handle_t handle);
  * @param committed 事务是否提交成功
  */
 void FinishDeveloperStorage(bool committed);
+
+/**
+ * @brief 将指南针校准脏快照暂存到统一 NVS 事务
+ * @param handle 已打开的共享 NVS 句柄
+ * @return 无修改、暂存成功或暂存失败
+ */
+StorageStageResult StageCompassStorage(nvs_handle_t handle);
+
+/**
+ * @brief 根据统一事务结果结束指南针校准快照
+ * @param committed 事务是否提交成功
+ */
+void FinishCompassStorage(bool committed);
 
 }  // namespace lilygo_box::app

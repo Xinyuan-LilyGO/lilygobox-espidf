@@ -49,6 +49,16 @@ struct NavigationDrawerState {
 };
 
 /**
+ * @brief 创建应用侧边栏的统一字体和主题配置
+ * @param width 屏幕宽度，单位为像素
+ * @param height 屏幕高度，单位为像素
+ * @param title 侧边栏标题，需在侧边栏存续期间保持有效
+ * @return 使用当前主题及标准字号的侧边栏配置
+ */
+NavigationDrawerConfig MakeNavigationDrawerConfig(
+    int width, int height, const char* title);
+
+/**
  * @brief 创建位于屏幕外的导航抽屉
  * @param parent 父对象
  * @param state 导航抽屉状态
@@ -98,6 +108,14 @@ int NavigationDrawerWidth(const NavigationDrawerState* state);
 lv_obj_t* CreateNavigationDrawerItem(NavigationDrawerState* state,
     const char* symbol, const char* text, int y, lv_event_cb_t callback,
     void* callback_context);
+
+/**
+ * @brief 更新标准侧边栏操作行的标题
+ * @param item CreateNavigationDrawerItem 创建的操作行
+ * @param text 新的标题文本
+ * @return 操作行及标题存在时返回 true，否则返回 false
+ */
+bool SetNavigationDrawerItemText(lv_obj_t* item, const char* text);
 
 /**
  * @brief 在已打开的抽屉中创建全宽分隔线

@@ -771,6 +771,18 @@ IconStyle GetIconStyle(const app::AppEntry& app_entry) {
     };
   }
 
+  if (IsId(app_entry.id, "compass")) {
+    return {
+        .symbol = nullptr,
+        .image = &compass_inner_icon_64x64,
+        .shell_color = 0x67D8E9,
+        .surface_color = 0xC6FAFF,
+        .pressed_shell_color = 0x52ADBA,
+        .image_offset_x = 0,
+        .image_offset_y = 0,
+    };
+  }
+
   if (IsId(app_entry.id, "music")) {
     return {
         .symbol = nullptr,

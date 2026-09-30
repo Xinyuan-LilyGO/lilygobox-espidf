@@ -542,6 +542,13 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ReadImuStatus(ImuStatus* status) override;
 
   /**
+   * @brief 将融合偏航角换算为当前板子的磁北方位角
+   * @param yaw_deg 融合输出的偏航角，单位度
+   * @return 按板级方向约定换算的方位角，范围 [0, 360)
+   */
+  float ConvertImuHeading(float yaw_deg) const override;
+
+  /**
    * @brief 异步启用或停用以太网（V1 IP101 / V2 USB RTL8152B）
    * @param enabled true 启动以太网，false 停止协议栈并关闭硬件电源
    * @return 状态切换请求成功接受返回 true，否则返回 false

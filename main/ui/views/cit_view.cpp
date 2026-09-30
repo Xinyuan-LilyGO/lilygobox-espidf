@@ -24,11 +24,14 @@
 
 #include "app/cit_catalog.h"
 #include "app/device_info_snapshot.h"
+#include "app/sensor_session_lock.h"
+#include "app/storage/compass_storage.h"
 #include "app/storage/keyboard_expansion_storage.h"
 #include "app/system_status_cache.h"
 #include "app/wifi_manager.h"
 #include "base/logger.h"
 #include "esp_err.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/queue.h"
@@ -80,7 +83,10 @@ constexpr uint8_t kInfraredTestAddress = 0x04;
 constexpr uint8_t kInfraredTestCommand = 0x30;
 constexpr uint32_t kImuWorkerTaskStackBytes = 8 * 1024;
 constexpr UBaseType_t kImuWorkerTaskPriority = tskIDLE_PRIORITY;
-constexpr uint32_t kImuSamplePeriodMs = 1000;
+constexpr uint32_t kImuSamplePeriodMs = 10;
+constexpr uint32_t kImuRefreshPeriodMs = 100;
+constexpr int64_t kImuDataTimeoutUs = 1000 * 1000;
+constexpr int kImuMagneticDialSize = 240;
 constexpr UBaseType_t kImuSampleQueueLength = 1;
 constexpr EventBits_t kImuStopRequestedBit = BIT0;
 constexpr EventBits_t kImuCompletedBit = BIT1;
@@ -124,7 +130,12 @@ void ShowCitList(CitViewState* state);
  */
 struct ImuSample {
   hal::ImuStatus status;
-  bool valid = false;
+  app::CompassCalibrationData calibration;
+  int64_t started_time_us = 0;
+  // 三组数据分别保留最近一次有效采样及其时间，0 表示尚未收到数据。
+  int64_t acceleration_time_us = 0;
+  int64_t angular_velocity_time_us = 0;
+  int64_t magnetic_field_time_us = 0;
 };
 
 static_assert(std::is_trivially_copyable<ImuSample>::value,
@@ -205,6 +216,11 @@ struct CitViewState {
   lv_obj_t* test_page = nullptr;
   lv_obj_t* test_content = nullptr;
   lv_obj_t* test_data_label = nullptr;
+  lv_obj_t* imu_magnetic_dial = nullptr;
+  lv_obj_t* imu_magnetic_pointer = nullptr;
+  lv_obj_t* imu_magnetic_angle = nullptr;
+  lv_obj_t* imu_magnetic_calibration_label = nullptr;
+  std::array<lv_point_precise_t, 2> imu_magnetic_pointer_points = {};
   std::array<lv_obj_t*, 2> gps_coordinate_labels = {};
   lv_obj_t* gps_satellite_summary = nullptr;
   std::array<std::array<lv_obj_t*, 5>, hal::kGpsSatelliteDisplayCount>
@@ -263,6 +279,7 @@ struct CitViewState {
   uint32_t infrared_transmit_success_count = 0;
   std::array<lv_point_precise_t, kTouchTraceMaxPointCount> touch_trace_points;
   size_t touch_trace_point_count = 0;
+  ImuSample imu_sample;
   std::shared_ptr<ImuSession> imu_session;
   std::shared_ptr<ImuSession> retiring_imu_session;
   std::shared_ptr<GpsSession> gps_session;
@@ -431,12 +448,40 @@ void ImuSessionTaskEntry(void* context) {
     return;
   }
 
-  const bool started = session->provider->SetImuEnabled(true);
+  // 与指南针串行化完整会话，防止旧页面收尾关闭新页面的传感器。
+  std::unique_lock<std::mutex> hardware_lock(app::ImuSessionMutex());
+  const bool started = !session->stop_requested.load(std::memory_order_acquire) &&
+                       session->provider->SetImuEnabled(true);
   session->started.store(started, std::memory_order_release);
   session->start_failed.store(!started, std::memory_order_release);
+  ImuSample sample;
+  if (started) {
+    // 在后台读取一次现有指南针校准参数，避免 UI 刷新时访问 NVS。
+    if (!app::InitCompassStorage()) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "CIT compass calibration storage unavailable\n");
+    }
+    sample.calibration = app::GetCompassCalibration();
+  }
+  sample.started_time_us = esp_timer_get_time();
   while (started && !session->stop_requested.load(std::memory_order_acquire)) {
-    ImuSample sample;
-    sample.valid = session->provider->ReadImuStatus(&sample.status);
+    hal::ImuStatus current;
+    if (session->provider->ReadImuStatus(&current) && current.ready) {
+      const int64_t now_us = esp_timer_get_time();
+      std::copy_n(current.acceleration_g, 3, sample.status.acceleration_g);
+      sample.acceleration_time_us = now_us;
+      if (current.angular_velocity_ready) {
+        std::copy_n(current.angular_velocity_dps, 3,
+            sample.status.angular_velocity_dps);
+        sample.angular_velocity_time_us = now_us;
+      }
+      if (current.magnetic_field_ready) {
+        std::copy_n(current.magnetic_field_ut, 3,
+            sample.status.magnetic_field_ut);
+        sample.magnetic_field_time_us = now_us;
+      }
+    }
+    // 无新数据或读取失败时保留上次采样，时间戳不变，由 UI 判断是否超时。
     xQueueOverwrite(session->sample_queue, &sample);
     xEventGroupWaitBits(session->events, kImuStopRequestedBit, pdFALSE, pdFALSE,
         pdMS_TO_TICKS(kImuSamplePeriodMs));
@@ -445,6 +490,7 @@ void ImuSessionTaskEntry(void* context) {
   if (started) {
     session->provider->SetImuEnabled(false);
   }
+  hardware_lock.unlock();
   session->started.store(false, std::memory_order_release);
   session->completed.store(true, std::memory_order_release);
   xEventGroupSetBits(session->events, kImuCompletedBit);
@@ -528,7 +574,10 @@ void GpsSessionTaskEntry(void* context) {
     return;
   }
 
-  const bool started = session->provider->SetGpsEnabled(true);
+  // 与指南针串行化完整会话，防止旧页面收尾关闭新页面的传感器。
+  std::unique_lock<std::mutex> hardware_lock(app::GpsSessionMutex());
+  const bool started = !session->stop_requested.load(std::memory_order_acquire) &&
+                       session->provider->SetGpsEnabled(true);
   session->started.store(started, std::memory_order_release);
   session->start_failed.store(!started, std::memory_order_release);
   uint32_t sample_period_ms = kGpsDefaultSamplePeriodMs;
@@ -548,6 +597,7 @@ void GpsSessionTaskEntry(void* context) {
   if (started) {
     session->provider->SetGpsEnabled(false);
   }
+  hardware_lock.unlock();
   session->started.store(false, std::memory_order_release);
   session->completed.store(true, std::memory_order_release);
   xEventGroupSetBits(session->events, kGpsCompletedBit);
@@ -738,6 +788,10 @@ void ClearTestPageState(CitViewState* state) {
   state->test_page = nullptr;
   state->test_content = nullptr;
   state->test_data_label = nullptr;
+  state->imu_magnetic_dial = nullptr;
+  state->imu_magnetic_pointer = nullptr;
+  state->imu_magnetic_angle = nullptr;
+  state->imu_magnetic_calibration_label = nullptr;
   state->gps_coordinate_labels = {};
   state->gps_satellite_summary = nullptr;
   state->gps_satellite_rows = {};
@@ -2427,8 +2481,7 @@ void RefreshDiagnosticsState(CitViewState* state) {
 
     ImuSample sample;
     if (xQueueReceive(state->imu_session->sample_queue, &sample, 0) == pdTRUE) {
-      state->diagnostics.imu = sample.status;
-      state->diagnostics_read = sample.valid;
+      state->imu_sample = sample;
     }
     return;
   }
@@ -2516,6 +2569,61 @@ void RefreshCitRows(CitViewState* state) {
 }
 
 /**
+ * @brief 使用已保存的指南针校准参数计算磁场 XY 方向，无有效数据时隐藏指针
+ * @param state CIT 页面状态
+ * @param ready 磁场采样是否有效且未超时
+ */
+void RefreshImuMagneticDial(CitViewState* state, bool ready) {
+  if (state->imu_magnetic_dial == nullptr ||
+      state->imu_magnetic_pointer == nullptr ||
+      state->imu_magnetic_angle == nullptr ||
+      state->imu_magnetic_calibration_label == nullptr) {
+    return;
+  }
+
+  const auto& calibration = state->imu_sample.calibration;
+  lv_label_set_text(state->imu_magnetic_calibration_label,
+      calibration.ready ? "Calibrated" : "Uncalibrated");
+  float x = state->imu_sample.status.magnetic_field_ut[0];
+  float y = state->imu_sample.status.magnetic_field_ut[1];
+  if (calibration.ready) {
+    // 与指南针使用相同的偏置、比例修正，只处理圆盘计算副本。
+    x = (x - calibration.offset[0]) * calibration.scale[0];
+    y = (y - calibration.offset[1]) * calibration.scale[1];
+  }
+  if (!ready || !std::isfinite(x) || !std::isfinite(y) ||
+      (std::fabs(x) < 0.0001F && std::fabs(y) < 0.0001F)) {
+    lv_obj_add_flag(state->imu_magnetic_pointer, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(state->imu_magnetic_angle, "--");
+    return;
+  }
+
+  // 仅显示 XY 平面磁场方向：+X 为 0°，向 +Y 增加，不进行倾斜补偿。
+  constexpr float kRadiansToDegrees = 57.2957795F;
+  const float radians = std::atan2(y, x);
+  float degrees = radians * kRadiansToDegrees;
+  if (degrees < 0.0F) {
+    degrees += 360.0F;
+  }
+  char text[32];
+  std::snprintf(text, sizeof(text), "%.1f deg", static_cast<double>(degrees));
+  lv_label_set_text(state->imu_magnetic_angle, text);
+
+  const float center = lv_obj_get_content_width(state->imu_magnetic_dial) * 0.5F;
+  const float radius = center - 6.0F;
+  const auto center_coord = static_cast<lv_value_precise_t>(std::lround(center));
+  state->imu_magnetic_pointer_points[0] = {center_coord, center_coord};
+  // 圆盘顶部为 0°，角度沿顺时针增加。
+  state->imu_magnetic_pointer_points[1] = {
+      static_cast<lv_value_precise_t>(std::lround(center + radius * std::sin(radians))),
+      static_cast<lv_value_precise_t>(std::lround(center - radius * std::cos(radians)))};
+  lv_line_set_points(state->imu_magnetic_pointer,
+      state->imu_magnetic_pointer_points.data(),
+      static_cast<uint32_t>(state->imu_magnetic_pointer_points.size()));
+  lv_obj_remove_flag(state->imu_magnetic_pointer, LV_OBJ_FLAG_HIDDEN);
+}
+
+/**
  * @brief 刷新当前测试页里的动态数据
  * @param state CIT 页面状态
  */
@@ -2585,21 +2693,62 @@ void RefreshActiveTestData(CitViewState* state) {
         state->imu_session != nullptr &&
         state->imu_session->started.load(std::memory_order_acquire);
     if (start_failed) {
+      RefreshImuMagneticDial(state, false);
       lv_label_set_text(
           state->test_data_label, "imu data:\nstatus: start failed");
       return;
     }
     if (!started) {
+      RefreshImuMagneticDial(state, false);
       lv_label_set_text(state->test_data_label, "imu data:\nstatus: starting");
       return;
     }
 
-    const hal::ImuStatus& imu = state->diagnostics.imu;
-    std::snprintf(text, sizeof(text),
-        "imu data:\nstatus: %s\npitch: %.2f deg\nyaw: %.2f deg\n"
-        "roll: %.2f deg",
-        imu.ready ? "ready" : "waiting", imu.pitch_deg, imu.yaw_deg,
-        imu.roll_deg);
+    const ImuSample& sample = state->imu_sample;
+    const hal::ImuStatus& imu = sample.status;
+    const int64_t now_us = esp_timer_get_time();
+    size_t used = 0;
+    AppendFormatted(text, sizeof(text), &used, "imu data:\nstatus: sampling");
+    // 按 Android 传感器单位显示：g 转 m/s^2，deg/s 转 rad/s，磁场保持 uT。
+    // 仅转换显示副本，不使用指南针校准和姿态融合。
+    constexpr double kStandardGravity = 9.80665;
+    constexpr double kDegreesToRadians = 0.017453292519943295;
+    const struct {
+      const char* name;
+      const char* unit;
+      const float* axes;
+      int64_t updated_time_us;
+      double display_scale;
+    } sensors[] = {
+        {"accelerometer", "m/s^2", imu.acceleration_g,
+            sample.acceleration_time_us, kStandardGravity},
+        {"gyroscope", "rad/s", imu.angular_velocity_dps,
+            sample.angular_velocity_time_us, kDegreesToRadians},
+        {"magnetometer", "uT", imu.magnetic_field_ut,
+            sample.magnetic_field_time_us, 1.0},
+    };
+    for (const auto& sensor : sensors) {
+      const int64_t reference_time_us = sensor.updated_time_us != 0
+          ? sensor.updated_time_us : sample.started_time_us;
+      const bool timed_out = reference_time_us != 0 &&
+          now_us - reference_time_us > kImuDataTimeoutUs;
+      const bool ready = sensor.updated_time_us != 0 && !timed_out;
+      if (sensor.axes == imu.magnetic_field_ut) {
+        RefreshImuMagneticDial(state, ready);
+      }
+      AppendFormatted(text, sizeof(text), &used, "\n\n%s (%s): %s\n",
+          sensor.name, sensor.unit,
+          ready ? "ready" : timed_out ? "timeout" : "waiting");
+      if (ready) {
+        AppendFormatted(text, sizeof(text), &used,
+            "X: %.6f\nY: %.6f\nZ: %.6f",
+            static_cast<double>(sensor.axes[0]) * sensor.display_scale,
+            static_cast<double>(sensor.axes[1]) * sensor.display_scale,
+            static_cast<double>(sensor.axes[2]) * sensor.display_scale);
+      } else {
+        AppendFormatted(text, sizeof(text), &used, "X: --\nY: --\nZ: --");
+      }
+    }
     lv_label_set_text(state->test_data_label, text);
     return;
   }
@@ -3812,6 +3961,58 @@ bool AddMicrophoneContent(lv_obj_t* content, CitViewState* state) {
 }
 
 /**
+ * @brief 在九轴数据下方创建磁场方向圆盘和角度标签
+ * @param content 测试正文容器
+ * @param state CIT 页面状态
+ * @return 所有控件创建成功返回 true，否则返回 false
+ */
+bool CreateImuMagneticDial(lv_obj_t* content, CitViewState* state) {
+  lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(
+      content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(content, 24, LV_PART_MAIN);
+
+  const auto& colors = theme::ActiveThemeColors();
+  state->imu_magnetic_dial = lv_obj_create(content);
+  if (state->imu_magnetic_dial == nullptr) {
+    return false;
+  }
+  auto* dial = state->imu_magnetic_dial;
+  lv_obj_remove_style_all(dial);
+  lv_obj_remove_flag(dial, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(dial, LV_OBJ_FLAG_CLICKABLE);
+  const int diameter = std::min(kImuMagneticDialSize, state->width - 48);
+  lv_obj_set_size(dial, diameter, diameter);
+  lv_obj_set_style_radius(dial, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_border_width(dial, 2, LV_PART_MAIN);
+  lv_obj_set_style_border_color(
+      dial, lv_color_hex(colors.on_surface), LV_PART_MAIN);
+
+  state->imu_magnetic_pointer = lv_line_create(dial);
+  if (state->imu_magnetic_pointer == nullptr) {
+    return false;
+  }
+  lv_obj_set_pos(state->imu_magnetic_pointer, 0, 0);
+  lv_obj_set_style_line_color(state->imu_magnetic_pointer,
+      lv_color_hex(colors.on_surface), LV_PART_MAIN);
+  lv_obj_set_style_line_width(state->imu_magnetic_pointer, 2, LV_PART_MAIN);
+  lv_obj_set_style_line_rounded(state->imu_magnetic_pointer, true, LV_PART_MAIN);
+  lv_obj_add_flag(state->imu_magnetic_pointer, LV_OBJ_FLAG_HIDDEN);
+
+  state->imu_magnetic_angle = CreateLabel(
+      content, "--", lv_color_hex(colors.on_surface), Font28());
+  if (state->imu_magnetic_angle == nullptr) {
+    return false;
+  }
+  state->imu_magnetic_calibration_label = CreateLabel(content, "Uncalibrated",
+      lv_color_hex(colors.on_surface_variant), Font28());
+  if (state->imu_magnetic_calibration_label == nullptr) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * @brief 添加依赖诊断数据的测试内容
  * @param content 内容容器
  * @param state CIT 页面状态
@@ -3833,8 +4034,10 @@ bool AddDiagnosticsContent(
   }
 
   if (IsEntryId(entry, "imu")) {
-    state->diagnostics.imu = hal::ImuStatus();
-    state->diagnostics_read = false;
+    if (!CreateImuMagneticDial(content, state)) {
+      return false;
+    }
+    state->imu_sample = ImuSample();
     if (state->retiring_imu_session != nullptr &&
         state->retiring_imu_session->completed.load(
             std::memory_order_acquire)) {
@@ -4409,9 +4612,13 @@ bool ShowCitTest(CitViewState* state, size_t index) {
     return false;
   }
   if (state->refresh_timer != nullptr) {
-    lv_timer_set_period(state->refresh_timer,
-        IsEntryId(*row.entry, "microphone") ? kMicrophoneRefreshPeriodMs
-                                            : kCitRefreshPeriodMs);
+    uint32_t refresh_period_ms = kCitRefreshPeriodMs;
+    if (IsEntryId(*row.entry, "imu")) {
+      refresh_period_ms = kImuRefreshPeriodMs;
+    } else if (IsEntryId(*row.entry, "microphone")) {
+      refresh_period_ms = kMicrophoneRefreshPeriodMs;
+    }
+    lv_timer_set_period(state->refresh_timer, refresh_period_ms);
   }
 
   lv_obj_t* page = lv_obj_create(state->root);

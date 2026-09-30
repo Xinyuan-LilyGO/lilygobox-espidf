@@ -16,6 +16,7 @@
 
 #include "app/radio_chat_repository.h"
 #include "app/storage/battery_storage.h"
+#include "app/storage/compass_storage.h"
 #include "app/storage/developer_storage.h"
 #include "app/storage/display_storage.h"
 #include "app/storage/first_boot_storage.h"
@@ -71,6 +72,7 @@ constexpr StorageBackend kStorageBackends[] = {
     {StageKeyboardExpansionStorage, FinishKeyboardExpansionStorage},
     {StageBatteryStorage, FinishBatteryStorage},
     {StageDeveloperStorage, FinishDeveloperStorage},
+    {StageCompassStorage, FinishCompassStorage},
 };
 constexpr size_t kStorageBackendCount =
     sizeof(kStorageBackends) / sizeof(kStorageBackends[0]);
@@ -455,6 +457,10 @@ void InitStorage(
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
       "NVS caches loaded: domains=%u, status=ready\n",
       static_cast<unsigned>(kStorageDomainCount));
+  if (!InitCompassStorage()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Initialize compass calibration storage failed\n");
+  }
   InitRadioChatCache();
   if (StartLittleFsStorageTask() &&
       GetRadioChatRepository().HasPendingWrites()) {

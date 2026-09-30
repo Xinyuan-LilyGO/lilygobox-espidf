@@ -562,7 +562,7 @@ function collectShapes(svg) {
     h: viewBoxValues[3],
   };
   const shapes = [];
-  const tagRe = /<(path|rect|circle|ellipse|line)\b[^>]*>/g;
+  const tagRe = /<(path|polygon|rect|circle|ellipse|line)\b[^>]*>/g;
   let match;
   while ((match = tagRe.exec(svg)) !== null) {
     const tag = match[0];
@@ -575,6 +575,21 @@ function collectShapes(svg) {
     if (match[1] === "path") {
       const matrix = parseTransform(attrs.transform);
       addStyledShape(shapes, parsePath(attrs.d, matrix), style);
+    } else if (match[1] === "polygon") {
+      const coordinates = parseNumbers(attrs.points || "");
+      if (coordinates.length < 6 || coordinates.length % 2 !== 0) {
+        throw new Error("Polygon requires at least three complete points");
+      }
+      const matrix = parseTransform(attrs.transform);
+      const points = [];
+      for (let i = 0; i < coordinates.length; i += 2) {
+        points.push(applyMatrix({
+          x: coordinates[i], y: coordinates[i + 1],
+        }, matrix));
+      }
+      // 多边形自动闭合，描边也需要包含最后一个点到起点的线段。
+      points.push({...points[0]});
+      addStyledShape(shapes, points, style);
     } else if (match[1] === "rect") {
       const x = Number(attrs.x || 0);
       const y = Number(attrs.y || 0);

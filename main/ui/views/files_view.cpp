@@ -307,14 +307,6 @@ const lv_font_t* MaterialOutlineIconFont44() {
 }
 
 /**
- * @brief 获取 44 号文件管理抽屉图标字体
- * @return 字体指针
- */
-const lv_font_t* FilesFillIconFont44() {
-  return &lvgl_font_material_symbols_fill_44;
-}
-
-/**
  * @brief 获取 56 号文件管理大图标字体
  * @return 字体指针
  */
@@ -1697,18 +1689,8 @@ void ShowDrawer(FilesViewState* state) {
   }
   RefreshUsbStorageSnapshot(state);
 
-  NavigationDrawerConfig drawer_config;
-  drawer_config.screen_width = state->config.width;
-  drawer_config.screen_height = state->config.height;
-  drawer_config.background_color = theme::ActiveThemeColors().surface;
-  drawer_config.primary_text_color = theme::ActiveThemeColors().on_surface;
-  drawer_config.icon_color = theme::ActiveThemeColors().on_surface_variant;
-  drawer_config.pressed_color = theme::ActiveThemeColors().state_layer;
-  drawer_config.divider_color = theme::ActiveThemeColors().outline_variant;
-  drawer_config.title = "Files";
-  drawer_config.title_font = Font36();
-  drawer_config.item_font = Font28();
-  drawer_config.icon_font = FilesFillIconFont44();
+  const auto drawer_config = MakeNavigationDrawerConfig(
+      state->config.width, state->config.height, "Files");
   lv_obj_t* drawer =
       OpenNavigationDrawer(state->root, &state->drawer, drawer_config);
   if (drawer == nullptr) {

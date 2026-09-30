@@ -553,6 +553,13 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   bool ReadImuStatus(ImuStatus* status) override;
 
   /**
+   * @brief 将融合偏航角换算为当前板子的磁北方位角
+   * @param yaw_deg 融合输出的偏航角，单位度
+   * @return 按板级方向约定换算的方位角，范围 [0, 360)
+   */
+  float ConvertImuHeading(float yaw_deg) const override;
+
+  /**
    * @brief 启动或停止由 ESP32-C5 提供的 hosted WiFi
    * @param enabled true 启动 WiFi，false 停止 WiFi
    * @return 状态切换请求成功返回 true，否则返回 false
@@ -1420,10 +1427,13 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   struct ImuState {
     // 保护传感器配置、FIFO 解析结果和磁力计采样。
     SemaphoreHandle_t mutex = nullptr;
-    // BHI260AP 加速度虚拟传感器是否已经完成配置。
+    // BHI260AP 加速度和陀螺仪虚拟传感器是否已经完成配置。
     bool configured = false;
     // 最近一次 BHI260AP 三轴加速度，单位为 g。
     float acceleration[3] = {};
+    // 最近一次 BHI260AP 三轴角速度，单位 deg/s。
+    float angular_velocity[3] = {};
+    bool angular_velocity_ready = false;
     // 最近一次 QMC6310N 三轴磁场读数。
     float magnetic_field[3] = {};
     // 是否已经取得有效加速度样本。
@@ -1485,6 +1495,14 @@ class TDisplayP4AirDevice final : public ScreenProvider,
    * @param context 当前设备对象
    */
   static void Bhi260apAccelerationCallback(
+      const struct bhy2_fifo_parse_data_info* callback_info, void* context);
+
+  /**
+   * @brief 接收 BHI260AP FIFO 陀螺仪数据并写入当前设备状态
+   * @param callback_info Bosch FIFO 解析数据
+   * @param context 当前设备对象
+   */
+  static void Bhi260apAngularVelocityCallback(
       const struct bhy2_fifo_parse_data_info* callback_info, void* context);
 
   // Air 设备独占的底层板级驱动实例。

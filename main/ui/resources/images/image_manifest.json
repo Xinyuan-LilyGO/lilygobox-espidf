@@ -12,6 +12,14 @@
       "padding": 0
     },
     {
+      "name": "compass_inner_icon_64x64",
+      "input": "assets/icon/icon_compass.svg",
+      "output": "main/ui/resources/images/compass_inner_icon_64x64.c",
+      "width": 64,
+      "height": 64,
+      "padding": 0
+    },
+    {
       "name": "cit_inner_icon_56x68",
       "input": "assets/icon/icon_cit.svg",
       "output": "main/ui/resources/images/cit_inner_icon_56x68.c",

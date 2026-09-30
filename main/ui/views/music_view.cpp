@@ -2735,18 +2735,8 @@ void ShowMusicDrawer(MusicViewState* state) {
     return;
   }
 
-  NavigationDrawerConfig config;
-  config.screen_width = state->config.width;
-  config.screen_height = state->config.height;
-  config.background_color = theme::ActiveThemeColors().surface;
-  config.primary_text_color = theme::ActiveThemeColors().on_surface;
-  config.icon_color = theme::ActiveThemeColors().on_surface_variant;
-  config.pressed_color = theme::ActiveThemeColors().state_layer;
-  config.divider_color = theme::ActiveThemeColors().outline_variant;
-  config.title = "Music";
-  config.title_font = Font36();
-  config.item_font = Font28();
-  config.icon_font = MaterialFillIconFont44();
+  const auto config = MakeNavigationDrawerConfig(
+      state->config.width, state->config.height, "Music");
   if (OpenNavigationDrawer(state->root, &state->drawer, config) == nullptr) {
     return;
   }

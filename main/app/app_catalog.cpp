@@ -15,6 +15,7 @@ constexpr AppEntry kHomeAppEntries[] = {
     {.id = "radio", .title = "Radio", .subtitle = "Radio module control"},
     {.id = "music", .title = "Music", .subtitle = "Audio UI placeholder"},
     {.id = "files", .title = "Files", .subtitle = "File manager"},
+    {.id = "compass", .title = "Compass", .subtitle = "Compass navigation"},
 };
 
 constexpr AppEntry kDockAppEntries[] = {

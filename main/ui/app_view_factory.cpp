@@ -14,6 +14,7 @@
 #include "ui/theme/theme_provider.h"
 #include "ui/views/camera_view.h"
 #include "ui/views/cit_view.h"
+#include "ui/views/compass_view.h"
 #include "ui/views/files_view.h"
 #include "ui/views/music_view.h"
 #include "ui/views/radio_view.h"
@@ -213,6 +214,9 @@ lv_obj_t* CreateAppView(lv_obj_t* parent, const app::AppEntry& app_entry,
   }
   if (IsAppId(app_entry, "cit")) {
     return CreateCitView(parent, app_entry, config);
+  }
+  if (IsAppId(app_entry, "compass")) {
+    return CreateCompassView(parent, app_entry, config);
   }
   if (IsAppId(app_entry, "music")) {
     return CreateMusicView(parent, app_entry, config);

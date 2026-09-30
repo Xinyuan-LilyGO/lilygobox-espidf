@@ -10,6 +10,7 @@
 
 #include "SensorQMC6309.hpp"
 #include "bhy2_parse.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal/device/t_display_p4/device.h"
@@ -17,6 +18,7 @@
 namespace lilygo_box::hal {
 namespace {
 
+constexpr float kGyroscopeScale = 2000.0F / 32768.0F;
 constexpr float kAccelerometerScale = 1.0F / 4096.0F;
 constexpr float kDegreesToRadians = 0.0174532925F;
 constexpr float kRadiansToDegrees = 57.2957795F;
@@ -28,6 +30,10 @@ constexpr uint32_t kHardwareReadyPollMs = 20;
 // FIFO 回调在 ProcessFifo 调用线程执行，所有访问均由 g_imu_mutex 保护。
 float g_acceleration[3] = {};
 bool g_acceleration_ready = false;
+float g_angular_velocity[3] = {};
+bool g_angular_velocity_ready = false;
+MagnetometerData g_magnetic_data = {};
+bool g_magnetic_ready = false;
 bool g_bhi_configured = false;
 std::mutex g_imu_mutex;
 
@@ -48,7 +54,23 @@ void ParseAcceleration(const struct bhy2_fifo_parse_data_info* info, void*) {
 }
 
 /**
- * @brief 唤醒 BHI260AP 并在首次读取时配置加速度虚拟传感器
+ * @brief 将 BHI260AP 三轴陀螺仪 FIFO 数据转换为 deg/s
+ * @param info 传感器 FIFO 数据及长度
+ */
+void ParseAngularVelocity(const struct bhy2_fifo_parse_data_info* info, void*) {
+  if (info == nullptr || info->data_ptr == nullptr || info->data_size < 6) {
+    return;
+  }
+  struct bhy2_data_xyz data = {};
+  bhy2_parse_xyz(info->data_ptr, &data);
+  g_angular_velocity[0] = data.x * kGyroscopeScale;
+  g_angular_velocity[1] = data.y * kGyroscopeScale;
+  g_angular_velocity[2] = data.z * kGyroscopeScale;
+  g_angular_velocity_ready = true;
+}
+
+/**
+ * @brief 唤醒 BHI260AP 并在首次读取时配置加速度和陀螺仪虚拟传感器
  * @param driver V2 板级驱动
  * @return FIFO 回调与传感器均配置成功时返回 true
  */
@@ -65,9 +87,15 @@ bool ConfigureBhi260ap(lilygo_device_driver::TDisplayP4Driver& driver) {
   }
   if (!sensor->RegisterFifoCallback(BHY2_SENSOR_ID_ACC_PASS,
           ParseAcceleration) ||
+      !sensor->RegisterFifoCallback(BHY2_SENSOR_ID_GYRO_PASS,
+          ParseAngularVelocity) ||
       !sensor->ProcessFifo() || !sensor->UpdateVirtualSensorList() ||
       !sensor->ConfigureSensor(BHY2_SENSOR_ID_ACC_PASS, kSampleRateHz,
+          kReportLatencyMs) ||
+      !sensor->ConfigureSensor(BHY2_SENSOR_ID_GYRO_PASS, kSampleRateHz,
           kReportLatencyMs)) {
+    sensor->ConfigureSensor(BHY2_SENSOR_ID_ACC_PASS, 0.0F, kReportLatencyMs);
+    sensor->ConfigureSensor(BHY2_SENSOR_ID_GYRO_PASS, 0.0F, kReportLatencyMs);
     return false;
   }
   g_bhi_configured = true;
@@ -83,11 +111,15 @@ bool TDisplayP4Device::SetImuEnabled(bool enabled) {
     if (g_bhi_configured && driver_.chip().bhi260ap != nullptr) {
       result &= driver_.chip().bhi260ap->ConfigureSensor(
           BHY2_SENSOR_ID_ACC_PASS, 0.0F, kReportLatencyMs);
+      result &= driver_.chip().bhi260ap->ConfigureSensor(
+          BHY2_SENSOR_ID_GYRO_PASS, 0.0F, kReportLatencyMs);
     }
     result &= driver_.SetBhi260apSleep(true);
     result &= driver_.SetQmc6309Sleep(true);
     g_bhi_configured = false;
     g_acceleration_ready = false;
+    g_angular_velocity_ready = false;
+    g_magnetic_ready = false;
     imu_enabled_.store(false);
     return result;
   }
@@ -107,6 +139,8 @@ bool TDisplayP4Device::SetImuEnabled(bool enabled) {
   imu_enabled_.store(result);
   if (result) {
     g_acceleration_ready = false;
+    g_angular_velocity_ready = false;
+    g_magnetic_ready = false;
   }
   return result;
 }
@@ -121,16 +155,30 @@ bool TDisplayP4Device::ReadImuStatus(ImuStatus* status) {
       !driver_.IsQmc6309Ready() || driver_.chip().qmc6309 == nullptr) {
     return false;
   }
+  g_acceleration_ready = false;
+  g_angular_velocity_ready = false;
   auto* bhi260ap = driver_.chip().bhi260ap.get();
   if (bhi260ap == nullptr || !bhi260ap->ProcessFifo() ||
       !g_acceleration_ready) {
     return false;
   }
   MagnetometerData magnetic_data = {};
-  if (!driver_.chip().qmc6309->readData(magnetic_data) ||
-      magnetic_data.overflow) {
+  const bool magnetic_ready = driver_.chip().qmc6309->readData(magnetic_data) &&
+                              !magnetic_data.overflow;
+  if (magnetic_ready) {
+    g_magnetic_data = magnetic_data;
+    g_magnetic_ready = true;
+  } else if (!g_magnetic_ready) {
     return false;
   }
+  magnetic_data = g_magnetic_data;
+  // QMC6309 与 BHI260AP 六轴的坐标方向不同，按 (-Y, -X, -Z) 对齐。
+  // 在姿态计算和状态输出前完成轴向转换。
+  // 缓存保留原始数据，仅转换本次副本，避免重复转换已对齐的数据。
+  const float magnetic_x = magnetic_data.magnetic_field.x;
+  magnetic_data.magnetic_field.x = -magnetic_data.magnetic_field.y;
+  magnetic_data.magnetic_field.y = -magnetic_x;
+  magnetic_data.magnetic_field.z = -magnetic_data.magnetic_field.z;
   const float acceleration_z = -g_acceleration[2];
   const float pitch = std::atan2(-g_acceleration[0],
       std::sqrt(g_acceleration[1] * g_acceleration[1] +
@@ -150,12 +198,34 @@ bool TDisplayP4Device::ReadImuStatus(ImuStatus* status) {
   if (yaw < 0.0F) {
     yaw += 360.0F;
   }
+  status->sample_time_us = esp_timer_get_time();
+  status->acceleration_g[0] = g_acceleration[0];
+  status->acceleration_g[1] = g_acceleration[1];
+  status->acceleration_g[2] = acceleration_z;
+  status->angular_velocity_ready = g_angular_velocity_ready;
+  // 加速度沿用现有 Z 反射；角速度是轴向量，须使用 det(R)R = diag(-1,-1,1)。
+  status->angular_velocity_dps[0] = -g_angular_velocity[0];
+  status->angular_velocity_dps[1] = -g_angular_velocity[1];
+  status->angular_velocity_dps[2] = g_angular_velocity[2];
   status->ready = true;
   status->pitch_deg = pitch;
   status->roll_deg = roll;
   status->yaw_deg = yaw;
+  // SensorLib 返回 Gauss，统一转换为应用层使用的 uT。
+  status->magnetic_field_ready = magnetic_ready;
+  status->magnetic_field_ut[0] = magnetic_data.magnetic_field.x * 100.0F;
+  status->magnetic_field_ut[1] = magnetic_data.magnetic_field.y * 100.0F;
+  status->magnetic_field_ut[2] = magnetic_data.magnetic_field.z * 100.0F;
   g_acceleration_ready = false;
   return true;
+}
+
+float TDisplayP4Device::ConvertImuHeading(float yaw_deg) const {
+  float heading = std::fmod(yaw_deg, 360.0F);
+  if (heading < 0.0F) {
+    heading += 360.0F;
+  }
+  return heading;
 }
 
 }  // namespace lilygo_box::hal
