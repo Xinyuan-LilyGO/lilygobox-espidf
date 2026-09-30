@@ -2,7 +2,7 @@
  * @Description: Settings My Device detail page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-09-02 17:56:45
+ * @LastEditTime: 2026-09-30 10:33:07
  * @License: GPL 3.0
  */
 #include <cstdio>
@@ -29,6 +29,7 @@ constexpr int kFactoryResetCountdownSeconds = 10;
 constexpr uint32_t kFactoryResetCountdownPeriodMs = 1000;
 constexpr int kFactoryResetButtonSide = 26;
 constexpr int kFactoryResetButtonHeight = 76;
+constexpr lv_opa_t kFactoryResetWarningBackgroundOpacity = LV_OPA_20;
 constexpr int kMyDeviceBrandIconSize = 64;
 constexpr int kMyDeviceBrandIconGap = 16;
 
@@ -572,7 +573,8 @@ bool CreateFactoryResetContent(
   const int button_height = compact ? 66 : kFactoryResetButtonHeight;
 
   lv_obj_t* icon_box = CreateBox(parent, icon_size, icon_size,
-      theme::FixedColors().error_container, LV_OPA_COVER, icon_size / 2);
+      theme::FixedColors().error_container,
+      kFactoryResetWarningBackgroundOpacity, icon_size / 2);
   if (icon_box == nullptr) {
     return false;
   }
@@ -609,7 +611,8 @@ bool CreateFactoryResetContent(
 
   const int notice_width = width - 2 * kFactoryResetButtonSide;
   lv_obj_t* notice = CreateBox(parent, notice_width, notice_height,
-      theme::FixedColors().error_container, LV_OPA_COVER, 24);
+      theme::FixedColors().error_container,
+      kFactoryResetWarningBackgroundOpacity, 24);
   if (notice == nullptr) {
     return false;
   }
