@@ -8,6 +8,7 @@
 #include "ui/widgets/navigation_drawer.h"
 
 #include "ui/input/back_navigation_controller.h"
+#include "ui/input/press_cancel.h"
 #include "ui/resources/fonts/font_assets.h"
 
 namespace lilygo_box::ui {
@@ -227,6 +228,11 @@ lv_obj_t* CreateNavigationDrawerItem(NavigationDrawerState* state,
     lv_obj_set_style_bg_color(
         row, lv_color_hex(state->config.pressed_color), LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
+    // 先处理移出和滑动取消，避免松手时仍触发操作。
+    if (!AddPressCancelOnLeave(row)) {
+      lv_obj_delete(row);
+      return nullptr;
+    }
     lv_obj_add_event_cb(row, callback, LV_EVENT_CLICKED, callback_context);
   } else {
     lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
