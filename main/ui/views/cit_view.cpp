@@ -2709,7 +2709,7 @@ void RefreshActiveTestData(CitViewState* state) {
     const int64_t now_us = esp_timer_get_time();
     size_t used = 0;
     AppendFormatted(text, sizeof(text), &used, "imu data:\nstatus: sampling");
-    // 按 Android 传感器单位显示：g 转 m/s^2，deg/s 转 rad/s，磁场保持 uT。
+    // 按常用的传感器单位显示：g 转 m/s^2，deg/s 转 rad/s，磁场保持 uT。
     // 仅转换显示副本，不使用指南针校准和姿态融合。
     constexpr double kStandardGravity = 9.80665;
     constexpr double kDegreesToRadians = 0.017453292519943295;
