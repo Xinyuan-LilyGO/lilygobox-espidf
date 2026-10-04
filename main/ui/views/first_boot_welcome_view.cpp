@@ -2,7 +2,7 @@
  * @Description: Material 风格首次开机欢迎页实现
  * @Author: LILYGO_L
  * @Date: 2026-07-15 00:00:00
- * @LastEditTime: 2026-09-02 17:54:33
+ * @LastEditTime: 2026-10-04 15:24:25
  * @License: GPL 3.0
  */
 #include "ui/views/first_boot_welcome_view.h"
@@ -19,8 +19,8 @@ namespace lilygo_box::ui {
 namespace {
 
 constexpr int kPageSidePadding = 34;
-constexpr int kHeroSize = 148;
-constexpr int kCompactHeroSize = 112;
+constexpr int kHeroSize = 112;
+constexpr int kCompactHeroSize = 96;
 constexpr int kButtonMaxWidth = 520;
 constexpr int kButtonHeight = 76;
 constexpr int kCompactButtonHeight = 68;
@@ -145,7 +145,7 @@ bool BuildPortraitLayout(lv_obj_t* page, int width, int height,
   }
   lv_obj_set_width(title, content_width);
   lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-  lv_obj_align_to(title, hero, LV_ALIGN_OUT_BOTTOM_MID, 0, compact ? 34 : 52);
+  lv_obj_align_to(title, hero, LV_ALIGN_OUT_BOTTOM_MID, 0, compact ? 18 : 24);
 
   lv_obj_t* body = CreateLabel(page,
       "Your apps, connections, and device controls are ready in one place.",

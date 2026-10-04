@@ -41,7 +41,7 @@
       "output": "main/ui/resources/images/lilygobox_inner_icon_112x112.c",
       "width": 112,
       "height": 112,
-      "padding": 6
+      "padding": 0
     },
     {
       "name": "music_inner_icon_68x68",

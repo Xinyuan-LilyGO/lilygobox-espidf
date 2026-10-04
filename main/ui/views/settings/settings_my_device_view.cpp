@@ -2,7 +2,7 @@
  * @Description: Settings My Device detail page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-09-30 10:33:07
+ * @LastEditTime: 2026-10-04 14:34:41
  * @License: GPL 3.0
  */
 #include <cstdio>
@@ -30,7 +30,7 @@ constexpr uint32_t kFactoryResetCountdownPeriodMs = 1000;
 constexpr int kFactoryResetButtonSide = 26;
 constexpr int kFactoryResetButtonHeight = 76;
 constexpr lv_opa_t kFactoryResetWarningBackgroundOpacity = LV_OPA_20;
-constexpr int kMyDeviceBrandIconSize = 64;
+constexpr int kMyDeviceBrandIconSize = 72;
 constexpr int kMyDeviceBrandIconGap = 16;
 
 void CloseFactoryResetPage(SettingsViewState* state, bool animated);

@@ -2,7 +2,7 @@
  * @Description: 启动器布局、应用切换与系统覆盖层管理实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-09-02 17:54:12
+ * @LastEditTime: 2026-10-04 14:56:54
  * @License: GPL 3.0
  */
 #include "ui/ui_manager.h"
@@ -83,8 +83,8 @@ constexpr int kStartupProgressMinHeight = 6;
 constexpr int kStartupProgressHeightDivisor = 150;
 constexpr int kStartupProgressOffsetY = -30;
 constexpr int kStartupTitleGap = 20;
-constexpr int kStartupBrandIconSize = 56;
-constexpr int kStartupBrandIconGap = 14;
+constexpr int kStartupBrandIconSize = 64;
+constexpr int kStartupBrandIconGap = 8;
 constexpr int kLowBatteryStartupIconOffsetY = -36;
 constexpr int kLowBatteryStartupPercentGap = 18;
 constexpr int kStartupBatteryFillMaxWidth = 40;

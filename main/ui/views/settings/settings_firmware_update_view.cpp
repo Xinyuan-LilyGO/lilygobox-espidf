@@ -2,7 +2,7 @@
  * @Description: 设置固件更新界面与组合 OTA 状态交互
  * @Author: LILYGO_L
  * @Date: 2026-07-19 00:00:00
- * @LastEditTime: 2026-09-02 17:56:38
+ * @LastEditTime: 2026-10-04 16:04:41
  * @License: GPL 3.0
  */
 #include <algorithm>
@@ -26,7 +26,7 @@ constexpr int kUpdateCardHeight = 690;
 constexpr int kUpdateCardSide = 26;
 constexpr int kUpdateCardPadding = 34;
 constexpr int kUpdateBrandTop = 34;
-constexpr int kUpdateBrandIconSize = 58;
+constexpr int kUpdateBrandIconSize = 72;
 constexpr int kUpdateBrandGap = 14;
 constexpr int kUpdateVersionTop = 112;
 constexpr int kUpdatePublishTimeTop = kUpdateVersionTop + 2;
