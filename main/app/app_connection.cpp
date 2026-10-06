@@ -13,6 +13,7 @@
 #include <mutex>
 
 #include "app/storage/connection_storage.h"
+#include "app/connection_tls.h"
 #include "base/logger.h"
 #include "cJSON.h"
 #include "esp_app_desc.h"
@@ -557,6 +558,7 @@ void ReplyToDiscovery(int socket_fd) {
       AddDeviceInfo(reply);
       cJSON_AddStringToObject(reply, "nonce", nonce);
       cJSON_AddNumberToObject(reply, "port", kWebSocketPort);
+      cJSON_AddStringToObject(reply, "transport", "wss");
       cJSON_AddBoolToObject(reply, "paired", g_preferences.count != 0);
     }
   }
@@ -586,7 +588,7 @@ void ConnectionTask(void*) {
         (!network_ready || network_generation != wifi.connection_generation ||
             network_address != wifi.ip_address)) {
       // 不持有状态锁等待 HTTP 服务停止，避免关闭回调死锁。
-      httpd_stop(server);
+      httpd_ssl_stop(server);
       server = nullptr;
       if (discovery_socket >= 0) close(discovery_socket);
       discovery_socket = -1;
@@ -596,22 +598,26 @@ void ConnectionTask(void*) {
           "Network changed; waiting to restore local service\n");
     }
     if (network_ready && server == nullptr) {
-      httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-      config.server_port = kWebSocketPort;
+      httpd_ssl_config_t tls = HTTPD_SSL_CONFIG_DEFAULT();
+      auto& config = tls.httpd;
+      tls.port_secure = kWebSocketPort;
+      tls.tls_handshake_timeout_ms = 3000;
       config.ctrl_port = 18465;
-      config.stack_size = 6144;
       config.max_open_sockets = kSessionCapacity;
+      // 保留当前会话，避免候选应用挤掉已连接应用；握手由服务任务串行处理。
+      config.lru_purge_enable = false;
       config.recv_wait_timeout = 2;
       config.send_wait_timeout = 2;
       config.close_fn = SocketClosed;
-      if (httpd_start(&server, &config) == ESP_OK) {
+      if (ConfigureConnectionTls(&tls) &&
+          httpd_ssl_start(&server, &tls) == ESP_OK) {
         httpd_uri_t endpoint = {};
         endpoint.uri = "/api/v1/ws";
         endpoint.method = HTTP_GET;
         endpoint.handler = WebSocketHandler;
         endpoint.is_websocket = true;
         if (httpd_register_uri_handler(server, &endpoint) != ESP_OK) {
-          httpd_stop(server);
+          httpd_ssl_stop(server);
           server = nullptr;
         }
       }
@@ -629,13 +635,13 @@ void ConnectionTask(void*) {
                 sizeof(address)) != 0) {
           if (discovery_socket >= 0) close(discovery_socket);
           discovery_socket = -1;
-          httpd_stop(server);
+          httpd_ssl_stop(server);
           server = nullptr;
         } else {
           network_generation = wifi.connection_generation;
           network_address = wifi.ip_address;
           LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-              "Local discovery and WebSocket ready\n");
+              "Local discovery and encrypted WebSocket ready\n");
         }
       }
     }
@@ -697,7 +703,7 @@ bool InitializeAppConnection(hal::WifiProvider* wifi) {
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
       "Device=%s auto-connect=%d paired=%d\n", g_status.device_id,
       g_preferences.enabled, g_preferences.count != 0);
-  g_initialized = xTaskCreate(ConnectionTask, "app_connection", 6144, nullptr,
+  g_initialized = xTaskCreate(ConnectionTask, "app_connection", 10240, nullptr,
                       3, nullptr) == pdPASS;
   return g_initialized;
 }
