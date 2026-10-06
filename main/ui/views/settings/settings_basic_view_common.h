@@ -1,8 +1,8 @@
 /*
- * @Description: Settings basic page shared helpers
+ * @Description: 设置页面公共布局、嵌套导航和通用设置控件。
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-09-02 17:56:33
+ * @LastEditTime: 2026-10-06 11:37:55
  * @License: GPL 3.0
  */
 #pragma once
@@ -23,6 +23,29 @@ constexpr int kBasicSwitchWidth = 78;
 constexpr int kBasicSwitchHeight = 44;
 
 using SettingsContentBuilder = bool (*)(lv_obj_t*, SettingsViewState*);
+
+/**
+ * @brief 创建设置页共用的紧凑文字确认框配置
+ * @param settings 设置页状态
+ * @return 与 WLAN 风格一致的公共提示框配置
+ */
+PromptDialogConfig MakeSettingsTextPromptConfig(
+    const SettingsViewState* settings);
+
+/**
+ * @brief 创建凭证管理操作按钮，沿用 WLAN 按钮尺寸和按压动效
+ * @param parent 凭证行
+ * @param connected 当前是否已连接
+ * @return 按钮对象，失败返回 nullptr
+ */
+lv_obj_t* CreateCredentialActionButton(lv_obj_t* parent, bool connected);
+
+/**
+ * @brief 同步凭证操作，已连接时显示蓝色断开按钮，否则显示红色删除按钮
+ * @param button 凭证操作按钮
+ * @param connected 当前是否已连接
+ */
+void UpdateCredentialActionButton(lv_obj_t* button, bool connected);
 
 /**
  * @brief 读取当前设备名称，未设置时返回默认名称
@@ -49,6 +72,17 @@ bool ShowBasicPage(SettingsViewState* state, const char* title,
  */
 bool ShowNestedPage(SettingsViewState* state, const char* title,
     SettingsContentBuilder builder);
+
+/**
+ * @brief 在现有设置页内打开独立子页，沿用公共顶栏、返回手势和滑动动画
+ * @param parent 所属设置页面，销毁父页时同时释放子页
+ * @param state 设置页状态
+ * @param title 子页标题
+ * @param builder 内容构建函数
+ * @return 打开成功返回 true
+ */
+bool ShowSettingsChildPage(lv_obj_t* parent, SettingsViewState* state,
+    const char* title, SettingsContentBuilder builder);
 
 /**
  * @brief 创建分组标题文本
@@ -78,10 +112,12 @@ bool CreateBasicDivider(lv_obj_t* parent, int y, int width);
  * @param width 页面宽度
  * @param callback 点击回调
  * @param state 设置页状态
+ * @param subtitle 可选二级说明，非空时使用双行设置项布局
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateArrowRow(lv_obj_t* parent, const char* title, const char* value,
-    int y, int width, lv_event_cb_t callback, SettingsViewState* state);
+    int y, int width, lv_event_cb_t callback, SettingsViewState* state,
+    const char* subtitle = nullptr);
 
 /**
  * @brief 创建不带右箭头的立即操作设置行

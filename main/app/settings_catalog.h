@@ -2,7 +2,7 @@
  * @Description: Settings page catalog
  * @Author: LILYGO_L
  * @Date: 2026-05-19 13:30:00
- * @LastEditTime: 2026-05-19 13:30:00
+ * @LastEditTime: 2026-10-06 09:16:32
  * @License: GPL 3.0
  */
 #pragma once
@@ -20,6 +20,7 @@ enum class SettingsIcon {
   kWifi,
   kBluetooth,
   kCellTower,
+  kLink,
   kAppList,
   kAntenna,
   kHome,

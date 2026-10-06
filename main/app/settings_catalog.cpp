@@ -2,7 +2,7 @@
  * @Description: Settings page catalog
  * @Author: LILYGO_L
  * @Date: 2026-05-19 13:30:00
- * @LastEditTime: 2026-05-19 13:30:00
+ * @LastEditTime: 2026-10-06 09:16:32
  * @License: GPL 3.0
  */
 #include "app/settings_catalog.h"
@@ -21,15 +21,22 @@ constexpr SettingsEntry kSettingsEntries[] = {
         .value = "LilyGo-AABB-5G",
         .icon = SettingsIcon::kWifi,
         .divider_before = true},
-    {.id = "bluetooth",
-        .title = "Bluetooth",
-        .value = "Off",
-        .icon = SettingsIcon::kBluetooth,
-        .divider_before = false},
-    {.id = "personal_hotspot",
-        .title = "Personal Hotspot",
-        .value = "Off",
-        .icon = SettingsIcon::kAntenna,
+    // 蓝牙和个人热点暂未启用，先隐藏入口，保留对应页面和回调实现。
+    // 后续接入实际功能时，取消下方入口注释即可恢复显示。
+    // {.id = "bluetooth",
+    //     .title = "Bluetooth",
+    //     .value = "Off",
+    //     .icon = SettingsIcon::kBluetooth,
+    //     .divider_before = false},
+    // {.id = "personal_hotspot",
+    //     .title = "Personal Hotspot",
+    //     .value = "Off",
+    //     .icon = SettingsIcon::kAntenna,
+    //     .divider_before = false},
+    {.id = "more_connections",
+        .title = "More Connections",
+        .value = "",
+        .icon = SettingsIcon::kLink,
         .divider_before = false},
     {.id = "lock_screen",
         .title = "Lock Screen",

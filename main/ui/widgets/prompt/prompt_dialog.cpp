@@ -2,7 +2,7 @@
  * @Description: 公共提示框控件
  * @Author: LILYGO_L
  * @Date: 2026-07-11 00:00:00
- * @LastEditTime: 2026-09-02 17:57:07
+ * @LastEditTime: 2026-10-06 11:45:44
  * @License: GPL 3.0
  */
 #include "ui/widgets/prompt/prompt_dialog.h"
@@ -339,8 +339,16 @@ lv_obj_t* ShowPromptDialog(lv_obj_t* parent, PromptDialogState* state,
     body_y = std::max(body_y, subtitle_bottom + config.subtitle_body_gap);
   }
 
+  if (config.fit_text_content) {
+    sheet_config.sheet_height = std::min(body_y + config.action_height,
+        config.screen_height - std::max(24, config.bottom_margin + 16));
+    lv_obj_set_height(panel, sheet_config.sheet_height);
+    if (!config.slide_from_bottom)
+      lv_obj_set_y(
+          panel, (config.screen_height - sheet_config.sheet_height) / 2);
+  }
   const int action_y = sheet_config.sheet_height - config.action_height;
-  if (body_y >= action_y) {
+  if (body_y > action_y || (!config.fit_text_content && body_y == action_y)) {
     CloseImmediately(state);
     return nullptr;
   }
@@ -399,8 +407,7 @@ lv_obj_t* UpdatePromptDialog(
 
   const int panel_width =
       std::min(config.dialog_width, config.screen_width - 16);
-  const int panel_height =
-      std::min(config.dialog_height, config.screen_height - 24);
+  int panel_height = std::min(config.dialog_height, config.screen_height - 24);
   const int panel_x = (config.screen_width - panel_width) / 2;
   const int panel_y =
       config.slide_from_bottom
@@ -445,8 +452,17 @@ lv_obj_t* UpdatePromptDialog(
     body_y = std::max(body_y, subtitle_bottom + config.subtitle_body_gap);
   }
 
+  if (config.fit_text_content) {
+    panel_height = std::min(body_y + config.action_height,
+        config.screen_height - std::max(24, config.bottom_margin + 16));
+    lv_obj_set_height(state->panel, panel_height);
+    lv_obj_set_y(state->panel,
+        config.slide_from_bottom
+            ? config.screen_height - panel_height - config.bottom_margin
+            : (config.screen_height - panel_height) / 2);
+  }
   const int action_y = panel_height - config.action_height;
-  if (body_y >= action_y) {
+  if (body_y > action_y || (!config.fit_text_content && body_y == action_y)) {
     return nullptr;
   }
   lv_obj_set_pos(state->body, 0, body_y);

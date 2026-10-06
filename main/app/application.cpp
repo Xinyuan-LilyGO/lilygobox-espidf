@@ -2,7 +2,7 @@
  * @Description: 系统应用初始化、任务调度与电源状态管理实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-09-02 17:50:57
+ * @LastEditTime: 2026-10-04 18:58:06
  * @License: GPL 3.0
  */
 #include "app/application.h"
@@ -14,6 +14,7 @@
 #include <ctime>
 
 #include "app/firmware_update_manager.h"
+#include "app/app_connection.h"
 #include "app/network_monitor.h"
 #include "app/storage/battery_storage.h"
 #include "app/storage/display_storage.h"
@@ -680,6 +681,10 @@ bool Application::Init() {
           device_provider_context_.wifi)) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize network monitor failed\n");
+  }
+  if (!app::InitializeAppConnection(device_provider_context_.wifi)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Initialize app connection failed\n");
   }
   if (!app::FirmwareUpdateManager::Instance().Initialize(
           device_provider_context_.wifi, *this)) {

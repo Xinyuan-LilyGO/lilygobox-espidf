@@ -2,7 +2,7 @@
  * @Description: NVS 与 LittleFS 即时持久化统一管理实现
  * @Author: LILYGO_L
  * @Date: 2026-07-03 00:00:00
- * @LastEditTime: 2026-09-02 17:51:45
+ * @LastEditTime: 2026-10-06 09:16:32
  * @License: GPL 3.0
  */
 #include "app/storage/storage.h"
@@ -26,6 +26,7 @@
 #include "app/storage/littlefs_storage.h"
 #include "app/storage/music_storage.h"
 #include "app/storage/otg_storage.h"
+#include "app/storage/connection_storage.h"
 #include "app/storage/power_state_storage.h"
 #include "app/storage/radio_storage.h"
 #include "app/storage/sound_storage.h"
@@ -73,6 +74,7 @@ constexpr StorageBackend kStorageBackends[] = {
     {StageBatteryStorage, FinishBatteryStorage},
     {StageDeveloperStorage, FinishDeveloperStorage},
     {StageCompassStorage, FinishCompassStorage},
+    {StageConnectionStorage, FinishConnectionStorage},
 };
 constexpr size_t kStorageBackendCount =
     sizeof(kStorageBackends) / sizeof(kStorageBackends[0]);
@@ -448,6 +450,7 @@ void InitStorage(
   InitSoundCache();
   InitWifiCache();
   InitOtgCache();
+  InitConnectionCache();
   InitInputMethodCache();
   InitKeyboardExpansionCache();
   if (!InitBatteryStorage()) {

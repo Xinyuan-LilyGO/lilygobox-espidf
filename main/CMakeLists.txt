@@ -63,6 +63,7 @@ idf_component_register(
         esp_event
         esp_hosted
         esp_http_client
+        esp_http_server
         esp_https_ota
         fatfs
         esp_hw_support

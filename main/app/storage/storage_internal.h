@@ -2,7 +2,7 @@
  * @Description: NVS 缓存与持久化内部协调接口
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
- * @LastEditTime: 2026-09-02 17:51:49
+ * @LastEditTime: 2026-10-06 09:16:32
  * @License: GPL 3.0
  */
 #pragma once
@@ -31,6 +31,7 @@ enum class StorageDomain : uint8_t {
   kBattery,
   kDeveloper,
   kCompass,
+  kConnection,
   kCount,
 };
 
@@ -321,6 +322,19 @@ StorageStageResult StageOtgStorage(nvs_handle_t handle);
  * @param committed 事务是否提交成功
  */
 void FinishOtgStorage(bool committed);
+
+/**
+ * @brief 将应用连接配置快照暂存到统一 NVS 事务
+ * @param handle 共享 NVS 句柄
+ * @return 无变更、暂存成功或暂存失败
+ */
+StorageStageResult StageConnectionStorage(nvs_handle_t handle);
+
+/**
+ * @brief 根据事务结果推进连接配置快照或保留重试状态
+ * @param committed 事务是否提交成功
+ */
+void FinishConnectionStorage(bool committed);
 
 /**
  * @brief 将输入法偏好脏快照暂存到当前 NVS 事务

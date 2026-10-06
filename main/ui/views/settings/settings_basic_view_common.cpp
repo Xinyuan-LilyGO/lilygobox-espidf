@@ -1,13 +1,14 @@
 /*
- * @Description: Settings basic page shared helpers
+ * @Description: 设置页面公共布局、嵌套导航和通用设置控件。
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-09-02 17:56:31
+ * @LastEditTime: 2026-10-06 11:45:44
  * @License: GPL 3.0
  */
 #include "ui/views/settings/settings_basic_view_common.h"
 
 #include <algorithm>
+#include <cstring>
 
 #include "app/device_identity.h"
 #include "hal/providers/screen_provider.h"
@@ -16,6 +17,96 @@
 #include "ui/resources/fonts/icon_assets.h"
 
 namespace lilygo_box::ui {
+
+/**
+ * @brief 创建设置页共用的紧凑文字确认框，复用公共提示控件
+ * @param settings 设置页状态
+ * @return 公共提示框配置
+ */
+PromptDialogConfig MakeSettingsTextPromptConfig(
+    const SettingsViewState* settings) {
+  PromptDialogConfig config;
+  config.screen_width = settings->config.width;
+  config.screen_height = settings->config.height;
+  config.dialog_width = config.screen_width - 68;
+  config.dialog_height = config.screen_height - 64;
+  config.fit_text_content = true;
+  config.dialog_radius = 48;
+  config.inner_padding = 32;
+  config.header_height = 78;
+  config.title_y = 34;
+  config.title_subtitle_gap = 8;
+  // 副标题下方留白与主标题到弹窗顶部的留白一致。
+  config.subtitle_body_gap = config.title_y;
+  config.action_height = 106;
+  config.action_button_height = 74;
+  config.action_button_radius = 24;
+  config.action_button_gap = 20;
+  config.action_bottom_padding = 32;
+  config.animation_ms = kDetailSlideAnimationMs;
+  config.bottom_margin = 32;
+  config.slide_from_bottom = true;
+  config.title_font = Font32();
+  config.subtitle_font = Font24();
+  config.action_font = Font28();
+  config.title_text_align = LV_TEXT_ALIGN_CENTER;
+  config.subtitle_text_align = LV_TEXT_ALIGN_CENTER;
+  return config;
+}
+
+/**
+ * @brief 同步凭证操作按钮的颜色、文字和宽度，保留默认状态过渡
+ * @param button 凭证操作按钮
+ * @param connected 当前是否已连接
+ */
+void UpdateCredentialActionButton(lv_obj_t* button, bool connected) {
+  if (button == nullptr) return;
+  auto* label = lv_obj_get_child(button, 0);
+  const char* text = connected ? "Disconnect" : "Delete";
+  if (std::strcmp(lv_label_get_text(label), text) == 0) return;
+  lv_label_set_text(label, text);
+  lv_obj_update_layout(label);
+  lv_obj_set_width(
+      button, std::max(142, static_cast<int>(lv_obj_get_width(label)) + 64));
+  lv_obj_center(label);
+  const auto& colors = theme::FixedColors();
+  const auto background =
+      lv_color_hex(connected ? colors.action : colors.error);
+  const auto pressed = connected ? lv_color_hex(colors.action_pressed)
+                                 : lv_color_darken(background, LV_OPA_20);
+  lv_obj_set_style_bg_color(button, background, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(button, pressed, LV_STATE_PRESSED);
+}
+
+/**
+ * @brief 创建 Wi-Fi 与应用凭证共用的操作按钮
+ * @param parent 凭证行
+ * @param connected 当前是否已连接
+ * @return 按钮对象，失败返回 nullptr
+ */
+lv_obj_t* CreateCredentialActionButton(lv_obj_t* parent, bool connected) {
+  auto* button = lv_button_create(parent);
+  if (button == nullptr) return nullptr;
+  lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+  lv_obj_add_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(button, 142, 62);
+  lv_obj_align(button, LV_ALIGN_RIGHT_MID, -kBasicSidePadding, 0);
+  lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
+  lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(button, 31, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
+  auto* label = CreateLabel(
+      button, "", lv_color_hex(theme::FixedColors().on_action), Font28());
+  if (label == nullptr || !AddPressCancelOnLeave(button)) {
+    lv_obj_delete(button);
+    return nullptr;
+  }
+  UpdateCredentialActionButton(button, connected);
+  return button;
+}
 namespace {
 
 constexpr int kTextAreaRadius = 22;
@@ -148,14 +239,18 @@ void NestedBackClickedEventCallback(lv_event_t* event) {
  * @param state 设置页状态
  * @param title 页面标题
  * @param nested 是否为二级页
+ * @param back_callback 可选的自定义返回回调
+ * @param back_context 自定义返回回调的上下文
  * @return 创建成功返回 true，否则返回 false
  */
-bool CreateBasicHeader(
-    lv_obj_t* page, SettingsViewState* state, const char* title, bool nested) {
+bool CreateBasicHeader(lv_obj_t* page, SettingsViewState* state,
+    const char* title, bool nested, lv_event_cb_t back_callback = nullptr,
+    void* back_context = nullptr) {
   lv_event_cb_t callback =
       nested ? NestedBackClickedEventCallback : ExtraBackClickedEventCallback;
-  lv_obj_t* back_button = CreateToolbarButton(
-      page, kDetailBackButtonLeft, kDetailBackButtonTop, callback, state);
+  lv_obj_t* back_button = CreateToolbarButton(page, kDetailBackButtonLeft,
+      kDetailBackButtonTop, back_callback != nullptr ? back_callback : callback,
+      back_callback != nullptr ? back_context : state);
   if (back_button == nullptr) {
     return false;
   }
@@ -355,6 +450,79 @@ bool ShowNestedPage(SettingsViewState* state, const char* title,
   return true;
 }
 
+namespace {
+
+/**
+ * @brief 关闭动态设置子页，避免重复点击启动多个退出动画
+ * @param page 子页对象
+ */
+void CloseSettingsChildPage(lv_obj_t* page) {
+  if (lv_obj_has_state(page, LV_STATE_USER_1)) return;
+  lv_obj_add_state(page, LV_STATE_USER_1);
+  if (!StartSlideRightWindowTransition(page, lv_obj_get_width(page),
+          kDetailSlideAnimationMs, page, [](lv_anim_t* animation) {
+            lv_obj_delete(
+                static_cast<lv_obj_t*>(lv_anim_get_user_data(animation)));
+          }))
+    lv_obj_delete_async(page);
+}
+
+}  // namespace
+
+/**
+ * @brief 在已有设置页内打开可独立返回的子页，复用公共页面布局
+ * @param parent 所属设置页面
+ * @param state 设置页状态
+ * @param title 子页标题
+ * @param builder 内容构建函数
+ * @return 创建成功返回 true
+ */
+bool ShowSettingsChildPage(lv_obj_t* parent, SettingsViewState* state,
+    const char* title, SettingsContentBuilder builder) {
+  if (parent == nullptr || state == nullptr || builder == nullptr) return false;
+  if (lv_obj_has_state(parent, LV_STATE_USER_2)) return true;
+  lv_obj_t* page = lv_obj_create(parent);
+  if (page == nullptr) return false;
+  lv_obj_add_state(parent, LV_STATE_USER_2);
+  lv_obj_add_event_cb(
+      page,
+      [](lv_event_t* event) {
+        auto* owner = static_cast<lv_obj_t*>(lv_event_get_user_data(event));
+        lv_obj_remove_state(owner, LV_STATE_USER_2);
+      },
+      LV_EVENT_DELETE, parent);
+  lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(page, state->config.width, state->config.height);
+  lv_obj_set_pos(page, 0, 0);
+  lv_obj_set_style_bg_color(
+      page, lv_color_hex(SettingsThemeColors().surface), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
+  if (!CreateBasicHeader(
+          page, state, title, true,
+          [](lv_event_t* event) {
+            CloseSettingsChildPage(
+                static_cast<lv_obj_t*>(lv_event_get_user_data(event)));
+          },
+          page)) {
+    lv_obj_delete(page);
+    return false;
+  }
+  lv_obj_t* body = CreateBasicBody(page, state, true);
+  if (body == nullptr || !builder(body, state) ||
+      !RegisterBackNavigationHandler(
+          page, [page]() { CloseSettingsChildPage(page); }) ||
+      !StartSlideLeftWindowTransition(page, state->config.width,
+          kDetailSlideAnimationMs, nullptr, nullptr)) {
+    lv_obj_delete(page);
+    return false;
+  }
+  return true;
+}
+
 bool CreateSectionLabel(lv_obj_t* parent, const char* text, int y, int width) {
   lv_obj_t* label = CreateLabel(parent, text,
       lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
@@ -416,10 +584,31 @@ lv_obj_t* CreateTextRow(lv_obj_t* parent, const char* title, int y, int width,
 }  // namespace
 
 bool CreateArrowRow(lv_obj_t* parent, const char* title, const char* value,
-    int y, int width, lv_event_cb_t callback, SettingsViewState* state) {
+    int y, int width, lv_event_cb_t callback, SettingsViewState* state,
+    const char* subtitle) {
   lv_obj_t* row = CreateTextRow(parent, title, y, width, 170, callback, state);
   if (row == nullptr) {
     return false;
+  }
+
+  if (subtitle != nullptr && subtitle[0] != '\0') {
+    // 二级说明沿用开关行的字体、间距和高度，避免入口另建一套样式。
+    const int trailing_width = value != nullptr && value[0] != '\0' ? 220 : 40;
+    const int text_width = width - 2 * kBasicSidePadding - trailing_width;
+    lv_obj_set_height(row, kBasicSwitchRowWithSubtitleHeight);
+    lv_obj_t* title_label = lv_obj_get_child(row, 0);
+    lv_obj_set_width(title_label, text_width);
+    lv_obj_set_height(title_label, lv_font_get_line_height(Font28()));
+    lv_obj_align(title_label, LV_ALIGN_TOP_LEFT, kBasicSidePadding, 12);
+    lv_obj_t* subtitle_label = CreateLabel(row, subtitle,
+        lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
+    if (subtitle_label == nullptr) {
+      return false;
+    }
+    lv_obj_set_width(subtitle_label, text_width);
+    lv_label_set_long_mode(subtitle_label, LV_LABEL_LONG_WRAP);
+    lv_obj_update_layout(row);
+    lv_obj_align_to(subtitle_label, title_label, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 6);
   }
 
   if (value != nullptr && value[0] != '\0') {

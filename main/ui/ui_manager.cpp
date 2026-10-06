@@ -2,7 +2,7 @@
  * @Description: 启动器布局、应用切换与系统覆盖层管理实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-10-04 14:56:54
+ * @LastEditTime: 2026-10-06 11:45:44
  * @License: GPL 3.0
  */
 #include "ui/ui_manager.h"
@@ -14,6 +14,7 @@
 #include <utility>
 
 #include "app/app_catalog.h"
+#include "app/app_connection.h"
 #include "app/network_monitor.h"
 #include "app/storage/input_method_storage.h"
 #include "hal/providers/keyboard_expansion_provider.h"
@@ -1612,6 +1613,9 @@ void UiManager::RelayoutForScreenSize() {
   }
 
   relayouting_ = true;
+  // 旋转后用新的屏幕尺寸重新展示待确认请求。
+  ClosePromptDialog(&app_connection_prompt_);
+  app_connection_request_ = 0;
   layout_width_ = new_width;
   layout_height_ = new_height;
   const app::AppEntry* reopen_app = active_app_entry_;
@@ -1885,6 +1889,7 @@ lv_obj_t* UiManager::CreateClockGroup(lv_obj_t* parent) {
 }
 
 void UiManager::RefreshSystemStatus() {
+  RefreshAppConnectionPrompt();
   system_status_cache_.RefreshSystemStatus();
   if (system_status_cache_.rtc_status_valid()) {
     UpdateClockLabels(system_status_cache_.rtc_status());
@@ -1899,6 +1904,65 @@ void UiManager::RefreshSystemStatus() {
 }
 
 void UiManager::RefreshSystemStatusNow() { RefreshSystemStatus(); }
+
+/**
+ * @brief 在解锁界面使用公共提示框处理首次应用连接请求
+ * @note 由 LVGL 线程刷新，不依赖连接设置页的生命周期
+ */
+void UiManager::RefreshAppConnectionPrompt() {
+  const auto status = app::ReadAppConnectionStatus();
+  if (!status.pending || lock_screen_ != nullptr || startup_screen_ != nullptr ||
+      first_boot_welcome_screen_ != nullptr || power_menu_ != nullptr) {
+    ClosePromptDialog(&app_connection_prompt_);
+    app_connection_request_ = 0;
+    return;
+  }
+  if (root_screen_ == nullptr || IsPromptDialogVisible(&app_connection_prompt_) ||
+      IsPromptDialogVisible(&keyboard_expansion_unavailable_prompt_) ||
+      app_connection_request_ == status.request_id) return;
+  char subtitle[128] = {};
+  std::snprintf(subtitle, sizeof(subtitle), "Allow %s to connect?", status.client_name);
+  PromptDialogConfig config;
+  config.screen_width = LayoutWidth();
+  config.screen_height = LayoutHeight();
+  config.dialog_width = config.screen_width - 68;
+  config.dialog_height = config.screen_width > config.screen_height ? 280 : 312;
+  config.dialog_radius = 48;
+  config.fit_text_content = true;
+  config.inner_padding = 32;
+  config.header_height = 78;
+  config.title_y = 34;
+  config.title_subtitle_gap = 8;
+  config.subtitle_body_gap = config.title_y;
+  config.action_height = 106;
+  config.action_button_height = 74;
+  config.action_button_radius = 24;
+  config.action_button_gap = 20;
+  config.action_bottom_padding = 32;
+  config.animation_ms = 180;
+  config.bottom_margin = 32;
+  config.slide_from_bottom = true;
+  config.title = "Connect to LilygoBox?";
+  config.subtitle = subtitle;
+  config.title_font = Font32();
+  config.subtitle_font = Font24();
+  config.action_font = Font28();
+  config.title_text_align = LV_TEXT_ALIGN_CENTER;
+  config.subtitle_text_align = LV_TEXT_ALIGN_CENTER;
+  config.confirm_text = "Allow";
+  config.callback_context = this;
+  config.confirm_callback = [](void* context) {
+    auto* self = static_cast<UiManager*>(context);
+    app::ConfirmAppConnection(self->app_connection_request_, true);
+  };
+  config.cancel_callback = [](void* context) {
+    auto* self = static_cast<UiManager*>(context);
+    app::ConfirmAppConnection(self->app_connection_request_, false);
+  };
+  if (ShowPromptDialog(root_screen_, &app_connection_prompt_, config) != nullptr) {
+    app_connection_request_ = status.request_id;
+  }
+}
 
 void UiManager::UpdateClockLabels(const hal::RtcStatus& status) {
   char time_text[sizeof(clock_time_text_)] = {};

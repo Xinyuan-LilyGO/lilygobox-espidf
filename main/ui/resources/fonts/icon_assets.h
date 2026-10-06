@@ -2,7 +2,7 @@
  * @Description: Material Symbols 图标 UTF-8 编码常量
  * @Author: LILYGO_L
  * @Date: 2026-05-10 15:02:12
- * @LastEditTime: 2026-07-17 18:09:39
+ * @LastEditTime: 2026-10-06 11:37:55
  * @License: GPL 3.0
  */
 #pragma once
@@ -36,6 +36,7 @@ inline constexpr char kKeyboard[] = "\xEE\x8C\x92";
 inline constexpr char kKeyboardArrowDown[] = "\xEE\x8C\x93";
 inline constexpr char kKeyboardArrowUp[] = "\xEE\x8C\x96";
 inline constexpr char kLock[] = "\xEE\xA2\x99";
+inline constexpr char kLink[] = "\xEE\x85\x97";
 inline constexpr char kMemory[] = "\xEE\x8C\xA2";
 inline constexpr char kMenu[] = "\xEE\x97\x92";
 inline constexpr char kMusic[] = "\xEE\x90\x85";

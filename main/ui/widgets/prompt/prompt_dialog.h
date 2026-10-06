@@ -2,7 +2,7 @@
  * @Description: 公共提示框控件
  * @Author: LILYGO_L
  * @Date: 2026-07-11 00:00:00
- * @LastEditTime: 2026-09-02 17:57:09
+ * @LastEditTime: 2026-10-06 11:17:54
  * @License: GPL 3.0
  */
 #pragma once
@@ -41,6 +41,8 @@ struct PromptDialogConfig {
   int screen_height = 0;
   int dialog_width = 0;
   int dialog_height = 0;
+  // 纯文字提示按标题和副标题实际高度收紧，不预留空正文区域。
+  bool fit_text_content = false;
   int dialog_radius = 30;
   int inner_padding = 28;
   int header_height = 92;

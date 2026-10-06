@@ -2,7 +2,7 @@
  * @Description: NVS 长期配置 TLV 编解码公共接口
  * @Author: LILYGO_L
  * @Date: 2026-07-22 00:00:00
- * @LastEditTime: 2026-09-02 17:51:52
+ * @LastEditTime: 2026-10-06 09:16:32
  * @License: GPL 3.0
  */
 #pragma once
@@ -34,6 +34,8 @@ enum class TlvDomain : uint16_t {
   kBattery = 14,
   kDeveloper = 15,
   kCompass = 16,
+  kConnection = 17,
+  kAppCredential = 18,
 };
 
 enum class TlvReadResult : uint8_t {

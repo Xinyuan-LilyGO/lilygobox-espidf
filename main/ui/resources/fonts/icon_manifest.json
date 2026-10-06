@@ -162,6 +162,7 @@
     "Camera": {"cpp_name": "kCamera", "codepoint": 58287},
     "Cancel": {"cpp_name": "kCancel", "codepoint": 59528},
     "CellTower": {"cpp_name": "kCellTower", "codepoint": 60346},
+    "Link": {"cpp_name": "kLink", "codepoint": 57687},
     "Check": {"cpp_name": "kCheck", "codepoint": 58826},
     "CheckCircle": {"cpp_name": "kCheckCircle", "codepoint": 59500},
     "ChevronRight": {"cpp_name": "kChevronRight", "codepoint": 58828},

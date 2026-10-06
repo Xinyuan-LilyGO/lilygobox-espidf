@@ -2,7 +2,7 @@
  * @Description: 启动器、状态栏、应用窗口与系统覆盖层管理接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-09-02 17:54:14
+ * @LastEditTime: 2026-10-06 09:16:32
  * @License: GPL 3.0
  */
 #pragma once
@@ -480,6 +480,10 @@ class UiManager final {
    * @brief 刷新应用级系统状态信息
    */
   void RefreshSystemStatus();
+  /**
+   * @brief 刷新全局应用连接确认框，锁屏和启动期间不展示
+   */
+  void RefreshAppConnectionPrompt();
 
   /**
    * @brief 请求切换系统主题并异步重建当前应用
@@ -612,6 +616,8 @@ class UiManager final {
   lv_obj_t* lock_screen_ = nullptr;
   lv_obj_t* power_menu_ = nullptr;
   PromptDialogState keyboard_expansion_unavailable_prompt_;
+  PromptDialogState app_connection_prompt_;
+  uint32_t app_connection_request_ = 0;
   VolumeOverlay volume_overlay_;
   int startup_progress_percent_ = 0;
   int startup_progress_target_percent_ = 0;

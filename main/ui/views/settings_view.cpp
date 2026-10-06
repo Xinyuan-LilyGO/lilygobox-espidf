@@ -2,7 +2,7 @@
  * @Description: Settings main list view
  * @Author: LILYGO_L
  * @Date: 2026-05-18 09:20:00
- * @LastEditTime: 2026-09-02 17:54:46
+ * @LastEditTime: 2026-10-06 09:32:04
  * @License: GPL 3.0
  */
 #include "ui/views/settings_view.h"
@@ -71,6 +71,8 @@ SettingsIconStyle ResolveSettingsIconStyle(app::SettingsIcon icon_type) {
       return {.symbol = icon::kBluetooth, .color = 0x3E7FF1};
     case app::SettingsIcon::kCellTower:
       return {.symbol = icon::kCellTower, .color = 0x59C96B};
+    case app::SettingsIcon::kLink:
+      return {.symbol = icon::kLink, .color = 0x8790B0};
     case app::SettingsIcon::kAppList:
       return {.symbol = icon::kAppList, .color = 0xF2F2F2};
     case app::SettingsIcon::kAntenna:
@@ -434,6 +436,11 @@ bool CreateSettingsList(lv_obj_t* parent, int width, SettingsViewState* state) {
     } else if (IsId(item.id, "bluetooth")) {
       lv_obj_add_event_cb(
           row, BluetoothRowClickedEventCallback, LV_EVENT_CLICKED, state);
+    } else if (IsId(item.id, "more_connections")) {
+      lv_obj_add_event_cb(row, [](lv_event_t* event) {
+        ShowMoreConnectionsPage(static_cast<SettingsViewState*>(
+            lv_event_get_user_data(event)));
+      }, LV_EVENT_CLICKED, state);
     } else if (IsId(item.id, "personal_hotspot")) {
       lv_obj_add_event_cb(
           row, HotspotRowClickedEventCallback, LV_EVENT_CLICKED, state);

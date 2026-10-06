@@ -2,7 +2,7 @@
  * @Description: 设置视图内部实现
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-09-23 17:52:50
+ * @LastEditTime: 2026-10-06 11:17:54
  * @License: GPL 3.0
  */
 #pragma once
@@ -259,12 +259,9 @@ struct SettingsViewState {
   // WLAN 列表行点击参数池，避免 LVGL 回调使用临时地址。
   WifiNetworkAction wifi_actions[kWifiActionCapacity] = {};
   // 已保存网络删除按钮参数池，不占用 WLAN 列表行点击参数。
-  WifiNetworkAction wifi_saved_delete_actions[app::kWifiSavedNetworkCapacity] =
-      {};
   // 当前弹窗正在处理的 WLAN，复制出来避免列表刷新后地址失效。
   WifiNetworkAction wifi_pending_action = {};
   size_t wifi_action_count = 0;
-  size_t wifi_saved_delete_action_count = 0;
   // 当前 WLAN 二级页面栈深度，wifi_sub_page 始终指向栈顶页面。
   size_t wifi_sub_page_count = 0;
   // 上一次渲染的 WLAN 状态摘要，用来跳过重复刷新。
@@ -519,6 +516,9 @@ bool ShowBluetoothPage(SettingsViewState* state);
  * @return 打开成功返回 true，否则返回 false
  */
 bool ShowPersonalHotspotPage(SettingsViewState* state);
+
+// 打开更多连接及其 LilygoBox 应用连接管理页。
+bool ShowMoreConnectionsPage(SettingsViewState* state);
 
 /**
  * @brief 从设置主页打开锁屏详情页

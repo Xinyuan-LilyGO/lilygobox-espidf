@@ -1,13 +1,14 @@
 /*
- * @Description: Settings WLAN detail page
+ * @Description: 展示 WLAN 设置、网络连接与已保存凭证管理。
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-09-02 17:56:56
+ * @LastEditTime: 2026-10-06 11:55:47
  * @License: GPL 3.0
  */
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <new>
 
 #include "app/network_monitor.h"
 #include "app/storage/wifi_storage.h"
@@ -931,7 +932,7 @@ void WifiModifyNetworkClickedEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 确认删除当前 WLAN 保存信息
+ * @brief 确认删除 WLAN 凭证，并断开对应的当前网络
  * @param event LVGL 事件对象
  */
 void WifiDeleteConfirmClickedEventCallback(lv_event_t* event) {
@@ -974,7 +975,7 @@ void WifiDeleteConfirmClickedEventCallback(lv_event_t* event) {
 }
 
 /**
- * @brief 处理管理已保存网络页的单项删除按钮
+ * @brief 打开保存网络的删除确认框，已连接网络也直接进入删除流程
  * @param event LVGL 事件对象
  */
 void WifiSavedNetworkDeleteClickedEventCallback(lv_event_t* event) {
@@ -1559,30 +1560,6 @@ WifiNetworkAction* ReserveWifiNetworkAction(SettingsViewState* state,
 }
 
 /**
- * @brief 为管理已保存网络页分配删除按钮参数
- * @param state 设置页状态
- * @param ssid 待删除的热点名称
- * @return 分配到的参数地址，参数池已满时返回 nullptr
- */
-WifiNetworkAction* ReserveWifiSavedDeleteAction(
-    SettingsViewState* state, const char* ssid) {
-  if (state == nullptr || ssid == nullptr || ssid[0] == '\0' ||
-      state->wifi_saved_delete_action_count >= app::kWifiSavedNetworkCapacity) {
-    return nullptr;
-  }
-
-  WifiNetworkAction* action =
-      &state
-           ->wifi_saved_delete_actions[state->wifi_saved_delete_action_count++];
-  *action = WifiNetworkAction();
-  action->state = state;
-  std::snprintf(action->ssid, sizeof(action->ssid), "%.*s",
-      static_cast<int>(hal::kWifiSsidMaxLength), ssid);
-  action->saved = true;
-  return action;
-}
-
-/**
  * @brief 创建 WLAN 页面返回按钮和标题
  * @param parent 父对象
  * @param state 设置页状态
@@ -2074,7 +2051,6 @@ bool CreateWifiNetworkRow(lv_obj_t* parent, SettingsViewState* state,
 bool CreateWifiSavedManageRow(
     lv_obj_t* parent, SettingsViewState* state, const char* ssid, int width) {
   const int button_width = 142;
-  const int button_height = 62;
   lv_obj_t* row = lv_obj_create(parent);
   if (row == nullptr) {
     return false;
@@ -2097,40 +2073,26 @@ bool CreateWifiSavedManageRow(
   lv_label_set_long_mode(name, LV_LABEL_LONG_SCROLL_CIRCULAR);
   lv_obj_align(name, LV_ALIGN_LEFT_MID, kWifiSidePadding, 0);
 
-  lv_obj_t* button = lv_button_create(row);
-  if (button == nullptr) {
-    return false;
-  }
-  lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
-  lv_obj_add_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_set_size(button, button_width, button_height);
-  lv_obj_align(button, LV_ALIGN_RIGHT_MID, -kWifiSidePadding, 0);
-  lv_obj_set_style_bg_color(
-      button, lv_color_hex(theme::FixedColors().action), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(button,
-      lv_color_hex(theme::FixedColors().action_pressed), LV_STATE_PRESSED);
-  lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
-  lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(button, button_height / 2, LV_PART_MAIN);
-  lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
-  if (!AddPressCancelOnLeave(button)) {
-    return false;
-  }
-  WifiNetworkAction* action = ReserveWifiSavedDeleteAction(state, ssid);
-  if (action != nullptr) {
-    lv_obj_add_event_cb(button, WifiSavedNetworkDeleteClickedEventCallback,
-        LV_EVENT_CLICKED, action);
-  }
-
-  lv_obj_t* label = CreateLabel(
-      button, "Delete", lv_color_hex(theme::FixedColors().on_action), Font28());
-  if (label == nullptr) {
-    return false;
-  }
-  lv_obj_center(label);
+  // 每行独立拥有参数，主 WLAN 页面刷新不会覆盖这里保存的 SSID。
+  auto* action = new (std::nothrow) WifiNetworkAction();
+  if (action == nullptr) return false;
+  action->state = state;
+  action->saved = true;
+  std::snprintf(action->ssid, sizeof(action->ssid), "%.*s",
+      static_cast<int>(hal::kWifiSsidMaxLength), ssid);
+  lv_obj_add_event_cb(
+      row,
+      [](lv_event_t* event) {
+        delete static_cast<WifiNetworkAction*>(lv_event_get_user_data(event));
+      },
+      LV_EVENT_DELETE, action);
+  auto* button = CreateCredentialActionButton(row, false);
+  if (button == nullptr) return false;
+  lv_obj_add_event_cb(button, WifiSavedNetworkDeleteClickedEventCallback,
+      LV_EVENT_CLICKED, action);
+  lv_obj_update_layout(button);
+  lv_obj_set_width(
+      name, width - 2 * kWifiSidePadding - lv_obj_get_width(button) - 28);
   return true;
 }
 
@@ -2561,7 +2523,6 @@ bool BuildWifiSavedNetworksContent(lv_obj_t* parent, SettingsViewState* state) {
   hal::WifiScanStatus scan_status;
   ReadWifiSnapshots(state->config, nullptr, &scan_status);
   SyncSavedWifiNetworksWithScan(scan_status);
-  state->wifi_saved_delete_action_count = 0;
 
   if (g_wifi_saved_network_count == 0) {
     return CreateWifiSavedEmptyText(parent, state->config.width);
@@ -2612,6 +2573,8 @@ bool ShowWifiSavedNetworksPage(SettingsViewState* state) {
  * @param width 按钮宽度
  * @param callback 点击回调
  * @param state 设置页状态
+ * @param primary 是否使用主操作配色
+ * @param enabled 是否可点击
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateWifiSheetButton(lv_obj_t* parent, const char* text, int x, int y,
@@ -3388,7 +3351,6 @@ void RefreshWifiPage(SettingsViewState* state, bool force) {
   state->wifi_refresh_key = refresh_key;
   state->wifi_refresh_force = false;
   state->wifi_action_count = 0;
-  state->wifi_saved_delete_action_count = 0;
   state->wifi_connected_signal_icon = nullptr;
   const int scroll_y = lv_obj_get_scroll_y(state->wifi_body);
   StopWifiRefreshIconSpin(state);
@@ -3396,7 +3358,6 @@ void RefreshWifiPage(SettingsViewState* state, bool force) {
   lv_obj_clean(state->wifi_body);
   if (!CreateWifiPageContent(state->wifi_body, state, state->config)) {
     state->wifi_action_count = 0;
-    state->wifi_saved_delete_action_count = 0;
     state->wifi_connected_signal_icon = nullptr;
     state->wifi_refresh_icon = nullptr;
     state->wifi_refresh_force = true;
@@ -3447,7 +3408,6 @@ bool ShowWifiPageInternal(SettingsViewState* state) {
   state->wifi_refresh_icon = nullptr;
   state->wifi_closing = false;
   state->wifi_action_count = 0;
-  state->wifi_saved_delete_action_count = 0;
   state->wifi_refresh_key = 0;
   state->wifi_refresh_force = true;
   state->wifi_scan_on_ready = false;
