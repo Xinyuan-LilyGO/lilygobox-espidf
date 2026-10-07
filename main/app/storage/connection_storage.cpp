@@ -12,10 +12,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <memory>
+#include <new>
 
 #include "app/storage/storage_internal.h"
 #include "app/storage/tlv_storage.h"
 #include "base/logger.h"
+#include "base/memory.h"
 #include "esp_err.h"
 #include "mbedtls/sha256.h"
 #include "nvs.h"
@@ -25,7 +28,7 @@ namespace {
 
 constexpr const char* kConnectionNvsNamespace = "settings";
 constexpr const char* kConnectionNvsKey = "app_connections";
-constexpr size_t kConnectionTlvCapacity = 1536;
+constexpr size_t kConnectionTlvCapacity = 2048;
 
 // 已分配字段编号只允许保留，禁止改号或复用。
 enum class ConnectionField : uint16_t {
@@ -37,8 +40,39 @@ enum class AppCredentialField : uint16_t {
   kId = 1,
   kToken = 2,
   kClientName = 3,
+  kClientId = 4,
 };
-constexpr size_t kAppCredentialTlvCapacity = 256;
+constexpr size_t kAppCredentialTlvCapacity = 320;
+
+struct ConnectionLoadWorkspace {
+  ConnectionPreferences loaded;
+  ConnectionPreferences decoded;
+};
+
+template <typename T>
+struct ConnectionBufferDeleter {
+  /**
+   * @brief 销毁临时对象并通过统一内存工具释放其 PSRAM
+   * @param pointer 当前操作独占的临时对象
+   */
+  void operator()(T* pointer) const {
+    if (pointer == nullptr) return;
+    pointer->~T();
+    memory::Free(pointer, memory::Module::kGeneral);
+  }
+};
+
+/**
+ * @brief 为凭证快照或编码缓冲申请自动释放的 PSRAM，避免挤占任务栈
+ * @return 已初始化的独占对象，分配失败返回空指针
+ */
+template <typename T>
+std::unique_ptr<T, ConnectionBufferDeleter<T>> AllocateConnectionBuffer() {
+  void* buffer = memory::Allocate(
+      sizeof(T), memory::Policy::kPsram, memory::Module::kGeneral);
+  return std::unique_ptr<T, ConnectionBufferDeleter<T>>(
+      buffer != nullptr ? new (buffer) T{} : nullptr);
+}
 
 /**
  * @brief 比较自动连接开关、授权密钥和客户端名称
@@ -52,6 +86,7 @@ bool AreConnectionPreferencesEqual(
   for (size_t i = 0; i < left.count; ++i) {
     if (std::strcmp(left.clients[i].id, right.clients[i].id) != 0 ||
         std::strcmp(left.clients[i].token, right.clients[i].token) != 0 ||
+        std::strcmp(left.clients[i].client_id, right.clients[i].client_id) != 0 ||
         std::strcmp(
             left.clients[i].client_name, right.clients[i].client_name) != 0)
       return false;
@@ -77,7 +112,7 @@ bool DecodeAppCredential(
     if (result == storage::TlvReadResult::kInvalid) return false;
     if (result == storage::TlvReadResult::kEnd) {
       char id[65] = {};
-      if (present != 7 || !MakeAppCredentialId(decoded.token, id) ||
+      if ((present & 7) != 7 || !MakeAppCredentialId(decoded.token, id) ||
           std::strcmp(decoded.id, id) != 0 || decoded.client_name[0] == '\0')
         return false;
       *client = decoded;
@@ -101,6 +136,15 @@ bool DecodeAppCredential(
           return false;
         present |= 4;
         break;
+      case AppCredentialField::kClientId: {
+        if ((present & 8) ||
+            !field.CopyString(decoded.client_id, sizeof(decoded.client_id)) ||
+            (decoded.client_id[0] != '\0' &&
+                !IsAppClientId(decoded.client_id)))
+          return false;
+        present |= 8;
+        break;
+      }
       default:
         break;
     }
@@ -111,12 +155,13 @@ bool DecodeAppCredential(
  * @brief 按 WLAN 保存列表的嵌套 TLV 方式读取应用，记录顺序即优先级
  * @param buffer 外层 TLV 数据
  * @param preferences 连接偏好输出
+ * @param decoded 调用方提供的空白解码工作区，解析成功后才发布到输出
  * @return 配置完整有效返回 true
  */
 bool DecodeConnectionPreferences(
-    const storage::TlvBuffer& buffer, ConnectionPreferences* preferences) {
+    const storage::TlvBuffer& buffer, ConnectionPreferences* preferences,
+    ConnectionPreferences& decoded) {
   if (preferences == nullptr) return false;
-  ConnectionPreferences decoded;
   storage::TlvReader reader(
       storage::TlvDomain::kConnection, buffer.data.get(), buffer.size);
   storage::TlvField field;
@@ -166,6 +211,8 @@ bool EncodeAppCredential(const AppCredential& client, uint8_t* output,
          writer.WriteString(
              static_cast<uint16_t>(AppCredentialField::kClientName),
              client.client_name, sizeof(client.client_name)) &&
+         writer.WriteString(static_cast<uint16_t>(AppCredentialField::kClientId),
+             client.client_id, sizeof(client.client_id)) &&
          writer.Finalize(size);
 }
 
@@ -201,6 +248,11 @@ NvsStorageCache<ConnectionPreferences> g_connection_cache(
 
 }  // namespace
 
+bool IsAppClientId(const char* id) {
+  return id != nullptr && std::strlen(id) == 64 &&
+         std::strspn(id, "0123456789abcdef") == 64;
+}
+
 /**
  * @brief 校验授权密钥并计算公开 SHA-256 标识，不记录密钥
  * @param token 64 位小写十六进制随机密钥
@@ -230,7 +282,14 @@ bool MakeAppCredentialId(const char* token, char (&output)[65]) {
  * @brief 初始化应用连接偏好缓存，从独立 NVS 分区加载开关和授权
  */
 void InitConnectionCache() {
-  ConnectionPreferences loaded;
+  // main 任务仅有 4 KB 栈；五份凭证及解码副本不能与 NVS/Flash 调用栈叠加。
+  auto workspace = AllocateConnectionBuffer<ConnectionLoadWorkspace>();
+  if (workspace == nullptr) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Allocate Connection initialization buffer failed\n");
+    return;
+  }
+  auto& loaded = workspace->loaded;
   nvs_handle_t handle = 0;
   if (OpenApplicationNvs(kConnectionNvsNamespace, NVS_READONLY, &handle) ==
       ESP_OK) {
@@ -240,7 +299,7 @@ void InitConnectionCache() {
         kConnectionNvsKey, storage::TlvDomain::kConnection,
         kConnectionTlvCapacity, &buffer, &error);
     if (result == storage::TlvLoadResult::kLoaded &&
-        !DecodeConnectionPreferences(buffer, &loaded)) {
+        !DecodeConnectionPreferences(buffer, &loaded, workspace->decoded)) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Connection TLV payload is invalid\n");
     } else if (result == storage::TlvLoadResult::kInvalid) {
@@ -268,6 +327,10 @@ ConnectionPreferences GetConnectionPreferences() {
   return preferences;
 }
 
+bool ReadConnectionPreferences(ConnectionPreferences* preferences) {
+  return g_connection_cache.Read(preferences);
+}
+
 /**
  * @brief 更新应用连接偏好，并通过统一存储协调器提交变更
  * @param preferences 新的连接开关和授权配置
@@ -275,10 +338,11 @@ ConnectionPreferences GetConnectionPreferences() {
  */
 bool UpdateConnectionPreferences(const ConnectionPreferences& preferences) {
   if (preferences.count > kAppCredentialCapacity) return false;
-  const auto previous = GetConnectionPreferences();
+  auto previous = AllocateConnectionBuffer<ConnectionPreferences>();
+  if (previous == nullptr || !g_connection_cache.Read(previous.get())) return false;
   if (g_connection_cache.UpdateAndPersist(preferences)) return true;
   // 协调器会保留失败写入的缓存；回滚，避免稍后把未获确认的授权写入 NVS。
-  g_connection_cache.UpdateAndPersist(previous);
+  g_connection_cache.UpdateAndPersist(*previous);
   return false;
 }
 
@@ -292,11 +356,13 @@ StorageStageResult StageConnectionStorage(nvs_handle_t handle) {
   if (!g_connection_cache.BeginFlush(&preferences)) {
     return StorageStageResult::kClean;
   }
-  std::array<uint8_t, kConnectionTlvCapacity> buffer = {};
+  // 提交由调用方同步执行，不能再向 UI/网络任务栈压入 2 KB 编码数组。
+  auto buffer = AllocateConnectionBuffer<std::array<uint8_t, kConnectionTlvCapacity>>();
+  if (buffer == nullptr) return StorageStageResult::kFailed;
   size_t encoded_size = 0;
   if (!EncodeConnectionPreferences(
-          *preferences, buffer.data(), buffer.size(), &encoded_size) ||
-      nvs_set_blob(handle, kConnectionNvsKey, buffer.data(), encoded_size) !=
+          *preferences, buffer->data(), buffer->size(), &encoded_size) ||
+      nvs_set_blob(handle, kConnectionNvsKey, buffer->data(), encoded_size) !=
           ESP_OK) {
     return StorageStageResult::kFailed;
   }

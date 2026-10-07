@@ -17,6 +17,8 @@ struct AppCredential {
   char id[65] = {};
   char token[65] = {};
   char client_name[49] = {};
+  // 安装级公开标识，仅用于确认后的凭证更新，不代替密钥认证；旧记录可为空。
+  char client_id[65] = {};
 };
 
 struct ConnectionPreferences {
@@ -25,6 +27,13 @@ struct ConnectionPreferences {
   // 数组顺序即自动连接优先级，最前面的应用优先。
   AppCredential clients[kAppCredentialCapacity] = {};
 };
+
+/**
+ * @brief 校验应用安装标识的固定长度小写十六进制格式
+ * @param id 待校验的公开标识
+ * @return 64 字符小写十六进制返回 true
+ */
+bool IsAppClientId(const char* id);
 
 /**
  * @brief 从随机授权密钥派生公开标识，避免重连时传输永久密钥
@@ -44,6 +53,13 @@ void InitConnectionCache();
  * @return 当前自动连接开关和已授权应用凭据的快照
  */
 ConnectionPreferences GetConnectionPreferences();
+
+/**
+ * @brief 直接读取到调用方缓冲区，避免启动任务创建按值返回的凭证临时副本
+ * @param preferences 已有配置缓冲区，读取失败时不修改
+ * @return 缓存已初始化且读取成功返回 true
+ */
+bool ReadConnectionPreferences(ConnectionPreferences* preferences);
 
 /**
  * @brief 更新应用连接偏好，并通过统一存储协调器提交变更

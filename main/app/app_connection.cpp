@@ -52,6 +52,7 @@ constexpr int64_t kSelectionWindowMs = 4000;
 struct AppSession {
   int fd = -1;
   char credential_id[65] = {};
+  char client_id[65] = {};
   char name[49] = {};
   char challenge[65] = {};
   bool authenticating = false;
@@ -180,6 +181,18 @@ AppSession* FindSession(int fd) {
 size_t CredentialIndex(const char* id) {
   for (size_t i = 0; i < g_preferences.count; ++i)
     if (std::strcmp(g_preferences.clients[i].id, id) == 0) return i;
+  return g_preferences.count;
+}
+
+/**
+ * @brief 按安装标识查找待更新的凭证，公开标识本身不授予连接权限
+ * @param id 桌面应用的安装标识，旧客户端可为空
+ * @return 已有槽位，未找到时返回 count
+ */
+size_t ClientCredentialIndex(const char* id) {
+  if (!IsAppClientId(id)) return g_preferences.count;
+  for (size_t i = 0; i < g_preferences.count; ++i)
+    if (std::strcmp(g_preferences.clients[i].client_id, id) == 0) return i;
   return g_preferences.count;
 }
 
@@ -392,13 +405,16 @@ esp_err_t WebSocketHandler(httpd_req_t* request) {
       rejected = true;
     } else if (std::strcmp(type, "hello") == 0 && session->name[0] == '\0') {
       const char* name = StringField(input, "clientName");
+      const char* client_id = StringField(input, "clientId");
       if (std::strlen(name) == 0 || std::strlen(name) > 48 ||
+          (cJSON_HasObjectItem(input, "clientId") && !IsAppClientId(client_id)) ||
           std::strcmp(StringField(input, "deviceId"), g_status.device_id) !=
               0) {
         cJSON_Delete(input);
         return ESP_FAIL;
       }
       std::snprintf(session->name, sizeof(session->name), "%s", name);
+      std::snprintf(session->client_id, sizeof(session->client_id), "%s", client_id);
       for (char& c : session->name)
         if (c != '\0' && static_cast<unsigned char>(c) < 32) c = ' ';
       session->automatic =
@@ -443,7 +459,8 @@ esp_err_t WebSocketHandler(httpd_req_t* request) {
           cJSON_AddStringToObject(reply, "challenge", session->challenge);
           cJSON_AddStringToObject(reply, "proof", proof);
         }
-      } else if (g_preferences.count >= kAppCredentialCapacity) {
+      } else if (g_preferences.count >= kAppCredentialCapacity &&
+                 ClientCredentialIndex(session->client_id) == g_preferences.count) {
         reply = Message("pairing_full");
         rejected = true;
       } else {
@@ -473,6 +490,20 @@ esp_err_t WebSocketHandler(httpd_req_t* request) {
         reply = Message("disconnected");
         rejected = true;
       } else {
+        // 旧授权只有在密钥认证成功后才补记安装标识，不能凭名称或 hello 直接绑定。
+        if (g_preferences.clients[index].client_id[0] == '\0' &&
+            IsAppClientId(session->client_id) &&
+            ClientCredentialIndex(session->client_id) == g_preferences.count) {
+          auto updated = g_preferences;
+          std::snprintf(updated.clients[index].client_id,
+              sizeof(updated.clients[index].client_id), "%s", session->client_id);
+          if (UpdateConnectionPreferences(updated)) {
+            g_preferences = updated;
+          } else {
+            LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+                "Save app installation identity failed\n");
+          }
+        }
         if (auto* paused = PausedApp(session->credential_id)) paused[0] = '\0';
         session->authenticated = true;
         session->until = NowMs() + kConfirmMs;
@@ -699,7 +730,7 @@ bool InitializeAppConnection(hal::WifiProvider* wifi) {
       "%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3], mac[4],
       mac[5]);
   g_wifi = wifi;
-  g_preferences = GetConnectionPreferences();
+  if (!ReadConnectionPreferences(&g_preferences)) return false;
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
       "Device=%s auto-connect=%d paired=%d\n", g_status.device_id,
       g_preferences.enabled, g_preferences.count != 0);
@@ -763,20 +794,32 @@ void ConfirmAppConnection(uint32_t request_id, bool allow) {
       session == nullptr || NowMs() >= session->until ||
       session->close_requested)
     return;
-  allow =
-      allow && g_preferences.count < kAppCredentialCapacity && g_active_fd < 0;
+  const size_t index = ClientCredentialIndex(session->client_id);
+  const bool replacing = index < g_preferences.count;
+  allow = allow && (replacing || g_preferences.count < kAppCredentialCapacity) &&
+          g_active_fd < 0;
   if (allow) {
     auto updated = g_preferences;
-    auto& client = updated.clients[updated.count];
+    // 用户重新确认后轮换密钥并复用原槽位，保留排序；满额也允许更新自身。
+    auto& client = updated.clients[index];
     RandomHex(client.token);
+    std::snprintf(client.client_id, sizeof(client.client_id), "%s", session->client_id);
     std::snprintf(
         client.client_name, sizeof(client.client_name), "%s", session->name);
     allow = MakeAppCredentialId(client.token, client.id);
     if (allow) {
-      ++updated.count;
+      if (!replacing) ++updated.count;
       allow = UpdateConnectionPreferences(updated);
     }
     if (allow) {
+      if (replacing) {
+        const char* previous_id = g_preferences.clients[index].id;
+        if (auto* paused = PausedApp(previous_id)) paused[0] = '\0';
+        for (auto& other : g_sessions)
+          if (other.fd >= 0 && other.fd != session->fd &&
+              std::strcmp(other.credential_id, previous_id) == 0)
+            other.close_requested = true;
+      }
       g_preferences = updated;
       std::snprintf(session->credential_id, sizeof(session->credential_id),
           "%s", client.id);
