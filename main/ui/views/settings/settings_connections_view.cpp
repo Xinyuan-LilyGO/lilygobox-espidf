@@ -2,7 +2,7 @@
  * @Description: 展示应用连接状态、自动连接、授权管理和拖动优先级排序。
  * @Author: LILYGO_L
  * @Date: 2026-10-04 18:37:01
- * @LastEditTime: 2026-10-06 13:51:00
+ * @LastEditTime: 2026-10-07 10:17:40
  * @License: GPL 3.0
  */
 #include <algorithm>
@@ -124,8 +124,11 @@ bool CreateConnectionStatusRow(lv_obj_t* body, ConnectionView* view, int y) {
   lv_obj_update_layout(view->disconnect_button);
   const int text_width = width - 2 * kBasicSidePadding -
                          lv_obj_get_width(view->disconnect_button) - 28;
-  lv_obj_set_size(title, text_width, lv_font_get_line_height(Font28()));
-  lv_label_set_long_mode(title, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  // 主标题仅保留 12 像素按钮间距，确保完整显示且不滚动。
+  const int title_width = width - 2 * kBasicSidePadding -
+                          lv_obj_get_width(view->disconnect_button) - 12;
+  lv_obj_set_size(title, title_width, lv_font_get_line_height(Font28()));
+  lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_CLIP);
   lv_obj_set_pos(title, kBasicSidePadding, 12);
   lv_obj_set_size(
       view->connection_name, text_width, lv_font_get_line_height(Font22()));
