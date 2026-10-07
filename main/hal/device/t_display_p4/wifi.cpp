@@ -508,15 +508,9 @@ bool TDisplayP4Device::ReadWifiStatus(WifiStatus* status) {
   }
 
   if (status->connected) {
-    wifi_ap_record_t ap_info = {};
-    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
-      std::memcpy(status->ssid, ap_info.ssid,
-          std::min(sizeof(status->ssid) - 1, sizeof(ap_info.ssid)));
-      status->rssi = ap_info.rssi;
-      status->channel = ap_info.primary;
-      wifi_.rssi.store(status->rssi);
-      wifi_.channel.store(status->channel);
-    }
+    portENTER_CRITICAL(&wifi_.link_cache_lock);
+    std::memcpy(status->ssid, wifi_.connected_ssid, sizeof(status->ssid));
+    portEXIT_CRITICAL(&wifi_.link_cache_lock);
   }
 
   const int64_t synced_unix_time = wifi_time_test_.sntp_unix_time.load();
@@ -533,6 +527,29 @@ bool TDisplayP4Device::ReadWifiStatus(WifiStatus* status) {
     }
   }
   return true;
+}
+
+void TDisplayP4Device::RefreshWifiSignal() {
+  if (!wifi_.connected.load() || wifi_.stop_requested.load() ||
+      wifi_.scan_running.load() || wifi_.scan_task_running.load()) {
+    return;
+  }
+  portENTER_CRITICAL(&wifi_.link_cache_lock);
+  const uint32_t generation = wifi_.link_generation;
+  portEXIT_CRITICAL(&wifi_.link_cache_lock);
+
+  wifi_ap_record_t ap_info = {};
+  if (esp_wifi_sta_get_ap_info(&ap_info) != ESP_OK) {
+    return;
+  }
+
+  portENTER_CRITICAL(&wifi_.link_cache_lock);
+  if (wifi_.connected.load() && !wifi_.stop_requested.load() &&
+      generation == wifi_.link_generation) {
+    wifi_.rssi.store(ap_info.rssi);
+    wifi_.channel.store(ap_info.primary);
+  }
+  portEXIT_CRITICAL(&wifi_.link_cache_lock);
 }
 
 void TDisplayP4Device::WifiInitTaskEntry(void* context) {
@@ -1222,14 +1239,25 @@ void TDisplayP4Device::WifiEventHandler(
       self->wifi_.last_error.store(ESP_OK);
       break;
     case WIFI_EVENT_STA_CONNECTED: {
+      // SSID 和信道直接来自关联事件，无需在 UI 读取时再次查询驱动。
+      portENTER_CRITICAL(&self->wifi_.link_cache_lock);
+      ++self->wifi_.link_generation;
+      std::memset(
+          self->wifi_.connected_ssid, 0, sizeof(self->wifi_.connected_ssid));
+      self->wifi_.rssi.store(-127);
+      self->wifi_.channel.store(0);
+      if (event_data != nullptr) {
+        const auto* connected =
+            static_cast<wifi_event_sta_connected_t*>(event_data);
+        std::memcpy(self->wifi_.connected_ssid, connected->ssid,
+            std::min(
+                static_cast<size_t>(connected->ssid_len), kWifiSsidMaxLength));
+        self->wifi_.channel.store(connected->channel);
+      }
       self->wifi_.connected.store(true);
+      portEXIT_CRITICAL(&self->wifi_.link_cache_lock);
       self->wifi_.got_ip.store(false);
       self->wifi_.retry_count.store(0);
-      wifi_ap_record_t ap_info = {};
-      if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
-        self->wifi_.rssi.store(ap_info.rssi);
-        self->wifi_.channel.store(ap_info.primary);
-      }
       uint8_t mac_address[6] = {};
       if (esp_wifi_get_mac(WIFI_IF_STA, mac_address) == ESP_OK) {
         self->wifi_.mac_address.store(wifi_utils::PackMacAddress(mac_address));

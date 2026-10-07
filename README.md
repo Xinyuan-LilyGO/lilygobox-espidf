@@ -17,8 +17,9 @@
 
 | Device | Main SoC | Wireless Co-processor | Status | Description |
 | --- | --- | --- | --- | --- |
-| T-Display-P4-Air | ESP32-P4 | ESP32-C5 | Supported | Current default; independent Air hardware driver |
-| T-Display-P4 | ESP32-P4 | ESP32-C6 | Supported | Original hardware; independent legacy driver |
+| T-Display-P4 V1 | ESP32-P4 | ESP32-C6 | Supported | Repository default device and version |
+| T-Display-P4 V2 | ESP32-P4 | ESP32-C5 | Supported | Select V2 in the device version options |
+| T-Display-P4-Air | ESP32-P4 | ESP32-C5 | Supported | Independent Air hardware driver |
 
 T-Display-P4-Air and T-Display-P4 are different devices. Their hardware
 drivers are kept in separate directories and must not be selected at the same
@@ -53,7 +54,7 @@ Open an ESP-IDF terminal in the project directory, then select the ESP32-P4 targ
 idf.py set-target esp32p4
 ```
 
-The default configuration selects T-Display-P4-Air with the ESP32-C5 wireless
+The repository defaults to T-Display-P4 V1 with the ESP32-C6 wireless
 co-processor. To review the device, camera, screen color, wireless
 co-processor, or log settings, run:
 
@@ -63,10 +64,9 @@ idf.py menuconfig
 
 Device-related options are under `lilygo_device_driver configuration`, and application log options are under `LilygoBox Configuration`. These options select the startup defaults; the application can change both minimum log levels at runtime through their thread-safe `SetMinimumLogLevel()` APIs.
 
-When switching to the original T-Display-P4, select its independent device
-option and change the ESP-Hosted slave target to ESP32-C6. When switching back
-to T-Display-P4-Air, select the Air device option and ESP32-C5 together. A
-configuration mismatch is rejected during the build.
+Select the matching hardware version: T-Display-P4 V1 uses ESP32-C6, while
+T-Display-P4 V2 and T-Display-P4-Air use ESP32-C5. The ESP-Hosted slave target
+must match the hardware.
 
 ### Build
 

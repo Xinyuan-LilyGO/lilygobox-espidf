@@ -133,6 +133,10 @@ void NetworkMonitor::RunTask() {
   bool verification_active = false;
   int64_t verification_started_ms = 0;
   while (true) {
+    // 协处理器查询可能等待通信响应，集中放在后台执行，UI 只读取缓存。
+    if (wifi_ != nullptr) {
+      wifi_->RefreshWifiSignal();
+    }
     hal::WifiStatus wifi_status;
     if (wifi_ == nullptr || !wifi_->ReadWifiStatus(&wifi_status) ||
         !wifi_status.got_ip || wifi_status.time_test_running) {

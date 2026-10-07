@@ -280,8 +280,12 @@ void SetWifiRefreshIconRotation(void* object, int32_t value) {
   if (object == nullptr) {
     return;
   }
-  lv_obj_set_style_transform_rotation(
-      static_cast<lv_obj_t*>(object), value % 3600, LV_PART_MAIN);
+  auto* icon = static_cast<lv_obj_t*>(object);
+  const int32_t rotation = value % 3600;
+  // 角度未变化时不触发样式更新，避免停止动画后重复重绘。
+  if (lv_obj_get_style_transform_rotation(icon, LV_PART_MAIN) != rotation) {
+    lv_obj_set_style_transform_rotation(icon, rotation, LV_PART_MAIN);
+  }
 }
 
 /**
@@ -1489,8 +1493,12 @@ void UpdateWifiConnectedSignalIcon(SettingsViewState* state) {
     return;
   }
 
-  lv_label_set_text(
-      state->wifi_connected_signal_icon, WifiSignalIconForRssi(status.rssi));
+  const char* signal_icon = WifiSignalIconForRssi(status.rssi);
+  // 信号等级没有变化时保留标签，避免每次轮询都触发文本重绘。
+  if (std::strcmp(lv_label_get_text(state->wifi_connected_signal_icon),
+          signal_icon) != 0) {
+    lv_label_set_text(state->wifi_connected_signal_icon, signal_icon);
+  }
 }
 
 void RequestWifiScan(SettingsViewState* state, bool force) {

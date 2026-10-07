@@ -17,8 +17,9 @@
 
 | 设备 | 主控 | 无线协处理器 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
-| T-Display-P4-Air | ESP32-P4 | ESP32-C5 | 支持 | 当前默认配置；使用独立的 Air 硬件驱动 |
-| T-Display-P4 | ESP32-P4 | ESP32-C6 | 支持 | 原版硬件；保留独立的原版驱动 |
+| T-Display-P4 V1 | ESP32-P4 | ESP32-C6 | 支持 | 仓库默认设备与版本 |
+| T-Display-P4 V2 | ESP32-P4 | ESP32-C5 | 支持 | 在设备版本选项中选择 V2 |
+| T-Display-P4-Air | ESP32-P4 | ESP32-C5 | 支持 | 独立的 Air 硬件驱动 |
 
 T-Display-P4-Air 与 T-Display-P4 是两个不同的设备。两者的硬件驱动分别
 放在独立目录中，不应同时选中：Air 使用
@@ -53,7 +54,7 @@ git submodule update --init --recursive
 idf.py set-target esp32p4
 ```
 
-默认配置已经选择 T-Display-P4-Air 和 ESP32-C5 无线协处理器。如需检查
+仓库默认选择 T-Display-P4，硬件版本默认值为 V1，对应 ESP32-C6。如需检查
 设备、相机、屏幕色彩格式、无线协处理器或日志配置，请执行：
 
 ```bash
@@ -62,10 +63,9 @@ idf.py menuconfig
 
 设备相关选项位于 `lilygo_device_driver configuration`，应用日志选项位于 `LilygoBox Configuration`。这些选项用于选择启动默认值，应用可以在运行时通过各自线程安全的 `SetMinimumLogLevel()` 接口动态调整最低日志等级。
 
-切换到原版 T-Display-P4 时，需要选择其独立设备选项，并把 ESP-Hosted
-从机目标改为 ESP32-C6；切换回 T-Display-P4-Air 时，则需要同时选择 Air
-设备选项和 ESP32-C5。工程会在构建时拒绝不匹配的配置，避免为错误的无线
-协处理器生成固件。
+选择 T-Display-P4 时，还需检查 V1/V2 版本：V1 对应 ESP32-C6，V2 对应
+ESP32-C5；T-Display-P4-Air 对应 ESP32-C5。ESP-Hosted 从机目标必须匹配
+硬件。详细配置见[编译与烧录](docs/build-and-flash.md)。
 
 ### 编译
 

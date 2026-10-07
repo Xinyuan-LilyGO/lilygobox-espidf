@@ -152,11 +152,17 @@ class WifiProvider {
   virtual bool StopWifiTimeTest() = 0;
 
   /**
-   * @brief 读取 hosted WiFi 连接、DHCP 和时间同步状态
+   * @brief 读取本地缓存的 WiFi 连接、DHCP 和时间同步状态，不等待协处理器响应
    * @param status WiFi 状态输出地址
    * @return 读取成功返回 true，否则返回 false
    */
   virtual bool ReadWifiStatus(WifiStatus* status) = 0;
+
+  /**
+   * @brief 从 WiFi 协处理器刷新信号缓存，仅允许后台任务调用
+   * @note 此接口包含同步通信，不得在 LVGL 线程或持有 UI 锁时调用。
+   */
+  virtual void RefreshWifiSignal() = 0;
 };
 
 }  // namespace lilygo_box::hal

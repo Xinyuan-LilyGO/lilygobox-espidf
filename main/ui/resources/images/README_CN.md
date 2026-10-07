@@ -19,11 +19,10 @@
 python main/ui/resources/images/generate_images.py --check-only
 ```
 
-使用指定 Node 重新生成全部图片：
+使用 PATH 中的 Node.js 重新生成全部图片：
 
 ```powershell
-python main/ui/resources/images/generate_images.py `
-  --node D:\node-v24.18.0-win-x64\node.exe
+python main/ui/resources/images/generate_images.py
 ```
 
 Python 工具负责管理和安全检查，Node 工具负责 SVG 渲染。生成后会检查对象

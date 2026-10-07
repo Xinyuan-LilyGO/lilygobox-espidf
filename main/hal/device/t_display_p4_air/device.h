@@ -612,11 +612,17 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   bool StopWifiTimeTest() override;
 
   /**
-   * @brief 读取 hosted WiFi 连接和 SNTP 时间同步状态
+   * @brief 读取 WiFi 本地连接和 SNTP 状态快照，不发起同步 RPC
    * @param status WiFi 状态输出地址
    * @return 读取成功返回 true，否则返回 false
    */
   bool ReadWifiStatus(WifiStatus* status) override;
+
+  /**
+   * @brief 在后台刷新 WiFi 信号缓存，扫描期间复用上次结果
+   * @note 包含同步 RPC，不得在 LVGL 线程调用；重连后丢弃旧请求的结果。
+   */
+  void RefreshWifiSignal() override;
 
   /**
    * @brief 确保 SD 卡已经挂载到文件系统
@@ -1298,6 +1304,12 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   };
 
   struct WifiState {
+    // 仅保护 SSID 和关联版本号的短时内存操作，不在锁内调用驱动。
+    portMUX_TYPE link_cache_lock = portMUX_INITIALIZER_UNLOCKED;
+    // 由关联事件写入的当前热点名称。
+    char connected_ssid[kWifiSsidMaxLength + 1] = {};
+    // 每次关联热点递增，防止慢查询覆盖重连后的信号。
+    uint32_t link_generation = 0;
     // esp_hosted 桥接组件是否已经初始化完成
     std::atomic<bool> hosted_bridge_initialized{false};
     // hosted WiFi 初始化任务是否正在运行
