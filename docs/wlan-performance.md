@@ -8,7 +8,7 @@ ESP32-P4 上，WLAN 扫描得到列表后可能出现明显的页面滚动卡顿
 
 ## 内存分配策略
 
-实现在 [main/hal/lvgl_memory.cpp](../main/hal/lvgl_memory.cpp)。[main/CMakeLists.txt](../main/CMakeLists.txt) 使用链接器包装将 `lv_malloc_core` 和 `lv_realloc_core` 指向项目内的适配函数，不修改托管的 LVGL 依赖。
+分配策略集中在 [main/base/memory.cpp](../main/base/memory.cpp)，由 [main/hal/lvgl_memory.cpp](../main/hal/lvgl_memory.cpp) 接入 LVGL。[main/CMakeLists.txt](../main/CMakeLists.txt) 包装 `lv_malloc_core`、`lv_realloc_core` 和 `lv_free_core`，在保持内存策略的同时统计分配及释放，不修改托管的 LVGL 依赖。公共接口见[内存分配管理](memory-management.md)。
 
 | 内存类型 | 能力约束 | 用途 |
 | --- | --- | --- |
@@ -20,7 +20,7 @@ ESP32-P4 上，WLAN 扫描得到列表后可能出现明显的页面滚动卡顿
 - `DMA` 在此用于排除 ESP32-P4 的 RTC RAM/TCM，不表示所有 LVGL 对象都要进行 DMA 传输。
 - `DEFAULT` 避免占用系统专门为 SDIO 等用途保留的内部/DMA 内存池。
 - 大小分界继续使用 `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL`；大分配先尝试 PSRAM，小分配先尝试高速内部堆。
-- 首选区域分配失败时尝试另一种区域；扩容遵循同一策略，释放仍兼容系统 `free`。
+- 首选区域分配失败时尝试另一种区域；扩容遵循同一策略。释放通过公共接口扣除模块统计，再调用系统堆释放函数，不得绕过公共统计入口。
 
 包装仅在 ESP32-P4 且 LVGL 使用 C 标准库内存分配器时启用。更换 LVGL 分配器、链接配置或 ESP-IDF 版本后，需要重新确认包装入口和内存区域能力标志。
 

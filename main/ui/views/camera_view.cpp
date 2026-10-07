@@ -15,7 +15,7 @@
 #include <new>
 
 #include "base/logger.h"
-#include "esp_heap_caps.h"
+#include "base/memory.h"
 #include "hal/providers/camera_provider.h"
 #include "ui/input/edge_swipe_indicator.h"
 #include "ui/resources/fonts/font_assets.h"
@@ -312,12 +312,13 @@ bool EnsureFrameBuffer(CameraViewState* state, size_t required_size) {
   }
 
   if (state->frame_buffer != nullptr) {
-    heap_caps_free(state->frame_buffer);
+    memory::Free(state->frame_buffer, memory::Module::kCamera);
     state->frame_buffer = nullptr;
     state->frame_buffer_size = 0;
   }
   state->frame_buffer =
-      static_cast<uint8_t*>(heap_caps_malloc(required_size, MALLOC_CAP_SPIRAM));
+      static_cast<uint8_t*>(memory::Allocate(required_size,
+          memory::Policy::kPsram, memory::Module::kCamera));
   if (state->frame_buffer == nullptr) {
     return false;
   }
@@ -455,7 +456,7 @@ void CameraViewDeleteEventCallback(lv_event_t* event) {
     }
   }
   if (state->frame_buffer != nullptr) {
-    heap_caps_free(state->frame_buffer);
+    memory::Free(state->frame_buffer, memory::Module::kCamera);
     state->frame_buffer = nullptr;
     state->frame_buffer_size = 0;
   }

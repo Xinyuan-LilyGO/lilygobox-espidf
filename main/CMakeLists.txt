@@ -84,7 +84,7 @@ idf_component_register(
 
 if(CONFIG_IDF_TARGET_ESP32P4 AND CONFIG_LV_USE_CLIB_MALLOC)
     # 使用 hal/lvgl_memory.cpp 的分配策略，避免 WLAN 启动后 LVGL 落入 RTC RAM。
-    foreach(symbol lv_malloc_core lv_realloc_core)
+    foreach(symbol lv_malloc_core lv_realloc_core lv_free_core)
         target_link_options(${COMPONENT_LIB} INTERFACE
             "-Wl,--wrap=${symbol}" "-Wl,--undefined=__wrap_${symbol}")
     endforeach()

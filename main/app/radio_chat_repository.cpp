@@ -22,7 +22,7 @@
 #include "app/storage/littlefs_storage.h"
 #include "app/storage/storage_internal.h"
 #include "base/logger.h"
-#include "esp_heap_caps.h"
+#include "base/memory.h"
 #include "esp_random.h"
 
 namespace lilygo_box::app {
@@ -425,8 +425,8 @@ class RadioChatRepository::ScopedLock final {
 };
 
 RadioChatRepository::~RadioChatRepository() {
-  heap_caps_free(entries_);
-  heap_caps_free(profile_states_);
+  memory::Free(entries_, memory::Module::kRadio);
+  memory::Free(profile_states_, memory::Module::kRadio);
 }
 
 bool RadioChatRepository::Lock() const {
@@ -447,24 +447,24 @@ bool RadioChatRepository::InitializeCache() {
   if (entries_ != nullptr && profile_states_ != nullptr) {
     return true;
   }
-  entries_ = static_cast<Entry*>(heap_caps_calloc(kRadioChatGlobalCapacity,
-      sizeof(Entry), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  entries_ = static_cast<Entry*>(memory::AllocateZeroed(kRadioChatGlobalCapacity,
+      sizeof(Entry), memory::Policy::kPsram, memory::Module::kRadio));
   if (entries_ != nullptr) {
     capacity_ = kRadioChatGlobalCapacity;
   } else {
-    entries_ = static_cast<Entry*>(heap_caps_calloc(kFallbackGlobalCapacity,
-        sizeof(Entry), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    entries_ = static_cast<Entry*>(memory::AllocateZeroed(kFallbackGlobalCapacity,
+        sizeof(Entry), memory::Policy::kFastInternal, memory::Module::kRadio));
     capacity_ = entries_ == nullptr ? 0 : kFallbackGlobalCapacity;
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Radio chat PSRAM allocation failed, capacity=%u\n",
         static_cast<unsigned>(capacity_));
   }
   profile_states_ =
-      static_cast<ProfileState*>(heap_caps_calloc(kRadioProfileCapacity,
-          sizeof(ProfileState), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+      static_cast<ProfileState*>(memory::AllocateZeroed(kRadioProfileCapacity,
+          sizeof(ProfileState), memory::Policy::kFastInternal, memory::Module::kRadio));
   if (entries_ == nullptr || profile_states_ == nullptr) {
-    heap_caps_free(entries_);
-    heap_caps_free(profile_states_);
+    memory::Free(entries_, memory::Module::kRadio);
+    memory::Free(profile_states_, memory::Module::kRadio);
     entries_ = nullptr;
     profile_states_ = nullptr;
     capacity_ = 0;
