@@ -1583,7 +1583,7 @@ bool Application::ApplySpeakerVolume(int percent, bool commit) {
     return false;
   }
   const int clamped_percent = std::clamp(percent, 0, 100);
-  if (!device_provider_context_.audio->SetSpeakerVolumePercent(
+  if (!device_provider_context_.audio->RequestSpeakerVolumePercent(
           clamped_percent)) {
     return false;
   }

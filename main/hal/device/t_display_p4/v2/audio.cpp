@@ -238,6 +238,11 @@ bool TDisplayP4Device::SetSpeakerVolumePercent(int percent) {
 
   const uint8_t volume =
       device_utils::PercentToUint8Value(percent, kAudioVolumeMax);
+  // 休眠时只保存目标音量，后台试听唤醒 codec 后统一恢复，不写关闭的句柄。
+  if (!speaker_.running.load() && !microphone_.running.load()) {
+    g_speaker_volume_percent.store(volume);
+    return true;
+  }
   const bool result =
       esp_codec_dev_set_out_vol(driver_.es8389_output_codec_dev(), volume) ==
       ESP_CODEC_DEV_OK;
@@ -554,6 +559,10 @@ bool TDisplayP4Device::UpdateAudioCodecOperatingMode() {
     // 休眠会关闭 codec 句柄，唤醒后必须重新应用当前采样率。
     speaker_.sample_rate_hz.store(0);
   } else if (result && driver_.es8389_output_codec_dev() != nullptr) {
+    // 从休眠唤醒时驱动已按板级默认采样率打开 TX/RX，避免 Configure 再关开一遍。
+    if (speaker_.sample_rate_hz.load() == 0) {
+      speaker_.sample_rate_hz.store(device::es8389::kSampleRate);
+    }
     if (esp_codec_dev_set_out_vol(driver_.es8389_output_codec_dev(),
             g_speaker_volume_percent.load()) != ESP_CODEC_DEV_OK) {
       return false;

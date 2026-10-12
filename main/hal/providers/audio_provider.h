@@ -79,6 +79,14 @@ class AudioProvider {
   virtual bool SetSpeakerVolumePercent(int percent) = 0;
 
   /**
+   * @brief 向后台提交音量请求，连续拖动只保留最新值，UI 不等待硬件
+   * @param percent 音量百分比，范围 0~100
+   * @param preview 是否循环试听；松开滑动条时传入 false
+   * @return 请求提交成功返回 true，不代表硬件已经应用成功
+   */
+  bool RequestSpeakerVolumePercent(int percent, bool preview = false);
+
+  /**
    * @brief 读取扬声器音频播放状态
    * @param status 播放状态输出地址
    * @return 读取成功返回 true，否则返回 false

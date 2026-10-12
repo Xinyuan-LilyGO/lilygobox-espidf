@@ -87,8 +87,8 @@ void VolumeSliderChangedEventCallback(lv_event_t* event) {
     state->audio_volume_percent = SliderPercentFromEvent(event);
     PlaySettingsHapticPreview(state);
     if (state->config.audio != nullptr) {
-      state->config.audio->SetSpeakerVolumePercent(state->audio_volume_percent);
-      state->config.audio->StartSpeakerToneLoop();
+      state->config.audio->RequestSpeakerVolumePercent(
+          state->audio_volume_percent, true);
     }
   }
 }
@@ -100,8 +100,8 @@ void VolumeSliderChangedEventCallback(lv_event_t* event) {
 void VolumeSliderPressedEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (state != nullptr && state->config.audio != nullptr) {
-    state->config.audio->SetSpeakerVolumePercent(state->audio_volume_percent);
-    state->config.audio->StartSpeakerToneLoop();
+    state->config.audio->RequestSpeakerVolumePercent(
+        state->audio_volume_percent, true);
   }
 }
 
@@ -113,7 +113,10 @@ void VolumeSliderReleasedEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (state != nullptr) {
     if (state->config.audio != nullptr) {
+      // 停止标志为非阻塞操作，先中止试听，避免后台音量请求等待播放锁时继续循环。
       state->config.audio->StopSpeakerToneLoop();
+      state->config.audio->RequestSpeakerVolumePercent(
+          state->audio_volume_percent, false);
     }
     SaveSoundPreferences(state);
   }
