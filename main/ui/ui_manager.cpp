@@ -1912,6 +1912,8 @@ void UiManager::RefreshSystemStatusNow() { RefreshSystemStatus(); }
  */
 void UiManager::RefreshAppConnectionPrompt() {
   const auto status = app::ReadAppConnectionStatus();
+  // connected 仅在认证完成并成功发送就绪响应后置位，不以 Wi-Fi/待确认代替。
+  status_bar_.SetAppConnected(status.connected);
   if (!status.pending || lock_screen_ != nullptr || startup_screen_ != nullptr ||
       first_boot_welcome_screen_ != nullptr || power_menu_ != nullptr) {
     ClosePromptDialog(&app_connection_prompt_);

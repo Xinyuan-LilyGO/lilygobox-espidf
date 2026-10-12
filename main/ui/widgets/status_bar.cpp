@@ -69,7 +69,7 @@ const lv_font_t* MaterialFillIconFont32() {
  * @brief 获取键盘状态使用的 38 号 Weight 300 轮廓字体
  * @return 字体指针
  */
-const lv_font_t* KeyboardOutlineIconFont38() {
+const lv_font_t* ConnectivityOutlineIconFont38() {
   return &lvgl_font_material_symbols_outline_w300_38;
 }
 
@@ -228,10 +228,12 @@ void UpdateBatteryFill(
 /**
  * @brief 将连接状态图标依次排列在电池图标左侧
  * @param keyboard_expansion 键盘扩展图标
+ * @param app_connection 应用连接图标
  * @param wifi WiFi 图标
  * @param battery_management 电池图标
  */
-void AlignConnectivityIcons(lv_obj_t* keyboard_expansion, lv_obj_t* wifi,
+void AlignConnectivityIcons(lv_obj_t* keyboard_expansion,
+    lv_obj_t* app_connection, lv_obj_t* wifi,
     lv_obj_t* battery_management) {
   if (wifi == nullptr || battery_management == nullptr) {
     return;
@@ -242,6 +244,16 @@ void AlignConnectivityIcons(lv_obj_t* keyboard_expansion, lv_obj_t* wifi,
     lv_obj_t* keyboard_anchor =
         lv_obj_has_flag(wifi, LV_OBJ_FLAG_HIDDEN) ? battery_management : wifi;
     lv_obj_align_to(keyboard_expansion, keyboard_anchor, LV_ALIGN_OUT_LEFT_MID,
+        kStatusBarIconGap, 0);
+  }
+  if (app_connection != nullptr) {
+    lv_obj_t* anchor = lv_obj_has_flag(wifi, LV_OBJ_FLAG_HIDDEN)
+                           ? battery_management : wifi;
+    if (keyboard_expansion != nullptr &&
+        !lv_obj_has_flag(keyboard_expansion, LV_OBJ_FLAG_HIDDEN)) {
+      anchor = keyboard_expansion;
+    }
+    lv_obj_align_to(app_connection, anchor, LV_ALIGN_OUT_LEFT_MID,
         kStatusBarIconGap, 0);
   }
 }
@@ -345,15 +357,24 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
   lv_obj_add_flag(wifi_label_, LV_OBJ_FLAG_HIDDEN);
 
   keyboard_expansion_label_ = CreateLabel(object_, icon::kKeyboard,
-      lv_color_hex(text_color_hex_), KeyboardOutlineIconFont38());
+      lv_color_hex(text_color_hex_), ConnectivityOutlineIconFont38());
   if (keyboard_expansion_label_ == nullptr) {
     lv_obj_delete(object_);
     object_ = nullptr;
     return false;
   }
   lv_obj_add_flag(keyboard_expansion_label_, LV_OBJ_FLAG_HIDDEN);
+  app_connection_label_ = CreateLabel(object_, icon::kDevices,
+      lv_color_hex(text_color_hex_), &lvgl_font_material_symbols_fill_w300_34);
+  if (app_connection_label_ == nullptr) {
+    lv_obj_delete(object_);
+    object_ = nullptr;
+    return false;
+  }
+  lv_obj_add_flag(app_connection_label_, LV_OBJ_FLAG_HIDDEN);
   AlignConnectivityIcons(
-      keyboard_expansion_label_, wifi_label_, battery_management_label_);
+      keyboard_expansion_label_, app_connection_label_, wifi_label_,
+      battery_management_label_);
 
   return true;
 }
@@ -428,7 +449,8 @@ void StatusBar::SetBatteryStatus(int percent, bool charging) {
     lv_obj_move_to_index(battery_management_bolt_label_, -1);
   }
   AlignConnectivityIcons(
-      keyboard_expansion_label_, wifi_label_, battery_management_label_);
+      keyboard_expansion_label_, app_connection_label_, wifi_label_,
+      battery_management_label_);
 }
 
 void StatusBar::MoveToTop() {
@@ -449,7 +471,8 @@ void StatusBar::SetWifiStatus(
     wifi_signal_level_ = -1;
     lv_obj_add_flag(wifi_label_, LV_OBJ_FLAG_HIDDEN);
     AlignConnectivityIcons(
-        keyboard_expansion_label_, wifi_label_, battery_management_label_);
+        keyboard_expansion_label_, app_connection_label_, wifi_label_,
+      battery_management_label_);
     return;
   }
 
@@ -467,7 +490,8 @@ void StatusBar::SetWifiStatus(
                                      : WifiIconForSignalLevel(signal_level));
   lv_obj_remove_flag(wifi_label_, LV_OBJ_FLAG_HIDDEN);
   AlignConnectivityIcons(
-      keyboard_expansion_label_, wifi_label_, battery_management_label_);
+      keyboard_expansion_label_, app_connection_label_, wifi_label_,
+      battery_management_label_);
 }
 
 void StatusBar::SetKeyboardExpansionConnected(bool connected) {
@@ -483,7 +507,20 @@ void StatusBar::SetKeyboardExpansionConnected(bool connected) {
     lv_obj_add_flag(keyboard_expansion_label_, LV_OBJ_FLAG_HIDDEN);
   }
   AlignConnectivityIcons(
-      keyboard_expansion_label_, wifi_label_, battery_management_label_);
+      keyboard_expansion_label_, app_connection_label_, wifi_label_,
+      battery_management_label_);
+}
+
+void StatusBar::SetAppConnected(bool connected) {
+  if (app_connection_label_ == nullptr || app_connected_ == connected) return;
+  app_connected_ = connected;
+  if (connected) {
+    lv_obj_remove_flag(app_connection_label_, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(app_connection_label_, LV_OBJ_FLAG_HIDDEN);
+  }
+  AlignConnectivityIcons(keyboard_expansion_label_, app_connection_label_,
+      wifi_label_, battery_management_label_);
 }
 
 void StatusBar::SetTextColor(lv_color_t color) {
@@ -496,6 +533,9 @@ void StatusBar::SetTextColor(lv_color_t color) {
   }
   if (keyboard_expansion_label_ != nullptr) {
     lv_obj_set_style_text_color(keyboard_expansion_label_, color, LV_PART_MAIN);
+  }
+  if (app_connection_label_ != nullptr) {
+    lv_obj_set_style_text_color(app_connection_label_, color, LV_PART_MAIN);
   }
   if (battery_management_label_ != nullptr) {
     lv_obj_set_style_text_color(

@@ -51,6 +51,12 @@ class StatusBar final {
   void SetKeyboardExpansionConnected(bool connected);
 
   /**
+   * @brief 设置应用认证连接状态图标
+   * @param connected 是否有已完成认证的应用连接
+   */
+  void SetAppConnected(bool connected);
+
+  /**
    * @brief 获取状态栏对象
    * @return 状态栏对象指针
    */
@@ -77,6 +83,7 @@ class StatusBar final {
   lv_obj_t* object_ = nullptr;
   lv_obj_t* time_label_ = nullptr;
   lv_obj_t* keyboard_expansion_label_ = nullptr;
+  lv_obj_t* app_connection_label_ = nullptr;
   lv_obj_t* wifi_label_ = nullptr;
   lv_obj_t* battery_management_label_ = nullptr;
   lv_obj_t* battery_management_fill_ = nullptr;
@@ -89,6 +96,7 @@ class StatusBar final {
   char battery_management_percent_text_[8] = "--%";
   bool battery_management_charging_ = false;
   bool keyboard_expansion_connected_ = false;
+  bool app_connected_ = false;
   bool wifi_connected_ = false;
   bool wifi_internet_unavailable_ = false;
 };

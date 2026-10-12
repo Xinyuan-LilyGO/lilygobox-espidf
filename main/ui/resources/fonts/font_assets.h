@@ -24,6 +24,7 @@ extern const lv_font_t lvgl_font_google_sans_flex_48;
 extern const lv_font_t lvgl_font_google_sans_flex_64;
 extern const lv_font_t lvgl_font_material_symbols_fill_22;
 extern const lv_font_t lvgl_font_material_symbols_fill_32;
+extern const lv_font_t lvgl_font_material_symbols_fill_w300_34;
 extern const lv_font_t lvgl_font_material_symbols_fill_44;
 extern const lv_font_t lvgl_font_material_symbols_fill_56;
 extern const lv_font_t lvgl_font_material_symbols_outline_44;

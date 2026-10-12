@@ -33,6 +33,7 @@
       "exclude_icons": [
         "BatteryAndroid0",
         "Keyboard",
+        "Devices",
         "VolumeOff",
         "Repeat",
         "RepeatOne",
@@ -121,6 +122,21 @@
       "icons": ["Keyboard"]
     },
     {
+      "id": "material_rounded_fill_w300_34",
+      "object_name": "lvgl_font_material_symbols_fill_w300_34",
+      "style": "outline",
+      "size": 34,
+      "optical_size": 24,
+      "variation_axes": {
+        "FILL": 1,
+        "GRAD": 0,
+        "opsz": 24,
+        "wght": 300
+      },
+      "output": "main/ui/resources/fonts/icons/lvgl_font_material_rounded_fill_w300_34.c",
+      "icons": ["Devices"]
+    },
+    {
       "id": "material_rounded_outline_56",
       "object_name": "lvgl_font_material_symbols_outline_56",
       "style": "outline",
@@ -131,6 +147,7 @@
       "exclude_icons": [
         "Camera",
         "Keyboard",
+        "Devices",
         "Music",
         "SdStorage",
         "SettingsInputAntenna",
@@ -168,6 +185,7 @@
     "ChevronRight": {"cpp_name": "kChevronRight", "codepoint": 58828},
     "Close": {"cpp_name": "kClose", "codepoint": 58829},
     "Delete": {"cpp_name": "kDelete", "codepoint": 59694},
+    "Devices": {"cpp_name": "kDevices", "codepoint": 57777},
     "Draft": {"cpp_name": "kDraft", "codepoint": 58989},
     "File": {"cpp_name": "kFile", "codepoint": 58989},
     "Folder": {"cpp_name": "kFolder", "codepoint": 58055},
