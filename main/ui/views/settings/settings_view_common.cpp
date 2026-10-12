@@ -7,6 +7,8 @@
  */
 #include <cstring>
 
+#include "ui/widgets/icon_button_style.h"
+
 #include "ui/input/press_cancel.h"
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
@@ -240,6 +242,7 @@ lv_obj_t* CreateToolbarButton(
   lv_obj_set_style_shadow_width(button, 0, LV_STATE_FOCUS_KEY);
   lv_obj_set_style_radius(button, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
+  ApplyCircularIconButtonFeedback(button);
   if (!AddPressCancelOnLeave(button)) {
     return nullptr;
   }

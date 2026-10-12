@@ -7,6 +7,8 @@
  */
 #include "ui/views/music_view.h"
 
+#include "ui/widgets/icon_button_style.h"
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -1847,6 +1849,7 @@ bool CreateSettingsStyleHeader(lv_obj_t* page, const char* title,
   lv_obj_set_style_bg_opa(back, LV_OPA_TRANSP, LV_STATE_PRESSED);
   lv_obj_add_event_cb(back, callback, LV_EVENT_CLICKED, state);
 
+  ApplyCircularIconButtonFeedback(back);
   lv_obj_t* back_icon = CreateLabel(back, icon::kArrowBack,
       lv_color_hex(theme::ActiveThemeColors().on_surface),
       MaterialOutlineIconFont44());

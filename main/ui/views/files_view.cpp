@@ -7,6 +7,8 @@
  */
 #include "ui/views/files_view.h"
 
+#include "ui/widgets/icon_button_style.h"
+
 #include <dirent.h>
 #include <sys/stat.h>
 
@@ -1857,6 +1859,7 @@ bool CreateHeader(lv_obj_t* parent, FilesViewState* state) {
     lv_obj_align(
         menu, LV_ALIGN_TOP_LEFT, kHeaderSidePadding - 8, kHeaderTop - 2);
   }
+  ApplyCircularIconButtonFeedback(menu);
   lv_obj_add_event_cb(menu,
       state->folder_picker_mode ? FolderPickerBackClickedEventCallback
                                 : MenuButtonClickedEventCallback,

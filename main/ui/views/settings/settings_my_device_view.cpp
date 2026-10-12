@@ -7,6 +7,8 @@
  */
 #include <cstdio>
 
+#include "ui/widgets/icon_button_style.h"
+
 #include "app/device_identity.h"
 #include "app/device_info_snapshot.h"
 #include "app/settings_catalog.h"
@@ -806,6 +808,7 @@ bool CreateMyDeviceHeader(
   lv_obj_set_style_shadow_width(back_button, 0, LV_STATE_FOCUS_KEY);
   lv_obj_set_style_radius(back_button, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(back_button, 0, LV_PART_MAIN);
+  ApplyCircularIconButtonFeedback(back_button);
   if (!AddPressCancelOnLeave(back_button)) {
     return false;
   }

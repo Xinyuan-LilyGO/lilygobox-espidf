@@ -7,6 +7,8 @@
  */
 #include "ui/views/radio_view.h"
 
+#include "ui/widgets/icon_button_style.h"
+
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -3628,6 +3630,7 @@ bool ShowModuleDetail(RadioViewState* state, size_t index) {
   lv_obj_set_pos(back, 18, 66);
   lv_obj_add_event_cb(
       back, DetailBackClickedEventCallback, LV_EVENT_CLICKED, state);
+  ApplyCircularIconButtonFeedback(back);
   lv_obj_t* back_icon = CreateLabel(back, icon::kArrowBack,
       theme::ActiveThemeColors().on_surface, OutlineIconFont44());
   if (back_icon != nullptr) {
@@ -3866,6 +3869,7 @@ bool CreateRadioSettingsHeader(lv_obj_t* page, RadioViewState* state) {
   lv_obj_set_style_bg_opa(back, LV_OPA_TRANSP, LV_STATE_PRESSED);
   lv_obj_add_event_cb(
       back, RadioSettingsBackClickedEventCallback, LV_EVENT_CLICKED, state);
+  ApplyCircularIconButtonFeedback(back);
   lv_obj_t* back_icon = CreateLabel(back, icon::kArrowBack,
       theme::ActiveThemeColors().on_surface, OutlineIconFont44());
   if (back_icon == nullptr) {
@@ -4927,6 +4931,7 @@ bool ShowProfileSettingsPage(RadioViewState* state, size_t index) {
   lv_obj_set_style_bg_opa(back, LV_OPA_TRANSP, LV_STATE_PRESSED);
   lv_obj_add_event_cb(
       back, ProfileSettingsBackClickedEventCallback, LV_EVENT_CLICKED, state);
+  ApplyCircularIconButtonFeedback(back);
   lv_obj_t* back_icon = CreateLabel(back, icon::kArrowBack,
       theme::ActiveThemeColors().on_surface, OutlineIconFont44());
   lv_obj_t* page_title = CreateLabel(page, "Profile settings",
@@ -7031,6 +7036,7 @@ bool ShowAutoSendSettingsPage(RadioViewState* state) {
   lv_obj_set_pos(back, 18, 66);
   lv_obj_add_event_cb(
       back, AutoSendBackClickedEventCallback, LV_EVENT_CLICKED, state);
+  ApplyCircularIconButtonFeedback(back);
   lv_obj_t* back_icon = CreateLabel(back, icon::kArrowBack,
       theme::ActiveThemeColors().on_surface, OutlineIconFont44());
   lv_obj_t* title = CreateLabel(
@@ -8064,6 +8070,7 @@ bool CreateAddModuleHeader(lv_obj_t* page, RadioViewState* state) {
   lv_obj_set_pos(back, 18, 66);
   lv_obj_add_event_cb(
       back, AddPageBackClickedEventCallback, LV_EVENT_CLICKED, state);
+  ApplyCircularIconButtonFeedback(back);
   lv_obj_t* icon_label = CreateLabel(back, icon::kArrowBack,
       theme::ActiveThemeColors().on_surface, OutlineIconFont44());
   if (icon_label == nullptr) {
