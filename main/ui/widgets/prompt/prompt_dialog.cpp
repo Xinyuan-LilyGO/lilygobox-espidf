@@ -205,9 +205,7 @@ bool CreateActionButtons(PromptDialogState* state,
   cancel_config.y = button_y;
   cancel_config.width = button_width;
   cancel_config.height = button_height;
-  cancel_config.radius = config.action_button_radius > 0
-                             ? config.action_button_radius
-                             : button_height / 2;
+  cancel_config.radius = LV_RADIUS_CIRCLE;
   cancel_config.background_color = config.cancel_background_color;
   cancel_config.pressed_background_color = config.cancel_pressed_color;
   cancel_config.text_color = config.cancel_text_color;
@@ -313,12 +311,20 @@ lv_obj_t* ShowPromptDialog(lv_obj_t* parent, PromptDialogState* state,
     return nullptr;
   }
   state->title_label = title;
-  lv_obj_set_pos(title, config.inner_padding, config.title_y);
+  // 标题顶部与底部操作按钮外侧留白一致；空标题保留自定义正文布局。
+  lv_obj_set_pos(title, config.inner_padding,
+      config.title[0] != '\0' ? config.action_bottom_padding : config.title_y);
   lv_obj_set_width(title, sheet_config.sheet_width - 2 * config.inner_padding);
   lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
   lv_obj_set_style_text_align(title, config.title_text_align, LV_PART_MAIN);
 
   int body_y = config.header_height;
+  if (config.fit_text_content) {
+    // 纯文字提示按实际文字底部排列，不保留固定标题区的空白。
+    lv_obj_update_layout(title);
+    body_y = lv_obj_get_y(title) + lv_obj_get_height(title) +
+             config.action_bottom_padding;
+  }
   if (config.subtitle != nullptr && config.subtitle[0] != '\0') {
     lv_obj_t* subtitle = CreatePromptSheetLabel(panel, config.subtitle,
         config.secondary_text_color, config.subtitle_font);
@@ -336,7 +342,9 @@ lv_obj_t* ShowPromptDialog(lv_obj_t* parent, PromptDialogState* state,
     lv_obj_update_layout(subtitle);
     const int subtitle_bottom =
         lv_obj_get_y(subtitle) + lv_obj_get_height(subtitle);
-    body_y = std::max(body_y, subtitle_bottom + config.subtitle_body_gap);
+    body_y = config.fit_text_content
+                 ? subtitle_bottom + config.action_bottom_padding
+                 : std::max(body_y, subtitle_bottom + config.subtitle_body_gap);
   }
 
   if (config.fit_text_content) {
@@ -418,7 +426,8 @@ lv_obj_t* UpdatePromptDialog(
   lv_obj_set_size(state->panel, panel_width, panel_height);
   lv_obj_set_pos(state->panel, panel_x, panel_y);
   lv_label_set_text(state->title_label, config.title);
-  lv_obj_set_pos(state->title_label, config.inner_padding, config.title_y);
+  lv_obj_set_pos(state->title_label, config.inner_padding,
+      config.title[0] != '\0' ? config.action_bottom_padding : config.title_y);
   lv_obj_set_width(state->title_label, panel_width - 2 * config.inner_padding);
   lv_label_set_long_mode(state->title_label, LV_LABEL_LONG_DOT);
   lv_obj_set_style_text_color(state->title_label,
@@ -431,6 +440,11 @@ lv_obj_t* UpdatePromptDialog(
       state->title_label, config.title_text_align, LV_PART_MAIN);
 
   int body_y = config.header_height;
+  if (config.fit_text_content) {
+    lv_obj_update_layout(state->title_label);
+    body_y = lv_obj_get_y(state->title_label) +
+             lv_obj_get_height(state->title_label) + config.action_bottom_padding;
+  }
   if (show_subtitle) {
     lv_label_set_text(state->subtitle_label, config.subtitle);
     lv_obj_set_width(
@@ -449,7 +463,9 @@ lv_obj_t* UpdatePromptDialog(
     lv_obj_update_layout(state->subtitle_label);
     const int subtitle_bottom = lv_obj_get_y(state->subtitle_label) +
                                 lv_obj_get_height(state->subtitle_label);
-    body_y = std::max(body_y, subtitle_bottom + config.subtitle_body_gap);
+    body_y = config.fit_text_content
+                 ? subtitle_bottom + config.action_bottom_padding
+                 : std::max(body_y, subtitle_bottom + config.subtitle_body_gap);
   }
 
   if (config.fit_text_content) {
@@ -476,9 +492,8 @@ lv_obj_t* UpdatePromptDialog(
   const int button_height = config.action_button_height;
   const int button_y = action_y + config.action_height -
                        config.action_bottom_padding - button_height;
-  const int button_radius = config.action_button_radius > 0
-                                ? config.action_button_radius
-                                : button_height / 2;
+  // 更新提示内容或尺寸时仍保持与创建阶段一致的满圆角。
+  const int button_radius = LV_RADIUS_CIRCLE;
   if (show_cancel) {
     lv_obj_set_pos(state->cancel_button, config.inner_padding, button_y);
     lv_obj_set_size(state->cancel_button, button_width, button_height);

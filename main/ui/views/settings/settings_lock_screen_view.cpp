@@ -101,6 +101,8 @@ bool ShowAutoLockSheet(SettingsViewState* state) {
   config.inner_padding = kAutoLockSheetInnerPadding;
   config.option_top = kAutoLockOptionTop;
   config.option_height = kAutoLockOptionHeight;
+  // 锁屏时长选项保留整行直角高亮，不使用操作按钮的胶囊外形。
+  config.option_radius = 0;
   config.button_height = kWifiConnectButtonHeight;
   config.button_radius = 24;
   config.selected_color = theme::FixedColors().action_container;

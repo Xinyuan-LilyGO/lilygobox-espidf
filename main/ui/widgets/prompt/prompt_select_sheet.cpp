@@ -117,8 +117,8 @@ bool CreatePromptSelectOptionRow(lv_obj_t* parent,
   lv_obj_set_style_shadow_width(row, 0, LV_STATE_PRESSED);
   lv_obj_set_style_shadow_width(row, 0, LV_STATE_FOCUSED);
   lv_obj_set_style_shadow_width(row, 0, LV_STATE_FOCUS_KEY);
-  lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(row, 0, LV_STATE_PRESSED);
+  lv_obj_set_style_radius(row, config.option_radius, LV_PART_MAIN);
+  lv_obj_set_style_radius(row, config.option_radius, LV_STATE_PRESSED);
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
   lv_obj_set_style_bg_color(row,
       lv_color_hex(selected ? config.selected_color : config.sheet_color),
@@ -263,7 +263,10 @@ bool ShowPromptSelectSheet(
     ClosePromptSelectSheetImmediately(config.state);
     return false;
   }
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 34);
+  // 与底部取消按钮到面板边缘的留白使用同一内边距。
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, config.inner_padding);
+  lv_obj_update_layout(title);
+  int header_bottom = lv_obj_get_y(title) + lv_obj_get_height(title);
 
   if (config.message != nullptr && config.message[0] != '\0') {
     lv_obj_t* message = CreatePromptSheetLabel(sheet, config.message,
@@ -276,14 +279,19 @@ bool ShowPromptSelectSheet(
     lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_label_set_long_mode(message, LV_LABEL_LONG_WRAP);
     AlignPromptSheetSubtitle(message, title, config.title_message_gap);
+    lv_obj_update_layout(message);
+    header_bottom = lv_obj_get_y(message) + lv_obj_get_height(message);
   }
 
+  // 标题、选项和底部操作按实际内容排列，避免固定 option_top/高度产生空白。
+  const int effective_option_top = header_bottom + config.inner_padding;
+  sheet_config.sheet_height = std::min(effective_sheet_height,
+      effective_option_top + static_cast<int>(config.option_count) *
+                                 config.option_height +
+          2 * config.inner_padding + config.button_height);
+  lv_obj_set_height(sheet, sheet_config.sheet_height);
   const int cancel_y =
-      effective_sheet_height - config.inner_padding - config.button_height;
-  const bool sheet_compacted = effective_sheet_height < config.sheet_height;
-  const int effective_option_top = sheet_compacted
-                                       ? std::max(118, config.option_top - 28)
-                                       : config.option_top;
+      sheet_config.sheet_height - config.inner_padding - config.button_height;
   const int option_area_height =
       cancel_y - effective_option_top - config.inner_padding;
   lv_obj_t* option_container = CreatePromptSelectOptionContainer(

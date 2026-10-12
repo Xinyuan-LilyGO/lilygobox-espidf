@@ -451,6 +451,8 @@ bool ShowKeyboardExpansionFailurePrompt(
       state->config.width - 2 * kKeyboardExpansionPromptSideMargin;
   config.dialog_height = not_found ? kKeyboardExpansionNotFoundPromptHeight
                                    : kKeyboardExpansionFailurePromptHeight;
+  // 未找到时只有文字；初始化失败时仍需容纳下方的硬件详情正文。
+  config.fit_text_content = not_found;
   config.dialog_radius = kKeyboardExpansionPromptRadius;
   config.inner_padding = kKeyboardExpansionPromptInnerPadding;
   config.header_height = 78;
@@ -501,6 +503,14 @@ bool ShowKeyboardExpansionFailurePrompt(
   lv_obj_set_width(
       label, config.dialog_width - 2 * kKeyboardExpansionPromptInnerPadding);
   lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 0);
+  // 硬件错误详情也按实际文字高度收紧，不留下固定正文区域的空白。
+  lv_obj_update_layout(label);
+  config.dialog_height = lv_obj_get_y(body) + lv_obj_get_height(label) +
+                         config.action_bottom_padding + config.action_height;
+  if (UpdatePromptDialog(&state->keyboard_expansion_prompt, config) == nullptr) {
+    ClosePromptDialog(&state->keyboard_expansion_prompt);
+    return false;
+  }
   return true;
 }
 

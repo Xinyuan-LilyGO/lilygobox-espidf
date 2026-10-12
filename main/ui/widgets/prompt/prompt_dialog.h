@@ -46,6 +46,7 @@ struct PromptDialogConfig {
   int dialog_radius = 30;
   int inner_padding = 28;
   int header_height = 92;
+  // 仅空标题自定义正文布局使用；可见标题顶部留白跟随 action_bottom_padding。
   int title_y = 24;
   int title_subtitle_gap = 8;
   int subtitle_body_gap = 16;

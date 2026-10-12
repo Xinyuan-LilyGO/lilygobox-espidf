@@ -112,12 +112,9 @@ bool CreatePromptButton(lv_obj_t* parent, const PromptStatusConfig& config) {
   lv_obj_set_style_bg_color(
       button, lv_color_hex(config.button_pressed_color), LV_STATE_PRESSED);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_STATE_PRESSED);
-  int button_radius = config.button_radius;
-  if (button_radius <= 0) {
-    button_radius = config.button_height / 2;
-  }
-  lv_obj_set_style_radius(button, button_radius, LV_PART_MAIN);
-  lv_obj_set_style_radius(button, button_radius, LV_STATE_PRESSED);
+  // 状态提示与确认提示使用相同的满圆角按钮。
+  lv_obj_set_style_radius(button, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_radius(button, LV_RADIUS_CIRCLE, LV_STATE_PRESSED);
   if (!AddPressCancelOnLeave(button)) {
     return false;
   }

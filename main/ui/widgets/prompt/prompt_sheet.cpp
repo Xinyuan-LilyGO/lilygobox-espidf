@@ -173,7 +173,10 @@ lv_obj_t* CreatePromptSheetButton(
       button, 0, StyleSelector(LV_PART_MAIN, LV_STATE_FOCUSED));
   lv_obj_set_style_shadow_width(
       button, 0, StyleSelector(LV_PART_MAIN, LV_STATE_FOCUS_KEY));
-  lv_obj_set_style_radius(button, config.radius, LV_PART_MAIN);
+  // 提示器按钮统一满圆角，随按钮尺寸变化保持胶囊形状。
+  lv_obj_set_style_radius(button, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_radius(
+      button, LV_RADIUS_CIRCLE, StyleSelector(LV_PART_MAIN, LV_STATE_PRESSED));
   lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
   if (!config.enabled) {
     lv_obj_add_state(button, LV_STATE_DISABLED);

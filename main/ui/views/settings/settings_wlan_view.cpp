@@ -2920,7 +2920,9 @@ bool ShowWifiConnectSheet(SettingsViewState* state,
       static_cast<int>(lv_font_get_line_height(Font32())));
   lv_label_set_long_mode(title, LV_LABEL_LONG_SCROLL_CIRCULAR);
   lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 34);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, kWifiConnectSheetInnerPadding);
+  lv_obj_update_layout(title);
+  int content_bottom = lv_obj_get_y(title) + lv_obj_get_height(title);
 
   const char* subtitle =
       action.secure
@@ -2937,10 +2939,10 @@ bool ShowWifiConnectSheet(SettingsViewState* state,
     }
     state->wifi_password_error_label = has_error ? subtitle_label : nullptr;
     AlignPromptSheetSubtitle(subtitle_label, title, 8);
+    lv_obj_update_layout(subtitle_label);
+    content_bottom = lv_obj_get_y(subtitle_label) + lv_obj_get_height(subtitle_label);
   }
 
-  const int button_y =
-      sheet_height - kWifiConnectSheetInnerPadding - kWifiConnectButtonHeight;
   if (action.secure) {
     lv_obj_t* text_area = lv_textarea_create(sheet);
     if (text_area == nullptr) {
@@ -2952,6 +2954,7 @@ bool ShowWifiConnectSheet(SettingsViewState* state,
     lv_obj_set_size(text_area, sheet_width - 2 * kWifiConnectSheetInnerPadding,
         kWifiPasswordInputHeight);
     lv_obj_align(text_area, LV_ALIGN_TOP_MID, 0, kWifiPasswordInputTop);
+    content_bottom = kWifiPasswordInputTop + kWifiPasswordInputHeight;
     lv_textarea_set_one_line(text_area, true);
     lv_textarea_set_password_mode(text_area, true);
     lv_textarea_set_password_bullet(text_area, "*");
@@ -2993,9 +2996,17 @@ bool ShowWifiConnectSheet(SettingsViewState* state,
       CloseWifiModalImmediately(state);
       return false;
     }
-    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 136);
+    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0,
+        content_bottom + kWifiConnectSheetInnerPadding);
+    lv_obj_update_layout(hint);
+    content_bottom = lv_obj_get_y(hint) + lv_obj_get_height(hint);
   }
 
+  // 输入框/说明到操作按钮和面板上下边缘使用相同的间距。
+  sheet_config.sheet_height = content_bottom +
+      2 * kWifiConnectSheetInnerPadding + kWifiConnectButtonHeight;
+  lv_obj_set_height(sheet, sheet_config.sheet_height);
+  const int button_y = content_bottom + kWifiConnectSheetInnerPadding;
   const int button_width = (sheet_width - 2 * kWifiConnectSheetInnerPadding -
                                kWifiConnectButtonGap) /
                            2;
@@ -3072,7 +3083,7 @@ bool ShowWifiDeleteNetworkSheet(SettingsViewState* state, const char* ssid,
     CloseWifiModalImmediately(state);
     return false;
   }
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 34);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, kWifiConnectSheetInnerPadding);
 
   lv_obj_t* message = CreatePromptSheetLabel(sheet,
       "Stop automatically connecting to this network. You may need to enter "
@@ -3087,11 +3098,18 @@ bool ShowWifiDeleteNetworkSheet(SettingsViewState* state, const char* ssid,
   lv_obj_set_style_text_align(message, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   AlignPromptSheetSubtitle(message, title, 8);
 
+  // 删除确认按说明文字实际高度收紧，内容到按钮与上下外侧留白一致。
+  lv_obj_update_layout(message);
+  const int content_bottom = lv_obj_get_y(message) + lv_obj_get_height(message);
+  sheet_config.sheet_height = content_bottom +
+      2 * kWifiConnectSheetInnerPadding + kWifiConnectButtonHeight;
+  lv_obj_set_height(sheet, sheet_config.sheet_height);
+
   const int button_width = (sheet_width - 2 * kWifiConnectSheetInnerPadding -
                                kWifiConnectButtonGap) /
                            2;
   const int button_y =
-      sheet_height - kWifiConnectSheetInnerPadding - kWifiConnectButtonHeight;
+      sheet_config.sheet_height - kWifiConnectSheetInnerPadding - kWifiConnectButtonHeight;
   const int left_button_x = kWifiConnectSheetInnerPadding;
   const int right_button_x =
       left_button_x + button_width + kWifiConnectButtonGap;

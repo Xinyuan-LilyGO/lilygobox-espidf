@@ -1086,6 +1086,7 @@ bool UiManager::ShowKeyboardExpansionUnavailablePrompt() {
   config.dialog_height = config.screen_width > config.screen_height
                              ? kKeyboardExpansionPromptLandscapeHeight
                              : kKeyboardExpansionPromptHeight;
+  config.fit_text_content = true;
   config.dialog_radius = kKeyboardExpansionPromptRadius;
   config.inner_padding = kKeyboardExpansionPromptInnerPadding;
   config.header_height = 78;
