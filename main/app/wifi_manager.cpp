@@ -154,7 +154,7 @@ WifiScanFilterResult WaitForWifiScan(hal::WifiProvider* wifi,
 }
 
 /**
- * @brief 使用扫描结果筛选自动连接目标并按信号强度排序
+ * @brief 筛选可见网络并保留已保存列表的自动连接优先顺序
  * @param scan_status 最新扫描结果
  * @param candidates 自动连接候选数组
  * @param candidate_count 输入候选数量
@@ -190,18 +190,7 @@ size_t FilterVisibleWifiCandidates(const hal::WifiScanStatus& scan_status,
     }
     ++visible_count;
   }
-  // 候选上限只有 10 项，使用插入排序可避免 GCC 对 std::sort
-  // 内部 16 项阈值产生错误的数组越界诊断。
-  for (size_t index = 1; index < visible_count; ++index) {
-    const WifiAutoConnectCandidate candidate = candidates[index];
-    size_t insert_index = index;
-    while (insert_index > 0 &&
-           candidates[insert_index - 1].rssi < candidate.rssi) {
-      candidates[insert_index] = candidates[insert_index - 1];
-      --insert_index;
-    }
-    candidates[insert_index] = candidate;
-  }
+  // 手动选择会移到保存列表首位；扫描只过滤不可见网络，不按 RSSI 覆盖用户顺序。
   return visible_count;
 }
 

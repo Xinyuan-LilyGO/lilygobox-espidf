@@ -58,7 +58,7 @@ void SetWifiAutoConnectPaused(bool paused);
 bool IsWifiAutoConnectPaused();
 
 /**
- * @brief 扫描并按信号强度尝试当前可见的自动连接网络
+ * @brief 扫描并按已保存列表的优先顺序尝试可见的自动连接网络
  * @param wifi WiFi 状态和控制提供者
  * @param options 自动连接控制选项
  * @return 自动连接处理结果

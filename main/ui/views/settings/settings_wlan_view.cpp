@@ -119,9 +119,10 @@ bool FindScannedWifiNetwork(const hal::WifiScanStatus& scan_status,
  * @brief 保存或更新用户确认使用的 WLAN 凭据
  * @param action 当前连接动作
  * @param password 用户确认使用的密码，开放网络可为空
+ * @param preferred 是否将本次手动选择保存为自动连接首选
  */
 void SaveWifiNetworkCredential(
-    const WifiNetworkAction& action, const char* password);
+    const WifiNetworkAction& action, const char* password, bool preferred = false);
 
 /**
  * @brief 将运行期已保存 WLAN 列表写入长期缓存
@@ -631,6 +632,9 @@ bool StartWifiConnection(SettingsViewState* state, const char* password) {
   app::SetWifiAutoConnectPaused(true);
   if (state->config.wifi->ConnectWifi(
           state->wifi_pending_action.ssid, connect_password)) {
+    // 手动连接请求被接受后保存首选，重启、重连均优先此网络。
+    // 只调整优先级，不强制开启该网络原本关闭的自动连接开关。
+    SaveWifiNetworkCredential(state->wifi_pending_action, connect_password, true);
     state->wifi_connect_waiting = true;
     state->wifi_connection_retry_ready = true;
     state->wifi_connect_started_ms = lv_tick_get();
@@ -1135,7 +1139,7 @@ bool IsSavedWifiSsid(const char* ssid) {
 }
 
 void SaveWifiNetworkCredential(
-    const WifiNetworkAction& action, const char* password) {
+    const WifiNetworkAction& action, const char* password, bool preferred) {
   if (action.ssid[0] == '\0') {
     return;
   }
@@ -1155,6 +1159,15 @@ void SaveWifiNetworkCredential(
   saved->secure = action.secure;
   saved->is_5g = action.is_5g;
   saved->rssi = action.rssi;
+  if (preferred) {
+    // 复用原有列表顺序表达优先级，不新增 NVS 字段；其他网络保持相对顺序。
+    const app::WifiSavedNetwork selected = *saved;
+    const size_t selected_index = static_cast<size_t>(saved - g_wifi_saved_networks);
+    for (size_t i = selected_index; i > 0; --i) {
+      g_wifi_saved_networks[i] = g_wifi_saved_networks[i - 1];
+    }
+    g_wifi_saved_networks[0] = selected;
+  }
   SaveWifiNetworks();
 }
 
