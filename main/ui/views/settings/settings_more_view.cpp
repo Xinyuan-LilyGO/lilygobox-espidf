@@ -2,7 +2,7 @@
  * @Description: 更多设置页面
  * @Author: LILYGO_L
  * @Date: 2026-07-24 00:00:00
- * @LastEditTime: 2026-09-02 17:56:43
+ * @LastEditTime: 2026-10-13 12:00:00
  * @License: GPL 3.0
  */
 #include <cstdint>
@@ -333,16 +333,8 @@ void SetKeyboardBacklightControlsState(
   } else {
     lv_obj_add_flag(state->keyboard_backlight_controls, LV_OBJ_FLAG_HIDDEN);
   }
-  lv_obj_set_style_opa(state->keyboard_backlight_controls,
-      enabled ? LV_OPA_COVER : LV_OPA_50, LV_PART_MAIN);
-  if (state->keyboard_backlight_slider == nullptr) {
-    return;
-  }
-  if (enabled) {
-    lv_obj_remove_state(state->keyboard_backlight_slider, LV_STATE_DISABLED);
-  } else {
-    lv_obj_add_state(state->keyboard_backlight_slider, LV_STATE_DISABLED);
-  }
+  SetSettingsSliderControlsEnabled(state->keyboard_backlight_controls,
+                                   state->keyboard_backlight_slider, enabled);
 }
 
 void KeyboardBacklightSliderChangedEventCallback(lv_event_t* event) {

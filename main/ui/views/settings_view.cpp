@@ -2,7 +2,7 @@
  * @Description: Settings main list view
  * @Author: LILYGO_L
  * @Date: 2026-05-18 09:20:00
- * @LastEditTime: 2026-10-06 09:32:04
+ * @LastEditTime: 2026-10-13 12:00:00
  * @License: GPL 3.0
  */
 #include "ui/views/settings_view.h"
@@ -20,6 +20,8 @@
 #include "app/storage/keyboard_expansion_storage.h"
 #include "app/storage/otg_storage.h"
 #include "app/storage/sound_storage.h"
+#include "app/wifi_manager.h"
+#include "base/memory.h"
 #include "hal/providers/wifi_provider.h"
 #include "ui/haptic_feedback.h"
 #include "ui/input/press_cancel.h"
@@ -27,29 +29,6 @@
 #include "ui/views/settings/settings_view_internal.h"
 
 namespace lilygo_box::ui {
-namespace {
-
-// 保存旋转后需要自动恢复的子页面 ID
-const char* g_restore_sub_page = nullptr;
-// 旋转恢复时跳过页面切换动画，避免看到列表页闪现
-bool g_skip_page_animation = false;
-
-}  // namespace
-
-bool IsSkipPageAnimation() { return g_skip_page_animation; }
-
-bool ConsumeSkipPageAnimation() {
-  const bool skip = g_skip_page_animation;
-  g_skip_page_animation = false;
-  return skip;
-}
-
-void SetSettingsRestoreSubPage(const char* page_id) {
-  g_restore_sub_page = page_id;
-}
-
-const char* GetSettingsRestoreSubPage() { return g_restore_sub_page; }
-
 // 设置入口图标样式。
 struct SettingsIconStyle {
   const char* symbol = nullptr;
@@ -159,8 +138,18 @@ void SettingsViewDeleteEventCallback(lv_event_t* event) {
     lv_timer_delete(state->firmware_update_refresh_timer);
     state->firmware_update_refresh_timer = nullptr;
   }
+  if (state != nullptr && state->wifi_page != nullptr) {
+    // 页面销毁后恢复自动连接，避免确认框留下暂停标记。
+    app::SetWifiAutoConnectPaused(false);
+  }
   lv_obj_set_user_data(lv_event_get_target_obj(event), nullptr);
-  delete state;
+  // LVGL 先通知父对象删除，再销毁子树。子页回调仍会访问 state，
+  // 必须先完成子树清理，再释放共享状态，避免旋转时访问已释放内存。
+  lv_obj_clean(lv_event_get_target_obj(event));
+  if (state != nullptr) {
+    state->~SettingsViewState();
+    memory::Free(state, memory::Module::kLvgl);
+  }
 }
 
 /**
@@ -487,7 +476,11 @@ lv_obj_t* CreateSettingsView(
   if (root == nullptr) {
     return nullptr;
   }
-  auto* state = new (std::nothrow) SettingsViewState();
+  // Wi-Fi 参数池不要求 DMA，将设置页状态放入 PSRAM，保留内部堆给 TLS/SDIO。
+  void* storage = memory::Allocate(
+      sizeof(SettingsViewState), memory::Policy::kPsram, memory::Module::kLvgl);
+  auto* state =
+      storage != nullptr ? new (storage) SettingsViewState() : nullptr;
   if (state == nullptr) {
     lv_obj_delete(root);
     return nullptr;
@@ -562,14 +555,6 @@ lv_obj_t* CreateSettingsView(
     return nullptr;
   }
 
-  if (g_restore_sub_page != nullptr) {
-    g_skip_page_animation = true;
-    if (std::strcmp(g_restore_sub_page, "display_brightness") == 0) {
-      ShowDisplayBrightnessPage(state);
-    }
-    // 后续其他子页面可以在这里扩展
-  }
-
   return root;
 }
 
@@ -598,6 +583,21 @@ void RefreshSettingsViewKeyboardExpansion(lv_obj_t* settings_view) {
   }
   RefreshKeyboardExpansionSettings(
       static_cast<SettingsViewState*>(lv_obj_get_user_data(settings_view)));
+}
+
+void RefreshSettingsViewControls(lv_obj_t* settings_view) {
+  if (settings_view == nullptr) return;
+  auto* state =
+      static_cast<SettingsViewState*>(lv_obj_get_user_data(settings_view));
+  if (state == nullptr) return;
+  state->display_brightness_percent =
+      app::GetDisplayPreferences().brightness_percent;
+  if (state->display_brightness_slider != nullptr) {
+    // 只同步显示，不发送 VALUE_CHANGED，避免远程命令触发本地写入或试听。
+    lv_slider_set_value(state->display_brightness_slider,
+                        state->display_brightness_percent, LV_ANIM_OFF);
+  }
+  RefreshSoundHapticsSettings(state);
 }
 
 }  // namespace lilygo_box::ui

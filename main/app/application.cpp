@@ -2,10 +2,11 @@
  * @Description: 系统应用初始化、任务调度与电源状态管理实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-10-04 18:58:06
+ * @LastEditTime: 2026-10-13 12:00:00
  * @License: GPL 3.0
  */
 #include "app/application.h"
+#include "app/device_identity.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -13,12 +14,13 @@
 #include <cstdlib>
 #include <ctime>
 
-#include "app/firmware_update_manager.h"
 #include "app/app_connection.h"
+#include "app/firmware_update_manager.h"
 #include "app/network_monitor.h"
 #include "app/storage/battery_storage.h"
 #include "app/storage/display_storage.h"
 #include "app/storage/first_boot_storage.h"
+#include "app/storage/haptic_storage.h"
 #include "app/storage/keyboard_expansion_storage.h"
 #include "app/storage/littlefs_storage.h"
 #include "app/storage/otg_storage.h"
@@ -522,14 +524,19 @@ bool Application::Init() {
   }
   hal::DeviceProvider* device = device_provider_context_.device;
   if (device == nullptr) {
-    LogMessage(
-        LogLevel::kError, __FILE__, __LINE__, "No device provider selected\n");
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+               "No device provider selected\n");
     return false;
   }
 
+  // 在界面和网络任务启动前恢复名称，默认名称使用本机完整 MAC。
+  if (!app::InitDeviceIdentity()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+               "Initialize device name storage failed; using available name\n");
+  }
   if (!app::InitBatteryStorage()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Initialize battery capacity storage failed; using default\n");
+               "Initialize battery capacity storage failed; using default\n");
   }
   app::BatteryPreferences battery_preferences = app::GetBatteryPreferences();
   hal::BatteryManagementProvider* battery_management =
@@ -1014,6 +1021,8 @@ void Application::Run() {
       continue;
     }
 
+    ProcessDeviceControl(false);
+    PublishDeviceState();
     UpdateOtgPowerPolicy();
     UpdateKeyboardExpansionScan();
     HandleKeyboardExpansionDisconnection();
@@ -1030,6 +1039,10 @@ void Application::Run() {
 
 void Application::HandleBatteryManagementStatusUpdate(
     const hal::BatteryManagementStatus& status) {
+  {
+    std::lock_guard<std::mutex> lock(control_battery_mutex_);
+    control_battery_status_ = status;
+  }
   const bool previous_charging = battery_charging_.exchange(status.charging);
   const bool charging_state_known =
       battery_charging_state_known_.exchange(true);
@@ -1642,6 +1655,19 @@ void Application::RunScreenLockTask() {
       pending_power_button_action_.store(PowerButtonAction::kNone);
       pending_system_activity_reason_.store(SystemActivityReason::kNone);
       lvgl_port_.ConsumeKeyboardInputActivity();
+      vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
+      continue;
+    }
+    if (ProcessDeviceControl(true)) {
+      // 远程唤醒也是一次新活动，重置计时和手势，避免立即按旧超时再次熄屏。
+      last_touch_ms =
+          static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+      lock_screen_last_interaction_ms = last_touch_ms;
+      unlock_touch_active = false;
+      unlock_drag_ready = false;
+      discard_transition_touch_until_release = true;
+      wake_double_tap_recognizer.Reset();
+      sleep_double_tap_recognizer.Reset();
       vTaskDelay(pdMS_TO_TICKS(kScreenLockPollMs));
       continue;
     }
@@ -3294,6 +3320,144 @@ bool Application::RestoreScreenBrightnessAfterCanceledSleep(int percent) {
 
 app::DisplayPreferences Application::LoadDisplayPreferencesOrDefault() const {
   return app::GetDisplayPreferences();
+}
+
+void Application::PublishDeviceState() {
+  app::DeviceControlState state;
+  state.ready = physical_button_events_enabled_.load() &&
+                !power_action_in_progress_.load();
+  state.screen_supported = device_provider_context_.screen != nullptr;
+  state.audio_supported = device_provider_context_.audio != nullptr;
+  state.haptic_supported = device_provider_context_.haptic != nullptr;
+  const auto display = app::GetDisplayPreferences();
+  const auto sound = app::GetSoundPreferences();
+  const auto haptic = app::GetHapticPreferences();
+  state.brightness = display.brightness_percent;
+  state.rotation = display.screen_rotation_angle;
+  state.volume = sound.volume_percent;
+  state.haptic_strength = haptic.strength_percent;
+  state.screen_enabled = !screen_off_confirmed_.load();
+  state.sound_enabled =
+      state.audio_supported && device_provider_context_.audio->SpeakerEnabled();
+  state.haptic_enabled = haptic.enabled;
+  {
+    std::lock_guard<std::mutex> lock(control_battery_mutex_);
+    state.battery = control_battery_status_;
+  }
+  app::PublishDeviceControlState(state);
+}
+
+bool Application::ProcessDeviceControl(bool screen_task) {
+  if (!physical_button_events_enabled_.load() ||
+      power_action_in_progress_.load())
+    return false;
+  app::DeviceControlCommand command;
+  if (!app::TakeDeviceControlCommand(screen_task, &command)) return false;
+  const char* error = "hardware_failed";
+  switch (command.field) {
+    case app::DeviceControlField::kScreenEnabled: {
+      const auto state = screen_lock_state_.load();
+      bool success = false;
+      if (command.value != 0) {
+        success = state != ScreenLockState::kAsleep || WakeScreenFromLock();
+      } else {
+        success = state == ScreenLockState::kAsleep ||
+                  (state == ScreenLockState::kUnlocked ? LockScreenNow()
+                                                       : SleepLockScreenNow());
+      }
+      if (success) error = "";
+      break;
+    }
+    case app::DeviceControlField::kBrightness: {
+      const auto previous = app::GetDisplayPreferences();
+      auto next = previous;
+      next.brightness_percent = command.value;
+      // 熄屏时只更新目标亮度，唤醒由现有锁屏流程恢复；不能意外点亮面板。
+      const bool asleep = screen_lock_state_.load() == ScreenLockState::kAsleep;
+      if (asleep || SetScreenBrightnessWhileAwake(command.value)) {
+        if (app::UpdateDisplayPreferences(next)) {
+          error = "";
+        } else {
+          // 存储失败仍可能改变 RAM 缓存，恢复旧偏好以与硬件回退保持一致。
+          app::UpdateDisplayPreferences(previous);
+          if (!asleep)
+            SetScreenBrightnessWhileAwake(previous.brightness_percent);
+          error = "storage_failed";
+        }
+      }
+      break;
+    }
+    case app::DeviceControlField::kRotation: {
+      const auto previous = app::GetDisplayPreferences();
+      auto display = previous;
+      display.screen_rotation_angle = command.value;
+      if (app::UpdateDisplayPreferences(display)) {
+        lvgl_port_.Lock();
+        lvgl_port_.SetDisplayRotation(command.value);
+        lvgl_port_.Unlock();
+        error = "";
+      } else {
+        app::UpdateDisplayPreferences(previous);
+        error = "storage_failed";
+      }
+      break;
+    }
+    case app::DeviceControlField::kVolume:
+    case app::DeviceControlField::kSoundEnabled: {
+      auto* audio = device_provider_context_.audio;
+      if (audio == nullptr) break;
+      const auto previous = app::GetSoundPreferences();
+      const bool previous_enabled = audio->SpeakerEnabled();
+      auto sound = previous;
+      if (command.field == app::DeviceControlField::kVolume) {
+        sound.volume_percent = command.value;
+      }
+      const bool enabled =
+          command.field == app::DeviceControlField::kSoundEnabled
+              ? command.value != 0
+              : previous_enabled;
+      // 与本地后台音量请求串行，只有硬件调用成功才返回成功结果。
+      if (audio->ApplySpeakerVolumeSetting(sound.volume_percent, enabled)) {
+        if (app::UpdateSoundPreferences(sound)) {
+          error = "";
+        } else {
+          app::UpdateSoundPreferences(previous);
+          audio->ApplySpeakerVolumeSetting(previous.volume_percent,
+                                           previous_enabled);
+          error = "storage_failed";
+        }
+      }
+      break;
+    }
+    case app::DeviceControlField::kHapticEnabled:
+    case app::DeviceControlField::kHapticStrength: {
+      const auto previous = app::GetHapticPreferences();
+      auto haptic = previous;
+      if (command.field == app::DeviceControlField::kHapticEnabled) {
+        haptic.enabled = command.value != 0;
+      } else {
+        haptic.strength_percent = command.value;
+      }
+      if (app::UpdateHapticPreferences(haptic)) {
+        ui::SetUiHapticPreferences(haptic.enabled, haptic.strength_percent);
+        error = "";
+      } else {
+        app::UpdateHapticPreferences(previous);
+        error = "storage_failed";
+      }
+      break;
+    }
+  }
+  PublishDeviceState();
+  // 硬件操作完成后再锁定 UI，同步打开中的设置页面，不能在 UI 锁内等待音频。
+  if (command.field != app::DeviceControlField::kScreenEnabled &&
+      command.field != app::DeviceControlField::kRotation) {
+    lvgl_port_.Lock();
+    ui_manager_.RefreshActiveSettingsControls();
+    lvgl_port_.Unlock();
+  }
+  app::CompleteDeviceControlCommand(command, error);
+  return true;
 }
 
 }  // namespace lilygo_box

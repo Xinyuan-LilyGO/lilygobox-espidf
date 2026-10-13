@@ -2,7 +2,7 @@
  * @Description: T-Display-P4-Air WiFi 协处理器实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-09-02 17:53:44
+ * @LastEditTime: 2026-10-13 12:00:00
  * @License: GPL 3.0
  */
 #include <algorithm>
@@ -14,6 +14,7 @@
 #include <new>
 
 #include "base/logger.h"
+#include "base/memory.h"
 #include "esp_err.h"
 #include "esp_event.h"
 #include "esp_hosted.h"
@@ -943,6 +944,7 @@ void TDisplayP4AirDevice::CopyWifiScanResultsFromDriver() {
   uint16_t available_count = 0;
   esp_err_t result = esp_wifi_scan_get_ap_num(&available_count);
   if (result != ESP_OK) {
+    esp_wifi_clear_ap_list();
     wifi_.scan_failed.store(true);
     wifi_.last_error.store(result);
     wifi_.scan_network_count.store(0);
@@ -952,11 +954,23 @@ void TDisplayP4AirDevice::CopyWifiScanResultsFromDriver() {
 
   uint16_t record_count = static_cast<uint16_t>(
       std::min<size_t>(available_count, kMaxWifiScanNetworkCount));
-  std::unique_ptr<wifi_ap_record_t[]> records(
-      new (std::nothrow) wifi_ap_record_t[kMaxWifiScanNetworkCount]());
-  std::unique_ptr<WifiNetworkInfo[]> networks(
-      new (std::nothrow) WifiNetworkInfo[kMaxWifiScanNetworkCount]());
+  // 扫描快照不要求内部 DMA，使用 PSRAM，避免与 TLS/SDIO 争用内部堆。
+  auto release_buffer = [](auto* pointer) {
+    // 所有返回路径均通过公共分配器释放，保持 radio 模块统计配对。
+    memory::Free(pointer, memory::Module::kRadio);
+  };
+  std::unique_ptr<wifi_ap_record_t[], decltype(release_buffer)> records(
+      static_cast<wifi_ap_record_t*>(memory::AllocateZeroed(
+          kMaxWifiScanNetworkCount, sizeof(wifi_ap_record_t),
+          memory::Policy::kPsram, memory::Module::kRadio)),
+      release_buffer);
+  std::unique_ptr<WifiNetworkInfo[], decltype(release_buffer)> networks(
+      static_cast<WifiNetworkInfo*>(memory::AllocateZeroed(
+          kMaxWifiScanNetworkCount, sizeof(WifiNetworkInfo),
+          memory::Policy::kPsram, memory::Module::kRadio)),
+      release_buffer);
   if (records == nullptr || networks == nullptr) {
+    esp_wifi_clear_ap_list();
     wifi_.scan_failed.store(true);
     wifi_.last_error.store(ESP_ERR_NO_MEM);
     wifi_.scan_network_count.store(0);
@@ -967,6 +981,7 @@ void TDisplayP4AirDevice::CopyWifiScanResultsFromDriver() {
   if (record_count > 0) {
     result = esp_wifi_scan_get_ap_records(&record_count, records.get());
     if (result != ESP_OK) {
+      esp_wifi_clear_ap_list();
       wifi_.scan_failed.store(true);
       wifi_.last_error.store(result);
       wifi_.scan_network_count.store(0);
@@ -974,6 +989,7 @@ void TDisplayP4AirDevice::CopyWifiScanResultsFromDriver() {
       return;
     }
   } else {
+    esp_wifi_clear_ap_list();
     wifi_.scan_network_count.store(0);
     wifi_.scan_generation.fetch_add(1);
     return;

@@ -2,19 +2,39 @@
  * @Description: 设备名称校验、存储与读取实现
  * @Author: LILYGO_L
  * @Date: 2026-05-18 12:08:00
- * @LastEditTime: 2026-05-18 12:08:00
+ * @LastEditTime: 2026-10-13 12:00:00
  * @License: GPL 3.0
  */
 #include "app/device_identity.h"
 
+#include <array>
 #include <cctype>
+#include <cstdio>
 #include <cstring>
+#include <mutex>
+
+#include "app/storage/storage_internal.h"
+#include "base/logger.h"
+#include "esp_mac.h"
 
 namespace lilygo_box::app {
 namespace {
 
-// 用户设置的本机设备名称，空字符串表示使用硬件型号名。
+// 默认名称仅由硬件身份生成；NVS 只保存用户设置的名称。
 char g_device_name[kMaxDeviceNameLength + 1] = "";
+std::mutex g_device_name_mutex;
+constexpr char kDeviceNameNvsKey[] = "device_name";
+using DeviceName = std::array<char, kMaxDeviceNameLength + 1>;
+
+/**
+ * @brief 比较两个设备名称缓存快照
+ */
+bool AreDeviceNamesEqual(const DeviceName& left, const DeviceName& right) {
+  return left == right;
+}
+
+NvsStorageCache<DeviceName> g_name_cache(StorageDomain::kDeviceIdentity,
+                                         AreDeviceNamesEqual);
 
 /**
  * @brief 判断字符是否为空白字符
@@ -27,7 +47,62 @@ bool IsSpace(char character) {
 
 }  // namespace
 
+bool InitDeviceIdentity() {
+  std::lock_guard<std::mutex> lock(g_device_name_mutex);
+  constexpr char kDefaultNamePrefix[] = "LilygoBox";
+  uint8_t mac[6] = {};
+  if (esp_efuse_mac_get_default(mac) == ESP_OK) {
+    std::snprintf(g_device_name, sizeof(g_device_name),
+                  "%s_%02X%02X%02X%02X%02X%02X", kDefaultNamePrefix, mac[0],
+                  mac[1], mac[2], mac[3], mac[4], mac[5]);
+  } else {
+    std::snprintf(g_device_name, sizeof(g_device_name), "%s",
+                  kDefaultNamePrefix);
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+               "Read MAC for default device name failed\n");
+  }
+
+  DeviceName stored = {};
+  nvs_handle_t handle = 0;
+  const esp_err_t open_result =
+      OpenApplicationNvs("settings", NVS_READONLY, &handle);
+  esp_err_t read_result = ESP_ERR_NVS_NOT_FOUND;
+  if (open_result == ESP_OK) {
+    size_t capacity = stored.size();
+    read_result =
+        nvs_get_str(handle, kDeviceNameNvsKey, stored.data(), &capacity);
+    nvs_close(handle);
+    if (read_result == ESP_OK && stored[0] != '\0') {
+      std::snprintf(g_device_name, sizeof(g_device_name), "%s", stored.data());
+    } else {
+      stored.fill('\0');
+    }
+  }
+  const bool initialized = g_name_cache.Initialize(stored);
+  return initialized &&
+         (open_result == ESP_OK || open_result == ESP_ERR_NVS_NOT_FOUND) &&
+         (read_result == ESP_OK || read_result == ESP_ERR_NVS_NOT_FOUND);
+}
+
+StorageStageResult StageDeviceIdentityStorage(nvs_handle_t handle) {
+  const DeviceName* name = nullptr;
+  if (!g_name_cache.BeginFlush(&name)) return StorageStageResult::kClean;
+  return nvs_set_str(handle, kDeviceNameNvsKey, name->data()) == ESP_OK
+             ? StorageStageResult::kStaged
+             : StorageStageResult::kFailed;
+}
+
+void FinishDeviceIdentityStorage(bool committed) {
+  g_name_cache.FinishFlush(committed);
+}
+
 const char* ConfiguredDeviceName() { return g_device_name; }
+
+void CopyConfiguredDeviceName(char* output, size_t capacity) {
+  if (output == nullptr || capacity == 0) return;
+  std::lock_guard<std::mutex> lock(g_device_name_mutex);
+  std::snprintf(output, capacity, "%s", g_device_name);
+}
 
 bool SetConfiguredDeviceName(const char* name) {
   if (name == nullptr) {
@@ -53,8 +128,12 @@ bool SetConfiguredDeviceName(const char* name) {
     length = kMaxDeviceNameLength;
   }
 
-  std::memcpy(g_device_name, begin, length);
-  g_device_name[length] = '\0';
+  std::lock_guard<std::mutex> lock(g_device_name_mutex);
+  DeviceName updated = {};
+  std::memcpy(updated.data(), begin, length);
+  // 提交失败时不更新界面名称；缓存保留待写快照供后续重试。
+  if (!g_name_cache.UpdateAndPersist(updated)) return false;
+  std::memcpy(g_device_name, updated.data(), updated.size());
   return true;
 }
 

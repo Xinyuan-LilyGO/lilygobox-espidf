@@ -2,7 +2,7 @@
  * @Description: 启动器布局、应用切换与系统覆盖层管理实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-10-06 11:45:44
+ * @LastEditTime: 2026-10-13 12:00:00
  * @License: GPL 3.0
  */
 #include "ui/ui_manager.h"
@@ -936,6 +936,7 @@ bool UiManager::Init(hal::ScreenProvider* screen, hal::LvglPort* lvgl_port,
 
   layout_width_ = LayoutWidth();
   layout_height_ = LayoutHeight();
+  layout_rotation_ = lv_display_get_rotation(lv_display_get_default());
 
   launcher_container_ = CreateLauncher(root_screen_);
   if (launcher_container_ == nullptr) {
@@ -1345,6 +1346,15 @@ void UiManager::RefreshActiveSettingsKeyboardExpansion() {
   RefreshSettingsViewKeyboardExpansion(active_view_container_);
 }
 
+void UiManager::RefreshActiveSettingsControls() {
+  if (active_app_entry_ == nullptr || active_app_entry_->id == nullptr ||
+      std::strcmp(active_app_entry_->id, "settings") != 0 ||
+      active_view_container_ == nullptr) {
+    return;
+  }
+  RefreshSettingsViewControls(active_view_container_);
+}
+
 void UiManager::HidePowerMenu() {
   if (power_menu_ == nullptr) {
     return;
@@ -1561,8 +1571,18 @@ void UiManager::RootLayoutRefreshEventCallback(lv_event_t* event) {
 
   auto* self = static_cast<UiManager*>(lv_event_get_user_data(event));
   if (self != nullptr) {
-    self->RelayoutForScreenSize();
+    // 合并同一次旋转的刷新事件；回调返回后才允许销毁旧页面。
+    if (!self->relayout_pending_) {
+      self->relayout_pending_ =
+          lv_async_call(RelayoutAsync, self) == LV_RESULT_OK;
+    }
   }
+}
+
+void UiManager::RelayoutAsync(void* context) {
+  auto* self = static_cast<UiManager*>(context);
+  self->relayout_pending_ = false;
+  self->RelayoutForScreenSize();
 }
 
 int UiManager::LayoutWidth() const {
@@ -1608,8 +1628,10 @@ void UiManager::RelayoutForScreenSize() {
 
   const int new_width = LayoutWidth();
   const int new_height = LayoutHeight();
+  const auto rotation = lv_display_get_rotation(lv_display_get_default());
   if (new_width <= 0 || new_height <= 0 ||
-      (new_width == layout_width_ && new_height == layout_height_)) {
+      (new_width == layout_width_ && new_height == layout_height_ &&
+       rotation == layout_rotation_)) {
     return;
   }
 
@@ -1619,7 +1641,11 @@ void UiManager::RelayoutForScreenSize() {
   app_connection_request_ = 0;
   layout_width_ = new_width;
   layout_height_ = new_height;
-  const app::AppEntry* reopen_app = active_app_entry_;
+  layout_rotation_ = rotation;
+  // 旋转关闭当前应用，统一返回主界面，不恢复已销毁页面的导航状态。
+  const bool dismissing_camera =
+      active_app_entry_ != nullptr && active_app_entry_->id != nullptr &&
+      std::strcmp(active_app_entry_->id, "camera") == 0;
   active_app_entry_ = nullptr;
   const bool startup_background_active = startup_background_ != nullptr;
   const bool startup_active = startup_screen_ != nullptr;
@@ -1634,11 +1660,8 @@ void UiManager::RelayoutForScreenSize() {
   startup_progress_pending_percent_ = 0;
   volume_overlay_.Reset();
 
-  if (lock_screen_ != nullptr) {
-    lv_obj_delete(lock_screen_);
-    lock_screen_ = nullptr;
-    NotifyLockScreenVisibilityChanged(false);
-  }
+  // 旋转期间保留锁屏对象和锁定状态，不发送解锁通知。
+  // 新布局创建成功前旧锁屏始终有效，避免分配失败时露出应用页面。
   if (power_menu_ != nullptr) {
     lv_obj_delete(power_menu_);
     power_menu_ = nullptr;
@@ -1668,6 +1691,7 @@ void UiManager::RelayoutForScreenSize() {
   }
   if (active_view_container_ != nullptr) {
     active_view_lock_screen_callback_ = nullptr;
+    if (dismissing_camera) PrepareCameraViewForDismiss(active_view_container_);
     lv_obj_delete(active_view_container_);
     active_view_container_ = nullptr;
   }
@@ -1698,9 +1722,9 @@ void UiManager::RelayoutForScreenSize() {
   first_boot_welcome_closing_ = false;
   status_bar_.MoveToTop();
 
-  if (reopen_app != nullptr) {
-    ShowAppView(*reopen_app);
-  } else if (startup_active) {
+  SetStatusBarVisible(true);
+  SetStatusBarTextColor(theme::FixedColors().status_bar_text);
+  if (startup_active) {
     startup_screen_ = CreateStartupScreen(root_screen_);
     if (startup_screen_ != nullptr) {
       lv_obj_clear_flag(startup_screen_, LV_OBJ_FLAG_HIDDEN);
@@ -1733,6 +1757,29 @@ void UiManager::RelayoutForScreenSize() {
   } else if (first_boot_welcome_closing) {
     SetStatusBarTextColor(theme::FixedColors().status_bar_text);
     SetStatusBarVisible(true);
+    status_bar_.MoveToTop();
+  }
+
+  if (lock_screen_ != nullptr) {
+    LockScreenViewOptions options = {
+        .screen_width = new_width,
+        .screen_height = new_height,
+        .time_text = clock_time_text_,
+        .date_text = home_date_text_,
+        .week_text = home_week_text_,
+    };
+    lv_obj_t* replacement = CreateLockScreenView(root_screen_, options);
+    if (replacement != nullptr) {
+      lv_obj_delete(lock_screen_);
+      lock_screen_ = replacement;
+    } else {
+      // 重建失败也保持锁屏覆盖新尺寸，不能因旋转隐式解锁。
+      lv_obj_set_size(lock_screen_, new_width, new_height);
+      UpdateLockScreenViewClock(lock_screen_, clock_time_text_, home_date_text_,
+                                home_week_text_);
+    }
+    ::lilygo_box::ui::SetLockScreenDragOffset(lock_screen_, 0);
+    lv_obj_move_to_index(lock_screen_, -1);
     status_bar_.MoveToTop();
   }
 

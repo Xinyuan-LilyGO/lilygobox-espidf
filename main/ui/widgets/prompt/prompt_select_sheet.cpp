@@ -2,7 +2,7 @@
  * @Description: Prompt select sheet widget
  * @Author: LILYGO_L
  * @Date: 2026-06-25 00:00:00
- * @LastEditTime: 2026-09-02 17:57:10
+ * @LastEditTime: 2026-10-13 12:00:00
  * @License: GPL 3.0
  */
 #include "ui/widgets/prompt/prompt_select_sheet.h"
@@ -117,8 +117,9 @@ bool CreatePromptSelectOptionRow(lv_obj_t* parent,
   lv_obj_set_style_shadow_width(row, 0, LV_STATE_PRESSED);
   lv_obj_set_style_shadow_width(row, 0, LV_STATE_FOCUSED);
   lv_obj_set_style_shadow_width(row, 0, LV_STATE_FOCUS_KEY);
-  lv_obj_set_style_radius(row, config.option_radius, LV_PART_MAIN);
-  lv_obj_set_style_radius(row, config.option_radius, LV_STATE_PRESSED);
+  // 选择列表统一使用直角状态背景，底部操作按钮保持独立样式。
+  lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(row, 0, LV_STATE_PRESSED);
   lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
   lv_obj_set_style_bg_color(row,
       lv_color_hex(selected ? config.selected_color : config.sheet_color),

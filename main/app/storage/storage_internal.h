@@ -32,6 +32,7 @@ enum class StorageDomain : uint8_t {
   kDeveloper,
   kCompass,
   kConnection,
+  kDeviceIdentity,
   kCount,
 };
 
@@ -52,6 +53,14 @@ enum class StorageStageResult : uint8_t {
   kStaged,
   kFailed,
 };
+/**
+ * @brief 将用户设备名称快照加入统一 NVS 事务
+ */
+StorageStageResult StageDeviceIdentityStorage(nvs_handle_t handle);
+/**
+ * @brief 根据统一事务结果完成设备名称存储
+ */
+void FinishDeviceIdentityStorage(bool committed);
 
 /**
  * @brief 统一保护全部 NVS RAM 缓存与存储冻结状态的作用域锁

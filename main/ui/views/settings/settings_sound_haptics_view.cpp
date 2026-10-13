@@ -2,7 +2,7 @@
  * @Description: Settings sound and haptics page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-09-02 17:56:48
+ * @LastEditTime: 2026-10-13 12:00:00
  * @License: GPL 3.0
  */
 #include <cstdint>
@@ -67,14 +67,34 @@ void HapticsSwitchChangedEventCallback(lv_event_t* event) {
     state->haptics_enabled = lv_obj_has_state(target, LV_STATE_CHECKED);
     SaveHapticPreferences(state);
     PlaySettingsHapticPreview(state);
-    if (state->haptic_strength_controls != nullptr) {
-      if (state->haptics_enabled) {
-        lv_obj_clear_flag(state->haptic_strength_controls, LV_OBJ_FLAG_HIDDEN);
-      } else {
-        lv_obj_add_flag(state->haptic_strength_controls, LV_OBJ_FLAG_HIDDEN);
-      }
-    }
+    SetSettingsSliderControlsEnabled(state->haptic_strength_controls,
+                                     state->haptic_strength_slider,
+                                     state->haptics_enabled);
   }
+}
+
+/**
+ * @brief 后台应用静音开关，保留原音量并淡化滑动条
+ * @param event LVGL 事件对象
+ */
+void MuteSwitchChangedEventCallback(lv_event_t* event) {
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
+  lv_obj_t* target = lv_event_get_target_obj(event);
+  if (state == nullptr || target == nullptr) return;
+  const bool enabled = !lv_obj_has_state(target, LV_STATE_CHECKED);
+  if (state->config.audio == nullptr ||
+      !state->config.audio->RequestSpeakerVolumePercent(
+          state->audio_volume_percent, false, enabled)) {
+    if (state->sound_enabled) {
+      lv_obj_remove_state(target, LV_STATE_CHECKED);
+    } else {
+      lv_obj_add_state(target, LV_STATE_CHECKED);
+    }
+    return;
+  }
+  state->sound_enabled = enabled;
+  SetSettingsSliderControlsEnabled(state->audio_volume_controls,
+                                   state->audio_volume_slider, enabled);
 }
 
 /**
@@ -83,12 +103,12 @@ void HapticsSwitchChangedEventCallback(lv_event_t* event) {
  */
 void VolumeSliderChangedEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
-  if (state != nullptr) {
+  if (state != nullptr && state->sound_enabled) {
     state->audio_volume_percent = SliderPercentFromEvent(event);
     PlaySettingsHapticPreview(state);
     if (state->config.audio != nullptr) {
       state->config.audio->RequestSpeakerVolumePercent(
-          state->audio_volume_percent, true);
+          state->audio_volume_percent, true, state->sound_enabled);
     }
   }
 }
@@ -99,9 +119,10 @@ void VolumeSliderChangedEventCallback(lv_event_t* event) {
  */
 void VolumeSliderPressedEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
-  if (state != nullptr && state->config.audio != nullptr) {
+  if (state != nullptr && state->sound_enabled &&
+      state->config.audio != nullptr) {
     state->config.audio->RequestSpeakerVolumePercent(
-        state->audio_volume_percent, true);
+        state->audio_volume_percent, true, state->sound_enabled);
   }
 }
 
@@ -116,7 +137,7 @@ void VolumeSliderReleasedEventCallback(lv_event_t* event) {
       // 停止标志为非阻塞操作，先中止试听，避免后台音量请求等待播放锁时继续循环。
       state->config.audio->StopSpeakerToneLoop();
       state->config.audio->RequestSpeakerVolumePercent(
-          state->audio_volume_percent, false);
+          state->audio_volume_percent, false, state->sound_enabled);
     }
     SaveSoundPreferences(state);
   }
@@ -137,27 +158,61 @@ void SettingsSliderReleasedEventCallback(lv_event_t* event) {
  */
 void HapticSliderChangedEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
-  if (state != nullptr) {
+  if (state != nullptr && state->haptics_enabled) {
     state->haptic_strength_percent = SliderPercentFromEvent(event);
     PlaySettingsHapticPreview(state);
   }
 }
 
+/**
+ * @brief 创建固定高度的滑动条容器，关闭时仍保留布局
+ * @param body 页面内容容器
+ * @param state 设置页状态
+ * @param y 顶部坐标
+ * @return 新控件容器，分配失败时返回 nullptr
+ */
+lv_obj_t* CreateSoundSliderControls(lv_obj_t* body, SettingsViewState* state,
+                                    int y) {
+  lv_obj_t* controls = lv_obj_create(body);
+  if (controls == nullptr) return nullptr;
+  lv_obj_remove_flag(controls, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(controls, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_add_flag(controls, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+  lv_obj_set_size(controls, state->config.width, 118);
+  lv_obj_set_pos(controls, 0, y);
+  lv_obj_set_style_bg_opa(controls, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_border_width(controls, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(controls, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(controls, 0, LV_PART_MAIN);
+  return controls;
+}
+
 bool BuildSoundHapticsContent(lv_obj_t* body, SettingsViewState* state) {
-  state->haptic_strength_controls = nullptr;
+  RefreshSoundHapticsSettings(state);
   int y = 0;
   if (!CreateSectionLabel(body, "Volume adjustment", y, state->config.width)) {
     return false;
   }
   y += kBasicSectionHeight;
-  if (!CreateSliderRow(body, icon::kVolumeUp, "Volume",
-          state->audio_volume_percent, y, state->config.width,
-          VolumeSliderChangedEventCallback, state)) {
+  lv_obj_t* mute_switch = nullptr;
+  if (!CreateSwitchRow(body, "Mute", y, state->config.width,
+                       !state->sound_enabled, MuteSwitchChangedEventCallback,
+                       state, false, &mute_switch)) {
     return false;
   }
-  lv_obj_t* volume_slider =
-      lv_obj_get_child(body, lv_obj_get_child_count(body) - 1);
-  state->audio_volume_slider = volume_slider;
+  BindSettingsObject(mute_switch, &state->sound_switch);
+  y += kBasicRowHeight;
+  lv_obj_t* volume_controls = CreateSoundSliderControls(body, state, y);
+  if (volume_controls == nullptr) return false;
+  BindSettingsObject(volume_controls, &state->audio_volume_controls);
+  if (!CreateSliderRow(volume_controls, icon::kVolumeUp, "Volume",
+                       state->audio_volume_percent, 0, state->config.width,
+                       VolumeSliderChangedEventCallback, state)) {
+    return false;
+  }
+  lv_obj_t* volume_slider = lv_obj_get_child(
+      volume_controls, lv_obj_get_child_count(volume_controls) - 1);
+  BindSettingsObject(volume_slider, &state->audio_volume_slider);
   if (volume_slider != nullptr) {
     lv_obj_add_event_cb(volume_slider, VolumeSliderPressedEventCallback,
         LV_EVENT_PRESSED, state);
@@ -166,31 +221,28 @@ bool BuildSoundHapticsContent(lv_obj_t* body, SettingsViewState* state) {
     lv_obj_add_event_cb(volume_slider, VolumeSliderReleasedEventCallback,
         LV_EVENT_PRESS_LOST, state);
   }
+  SetSettingsSliderControlsEnabled(volume_controls, volume_slider,
+                                   state->sound_enabled);
   y += 118;
   if (!CreateBasicDivider(body, y, state->config.width)) {
     return false;
   }
   y += 32;
+  lv_obj_t* haptics_switch = nullptr;
   if (!CreateSwitchRow(body, "System haptics", y, state->config.width,
-          state->haptics_enabled, HapticsSwitchChangedEventCallback, state)) {
+                       state->haptics_enabled,
+                       HapticsSwitchChangedEventCallback, state, false,
+                       &haptics_switch)) {
     return false;
   }
+  BindSettingsObject(haptics_switch, &state->haptics_switch);
   y += kBasicRowHeight;
 
-  lv_obj_t* controls = lv_obj_create(body);
+  lv_obj_t* controls = CreateSoundSliderControls(body, state, y);
   if (controls == nullptr) {
     return false;
   }
-  state->haptic_strength_controls = controls;
-  lv_obj_remove_flag(controls, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_flag(controls, LV_OBJ_FLAG_GESTURE_BUBBLE);
-  lv_obj_add_flag(controls, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
-  lv_obj_set_size(controls, state->config.width, kBasicRowHeight);
-  lv_obj_set_pos(controls, 0, y);
-  lv_obj_set_style_bg_opa(controls, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_border_width(controls, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(controls, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(controls, 0, LV_PART_MAIN);
+  BindSettingsObject(controls, &state->haptic_strength_controls);
 
   if (!CreateSliderRow(controls, icon::kTouchApp, "Haptics",
           state->haptic_strength_percent, 0, state->config.width,
@@ -199,19 +251,57 @@ bool BuildSoundHapticsContent(lv_obj_t* body, SettingsViewState* state) {
   }
   lv_obj_t* haptic_slider =
       lv_obj_get_child(controls, lv_obj_get_child_count(controls) - 1);
+  BindSettingsObject(haptic_slider, &state->haptic_strength_slider);
   if (haptic_slider != nullptr) {
     lv_obj_add_event_cb(haptic_slider, SettingsSliderReleasedEventCallback,
         LV_EVENT_RELEASED, state);
     lv_obj_add_event_cb(haptic_slider, SettingsSliderReleasedEventCallback,
         LV_EVENT_PRESS_LOST, state);
   }
-  if (!state->haptics_enabled) {
-    lv_obj_add_flag(controls, LV_OBJ_FLAG_HIDDEN);
-  }
+  SetSettingsSliderControlsEnabled(controls, haptic_slider,
+                                   state->haptics_enabled);
   return true;
 }
 
 }  // namespace
+
+void RefreshSoundHapticsSettings(SettingsViewState* state) {
+  if (state == nullptr) return;
+  state->audio_volume_percent = app::GetSoundPreferences().volume_percent;
+  state->sound_enabled =
+      state->config.audio != nullptr && state->config.audio->SpeakerEnabled();
+  const auto haptic = app::GetHapticPreferences();
+  state->haptics_enabled = haptic.enabled;
+  state->haptic_strength_percent = haptic.strength_percent;
+  if (state->audio_volume_slider != nullptr) {
+    lv_slider_set_value(state->audio_volume_slider, state->audio_volume_percent,
+                        LV_ANIM_OFF);
+  }
+  if (state->haptic_strength_slider != nullptr) {
+    lv_slider_set_value(state->haptic_strength_slider,
+                        state->haptic_strength_percent, LV_ANIM_OFF);
+  }
+  if (state->sound_switch != nullptr) {
+    if (state->sound_enabled) {
+      lv_obj_remove_state(state->sound_switch, LV_STATE_CHECKED);
+    } else {
+      lv_obj_add_state(state->sound_switch, LV_STATE_CHECKED);
+    }
+  }
+  if (state->haptics_switch != nullptr) {
+    if (state->haptics_enabled) {
+      lv_obj_add_state(state->haptics_switch, LV_STATE_CHECKED);
+    } else {
+      lv_obj_remove_state(state->haptics_switch, LV_STATE_CHECKED);
+    }
+  }
+  SetSettingsSliderControlsEnabled(state->audio_volume_controls,
+                                   state->audio_volume_slider,
+                                   state->sound_enabled);
+  SetSettingsSliderControlsEnabled(state->haptic_strength_controls,
+                                   state->haptic_strength_slider,
+                                   state->haptics_enabled);
+}
 
 bool ShowSoundHapticsPage(SettingsViewState* state) {
   return ShowBasicPage(state, "Sound & Haptics", BuildSoundHapticsContent);

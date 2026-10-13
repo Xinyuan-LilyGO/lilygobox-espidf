@@ -9,7 +9,9 @@
 
 #include <atomic>
 #include <cstdint>
+#include <mutex>
 
+#include "app/device_control.h"
 #include "app/storage/display_storage.h"
 #include "freertos/FreeRTOS.h"
 #include "hal/device_provider_factory.h"
@@ -44,6 +46,18 @@ class Application final {
   void RestartDevice(bool prepare_storage = true);
 
  private:
+  /**
+   * @brief 执行桌面请求；屏幕开关由锁屏任务调用，其余由应用主循环调用
+   * @param screen_task 是否由锁屏任务调用
+   * @return 本次取出并处理了命令时返回 true
+   */
+  bool ProcessDeviceControl(bool screen_task);
+
+  /**
+   * @brief 发布偏好与已确认的屏幕状态，电池复用现有采集缓存
+   */
+  void PublishDeviceState();
+
   // 锁屏页面与物理屏幕完成状态转换后的稳定状态。
   enum class ScreenLockState : uint8_t {
     kUnlocked,
@@ -418,6 +432,8 @@ class Application final {
    */
   app::DisplayPreferences LoadDisplayPreferencesOrDefault() const;
 
+  std::mutex control_battery_mutex_;
+  hal::BatteryManagementStatus control_battery_status_;
   hal::DeviceProviderContext device_provider_context_;
   hal::LvglPort lvgl_port_;
   ui::UiManager ui_manager_;

@@ -2,7 +2,7 @@
  * @Description: 设置页面公共布局、嵌套导航和通用设置控件。
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-10-06 11:37:55
+ * @LastEditTime: 2026-10-13 12:00:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -188,5 +188,21 @@ void ApplySettingsTextAreaStyle(
  * @return 当前滑动条百分比
  */
 int SliderPercentFromEvent(lv_event_t* event);
+
+/**
+ * @brief 保存控件引用，控件删除时自动清空，避免远程刷新访问已销毁对象
+ * @param object 控件对象
+ * @param output 设置状态中的引用地址
+ */
+void BindSettingsObject(lv_obj_t* object, lv_obj_t** output);
+
+/**
+ * @brief 保留滑动条布局和数值，统一淡化并禁用控件
+ * @param controls 滑动条及标题的容器
+ * @param slider 滑动条对象
+ * @param enabled 是否允许操作
+ */
+void SetSettingsSliderControlsEnabled(lv_obj_t* controls, lv_obj_t* slider,
+                                      bool enabled);
 
 }  // namespace lilygo_box::ui

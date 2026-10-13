@@ -2,7 +2,7 @@
  * @Description: 按用途选择内存区域，并提供已接入模块用量和系统堆快照。
  * @Author: LILYGO_L
  * @Date: 2026-10-07 00:00:00
- * @LastEditTime: 2026-10-07 00:00:00
+ * @LastEditTime: 2026-10-13 12:00:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -14,7 +14,7 @@
 namespace lilygo_box::memory {
 
 enum class Policy : uint8_t {
-  // 小分配优先高速内部 RAM，大分配优先 PSRAM；仅在这两种区域间回退。
+  // 小分配优先高速内部 RAM，大分配优先 PSRAM；内部余量不足时仅使用 PSRAM。
   kBalanced,
   // 仅使用普通高速内部堆，不占用系统保留池，不回退到 RTC RAM 或 PSRAM。
   kFastInternal,

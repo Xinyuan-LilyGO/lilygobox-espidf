@@ -2,7 +2,7 @@
  * @Description: 提供持续局域网发现、首次授权、可信重连和跨线程安全的连接状态。
  * @Author: LILYGO_L
  * @Date: 2026-10-04 19:00:00
- * @LastEditTime: 2026-10-06 13:38:15
+ * @LastEditTime: 2026-10-13 12:00:00
  * @License: GPL 3.0
  */
 #include "app/app_connection.h"
@@ -12,8 +12,10 @@
 #include <cstring>
 #include <mutex>
 
-#include "app/storage/connection_storage.h"
 #include "app/connection_tls.h"
+#include "app/device_control.h"
+#include "app/device_identity.h"
+#include "app/storage/connection_storage.h"
 #include "base/logger.h"
 #include "cJSON.h"
 #include "esp_app_desc.h"
@@ -51,6 +53,13 @@ constexpr size_t kSessionCapacity = kAppCredentialCapacity + 1;
 constexpr int64_t kSelectionWindowMs = 4000;
 struct AppSession {
   int fd = -1;
+  uint32_t session_id = 0;
+  DeviceControlCommand control;
+  bool control_pending = false;
+  bool control_executing = false;
+  bool control_completed = false;
+  char control_error[32] = {};
+  int64_t control_until = 0;
   char credential_id[65] = {};
   char client_id[65] = {};
   char name[49] = {};
@@ -65,6 +74,8 @@ struct AppSession {
   int64_t last_seen = 0;
 };
 AppSession g_sessions[kSessionCapacity];
+uint32_t g_next_session_id = 0;
+DeviceControlState g_control_state;
 int g_active_fd = -1;
 int g_pending_fd = -1;
 int64_t g_selection_until = 0;
@@ -271,10 +282,15 @@ cJSON* Message(const char* type) {
  * @param message 待补充的 JSON 对象
  */
 void AddDeviceInfo(cJSON* message) {
-  cJSON_AddStringToObject(message, "name", kModel);
+  cJSON_AddNumberToObject(message, "controlVersion", 1);
+  char device_name[kMaxDeviceNameLength + 1] = {};
+  CopyConfiguredDeviceName(device_name, sizeof(device_name));
+  // 显示名称包含持久化用户名称或LilygoBox 与完整 MAC；型号字段保持独立。
+  cJSON_AddStringToObject(message, "name",
+                          device_name[0] == '\0' ? kModel : device_name);
   cJSON_AddStringToObject(message, "model", kModel);
-  cJSON_AddStringToObject(
-      message, "firmware", esp_app_get_description()->version);
+  cJSON_AddStringToObject(message, "firmware",
+                          esp_app_get_description()->version);
   cJSON_AddNumberToObject(message, "uptimeMs", static_cast<double>(NowMs()));
 }
 
@@ -342,9 +358,102 @@ void SocketClosed(httpd_handle_t, int fd) {
 }
 
 /**
- * @brief 处理首次授权、已授权重连和只读心跳消息
- * @param request 当前 WebSocket 请求
- * @return ESP_OK 表示处理成功，否则关闭会话
+ * @brief 将缓存状态附加到响应，不访问硬件或 LVGL
+ * @param reply 目标响应对象
+ */
+void AddControlState(cJSON* reply) {
+  const auto& source = g_control_state;
+  cJSON* state = cJSON_AddObjectToObject(reply, "state");
+  cJSON_AddBoolToObject(state, "ready", source.ready);
+  cJSON* capabilities = cJSON_AddObjectToObject(state, "capabilities");
+  cJSON_AddBoolToObject(capabilities, "screen", source.screen_supported);
+  cJSON_AddBoolToObject(capabilities, "audio", source.audio_supported);
+  cJSON_AddBoolToObject(capabilities, "haptic", source.haptic_supported);
+  cJSON_AddBoolToObject(state, "screenEnabled", source.screen_enabled);
+  cJSON_AddBoolToObject(state, "soundEnabled", source.sound_enabled);
+  cJSON_AddBoolToObject(state, "hapticEnabled", source.haptic_enabled);
+  cJSON_AddNumberToObject(state, "brightness", source.brightness);
+  cJSON_AddNumberToObject(state, "rotation", source.rotation);
+  cJSON_AddNumberToObject(state, "volume", source.volume);
+  cJSON_AddNumberToObject(state, "hapticStrength", source.haptic_strength);
+  const auto& source_battery = source.battery;
+  cJSON* battery = cJSON_AddObjectToObject(state, "battery");
+  cJSON_AddBoolToObject(battery, "available",
+                        source_battery.ready && source_battery.pack_present);
+  if (source_battery.ready && source_battery.pack_present) {
+    cJSON_AddBoolToObject(battery, "charging", source_battery.charging);
+    cJSON_AddBoolToObject(battery, "full", source_battery.full_charged);
+    cJSON_AddNumberToObject(battery, "percent", source_battery.charge_percent);
+    cJSON_AddNumberToObject(battery, "voltageMv", source_battery.voltage_mv);
+    cJSON_AddNumberToObject(battery, "currentMa", source_battery.current_ma);
+    cJSON_AddNumberToObject(battery, "temperatureC",
+                            source_battery.pack_temperature_c);
+  }
+}
+
+/**
+ * @brief 严格校验单字段目标值，布尔开关与数值字段不能互相替代
+ * @param input 客户端消息
+ * @param command 已填写会话标识的命令输出
+ * @return 合法且当前设备支持时返回 true
+ */
+bool ParseControlCommand(const cJSON* input, DeviceControlCommand* command) {
+  const char* field = StringField(input, "field");
+  const cJSON* value = cJSON_GetObjectItemCaseSensitive(input, "value");
+  bool boolean = false;
+  bool supported = false;
+  int minimum = 0;
+  int maximum = 100;
+  if (std::strcmp(field, "screenEnabled") == 0) {
+    command->field = DeviceControlField::kScreenEnabled;
+    boolean = true;
+    supported = g_control_state.screen_supported;
+  } else if (std::strcmp(field, "brightness") == 0) {
+    command->field = DeviceControlField::kBrightness;
+    minimum = 10;
+    supported = g_control_state.screen_supported;
+  } else if (std::strcmp(field, "rotation") == 0) {
+    command->field = DeviceControlField::kRotation;
+    maximum = 270;
+    supported = g_control_state.screen_supported;
+  } else if (std::strcmp(field, "soundEnabled") == 0) {
+    command->field = DeviceControlField::kSoundEnabled;
+    boolean = true;
+    supported = g_control_state.audio_supported;
+  } else if (std::strcmp(field, "volume") == 0) {
+    command->field = DeviceControlField::kVolume;
+    supported = g_control_state.audio_supported;
+  } else if (std::strcmp(field, "hapticEnabled") == 0) {
+    command->field = DeviceControlField::kHapticEnabled;
+    boolean = true;
+    supported = g_control_state.haptic_supported;
+  } else if (std::strcmp(field, "hapticStrength") == 0) {
+    command->field = DeviceControlField::kHapticStrength;
+    supported = g_control_state.haptic_supported;
+  } else {
+    return false;
+  }
+  if (!g_control_state.ready || !supported) return false;
+  if (boolean) {
+    if (!cJSON_IsBool(value)) return false;
+    command->value = cJSON_IsTrue(value) ? 1 : 0;
+  } else {
+    if (!cJSON_IsNumber(value) || value->valuedouble < minimum ||
+        value->valuedouble > maximum || value->valuedouble != value->valueint) {
+      return false;
+    }
+    command->value = value->valueint;
+    if (command->field == DeviceControlField::kRotation &&
+        command->value % 90 != 0)
+      return false;
+  }
+  return true;
+}
+
+/**
+ * @brief 接收授权与控制消息；硬件控制仅入队，结果由客户端轮询领取
+ * @param request WebSocket 请求
+ * @return 消息处理结果
  */
 esp_err_t WebSocketHandler(httpd_req_t* request) {
   const int fd = httpd_req_to_sockfd(request);
@@ -355,6 +464,7 @@ esp_err_t WebSocketHandler(httpd_req_t* request) {
       if (session.fd >= 0) continue;
       session = {};
       session.fd = fd;
+      session.session_id = ++g_next_session_id;
       session.last_seen = NowMs();
       session.until = NowMs() + 10000;
       return ESP_OK;
@@ -516,6 +626,7 @@ esp_err_t WebSocketHandler(httpd_req_t* request) {
       if (fd == g_active_fd) {
         reply = Message("ready");
         AddDeviceInfo(reply);
+        AddControlState(reply);
         const size_t index = CredentialIndex(session->credential_id);
         if (index == g_preferences.count) {
           cJSON_Delete(input);
@@ -536,6 +647,52 @@ esp_err_t WebSocketHandler(httpd_req_t* request) {
                g_status.connected) {
       reply = Message("pong");
       AddDeviceInfo(reply);
+      AddControlState(reply);
+    } else if (std::strcmp(type, "state.get") == 0 && fd == g_active_fd &&
+               g_status.connected) {
+      reply = Message("state");
+      AddDeviceInfo(reply);
+      AddControlState(reply);
+    } else if ((std::strcmp(type, "control.set") == 0 ||
+                std::strcmp(type, "control.poll") == 0) &&
+               fd == g_active_fd && g_status.connected) {
+      const cJSON* id = cJSON_GetObjectItemCaseSensitive(input, "requestId");
+      if (!cJSON_IsNumber(id) || id->valuedouble < 1 ||
+          id->valuedouble > INT32_MAX || id->valuedouble != id->valueint) {
+        cJSON_Delete(input);
+        return ESP_FAIL;
+      }
+      const char* error = nullptr;
+      if (std::strcmp(type, "control.set") == 0 &&
+          id->valueint != session->control.request_id) {
+        DeviceControlCommand command;
+        command.session_id = session->session_id;
+        command.request_id = id->valueint;
+        if (session->control_pending || session->control_executing) {
+          error = "busy";
+        } else if (id->valueint <= session->control.request_id) {
+          error = "stale_request";
+        } else if (!ParseControlCommand(input, &command)) {
+          error = "invalid_or_unsupported";
+        } else {
+          session->control = command;
+          session->control_pending = true;
+          session->control_completed = false;
+          session->control_until = NowMs() + 5000;
+          session->control_error[0] = '\0';
+        }
+      } else if (id->valueint != session->control.request_id) {
+        error = "unknown_request";
+      }
+      const bool completed = error != nullptr || session->control_completed;
+      reply = Message(completed ? "control.result" : "control.queued");
+      cJSON_AddNumberToObject(reply, "requestId", id->valueint);
+      if (completed) {
+        if (error == nullptr) error = session->control_error;
+        cJSON_AddBoolToObject(reply, "ok", error[0] == '\0');
+        cJSON_AddStringToObject(reply, "error", error);
+        AddControlState(reply);
+      }
     } else {
       cJSON_Delete(input);
       return ESP_FAIL;
@@ -936,6 +1093,48 @@ bool RemoveAppCredential(const char* id) {
   LogMessage(
       LogLevel::kInfo, __FILE__, __LINE__, "App authorization removed\n");
   return true;
+}
+
+bool TakeDeviceControlCommand(bool screen_task, DeviceControlCommand* command) {
+  if (command == nullptr) return false;
+  std::lock_guard<std::mutex> lock(g_mutex);
+  auto* session = FindSession(g_active_fd);
+  if (session == nullptr || !g_status.connected || !g_preferences.enabled ||
+      session->close_requested || session->disconnect_requested ||
+      !session->control_pending)
+    return false;
+  if (NowMs() > session->control_until) {
+    session->control_pending = false;
+    session->control_completed = true;
+    std::snprintf(session->control_error, sizeof(session->control_error),
+                  "expired");
+    return false;
+  }
+  if (screen_task !=
+      (session->control.field == DeviceControlField::kScreenEnabled))
+    return false;
+  *command = session->control;
+  session->control_pending = false;
+  session->control_executing = true;
+  return true;
+}
+
+void CompleteDeviceControlCommand(const DeviceControlCommand& command,
+                                  const char* error) {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  auto* session = FindSession(g_active_fd);
+  if (session == nullptr || session->session_id != command.session_id ||
+      session->control.request_id != command.request_id)
+    return;
+  session->control_executing = false;
+  session->control_completed = true;
+  std::snprintf(session->control_error, sizeof(session->control_error), "%s",
+                error);
+}
+
+void PublishDeviceControlState(const DeviceControlState& state) {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  g_control_state = state;
 }
 
 }  // namespace lilygo_box::app

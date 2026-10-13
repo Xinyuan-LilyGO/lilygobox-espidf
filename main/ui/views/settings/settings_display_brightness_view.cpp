@@ -2,7 +2,7 @@
  * @Description: Settings display brightness page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-09-02 17:56:36
+ * @LastEditTime: 2026-10-13 12:00:00
  * @License: GPL 3.0
  */
 #include <algorithm>
@@ -23,31 +23,6 @@ namespace {
 
 hal::LvglPort* g_lvgl_port = nullptr;
 int g_pending_rotation_angle = -1;
-
-constexpr int kBrightnessSliderMin = 0;
-constexpr int kBrightnessSliderMax = 100;
-
-int BrightnessPercentFromSlider(int slider_value) {
-  const int clamped_value =
-      std::clamp(slider_value, kBrightnessSliderMin, kBrightnessSliderMax);
-  const int user_range = app::kUserDisplayBrightnessMaxPercent -
-                         app::kUserDisplayBrightnessMinPercent;
-  return app::kUserDisplayBrightnessMinPercent +
-         (clamped_value * user_range + kBrightnessSliderMax / 2) /
-             kBrightnessSliderMax;
-}
-
-int SliderValueFromBrightnessPercent(int brightness_percent) {
-  const int clamped_percent =
-      std::clamp(brightness_percent, app::kUserDisplayBrightnessMinPercent,
-          app::kUserDisplayBrightnessMaxPercent);
-  const int user_range = app::kUserDisplayBrightnessMaxPercent -
-                         app::kUserDisplayBrightnessMinPercent;
-  return ((clamped_percent - app::kUserDisplayBrightnessMinPercent) *
-                 kBrightnessSliderMax +
-             user_range / 2) /
-         user_range;
-}
 
 // sheet 收缩动画时长 (ms)，旋转需等待其播完后再执行
 constexpr uint32_t kSheetDismissAnimationMs = 200;
@@ -70,7 +45,11 @@ constexpr int kScreenRotationOptionTop = 155;
 constexpr int kScreenRotationOptionHeight = 78;
 void ApplyPendingRotation(void* /*ctx*/) {
   if (g_lvgl_port != nullptr && g_pending_rotation_angle >= 0) {
-    g_lvgl_port->SetDisplayRotation(g_pending_rotation_angle);
+    // 等待弹窗退出期间若桌面已更新角度，不再应用过期的本地请求。
+    if (app::GetDisplayPreferences().screen_rotation_angle ==
+        g_pending_rotation_angle) {
+      g_lvgl_port->SetDisplayRotation(g_pending_rotation_angle);
+    }
     g_pending_rotation_angle = -1;
   }
 }
@@ -106,8 +85,15 @@ void SaveBrightnessPreferences(SettingsViewState* state) {
 void BrightnessSliderChangedEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (state != nullptr) {
+    const int slider_percent = SliderPercentFromEvent(event);
     const int brightness_percent =
-        BrightnessPercentFromSlider(SliderPercentFromEvent(event));
+        std::clamp(slider_percent, app::kUserDisplayBrightnessMinPercent,
+                   app::kUserDisplayBrightnessMaxPercent);
+    // 保留 0～100 的进度比例，最低停在 10%，不将最低亮度映射到空进度。
+    if (slider_percent != brightness_percent) {
+      lv_slider_set_value(lv_event_get_target_obj(event), brightness_percent,
+                          LV_ANIM_OFF);
+    }
     state->display_brightness_percent = brightness_percent;
     PlaySettingsHapticPreview(state);
     hal::LvglPort* lvgl_port = state->config.lvgl_port;
@@ -337,23 +323,27 @@ bool CreateScreenRotationRow(
  * @return 创建成功返回 true，否则返回 false
  */
 bool BuildDisplayBrightnessContent(lv_obj_t* body, SettingsViewState* state) {
+  state->display_brightness_percent =
+      app::GetDisplayPreferences().brightness_percent;
   const int width = state->config.width;
   int y = 0;
   if (!CreateSectionLabel(body, "Brightness", y, width)) {
     return false;
   }
   y += kBasicSectionHeight;
-  const int brightness_slider_value =
-      SliderValueFromBrightnessPercent(state->display_brightness_percent);
+  const int brightness_slider_value = std::clamp(
+      state->display_brightness_percent, app::kUserDisplayBrightnessMinPercent,
+      app::kUserDisplayBrightnessMaxPercent);
   if (!CreateSliderRow(body, icon::kSunny, "Screen brightness",
-          brightness_slider_value, y, width,
-          BrightnessSliderChangedEventCallback, state)) {
+                       brightness_slider_value, y, width,
+                       BrightnessSliderChangedEventCallback, state)) {
     return false;
   }
 
   lv_obj_t* brightness_slider =
       lv_obj_get_child(body, lv_obj_get_child_count(body) - 1);
   if (brightness_slider != nullptr) {
+    BindSettingsObject(brightness_slider, &state->display_brightness_slider);
     lv_obj_add_event_cb(brightness_slider,
         BrightnessSliderReleasedEventCallback, LV_EVENT_RELEASED, state);
     lv_obj_add_event_cb(brightness_slider,
@@ -390,7 +380,6 @@ bool BuildDisplayBrightnessContent(lv_obj_t* body, SettingsViewState* state) {
 }  // namespace
 
 bool ShowDisplayBrightnessPage(SettingsViewState* state) {
-  SetSettingsRestoreSubPage("display_brightness");
   return ShowBasicPage(
       state, "Display & Brightness", BuildDisplayBrightnessContent);
 }

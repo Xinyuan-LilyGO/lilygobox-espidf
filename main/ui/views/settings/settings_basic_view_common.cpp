@@ -2,7 +2,7 @@
  * @Description: 设置页面公共布局、嵌套导航和通用设置控件。
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-10-06 11:45:44
+ * @LastEditTime: 2026-10-13 12:00:00
  * @License: GPL 3.0
  */
 #include "ui/views/settings/settings_basic_view_common.h"
@@ -131,7 +131,6 @@ void CloseNestedPage(SettingsViewState* state, bool animated);
  * @param animation LVGL 动画对象
  */
 void ExtraCloseCompletedCallback(lv_anim_t* animation) {
-  SetSettingsRestoreSubPage(nullptr);
   auto* state =
       static_cast<SettingsViewState*>(lv_anim_get_user_data(animation));
   if (state == nullptr || state->settings_extra_page == nullptr) {
@@ -150,7 +149,6 @@ void ExtraCloseCompletedCallback(lv_anim_t* animation) {
  * @param animation LVGL 动画对象
  */
 void NestedCloseCompletedCallback(lv_anim_t* animation) {
-  SetSettingsRestoreSubPage(nullptr);
   auto* state =
       static_cast<SettingsViewState*>(lv_anim_get_user_data(animation));
   if (state == nullptr || state->settings_nested_page == nullptr) {
@@ -384,11 +382,8 @@ bool ShowBasicPage(SettingsViewState* state, const char* title,
     return false;
   }
 
-  if (ConsumeSkipPageAnimation()) {
-    // 旋转恢复时跳过滑入动画，直接把页面放到最终位置
-    lv_obj_set_x(page, 0);
-  } else if (!StartSlideLeftWindowTransition(page, state->config.width,
-                 kDetailSlideAnimationMs, state, nullptr)) {
+  if (!StartSlideLeftWindowTransition(
+          page, state->config.width, kDetailSlideAnimationMs, state, nullptr)) {
     CloseExtraPage(state, false);
     return false;
   }
@@ -794,6 +789,33 @@ int SliderPercentFromEvent(lv_event_t* event) {
     return 0;
   }
   return static_cast<int>(lv_slider_get_value(target));
+}
+
+void BindSettingsObject(lv_obj_t* object, lv_obj_t** output) {
+  *output = object;
+  if (object == nullptr) return;
+  lv_obj_add_event_cb(
+      object,
+      [](lv_event_t* event) {
+        // 删除回调仍持有有效设置状态；只清空属于当前对象的引用。
+        auto** slot = static_cast<lv_obj_t**>(lv_event_get_user_data(event));
+        if (*slot == lv_event_get_target_obj(event)) *slot = nullptr;
+      },
+      LV_EVENT_DELETE, output);
+}
+
+void SetSettingsSliderControlsEnabled(lv_obj_t* controls, lv_obj_t* slider,
+                                      bool enabled) {
+  if (controls != nullptr) {
+    lv_obj_set_style_opa(controls, enabled ? LV_OPA_COVER : LV_OPA_50,
+                         LV_PART_MAIN);
+  }
+  if (slider == nullptr) return;
+  if (enabled) {
+    lv_obj_remove_state(slider, LV_STATE_DISABLED);
+  } else {
+    lv_obj_add_state(slider, LV_STATE_DISABLED);
+  }
 }
 
 }  // namespace lilygo_box::ui

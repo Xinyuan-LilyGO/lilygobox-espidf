@@ -6,12 +6,12 @@
 
 | 策略 | 用途 | 回退行为 |
 | --- | --- | --- |
-| `kBalanced` | LVGL 等大小混合的普通对象 | 小分配先高速内部 RAM，大分配先 PSRAM；允许在这两者之间回退 |
+| `kBalanced` | LVGL 等大小混合的普通对象 | 小分配先高速内部 RAM，大分配先 PSRAM；内部余量不足时仅使用 PSRAM |
 | `kFastInternal` | 明确需要快速访问的内部缓冲 | 仅普通高速内部堆，失败返回空指针 |
 | `kPsram` | 图片、较大的业务缓存 | 仅 PSRAM，失败后由业务决定降级 |
 | `kInternalDma` | 明确要求内部 DMA 的缓冲 | 仅内部 DMA 堆，允许使用系统 DMA 保留池 |
 
-`kBalanced` 沿用 `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL` 的大小分界。普通高速内部堆要求 `DEFAULT`、`INTERNAL`、`DMA` 和 `8BIT` 能力，在 ESP32-P4 上排除 RTC RAM/TCM，同时避开系统专用保留池。不要以“不够时分配到任意内部内存”替代这个限制，具体背景见 [WLAN 页面性能](wlan-performance.md)。
+`kBalanced` 沿用 `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL` 的大小分界。分配前检查普通内部堆余量，按 `CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL` 保留余量；本次分配可能低于该余量时只使用 PSRAM，避免界面对象耗尽 TLS AES 描述符和 SDIO 接收缓冲所需的内部 DMA 内存。这是普通分配的分流策略，不是对其他任务或第三方分配器的硬性预留保证。普通高速内部堆要求 `DEFAULT`、`INTERNAL`、`DMA` 和 `8BIT` 能力，在 ESP32-P4 上排除 RTC RAM/TCM，同时避开系统专用保留池。不要以“不够时分配到任意内部内存”替代这个限制，具体背景见 [WLAN 页面性能](wlan-performance.md)。
 
 `kInternalDma` 只表示内存区域要求，不承诺满足所有外设的缓存行、对齐、连续长度或缓存同步要求。需要特殊对齐的显示、相机、USB 等驱动缓冲继续使用各自驱动接口，不应直接迁入普通分配接口。
 
@@ -44,10 +44,10 @@ if (buffer != nullptr) {
 | --- | --- |
 | LVGL | 链接包装 `lv_malloc_core`、`lv_realloc_core`、`lv_free_core` |
 | Camera | 相机页面持有的预览图像缓冲；不包含硬件驱动的相机缓冲 |
-| Radio | 聊天记录热缓存和会话状态数组 |
+| Radio | 聊天记录热缓存、会话状态数组，以及 P4/P4 Air 的 WLAN 扫描临时快照 |
 | General / 应用连接 | 初始化凭证工作区、保存前的回滚快照和 TLV 编码缓冲，使用 PSRAM 并自动释放 |
 
-LVGL 保留此前验证的内存优先级和回退顺序。相机页面继续仅使用 PSRAM。Radio 大缓存继续优先使用 PSRAM，失败后按原逻辑降低容量；内部缓存改为明确使用高速内部堆，避免落入 RTC RAM。
+LVGL 沿用大小分流，同时保护内部堆余量。设置页共享状态显式使用 PSRAM；页面删除时先完成子树回调和定时器清理，再释放共享状态。相机页面继续仅使用 PSRAM。Radio 大缓存继续优先使用 PSRAM，失败后按原逻辑降低容量；内部缓存改为明确使用高速内部堆，避免落入 RTC RAM。
 
 SDK、标准容器、驱动、TLS 及尚未接入的分配不包含在模块计数中，但会反映在系统堆快照中。模块用量之和不是整个程序的内存占用。
 

@@ -2,7 +2,7 @@
  * @Description: 系统设置应用页面创建接口
  * @Author: LILYGO_L
  * @Date: 2026-05-18 09:20:00
- * @LastEditTime: 2026-09-02 17:54:48
+ * @LastEditTime: 2026-10-13 12:00:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -35,5 +35,11 @@ void UpdateSettingsViewVolume(lv_obj_t* settings_view, int volume_percent);
  * @param settings_view 设置页面根对象
  */
 void RefreshSettingsViewKeyboardExpansion(lv_obj_t* settings_view);
+
+/**
+ * @brief 从设备偏好和硬件状态刷新亮度、声音及振动设置
+ * @param settings_view 设置页面根对象
+ */
+void RefreshSettingsViewControls(lv_obj_t* settings_view);
 
 }  // namespace lilygo_box::ui

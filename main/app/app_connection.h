@@ -42,7 +42,7 @@ struct AuthorizedApps {
   AuthorizedApp clients[kAppCredentialCapacity] = {};
 };
 
-// 已授权应用凭随机令牌恢复只读连接；新客户端必须在设备上确认。
+// 已授权应用凭随机令牌恢复加密控制连接；新客户端必须在设备上确认。
 /**
  * @brief 启动局域网连接服务并恢复已保存的自动连接偏好
  * @param wifi 设备 Wi-Fi 状态接口

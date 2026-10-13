@@ -2,13 +2,16 @@
  * @Description: 扬声器与麦克风状态及控制接口
  * @Author: LILYGO_L
  * @Date: 2026-05-14 00:20:00
- * @LastEditTime: 2026-09-02 17:52:34
+ * @LastEditTime: 2026-10-13 12:00:00
  * @License: GPL 3.0
  */
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
+#include <optional>
 
 namespace lilygo_box::hal {
 
@@ -82,9 +85,35 @@ class AudioProvider {
    * @brief 向后台提交音量请求，连续拖动只保留最新值，UI 不等待硬件
    * @param percent 音量百分比，范围 0~100
    * @param preview 是否循环试听；松开滑动条时传入 false
+   * @param enabled 可选声音开关；未指定时保留已应用的静音状态
    * @return 请求提交成功返回 true，不代表硬件已经应用成功
    */
-  bool RequestSpeakerVolumePercent(int percent, bool preview = false);
+  bool RequestSpeakerVolumePercent(int percent, bool preview = false,
+                                   std::optional<bool> enabled = std::nullopt);
+
+  /**
+   * @brief 串行应用音量与静音状态，静音不会改写保存的音量
+   * @param percent 保留的音量百分比
+   * @param enabled 是否允许声音输出
+   * @return 硬件设置成功返回 true
+   */
+  bool ApplySpeakerVolumeSetting(int percent, bool enabled);
+
+  /**
+   * @brief 后台应用新音量，保留静音状态并丢弃已被替代的请求
+   * @param percent 目标音量百分比
+   * @param generation 后台请求序号
+   * @param enabled 可选声音开关，与音量在同一后台请求内应用
+   * @return 硬件设置成功返回 true
+   */
+  bool ApplyRequestedSpeakerVolume(int percent, uint32_t generation,
+                                   std::optional<bool> enabled = std::nullopt);
+
+  /**
+   * @brief 读取已应用的声音开关，该状态仅在本次运行期间保留
+   * @return 允许输出声音返回 true
+   */
+  bool SpeakerEnabled() const { return speaker_enabled_.load(); }
 
   /**
    * @brief 读取扬声器音频播放状态
@@ -158,6 +187,10 @@ class AudioProvider {
    * @return 读取成功返回 true，否则返回 false
    */
   virtual bool ReadMicrophoneStatus(MicrophoneStatus* status) = 0;
+
+ private:
+  std::mutex speaker_setting_mutex_;
+  std::atomic<bool> speaker_enabled_{true};
 };
 
 }  // namespace lilygo_box::hal

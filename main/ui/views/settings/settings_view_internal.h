@@ -2,7 +2,7 @@
  * @Description: 设置视图内部实现
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-10-06 11:17:54
+ * @LastEditTime: 2026-10-13 12:00:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -310,7 +310,13 @@ struct SettingsViewState {
   lv_obj_t* otg_switch = nullptr;
   bool otg_enabled = false;
   bool haptics_enabled = true;
+  bool sound_enabled = true;
+  lv_obj_t* display_brightness_slider = nullptr;
+  lv_obj_t* sound_switch = nullptr;
+  lv_obj_t* audio_volume_controls = nullptr;
   lv_obj_t* audio_volume_slider = nullptr;
+  lv_obj_t* haptics_switch = nullptr;
+  lv_obj_t* haptic_strength_slider = nullptr;
   // 声音与振动页面中的振动强度控件容器。
   lv_obj_t* haptic_strength_controls = nullptr;
   bool battery_protection_enabled = true;
@@ -548,30 +554,6 @@ bool ShowDeveloperOptionsPage(SettingsViewState* state);
 void RefreshKeyboardExpansionSettings(SettingsViewState* state);
 
 /**
- * @brief 设置旋转后自动恢复的子页面 ID
- * @param page_id 子页面 ID（如 "display_brightness"），nullptr 表示清除
- */
-void SetSettingsRestoreSubPage(const char* page_id);
-
-/**
- * @brief 获取旋转后自动恢复的子页面 ID
- * @return 子页面 ID，nullptr 表示不需要恢复
- */
-const char* GetSettingsRestoreSubPage();
-
-/**
- * @brief 标记旋转恢复时是否需要跳过页面动画
- * @return true 表示跳过动画
- */
-bool IsSkipPageAnimation();
-
-/**
- * @brief 消耗旋转恢复跳过动画标志，读取并清除
- * @return true 表示需要跳过动画，且标志已清除
- */
-bool ConsumeSkipPageAnimation();
-
-/**
  * @brief 从设置主页打开显示与亮度详情页
  * @param state 设置页状态
  * @return 打开成功返回 true，否则返回 false
@@ -590,6 +572,12 @@ void SetLvglPortForRotation(hal::LvglPort* port);
  * @return 打开成功返回 true，否则返回 false
  */
 bool ShowSoundHapticsPage(SettingsViewState* state);
+
+/**
+ * @brief 从最新声音和触感状态同步当前设置控件，不触发硬件回调
+ * @param state 设置页状态
+ */
+void RefreshSoundHapticsSettings(SettingsViewState* state);
 
 /**
  * @brief 从设置主页打开省电与电池详情页

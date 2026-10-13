@@ -2,7 +2,7 @@
  * @Description: 启动器、状态栏、应用窗口与系统覆盖层管理接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-10-06 09:16:32
+ * @LastEditTime: 2026-10-13 12:00:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -203,6 +203,11 @@ class UiManager final {
   void RefreshActiveSettingsKeyboardExpansion();
 
   /**
+   * @brief 同步当前设置页面中的亮度、声音和振动控件
+   */
+  void RefreshActiveSettingsControls();
+
+  /**
    * @brief 设置全局状态栏文字和图标颜色
    * @param color 文字和图标颜色，格式为 0xRRGGBB
    */
@@ -336,6 +341,12 @@ class UiManager final {
    * @param event LVGL 事件对象
    */
   static void RootLayoutRefreshEventCallback(lv_event_t* event);
+
+  /**
+   * @brief 在尺寸事件结束后统一重建布局，避免删除正在分发事件的页面
+   * @param context UI 管理器对象
+   */
+  static void RelayoutAsync(void* context);
 
   /**
    * @brief 设置系统启动界面进度条宽度
@@ -624,10 +635,12 @@ class UiManager final {
   int startup_progress_pending_percent_ = 0;
   int layout_width_ = 0;
   int layout_height_ = 0;
+  lv_display_rotation_t layout_rotation_ = LV_DISPLAY_ROTATION_0;
   bool startup_progress_animating_ = false;
   bool first_boot_welcome_pending_ = false;
   bool first_boot_welcome_closing_ = false;
   bool relayouting_ = false;
+  bool relayout_pending_ = false;
   bool pending_dark_theme_enabled_ = false;
   bool theme_refresh_pending_ = false;
   std::function<bool()> first_boot_welcome_completion_callback_;

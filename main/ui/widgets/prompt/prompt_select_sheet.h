@@ -2,7 +2,7 @@
  * @Description: Prompt select sheet widget
  * @Author: LILYGO_L
  * @Date: 2026-06-25 00:00:00
- * @LastEditTime: 2026-09-02 17:57:12
+ * @LastEditTime: 2026-10-13 12:00:00
  * @License: GPL 3.0
  */
 #pragma once
@@ -50,8 +50,6 @@ struct PromptSelectSheetConfig {
   int inner_padding = 0;
   int option_top = 0;
   int option_height = 0;
-  // 选项行可单独使用直角，底部操作按钮仍保持满圆角。
-  int option_radius = LV_RADIUS_CIRCLE;
   int button_height = 0;
   int button_radius = 0;
   int title_message_gap = 8;

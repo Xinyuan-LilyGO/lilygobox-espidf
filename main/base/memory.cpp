@@ -2,7 +2,7 @@
  * @Description: 统一内存分配策略、轻量模块计数和按需堆信息采集。
  * @Author: LILYGO_L
  * @Date: 2026-10-07 00:00:00
- * @LastEditTime: 2026-10-07 00:00:00
+ * @LastEditTime: 2026-10-13 12:00:00
  * @License: GPL 3.0
  */
 #include "base/memory.h"
@@ -53,11 +53,20 @@ Capabilities SelectCapabilities(size_t size, Policy policy) {
       return {kPsramCaps, 0};
     case Policy::kInternalDma:
       return {kDmaCaps, 0};
-    case Policy::kBalanced:
-      // 保持已在 P4 上验证的 LVGL 分流阈值与区域回退顺序。
+    case Policy::kBalanced: {
+      // 小型 UI 对象也不能耗尽内部堆：TLS AES 描述符和 SDIO 接收
+      // 必须使用内部 DMA 内存。余量不足时只使用 PSRAM，不回退内部堆。
+      constexpr size_t kInternalHeadroom =
+          CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL;
+      const size_t free_internal = heap_caps_get_free_size(kFastCaps);
+      if (free_internal <= kInternalHeadroom ||
+          size > free_internal - kInternalHeadroom) {
+        return {kPsramCaps, 0};
+      }
       return size <= CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL
                  ? Capabilities{kFastCaps, kPsramCaps}
                  : Capabilities{kPsramCaps, kFastCaps};
+    }
   }
   // 未知策略拒绝分配，不悄悄退回系统默认 malloc。
   return {0, 0};

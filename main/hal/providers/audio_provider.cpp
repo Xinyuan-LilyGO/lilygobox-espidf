@@ -2,7 +2,7 @@
  * @Description: 共用后台音量调节，避免 UI 等待音频锁、I2C 和 I2S。
  * @Author: LILYGO_L
  * @Date: 2026-10-12 00:00:00
- * @LastEditTime: 2026-10-12 00:00:00
+ * @LastEditTime: 2026-10-13 12:00:00
  * @License: GPL 3.0
  */
 #include "hal/providers/audio_provider.h"
@@ -23,6 +23,7 @@ struct VolumeRequest {
   int percent = 0;
   bool preview = false;
   uint32_t generation = 0;
+  std::optional<bool> enabled;
 };
 
 QueueHandle_t g_volume_requests = nullptr;
@@ -43,14 +44,16 @@ void VolumeControlTask(void* context) {
     VolumeRequest latest;
     while (xQueueReceive(queue, &latest, 0) == pdTRUE) request = latest;
     if (!request.preview) request.audio->StopSpeakerToneLoop();
-    if (!request.audio->SetSpeakerVolumePercent(request.percent)) {
+    if (!request.audio->ApplyRequestedSpeakerVolume(
+            request.percent, request.generation, request.enabled)) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Apply queued speaker volume failed: percent=%d\n", request.percent);
     }
     // 硬件调用期间可能已松手或提交新值；旧请求不得再次启动试听。
     // 启停接口只更新标志/创建播放任务，不在此锁内执行 codec 或 PCM 操作。
     std::lock_guard<std::mutex> lock(g_volume_request_mutex);
-    if (request.preview && request.generation == g_volume_request_generation) {
+    if (request.preview && request.audio->SpeakerEnabled() &&
+        request.generation == g_volume_request_generation) {
       request.audio->StartSpeakerToneLoop();
     }
   }
@@ -58,7 +61,41 @@ void VolumeControlTask(void* context) {
 
 }  // namespace
 
-bool AudioProvider::RequestSpeakerVolumePercent(int percent, bool preview) {
+bool AudioProvider::ApplySpeakerVolumeSetting(int percent, bool enabled) {
+  std::lock_guard<std::mutex> lock(speaker_setting_mutex_);
+  {
+    // 远程设置替代尚未执行的本地请求，避免旧滑动值在确认后覆盖新目标。
+    std::lock_guard<std::mutex> request_lock(g_volume_request_mutex);
+    ++g_volume_request_generation;
+    if (g_volume_requests != nullptr) xQueueReset(g_volume_requests);
+    StopSpeakerToneLoop();
+  }
+  if (!SetSpeakerVolumePercent(enabled ? std::clamp(percent, 0, 100) : 0)) {
+    return false;
+  }
+  speaker_enabled_.store(enabled);
+  return true;
+}
+
+bool AudioProvider::ApplyRequestedSpeakerVolume(int percent,
+                                                uint32_t generation,
+                                                std::optional<bool> enabled) {
+  std::lock_guard<std::mutex> lock(speaker_setting_mutex_);
+  {
+    std::lock_guard<std::mutex> request_lock(g_volume_request_mutex);
+    if (generation != g_volume_request_generation) return true;
+  }
+  const bool output_enabled = enabled.value_or(speaker_enabled_.load());
+  if (!SetSpeakerVolumePercent(output_enabled ? std::clamp(percent, 0, 100)
+                                              : 0)) {
+    return false;
+  }
+  speaker_enabled_.store(output_enabled);
+  return true;
+}
+
+bool AudioProvider::RequestSpeakerVolumePercent(int percent, bool preview,
+                                                std::optional<bool> enabled) {
   // 该锁仅保护队列创建与投递；后台硬件处理不会持有它。
   std::lock_guard<std::mutex> lock(g_volume_request_mutex);
   if (g_volume_requests == nullptr) {
@@ -72,7 +109,7 @@ bool AudioProvider::RequestSpeakerVolumePercent(int percent, bool preview) {
     g_volume_requests = queue;
   }
   const VolumeRequest request{this, std::clamp(percent, 0, 100), preview,
-      g_volume_request_generation + 1};
+                              g_volume_request_generation + 1, enabled};
   if (xQueueOverwrite(g_volume_requests, &request) != pdTRUE) return false;
   g_volume_request_generation = request.generation;
   // 与后台开始试听使用同一短锁，保证松手后的停止不会被旧请求覆盖。

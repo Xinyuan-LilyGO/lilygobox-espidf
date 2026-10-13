@@ -75,6 +75,7 @@ constexpr StorageBackend kStorageBackends[] = {
     {StageDeveloperStorage, FinishDeveloperStorage},
     {StageCompassStorage, FinishCompassStorage},
     {StageConnectionStorage, FinishConnectionStorage},
+    {StageDeviceIdentityStorage, FinishDeviceIdentityStorage},
 };
 constexpr size_t kStorageBackendCount =
     sizeof(kStorageBackends) / sizeof(kStorageBackends[0]);

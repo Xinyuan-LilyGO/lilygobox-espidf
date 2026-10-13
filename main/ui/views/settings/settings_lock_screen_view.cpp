@@ -2,7 +2,7 @@
  * @Description: Settings lock screen page
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-09-02 17:56:41
+ * @LastEditTime: 2026-10-13 12:00:00
  * @License: GPL 3.0
  */
 #include <cstdio>
@@ -102,7 +102,6 @@ bool ShowAutoLockSheet(SettingsViewState* state) {
   config.option_top = kAutoLockOptionTop;
   config.option_height = kAutoLockOptionHeight;
   // 锁屏时长选项保留整行直角高亮，不使用操作按钮的胶囊外形。
-  config.option_radius = 0;
   config.button_height = kWifiConnectButtonHeight;
   config.button_radius = 24;
   config.selected_color = theme::FixedColors().action_container;
