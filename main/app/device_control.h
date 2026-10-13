@@ -17,6 +17,7 @@ enum class DeviceControlField {
   kScreenEnabled,
   kBrightness,
   kRotation,
+  kLockTimeoutSeconds,
   kSoundEnabled,
   kVolume,
   kHapticEnabled,
@@ -40,6 +41,7 @@ struct DeviceControlState {
   bool haptic_enabled = true;
   int brightness = 90;
   int rotation = 0;
+  int lock_timeout_seconds = 5 * 60;
   int volume = 90;
   int haptic_strength = 90;
   hal::BatteryManagementStatus battery;

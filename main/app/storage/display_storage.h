@@ -13,6 +13,19 @@ inline constexpr int kUserDisplayBrightnessMinPercent = 10;
 inline constexpr int kUserDisplayBrightnessMaxPercent = 100;
 // 自动锁屏等待时间使用该值时，屏幕不会因空闲超时而锁定。
 inline constexpr int kDisplayLockTimeoutDisabledSeconds = 0;
+// 与设备锁屏设置列表共用，单位为秒；0 表示永不自动锁屏。
+inline constexpr int kDisplayLockTimeoutOptionsSeconds[] = {15,  30,  60, 120,
+                                                            300, 600, 0};
+
+/**
+ * @brief 判断自动锁屏等待时间是否属于设备支持的选项
+ */
+inline constexpr bool IsDisplayLockTimeoutSupported(int seconds) {
+  for (int option : kDisplayLockTimeoutOptionsSeconds) {
+    if (seconds == option) return true;
+  }
+  return false;
+}
 
 // 显示设置用户偏好。
 struct DisplayPreferences {

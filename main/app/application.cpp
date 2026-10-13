@@ -3334,6 +3334,7 @@ void Application::PublishDeviceState() {
   const auto haptic = app::GetHapticPreferences();
   state.brightness = display.brightness_percent;
   state.rotation = display.screen_rotation_angle;
+  state.lock_timeout_seconds = display.lock_timeout_seconds;
   state.volume = sound.volume_percent;
   state.haptic_strength = haptic.strength_percent;
   state.screen_enabled = !screen_off_confirmed_.load();
@@ -3384,6 +3385,19 @@ bool Application::ProcessDeviceControl(bool screen_task) {
             SetScreenBrightnessWhileAwake(previous.brightness_percent);
           error = "storage_failed";
         }
+      }
+      break;
+    }
+    case app::DeviceControlField::kLockTimeoutSeconds: {
+      const auto previous = app::GetDisplayPreferences();
+      auto display = previous;
+      display.lock_timeout_seconds = command.value;
+      // 仅修改等待时间，不主动解锁或唤醒屏幕；锁屏任务读取最新偏好。
+      if (app::UpdateDisplayPreferences(display)) {
+        error = "";
+      } else {
+        app::UpdateDisplayPreferences(previous);
+        error = "storage_failed";
       }
       break;
     }

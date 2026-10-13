@@ -16,6 +16,7 @@
 #include "app/device_control.h"
 #include "app/device_identity.h"
 #include "app/storage/connection_storage.h"
+#include "app/storage/display_storage.h"
 #include "base/logger.h"
 #include "cJSON.h"
 #include "esp_app_desc.h"
@@ -374,6 +375,7 @@ void AddControlState(cJSON* reply) {
   cJSON_AddBoolToObject(state, "hapticEnabled", source.haptic_enabled);
   cJSON_AddNumberToObject(state, "brightness", source.brightness);
   cJSON_AddNumberToObject(state, "rotation", source.rotation);
+  cJSON_AddNumberToObject(state, "lockTimeoutSeconds", source.lock_timeout_seconds);
   cJSON_AddNumberToObject(state, "volume", source.volume);
   cJSON_AddNumberToObject(state, "hapticStrength", source.haptic_strength);
   const auto& source_battery = source.battery;
@@ -416,6 +418,10 @@ bool ParseControlCommand(const cJSON* input, DeviceControlCommand* command) {
     command->field = DeviceControlField::kRotation;
     maximum = 270;
     supported = g_control_state.screen_supported;
+  } else if (std::strcmp(field, "lockTimeoutSeconds") == 0) {
+    command->field = DeviceControlField::kLockTimeoutSeconds;
+    maximum = 600;
+    supported = g_control_state.screen_supported;
   } else if (std::strcmp(field, "soundEnabled") == 0) {
     command->field = DeviceControlField::kSoundEnabled;
     boolean = true;
@@ -443,6 +449,8 @@ bool ParseControlCommand(const cJSON* input, DeviceControlCommand* command) {
       return false;
     }
     command->value = value->valueint;
+    if (command->field == DeviceControlField::kLockTimeoutSeconds &&
+        !IsDisplayLockTimeoutSupported(command->value)) return false;
     if (command->field == DeviceControlField::kRotation &&
         command->value % 90 != 0)
       return false;

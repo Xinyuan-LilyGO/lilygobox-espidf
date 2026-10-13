@@ -534,6 +534,11 @@ bool ShowMoreConnectionsPage(SettingsViewState* state);
 bool ShowLockScreenPage(SettingsViewState* state);
 
 /**
+ * @brief 将远程自动锁屏时长同步到当前锁屏设置页
+ */
+void RefreshLockScreenSettings(SettingsViewState* state);
+
+/**
  * @brief 从设置主页打开更多设置详情页
  * @param state 设置页状态
  * @return 打开成功返回 true，否则返回 false

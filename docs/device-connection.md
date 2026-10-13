@@ -67,6 +67,7 @@
 | screenEnabled | boolean | 通过锁屏任务执行熄屏或唤醒，不远程解锁 |
 | brightness | 10–100 整数 | 保存目标亮度；熄屏时保持关闭，唤醒后恢复 |
 | rotation | 0 / 90 / 180 / 270 | 保存并应用显示旋转 |
+| lockTimeoutSeconds | 15 / 30 / 60 / 120 / 300 / 600 / 0 | 保存自动锁屏等待秒数，0 表示永不；不主动解锁或唤醒 |
 | soundEnabled | boolean | 静音保留音量，开关仅在本次运行期间保留 |
 | volume | 0–100 整数 | 通过共用音频入口执行并保存音量 |
 | hapticEnabled | boolean | 保存系统触感开关，保留强度 |

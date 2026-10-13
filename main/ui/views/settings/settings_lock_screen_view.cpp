@@ -17,13 +17,13 @@ namespace lilygo_box::ui {
 namespace {
 
 constexpr PromptSelectSheetOption kAutoLockOptions[] = {
-    {15, "15 seconds"},
-    {30, "30 seconds"},
-    {60, "1 minute"},
-    {2 * 60, "2 minutes"},
-    {5 * 60, "5 minutes"},
-    {10 * 60, "10 minutes"},
-    {app::kDisplayLockTimeoutDisabledSeconds, "Never"},
+    {app::kDisplayLockTimeoutOptionsSeconds[0], "15 seconds"},
+    {app::kDisplayLockTimeoutOptionsSeconds[1], "30 seconds"},
+    {app::kDisplayLockTimeoutOptionsSeconds[2], "1 minute"},
+    {app::kDisplayLockTimeoutOptionsSeconds[3], "2 minutes"},
+    {app::kDisplayLockTimeoutOptionsSeconds[4], "5 minutes"},
+    {app::kDisplayLockTimeoutOptionsSeconds[5], "10 minutes"},
+    {app::kDisplayLockTimeoutOptionsSeconds[6], "Never"},
 };
 constexpr size_t kAutoLockOptionCount =
     sizeof(kAutoLockOptions) / sizeof(kAutoLockOptions[0]);
@@ -34,6 +34,7 @@ constexpr int kAutoLockSheetInnerPadding = 32;
 constexpr int kAutoLockSheetHeight = 755;
 constexpr int kAutoLockOptionTop = 155;
 constexpr int kAutoLockOptionHeight = 78;
+
 /**
  * @brief 格式化自动锁屏等待时间
  * @param seconds 等待时间，单位为秒
@@ -214,7 +215,7 @@ bool CreateAutoLockRow(
   if (value_label == nullptr) {
     return false;
   }
-  state->auto_lock_value_label = value_label;
+  BindSettingsObject(value_label, &state->auto_lock_value_label);
   lv_obj_set_width(value_label, 184);
   lv_obj_set_style_text_align(value_label, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
   lv_obj_align(value_label, LV_ALIGN_RIGHT_MID, -(kBasicSidePadding + 40), 0);
@@ -236,6 +237,7 @@ bool CreateAutoLockRow(
  * @return 创建成功返回 true，否则返回 false
  */
 bool BuildLockScreenContent(lv_obj_t* body, SettingsViewState* state) {
+  state->auto_lock_seconds = app::GetDisplayPreferences().lock_timeout_seconds;
   const int width = state->config.width;
   state->auto_lock_value_label = nullptr;
   if (!CreateSectionLabel(body, "Lock screen settings", 0, width)) {
@@ -255,6 +257,15 @@ bool BuildLockScreenContent(lv_obj_t* body, SettingsViewState* state) {
 
 }  // namespace
 
+void RefreshLockScreenSettings(SettingsViewState* state) {
+  if (state == nullptr) return;
+  state->auto_lock_seconds = app::GetDisplayPreferences().lock_timeout_seconds;
+  if (state->auto_lock_value_label != nullptr) {
+    char text[24] = {};
+    FormatAutoLockValue(state->auto_lock_seconds, text, sizeof(text));
+    lv_label_set_text(state->auto_lock_value_label, text);
+  }
+}
 bool ShowLockScreenPage(SettingsViewState* state) {
   return ShowBasicPage(state, "Lock Screen", BuildLockScreenContent);
 }

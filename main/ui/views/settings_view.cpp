@@ -598,6 +598,7 @@ void RefreshSettingsViewControls(lv_obj_t* settings_view) {
                         state->display_brightness_percent, LV_ANIM_OFF);
   }
   RefreshSoundHapticsSettings(state);
+  RefreshLockScreenSettings(state);
 }
 
 }  // namespace lilygo_box::ui
