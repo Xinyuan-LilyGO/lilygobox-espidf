@@ -22,6 +22,7 @@
 #include "freertos/task.h"
 #include "hal/device/common/gnss_utils.h"
 #include "hal/ppa/ppa_srm_helper.h"
+#include "hal/device/common/axp517_charge_filter.h"
 #include "hal/providers/providers.h"
 #include "hal/usb/usb_storage_manager.h"
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
@@ -1797,6 +1798,7 @@ class TDisplayP4Device final : public ScreenProvider,
   UsbStorageManager usb_storage_manager_;
   ScreenProviderDisplayCallbacks display_callbacks_;
   // 应用层配置的电池额定容量，供电量统计和可配置电量计使用。
+  Axp517ChargeFilter battery_charge_filter_;
   std::atomic<int> battery_capacity_mah_{
       lilygo_device_driver::t_display_p4::device::kBatteryInfo.capacity_mah};
   // 当前硬件版本的触摸中断是否已经完成注册。

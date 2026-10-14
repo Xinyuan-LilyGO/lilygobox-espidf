@@ -25,6 +25,7 @@
 #include "freertos/task.h"
 #include "hal/device/common/gnss_utils.h"
 #include "hal/ppa/ppa_srm_helper.h"
+#include "hal/device/common/axp517_charge_filter.h"
 #include "hal/providers/providers.h"
 #include "hal/usb/usb_storage_manager.h"
 #include "device/t_display_p4_air/driver.h"
@@ -1530,6 +1531,7 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   // Air 板电源键 GPIO 是否已经配置为可轮询输入。
   bool power_button_initialized_ = false;
   // AXP517 不提供容量寄存器，使用该值计算近似剩余时间。
+  Axp517ChargeFilter battery_charge_filter_;
   std::atomic<int> battery_capacity_mah_{1000};
   // Air 板音量加减 GPIO 是否已经配置为可轮询输入。
   bool volume_buttons_initialized_ = false;

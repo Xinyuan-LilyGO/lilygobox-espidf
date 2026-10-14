@@ -2,7 +2,7 @@
  * @Description: T-Display-P4-Air AXP517 电池管理实现
  * @Author: LILYGO_L
  * @Date: 2026-09-01 00:00:00
- * @LastEditTime: 2026-09-02 17:53:21
+ * @LastEditTime: 2026-10-14 00:00:00
  * @License: GPL 3.0
  */
 #include <algorithm>
@@ -17,7 +17,7 @@ namespace {
 
 constexpr int kMinimumBatteryCapacityMah = 1;
 constexpr int kMaximumBatteryCapacityMah = UINT16_MAX;
-constexpr int kMinimumBatteryEstimateCurrentMa = 5;
+constexpr int kMinimumBatteryEstimateCurrentMa = kAxp517CurrentDeadZoneMa + 1;
 
 /**
  * @brief 根据额定容量和有效健康度估算当前满充可用容量
@@ -84,6 +84,8 @@ bool TDisplayP4AirDevice::ReadBatteryManagementStatus(
   }
   status->pack_present = power_status.battery_present;
   if (!status->pack_present) {
+    battery_charge_filter_.Update(
+        false, power_status.vbus_good, false, false, 0.0F);
     status->ready = true;
     return true;
   }
@@ -112,23 +114,20 @@ bool TDisplayP4AirDevice::ReadBatteryManagementStatus(
   status->capabilities.remaining_time = capacity_mah > 0;
   status->ready = true;
   status->pack_present = power_status.battery_present;
-  status->charging =
-      status->pack_present && power_status.vbus_good &&
-      (power_status.charge ==
-           cpp_bus_driver::Axp517::ChargeStatus::kTrickleCharge ||
-       power_status.charge ==
-           cpp_bus_driver::Axp517::ChargeStatus::kPrecharge ||
-       power_status.charge ==
-           cpp_bus_driver::Axp517::ChargeStatus::kConstantCurrent ||
-       power_status.charge ==
-           cpp_bus_driver::Axp517::ChargeStatus::kConstantVoltage ||
-       power_status.charge ==
-           cpp_bus_driver::Axp517::ChargeStatus::kChargeDone) &&
-      current_ma >= 0.0F;
-  status->full_charged =
+  const bool chip_charging =
       power_status.charge ==
-          cpp_bus_driver::Axp517::ChargeStatus::kChargeDone ||
-      charge_percent == 100;
+          cpp_bus_driver::Axp517::ChargeStatus::kTrickleCharge ||
+      power_status.charge == cpp_bus_driver::Axp517::ChargeStatus::kPrecharge ||
+      power_status.charge ==
+          cpp_bus_driver::Axp517::ChargeStatus::kConstantCurrent ||
+      power_status.charge ==
+          cpp_bus_driver::Axp517::ChargeStatus::kConstantVoltage;
+  const bool chip_full =
+      power_status.charge == cpp_bus_driver::Axp517::ChargeStatus::kChargeDone;
+  const auto charge_state = battery_charge_filter_.Update(status->pack_present,
+      power_status.vbus_good, chip_charging, chip_full, current_ma);
+  status->charging = charge_state != Axp517ChargeFilter::State::kIdle;
+  status->full_charged = charge_state == Axp517ChargeFilter::State::kFull;
   status->full_discharged = status->pack_present && charge_percent == 0;
   status->voltage_mv = voltage_mv;
   status->current_ma = static_cast<int>(std::lround(current_ma));
@@ -138,10 +137,10 @@ bool TDisplayP4AirDevice::ReadBatteryManagementStatus(
   status->full_charge_capacity_mah = usable_capacity_mah;
   status->remaining_capacity_mah =
       usable_capacity_mah * static_cast<int>(charge_percent) / 100;
-  if (status->charging) {
+  if (status->charging && !status->full_charged) {
     status->time_to_full_min = EstimateBatteryRemainingMinutes(
         usable_capacity_mah, charge_percent, status->current_ma, true);
-  } else {
+  } else if (!status->charging) {
     status->time_to_empty_min = EstimateBatteryRemainingMinutes(
         usable_capacity_mah, charge_percent, status->current_ma, false);
   }
