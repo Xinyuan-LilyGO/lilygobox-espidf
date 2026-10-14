@@ -262,6 +262,12 @@ void UpdateBatteryProtection(
  * @param state 设置页状态
  */
 void RefreshBatteryPage(SettingsViewState* state) {
+  if (state != nullptr && state->battery_capacity_value_label != nullptr) {
+    char text[24] = {};
+    FormatBatteryCapacity(app::GetBatteryPreferences().capacity_mah, text,
+                          sizeof(text));
+    lv_label_set_text(state->battery_capacity_value_label, text);
+  }
   hal::BatteryManagementStatus status;
   if (!ReadBatteryStatus(state, &status)) {
     return;

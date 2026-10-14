@@ -22,6 +22,7 @@ enum class DeviceControlField {
   kVolume,
   kHapticEnabled,
   kHapticStrength,
+  kBatteryCapacityMah,
 };
 
 struct DeviceControlCommand {
@@ -36,6 +37,10 @@ struct DeviceControlState {
   bool screen_supported = false;
   bool audio_supported = false;
   bool haptic_supported = false;
+  bool battery_supported = false;
+  int battery_capacity_mah = 1000;
+  int battery_capacity_minimum_mah = 1;
+  int battery_capacity_maximum_mah = 65535;
   bool screen_enabled = true;
   bool sound_enabled = true;
   bool haptic_enabled = true;

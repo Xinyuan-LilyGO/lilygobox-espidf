@@ -370,6 +370,13 @@ void AddControlState(cJSON* reply) {
   cJSON_AddBoolToObject(capabilities, "screen", source.screen_supported);
   cJSON_AddBoolToObject(capabilities, "audio", source.audio_supported);
   cJSON_AddBoolToObject(capabilities, "haptic", source.haptic_supported);
+  cJSON_AddBoolToObject(capabilities, "battery", source.battery_supported);
+  cJSON_AddNumberToObject(state, "batteryCapacityMah",
+                          source.battery_capacity_mah);
+  cJSON_AddNumberToObject(state, "batteryCapacityMinimumMah",
+                          source.battery_capacity_minimum_mah);
+  cJSON_AddNumberToObject(state, "batteryCapacityMaximumMah",
+                          source.battery_capacity_maximum_mah);
   cJSON_AddBoolToObject(state, "screenEnabled", source.screen_enabled);
   cJSON_AddBoolToObject(state, "soundEnabled", source.sound_enabled);
   cJSON_AddBoolToObject(state, "hapticEnabled", source.haptic_enabled);
@@ -390,6 +397,25 @@ void AddControlState(cJSON* reply) {
     cJSON_AddNumberToObject(battery, "currentMa", source_battery.current_ma);
     cJSON_AddNumberToObject(battery, "temperatureC",
                             source_battery.pack_temperature_c);
+    // 不支持或无效的估算不发送数值，客户端明确显示未知。
+    if (source_battery.health_percent > 0 &&
+        source_battery.health_percent <= 100) {
+      cJSON_AddNumberToObject(battery, "healthPercent",
+                              source_battery.health_percent);
+    }
+    if (source_battery.capabilities.remaining_time) {
+      if (source_battery.charging && !source_battery.full_charged &&
+          source_battery.time_to_full_min > 0 &&
+          source_battery.time_to_full_min < 43200) {
+        cJSON_AddNumberToObject(battery, "timeToFullMinutes",
+                                source_battery.time_to_full_min);
+      }
+      if (!source_battery.charging && source_battery.time_to_empty_min > 0 &&
+          source_battery.time_to_empty_min < 43200) {
+        cJSON_AddNumberToObject(battery, "timeToEmptyMinutes",
+                                source_battery.time_to_empty_min);
+      }
+    }
   }
 }
 
@@ -436,6 +462,11 @@ bool ParseControlCommand(const cJSON* input, DeviceControlCommand* command) {
   } else if (std::strcmp(field, "hapticStrength") == 0) {
     command->field = DeviceControlField::kHapticStrength;
     supported = g_control_state.haptic_supported;
+  } else if (std::strcmp(field, "batteryCapacityMah") == 0) {
+    command->field = DeviceControlField::kBatteryCapacityMah;
+    minimum = g_control_state.battery_capacity_minimum_mah;
+    maximum = g_control_state.battery_capacity_maximum_mah;
+    supported = g_control_state.battery_supported;
   } else {
     return false;
   }

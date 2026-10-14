@@ -3329,6 +3329,15 @@ void Application::PublishDeviceState() {
   state.screen_supported = device_provider_context_.screen != nullptr;
   state.audio_supported = device_provider_context_.audio != nullptr;
   state.haptic_supported = device_provider_context_.haptic != nullptr;
+  state.battery_supported =
+      device_provider_context_.battery_management != nullptr;
+  state.battery_capacity_mah = app::GetBatteryPreferences().capacity_mah;
+  if (state.battery_supported) {
+    const auto range =
+        device_provider_context_.battery_management->GetBatteryCapacityRange();
+    state.battery_capacity_minimum_mah = range.minimum_mah;
+    state.battery_capacity_maximum_mah = range.maximum_mah;
+  }
   const auto display = app::GetDisplayPreferences();
   const auto sound = app::GetSoundPreferences();
   const auto haptic = app::GetHapticPreferences();
@@ -3356,6 +3365,34 @@ bool Application::ProcessDeviceControl(bool screen_task) {
   if (!app::TakeDeviceControlCommand(screen_task, &command)) return false;
   const char* error = "hardware_failed";
   switch (command.field) {
+    case app::DeviceControlField::kBatteryCapacityMah: {
+      auto* battery = device_provider_context_.battery_management;
+      if (battery == nullptr) break;
+      const auto range = battery->GetBatteryCapacityRange();
+      if (command.value < range.minimum_mah ||
+          command.value > range.maximum_mah)
+        break;
+      const auto previous = app::GetBatteryPreferences();
+      auto next = previous;
+      next.capacity_mah = command.value;
+      if (command.value == previous.capacity_mah) {
+        error = "";
+      } else if (battery->SetBatteryCapacityMah(command.value)) {
+        if (app::UpdateBatteryPreferences(next)) {
+          error = "";
+        } else {
+          battery->SetBatteryCapacityMah(previous.capacity_mah);
+          app::UpdateBatteryPreferences(previous);
+          error = "storage_failed";
+        }
+      }
+      // 更新估算快照，硬件采集不在网络任务或 LVGL 锁中执行。
+      hal::BatteryManagementStatus status;
+      if (battery->ReadBatteryManagementStatus(&status)) {
+        HandleBatteryManagementStatusUpdate(status);
+      }
+      break;
+    }
     case app::DeviceControlField::kScreenEnabled: {
       const auto state = screen_lock_state_.load();
       bool success = false;

@@ -49,8 +49,10 @@ int EstimateBatteryRemainingMinutes(
   const int64_t current_magnitude = current_ma < 0
                                         ? -static_cast<int64_t>(current_ma)
                                         : static_cast<int64_t>(current_ma);
+  // 只用方向一致的净电流估算，避免把放电电流取绝对值后计算充满时间。
   if (capacity_mah <= 0 ||
-      current_magnitude < kMinimumBatteryEstimateCurrentMa) {
+      (charging && current_ma < kMinimumBatteryEstimateCurrentMa) ||
+      (!charging && current_ma > -kMinimumBatteryEstimateCurrentMa)) {
     return 0;
   }
   const int percent = std::clamp(charge_percent, 0, 100);
@@ -113,15 +115,16 @@ bool TDisplayP4AirDevice::ReadBatteryManagementStatus(
   status->charging =
       status->pack_present && power_status.vbus_good &&
       (power_status.charge ==
-              cpp_bus_driver::Axp517::ChargeStatus::kTrickleCharge ||
-          power_status.charge ==
-              cpp_bus_driver::Axp517::ChargeStatus::kPrecharge ||
-          power_status.charge ==
-              cpp_bus_driver::Axp517::ChargeStatus::kConstantCurrent ||
-          power_status.charge ==
-              cpp_bus_driver::Axp517::ChargeStatus::kConstantVoltage ||
-          power_status.charge ==
-              cpp_bus_driver::Axp517::ChargeStatus::kChargeDone);
+           cpp_bus_driver::Axp517::ChargeStatus::kTrickleCharge ||
+       power_status.charge ==
+           cpp_bus_driver::Axp517::ChargeStatus::kPrecharge ||
+       power_status.charge ==
+           cpp_bus_driver::Axp517::ChargeStatus::kConstantCurrent ||
+       power_status.charge ==
+           cpp_bus_driver::Axp517::ChargeStatus::kConstantVoltage ||
+       power_status.charge ==
+           cpp_bus_driver::Axp517::ChargeStatus::kChargeDone) &&
+      current_ma >= 0.0F;
   status->full_charged =
       power_status.charge ==
           cpp_bus_driver::Axp517::ChargeStatus::kChargeDone ||
