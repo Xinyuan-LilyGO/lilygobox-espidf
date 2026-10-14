@@ -27,6 +27,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal/providers/wifi_provider.h"
+#include "hal/providers/device_info_provider.h"
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
 #include "mbedtls/md.h"
@@ -39,6 +40,8 @@ constexpr int kWebSocketPort = 18464;
 constexpr int64_t kConfirmMs = 60000;
 constexpr int64_t kHeartbeatMs = 15000;
 constexpr size_t kMaxMessageBytes = 1024;
+char g_model_version[65] = {};
+
 #if CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR
 constexpr char kModel[] = "T-Display-P4-Air";
 #else
@@ -290,6 +293,7 @@ void AddDeviceInfo(cJSON* message) {
   cJSON_AddStringToObject(message, "name",
                           device_name[0] == '\0' ? kModel : device_name);
   cJSON_AddStringToObject(message, "model", kModel);
+  cJSON_AddStringToObject(message, "modelVersion", g_model_version);
   cJSON_AddStringToObject(message, "firmware",
                           esp_app_get_description()->version);
   cJSON_AddNumberToObject(message, "uptimeMs", static_cast<double>(NowMs()));
@@ -933,7 +937,15 @@ void ConnectionTask(void*) {
  * @param wifi 设备 Wi-Fi 状态接口
  * @return 服务任务创建成功返回 true
  */
-bool InitializeAppConnection(hal::WifiProvider* wifi) {
+bool InitializeAppConnection(hal::WifiProvider* wifi,
+                             hal::DeviceInfoProvider* device_info) {
+  hal::DeviceInfo info;
+  if (device_info != nullptr && device_info->ReadDeviceInfo(&info) &&
+      info.device_model_version != nullptr) {
+    std::snprintf(g_model_version, sizeof(g_model_version), "%s",
+                  info.device_model_version);
+  }
+
   if (wifi == nullptr) return false;
   std::lock_guard<std::mutex> lock(g_mutex);
   if (g_initialized) return true;

@@ -7,6 +7,8 @@
  */
 #include <cstdio>
 
+#include "esp_timer.h"
+
 #include "ui/widgets/icon_button_style.h"
 
 #include "app/device_identity.h"
@@ -34,6 +36,59 @@ constexpr int kFactoryResetButtonHeight = 76;
 constexpr lv_opa_t kFactoryResetWarningBackgroundOpacity = LV_OPA_20;
 constexpr int kMyDeviceBrandIconSize = 72;
 constexpr int kMyDeviceBrandIconGap = 16;
+
+constexpr int kUptimeCardGap = 18;
+constexpr int kUptimeCardHeight = 116;
+constexpr int kUptimeCardTop =
+    kDetailSecondCardTop + kDetailSecondCardHeight + kUptimeCardGap;
+
+/**
+ * @brief 刷新本次开机后的运行时间
+ * @param timer 页面专属定时器
+ */
+void RefreshUptimeLabel(lv_timer_t* timer) {
+  auto* label = static_cast<lv_obj_t*>(lv_timer_get_user_data(timer));
+  const uint64_t seconds = esp_timer_get_time() / 1000000ULL;
+  lv_label_set_text_fmt(label, "%llu d %02llu:%02llu:%02llu",
+                       static_cast<unsigned long long>(seconds / 86400),
+                       static_cast<unsigned long long>(seconds / 3600 % 24),
+                       static_cast<unsigned long long>(seconds / 60 % 60),
+                       static_cast<unsigned long long>(seconds % 60));
+}
+
+/**
+ * @brief 页面对象删除时停止运行时间刷新，避免访问已释放的标签
+ * @param event 对象删除事件
+ */
+void DeleteUptimeTimer(lv_event_t* event) {
+  lv_timer_delete(static_cast<lv_timer_t*>(lv_event_get_user_data(event)));
+}
+
+/**
+ * @brief 在规格卡片下方创建本次开机运行时间卡片
+ * @param parent 滚动内容区
+ * @param width 页面宽度
+ * @return 卡片和刷新定时器创建成功返回 true
+ */
+bool CreateUptimeCard(lv_obj_t* parent, int width) {
+  lv_obj_t* card = CreateBox(parent, width - 2 * kDetailSidePadding,
+      kUptimeCardHeight, SettingsThemeColors().surface_container_lowest,
+      LV_OPA_COVER, kDetailCardRadius);
+  if (card == nullptr) return false;
+  lv_obj_align(card, LV_ALIGN_TOP_MID, 0, kUptimeCardTop);
+  lv_obj_t* title = CreateLabel(card, "Uptime",
+      lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
+  lv_obj_t* value = CreateLabel(card, "",
+      lv_color_hex(SettingsThemeColors().on_surface), Font28());
+  if (title == nullptr || value == nullptr) return false;
+  lv_obj_align(title, LV_ALIGN_TOP_LEFT, kDetailCardPaddingX, 18);
+  lv_obj_align(value, LV_ALIGN_TOP_LEFT, kDetailCardPaddingX, 54);
+  lv_timer_t* timer = lv_timer_create(RefreshUptimeLabel, 1000, value);
+  if (timer == nullptr) return false;
+  lv_obj_add_event_cb(value, DeleteUptimeTimer, LV_EVENT_DELETE, timer);
+  RefreshUptimeLabel(timer);
+  return true;
+}
 
 void CloseFactoryResetPage(SettingsViewState* state, bool animated);
 
@@ -1177,7 +1232,7 @@ bool CreateDeviceOptions(
     lv_obj_t* parent, int width, SettingsViewState* state) {
   const app::SettingsDeviceOptionCatalog& catalog =
       app::GetSettingsDeviceOptionCatalog();
-  int y = kDetailSecondCardTop + kDetailSecondCardHeight + kDetailOptionTopGap;
+  int y = kUptimeCardTop + kUptimeCardHeight + kDetailOptionTopGap;
   for (size_t i = 0; i < catalog.option_count; ++i) {
     const lv_event_cb_t callback = IsId(catalog.options[i].id, "factory_reset")
                                        ? FactoryResetRowClickedEventCallback
@@ -1256,6 +1311,7 @@ bool ShowMyDevicePageInternal(SettingsViewState* state) {
       CreateMyDeviceSnapshotArea(body, config.width, state, device_info) &&
       CreateDeviceInfoCard(body, config, config.width, state, device_info) &&
       CreateDeviceSpecCard(body, config, config.width, state, device_info) &&
+      CreateUptimeCard(body, config.width) &&
       CreateDeviceOptions(body, config.width, state);
   if (!created) {
     CloseMyDevicePage(state, false);

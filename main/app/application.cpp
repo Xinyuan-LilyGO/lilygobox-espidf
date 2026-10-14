@@ -690,7 +690,8 @@ bool Application::Init() {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize network monitor failed\n");
   }
-  if (!app::InitializeAppConnection(device_provider_context_.wifi)) {
+  if (!app::InitializeAppConnection(device_provider_context_.wifi,
+                                    device_provider_context_.device_info)) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize app connection failed\n");
   }

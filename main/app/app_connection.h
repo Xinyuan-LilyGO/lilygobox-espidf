@@ -13,6 +13,7 @@
 
 namespace lilygo_box::hal {
 class WifiProvider;
+class DeviceInfoProvider;
 }
 
 namespace lilygo_box::app {
@@ -48,7 +49,8 @@ struct AuthorizedApps {
  * @param wifi 设备 Wi-Fi 状态接口
  * @return 服务任务创建成功返回 true
  */
-bool InitializeAppConnection(hal::WifiProvider* wifi);
+bool InitializeAppConnection(hal::WifiProvider* wifi,
+                             hal::DeviceInfoProvider* device_info = nullptr);
 
 /**
  * @brief 在状态锁保护下读取连接状态，供 UI 线程刷新
