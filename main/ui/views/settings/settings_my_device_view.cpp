@@ -1312,6 +1312,10 @@ void DeviceNameRowClickedEventCallback(lv_event_t* event) {
 
 }  // namespace
 
+void RefreshMyDeviceNameSettings(SettingsViewState* state) {
+  RefreshDeviceNameLabels(state);
+}
+
 bool ShowMyDevicePage(SettingsViewState* state) {
   return ShowMyDevicePageInternal(state);
 }

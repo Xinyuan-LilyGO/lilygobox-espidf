@@ -62,6 +62,12 @@ bool InitDeviceIdentity() {
                "Read MAC for default device name failed\n");
   }
 
+  // 名称在其他配置缓存之前加载，必须先建立缓存锁和独立 NVS 分区。
+  if (!EnsureStorageCoordinatorInitialized() ||
+      !EnsureApplicationNvsInitialized()) {
+    return false;
+  }
+
   DeviceName stored = {};
   nvs_handle_t handle = 0;
   const esp_err_t open_result =
@@ -87,9 +93,13 @@ bool InitDeviceIdentity() {
 StorageStageResult StageDeviceIdentityStorage(nvs_handle_t handle) {
   const DeviceName* name = nullptr;
   if (!g_name_cache.BeginFlush(&name)) return StorageStageResult::kClean;
-  return nvs_set_str(handle, kDeviceNameNvsKey, name->data()) == ESP_OK
-             ? StorageStageResult::kStaged
-             : StorageStageResult::kFailed;
+  const esp_err_t result = nvs_set_str(handle, kDeviceNameNvsKey, name->data());
+  if (result != ESP_OK) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+               "Stage device name failed: %s\n", esp_err_to_name(result));
+  }
+  return result == ESP_OK ? StorageStageResult::kStaged
+                          : StorageStageResult::kFailed;
 }
 
 void FinishDeviceIdentityStorage(bool committed) {
@@ -132,7 +142,12 @@ bool SetConfiguredDeviceName(const char* name) {
   DeviceName updated = {};
   std::memcpy(updated.data(), begin, length);
   // 提交失败时不更新界面名称；缓存保留待写快照供后续重试。
-  if (!g_name_cache.UpdateAndPersist(updated)) return false;
+  if (!g_name_cache.UpdateAndPersist(updated)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+               "Persist device name failed: bytes=%u\n",
+               static_cast<unsigned>(length));
+    return false;
+  }
   std::memcpy(g_device_name, updated.data(), updated.size());
   return true;
 }

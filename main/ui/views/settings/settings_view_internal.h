@@ -539,6 +539,12 @@ bool ShowLockScreenPage(SettingsViewState* state);
 void RefreshLockScreenSettings(SettingsViewState* state);
 
 /**
+ * @brief 同步远程修改后的设备名称显示
+ * @param state 设置页面状态
+ */
+void RefreshMyDeviceNameSettings(SettingsViewState* state);
+
+/**
  * @brief 从设置主页打开更多设置详情页
  * @param state 设置页状态
  * @return 打开成功返回 true，否则返回 false

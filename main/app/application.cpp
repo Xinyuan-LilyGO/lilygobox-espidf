@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 
 #include "app/app_connection.h"
@@ -3324,6 +3325,7 @@ app::DisplayPreferences Application::LoadDisplayPreferencesOrDefault() const {
 
 void Application::PublishDeviceState() {
   app::DeviceControlState state;
+  app::CopyConfiguredDeviceName(state.device_name, sizeof(state.device_name));
   state.ready = physical_button_events_enabled_.load() &&
                 !power_action_in_progress_.load();
   state.screen_supported = device_provider_context_.screen != nullptr;
@@ -3365,6 +3367,13 @@ bool Application::ProcessDeviceControl(bool screen_task) {
   if (!app::TakeDeviceControlCommand(screen_task, &command)) return false;
   const char* error = "hardware_failed";
   switch (command.field) {
+    case app::DeviceControlField::kDeviceName:
+      LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+                 "Apply device name command: request=%d, bytes=%u\n",
+                 command.request_id,
+                 static_cast<unsigned>(std::strlen(command.text)));
+      error = app::SetConfiguredDeviceName(command.text) ? "" : "storage_failed";
+      break;
     case app::DeviceControlField::kBatteryCapacityMah: {
       auto* battery = device_provider_context_.battery_management;
       if (battery == nullptr) break;

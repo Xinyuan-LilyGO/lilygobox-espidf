@@ -10,6 +10,7 @@
 #include <cstdint>
 
 #include "hal/providers/battery_management_provider.h"
+#include "app/device_identity.h"
 
 namespace lilygo_box::app {
 
@@ -23,6 +24,7 @@ enum class DeviceControlField {
   kHapticEnabled,
   kHapticStrength,
   kBatteryCapacityMah,
+  kDeviceName,
 };
 
 struct DeviceControlCommand {
@@ -30,6 +32,7 @@ struct DeviceControlCommand {
   int request_id = 0;
   DeviceControlField field = DeviceControlField::kBrightness;
   int value = 0;
+  char text[kMaxDeviceNameLength + 1] = {};
 };
 
 struct DeviceControlState {
@@ -38,6 +41,7 @@ struct DeviceControlState {
   bool audio_supported = false;
   bool haptic_supported = false;
   bool battery_supported = false;
+  char device_name[kMaxDeviceNameLength + 1] = {};
   int battery_capacity_mah = 1000;
   int battery_capacity_minimum_mah = 1;
   int battery_capacity_maximum_mah = 65535;

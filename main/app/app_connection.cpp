@@ -367,6 +367,8 @@ void AddControlState(cJSON* reply) {
   cJSON* state = cJSON_AddObjectToObject(reply, "state");
   cJSON_AddBoolToObject(state, "ready", source.ready);
   cJSON* capabilities = cJSON_AddObjectToObject(state, "capabilities");
+  cJSON_AddBoolToObject(capabilities, "identity", true);
+  cJSON_AddStringToObject(state, "deviceName", source.device_name);
   cJSON_AddBoolToObject(capabilities, "screen", source.screen_supported);
   cJSON_AddBoolToObject(capabilities, "audio", source.audio_supported);
   cJSON_AddBoolToObject(capabilities, "haptic", source.haptic_supported);
@@ -432,7 +434,22 @@ bool ParseControlCommand(const cJSON* input, DeviceControlCommand* command) {
   bool supported = false;
   int minimum = 0;
   int maximum = 100;
-  if (std::strcmp(field, "screenEnabled") == 0) {
+  if (std::strcmp(field, "deviceName") == 0) {
+    if (!g_control_state.ready || !cJSON_IsString(value)) return false;
+    const char* name = value->valuestring;
+    const size_t length = std::strlen(name);
+    if (length == 0 || length > kMaxDeviceNameLength) return false;
+    bool has_content = false;
+    for (size_t i = 0; i < length; ++i) {
+      const auto c = static_cast<unsigned char>(name[i]);
+      if (c < 0x20 || c == 0x7f) return false;
+      if (c != ' ') has_content = true;
+    }
+    if (!has_content) return false;
+    command->field = DeviceControlField::kDeviceName;
+    std::snprintf(command->text, sizeof(command->text), "%s", name);
+    return true;
+  } else if (std::strcmp(field, "screenEnabled") == 0) {
     command->field = DeviceControlField::kScreenEnabled;
     boolean = true;
     supported = g_control_state.screen_supported;

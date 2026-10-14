@@ -599,6 +599,7 @@ void RefreshSettingsViewControls(lv_obj_t* settings_view) {
   }
   RefreshSoundHapticsSettings(state);
   RefreshLockScreenSettings(state);
+  RefreshMyDeviceNameSettings(state);
 }
 
 }  // namespace lilygo_box::ui
