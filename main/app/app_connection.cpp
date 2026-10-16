@@ -391,6 +391,12 @@ void AddControlState(cJSON* reply) {
   cJSON_AddNumberToObject(state, "lockTimeoutSeconds", source.lock_timeout_seconds);
   cJSON_AddNumberToObject(state, "volume", source.volume);
   cJSON_AddNumberToObject(state, "hapticStrength", source.haptic_strength);
+  if (g_wifi != nullptr) {
+    hal::WifiStatus wifi_status;
+    if (g_wifi->ReadWifiStatus(&wifi_status) && wifi_status.got_ip) {
+      cJSON_AddNumberToObject(state, "wifiRssi", wifi_status.rssi);
+    }
+  }
   const auto& source_battery = source.battery;
   cJSON* battery = cJSON_AddObjectToObject(state, "battery");
   cJSON_AddBoolToObject(battery, "available",
