@@ -27,6 +27,7 @@ void SaveSoundPreferences(SettingsViewState* state) {
     return;
   }
   app::SoundPreferences preferences = app::GetSoundPreferences();
+  preferences.enabled = state->sound_enabled;
   preferences.volume_percent = state->audio_volume_percent;
   app::UpdateSoundPreferences(preferences);
 }
@@ -93,6 +94,7 @@ void MuteSwitchChangedEventCallback(lv_event_t* event) {
     return;
   }
   state->sound_enabled = enabled;
+  SaveSoundPreferences(state);
   SetSettingsSliderControlsEnabled(state->audio_volume_controls,
                                    state->audio_volume_slider, enabled);
 }

@@ -725,8 +725,8 @@ bool Application::Init() {
   current_screen_brightness_percent_.store(0);
   if (device_provider_context_.audio != nullptr) {
     app::SoundPreferences sound_preferences = app::GetSoundPreferences();
-    device_provider_context_.audio->SetSpeakerVolumePercent(
-        sound_preferences.volume_percent);
+    device_provider_context_.audio->ApplySpeakerVolumeSetting(
+        sound_preferences.volume_percent, sound_preferences.enabled);
   }
 
   int startup_battery_level = 0;

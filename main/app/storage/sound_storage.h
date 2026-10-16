@@ -11,6 +11,8 @@ namespace lilygo_box::app {
 
 // 声音设置用户偏好。
 struct SoundPreferences {
+  // 是否启用系统声音输出。
+  bool enabled = true;
   // 系统输出音量百分比，范围为 0～100。
   int volume_percent = 90;
 };
