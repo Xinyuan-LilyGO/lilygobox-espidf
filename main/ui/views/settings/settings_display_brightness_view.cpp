@@ -380,8 +380,12 @@ bool BuildDisplayBrightnessContent(lv_obj_t* body, SettingsViewState* state) {
 }  // namespace
 
 bool ShowDisplayBrightnessPage(SettingsViewState* state) {
-  return ShowBasicPage(
+  const bool shown = ShowBasicPage(
       state, "Display & Brightness", BuildDisplayBrightnessContent);
+  if (shown && state != nullptr) {
+    state->display_brightness_page_open = true;
+  }
+  return shown;
 }
 
 void SetLvglPortForRotation(hal::LvglPort* port) { g_lvgl_port = port; }

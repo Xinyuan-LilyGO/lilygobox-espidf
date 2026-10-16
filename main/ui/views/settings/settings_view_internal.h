@@ -228,6 +228,8 @@ struct SettingsViewState {
   PromptSelectSheetState log_level_select_sheet = {};
   bool lock_screen_double_tap_to_turn_screen_on_and_off = true;
   bool dark_theme_enabled = false;
+  // 主题切换重建设置页面时，用于恢复显示与亮度详情页。
+  bool display_brightness_page_open = false;
   lv_obj_t* screen_rotation_value_label = nullptr;
   PromptSelectSheetState screen_rotation_select_sheet = {};
   // 管理已保存网络页中等待确认删除的行对象。

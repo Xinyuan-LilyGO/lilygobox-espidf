@@ -643,6 +643,8 @@ class UiManager final {
   bool relayout_pending_ = false;
   bool pending_dark_theme_enabled_ = false;
   bool theme_refresh_pending_ = false;
+  // 主题切换重建当前应用时跳过页面切换动画。
+  bool suppress_page_transition_ = false;
   std::function<bool()> first_boot_welcome_completion_callback_;
   const app::AppEntry* active_app_entry_ = nullptr;
   lv_obj_t* launcher_container_ = nullptr;

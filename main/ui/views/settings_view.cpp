@@ -602,4 +602,18 @@ void RefreshSettingsViewControls(lv_obj_t* settings_view) {
   RefreshMyDeviceNameSettings(state);
 }
 
+bool IsDisplayBrightnessPageOpen(lv_obj_t* settings_view) {
+  if (settings_view == nullptr) return false;
+  auto* state = static_cast<SettingsViewState*>(
+      lv_obj_get_user_data(settings_view));
+  return state != nullptr && state->display_brightness_page_open;
+}
+
+bool RestoreDisplayBrightnessPage(lv_obj_t* settings_view) {
+  if (settings_view == nullptr) return false;
+  auto* state = static_cast<SettingsViewState*>(
+      lv_obj_get_user_data(settings_view));
+  return state != nullptr && ShowDisplayBrightnessPage(state);
+}
+
 }  // namespace lilygo_box::ui

@@ -139,6 +139,7 @@ void ExtraCloseCompletedCallback(lv_anim_t* animation) {
 
   lv_obj_t* page = state->settings_extra_page;
   state->settings_extra_page = nullptr;
+  state->display_brightness_page_open = false;
   state->audio_volume_slider = nullptr;
   state->settings_extra_closing = false;
   lv_obj_delete(page);
@@ -182,6 +183,7 @@ void CloseExtraPage(SettingsViewState* state, bool animated) {
 
   lv_obj_t* page = state->settings_extra_page;
   state->settings_extra_page = nullptr;
+  state->display_brightness_page_open = false;
   state->settings_extra_closing = false;
   lv_obj_delete(page);
 }
@@ -382,7 +384,8 @@ bool ShowBasicPage(SettingsViewState* state, const char* title,
     return false;
   }
 
-  if (!StartSlideLeftWindowTransition(
+  if (!state->config.suppress_page_transition &&
+      !StartSlideLeftWindowTransition(
           page, state->config.width, kDetailSlideAnimationMs, state, nullptr)) {
     CloseExtraPage(state, false);
     return false;
@@ -432,7 +435,8 @@ bool ShowNestedPage(SettingsViewState* state, const char* title,
     CloseNestedPage(state, false);
     return false;
   }
-  if (!StartSlideLeftWindowTransition(
+  if (!state->config.suppress_page_transition &&
+      !StartSlideLeftWindowTransition(
           page, state->config.width, kDetailSlideAnimationMs, state, nullptr)) {
     CloseNestedPage(state, false);
     return false;

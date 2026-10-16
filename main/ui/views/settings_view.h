@@ -42,4 +42,18 @@ void RefreshSettingsViewKeyboardExpansion(lv_obj_t* settings_view);
  */
 void RefreshSettingsViewControls(lv_obj_t* settings_view);
 
+/**
+ * @brief 判断显示与亮度详情页是否处于打开状态
+ * @param settings_view 设置页面根对象
+ * @return 当前打开显示与亮度页时返回 true
+ */
+bool IsDisplayBrightnessPageOpen(lv_obj_t* settings_view);
+
+/**
+ * @brief 主题重建后恢复显示与亮度详情页
+ * @param settings_view 重新创建后的设置页面根对象
+ * @return 恢复成功返回 true
+ */
+bool RestoreDisplayBrightnessPage(lv_obj_t* settings_view);
+
 }  // namespace lilygo_box::ui

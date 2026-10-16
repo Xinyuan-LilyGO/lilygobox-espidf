@@ -114,6 +114,8 @@ struct AppViewConfig {
   std::function<bool(int percent)> set_screen_brightness;
   // 请求系统切换亮色或暗色主题并刷新当前应用。
   std::function<void(bool enabled)> set_dark_theme_enabled;
+  // 主题重建时立即显示页面，不播放导航切换动画。
+  bool suppress_page_transition = false;
   // 显示系统重新启动和关机选项。
   std::function<bool()> show_power_options;
 };

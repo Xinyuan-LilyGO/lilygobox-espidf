@@ -1550,7 +1550,16 @@ void UiManager::ApplyPendingThemeAsync(void* context) {
   }
   ApplyWallpaperTheme(self->launcher_wallpaper_);
   if (self->active_app_entry_ != nullptr) {
+    const bool restore_display_brightness =
+        self->active_app_entry_->id != nullptr &&
+        std::strcmp(self->active_app_entry_->id, "settings") == 0 &&
+        IsDisplayBrightnessPageOpen(self->active_view_container_);
+    self->suppress_page_transition_ = true;
     self->ShowAppView(*self->active_app_entry_);
+    if (restore_display_brightness) {
+      RestoreDisplayBrightnessPage(self->active_view_container_);
+    }
+    self->suppress_page_transition_ = false;
   }
 }
 
@@ -2830,6 +2839,7 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   config.set_dark_theme_enabled = [this](bool enabled) {
     RequestDarkThemeEnabled(enabled);
   };
+  config.suppress_page_transition = suppress_page_transition_;
   config.show_power_options = [this]() {
     return ShowPowerMenu(restart_device_callback_, power_off_device_callback_,
         std::function<void()>());
