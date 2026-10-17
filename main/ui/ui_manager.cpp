@@ -15,6 +15,7 @@
 
 #include "app/app_catalog.h"
 #include "app/app_connection.h"
+#include "app/firmware_update_manager.h"
 #include "app/network_monitor.h"
 #include "app/storage/input_method_storage.h"
 #include "hal/providers/keyboard_expansion_provider.h"
@@ -160,6 +161,41 @@ const lv_font_t* Font28() { return &lvgl_font_google_sans_flex_28; }
  * @return 字体指针
  */
 const lv_font_t* Font32() { return &lvgl_font_google_sans_flex_32; }
+
+/**
+ * @brief 复用应用连接提示使用的系统底部弹窗模板
+ * @param width 屏幕宽度
+ * @param height 屏幕高度
+ * @return 公共提示框配置
+ */
+PromptDialogConfig SystemPromptConfig(int width, int height) {
+  PromptDialogConfig config;
+  config.screen_width = width;
+  config.screen_height = height;
+  config.dialog_width = width - 68;
+  config.dialog_height = width > height ? 280 : 312;
+  config.dialog_radius = 48;
+  config.fit_text_content = true;
+  config.inner_padding = 32;
+  config.header_height = 78;
+  config.title_y = 34;
+  config.title_subtitle_gap = 8;
+  config.subtitle_body_gap = config.title_y;
+  config.action_height = 106;
+  config.action_button_height = 74;
+  config.action_button_radius = 24;
+  config.action_button_gap = 20;
+  config.action_bottom_padding = 32;
+  config.animation_ms = 180;
+  config.bottom_margin = 32;
+  config.slide_from_bottom = true;
+  config.title_font = Font32();
+  config.subtitle_font = Font24();
+  config.action_font = Font28();
+  config.title_text_align = LV_TEXT_ALIGN_CENTER;
+  config.subtitle_text_align = LV_TEXT_ALIGN_CENTER;
+  return config;
+}
 
 /**
  * @brief 获取 56 号 Material Symbols 字体
@@ -1188,6 +1224,10 @@ bool UiManager::ShowLockScreen() {
   }
 
   RefreshSystemStatusNow();
+  if (local_firmware_prompt_.overlay != nullptr) {
+    lv_obj_add_flag(local_firmware_prompt_.overlay, LV_OBJ_FLAG_HIDDEN);
+    ClosePromptDialog(&local_firmware_prompt_);
+  }
   if (lock_screen_ != nullptr) {
     UpdateLockScreenViewClock(
         lock_screen_, clock_time_text_, home_date_text_, home_week_text_);
@@ -1225,6 +1265,7 @@ void UiManager::HideLockScreen() {
   lv_obj_delete(lock_screen_);
   lock_screen_ = nullptr;
   NotifyLockScreenVisibilityChanged(false);
+  RefreshLocalFirmwarePrompt();
 }
 
 void UiManager::SetLockScreenDragOffset(int offset) {
@@ -1648,6 +1689,7 @@ void UiManager::RelayoutForScreenSize() {
   // 旋转后用新的屏幕尺寸重新展示待确认请求。
   ClosePromptDialog(&app_connection_prompt_);
   app_connection_request_ = 0;
+  ClosePromptDialog(&local_firmware_prompt_);
   layout_width_ = new_width;
   layout_height_ = new_height;
   layout_rotation_ = rotation;
@@ -1947,6 +1989,7 @@ lv_obj_t* UiManager::CreateClockGroup(lv_obj_t* parent) {
 
 void UiManager::RefreshSystemStatus() {
   RefreshAppConnectionPrompt();
+  RefreshLocalFirmwarePrompt();
   system_status_cache_.RefreshSystemStatus();
   if (system_status_cache_.rtc_status_valid()) {
     UpdateClockLabels(system_status_cache_.rtc_status());
@@ -1963,6 +2006,104 @@ void UiManager::RefreshSystemStatus() {
 void UiManager::RefreshSystemStatusNow() { RefreshSystemStatus(); }
 
 /**
+ * @brief 在 LVGL 线程展示全局固件传输进度并允许设备取消，由应用确认重启
+ * @note 锁屏期间隐藏提示，解锁后恢复显示，不改变锁屏或唤醒策略
+ */
+void UiManager::RefreshLocalFirmwarePrompt() {
+  const auto snapshot = app::FirmwareUpdateManager::Instance().GetSnapshot();
+  using Stage = app::FirmwareUpdateStage;
+  const bool transferring = snapshot.stage == Stage::kDownloadingMain ||
+                            snapshot.stage == Stage::kDownloadingWireless;
+  using Operation = app::FirmwareUpdateOperation;
+  const bool received_all = transferring && snapshot.total_bytes > 0 &&
+                            snapshot.received_bytes >= snapshot.total_bytes;
+  const bool show_progress = transferring && !received_all &&
+                             snapshot.operation == Operation::kNone;
+  const bool prepared = snapshot.stage == Stage::kReadyToInstall && !snapshot.busy;
+  const bool installing = snapshot.stage == Stage::kInstallingWireless ||
+                          snapshot.stage == Stage::kRestarting ||
+                          (snapshot.stage == Stage::kReadyToInstall && snapshot.busy);
+  if (!snapshot.local_update || snapshot.cancelled ||
+      (!transferring && !prepared && !installing) || root_screen_ == nullptr ||
+      lock_screen_ != nullptr || startup_screen_ != nullptr ||
+      first_boot_welcome_screen_ != nullptr || power_menu_ != nullptr ||
+      IsPromptDialogVisible(&keyboard_expansion_unavailable_prompt_)) {
+    if (local_firmware_prompt_.overlay != nullptr) {
+      lv_obj_add_flag(local_firmware_prompt_.overlay, LV_OBJ_FLAG_HIDDEN);
+    }
+    ClosePromptDialog(&local_firmware_prompt_);
+    return;
+  }
+  if (local_firmware_prompt_.closing) return;
+  char subtitle[192] = {};
+  if (prepared) {
+    std::snprintf(subtitle, sizeof(subtitle),
+        "Transfer verified.\nConfirm restart in the app.");
+  } else if (installing) {
+    std::snprintf(subtitle, sizeof(subtitle), "Installing and restarting...\nDo not power off.");
+  } else if (snapshot.operation == Operation::kVerifyingWireless) {
+    std::snprintf(subtitle, sizeof(subtitle),
+        "Verifying Wireless firmware\nChecking image and SHA-256...");
+  } else if (snapshot.operation == Operation::kVerifyingMain) {
+    std::snprintf(subtitle, sizeof(subtitle),
+        "Verifying Main firmware\nChecking image and SHA-256...");
+  } else if (snapshot.operation == Operation::kPreparingInstall) {
+    std::snprintf(subtitle, sizeof(subtitle), "Preparing firmware for installation...");
+  } else if (received_all) {
+    std::snprintf(subtitle, sizeof(subtitle),
+        "Firmware received.\nWaiting for verification...");
+  } else {
+    std::snprintf(subtitle, sizeof(subtitle), "Receiving %s\n%.2f MB / %.2f MB",
+        snapshot.stage == Stage::kDownloadingMain ? "main firmware" : "wireless firmware",
+        static_cast<double>(snapshot.received_bytes) / (1024.0 * 1024.0),
+        static_cast<double>(snapshot.total_bytes) / (1024.0 * 1024.0));
+  }
+  auto config = SystemPromptConfig(LayoutWidth(), LayoutHeight());
+  config.title = "Firmware update";
+  config.subtitle = subtitle;
+  config.body_min_height = show_progress ? 64 : 0;
+  config.cancel_text = "Cancel";
+  config.confirm_text = nullptr;
+  config.cancel_callback = [](void*) {
+    app::FirmwareUpdateManager::Instance().Cancel();
+  };
+  if (IsPromptDialogVisible(&local_firmware_prompt_)) {
+    if (UpdatePromptDialog(&local_firmware_prompt_, config) == nullptr) return;
+  } else if (ShowPromptDialog(root_screen_, &local_firmware_prompt_, config) == nullptr) {
+    return;
+  }
+  lv_obj_t* body = local_firmware_prompt_.body;
+  if (!show_progress) lv_obj_clean(body);
+  lv_obj_update_layout(body);
+  lv_obj_t* progress = !show_progress ? nullptr
+      : lv_obj_get_child_count(body) == 0 ? lv_bar_create(body) : lv_obj_get_child(body, 0);
+  if (progress != nullptr) {
+    lv_obj_set_size(progress, lv_obj_get_width(body) - 2 * config.inner_padding, 8);
+    lv_obj_align(progress, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_style_bg_color(progress,
+        lv_color_hex(theme::ActiveThemeColors().surface_container_high), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(progress, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(progress,
+        lv_color_hex(theme::FixedColors().action), LV_PART_INDICATOR);
+    lv_bar_set_range(progress, 0, 100);
+    const int progress_percent = snapshot.progress_percent;
+    lv_bar_set_value(progress, progress_percent, LV_ANIM_OFF);
+    lv_obj_t* percentage_label = lv_obj_get_child_count(body) < 2
+                                     ? lv_label_create(body) : lv_obj_get_child(body, 1);
+    if (percentage_label != nullptr) {
+      lv_label_set_text_fmt(percentage_label, "%d%%", progress_percent);
+      lv_obj_set_style_text_font(percentage_label, config.subtitle_font, LV_PART_MAIN);
+      lv_obj_set_style_text_color(percentage_label,
+          lv_color_hex(theme::ActiveThemeColors().on_surface_variant), LV_PART_MAIN);
+      lv_obj_update_layout(percentage_label);
+      lv_obj_align_to(percentage_label, progress, LV_ALIGN_OUT_BOTTOM_RIGHT, 0, 8);
+    }
+  }
+  if (installing) lv_obj_add_state(local_firmware_prompt_.cancel_button, LV_STATE_DISABLED);
+  else lv_obj_remove_state(local_firmware_prompt_.cancel_button, LV_STATE_DISABLED);
+}
+
+/**
  * @brief 在解锁界面使用公共提示框处理首次应用连接请求
  * @note 由 LVGL 线程刷新，不依赖连接设置页的生命周期
  */
@@ -1971,7 +2112,8 @@ void UiManager::RefreshAppConnectionPrompt() {
   // connected 仅在认证完成并成功发送就绪响应后置位，不以 Wi-Fi/待确认代替。
   status_bar_.SetAppConnected(status.connected);
   if (!status.pending || lock_screen_ != nullptr || startup_screen_ != nullptr ||
-      first_boot_welcome_screen_ != nullptr || power_menu_ != nullptr) {
+      first_boot_welcome_screen_ != nullptr || power_menu_ != nullptr ||
+      app::FirmwareUpdateManager::Instance().IsLocalUpdateActive()) {
     ClosePromptDialog(&app_connection_prompt_);
     app_connection_request_ = 0;
     return;
@@ -1981,33 +2123,9 @@ void UiManager::RefreshAppConnectionPrompt() {
       app_connection_request_ == status.request_id) return;
   char subtitle[128] = {};
   std::snprintf(subtitle, sizeof(subtitle), "Allow %s to connect?", status.client_name);
-  PromptDialogConfig config;
-  config.screen_width = LayoutWidth();
-  config.screen_height = LayoutHeight();
-  config.dialog_width = config.screen_width - 68;
-  config.dialog_height = config.screen_width > config.screen_height ? 280 : 312;
-  config.dialog_radius = 48;
-  config.fit_text_content = true;
-  config.inner_padding = 32;
-  config.header_height = 78;
-  config.title_y = 34;
-  config.title_subtitle_gap = 8;
-  config.subtitle_body_gap = config.title_y;
-  config.action_height = 106;
-  config.action_button_height = 74;
-  config.action_button_radius = 24;
-  config.action_button_gap = 20;
-  config.action_bottom_padding = 32;
-  config.animation_ms = 180;
-  config.bottom_margin = 32;
-  config.slide_from_bottom = true;
+  auto config = SystemPromptConfig(LayoutWidth(), LayoutHeight());
   config.title = "Connect to LilygoBox?";
   config.subtitle = subtitle;
-  config.title_font = Font32();
-  config.subtitle_font = Font24();
-  config.action_font = Font28();
-  config.title_text_align = LV_TEXT_ALIGN_CENTER;
-  config.subtitle_text_align = LV_TEXT_ALIGN_CENTER;
   config.confirm_text = "Allow";
   config.callback_context = this;
   config.confirm_callback = [](void* context) {

@@ -608,6 +608,8 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
     button_enabled = !snapshot.busy && snapshot.device_supported && !paused;
     if (cancelling) {
       std::snprintf(button_text, sizeof(button_text), "Cancelling...");
+    } else if (snapshot.local_update && !snapshot.busy && !ready && !paused) {
+      std::snprintf(button_text, sizeof(button_text), "Check online for updates");
     } else {
       switch (snapshot.stage) {
         case app::FirmwareUpdateStage::kWaitingForNetwork:
@@ -636,8 +638,12 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
               "Download paused  %d%%", snapshot.progress_percent);
           break;
         case app::FirmwareUpdateStage::kReadyToInstall:
-          std::snprintf(
-              button_text, sizeof(button_text), "Restart and update now");
+          if (snapshot.local_update) {
+            std::snprintf(button_text, sizeof(button_text), "Confirm restart in the app");
+            button_enabled = false;
+          } else {
+            std::snprintf(button_text, sizeof(button_text), "Restart and update now");
+          }
           break;
         case app::FirmwareUpdateStage::kRestarting:
           std::snprintf(button_text, sizeof(button_text), "Restarting...");
@@ -772,7 +778,10 @@ void FirmwareUpdateDownloadClickedEventCallback(lv_event_t* event) {
     return;
   }
   if (snapshot.stage == app::FirmwareUpdateStage::kReadyToInstall) {
+    if (snapshot.local_update) return;
     manager.InstallAndRestart();
+  } else if (snapshot.local_update) {
+    state->firmware_update_auto_show_new_page = manager.RequestCheck();
   } else if (snapshot.manifest_available && snapshot.update_available) {
     manager.StartUpdate();
   } else {

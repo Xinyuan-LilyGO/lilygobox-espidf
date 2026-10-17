@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 
-SUPPORTED_MANIFEST_VERSION = "1.0"
+SUPPORTED_MANIFEST_VERSIONS = ("1.0", "2.0")
 DEVICE_CONFIG_KIND = "lilygobox#otaDeviceConfig"
 MANIFEST_KIND = "lilygobox#otaManifest"
 RELEASE_CHANNELS = ("alpha", "beta", "stable")
@@ -52,7 +52,7 @@ SEMANTIC_VERSION_PATTERN = re.compile(
 DEVICE_VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+$")
 CHIP_REVISION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+$")
 RESOURCE_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-NAME_PATTERN = re.compile(r"^[a-z0-9]+(?:[a-z0-9.-]*[a-z0-9])?$")
+NAME_PATTERN = re.compile(r"^[a-z0-9]+(?:[a-z0-9._-]*[a-z0-9])?$")
 REPOSITORY_PATTERN = re.compile(
     r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
 )
@@ -155,13 +155,12 @@ def referenced_chip_revisions(
 ) -> set[int]:
     """收集设备配置中引用指定固件文件的完整芯片修订号。"""
     revisions: set[int] = set()
-    for target in config["targets"]:
+    for target in config["targets"] + config.get("legacyTargets", []):
         for role, referenced_file_id in target["components"].items():
             if referenced_file_id != file_id:
                 continue
-            revision = target["compatibility"]["chips"][role]["revision"]
-            major, minor = (int(part) for part in revision.split("."))
-            revisions.add(major * 100 + minor)
+            chip = target["compatibility"]["chips"][role]
+            revisions.update(chip_revision_bounds(chip))
     return revisions
 
 
@@ -506,15 +505,128 @@ def target_key(target: dict[str, Any]) -> str:
     )
 
 
+def chip_revision_number(value: Any) -> int:
+    """将完整芯片修订号转换为 ESP-IDF 使用的整数。"""
+    if not isinstance(value, str) or not CHIP_REVISION_PATTERN.fullmatch(value):
+        raise ValueError("芯片修订号必须使用 <major>.<minor>")
+    major, minor = (int(part) for part in value.split("."))
+    if major > 255 or minor > 99:
+        raise ValueError("芯片修订号超出范围")
+    return major * 100 + minor
+
+
+def chip_revision_bounds(chip: dict[str, Any]) -> tuple[int, int]:
+    """读取已校验芯片条件的精确值或闭区间。"""
+    if "revision" in chip:
+        revision = chip_revision_number(chip["revision"])
+        return revision, revision
+    return (
+        chip_revision_number(chip["minRevision"]),
+        chip_revision_number(chip["maxRevision"]),
+    )
+
+
+def targets_overlap(first: dict[str, Any], second: dict[str, Any]) -> bool:
+    """判断两个有效目标是否会同时匹配相同硬件。"""
+    first = first["compatibility"]
+    second = second["compatibility"]
+    if first["deviceVersion"] != second["deviceVersion"]:
+        return False
+    if set(first["chips"]) != set(second["chips"]):
+        return False
+    for role, chip in first["chips"].items():
+        other = second["chips"][role]
+        if chip["model"] != other["model"]:
+            return False
+        lower, upper = chip_revision_bounds(chip)
+        other_lower, other_upper = chip_revision_bounds(other)
+        if upper < other_lower or other_upper < lower:
+            return False
+    return True
+
+
+def canonical_file_id(file_id: str, device_id: str) -> str:
+    """将旧版内部文件 ID 转换为包含产品标识的新版 ID。"""
+    match = re.fullmatch(
+        r"device-v([0-9]+\.[0-9]+)-(esp32p4|esp32c5|esp32c6)-rev([0-9]+\.[0-9]+)",
+        file_id,
+    )
+    if match is None:
+        return file_id
+    hardware, chip, revision = match.groups()
+    return f"{device_id}-v{hardware}_{chip}-v{revision}"
+
+
+def legacy_file_id(file_id: str) -> str:
+    """恢复旧设备可读取的文件 ID 和历史资产命名组成部分。"""
+    match = re.fullmatch(
+        r".+-v([0-9]+\.[0-9]+)_(esp32p4|esp32c5|esp32c6)-v([0-9]+\.[0-9]+)",
+        file_id,
+    )
+    if match is None:
+        return file_id
+    hardware, chip, revision = match.groups()
+    return f"device-v{hardware}-{chip}-rev{revision}"
+
+
+def normalize_manifest_file_ids(
+    manifest: dict[str, Any], device_id: str
+) -> dict[str, Any]:
+    """兼容继承旧 ID 的 v2 清单，同时保留已发布文件的名称和地址。"""
+    if manifest.get("manifestVersion") != "2.0":
+        return manifest
+    result = copy.deepcopy(manifest)
+    files = result.get("files")
+    if isinstance(files, dict):
+        renamed = {
+            canonical_file_id(key, device_id): value
+            for key, value in files.items()
+        }
+        if len(renamed) != len(files):
+            raise ValueError("上一版清单的新旧文件 ID 映射发生冲突")
+        result["files"] = renamed
+    targets = result.get("targets")
+    if isinstance(targets, list):
+        for target in targets:
+            if (isinstance(target, dict)
+                    and isinstance(target.get("components"), dict)):
+                target["components"] = {
+                    role: (canonical_file_id(key, device_id)
+                           if isinstance(key, str) else key)
+                    for role, key in target["components"].items()
+                }
+    return result
+
+
+def legacy_config(config: dict[str, Any]) -> dict[str, Any]:
+    """构造仅供 P4 V1 旧固件迁移使用的精确匹配配置。"""
+    result = copy.deepcopy(config)
+    result["manifestVersion"] = "1.0"
+    result["targets"] = result.pop("legacyTargets")
+    referenced = {file_id for target in result["targets"]
+                  for file_id in target["components"].values()}
+    result["files"] = {
+        legacy_file_id(file_id): value
+        for file_id, value in result["files"].items()
+        if file_id in referenced
+    }
+    if len(result["files"]) != len(referenced):
+        raise ValueError("旧版中转清单文件引用缺失或命名冲突")
+    for target in result["targets"]:
+        target["components"] = {
+            role: legacy_file_id(file_id)
+            for role, file_id in target["components"].items()
+        }
+    return result
+
+
 def validate_config(config: dict[str, Any]) -> None:
     """校验设备配置中的目标、固件文件及其引用关系。"""
     if config.get("kind") != DEVICE_CONFIG_KIND:
         raise ValueError(f"设备配置 kind 必须是 {DEVICE_CONFIG_KIND}")
-    if config.get("manifestVersion") != SUPPORTED_MANIFEST_VERSION:
-        raise ValueError(
-            "生成器仅支持 manifestVersion "
-            f"{SUPPORTED_MANIFEST_VERSION}"
-        )
+    manifest_version = config.get("manifestVersion")
+    if manifest_version not in SUPPORTED_MANIFEST_VERSIONS:
+        raise ValueError("生成器仅支持 manifestVersion 1.0 和 2.0")
     for name in ("publisherId", "deviceId", "repository"):
         if not isinstance(config.get(name), str) or not config[name]:
             raise ValueError(f"设备配置缺少 {name}")
@@ -622,30 +734,20 @@ def validate_config(config: dict[str, Any]) -> None:
         for role, chip_condition in chips.items():
             if not isinstance(role, str) or not NAME_PATTERN.fullmatch(role):
                 raise ValueError(f"{label} 包含无效组件角色：{role}")
-            if not isinstance(chip_condition, dict) or set(chip_condition) != {
-                "model", "revision"
-            }:
+            fields = (
+                {"model", "revision"} if manifest_version == "1.0"
+                else {"model", "minRevision", "maxRevision"}
+            )
+            if not isinstance(chip_condition, dict) or set(chip_condition) != fields:
                 raise ValueError(
-                    f"{label}.compatibility.chips.{role} 必须包含 "
-                    "model 和 revision"
+                    f"{label}.compatibility.chips.{role} 字段不符合清单 {manifest_version}"
                 )
             model = chip_condition["model"]
-            revision = chip_condition["revision"]
             if model not in SUPPORTED_ESP_CHIP_IDS:
                 raise ValueError(f"{label} 的芯片型号不受支持：{model}")
-            if (
-                not isinstance(revision, str)
-                or not CHIP_REVISION_PATTERN.fullmatch(revision)
-            ):
-                raise ValueError(
-                    f"{label}.compatibility.chips.{role}.revision "
-                    "必须使用 <major>.<minor>"
-                )
-            major, minor = (int(part) for part in revision.split("."))
-            if major > 255 or minor > 99:
-                raise ValueError(
-                    f"{label}.compatibility.chips.{role}.revision 超出范围"
-                )
+            lower, upper = chip_revision_bounds(chip_condition)
+            if lower > upper:
+                raise ValueError(f"{label}.{role} 的最小修订号大于最大修订号")
             file_id = components[role]
             if not isinstance(file_id, str) or file_id not in firmware_files:
                 raise ValueError(
@@ -660,30 +762,88 @@ def validate_config(config: dict[str, Any]) -> None:
         if key in compatibility_keys:
             raise ValueError(f"{label} 的兼容条件与其他目标重复")
         compatibility_keys.add(key)
+        if any(targets_overlap(target, other) for other in targets[:index]):
+            raise ValueError(f"{label} 与其他目标的芯片修订范围重叠")
     unused_file_ids = set(firmware_files) - used_file_ids
     if unused_file_ids:
         raise ValueError(
             "files 包含未被任何目标引用的文件："
             + ", ".join(sorted(unused_file_ids))
         )
+    filenames = [build_firmware_filename(config, file_id, "1.0.0")
+                 for file_id in firmware_files]
+    if len(set(filenames)) != len(filenames):
+        raise ValueError("多个固件文件 ID 生成了相同的资产文件名")
+    if "legacyTargets" in config:
+        if (
+            manifest_version != "2.0" or config["deviceId"] != "t-display-p4"
+            or any(t["compatibility"]["deviceVersion"] != "1.0"
+                   for t in config["legacyTargets"])
+        ):
+            raise ValueError("只有 P4 V1 的 v2 配置可包含 legacyTargets")
+        previous = legacy_config(config)
+        validate_config(previous)
+        for target in previous["targets"]:
+            if not any(
+                targets_overlap(target, current)
+                and target["components"] == {
+                    role: legacy_file_id(file_id)
+                    for role, file_id in current["components"].items()
+                }
+                for current in targets
+            ):
+                raise ValueError("旧版迁移目标必须由当前目标范围覆盖并引用同组固件")
 
 
 def device_release_name(config: dict[str, Any]) -> str:
-    """根据已有硬件版本区分清单和目录，保留 1.0 的历史发布路径。"""
+    """v2 按产品型号汇总，v1 保留旧设备既有地址。"""
+    if config["manifestVersion"] == "2.0":
+        return config["deviceId"]
     versions = {
         target["compatibility"]["deviceVersion"] for target in config["targets"]
     }
     if len(versions) != 1:
         raise ValueError("独立发布配置只能包含一个 deviceVersion")
     version = next(iter(versions))
-    if version == "1.0":
+    if version == "1.0" and config["manifestVersion"] == "1.0":
         return config["deviceId"]
     return f"{config['deviceId']}-v{version}"
+
+
+def firmware_product_name(config: dict[str, Any], file_id: str) -> tuple[str, str]:
+    """从文件引用确定硬件版本，共用文件可用稳定 ID 指定命名归属。"""
+    versions = {target["compatibility"]["deviceVersion"]
+                for target in config["targets"]
+                if file_id in target["components"].values()}
+    match = re.fullmatch(
+        re.escape(config["deviceId"])
+        + r"-v([0-9]+\.[0-9]+)_(esp32p4|esp32c5|esp32c6)"
+        + r"-v([0-9]+\.[0-9]+)",
+        canonical_file_id(file_id, config["deviceId"]),
+    )
+    if match:
+        hardware, chip, revision = match.groups()
+        chip_label = f"{chip}-v{revision}"
+        if chip != config["files"][file_id]["chip"]:
+            raise ValueError(f"固件文件 {file_id} 的芯片标识与配置不一致")
+        if hardware not in versions:
+            raise ValueError(f"固件文件 {file_id} 的硬件版本与目标不一致")
+    else:
+        raise ValueError(
+            f"固件文件 {file_id} 需要使用 "
+            f"{config['deviceId']}-v<板子版本>_<芯片>-v<芯片标识> ID"
+        )
+    return f"{config['deviceId']}-v{hardware}", chip_label
 
 
 def build_manifest_filename(config: dict[str, Any], channel: str) -> str:
     """根据设备标识和格式版本生成固定 Manifest 资产文件名。"""
     major_version = config["manifestVersion"].split(".", 1)[0]
+    if config["manifestVersion"] == "2.0":
+        return (
+            f"lilygobox_{device_release_name(config)}_ota-manifest_"
+            f"{channel}_v{major_version}.json"
+        )
     return (
         f"lilygobox-{device_release_name(config)}-ota-manifest-"
         f"{channel}-v{major_version}.json"
@@ -694,9 +854,14 @@ def build_firmware_filename(
     config: dict[str, Any], file_id: str, version: str
 ) -> str:
     """根据设备、固件文件 ID 和版本生成唯一固件资产文件名。"""
-    filename = (
-        f"lilygobox-{config['deviceId']}-{file_id}-v{version}.bin"
-    )
+    if config["manifestVersion"] == "1.0":
+        filename = (
+            f"lilygobox-{config['deviceId']}-"
+            f"{legacy_file_id(file_id)}-v{version}.bin"
+        )
+    else:
+        product, chip_label = firmware_product_name(config, file_id)
+        filename = f"lilygobox_{product}_{chip_label}_v{version}.bin"
     if len(filename) > MAX_FIRMWARE_FILENAME_LENGTH:
         raise ValueError(f"固件文件名过长：{filename}")
     return filename
@@ -730,7 +895,18 @@ def validate_manifest_firmware_file(
     version = normalize_version(version_value, f"{file_id}.version")
     expected_filename = build_firmware_filename(config, file_id, version)
     filename = value["fileName"]
-    if filename != expected_filename:
+    historical_filename = (
+        f"lilygobox-{config['deviceId']}-"
+        f"{legacy_file_id(file_id)}-v{version}.bin"
+    )
+    accepted_filenames = {expected_filename, historical_filename}
+    if config["manifestVersion"] == "2.0":
+        product, chip_label = firmware_product_name(config, file_id)
+        previous_chip_label = re.sub(r"-v([0-9]+)\.0$", r"-v\1", chip_label)
+        accepted_filenames.add(
+            f"lilygobox_{product}_{previous_chip_label}_v{version}.bin"
+        )
+    if filename not in accepted_filenames:
         raise ValueError(f"固件文件 {file_id}.fileName 无效")
     urls = value["downloadUrls"]
     if (
@@ -789,6 +965,7 @@ def validate_previous_manifest(
     manifest: dict[str, Any], config: dict[str, Any]
 ) -> dict[str, dict[str, Any]]:
     """校验上一版清单并提取可继承的固件文件。"""
+    manifest = normalize_manifest_file_ids(manifest, config["deviceId"])
     if manifest.get("kind") != MANIFEST_KIND:
         raise ValueError("上一版清单 kind 不受支持")
     if manifest.get("manifestVersion") != config["manifestVersion"]:
@@ -837,6 +1014,9 @@ def validate_previous_manifest(
         components = target["components"]
         if not isinstance(components, dict) or not components:
             raise ValueError(f"上一版 targets[{index}].components 无效")
+        current_target = next(t for t in config["targets"] if target_key(t) == key)
+        if components != current_target["components"]:
+            raise ValueError("目标的固件映射已变化，请重新提供实际 BIN")
         for file_id in components.values():
             if (
                 not isinstance(file_id, str)
@@ -844,6 +1024,11 @@ def validate_previous_manifest(
             ):
                 raise ValueError("上一版清单引用了未知固件文件")
             referenced_file_ids.add(file_id)
+
+    if previous_target_keys != configured_target_keys:
+        raise ValueError(
+            "芯片兼容条件已变化，请不使用 --previous-manifest 并重新提供全部 BIN"
+        )
 
     firmware_files = manifest.get("files")
     if not isinstance(firmware_files, dict) or not firmware_files:
@@ -930,16 +1115,24 @@ def clear_generated_files(
     channel: str,
 ) -> None:
     """重新生成同一版本时只删除工具自身创建的 Release 文件。"""
-    manifest_name = build_manifest_filename(config, channel)
-    firmware_prefix = f"lilygobox-{config['deviceId']}-"
+    manifest_names = {build_manifest_filename(config, channel)}
+    if config["manifestVersion"] == "2.0":
+        manifest_names.add(
+            f"lilygobox-{device_release_name(config)}-ota-manifest-{channel}-v2.json"
+        )
+    if "legacyTargets" in config:
+        manifest_names.add(build_manifest_filename(legacy_config(config), channel))
+    firmware_prefixes = (f"lilygobox_{config['deviceId']}-v",)
+    if config["manifestVersion"] == "1.0" or "legacyTargets" in config:
+        firmware_prefixes += (f"lilygobox-{config['deviceId']}-",)
     for path in output_directory.iterdir():
         generated_firmware = (
             path.is_file()
-            and path.name.startswith(firmware_prefix)
+            and path.name.startswith(firmware_prefixes)
             and path.name.endswith(".bin")
         )
         if path.is_file() and (
-            path.name == manifest_name or generated_firmware
+            path.name in manifest_names or generated_firmware
         ):
             path.unlink()
 
@@ -973,6 +1166,11 @@ def build_argument_parser(default_config: Path) -> argparse.ArgumentParser:
         help="未更新固件文件需要继承的上一版 Manifest",
     )
     parser.add_argument(
+        "--legacy-manifest",
+        action="store_true",
+        help="额外生成 P4 V1 一次性中转清单及旧名称 BIN，需提供全部迁移组件 BIN",
+    )
+    parser.add_argument(
         "--note", action="append", default=[], help="更新说明，最多三条"
     )
     parser.add_argument(
@@ -997,16 +1195,23 @@ def build_argument_parser(default_config: Path) -> argparse.ArgumentParser:
 def main() -> int:
     """生成仅包含本次需要上传资源的 Release 目录。"""
     script_directory = Path(__file__).resolve().parent
-    default_config = script_directory / "devices" / "t-display-p4-v1.json"
+    default_config = script_directory / "devices" / "t-display-p4.json"
     parser = build_argument_parser(default_config)
     args = parser.parse_args()
 
     try:
         config = load_json(args.config.expanduser().resolve())
+        if args.legacy_manifest:
+            if "legacyTargets" not in config:
+                raise ValueError("当前配置不支持生成旧协议中转清单")
+        else:
+            config.pop("legacyTargets", None)
         validate_config(config)
 
         file_updates: dict[str, tuple[str, Path]] = {}
         for file_id, declared_version, path in args.firmware_file:
+            if config["manifestVersion"] == "2.0":
+                file_id = canonical_file_id(file_id, config["deviceId"])
             if file_id not in config["files"]:
                 raise ValueError(f"不支持固件文件：{file_id}")
             if file_id in file_updates:
@@ -1017,6 +1222,17 @@ def main() -> int:
                 else read_embedded_firmware_version(path, file_id)
             )
             file_updates[file_id] = (version, path)
+        if args.legacy_manifest:
+            required_legacy_files = {
+                file_id for target in config["legacyTargets"]
+                for file_id in target["components"].values()
+            }
+            missing_legacy_files = required_legacy_files - set(file_updates)
+            if missing_legacy_files:
+                raise ValueError(
+                    "生成中转清单必须提供全部迁移组件的实际 BIN："
+                    + ", ".join(sorted(missing_legacy_files))
+                )
         main_file_ids = main_component_file_ids(config)
         updated_main_versions = {
             file_updates[file_id][0]
@@ -1024,18 +1240,14 @@ def main() -> int:
             if file_id in file_updates
         }
         if updated_main_versions:
-            if len(updated_main_versions) != 1:
-                raise ValueError(
-                    "本次 main 固件包含多个不同版本，无法确定 Release 版本"
-                )
-            main_version = next(iter(updated_main_versions))
+            main_version = max(updated_main_versions, key=version_key)
             if args.release is None:
                 release_version = main_version
             else:
                 release_version = normalize_version(args.release, "release")
-                if release_version != main_version:
+                if version_key(release_version) < version_key(main_version):
                     raise ValueError(
-                        f"Release 版本必须与本次 main 固件版本一致："
+                        f"Release 版本不能低于本次 main 固件最高版本："
                         f"{main_version}"
                     )
         else:
@@ -1155,22 +1367,52 @@ def main() -> int:
         manifest_path = output_directory / build_manifest_filename(
             config, args.channel
         )
-        manifest_text = (
-            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
-        )
-        if len(manifest_text.encode("utf-8")) > MAX_MANIFEST_SIZE:
-            raise ValueError("生成的 Manifest 超过设备支持的 32 KiB")
-        manifest_path.write_text(manifest_text, encoding="utf-8")
-        validate_previous_manifest(load_json(manifest_path), config)
+        manifests = [(manifest_path, manifest, config)]
+        if "legacyTargets" in config:
+            previous_config = legacy_config(config)
+            legacy_manifest = copy.deepcopy(manifest)
+            legacy_manifest["manifestVersion"] = "1.0"
+            legacy_manifest["targets"] = previous_config["targets"]
+            legacy_manifest["files"] = {
+                legacy_file_id(file_id): metadata
+                for file_id, metadata in legacy_manifest["files"].items()
+                if legacy_file_id(file_id) in previous_config["files"]
+            }
+            for file_id, metadata in legacy_manifest["files"].items():
+                current_name = metadata["fileName"]
+                legacy_name = build_firmware_filename(
+                    previous_config, file_id, metadata["version"]
+                )
+                source_release = extract_release_tag(
+                    metadata["downloadUrls"][0], config["repository"], current_name
+                )
+                metadata["fileName"] = legacy_name
+                metadata["downloadUrls"] = build_download_urls(
+                    config["downloadUrlTemplates"], config["repository"],
+                    source_release, legacy_name,
+                )
+                current_file_id = canonical_file_id(file_id, config["deviceId"])
+                if current_file_id in file_updates and current_name != legacy_name:
+                    legacy_binary = output_directory / legacy_name
+                    shutil.copyfile(output_directory / current_name, legacy_binary)
+                    upload_files.append(legacy_binary)
+            legacy_path = output_directory / build_manifest_filename(
+                previous_config, args.channel
+            )
+            manifests.append((legacy_path, legacy_manifest, previous_config))
+        for path, value, current_config in manifests:
+            manifest_text = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
+            if len(manifest_text.encode("utf-8")) > MAX_MANIFEST_SIZE:
+                raise ValueError("生成的 Manifest 超过设备支持的 32 KiB")
+            validate_previous_manifest(value, current_config)
+            path.write_text(manifest_text, encoding="utf-8")
         print(f"Release 文件已生成：{output_directory}")
         print(f"版本固件 Release：{release_tag}")
         for path in upload_files:
             print(f"  {path.name} ({path.stat().st_size} bytes)")
         print(f"频道指针 Release：ota-{args.channel}")
-        print(
-            f"  {manifest_path.name} "
-            f"({manifest_path.stat().st_size} bytes)"
-        )
+        for path, _, _ in manifests:
+            print(f"  {path.name} ({path.stat().st_size} bytes)")
         return 0
     except ValueError as error:
         print(f"错误：{error}", file=sys.stderr)

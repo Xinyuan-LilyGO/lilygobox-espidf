@@ -121,6 +121,10 @@ void CancelActionEventCallback(lv_event_t* event) {
   if (state == nullptr) {
     return;
   }
+  if (state->cancel_button != nullptr &&
+      lv_obj_has_state(state->cancel_button, LV_STATE_DISABLED)) {
+    return;
+  }
   if (state->cancel_callback != nullptr) {
     state->cancel_callback(state->callback_context);
   }
@@ -280,6 +284,10 @@ lv_obj_t* ShowPromptDialog(lv_obj_t* parent, PromptDialogState* state,
         if (state == nullptr || state->overlay == nullptr || state->closing) {
           return;
         }
+        if (state->cancel_button != nullptr &&
+            lv_obj_has_state(state->cancel_button, LV_STATE_DISABLED)) {
+          return;
+        }
         if (state->cancel_callback != nullptr) {
           state->cancel_callback(state->callback_context);
         }
@@ -348,7 +356,8 @@ lv_obj_t* ShowPromptDialog(lv_obj_t* parent, PromptDialogState* state,
   }
 
   if (config.fit_text_content) {
-    sheet_config.sheet_height = std::min(body_y + config.action_height,
+    sheet_config.sheet_height = std::min(
+        body_y + std::max(0, config.body_min_height) + config.action_height,
         config.screen_height - std::max(24, config.bottom_margin + 16));
     lv_obj_set_height(panel, sheet_config.sheet_height);
     if (!config.slide_from_bottom)
@@ -469,7 +478,8 @@ lv_obj_t* UpdatePromptDialog(
   }
 
   if (config.fit_text_content) {
-    panel_height = std::min(body_y + config.action_height,
+    panel_height = std::min(
+        body_y + std::max(0, config.body_min_height) + config.action_height,
         config.screen_height - std::max(24, config.bottom_margin + 16));
     lv_obj_set_height(state->panel, panel_height);
     lv_obj_set_y(state->panel,

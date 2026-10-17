@@ -497,6 +497,11 @@ class UiManager final {
   void RefreshAppConnectionPrompt();
 
   /**
+   * @brief 刷新局域网固件传输及重启安装底部弹窗
+   */
+  void RefreshLocalFirmwarePrompt();
+
+  /**
    * @brief 请求切换系统主题并异步重建当前应用
    * @param enabled true 使用暗色主题，false 使用亮色主题
    */
@@ -628,6 +633,7 @@ class UiManager final {
   lv_obj_t* power_menu_ = nullptr;
   PromptDialogState keyboard_expansion_unavailable_prompt_;
   PromptDialogState app_connection_prompt_;
+  PromptDialogState local_firmware_prompt_;
   uint32_t app_connection_request_ = 0;
   VolumeOverlay volume_overlay_;
   int startup_progress_percent_ = 0;

@@ -15,6 +15,7 @@
 #include "app/connection_tls.h"
 #include "app/device_control.h"
 #include "app/device_identity.h"
+#include "app/firmware_update_manager.h"
 #include "app/storage/connection_storage.h"
 #include "app/storage/display_storage.h"
 #include "base/logger.h"
@@ -79,6 +80,7 @@ struct AppSession {
 };
 AppSession g_sessions[kSessionCapacity];
 uint32_t g_next_session_id = 0;
+uint32_t g_local_update_session_id = 0;
 DeviceControlState g_control_state;
 int g_active_fd = -1;
 int g_pending_fd = -1;
@@ -294,8 +296,23 @@ void AddDeviceInfo(cJSON* message) {
                           device_name[0] == '\0' ? kModel : device_name);
   cJSON_AddStringToObject(message, "model", kModel);
   cJSON_AddStringToObject(message, "modelVersion", g_model_version);
+  const FirmwareHardwareInfo hardware = FirmwareUpdateManager::ReadHardwareInfo();
+  cJSON* chips = cJSON_AddObjectToObject(message, "chips");
+  cJSON* main_chip = cJSON_AddObjectToObject(chips, "main");
+  cJSON_AddStringToObject(main_chip, "model", hardware.main_model);
+  cJSON_AddStringToObject(main_chip, "revision", hardware.main_revision);
+  cJSON_AddStringToObject(main_chip, "revisionSource", "runtime");
+  cJSON* wireless_chip = cJSON_AddObjectToObject(chips, "wireless");
+  cJSON_AddStringToObject(wireless_chip, "model", hardware.wireless_model);
+  cJSON_AddStringToObject(wireless_chip, "revision", hardware.wireless_revision);
+  cJSON_AddStringToObject(wireless_chip, "revisionSource", "boardConfig");
   cJSON_AddStringToObject(message, "firmware",
                           esp_app_get_description()->version);
+  char wireless_version[32] = {};
+  if (FirmwareUpdateManager::ReadWirelessVersion(
+          wireless_version, sizeof(wireless_version))) {
+    cJSON_AddStringToObject(message, "wirelessFirmware", wireless_version);
+  }
   cJSON_AddNumberToObject(message, "uptimeMs", static_cast<double>(NowMs()));
 }
 
@@ -348,6 +365,61 @@ void SendRequestedDisconnects(void* context) {
     httpd_ws_send_frame_async(server, fd, &frame);
     httpd_sess_trigger_close(server, fd);
   }
+}
+
+/**
+ * @brief 将固件更新管理器的实时状态推送给当前授权应用
+ * @param context HTTP 服务句柄
+ */
+void SendFirmwareUpdateStatus(void* context) {
+  auto server = static_cast<httpd_handle_t>(context);
+  int fd = -1;
+  {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_active_fd >= 0 && g_status.connected) fd = g_active_fd;
+  }
+  if (fd < 0) return;
+  const auto snapshot = FirmwareUpdateManager::Instance().GetSnapshot();
+  if (!snapshot.local_update) return;
+  const char* stage = "idle";
+  switch (snapshot.stage) {
+    case FirmwareUpdateStage::kDownloadingWireless: stage = "downloadingWireless"; break;
+    case FirmwareUpdateStage::kInstallingWireless: stage = "installingWireless"; break;
+    case FirmwareUpdateStage::kDownloadingMain: stage = "downloadingMain"; break;
+    case FirmwareUpdateStage::kReadyToInstall: stage = "readyToInstall"; break;
+    case FirmwareUpdateStage::kRestarting: stage = "restarting"; break;
+    case FirmwareUpdateStage::kFailed: stage = "failed"; break;
+    default: break;
+  }
+  if (snapshot.stage == FirmwareUpdateStage::kDownloadingMain ||
+      snapshot.stage == FirmwareUpdateStage::kDownloadingWireless) {
+    switch (snapshot.operation) {
+      case FirmwareUpdateOperation::kVerifyingWireless: stage = "verifyingWireless"; break;
+      case FirmwareUpdateOperation::kVerifyingMain: stage = "verifyingMain"; break;
+      case FirmwareUpdateOperation::kPreparingInstall: stage = "preparingInstall"; break;
+      case FirmwareUpdateOperation::kNone: break;
+    }
+  }
+  if (snapshot.cancelled) stage = "cancelled";
+  std::lock_guard<std::mutex> lock(g_mutex);
+  if (fd != g_active_fd || !g_status.connected) return;
+  cJSON* message = Message("firmware.local.status");
+  if (message == nullptr) return;
+  cJSON_AddStringToObject(message, "stage", stage);
+  cJSON_AddNumberToObject(message, "progress", snapshot.progress_percent);
+  cJSON_AddNumberToObject(message, "receivedBytes", snapshot.received_bytes);
+  cJSON_AddNumberToObject(message, "totalBytes", snapshot.total_bytes);
+  cJSON_AddBoolToObject(message, "busy", snapshot.busy);
+  cJSON_AddStringToObject(message, "message", snapshot.message);
+  char* payload = cJSON_PrintUnformatted(message);
+  cJSON_Delete(message);
+  if (payload == nullptr) return;
+  httpd_ws_frame_t frame = {};
+  frame.type = HTTPD_WS_TYPE_TEXT;
+  frame.payload = reinterpret_cast<uint8_t*>(payload);
+  frame.len = std::strlen(payload);
+  httpd_ws_send_frame_async(server, fd, &frame);
+  cJSON_free(payload);
 }
 
 /**
@@ -575,7 +647,39 @@ esp_err_t WebSocketHandler(httpd_req_t* request) {
       return ESP_FAIL;
     }
     const char* type = StringField(input, "type");
-    if (session->disconnect_requested) {
+    if (std::strcmp(type, "firmware.local.start") == 0 &&
+        fd == g_active_fd && g_status.connected) {
+      const char* main_url = StringField(input, "mainUrl");
+      const char* wireless_url = StringField(input, "wirelessUrl");
+      const char* main_version = StringField(input, "mainVersion");
+      const char* wireless_version = StringField(input, "wirelessVersion");
+      const char* main_sha256 = StringField(input, "mainSha256");
+      const char* wireless_sha256 = StringField(input, "wirelessSha256");
+      const cJSON* main_size = cJSON_GetObjectItemCaseSensitive(input, "mainSize");
+      const cJSON* wireless_size = cJSON_GetObjectItemCaseSensitive(input, "wirelessSize");
+      const bool accepted = g_local_update_session_id == 0 &&
+          cJSON_IsNumber(main_size) && cJSON_IsNumber(wireless_size) &&
+          main_size->valueint > 0 && wireless_size->valueint > 0 &&
+          FirmwareUpdateManager::Instance().StartLocalUpdate(
+              main_url, wireless_url, main_version, wireless_version,
+              static_cast<size_t>(main_size->valueint), static_cast<size_t>(wireless_size->valueint),
+              main_sha256, wireless_sha256);
+      if (accepted) g_local_update_session_id = session->session_id;
+      reply = Message(accepted ? "firmware.local.started"
+                               : "firmware.local.rejected");
+    } else if (std::strcmp(type, "firmware.local.cancel") == 0 &&
+               fd == g_active_fd && g_status.connected) {
+      const bool accepted = session->session_id == g_local_update_session_id &&
+          FirmwareUpdateManager::Instance().CancelLocalUpdate();
+      reply = Message(accepted ? "firmware.local.cancelled"
+                               : "firmware.local.cancel.rejected");
+    } else if (std::strcmp(type, "firmware.local.install") == 0 &&
+               fd == g_active_fd && g_status.connected) {
+      const bool accepted = session->session_id == g_local_update_session_id &&
+          FirmwareUpdateManager::Instance().InstallAndRestart();
+      reply = Message(accepted ? "firmware.local.install.started"
+                               : "firmware.local.install.rejected");
+    } else if (session->disconnect_requested) {
       session->disconnect_requested = false;
       reply = Message("disconnected");
       rejected = true;
@@ -835,6 +939,7 @@ void ConnectionTask(void*) {
   int discovery_socket = -1;
   uint32_t network_generation = 0;
   uint32_t network_address = 0;
+  int64_t last_firmware_status_ms = 0;
   while (true) {
     hal::WifiStatus wifi;
     const bool network_ready = g_wifi->ReadWifiStatus(&wifi) && wifi.got_ip;
@@ -902,6 +1007,7 @@ void ConnectionTask(void*) {
     int close_fds[kSessionCapacity];
     size_t close_count = 0;
     bool notify_disconnect = false;
+    bool cancel_local_update = false;
     {
       std::lock_guard<std::mutex> lock(g_mutex);
       g_status.network_ready = network_ready;
@@ -926,12 +1032,41 @@ void ConnectionTask(void*) {
           session.close_requested = true;
         }
       }
+      if (g_local_update_session_id != 0) {
+        bool owner_connected = false;
+        for (const auto& session : g_sessions) {
+          if (session.session_id == g_local_update_session_id &&
+              session.fd >= 0 && session.fd == g_active_fd &&
+              session.authenticated && g_status.connected &&
+              !session.close_requested && !session.disconnect_requested &&
+              NowMs() - session.last_seen <= kHeartbeatMs) {
+            owner_connected = true;
+            break;
+          }
+        }
+        if (!FirmwareUpdateManager::Instance().IsLocalUpdateActive()) {
+          g_local_update_session_id = 0;
+        } else if (!owner_connected) {
+          cancel_local_update = true;
+        }
+      }
+    }
+    /**
+     * @brief 在连接状态锁外取消失联应用的更新，避免网络关闭和文件清理阻塞会话锁
+     * @note 会话编号保留到更新结束，防止重连或套接字复用接管旧更新；安装阶段不取消
+     */
+    if (cancel_local_update) {
+      FirmwareUpdateManager::Instance().CancelLocalUpdate();
     }
     if (notify_disconnect && server != nullptr)
       httpd_queue_work(server, SendRequestedDisconnects, server);
     for (size_t i = 0; i < close_count && server != nullptr; ++i)
       httpd_sess_trigger_close(server, close_fds[i]);
     if (discovery_socket >= 0) ReplyToDiscovery(discovery_socket);
+    if (server != nullptr && NowMs() - last_firmware_status_ms >= 500) {
+      httpd_queue_work(server, SendFirmwareUpdateStatus, server);
+      last_firmware_status_ms = NowMs();
+    }
     vTaskDelay(pdMS_TO_TICKS(server == nullptr ? 1000 : 100));
   }
 }
@@ -948,8 +1083,10 @@ bool InitializeAppConnection(hal::WifiProvider* wifi,
   hal::DeviceInfo info;
   if (device_info != nullptr && device_info->ReadDeviceInfo(&info) &&
       info.device_model_version != nullptr) {
+    const char* model_version = info.device_model_version;
+    if (model_version[0] == 'v') ++model_version;
     std::snprintf(g_model_version, sizeof(g_model_version), "%s",
-                  info.device_model_version);
+                  model_version);
   }
 
   if (wifi == nullptr) return false;

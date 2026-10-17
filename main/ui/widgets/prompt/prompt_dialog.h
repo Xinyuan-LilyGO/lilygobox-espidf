@@ -43,6 +43,10 @@ struct PromptDialogConfig {
   int dialog_height = 0;
   // 纯文字提示按标题和副标题实际高度收紧，不预留空正文区域。
   bool fit_text_content = false;
+  /**
+   * @brief 按文字收紧弹窗时为正文控件保留的高度
+   */
+  int body_min_height = 0;
   int dialog_radius = 30;
   int inner_padding = 28;
   int header_height = 92;

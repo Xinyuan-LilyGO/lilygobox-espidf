@@ -2,358 +2,173 @@
 
 ## **[English](./README.md) | Chinese**
 
-`ota_release` 生成 LilygoBox OTA Manifest 和需要上传到 GitHub Releases
-的固件资产。
+生成 GitHub Releases 的固件资产和 OTA 清单。互联网更新和 Flutter 局域网更新
+使用同一套产品目标、版本、大小、SHA-256、芯片及项目名校验。
 
-## 命名规则
+## 产品清单与资产命名
 
-- JSON 属性严格使用 Google JSON 风格的 `lowerCamelCase`。
-- 集合字段使用复数名，例如 `targets`、`files`、`downloadUrls`。
-- 动态映射键使用稳定的小写标识，例如
-  `device-v1.0-esp32p4-rev1.0`。
-- 时间字段使用 `...Time`，因此发布时间使用 `publishTime`。
-- 数量字段直接使用单位后缀，因此文件大小使用 `sizeBytes`。
-- `name` 只保留给完整资源名；设备标识使用 `deviceId`。
-- `deviceId` 标识设备型号；`deviceVersion` 标识该型号的 OTA 硬件兼容
-  版本，不等同于 PCB 印刷版本；固件版本仍使用 `release.version`。
-- Python 遵循 PEP 8，C++ 遵循 Google C++ Style Guide。
-- JSON 内的版本不带 `v`；Git tag 和固件文件名使用 `v` 前缀。
-- 固件版本使用受约束的 SemVer：Alpha 为 `X.Y.Z-alpha.N`，
-  Beta 为 `X.Y.Z-beta.N`，Stable 为 `X.Y.Z`。
-- 时间使用 UTC、秒精度的 RFC 3339，例如
-  `2026-07-24T10:00:00Z`。
+每个产品型号、每个发布频道只有一份 v2 清单；清单名称不含板子硬件版本或芯片系列。
 
-命名与字段语义依据 Google
-[AIP-122](https://google.aip.dev/122)、
-[AIP-126](https://google.aip.dev/126)、
-[AIP-140](https://google.aip.dev/140)、
-[AIP-141](https://google.aip.dev/141) 和
-[AIP-142](https://google.aip.dev/142)。
+| 产品配置 | stable 清单 |
+| --- | --- |
+| `devices/t-display-p4.json` | `lilygobox_t-display-p4_ota-manifest_stable_v2.json` |
+| `devices/t-display-p4-air.json` | `lilygobox_t-display-p4-air_ota-manifest_stable_v2.json` |
 
-## 兼容模型
+P4 配置同时包含板子 V1.0、V2.0；Air 当前只包含已有的 V1.0 固件目标。
+未来 Air V2.0 或新的不兼容芯片系列加入同一产品配置的 `targets`，不另建清单。
+不要将另一板型的 BIN 当成新硬件的固件，也不要在没有真实 BIN 时扩大兼容范围。
 
-`manifestVersion` 只表示 JSON 协议格式。`deviceVersion`、芯片型号和芯片完整
-修订号属于 `targets.compatibility`，新增这些目标不需要修改
-`manifestVersion`。
+固件继续区分产品、板子硬件版本、芯片系列和软件版本：
 
-`deviceVersion` 表示 OTA 硬件兼容版本，而不是必须跟随每次 PCB 修订递增的
-版本号。如果 PCB v1.0、v1.1 和 v1.2 只修复硬件问题，且引脚、外设、分区表、
-驱动和固件 BIN 完全兼容，它们可以共同使用 `deviceVersion: "1.0"`。只有硬件
-变化导致需要不同固件时，才应创建新的 `deviceVersion`。如果必须区分不同硬件
-兼容版本，设备必须从 eFuse、工厂 NVS、EEPROM、GPIO/ADC 识别等不会随 OTA
-固件改变的来源读取该版本；当前 T-Display-P4 安装器使用编译期
-`kDeviceModelInfo.version`，无法在同一固件 BIN 中区分多个 PCB 版本。
+```text
+lilygobox_t-display-p4-v1.0_esp32p4-v1.0_v1.1.3.bin
+lilygobox_t-display-p4-v2.0_esp32p4-v1.0_v1.1.3.bin
+lilygobox_t-display-p4-air-v1.0_esp32p4-v1.0_v1.1.3.bin
+lilygobox_t-display-p4-air-v1.0_esp32c5-v1.0_v2.12.3.bin
+```
 
-各版本字段含义不同：
+下划线分组，产品内部使用连字符。内部文件 ID 使用
+`<产品>-v<板子版本>_<芯片>-v<芯片标识>`，例如
+`t-display-p4-v2.0_esp32p4-v1.0`；生成文件名为
+`lilygobox_<文件ID>_v<固件版本>.bin`，保留芯片标识中的 `.0`。
+芯片标识不能替代清单范围或镜像头校验。文件 ID 的产品、芯片和硬件归属
+必须与配置一致。跨硬件共用文件时保留一个归属 ID，其他目标引用同一条 `files`。
 
-| 字段 | 示例 | 含义 |
-| --- | --- | --- |
-| `manifestVersion` | `1.0` | Manifest JSON 协议版本 |
-| `deviceVersion` | `1.0` | OTA 硬件兼容版本 |
-| `chips.main.revision` | `1.1` | 主芯片的 silicon revision |
-| `release.version` | `1.2.0` | LilygoBox 软件发布版本 |
-| `files.*.version` | `2.12.3` | 对应组件的固件版本 |
+生成器兼容旧 `device-v<板子版本>-<芯片>-rev<芯片标识>` 命令参数和上一版 v2 清单，
+继承时只转换引用 ID，不修改已发布 BIN 的文件名或地址。v1 中转清单仍输出旧 ID
+和旧资产名；v1 Schema 保持原样，确保工厂旧固件可以读取。
+新 v2 ID 含下划线，需要包含新版 ID 校验规则的设备固件；尚未升级解析器的设备
+仍应使用原 ID 的发布清单，不能直接覆盖其在线入口。
 
-设备只接受唯一匹配的目标：
+## 协议与目标匹配
 
-1. `release.publisherId` 和 `release.deviceId` 必须匹配当前产品。
-2. Manifest 的 `channel` 必须匹配固件编译时选择的频道。
-3. `deviceVersion` 必须与设备版本完全相同。
-4. 主芯片和无线芯片的 `model`、`revision` 必须完全相同。
-5. `components` 必须同时提供设备安装器支持的 `main` 和 `wireless`。
+- JSON 字段使用 `lowerCamelCase`，版本值不带 `v`，时间为 UTC RFC 3339 秒精度。
+- `manifestVersion: "2.0"` 使用 `minRevision`、`maxRevision` 闭区间。
+- `release.deviceId` 标识产品；`compatibility.deviceVersion` 标识 OTA 硬件版本。
+- 每个目标同时匹配板子版本、主芯片型号和修订范围、无线芯片型号和修订范围。
+- `components.main` / `components.wireless` 引用 `files` 中的固件，不兼容芯片使用不同文件 ID。
+- 同一实际硬件只能命中一个目标。重叠、倒置、缺失范围以及未知引用会被拒绝。
+- 单个清单最多 32 个目标、64 个文件、32 KiB；每个 BIN 最大 64 MiB。
+- 版本使用 `X.Y.Z`、`X.Y.Z-alpha.N`、`X.Y.Z-beta.N`，发布频道必须一致。
 
-例如同一型号芯片的 silicon revision `1.0` 与 `1.1` 是两个不同的芯片兼容
-条件，与 `deviceVersion`、`release.version` 和 `manifestVersion` 无关。没有
-匹配或出现多个匹配时，设备都会拒绝更新，避免把不兼容固件写入错误硬件。
+例如 Air V1.0 的芯片 1.x 和 2.x 若不兼容，使用同一份清单的两个目标，分别引用
+`t-display-p4-air-v1.0_esp32p4-v1.0`、`t-display-p4-air-v1.0_esp32p4-v2.0`。
+无线固件相同时可共用文件。实际范围必须由对应 BIN 的最小/最大修订号覆盖，
+不能只改清单扩大范围。当前实际 P4 BIN 范围为 0.0～1.99，不包含芯片 2.0 或 3.0。
 
-### 无线协处理器 revision 限制
+Schema：
+[清单 v2](./ota_manifest_v2.schema.json)、
+[配置 v2](./ota_device_config_v2.schema.json)。
+v1 Schema 保留供出厂设备迁移使用。
 
-当前无线协处理器接口可以读取固件版本，但没有提供 silicon revision 的运行时
-读取能力。因此安装器当前使用设备配置中固定的无线芯片 revision；Manifest 中的
-`chips.wireless.revision` 表示硬件配置假设，不是设备运行时检测到的真实值。
+## Flutter 与设备
 
-在增加使用其他无线芯片型号或 silicon revision 的硬件批次前，必须先让无线
-协处理器接口返回真实的芯片型号和 revision，再让 OTA target 使用这些值。读取
-失败时应拒绝更新，不能回退到固定值。在完成该能力前，不应依赖
-`chips.wireless.revision` 区分不同无线芯片 silicon revision 的固件。
-
-## Manifest v1
-
-格式由 [ota_manifest_v1.schema.json](./ota_manifest_v1.schema.json)
-定义，生成器配置由
-[ota_device_config_v1.schema.json](./ota_device_config_v1.schema.json)
-定义。以下示例省略了第二个固件文件的详细内容：
+授权 WebSocket 的 `ready` / `pong` 增加 `chips`：
 
 ```json
 {
-  "kind": "lilygobox#otaManifest",
-  "manifestVersion": "1.0",
-  "release": {
-    "publisherId": "lilygo",
-    "deviceId": "t-display-p4",
-    "version": "1.0.0"
-  },
-  "channel": "stable",
-  "publishTime": "2026-07-24T10:00:00Z",
-  "targets": [
-    {
-      "compatibility": {
-        "deviceVersion": "1.0",
-        "chips": {
-          "main": {
-            "model": "esp32p4",
-            "revision": "1.0"
-          },
-          "wireless": {
-            "model": "esp32c6",
-            "revision": "0.0"
-          }
-        }
-      },
-      "components": {
-        "main": "device-v1.0-esp32p4-rev1.0",
-        "wireless": "device-v1.0-esp32c6-rev0.0"
-      }
-    }
-  ],
-  "files": {
-    "device-v1.0-esp32p4-rev1.0": {
-      "chip": "esp32p4",
-      "projectName": "lilygobox-espidf",
-      "version": "1.0.0",
-      "fileName": "lilygobox-t-display-p4-device-v1.0-esp32p4-rev1.0-v1.0.0.bin",
-      "downloadUrls": [
-        "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/releases/download/v1.0.0/lilygobox-t-display-p4-device-v1.0-esp32p4-rev1.0-v1.0.0.bin"
-      ],
-      "sizeBytes": 4032256,
-      "hashes": {
-        "sha256": "<由生成器计算>"
-      }
-    }
-  },
-  "releaseNotes": [
-    "首次发布 LilygoBox 固件"
-  ]
+  "chips": {
+    "main": {"model": "esp32p4", "revision": "1.3", "revisionSource": "runtime"},
+    "wireless": {"model": "esp32c5", "revision": "1.0", "revisionSource": "boardConfig"}
+  }
 }
 ```
 
-`files` 是去重后的固件资产映射。多个硬件目标可以引用同一个文件，
-所以共用的无线固件不需要重复上传。生成器会检查 BIN 内嵌的芯片 ID、
-ESP-IDF 项目名、版本、完整镜像长度，以及芯片最小/最大完整修订号，
-并计算文件大小与 SHA-256。设备端下载后还会再次验证长度、SHA-256
-和应用镜像信息。
+主芯片修订号通过 `esp_chip_info()` 实际读取，Flutter 和设备使用同一来源。
+Flutter 根据硬件和芯片条件选择唯一目标，再比较各组件版本。旧设备未上报 `chips`
+时，仅允许匹配目标引用同一组固件；存在不兼容的多个选择时拒绝猜选。
+设备下载后再次验证大小、SHA-256、芯片、项目名和内嵌版本。
 
-## 发布频道
+无线接口目前只提供固件版本，修订号仍来自板级配置：P4 V1 为 C6 0.0，
+P4 V2 / Air 为 C5 1.0，不能将它描述为运行时读取的真实 silicon revision。
+在同一板子上增加不兼容的无线芯片修订批次前，必须先补齐无线芯片实际修订号读取。
 
-固件通过 Kconfig 固定选择一个频道，发布阶段依次为 Alpha、Beta、
-Stable：
+互联网 OTA 与局域网 OTA 由同一管理器串行执行。应用连接不禁用互联网更新。
+局域网取消或失败后，设置页重新读取在线清单，不重试过期的本地 URL。
 
-- `alpha`：内部 Alpha 版。
-- `beta`：公开测试版。
-- `stable`：正式版，生产固件默认值。
+## P4 V1 出厂设备迁移
 
-Release 版本和主固件内嵌版本必须与频道对应：
-
-```text
-alpha  -> 1.1.0-alpha.1、1.1.0-alpha.2
-beta   -> 1.1.0-beta.1、1.1.0-beta.2
-stable -> 1.1.0
-```
-
-预发布序号必须使用无前导零的非负整数。无线固件保持自己的独立版本，
-例如 `2.12.3`，不要求添加频道后缀。三个频道使用不同 Git tag 和主固件
-文件名，因此可以同时发布而不会覆盖资产。
-
-Kconfig 只在 `main/app/release_channel.h` 中转换为应用公共的
-`ReleaseChannel` 枚举。其他 C++ 代码使用 `kReleaseChannel` 和
-`ReleaseChannelName()`，不直接依赖
-`CONFIG_LILYGO_BOX_RELEASE_CHANNEL_*` 宏。
-
-每个频道有独立的上一版 Manifest 和版本序列，不能跨频道继承：
+只有 P4 配置带 `legacyTargets`，且仅包含硬件 1.0 的已确认的主芯片修订号 1.0、1.3，两个精确匹配目标共用同一组兼容固件。
+默认只生成 v2 产品清单，不生成旧清单或旧名称 BIN。
+首次中转发布时，在 P4 生成命令上增加 `--legacy-manifest`，才额外输出历史入口：
 
 ```text
-ota-alpha  -> lilygobox-t-display-p4-ota-manifest-alpha-v1.json
-ota-beta   -> lilygobox-t-display-p4-ota-manifest-beta-v1.json
-ota-stable -> lilygobox-t-display-p4-ota-manifest-stable-v1.json
+lilygobox-t-display-p4-ota-manifest-stable-v1.json
 ```
 
-左侧是固定的 GitHub 频道指针 Release tag。设备只从对应 tag 下载
-Manifest，不依赖 GitHub `latest`，所以 Alpha 和 Beta 也能可靠发现。
+它保留 `manifestVersion: "1.0"` 和精确 `revision`，只包含 V1 目标及其引用文件。
+旧设备拒绝 BIN 文件名中的下划线，因此生成器同时输出旧名称的相同内容副本。
+首次中转发布时必须上传所有列出的新旧名称 BIN，并同时更新新旧清单。
+中转清单发布一次后保持不变，并永久保留它引用的版本 Release 与旧名称 BIN。
+尚未升级的设备仍可先更新到中转固件，再从 v2 产品清单获取后续版本。
+以后发布省略 `--legacy-manifest`，只更新 v2；不需要反复生成或覆盖旧清单。
+生成中转清单必须提供全部 V1 迁移组件的实际 BIN，不能仅继承元数据，
+避免清单引用尚未上传的旧名称副本。
+不要把旧地址的 JSON 替换为 v2；新固件仍能读取升级前保存的 v1 pending 清单。
+P4 V2 与 Air 不生成旧入口。
 
-## 环境与目录
+出厂 1.1.2 的升级目标应重新编译更高版本（例如 1.1.3），包含 v2 读取代码、
+新的产品清单地址及 `lilygobox#localOtaStateV1` 恢复逻辑。
+仅改 JSON 或改文件名不能让旧 BIN 获得新功能，也不要覆盖已发布的 v1.1.2。
 
-- Python 3.9 或更高版本。
-- 不需要第三方 Python 包。
-- 输入必须是从偏移 `0` 开始、不含额外分区数据的 ESP 应用 BIN。
-- merged、factory 或多分区镜像不能作为 OTA 输入。
+## 生成发布文件
+
+以下命令从 `lilygobox-espidf/ota_release` 目录执行。不修改输入 BIN 的内嵌版本。
+
+首次 P4 发布必须提供 V1、V2 的全部组件。下面示例额外生成一次性中转清单；
+后续发布去掉 `--legacy-manifest`：
+
+```powershell
+python .\generate_manifest.py --config .\devices\t-display-p4.json --channel stable --legacy-manifest --firmware-file "t-display-p4-v1.0_esp32p4-v1.0=.\input\t_display_p4_v1\lilygobox-espidf.bin" --firmware-file "t-display-p4-v1.0_esp32c6-v0.0=.\input\t_display_p4_v1\network_adapter.bin" --firmware-file "t-display-p4-v2.0_esp32p4-v1.0=.\input\t_display_p4_v2\lilygobox-espidf.bin" --firmware-file "t-display-p4-v2.0_esp32c5-v1.0=.\input\t_display_p4_v2\network_adapter.bin" --note "更新说明"
+```
+
+首次 Air 发布：
+
+```powershell
+python .\generate_manifest.py --config .\devices\t-display-p4-air.json --channel stable --firmware-file "t-display-p4-air-v1.0_esp32p4-v1.0=.\input\t_display_p4_air\lilygobox-espidf.bin" --firmware-file "t-display-p4-air-v1.0_esp32c5-v1.0=.\input\t_display_p4_air\network_adapter.bin" --note "更新说明"
+```
+
+后续只更新 P4 V2 主固件时，继承产品完整清单，其他组件的版本和下载地址继续保留：
+
+```powershell
+python .\generate_manifest.py --config .\devices\t-display-p4.json --channel stable --firmware-file "t-display-p4-v2.0_esp32p4-v1.0=.\input\t_display_p4_v2\lilygobox-espidf.bin" --previous-manifest ".\output\t-display-p4\stable\v1.1.3\lilygobox_t-display-p4_ota-manifest_stable_v2.json" --note "更新 V2 主固件"
+```
+
+- `--release` 默认取本次主固件最高内嵌版本；不同目标的组件可以使用不同软件版本。
+- 显式 `--release` 不能低于本次主固件最高版本；只更新无线固件时必须指定它。
+- 继承时新 Release 和发生变化组件的版本必须升高，频道必须相同。
+- 每个组件的目标版本以其 `files.version` 为准，不以产品 `release.version` 替代。
+- 首次从分板清单切换为产品清单、增加或改变兼容目标时，重新提供全部实际 BIN，
+  不使用 `--previous-manifest`。生成器需要验证所有新范围，不能只继承元数据。
+- 每次输出完整产品清单，不能只发布当前板子的子集覆盖产品入口。
+- `--channel alpha|beta|stable` 切换频道；`--note` 最多三条，每条 1～127 UTF-8 字节。
+- `--legacy-manifest` 仅在需要生成 P4 V1 一次性中转资产时使用。
+- `--output-root` 指定输出根目录；`--force` 只清理当前模式的生成资产，
+  默认模式不会删除同目录已有的旧清单及旧名称 BIN。
+
+## 输出与上传
+
+以下 P4 目录展示带 `--legacy-manifest` 的首次中转发布；普通发布没有旧清单和旧名称 BIN。
 
 ```text
-ota_release/
-├─ devices/
-│  ├─ t-display-p4-v1.json
-│  ├─ t-display-p4-v2.json
-│  └─ t-display-p4-air.json
-├─ input/                           用户提供，Git 忽略
-├─ output/                          自动生成，Git 忽略
-├─ generate_manifest.py
-├─ ota_device_config_v1.schema.json
-├─ ota_manifest_v1.schema.json
-├─ README.md
-└─ README_CN.md
+output/
+├─ t-display-p4/stable/v1.1.3/
+│  ├─ lilygobox_t-display-p4_ota-manifest_stable_v2.json
+│  ├─ lilygobox-t-display-p4-ota-manifest-stable-v1.json
+│  ├─ lilygobox_t-display-p4-v1.0_esp32p4-v1.0_v1.1.3.bin
+│  ├─ lilygobox_t-display-p4-v2.0_esp32p4-v1.0_v1.1.3.bin
+│  └─ 无线 BIN 以及 V1 旧名称 BIN 副本
+└─ t-display-p4-air/stable/v1.1.3/
+   ├─ lilygobox_t-display-p4-air_ota-manifest_stable_v2.json
+   └─ Air 主固件及无线 BIN
 ```
 
-输出目录为：
+1. 将生成器列出的新 BIN 全部上传至对应版本 Release（例如 `v1.1.3`），继承文件不用重传。
+2. 核对目标、版本、大小、SHA-256、下载地址和更新说明。
+3. BIN 上传完成后，向 `ota-stable` 上传/替换产品清单；首次中转发布额外上传历史 v1 清单，
+   后续保留该中转清单及其引用的 BIN，只替换 v2 产品清单。
+4. alpha / beta 分别发布至 `ota-alpha` / `ota-beta`，清单名频道随之变化。
 
-```text
-output/<deviceId 或 deviceId-v设备版本>/<channel>/<Release tag>/
-```
-
-## 使用方法
-
-以下命令在 `lilygobox-espidf/ota_release` 目录运行，并均为单行命令。
-生成器默认使用 `devices/t-display-p4-v1.json`。为 T-Display-P4-Air 生成时，
-需要在命令中增加 `--config .\devices\t-display-p4-air.json`。
-
-项目默认 `PROJECT_VER` 为 `1.0.0`。构建预发布固件时应通过 CMake
-缓存参数提供与频道一致的内嵌版本，例如：
-
-```bat
-idf.py -DPROJECT_VER=1.1.0-beta.1 build
-```
-
-同时需要在 Kconfig 中选择对应的 Alpha 或 Beta 频道。生成器会
-自动读取 BIN 内嵌版本，版本或频道不一致时拒绝生成发布文件。
-`PROJECT_VER` 会保存在 CMake 构建缓存中，不同频道建议使用独立的
-构建目录和 `sdkconfig`，避免配置相互覆盖。
-
-`--firmware-file` 推荐使用 `FILE_ID=BIN` 格式，固件版本无需重复填写。
-原有的 `FILE_ID=VERSION=BIN` 格式仍然兼容，并会校验声明版本与 BIN
-内嵌版本是否一致。传入本次 main 固件时，`--release` 也可以省略，
-生成器会使用 main BIN 的内嵌版本作为 Release 版本。仅更新无线固件等
-未传入 main 固件的情况仍需显式指定 `--release`；如果传入
-`--release`，它必须与本次 main 固件版本一致。
-
-### T-Display-P4 V1 / V2 独立发布
-
-通过 `--config` 选择板型，每次首次发布只需要该板的主固件和无线固件。
-V1 和 V2 分别编译、独立维护软件版本，不使用 `--device-version`。
-
-| 配置 | deviceId | 硬件版本 | 无线芯片 |
-| --- | --- | --- | --- |
-| `t-display-p4-v1.json`（默认） | `t-display-p4` | `1.0` | ESP32-C6 rev0.0 |
-| `t-display-p4-v2.json` | `t-display-p4` | `2.0` | ESP32-C5 rev1.0 |
-
-V1、V2 使用相同的设备身份，由 `deviceVersion` 区分硬件兼容版本。
-清单文件名和输出目录直接根据 `deviceId` 与 `deviceVersion` 生成。
-硬件版本 `1.0` 保留历史路径；其他版本添加完整版本号，例如 `t-display-p4-v2.0`。
-固件文件 ID 已包含硬件版本，因此固件文件名前缀只使用 `deviceId`。
-每份独立发布配置只包含一个硬件兼容版本，可包含该版本的多个芯片修订目标。
-
-V1 首次发布：
-
-```bat
-python .\generate_manifest.py --config .\devices\t-display-p4-v1.json --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\v1\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\v1\network_adapter.bin"
-```
-
-V2 首次发布：
-
-```bat
-python .\generate_manifest.py --config .\devices\t-display-p4-v2.json --channel stable --firmware-file "device-v2.0-esp32p4-rev1.0=.\input\v2\lilygobox-espidf.bin" --firmware-file "device-v2.0-esp32c5-rev1.0=.\input\v2\network_adapter.bin"
-```
-
-后续通过 `--previous-manifest` 继承同一板型、同一频道的上一份清单，
-不需要另一板型的固件。主芯片目标均为 ESP32-P4 silicon revision `1.0`，
-该值不是 PCB 版本；文件 ID 必须与实际构建的板型一致。
-
-V1 保留原有 OTA 地址；V2 使用 `lilygobox-t-display-p4-v2.0-ota-manifest-<channel>-v1.json`，
-输出位于 `output/t-display-p4-v2.0/<channel>/<Release tag>/`。
-两者可在同一频道 Release 下共存，上传时只替换本板型的清单，不删除其他板型资产。
-旧 V2 固件若仍读取原 P4 地址，需要先安装使用新地址的固件才能接入独立 V2 频道。
-下面不带 `--config` 的示例均为 V1。
-
-### 第一次正式发布
-
-```bat
-python .\generate_manifest.py --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\v1\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\v1\network_adapter.bin" --note "Initial LilygoBox firmware release"
-```
-
-T-Display-P4-Air 使用独立设备 ID 和 ESP32-C5 Wireless 固件：
-
-```bat
-python .\generate_manifest.py --config .\devices\t-display-p4-air.json --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c5-rev1.0=.\input\network_adapter.bin" --note "Initial T-Display-P4-Air firmware release"
-```
-
-### 只更新主固件
-
-```bat
-python .\generate_manifest.py --channel stable --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\lilygobox-espidf.bin" --previous-manifest ".\output\t-display-p4\stable\v1.0.0\lilygobox-t-display-p4-ota-manifest-stable-v1.json" --note "Updated main firmware"
-```
-
-### 只更新无线固件
-
-```bat
-python .\generate_manifest.py --release 1.0.2 --channel stable --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\network_adapter.bin" --previous-manifest ".\output\t-display-p4\stable\v1.0.1\lilygobox-t-display-p4-ota-manifest-stable-v1.json" --note "Updated wireless firmware"
-```
-
-未更新文件从同频道的上一版 Manifest 继承，下载地址继续指向真正包含
-该 BIN 的历史 Release。
-
-### 生成 Alpha 或 Beta
-
-Alpha 首次发布示例：
-
-```bat
-python .\generate_manifest.py --channel alpha --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\v1\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\v1\network_adapter.bin" --note "1.1.0 alpha build"
-```
-
-Beta 首次发布示例：
-
-```bat
-python .\generate_manifest.py --channel beta --firmware-file "device-v1.0-esp32p4-rev1.0=.\input\v1\lilygobox-espidf.bin" --firmware-file "device-v1.0-esp32c6-rev0.0=.\input\v1\network_adapter.bin" --note "1.1.0 public beta"
-```
-
-后续 Alpha 或 Beta 版本使用本频道上一版 Manifest 继承未更新文件。生成器
-会拒绝 `stable + -beta.N`、`beta + 无后缀` 等频道与版本不一致的组合。
-每个设备使用一份由三个频道共用的硬件配置文件。
-
-### 增加硬件或芯片版本
-
-只需修改 `devices/` 下对应设备的配置，例如 `t-display-p4-v1.json` 或
-`t-display-p4-air.json`：
-
-1. 在 `files` 增加新固件文件 ID 及可信 `chip`、`projectName`。
-2. 在 `targets` 增加新的 `deviceVersion` 和完整芯片 `revision` 组合。
-3. 用 `components` 将安装角色指向固件文件 ID。
-4. 生成新版本时提供新增 BIN，并从同频道上一版继承已有文件。
-
-只要安装角色仍是设备端已经支持的 `main` 和 `wireless`，不需要修改
-Manifest 格式或设备端解析器。只有增加全新的安装角色时，才需要增加
-对应安装逻辑。
-
-### 覆盖未发布的本地输出
-
-输出目录非空时工具默认停止。仅在确认覆盖尚未发布内容时添加：
-
-```bat
---force
-```
-
-## 发布检查
-
-生成目录示例：
-
-```text
-output/t-display-p4/stable/v1.0.0/
-├─ lilygobox-t-display-p4-ota-manifest-stable-v1.json
-├─ lilygobox-t-display-p4-device-v1.0-esp32p4-rev1.0-v1.0.0.bin
-└─ lilygobox-t-display-p4-device-v1.0-esp32c6-rev0.0-v2.12.3.bin
-```
-
-1. 创建与输出目录一致的版本 Draft Release，例如 `v1.0.0`。
-2. 把生成器列出的新 BIN 上传到该版本 Release；继承的 BIN 不用重传。
-3. 检查频道、版本、目标、下载地址和更新说明。
-4. 固件资产上传完成后，把 Manifest 上传或替换到对应的固定频道
-   Release：`ota-alpha`、`ota-beta` 或 `ota-stable`。
-5. 固定频道 Release 只保存当前 Manifest；版本 Release 保存不可变 BIN。
-
-不要先公开 Manifest 再补传 BIN，否则设备可能读取到不完整的发布。
+先上传 BIN，再更新清单，防止用户获取到尚未上传的固件。
+`output/product-manifest-v2-preview/` 仅用现有 1.1.2 BIN 检查格式和校验，
+不是可发布的迁移固件。旧 `protocol-v2-preview` 为此前分硬件清单预览，已被取代。
