@@ -188,11 +188,11 @@ void MakeTransparent(lv_obj_t* object) {
  * @return 填充条颜色
  */
 uint32_t BatteryFillColor(int percent, bool charging, uint32_t text_color) {
-  if (charging) {
-    return theme::FixedColors().status_bar_battery_charging;
-  }
   if (percent >= 0 && percent < kStatusBarBatteryLowThresholdPercent) {
     return theme::FixedColors().status_bar_battery_low;
+  }
+  if (charging) {
+    return theme::FixedColors().status_bar_battery_charging;
   }
   return text_color;
 }

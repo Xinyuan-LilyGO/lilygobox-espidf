@@ -103,6 +103,8 @@ constexpr uint32_t kSystemRestartPrepareTimeoutMs = 5000;
 constexpr uint64_t kSystemRestartSleepUs = 5ULL * 1000 * 1000;
 #endif
 constexpr int kLowBatteryStartupThresholdPercent = 10;
+// 关机充电页面低于此电量显示红色警示，独立于低电量开机限制。
+constexpr int kPowerOffChargingLowThresholdPercent = 20;
 constexpr uint32_t kLowBatteryStartupIconColor = 0xFF3B30;
 constexpr uint32_t kBatteryFaultStartupIconColor = 0xFF9500;
 constexpr uint32_t kPowerOffChargingScreenMs = 5 * 1000;
@@ -906,7 +908,7 @@ void Application::RunPowerOffChargingScreen() {
   bool shown = false;
   if (battery_ready) {
     shown = ShowPowerOffChargingScreen(battery_status.charge_percent,
-        battery_status.charge_percent < kLowBatteryStartupThresholdPercent,
+        battery_status.charge_percent < kPowerOffChargingLowThresholdPercent,
         battery_status.full_charged);
   } else {
     shown = ShowBatteryStartupWarning(ui::icon::kBatteryAndroidQuestion,
