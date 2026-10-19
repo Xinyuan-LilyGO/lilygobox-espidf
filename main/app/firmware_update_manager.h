@@ -56,6 +56,9 @@ enum class FirmwareUpdateOperation {
 };
 
 struct FirmwareUpdateSnapshot {
+  char task_id[33] = {};
+  bool main_cached = false;
+  bool wireless_cached = false;
   FirmwareUpdateStage stage = FirmwareUpdateStage::kIdle;
   FirmwareUpdateOperation operation = FirmwareUpdateOperation::kNone;
   int progress_percent = 0;
@@ -140,9 +143,10 @@ class FirmwareUpdateManager final {
 
   /**
    * @brief 异步下载并暂存可用的新固件
+   * @param reuse_cache 是否允许复用完整校验通过的已下载固件
    * @return 下载任务启动成功返回 true，否则返回 false
    */
-  bool StartUpdate();
+  bool StartUpdate(bool reuse_cache = true);
 
   /**
    * @brief 使用应用提供的局域网固件地址准备主固件更新
@@ -157,20 +161,22 @@ class FirmwareUpdateManager final {
 
   /**
    * @brief 使用应用提供的主固件和无线固件地址启动组合更新
-   * @param main_url 主固件局域网下载地址，无需更新时可为空字符串
-   * @param wireless_url 无线固件局域网下载地址，无需更新时可为空字符串
+   * @param main_url 主固件局域网下载地址，无需更新或仅复用缓存时可为空字符串
+   * @param wireless_url 无线固件局域网下载地址，无需更新或仅复用缓存时可为空字符串
    * @param main_version 主固件目标版本
    * @param wireless_version 无线固件目标版本
    * @param main_size 主固件字节数
    * @param wireless_size 无线固件字节数
    * @param main_sha256 主固件 SHA-256
    * @param wireless_sha256 无线固件 SHA-256
+   * @param reuse_cache 是否允许复用完整校验通过的已下载固件
    * @return 更新任务启动成功返回 true
    */
   bool StartLocalUpdate(const char* main_url, const char* wireless_url,
                         const char* main_version, const char* wireless_version,
                         size_t main_size, size_t wireless_size,
-                        const char* main_sha256, const char* wireless_sha256);
+                        const char* main_sha256, const char* wireless_sha256,
+                        bool reuse_cache = true);
 
   /**
    * @brief 暂停当前固件下载任务
@@ -186,9 +192,10 @@ class FirmwareUpdateManager final {
 
   /**
    * @brief 取消下载中或已准备的更新并保留当前固件
+   * @param task_id 期望的更新任务标识，为空指针时操作当前任务
    * @return 取消请求被接受返回 true，否则返回 false
    */
-  bool Cancel();
+  bool Cancel(const char* task_id = nullptr);
 
   /**
    * @brief 仅取消应用发起且尚未开始安装的局域网更新
@@ -198,9 +205,10 @@ class FirmwareUpdateManager final {
 
   /**
    * @brief 安装已经准备好的固件并重启设备
+   * @param task_id 期望的更新任务标识，为空指针时操作当前任务
    * @return 安装任务启动成功返回 true，否则返回 false
    */
-  bool InstallAndRestart();
+  bool InstallAndRestart(const char* task_id = nullptr);
 
   /**
    * @brief 读取可供界面显示的固件更新状态快照
@@ -218,9 +226,10 @@ class FirmwareUpdateManager final {
   /**
    * @brief 在同一状态锁内检查更新来源并提交取消请求
    * @param local_only 是否仅允许取消局域网更新
+   * @param task_id 期望的更新任务标识，为空指针时操作当前任务
    * @return 取消请求被接受返回 true
    */
-  bool CancelUpdate(bool local_only);
+  bool CancelUpdate(bool local_only, const char* task_id = nullptr);
 
   /**
    * @brief 创建尚未初始化的应用内部固件更新管理器

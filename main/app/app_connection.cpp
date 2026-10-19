@@ -75,6 +75,7 @@ struct AppSession {
   bool close_requested = false;
   bool disconnect_requested = false;
   bool automatic = true;
+  bool firmware_task_protocol = false;
   int64_t until = 0;
   int64_t last_seen = 0;
 };
@@ -284,10 +285,58 @@ cJSON* Message(const char* type) {
 }
 
 /**
- * @brief 向响应写入只读设备信息和运行时间
+ * @brief 将统一更新任务快照写入协议对象，远程任务不依赖应用会话存活
+ * @param message 输出 JSON 对象
+ */
+void AddFirmwareTaskInfo(cJSON* message) {
+  const auto snapshot = FirmwareUpdateManager::Instance().GetSnapshot();
+  const char* stage = "idle";
+  switch (snapshot.stage) {
+    case FirmwareUpdateStage::kChecking: stage = "checking"; break;
+    case FirmwareUpdateStage::kWaitingForNetwork: stage = "waitingForNetwork"; break;
+    case FirmwareUpdateStage::kDownloadingWireless: stage = "downloadingWireless"; break;
+    case FirmwareUpdateStage::kDownloadingMain: stage = "downloadingMain"; break;
+    case FirmwareUpdateStage::kInstallingWireless: stage = "installingWireless"; break;
+    case FirmwareUpdateStage::kReadyToInstall: stage = snapshot.busy ? "installing" : "readyToInstall"; break;
+    case FirmwareUpdateStage::kRestarting: stage = "restarting"; break;
+    case FirmwareUpdateStage::kPaused: stage = "paused"; break;
+    case FirmwareUpdateStage::kFailed: stage = "failed"; break;
+    case FirmwareUpdateStage::kUpdateAvailable: stage = "updateAvailable"; break;
+    case FirmwareUpdateStage::kUpToDate: stage = "upToDate"; break;
+    default: break;
+  }
+  if (snapshot.stage == FirmwareUpdateStage::kDownloadingMain ||
+      snapshot.stage == FirmwareUpdateStage::kDownloadingWireless) {
+    switch (snapshot.operation) {
+      case FirmwareUpdateOperation::kVerifyingMain: stage = "verifyingMain"; break;
+      case FirmwareUpdateOperation::kVerifyingWireless: stage = "verifyingWireless"; break;
+      case FirmwareUpdateOperation::kPreparingInstall: stage = "preparingInstall"; break;
+      default: break;
+    }
+  }
+  if (snapshot.cancelled) stage = "cancelled";
+  cJSON_AddStringToObject(message, "taskId", snapshot.task_id);
+  cJSON_AddStringToObject(message, "source", snapshot.local_update ? "local" : "remote");
+  cJSON_AddStringToObject(message, "stage", stage);
+  cJSON_AddBoolToObject(message, "busy", snapshot.busy);
+  cJSON_AddNumberToObject(message, "progress", snapshot.progress_percent);
+  cJSON_AddNumberToObject(message, "receivedBytes", snapshot.received_bytes);
+  cJSON_AddNumberToObject(message, "totalBytes", snapshot.total_bytes);
+  cJSON_AddStringToObject(message, "message", snapshot.message);
+  cJSON_AddBoolToObject(message, "mainCached", snapshot.main_cached);
+  cJSON_AddBoolToObject(message, "wirelessCached", snapshot.wireless_cached);
+  cJSON_AddStringToObject(message, "mainVersion", snapshot.main_target_version);
+  cJSON_AddStringToObject(message, "wirelessVersion", snapshot.wireless_target_version);
+}
+
+/**
+ * @brief 向响应写入设备信息、运行时间及更新任务快照
  * @param message 待补充的 JSON 对象
  */
 void AddDeviceInfo(cJSON* message) {
+  cJSON_AddNumberToObject(message, "firmwareTaskVersion", 1);
+  cJSON* task = cJSON_AddObjectToObject(message, "firmwareTask");
+  if (task != nullptr) AddFirmwareTaskInfo(task);
   cJSON_AddNumberToObject(message, "controlVersion", 1);
   char device_name[kMaxDeviceNameLength + 1] = {};
   CopyConfiguredDeviceName(device_name, sizeof(device_name));
@@ -380,7 +429,13 @@ void SendFirmwareUpdateStatus(void* context) {
   }
   if (fd < 0) return;
   const auto snapshot = FirmwareUpdateManager::Instance().GetSnapshot();
-  if (!snapshot.local_update) return;
+  bool task_protocol = false;
+  {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    const auto* session = FindSession(fd);
+    task_protocol = session != nullptr && session->firmware_task_protocol;
+  }
+  if (!snapshot.local_update && !task_protocol) return;
   const char* stage = "idle";
   switch (snapshot.stage) {
     case FirmwareUpdateStage::kDownloadingWireless: stage = "downloadingWireless"; break;
@@ -403,14 +458,18 @@ void SendFirmwareUpdateStatus(void* context) {
   if (snapshot.cancelled) stage = "cancelled";
   std::lock_guard<std::mutex> lock(g_mutex);
   if (fd != g_active_fd || !g_status.connected) return;
-  cJSON* message = Message("firmware.local.status");
+  cJSON* message = Message(task_protocol ? "firmware.task.status" : "firmware.local.status");
   if (message == nullptr) return;
-  cJSON_AddStringToObject(message, "stage", stage);
-  cJSON_AddNumberToObject(message, "progress", snapshot.progress_percent);
-  cJSON_AddNumberToObject(message, "receivedBytes", snapshot.received_bytes);
-  cJSON_AddNumberToObject(message, "totalBytes", snapshot.total_bytes);
-  cJSON_AddBoolToObject(message, "busy", snapshot.busy);
-  cJSON_AddStringToObject(message, "message", snapshot.message);
+  if (task_protocol) {
+    AddFirmwareTaskInfo(message);
+  } else {
+    cJSON_AddStringToObject(message, "stage", stage);
+    cJSON_AddNumberToObject(message, "progress", snapshot.progress_percent);
+    cJSON_AddNumberToObject(message, "receivedBytes", snapshot.received_bytes);
+    cJSON_AddNumberToObject(message, "totalBytes", snapshot.total_bytes);
+    cJSON_AddBoolToObject(message, "busy", snapshot.busy);
+    cJSON_AddStringToObject(message, "message", snapshot.message);
+  }
   char* payload = cJSON_PrintUnformatted(message);
   cJSON_Delete(message);
   if (payload == nullptr) return;
@@ -663,10 +722,35 @@ esp_err_t WebSocketHandler(httpd_req_t* request) {
           FirmwareUpdateManager::Instance().StartLocalUpdate(
               main_url, wireless_url, main_version, wireless_version,
               static_cast<size_t>(main_size->valueint), static_cast<size_t>(wireless_size->valueint),
-              main_sha256, wireless_sha256);
+              main_sha256, wireless_sha256,
+              !cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(input, "reuseCache")));
       if (accepted) g_local_update_session_id = session->session_id;
       reply = Message(accepted ? "firmware.local.started"
                                : "firmware.local.rejected");
+      cJSON_AddStringToObject(reply, "requestId", StringField(input, "requestId"));
+      if (accepted) {
+        const auto snapshot = FirmwareUpdateManager::Instance().GetSnapshot();
+        cJSON_AddStringToObject(reply, "taskId", snapshot.task_id);
+      }
+    } else if (std::strcmp(type, "firmware.task.get") == 0 &&
+               fd == g_active_fd && g_status.connected && session->firmware_task_protocol) {
+      reply = Message("firmware.task.status");
+      AddFirmwareTaskInfo(reply);
+    } else if ((std::strcmp(type, "firmware.task.cancel") == 0 ||
+                   std::strcmp(type, "firmware.task.install") == 0) &&
+               fd == g_active_fd && g_status.connected && session->firmware_task_protocol) {
+      const auto snapshot = FirmwareUpdateManager::Instance().GetSnapshot();
+      const char* task_id = StringField(input, "taskId");
+      const bool cancel = std::strcmp(type, "firmware.task.cancel") == 0;
+      const bool matches = task_id[0] != '\0' &&
+          std::strcmp(task_id, snapshot.task_id) == 0 &&
+          (!snapshot.local_update || session->session_id == g_local_update_session_id);
+      const bool accepted = matches && (cancel
+          ? FirmwareUpdateManager::Instance().Cancel(task_id)
+          : FirmwareUpdateManager::Instance().InstallAndRestart(task_id));
+      reply = Message(cancel ? "firmware.task.cancel.result" : "firmware.task.install.result");
+      cJSON_AddStringToObject(reply, "taskId", task_id);
+      cJSON_AddBoolToObject(reply, "ok", accepted);
     } else if (std::strcmp(type, "firmware.local.cancel") == 0 &&
                fd == g_active_fd && g_status.connected) {
       const bool accepted = session->session_id == g_local_update_session_id &&
@@ -684,6 +768,8 @@ esp_err_t WebSocketHandler(httpd_req_t* request) {
       reply = Message("disconnected");
       rejected = true;
     } else if (std::strcmp(type, "hello") == 0 && session->name[0] == '\0') {
+      const cJSON* task_version = cJSON_GetObjectItemCaseSensitive(input, "firmwareTaskVersion");
+      session->firmware_task_protocol = cJSON_IsNumber(task_version) && task_version->valueint == 1;
       const char* name = StringField(input, "clientName");
       const char* client_id = StringField(input, "clientId");
       if (std::strlen(name) == 0 || std::strlen(name) > 48 ||

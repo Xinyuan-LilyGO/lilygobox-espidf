@@ -596,7 +596,8 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
     if (!snapshot.device_supported) {
       std::snprintf(button_text, sizeof(button_text), "Unavailable");
     } else if (scanning) {
-      std::snprintf(button_text, sizeof(button_text), "Checking...");
+      std::snprintf(button_text, sizeof(button_text), "%.63s",
+          processing ? snapshot.message : "Checking...");
     } else if (ready) {
       std::snprintf(button_text, sizeof(button_text), "Installation pending");
     } else if (processing) {
@@ -645,7 +646,9 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
           std::snprintf(button_text, sizeof(button_text), "Checking...");
           break;
         case app::FirmwareUpdateStage::kUpdateAvailable:
-          std::snprintf(button_text, sizeof(button_text), "Download firmware");
+          std::snprintf(button_text, sizeof(button_text),
+              snapshot.main_cached || snapshot.wireless_cached
+                  ? "Use downloaded firmware" : "Download firmware");
           break;
         case app::FirmwareUpdateStage::kDownloadingWireless:
           std::snprintf(button_text, sizeof(button_text),
@@ -675,7 +678,9 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
           std::snprintf(button_text, sizeof(button_text), "Restarting...");
           break;
         case app::FirmwareUpdateStage::kFailed:
-          std::snprintf(button_text, sizeof(button_text), "Retry download");
+          std::snprintf(button_text, sizeof(button_text),
+              snapshot.main_cached || snapshot.wireless_cached
+                  ? "Use downloaded firmware" : "Retry download");
           break;
         case app::FirmwareUpdateStage::kUpToDate:
         case app::FirmwareUpdateStage::kIdle:
@@ -714,7 +719,14 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
 
   const bool show_cancel =
       !current_page_active && (downloading || paused || ready);
-  SetFirmwareObjectVisible(state->firmware_update_pause_button, false);
+  const bool offer_cache = !current_page_active && !snapshot.busy && !ready &&
+      !paused && !snapshot.local_update && snapshot.update_available &&
+      (snapshot.main_cached || snapshot.wireless_cached);
+  SetFirmwareObjectVisible(state->firmware_update_pause_button, offer_cache);
+  if (offer_cache) {
+    lv_label_set_text(state->firmware_update_pause_button_label, "Download again");
+    lv_obj_remove_state(state->firmware_update_pause_button, LV_STATE_DISABLED);
+  }
   SetFirmwareObjectVisible(state->firmware_update_cancel_button, show_cancel);
   lv_label_set_text(state->firmware_update_cancel_button_label,
       ready || processing ? "Cancel current update"
@@ -728,22 +740,24 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
   }
   const int primary_width =
       lv_obj_get_width(state->firmware_update_download_button);
-  if (show_cancel) {
-    lv_obj_set_size(state->firmware_update_cancel_button, primary_width,
+  if (show_cancel || offer_cache) {
+    lv_obj_t* secondary_button = offer_cache ? state->firmware_update_pause_button
+                                           : state->firmware_update_cancel_button;
+    lv_obj_set_size(secondary_button, primary_width,
         kUpdateButtonHeight);
-    lv_obj_set_style_radius(state->firmware_update_cancel_button,
+    lv_obj_set_style_radius(secondary_button,
         kUpdateButtonHeight / 3, LV_PART_MAIN);
-    lv_obj_align(state->firmware_update_cancel_button, LV_ALIGN_BOTTOM_MID, 0,
+    lv_obj_align(secondary_button, LV_ALIGN_BOTTOM_MID, 0,
         -kUpdateButtonBottom);
     lv_obj_align_to(state->firmware_update_download_button,
-        state->firmware_update_cancel_button, LV_ALIGN_OUT_TOP_MID, 0,
+        secondary_button, LV_ALIGN_OUT_TOP_MID, 0,
         -kUpdateActionButtonGap);
   } else {
     lv_obj_align(state->firmware_update_download_button, LV_ALIGN_BOTTOM_MID, 0,
         -kUpdateButtonBottom);
   }
   lv_obj_align(state->firmware_update_page_indicator, LV_ALIGN_BOTTOM_MID, 0,
-      show_cancel ? -kUpdatePageIndicatorStackedBottom
+      show_cancel || offer_cache ? -kUpdatePageIndicatorStackedBottom
                   : -kUpdatePageIndicatorBottom);
 }
 
@@ -824,7 +838,10 @@ void FirmwareUpdatePauseClickedEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   app::FirmwareUpdateManager& manager = app::FirmwareUpdateManager::Instance();
   const app::FirmwareUpdateSnapshot snapshot = GetFirmwareUpdateSnapshot();
-  if (snapshot.stage == app::FirmwareUpdateStage::kPaused) {
+  if (!snapshot.busy && !snapshot.local_update && snapshot.update_available &&
+      (snapshot.main_cached || snapshot.wireless_cached)) {
+    manager.StartUpdate(false);
+  } else if (snapshot.stage == app::FirmwareUpdateStage::kPaused) {
     manager.Resume();
   } else {
     manager.Pause();
