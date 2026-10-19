@@ -170,13 +170,17 @@ class FirmwareUpdateManager final {
    * @param main_sha256 主固件 SHA-256
    * @param wireless_sha256 无线固件 SHA-256
    * @param reuse_cache 是否允许复用完整校验通过的已下载固件
+   * @param release_notes 目标版本更新说明，仅用于日志展示
+   * @param note_count 更新说明条目数量
    * @return 更新任务启动成功返回 true
    */
   bool StartLocalUpdate(const char* main_url, const char* wireless_url,
                         const char* main_version, const char* wireless_version,
                         size_t main_size, size_t wireless_size,
                         const char* main_sha256, const char* wireless_sha256,
-                        bool reuse_cache = true);
+                        bool reuse_cache = true,
+                        const char* const* release_notes = nullptr,
+                        size_t note_count = 0);
 
   /**
    * @brief 暂停当前固件下载任务

@@ -531,8 +531,7 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
       state->firmware_update_status_version_label, current_version);
 
   SetFirmwareObjectVisible(state->firmware_update_spinner, scanning);
-  SetFirmwareObjectVisible(state->firmware_update_status_log_button,
-      snapshot.current_release_notes_available);
+  SetFirmwareObjectVisible(state->firmware_update_status_log_button, true);
   SetFirmwareObjectVisible(state->firmware_update_scan_message_label, true);
   SetFirmwareObjectVisible(state->firmware_update_scan_hint_label, true);
   if (scanning) {
@@ -867,10 +866,7 @@ void FirmwareCurrentLogClickedEventCallback(lv_event_t* event) {
     return;
   }
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr ||
-      !GetFirmwareUpdateSnapshot().current_release_notes_available) {
-    return;
-  }
+  if (state == nullptr) return;
   ShowFirmwareUpdateLogPage(state);
 }
 
@@ -1557,7 +1553,7 @@ lv_obj_t* CreateCurrentFirmwareLogCard(lv_obj_t* body, int x, int y, int width,
 
   char notes_text[420] = {};
   FormatFirmwareNotesText(snapshot.current_notes, snapshot.current_note_count,
-      "No local release notes are available for this version.", notes_text,
+      "No local release notes for this version. Check online to retrieve them.", notes_text,
       sizeof(notes_text));
   lv_obj_t* notes = CreateLabel(card, notes_text,
       lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
