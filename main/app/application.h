@@ -45,6 +45,17 @@ class Application final {
    */
   void RestartDevice(bool prepare_storage = true);
 
+  /**
+   * @brief 在固件安装前熄屏、暂停刷屏并完成存储落盘，保持到重启或安装失败
+   * @return 准备完成返回 true，失败时保留原有固件并返回 false
+   */
+  bool PrepareForFirmwareInstallation();
+
+  /**
+   * @brief 安装未能重启时恢复存储与安装前的屏幕状态
+   */
+  void RestoreAfterFirmwareInstallation();
+
  private:
   /**
    * @brief 执行桌面请求；屏幕开关由锁屏任务调用，其余由应用主循环调用
@@ -449,6 +460,14 @@ class Application final {
   std::atomic<bool> screen_off_confirmed_{false};
   // 防止重启与关机流程并发进入最终熄屏和存储事务。
   std::atomic<bool> power_action_in_progress_{false};
+  /**
+   * @brief 固件安装已经持有熄屏和存储事务，重启时直接复用
+   */
+  std::atomic<bool> firmware_installation_prepared_{false};
+  /**
+   * @brief 安装前屏幕是否已处于睡眠，失败恢复时不得主动唤醒
+   */
+  bool firmware_installation_screen_was_asleep_ = false;
   // 断电重启前等待已经开始的自动连接调用退出，防止重新启用 WiFi 电源。
   std::atomic<bool> wifi_auto_connect_active_{false};
   // 启动页结束前只跟踪按键状态，不向界面投递事件。

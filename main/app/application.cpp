@@ -1292,7 +1292,8 @@ const char* Application::SystemActivityReasonName(SystemActivityReason reason) {
 
 bool Application::ApplyScreenActivity(uint32_t* last_touch_ms,
     uint32_t* lock_screen_last_interaction_ms, int restore_brightness_percent) {
-  if (last_touch_ms == nullptr || lock_screen_last_interaction_ms == nullptr) {
+  if (power_action_in_progress_.load() || last_touch_ms == nullptr ||
+      lock_screen_last_interaction_ms == nullptr) {
     return false;
   }
 
@@ -2507,6 +2508,9 @@ bool Application::EnterScreenLockSleep() {
 }
 
 bool Application::WakeScreenFromLock() {
+  if (power_action_in_progress_.load()) {
+    return false;
+  }
   LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
       "Lock screen wake requested; checking screen state\n");
   hal::ScreenProvider* screen = device_provider_context_.screen.get();
@@ -2524,6 +2528,10 @@ bool Application::WakeScreenFromLock() {
   if (!lvgl_port_.BeginScreenTransition()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Lock screen wake failed (screen transition unavailable)\n");
+    return false;
+  }
+  if (power_action_in_progress_.load()) {
+    lvgl_port_.EndScreenTransition();
     return false;
   }
   LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
@@ -2555,8 +2563,66 @@ bool Application::WakeScreenFromLock() {
   return true;
 }
 
+bool Application::PrepareForFirmwareInstallation() {
+  bool expected = false;
+  if (!power_action_in_progress_.compare_exchange_strong(expected, true)) {
+    return false;
+  }
+  hal::DeviceProvider* device = device_provider_context_.device;
+  if (device != nullptr && device->SupportsPowerOffCharging() &&
+      !app::WritePowerOffRequested(false)) {
+    power_action_in_progress_.store(false);
+    return false;
+  }
+  if (!lvgl_port_.BeginScreenTransition()) {
+    power_action_in_progress_.store(false);
+    return false;
+  }
+  firmware_installation_screen_was_asleep_ =
+      screen_off_confirmed_.load() && lvgl_port_.IsDisplayFlushPaused();
+  if (firmware_installation_screen_was_asleep_) {
+    lvgl_port_.SetInputBlocked(true);
+    const bool storage_ready = app::FreezeStorageUpdatesForShutdown() &&
+        app::FlushPendingStorageBeforeShutdown() &&
+        !app::HasPendingStorageWrites();
+    if (!storage_ready) {
+      app::ResumeStorageUpdatesAfterShutdownFailure();
+      lvgl_port_.EndScreenTransition();
+      lvgl_port_.SetInputBlocked(false);
+      power_action_in_progress_.store(false);
+      return false;
+    }
+  } else {
+    lvgl_port_.EndScreenTransition();
+    if (!PreparePowerActionStorage()) {
+      power_action_in_progress_.store(false);
+      return false;
+    }
+  }
+  firmware_installation_prepared_.store(true);
+  LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+      "Firmware installation prepared: screen off, display flush paused\n");
+  return true;
+}
+
+void Application::RestoreAfterFirmwareInstallation() {
+  if (!firmware_installation_prepared_.exchange(false)) {
+    return;
+  }
+  app::ResumeStorageUpdatesAfterShutdownFailure();
+  const bool screen_restored = firmware_installation_screen_was_asleep_ ||
+      RestoreScreenAfterSleep();
+  lvgl_port_.EndScreenTransition();
+  lvgl_port_.SetInputBlocked(false);
+  power_action_in_progress_.store(false);
+  if (!screen_restored) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Restore display after firmware installation failed\n");
+  }
+}
+
 void Application::RestartDevice(bool prepare_storage) {
-  if (prepare_storage) {
+  if (prepare_storage && !firmware_installation_prepared_.load()) {
     bool expected = false;
     if (!power_action_in_progress_.compare_exchange_strong(expected, true)) {
       return;
@@ -2575,7 +2641,9 @@ void Application::RestartDevice(bool prepare_storage) {
       return;
     }
   } else {
-    // 初始化失败或关机充电转开机：不依赖完整 UI，也不重复进入存储收尾。
+    /**
+     * @brief 固件安装已完成熄屏和落盘时直接复用；初始化未完成时也不重复准备 UI
+     */
     power_action_in_progress_.store(true);
   }
 

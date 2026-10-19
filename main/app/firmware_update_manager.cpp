@@ -36,8 +36,6 @@
 #include "esp_hosted_api_types.h"
 #include "esp_hosted_ota.h"
 #include "esp_http_client.h"
-#include "esp_heap_caps.h"
-#include "esp_https_ota.h"
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
 #include "esp_system.h"
@@ -45,6 +43,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "hal/providers/wifi_provider.h"
+#include "lwip/sockets.h"
 #include "mbedtls/sha256.h"
 
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
@@ -291,6 +290,8 @@ struct ManifestDownloadContext {
 
 struct FirmwareDownloadContext {
   FILE* file = nullptr;
+  esp_ota_handle_t ota_handle = 0;
+  bool main_firmware = false;
   size_t downloaded_size = 0;
   size_t expected_size = 0;
   TickType_t started_tick = 0;
@@ -301,11 +302,6 @@ struct FirmwareDownloadContext {
   bool timed_out = false;
   bool pause_requested = false;
   bool cancel_requested = false;
-};
-
-struct FirmwareConnectivityContext {
-  bool server_connected = false;
-  bool request_sent = false;
 };
 
 struct FirmwareUpdateManagerState {
@@ -322,6 +318,7 @@ struct FirmwareUpdateManagerState {
   bool pause_requested = false;
   bool cancel_requested = false;
   bool local_main_source = false;
+  char wireless_version[32] = {};
 };
 
 // 指向 Application 当前持有的唯一固件更新状态，不拥有该对象。
@@ -462,7 +459,18 @@ void ClearActiveHttpClient() {
 }
 
 /**
- * @brief 关闭当前 HTTP 连接以唤醒阻塞中的固件下载
+ * @brief 中断底层套接字读写，由下载任务独占释放 HTTP 与 TLS 对象
+ * @param client 当前 HTTP 客户端
+ */
+void InterruptFirmwareHttpClient(esp_http_client_handle_t client) {
+  const int socket = esp_http_client_get_socket(client);
+  if (socket >= 0) {
+    shutdown(socket, SHUT_RDWR);
+  }
+}
+
+/**
+ * @brief 唤醒阻塞中的固件下载，不跨任务销毁正在使用的 TLS 上下文
  */
 void CloseActiveHttpClient() {
   if (State().http_client_mutex == nullptr ||
@@ -470,19 +478,9 @@ void CloseActiveHttpClient() {
     return;
   }
   if (State().active_http_client != nullptr) {
-    esp_http_client_close(State().active_http_client);
+    InterruptFirmwareHttpClient(State().active_http_client);
   }
   xSemaphoreGive(State().http_client_mutex);
-}
-
-/**
- * @brief 记录 ESP HTTPS OTA 内部创建的 HTTP 客户端
- * @param client HTTP 客户端
- * @return 始终返回 ESP_OK
- */
-esp_err_t FirmwareOtaHttpClientInitialized(esp_http_client_handle_t client) {
-  SetActiveHttpClient(client);
-  return ESP_OK;
 }
 
 TransferRequest ReadTransferRequest() {
@@ -574,16 +572,14 @@ void FinishWorker() {
 }
 
 /**
- * @brief 发布局域网传输后的实际处理操作，保留原有更新阶段和取消机制
+ * @brief 发布局域网和互联网更新的实际处理操作，保留原有阶段和取消机制
  * @param operation 当前处理操作
  * @param message 面向界面的状态消息
  */
-void SetLocalUpdateOperation(FirmwareUpdateOperation operation, const char* message) {
+void SetFirmwareUpdateOperation(FirmwareUpdateOperation operation, const char* message) {
   if (!LockManager()) return;
-  if (State().snapshot.local_update) {
-    State().snapshot.operation = operation;
-    CopyText(State().snapshot.message, sizeof(State().snapshot.message), message);
-  }
+  State().snapshot.operation = operation;
+  CopyText(State().snapshot.message, sizeof(State().snapshot.message), message);
   UnlockManager();
 }
 
@@ -632,6 +628,10 @@ bool ReadCurrentWirelessVersion(char* version, size_t version_size) {
       static_cast<unsigned long>(hosted_version.major1),
       static_cast<unsigned long>(hosted_version.minor1),
       static_cast<unsigned long>(hosted_version.patch1));
+  if (LockManager()) {
+    CopyText(State().wireless_version, sizeof(State().wireless_version), version);
+    UnlockManager();
+  }
   return true;
 }
 
@@ -692,21 +692,6 @@ void RecordFirmwareHttpConnectivity(esp_http_client_event_t* event,
   } else if (event->event_id == HTTP_EVENT_HEADERS_SENT) {
     *request_sent = true;
   }
-}
-
-/**
- * @brief 记录主固件 OTA 使用的 HTTP 连接阶段
- * @param event HTTP 客户端事件
- * @return 事件处理成功返回 ESP_OK
- */
-esp_err_t FirmwareConnectivityEventHandler(esp_http_client_event_t* event) {
-  if (event == nullptr || event->user_data == nullptr) {
-    return ESP_ERR_INVALID_ARG;
-  }
-  auto* context = static_cast<FirmwareConnectivityContext*>(event->user_data);
-  RecordFirmwareHttpConnectivity(
-      event, &context->server_connected, &context->request_sent);
-  return ESP_OK;
 }
 
 /**
@@ -2795,11 +2780,11 @@ bool InspectWirelessFirmware(
 }
 
 /**
- * @brief 将无线固件 HTTP 数据写入 LittleFS 临时文件
+ * @brief 将固件 HTTP 数据写入主固件备用分区或无线固件临时文件
  * @param event HTTP 客户端事件
  * @return 写入成功返回 ESP_OK，否则返回 ESP_FAIL
  */
-esp_err_t WirelessDownloadEventHandler(esp_http_client_event_t* event) {
+esp_err_t FirmwareDownloadEventHandler(esp_http_client_event_t* event) {
   if (event == nullptr || event->user_data == nullptr) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -2809,15 +2794,24 @@ esp_err_t WirelessDownloadEventHandler(esp_http_client_event_t* event) {
   const TransferRequest request = ReadTransferRequest();
   if (request == TransferRequest::kCancel) {
     context->cancel_requested = true;
+    if (event->event_id == HTTP_EVENT_ON_DATA) {
+      InterruptFirmwareHttpClient(event->client);
+    }
     return ESP_FAIL;
   }
   if (request == TransferRequest::kPause) {
     context->pause_requested = true;
+    if (event->event_id == HTTP_EVENT_ON_DATA) {
+      InterruptFirmwareHttpClient(event->client);
+    }
     return ESP_FAIL;
   }
   if (ElapsedMilliseconds(context->started_tick) >=
       kFirmwareDownloadTimeoutMs) {
     context->timed_out = true;
+    if (event->event_id == HTTP_EVENT_ON_DATA) {
+      InterruptFirmwareHttpClient(event->client);
+    }
     return ESP_ERR_TIMEOUT;
   }
   if (event->event_id != HTTP_EVENT_ON_DATA || event->data_len <= 0) {
@@ -2830,11 +2824,17 @@ esp_err_t WirelessDownloadEventHandler(esp_http_client_event_t* event) {
   if (context->downloaded_size > context->expected_size ||
       incoming_size > context->expected_size - context->downloaded_size) {
     context->overflow = true;
+    InterruptFirmwareHttpClient(event->client);
     return ESP_FAIL;
   }
-  if (context->file == nullptr || std::fwrite(event->data, 1, event->data_len,
-                                      context->file) != incoming_size) {
+  const bool written = context->main_firmware
+      ? context->ota_handle != 0 &&
+            esp_ota_write(context->ota_handle, event->data, incoming_size) == ESP_OK
+      : context->file != nullptr &&
+            std::fwrite(event->data, 1, incoming_size, context->file) == incoming_size;
+  if (!written) {
     context->write_failed = true;
+    InterruptFirmwareHttpClient(event->client);
     return ESP_FAIL;
   }
   context->downloaded_size += incoming_size;
@@ -2842,8 +2842,10 @@ esp_err_t WirelessDownloadEventHandler(esp_http_client_event_t* event) {
                            ? static_cast<int>(context->downloaded_size * 100 /
                                               context->expected_size)
                            : 0;
-  SetStage(FirmwareUpdateStage::kDownloadingWireless,
-      "Downloading Wireless firmware", progress);
+  SetStage(context->main_firmware ? FirmwareUpdateStage::kDownloadingMain
+                                  : FirmwareUpdateStage::kDownloadingWireless,
+      context->main_firmware ? "Downloading Main firmware"
+                             : "Downloading Wireless firmware", progress);
   if (LockManager()) {
     State().snapshot.received_bytes = context->downloaded_size;
     State().snapshot.total_bytes = context->expected_size;
@@ -2901,7 +2903,7 @@ FirmwareDownloadResult DownloadWirelessFirmware(
     config.timeout_ms = kFirmwareHttpTimeoutMs;
     config.buffer_size = kHttpBufferSize;
     config.buffer_size_tx = kHttpBufferSize;
-    config.event_handler = WirelessDownloadEventHandler;
+    config.event_handler = FirmwareDownloadEventHandler;
     config.user_data = &context;
     config.keep_alive_enable = true;
     config.max_redirection_count = 5;
@@ -2977,7 +2979,7 @@ FirmwareDownloadResult DownloadWirelessFirmware(
       }
       return FirmwareDownloadResult::kFailed;
     }
-    SetLocalUpdateOperation(FirmwareUpdateOperation::kVerifyingWireless,
+    SetFirmwareUpdateOperation(FirmwareUpdateOperation::kVerifyingWireless,
         "Verifying Wireless firmware image and SHA-256");
     const bool image_valid =
         InspectWirelessFirmware(kWirelessFirmwareTempPath, manifest);
@@ -3119,6 +3121,7 @@ void SetDownloadPaused() {
   State().worker_running = false;
   State().snapshot.stage = marker_cleared ? FirmwareUpdateStage::kPaused
                                           : FirmwareUpdateStage::kFailed;
+  State().snapshot.operation = FirmwareUpdateOperation::kNone;
   State().snapshot.busy = false;
   CopyText(State().snapshot.message, sizeof(State().snapshot.message),
       marker_cleared ? "Download paused"
@@ -3145,6 +3148,7 @@ bool CancelPreparedFirmware(bool finish_worker) {
   const bool cancelled = boot_restored && marker_cleared;
   State().snapshot.stage = cancelled ? FirmwareUpdateStage::kUpdateAvailable
                                      : FirmwareUpdateStage::kFailed;
+  State().snapshot.operation = FirmwareUpdateOperation::kNone;
   State().snapshot.busy = false;
   State().snapshot.progress_percent = 0;
   State().snapshot.cancelled = cancelled;
@@ -3177,7 +3181,7 @@ bool HandlePendingDownloadInterruption() {
 }
 
 void FinishPreparedDownload() {
-  SetLocalUpdateOperation(FirmwareUpdateOperation::kPreparingInstall,
+  SetFirmwareUpdateOperation(FirmwareUpdateOperation::kPreparingInstall,
       "Preparing firmware for installation");
   if (!ClearPendingUpdate()) {
     if (!LockManager()) {
@@ -3353,9 +3357,10 @@ bool ValidateMainFirmwareImage(
 }
 
 /**
- * @brief 通过 HTTPS 将主固件写入备用 OTA 分区
+ * @brief 下载主固件并完成镜像及摘要校验，确认安装前不修改启动分区
  * @param manifest 已验证的固件清单
  * @param keep_marker_on_failure 失败时是否保留续跑标记
+ * @param activate_when_ready 是否在恢复未完成更新时直接熄屏并激活主固件
  * @return 更新结果
  */
 MainUpdateResult UpdateMainFirmware(const FirmwareReleaseManifest& manifest,
@@ -3375,10 +3380,6 @@ MainUpdateResult UpdateMainFirmware(const FirmwareReleaseManifest& manifest,
   if (!update_required) {
     return MainUpdateResult::kNotRequired;
   }
-  if (activate_when_ready && !SetPendingUpdate()) {
-    SetFailure("Cannot save Main firmware update state");
-    return MainUpdateResult::kFailed;
-  }
   const esp_partition_t* update_partition =
       esp_ota_get_next_update_partition(nullptr);
   if (update_partition == nullptr || manifest.main_size_bytes == 0 ||
@@ -3397,313 +3398,175 @@ MainUpdateResult UpdateMainFirmware(const FirmwareReleaseManifest& manifest,
     SetFailure("Main firmware download address invalid");
     return MainUpdateResult::kFailed;
   }
-  esp_https_ota_handle_t ota_handle = nullptr;
-  esp_err_t result = ESP_FAIL;
-  TransferRequest interrupted_by = TransferRequest::kNone;
-  bool download_completed = false;
   for (size_t source_index = 0; source_index < manifest.main_url_count;
       ++source_index) {
-    interrupted_by = ReadTransferRequest();
+    TransferRequest interrupted_by = ReadTransferRequest();
     if (interrupted_by != TransferRequest::kNone) {
       ClearPendingUpdate();
       return interrupted_by == TransferRequest::kCancel
-                 ? MainUpdateResult::kCancelled
-                 : MainUpdateResult::kPaused;
+                 ? MainUpdateResult::kCancelled : MainUpdateResult::kPaused;
     }
-    esp_http_client_config_t http_config = {};
-    http_config.url = manifest.main_urls[source_index];
-    http_config.crt_bundle_attach = esp_crt_bundle_attach;
-    http_config.timeout_ms = kFirmwareHttpTimeoutMs;
-    http_config.buffer_size = kHttpBufferSize;
-    http_config.buffer_size_tx = kHttpBufferSize;
-    http_config.keep_alive_enable = true;
-    http_config.max_redirection_count = 5;
-    FirmwareConnectivityContext connectivity;
-    http_config.event_handler = FirmwareConnectivityEventHandler;
-    http_config.user_data = &connectivity;
-    esp_https_ota_config_t ota_config = {};
-    ota_config.http_config = &http_config;
-    ota_config.http_client_init_cb = FirmwareOtaHttpClientInitialized;
-    ota_config.buffer_caps = heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0
-                                 ? MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
-                                 : MALLOC_CAP_8BIT;
-
-    SetStage(
-        FirmwareUpdateStage::kDownloadingMain, "Downloading Main firmware", 0);
-    ota_handle = nullptr;
-    result = esp_https_ota_begin(&ota_config, &ota_handle);
+    FirmwareDownloadContext context;
+    context.main_firmware = true;
+    context.expected_size = manifest.main_size_bytes;
+    context.started_tick = xTaskGetTickCount();
+    esp_err_t result = esp_ota_begin(
+        update_partition, OTA_WITH_SEQUENTIAL_WRITES, &context.ota_handle);
     if (result != ESP_OK) {
-      ClearActiveHttpClient();
-      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Start Main firmware download failed: source=%u result=%s\n",
-          static_cast<unsigned>(source_index + 1), esp_err_to_name(result));
-      interrupted_by = ReadTransferRequest();
-      if (interrupted_by != TransferRequest::kNone) {
-        ClearPendingUpdate();
-        return interrupted_by == TransferRequest::kCancel
-                   ? MainUpdateResult::kCancelled
-                   : MainUpdateResult::kPaused;
-      }
-      if (source_index + 1 < manifest.main_url_count && IsNetworkReady()) {
-        LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-            "Retry Main firmware through alternate source\n");
-        continue;
-      }
       if (!keep_marker_on_failure) {
         ClearPendingUpdate();
       }
-      if (!connectivity.server_connected || connectivity.request_sent) {
-        RequestFirmwareInternetRecheck();
+      SetFailure("Cannot prepare Main firmware OTA partition");
+      return MainUpdateResult::kFailed;
+    }
+    esp_http_client_config_t config = {};
+    config.url = manifest.main_urls[source_index];
+    config.crt_bundle_attach = esp_crt_bundle_attach;
+    config.timeout_ms = kFirmwareHttpTimeoutMs;
+    config.buffer_size = kHttpBufferSize;
+    config.buffer_size_tx = kHttpBufferSize;
+    config.keep_alive_enable = true;
+    config.max_redirection_count = 5;
+    config.event_handler = FirmwareDownloadEventHandler;
+    config.user_data = &context;
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (client == nullptr) {
+      esp_ota_abort(context.ota_handle);
+      if (!keep_marker_on_failure) {
+        ClearPendingUpdate();
       }
       SetFailure("Cannot start Main firmware download");
       return MainUpdateResult::kFailed;
     }
+    SetActiveHttpClient(client);
+    SetStage(FirmwareUpdateStage::kDownloadingMain,
+        "Downloading Main firmware", 0);
+    if (LockManager()) {
+      State().snapshot.received_bytes = 0;
+      State().snapshot.total_bytes = manifest.main_size_bytes;
+      UnlockManager();
+    }
+    result = esp_http_client_perform(client);
+    ClearActiveHttpClient();
+    const int status_code = esp_http_client_get_status_code(client);
+    const int64_t content_length = esp_http_client_get_content_length(client);
+    const bool complete_data = esp_http_client_is_complete_data_received(client);
+    esp_http_client_cleanup(client);
     interrupted_by = ReadTransferRequest();
-    if (interrupted_by != TransferRequest::kNone) {
-      ClearActiveHttpClient();
-      esp_https_ota_abort(ota_handle);
-      ota_handle = nullptr;
+    if (context.cancel_requested || context.pause_requested ||
+        interrupted_by != TransferRequest::kNone) {
+      esp_ota_abort(context.ota_handle);
       ClearPendingUpdate();
-      return interrupted_by == TransferRequest::kCancel
-                 ? MainUpdateResult::kCancelled
-                 : MainUpdateResult::kPaused;
+      return context.cancel_requested || interrupted_by == TransferRequest::kCancel
+                 ? MainUpdateResult::kCancelled : MainUpdateResult::kPaused;
     }
-    esp_app_desc_t new_app = {};
-    result = esp_https_ota_get_img_desc(ota_handle, &new_app);
-    interrupted_by = ReadTransferRequest();
-    if (interrupted_by != TransferRequest::kNone) {
-      ClearActiveHttpClient();
-      esp_https_ota_abort(ota_handle);
-      ota_handle = nullptr;
-      ClearPendingUpdate();
-      return interrupted_by == TransferRequest::kCancel
-                 ? MainUpdateResult::kCancelled
-                 : MainUpdateResult::kPaused;
-    }
-    const bool image_description_valid =
-        result == ESP_OK && ValidateMainFirmwareImage(new_app, manifest);
-    if (!image_description_valid) {
-      ClearActiveHttpClient();
-      esp_https_ota_abort(ota_handle);
-      ota_handle = nullptr;
-      interrupted_by = ReadTransferRequest();
-      if (interrupted_by != TransferRequest::kNone) {
-        ClearPendingUpdate();
-        return interrupted_by == TransferRequest::kCancel
-                   ? MainUpdateResult::kCancelled
-                   : MainUpdateResult::kPaused;
-      }
-      const bool may_retry =
-          source_index + 1 < manifest.main_url_count && IsNetworkReady();
-      if (may_retry) {
-        LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-            "Retry Main firmware image header through alternate source\n");
-        continue;
-      }
-      if (!keep_marker_on_failure) {
-        ClearPendingUpdate();
-      }
-      if (result != ESP_OK) {
-        RequestFirmwareInternetRecheck();
-      }
-      SetFailure("Downloaded Main firmware invalid");
-      return MainUpdateResult::kFailed;
-    }
-    const TickType_t download_started_tick = xTaskGetTickCount();
-    bool download_timed_out = false;
-    bool download_size_invalid = false;
-    interrupted_by = TransferRequest::kNone;
-    do {
-      interrupted_by = ReadTransferRequest();
-      if (interrupted_by != TransferRequest::kNone) {
-        result = ESP_FAIL;
-        break;
-      }
-      if (ElapsedMilliseconds(download_started_tick) >=
-          kFirmwareDownloadTimeoutMs) {
-        download_timed_out = true;
-        result = ESP_ERR_TIMEOUT;
-        break;
-      }
-      result = esp_https_ota_perform(ota_handle);
-      if (interrupted_by == TransferRequest::kNone) {
-        interrupted_by = ReadTransferRequest();
-      }
-      if (interrupted_by != TransferRequest::kNone) {
-        result = ESP_FAIL;
-        break;
-      }
-      const int image_read = esp_https_ota_get_image_len_read(ota_handle);
-      if (image_read >= 0 &&
-          static_cast<size_t>(image_read) > manifest.main_size_bytes) {
-        download_size_invalid = true;
-        result = ESP_ERR_INVALID_SIZE;
-        break;
-      }
-      const int progress =
-          image_read >= 0 ? static_cast<int>(static_cast<size_t>(image_read) *
-                                             100 / manifest.main_size_bytes)
-                          : 0;
-      SetStage(FirmwareUpdateStage::kDownloadingMain,
-          "Downloading Main firmware", progress);
-      if (LockManager()) {
-        State().snapshot.received_bytes = image_read < 0 ? 0 : static_cast<size_t>(image_read);
-        State().snapshot.total_bytes = manifest.main_size_bytes;
-        UnlockManager();
-      }
-      vTaskDelay(1);
-    } while (result == ESP_ERR_HTTPS_OTA_IN_PROGRESS);
-    if (interrupted_by != TransferRequest::kNone) {
-      ClearActiveHttpClient();
-      esp_https_ota_abort(ota_handle);
-      ClearPendingUpdate();
-      return interrupted_by == TransferRequest::kCancel
-                 ? MainUpdateResult::kCancelled
-                 : MainUpdateResult::kPaused;
-    }
-    const bool complete_data =
-        result == ESP_OK && esp_https_ota_is_complete_data_received(ota_handle);
-    if (!complete_data) {
-      ClearActiveHttpClient();
-      esp_https_ota_abort(ota_handle);
-      ota_handle = nullptr;
+    const bool complete_length = content_length <= 0 ||
+        context.downloaded_size == static_cast<size_t>(content_length);
+    const bool transfer_valid = result == ESP_OK && status_code == 200 &&
+        complete_data && complete_length && !context.write_failed &&
+        !context.overflow && !context.timed_out &&
+        context.downloaded_size == manifest.main_size_bytes;
+    if (!transfer_valid) {
+      esp_ota_abort(context.ota_handle);
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Download Main firmware failed: source=%u result=%s\n",
-          static_cast<unsigned>(source_index + 1), esp_err_to_name(result));
-      const bool may_retry =
-          source_index + 1 < manifest.main_url_count && IsNetworkReady();
-      if (may_retry) {
-        LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-            "Retry Main firmware through alternate source\n");
+          "Download Main firmware failed: source=%u result=%s HTTP=%d size=%u\n",
+          static_cast<unsigned>(source_index + 1), esp_err_to_name(result),
+          status_code, static_cast<unsigned>(context.downloaded_size));
+      if (source_index + 1 < manifest.main_url_count &&
+          !context.write_failed && IsNetworkReady()) {
         continue;
       }
       if (!keep_marker_on_failure) {
         ClearPendingUpdate();
       }
-      if (!download_size_invalid) {
+      if (status_code == 0 && !context.write_failed && !context.overflow) {
         RequestFirmwareInternetRecheck();
       }
-      if (!IsNetworkReady()) {
-        SetFailure("Wi-Fi lost during Main firmware download");
-      } else if (download_timed_out) {
-        SetFailure("Main firmware download timed out");
-      } else {
-        SetFailure("Main firmware download failed");
-      }
+      SetFailure(!IsNetworkReady() ? "Wi-Fi lost during Main firmware download"
+          : context.timed_out ? "Main firmware download timed out"
+          : context.write_failed ? "Writing Main firmware failed"
+          : "Main firmware download failed");
       return MainUpdateResult::kFailed;
     }
-    const int downloaded_size = esp_https_ota_get_image_len_read(ota_handle);
-    if (downloaded_size < 0 ||
-        static_cast<size_t>(downloaded_size) != manifest.main_size_bytes) {
-      ClearActiveHttpClient();
-      esp_https_ota_abort(ota_handle);
-      ota_handle = nullptr;
+    SetFirmwareUpdateOperation(FirmwareUpdateOperation::kVerifyingMain,
+        "Verifying Main firmware image and SHA-256");
+    LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+        "Main firmware verification started\n");
+    /**
+     * @brief SDK 完成尾块写入及镜像、芯片兼容性和签名校验，但不选择启动分区；
+     *        同步校验期间降低后台任务优先级，让界面刷新任务获得调度机会
+     */
+    const UBaseType_t download_priority = uxTaskPriorityGet(nullptr);
+    vTaskPrioritySet(nullptr, tskIDLE_PRIORITY + 1);
+    vTaskDelay(1);
+    result = esp_ota_end(context.ota_handle);
+    vTaskPrioritySet(nullptr, download_priority);
+    context.ota_handle = 0;
+    interrupted_by = ReadTransferRequest();
+    esp_app_desc_t new_app = {};
+    const bool image_valid = result == ESP_OK &&
+        interrupted_by == TransferRequest::kNone &&
+        esp_ota_get_partition_description(update_partition, &new_app) == ESP_OK &&
+        ValidateMainFirmwareImage(new_app, manifest) &&
+        VerifyPartitionIntegrity(update_partition, manifest.main_size_bytes,
+            manifest.main_sha256, &interrupted_by);
+    if (interrupted_by != TransferRequest::kNone) {
+      ClearPendingUpdate();
+      return interrupted_by == TransferRequest::kCancel
+                 ? MainUpdateResult::kCancelled : MainUpdateResult::kPaused;
+    }
+    if (!image_valid) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Main firmware verification failed: source=%u result=%s\n",
+          static_cast<unsigned>(source_index + 1), esp_err_to_name(result));
       if (source_index + 1 < manifest.main_url_count && IsNetworkReady()) {
-        LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-            "Retry Main firmware size mismatch through next source\n");
         continue;
       }
       if (!keep_marker_on_failure) {
         ClearPendingUpdate();
       }
-      SetFailure("Downloaded Main firmware size mismatch");
+      SetFailure("Main firmware image or SHA-256 verification failed");
       return MainUpdateResult::kFailed;
     }
-    download_completed = true;
-    break;
-  }
-  if (!download_completed || ota_handle == nullptr) {
-    ClearActiveHttpClient();
-    if (!keep_marker_on_failure) {
+    LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+        "Main firmware verification completed; boot partition unchanged\n");
+    interrupted_by = ReadTransferRequest();
+    if (interrupted_by != TransferRequest::kNone) {
       ClearPendingUpdate();
+      return interrupted_by == TransferRequest::kCancel
+                 ? MainUpdateResult::kCancelled : MainUpdateResult::kPaused;
     }
-    SetFailure("Main firmware download failed");
-    return MainUpdateResult::kFailed;
-  }
-  interrupted_by = ReadTransferRequest();
-  if (interrupted_by != TransferRequest::kNone) {
-    ClearActiveHttpClient();
-    esp_https_ota_abort(ota_handle);
-    ClearPendingUpdate();
-    return interrupted_by == TransferRequest::kCancel
-               ? MainUpdateResult::kCancelled
-               : MainUpdateResult::kPaused;
-  }
-  ClearActiveHttpClient();
-  SetLocalUpdateOperation(FirmwareUpdateOperation::kVerifyingMain,
-      "Verifying Main firmware image and SHA-256");
-  result = esp_https_ota_finish(ota_handle);
-  if (result != ESP_OK) {
-    if (!keep_marker_on_failure) {
-      ClearPendingUpdate();
+    if (!activate_when_ready) {
+      return MainUpdateResult::kPrepared;
     }
-    SetFailure("Main firmware verification failed");
-    return MainUpdateResult::kFailed;
-  }
-  interrupted_by = ReadTransferRequest();
-  if (interrupted_by != TransferRequest::kNone) {
-    if (interrupted_by == TransferRequest::kPause &&
-        !RestoreRunningBootPartition()) {
-      ClearPendingUpdate();
-      SetFailure("Cannot restore Main firmware boot partition");
+    Application* application = State().application;
+    if (application == nullptr ||
+        !application->PrepareForFirmwareInstallation()) {
+      SetFailure("Cannot prepare screen and storage for installation");
       return MainUpdateResult::kFailed;
     }
-    ClearPendingUpdate();
-    return interrupted_by == TransferRequest::kCancel
-               ? MainUpdateResult::kCancelled
-               : MainUpdateResult::kPaused;
-  }
-  const esp_partition_t* boot_partition = esp_ota_get_boot_partition();
-  bool partition_valid = boot_partition != nullptr &&
-                         boot_partition->address == update_partition->address;
-  if (partition_valid) {
-    partition_valid = VerifyPartitionIntegrity(boot_partition,
-        manifest.main_size_bytes, manifest.main_sha256, &interrupted_by);
-  }
-  if (interrupted_by != TransferRequest::kNone) {
-    if (interrupted_by == TransferRequest::kPause &&
-        !RestoreRunningBootPartition()) {
-      ClearPendingUpdate();
-      SetFailure("Cannot restore Main firmware boot partition");
+    auto restore_screen = [](Application* prepared_application) {
+      prepared_application->RestoreAfterFirmwareInstallation();
+    };
+    std::unique_ptr<Application, decltype(restore_screen)> screen_guard(
+        application, restore_screen);
+    if (!SetPendingUpdate() ||
+        esp_ota_set_boot_partition(update_partition) != ESP_OK) {
+      RestoreRunningBootPartition();
+      if (!keep_marker_on_failure) {
+        ClearPendingUpdate();
+      }
+      SetFailure("Cannot activate verified Main firmware");
       return MainUpdateResult::kFailed;
     }
-    ClearPendingUpdate();
-    return interrupted_by == TransferRequest::kCancel
-               ? MainUpdateResult::kCancelled
-               : MainUpdateResult::kPaused;
+    SetStage(FirmwareUpdateStage::kRestarting,
+        "Restarting into the new firmware", 100);
+    vTaskDelay(pdMS_TO_TICKS(kRestartDelayMs));
+    RestartAfterScreenOff();
+    return MainUpdateResult::kRestarting;
   }
-  if (!partition_valid) {
-    const esp_partition_t* running_partition = esp_ota_get_running_partition();
-    const bool boot_restored =
-        running_partition != nullptr &&
-        esp_ota_set_boot_partition(running_partition) == ESP_OK;
-    if (!keep_marker_on_failure) {
-      ClearPendingUpdate();
-    }
-    SetFailure(boot_restored ? "Main firmware SHA-256 mismatch"
-                             : "Cannot restore Main firmware boot partition");
-    return MainUpdateResult::kFailed;
-  }
-  if (!activate_when_ready) {
-    SetLocalUpdateOperation(FirmwareUpdateOperation::kPreparingInstall,
-        "Preparing firmware for installation");
-    const esp_partition_t* running_partition = esp_ota_get_running_partition();
-    if (running_partition == nullptr ||
-        esp_ota_set_boot_partition(running_partition) != ESP_OK) {
-      SetFailure("Cannot defer Main firmware installation");
-      return MainUpdateResult::kFailed;
-    }
-    ClearPendingUpdate();
-    if (ReadTransferRequest() == TransferRequest::kCancel) {
-      return MainUpdateResult::kCancelled;
-    }
-    return MainUpdateResult::kPrepared;
-  }
-  SetStage(FirmwareUpdateStage::kRestarting, "Restarting into the new firmware",
-      100);
-  vTaskDelay(pdMS_TO_TICKS(kRestartDelayMs));
-  RestartAfterScreenOff();
-  return MainUpdateResult::kRestarting;
+  SetFailure("Main firmware download failed");
+  return MainUpdateResult::kFailed;
 }
 
 /**
@@ -3880,7 +3743,9 @@ void RunUpdateTask() {
   if (HandlePendingDownloadInterruption()) {
     return;
   }
-  // 主固件镜像写入备用分区并校验，但确认安装前恢复当前启动分区。
+  /**
+   * @brief 主固件下载并写入备用分区后完成镜像和摘要校验，启动切换等待确认安装
+   */
   if (main_update_required) {
     const MainUpdateResult main_result =
         UpdateMainFirmware(manifest, false, false);
@@ -3918,7 +3783,6 @@ void RunInstallTask() {
   auto manifest_storage = AllocateFirmwareReleaseManifest();
   if (manifest_storage == nullptr) {
     SetFailure("Insufficient memory for update information");
-    FinishWorker();
     return;
   }
   FirmwareReleaseManifest& manifest = *manifest_storage;
@@ -3928,7 +3792,6 @@ void RunInstallTask() {
   }
   if (!VerifySavedManifest(manifest)) {
     SetFailure("Saved update information invalid before installation");
-    FinishWorker();
     return;
   }
   char main_current[32] = {};
@@ -3936,7 +3799,6 @@ void RunInstallTask() {
   if (!ReadCurrentMainVersion(main_current, sizeof(main_current)) ||
       !ReadCurrentWirelessVersion(wireless_current, sizeof(wireless_current))) {
     SetFailure("Installed versions unavailable");
-    FinishWorker();
     return;
   }
   bool main_version_valid = false;
@@ -3947,7 +3809,6 @@ void RunInstallTask() {
       wireless_current, manifest.wireless_version, &wireless_version_valid);
   if (!main_version_valid || !wireless_version_valid) {
     SetFailure("Installed firmware version invalid");
-    FinishWorker();
     return;
   }
   if (wireless_update_required &&
@@ -3955,11 +3816,9 @@ void RunInstallTask() {
     std::remove(kWirelessFirmwarePath);
     if (std::strcmp(manifest.release_channel, "local") == 0) {
       SetFailure("Prepared local Wireless firmware is unavailable");
-      FinishWorker();
       return;
     }
     SetFailure("Prepared Wireless firmware is unavailable");
-    FinishWorker();
     return;
   }
   const esp_partition_t* prepared_main_partition = nullptr;
@@ -3970,12 +3829,9 @@ void RunInstallTask() {
         prepared_main_partition != nullptr &&
         esp_ota_get_partition_description(
             prepared_main_partition, &staged_app) == ESP_OK &&
-        ValidateMainFirmwareImage(staged_app, manifest) &&
-        VerifyPartitionIntegrity(prepared_main_partition,
-            manifest.main_size_bytes, manifest.main_sha256);
+        ValidateMainFirmwareImage(staged_app, manifest);
     if (!image_valid) {
       SetFailure("Prepared Main firmware is unavailable");
-      FinishWorker();
       return;
     }
   }
@@ -3984,7 +3840,6 @@ void RunInstallTask() {
         UpdateWirelessFirmware(manifest, false, false);
     if (wireless_result != WirelessUpdateResult::kCompleted &&
         wireless_result != WirelessUpdateResult::kNotRequired) {
-      FinishWorker();
       return;
     }
   }
@@ -3994,7 +3849,6 @@ void RunInstallTask() {
       ClearPendingUpdate();
       RestoreRunningBootPartition();
       SetFailure("Cannot activate prepared Main firmware");
-      FinishWorker();
       return;
     }
     SetStage(FirmwareUpdateStage::kRestarting,
@@ -4007,7 +3861,6 @@ void RunInstallTask() {
     const WirelessUpdateResult wireless_result =
         UpdateWirelessFirmware(manifest, false, true);
     if (wireless_result != WirelessUpdateResult::kNotRequired) {
-      FinishWorker();
       return;
     }
   }
@@ -4019,16 +3872,25 @@ void RunInstallTask() {
     CleanupWirelessFiles();
     ApplyManifestSnapshot(manifest, main_current, wireless_current);
   }
-  FinishWorker();
 }
 
 /**
  * @brief 执行已准备固件的安装任务
+ * @details 固件已在下载阶段完成校验；局域网与互联网更新均先熄屏再安装和切换启动分区，
+ *          未能重启时先恢复屏幕与存储，再释放更新任务状态。
  * @param context FreeRTOS 任务参数，本任务未使用
  */
 void InstallTask(void* context) {
   static_cast<void>(context);
-  RunInstallTask();
+  Application* application = State().application;
+  if (application == nullptr ||
+      !application->PrepareForFirmwareInstallation()) {
+    SetFailure("Cannot prepare screen and storage for installation");
+  } else {
+    RunInstallTask();
+    application->RestoreAfterFirmwareInstallation();
+  }
+  FinishWorker();
   vTaskDelete(nullptr);
 }
 
@@ -4243,7 +4105,18 @@ FirmwareHardwareInfo FirmwareUpdateManager::ReadHardwareInfo() {
 
 bool FirmwareUpdateManager::ReadWirelessVersion(
     char* version, size_t version_size) {
-  return ReadCurrentWirelessVersion(version, version_size);
+  if (version == nullptr || version_size == 0 ||
+      g_active_firmware_update_state == nullptr || !LockManager()) {
+    return false;
+  }
+  CopyText(version, version_size, State().wireless_version);
+  const bool available = version[0] != '\0';
+  const bool may_query = !State().worker_running;
+  UnlockManager();
+  /**
+   * @brief 启动时协处理器尚未就绪则在空闲时补查，更新期间不向心跳路径加入 RPC
+   */
+  return available || (may_query && ReadCurrentWirelessVersion(version, version_size));
 }
 
 FirmwareUpdateManager::~FirmwareUpdateManager() {
@@ -4305,6 +4178,8 @@ bool FirmwareUpdateManager::Initialize(
     ConfirmRunningMainFirmware();
     return true;
   }
+  char wireless_version[32] = {};
+  ReadCurrentWirelessVersion(wireless_version, sizeof(wireless_version));
   if (!CleanupOtaStorageOnStartup()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Clean OTA temporary files on startup failed\n");
@@ -4395,7 +4270,9 @@ bool FirmwareUpdateManager::StartLocalMainUpdate(
   }
   if (!LockManager()) return false;
   if (!State().initialized || State().worker_running ||
-      !State().snapshot.device_supported) {
+      !State().snapshot.device_supported ||
+      State().snapshot.stage == FirmwareUpdateStage::kReadyToInstall ||
+      State().snapshot.stage == FirmwareUpdateStage::kPaused) {
     UnlockManager();
     return false;
   }
@@ -4596,12 +4473,17 @@ bool FirmwareUpdateManager::CancelUpdate(bool local_only) {
     CopyText(State().snapshot.message, sizeof(State().snapshot.message),
         "Cancelling update");
   }
+  if (prepared) {
+    State().worker_running = true;
+    State().cancel_requested = true;
+    State().snapshot.busy = true;
+  }
   UnlockManager();
   if (downloading) {
     CloseActiveHttpClient();
   }
   if (prepared) {
-    return CancelPreparedFirmware();
+    return CancelPreparedFirmware(true);
   }
   return downloading;
 }

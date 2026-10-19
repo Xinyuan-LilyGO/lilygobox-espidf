@@ -47,9 +47,7 @@ enum class FirmwareUpdateStage {
   kFailed,
 };
 
-/**
- * @brief 局域网固件传输结束后正在执行的处理操作
- */
+// 局域网与互联网固件下载后正在执行的处理操作
 enum class FirmwareUpdateOperation {
   kNone,
   kVerifyingWireless,
@@ -118,7 +116,7 @@ class FirmwareUpdateManager final {
   static const char* ManifestUrl();
 
   /**
-   * @brief 读取无线协处理器当前固件版本
+   * @brief 读取启动或更新任务已查询的无线固件版本，避免心跳线程同步执行 RPC
    * @param version 输出版本字符串
    * @param version_size 输出缓冲区大小
    * @return 读取成功返回 true

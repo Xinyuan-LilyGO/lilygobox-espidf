@@ -583,6 +583,9 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
   const bool paused = snapshot.stage == app::FirmwareUpdateStage::kPaused;
   const bool ready =
       snapshot.stage == app::FirmwareUpdateStage::kReadyToInstall;
+  const bool processing =
+      snapshot.operation != app::FirmwareUpdateOperation::kNone;
+  const bool finishing_download = downloading && snapshot.progress_percent >= 100;
   const bool cancelling =
       std::strcmp(snapshot.message, "Cancelling update") == 0;
   const bool current_page_active = state->firmware_update_page_index == 0;
@@ -596,6 +599,10 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
       std::snprintf(button_text, sizeof(button_text), "Checking...");
     } else if (ready) {
       std::snprintf(button_text, sizeof(button_text), "Installation pending");
+    } else if (processing) {
+      std::snprintf(button_text, sizeof(button_text), "%.63s", snapshot.message);
+    } else if (finishing_download) {
+      std::snprintf(button_text, sizeof(button_text), "Finishing download...");
     } else if (snapshot.busy) {
       std::snprintf(button_text, sizeof(button_text), "Update in progress");
     } else if (manual_update_required) {
@@ -608,6 +615,25 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
     button_enabled = !snapshot.busy && snapshot.device_supported && !paused;
     if (cancelling) {
       std::snprintf(button_text, sizeof(button_text), "Cancelling...");
+    } else if (processing) {
+      switch (snapshot.operation) {
+        case app::FirmwareUpdateOperation::kVerifyingMain:
+          std::snprintf(button_text, sizeof(button_text), "Verifying Main firmware...");
+          break;
+        case app::FirmwareUpdateOperation::kVerifyingWireless:
+          std::snprintf(button_text, sizeof(button_text), "Verifying Wireless firmware...");
+          break;
+        case app::FirmwareUpdateOperation::kPreparingInstall:
+          std::snprintf(button_text, sizeof(button_text), "Preparing installation...");
+          break;
+        default:
+          std::snprintf(button_text, sizeof(button_text), "Processing firmware...");
+          break;
+      }
+      button_enabled = false;
+    } else if (finishing_download) {
+      std::snprintf(button_text, sizeof(button_text), "Finishing download...");
+      button_enabled = false;
     } else if (snapshot.local_update && !snapshot.busy && !ready && !paused) {
       std::snprintf(button_text, sizeof(button_text), "Check online for updates");
     } else {
@@ -668,7 +694,8 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
   }
 
   const bool show_progress =
-      !current_page_active && (downloading || installing_wireless || paused);
+      !current_page_active && !processing && !finishing_download &&
+      (downloading || installing_wireless || paused);
   SetFirmwareObjectVisible(state->firmware_update_progress_fill, show_progress);
   if (show_progress) {
     const int button_width =
@@ -690,7 +717,7 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
   SetFirmwareObjectVisible(state->firmware_update_pause_button, false);
   SetFirmwareObjectVisible(state->firmware_update_cancel_button, show_cancel);
   lv_label_set_text(state->firmware_update_cancel_button_label,
-      ready        ? "Cancel current update"
+      ready || processing ? "Cancel current update"
       : cancelling ? "Cancelling..."
                    : "Cancel download");
   if (cancelling) {
