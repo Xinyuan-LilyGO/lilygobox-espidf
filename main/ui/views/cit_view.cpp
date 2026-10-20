@@ -49,6 +49,18 @@
 namespace lilygo_box::ui {
 namespace {
 
+/**
+ * @brief 获取带版本标签的诊断字段所需的无前缀版本文本
+ * @param version 原始版本字符串
+ * @return 无前缀版本文本，未提供版本时返回 unknown
+ */
+const char* VersionWithoutPrefix(const char* version) {
+  if (version != nullptr && (version[0] == 'v' || version[0] == 'V')) {
+    return version + 1;
+  }
+  return version == nullptr ? "unknown" : version;
+}
+
 constexpr int kTitleTop = 70;
 constexpr int kTitleLeft = 20;
 constexpr int kListTop = 136;
@@ -3696,7 +3708,7 @@ bool AddVersionContent(lv_obj_t* content, CitViewState* state) {
       "model: %s\n"
       "efuse mac:\n"
       "     %s\n"
-      "revision: v%d.%d\n"
+      "revision: %d.%d\n"
       "cores: %d\n"
       "flash size free / total:\n"
       "     %s\n"
@@ -3744,9 +3756,12 @@ bool AddVersionContent(lv_obj_t* content, CitViewState* state) {
       static_cast<unsigned long>(info.memory.psram_free_bytes),
       static_cast<unsigned long>(info.memory.psram_total_bytes),
       info.software.company, info.software.device_model_name,
-      info.software.device_model_version, info.software.software_name,
-      info.software.software_version, info.software.software_build_date,
-      info.software.software_build_time, info.software.esp_idf_version,
+      VersionWithoutPrefix(info.software.device_model_version),
+      info.software.software_name,
+      VersionWithoutPrefix(info.software.software_version),
+      info.software.software_build_date,
+      info.software.software_build_time,
+      VersionWithoutPrefix(info.software.esp_idf_version),
       info.software.target_arch, info.screen.type, info.screen.width,
       info.screen.height, info.screen.pixel_format, info.camera.type,
       info.camera.pixel_format, info.camera.bits_per_pixel,

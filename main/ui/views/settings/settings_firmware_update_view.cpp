@@ -208,25 +208,35 @@ void FirmwareUpdateBackClickedEventCallback(lv_event_t* event) {
  * @param target_version 目标版本
  * @param output 输出缓冲区
  * @param output_size 输出缓冲区长度
+ * @param standalone 是否为没有版本字段标签的独立版本展示
  */
 void FormatFirmwareVersion(const char* current_version,
-    const char* target_version, char* output, size_t output_size) {
-  const bool current_available = current_version != nullptr &&
-                                 current_version[0] != '\0' &&
-                                 std::strcmp(current_version, "unknown") != 0;
-  if (target_version != nullptr && target_version[0] != '\0' &&
-      (!current_available ||
-          std::strcmp(current_version, target_version) != 0)) {
+    const char* target_version, char* output, size_t output_size,
+    bool standalone = false) {
+  const char* current = current_version;
+  const char* target = target_version;
+  if (current != nullptr && (current[0] == 'v' || current[0] == 'V')) {
+    ++current;
+  }
+  if (target != nullptr && (target[0] == 'v' || target[0] == 'V')) {
+    ++target;
+  }
+  const char* prefix = standalone ? "v" : "";
+  const bool current_available = current != nullptr && current[0] != '\0' &&
+                                 std::strcmp(current, "unknown") != 0;
+  if (target != nullptr && target[0] != '\0' &&
+      (!current_available || std::strcmp(current, target) != 0)) {
     if (current_available) {
-      std::snprintf(
-          output, output_size, "v%s -> v%s", current_version, target_version);
+      std::snprintf(output, output_size, "%s%s -> %s%s", prefix, current,
+          prefix, target);
     } else {
-      std::snprintf(output, output_size, "Unknown -> v%s", target_version);
+      std::snprintf(output, output_size, "Unknown -> %s%s", prefix, target);
     }
     return;
   }
-  std::snprintf(output, output_size, current_available ? "v%s" : "%s",
-      current_available ? current_version : "Unknown");
+  std::snprintf(output, output_size, "%s%s",
+      current_available ? prefix : "",
+      current_available ? current : "Unknown");
 }
 
 /**
@@ -526,7 +536,7 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
 
   char current_version[64] = {};
   FormatFirmwareVersion(snapshot.main_current_version, nullptr, current_version,
-      sizeof(current_version));
+      sizeof(current_version), true);
   lv_label_set_text(
       state->firmware_update_status_version_label, current_version);
 
@@ -1466,7 +1476,7 @@ lv_obj_t* CreateCurrentFirmwareLogCard(lv_obj_t* body, int x, int y, int width,
         "%s", snapshot.current_release_version);
   } else {
     FormatFirmwareVersion(snapshot.main_current_version, nullptr,
-        current_release_version, sizeof(current_release_version));
+        current_release_version, sizeof(current_release_version), true);
   }
   char current_release[64] = {};
   if (snapshot.current_package_size[0] != '\0') {
