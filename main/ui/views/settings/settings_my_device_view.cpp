@@ -49,7 +49,7 @@ constexpr int kUptimeCardTop =
 void RefreshUptimeLabel(lv_timer_t* timer) {
   auto* label = static_cast<lv_obj_t*>(lv_timer_get_user_data(timer));
   const uint64_t seconds = esp_timer_get_time() / 1000000ULL;
-  lv_label_set_text_fmt(label, "%llu d %02llu:%02llu:%02llu",
+  lv_label_set_text_fmt(label, "%llu days %02llu:%02llu:%02llu",
                        static_cast<unsigned long long>(seconds / 86400),
                        static_cast<unsigned long long>(seconds / 3600 % 24),
                        static_cast<unsigned long long>(seconds / 60 % 60),
