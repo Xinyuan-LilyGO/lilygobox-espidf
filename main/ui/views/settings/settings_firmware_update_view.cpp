@@ -596,6 +596,11 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
   const bool paused = snapshot.stage == app::FirmwareUpdateStage::kPaused;
   const bool ready =
       snapshot.stage == app::FirmwareUpdateStage::kReadyToInstall;
+  const bool all_required_firmware_cached =
+      snapshot.update_available &&
+      (snapshot.main_update_available || snapshot.wireless_update_available) &&
+      (!snapshot.main_update_available || snapshot.main_cached) &&
+      (!snapshot.wireless_update_available || snapshot.wireless_cached);
   const bool processing =
       snapshot.operation != app::FirmwareUpdateOperation::kNone;
   const bool finishing_download = downloading && snapshot.progress_percent >= 100;
@@ -663,8 +668,8 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
           break;
         case app::FirmwareUpdateStage::kUpdateAvailable:
           std::snprintf(button_text, sizeof(button_text),
-              snapshot.main_cached || snapshot.wireless_cached
-                  ? "Use downloaded firmware" : "Download firmware");
+              all_required_firmware_cached
+                  ? "Restart and update now" : "Download firmware");
           break;
         case app::FirmwareUpdateStage::kDownloadingWireless:
           std::snprintf(button_text, sizeof(button_text),

@@ -323,6 +323,7 @@ struct FirmwareUpdateManagerState {
   bool cancel_requested = false;
   bool local_main_source = false;
   bool reuse_cache = true;
+  bool install_after_cache_validation = false;
   char wireless_version[32] = {};
 };
 
@@ -451,6 +452,7 @@ void BeginFirmwareTask() {
   State().snapshot.cancelled = false;
   State().snapshot.operation = FirmwareUpdateOperation::kNone;
   State().snapshot.failure_component = FirmwareUpdateFailureComponent::kNone;
+  State().install_after_cache_validation = false;
 }
 
 /**
@@ -2896,7 +2898,8 @@ bool CalculateImageSize(FILE* file, size_t file_size,
  * @return 固件完整且匹配时返回 true
  */
 bool InspectWirelessFirmware(
-    const char* path, const FirmwareReleaseManifest& manifest) {
+    const char* path, const FirmwareReleaseManifest& manifest,
+    bool verify_sha256 = true) {
   FirmwareVerificationPriorityScope verification_priority;
   std::unique_ptr<FILE, decltype(&std::fclose)> file(
       std::fopen(path, "rb"), &std::fclose);
@@ -2907,8 +2910,9 @@ bool InspectWirelessFirmware(
   const size_t description_offset =
       sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t);
   if (file == nullptr || !GetFirmwareFileSize(file.get(), &file_size) ||
-      !VerifyFileIntegrity(file.get(), file_size, manifest.wireless_size_bytes,
-          manifest.wireless_sha256) ||
+      (verify_sha256 &&
+          !VerifyFileIntegrity(file.get(), file_size,
+              manifest.wireless_size_bytes, manifest.wireless_sha256)) ||
       !ReadFirmwareFile(file.get(), file_size, 0, &header, sizeof(header)) ||
       header.magic != ESP_IMAGE_HEADER_MAGIC ||
       header.chip_id != kExpectedWirelessChipId ||
@@ -3380,7 +3384,7 @@ bool SupportsWirelessOtaActivate(
  */
 WirelessUpdateResult UpdateWirelessFirmware(
     const FirmwareReleaseManifest& manifest, bool keep_marker_on_failure,
-    bool restart_after_success) {
+    bool restart_after_success, bool payload_verified = false) {
   char current_version[32] = {};
   if (!ReadCurrentWirelessVersion(current_version, sizeof(current_version))) {
     SetFailure("Cannot read Wireless firmware version");
@@ -3396,7 +3400,8 @@ WirelessUpdateResult UpdateWirelessFirmware(
   if (!update_required) {
     return WirelessUpdateResult::kNotRequired;
   }
-  if (!InspectWirelessFirmware(kWirelessFirmwarePath, manifest)) {
+  if (!InspectWirelessFirmware(kWirelessFirmwarePath, manifest,
+          !payload_verified)) {
     SetFailure("Stored Wireless firmware invalid", false,
         FirmwareUpdateFailureComponent::kWireless);
     return WirelessUpdateResult::kFailed;
@@ -3497,16 +3502,21 @@ bool ValidateMainFirmwareImage(
  * @param manifest 本次目标清单
  * @return 缓存完整且符合当前硬件返回 true
  */
-bool InspectMainFirmwareCache(const FirmwareReleaseManifest& manifest) {
+bool InspectMainFirmwareCache(const FirmwareReleaseManifest& manifest,
+    bool verify_integrity = true) {
   FirmwareVerificationPriorityScope verification_priority;
   const esp_partition_t* partition = esp_ota_get_next_update_partition(nullptr);
   esp_app_desc_t description = {};
   if (partition == nullptr ||
       esp_ota_get_partition_description(partition, &description) != ESP_OK ||
       !ValidateMainFirmwareImage(description, manifest) ||
-      !VerifyPartitionIntegrity(partition, manifest.main_size_bytes,
-          manifest.main_sha256)) {
+      (verify_integrity &&
+          !VerifyPartitionIntegrity(partition, manifest.main_size_bytes,
+              manifest.main_sha256))) {
     return false;
+  }
+  if (!verify_integrity) {
+    return true;
   }
   const esp_partition_pos_t position = {
       .offset = partition->address, .size = partition->size};
@@ -3539,13 +3549,15 @@ void RefreshFirmwareCache(const FirmwareReleaseManifest& manifest) {
     SetFirmwareUpdateOperation(FirmwareUpdateOperation::kVerifyingMain,
         "Verifying downloaded Main firmware");
   }
-  const bool main_cached = main_required && InspectMainFirmwareCache(manifest);
+  // 完整校验在显示“重启并更新”之前完成，安装按钮只负责执行已经确认的镜像。
+  const bool main_cached = main_required &&
+      InspectMainFirmwareCache(manifest, true);
   if (wireless_required) {
     SetFirmwareUpdateOperation(FirmwareUpdateOperation::kVerifyingWireless,
         "Verifying downloaded Wireless firmware");
   }
   const bool wireless_cached = wireless_required &&
-      InspectWirelessFirmware(kWirelessFirmwarePath, manifest);
+      InspectWirelessFirmware(kWirelessFirmwarePath, manifest, true);
   if (LockManager()) {
     State().snapshot.main_cached = main_cached;
     State().snapshot.wireless_cached = wireless_cached;
@@ -3883,6 +3895,8 @@ void CheckTask(void* context) {
 /**
  * @brief 执行用户确认的主固件与无线固件组合更新流程
  */
+void RunInstallTask(bool payload_verified);
+
 void RunUpdateTask() {
   auto manifest_storage = AllocateFirmwareReleaseManifest();
   if (manifest_storage == nullptr) {
@@ -3928,12 +3942,9 @@ void RunUpdateTask() {
     expected_wireless_cache = !State().local_main_source && State().snapshot.wireless_cached;
     UnlockManager();
   }
-  if (State().reuse_cache && main_update_required) {
-    SetFirmwareUpdateOperation(FirmwareUpdateOperation::kVerifyingMain,
-        "Checking cached Main firmware");
-  }
+  // 检查阶段已经完成完整校验；这里仅做不显示进度的轻量元数据保护检查。
   const bool main_cached = !main_update_required ||
-      (State().reuse_cache && InspectMainFirmwareCache(manifest));
+      (State().reuse_cache && InspectMainFirmwareCache(manifest, false));
   if (HandlePendingDownloadInterruption()) return;
   if (State().reuse_cache && !main_cached &&
       (expected_main_cache || manifest.main_url_count == 0)) {
@@ -3942,12 +3953,9 @@ void RunUpdateTask() {
     FinishWorker();
     return;
   }
-  if (State().reuse_cache && wireless_update_required) {
-    SetFirmwareUpdateOperation(FirmwareUpdateOperation::kVerifyingWireless,
-        "Checking cached Wireless firmware");
-  }
   const bool wireless_cached = !wireless_update_required ||
-      (State().reuse_cache && InspectWirelessFirmware(kWirelessFirmwarePath, manifest));
+      (State().reuse_cache &&
+          InspectWirelessFirmware(kWirelessFirmwarePath, manifest, false));
   if (HandlePendingDownloadInterruption()) return;
   if (State().reuse_cache && !wireless_cached &&
       (expected_wireless_cache || manifest.wireless_url_count == 0)) {
@@ -4010,6 +4018,25 @@ void RunUpdateTask() {
       return;
     }
   }
+  bool install_after_cache_validation = false;
+  if (LockManager()) {
+    install_after_cache_validation = State().install_after_cache_validation;
+    State().install_after_cache_validation = false;
+    UnlockManager();
+  }
+  if (install_after_cache_validation) {
+    Application* application = State().application;
+    if (application == nullptr ||
+        !application->PrepareForFirmwareInstallation()) {
+      SetFailure("Cannot prepare screen and storage for installation");
+      FinishWorker();
+      return;
+    }
+    RunInstallTask(true);
+    application->RestoreAfterFirmwareInstallation();
+    FinishWorker();
+    return;
+  }
   FinishPreparedDownload();
 }
 
@@ -4026,7 +4053,7 @@ void UpdateTask(void* context) {
 /**
  * @brief 安装已经准备完成的主固件与无线固件
  */
-void RunInstallTask() {
+void RunInstallTask(bool payload_verified) {
   auto manifest_storage = AllocateFirmwareReleaseManifest();
   if (manifest_storage == nullptr) {
     SetFailure("Insufficient memory for update information");
@@ -4059,7 +4086,8 @@ void RunInstallTask() {
     return;
   }
   if (wireless_update_required &&
-      !InspectWirelessFirmware(kWirelessFirmwarePath, manifest)) {
+      !InspectWirelessFirmware(kWirelessFirmwarePath, manifest,
+          !payload_verified)) {
     std::remove(kWirelessFirmwarePath);
     if (std::strcmp(manifest.release_channel, "local") == 0) {
       SetFailure("Prepared local Wireless firmware is unavailable", false,
@@ -4085,14 +4113,9 @@ void RunInstallTask() {
       return;
     }
   }
-  if (main_update_required && wireless_update_required) {
-    const WirelessUpdateResult wireless_result =
-        UpdateWirelessFirmware(manifest, false, false);
-    if (wireless_result != WirelessUpdateResult::kCompleted &&
-        wireless_result != WirelessUpdateResult::kNotRequired) {
-      return;
-    }
-  }
+  // 主固件启动分区必须先持久化。无线 OTA 可能重置 SDIO/主机，若此时才切换
+  // 启动分区，主机可能在切换前重启并继续启动旧的 ota_0。
+  bool main_boot_partition_prepared = false;
   if (main_update_required) {
     if (!SetPendingUpdate() ||
         esp_ota_set_boot_partition(prepared_main_partition) != ESP_OK) {
@@ -4101,6 +4124,21 @@ void RunInstallTask() {
       SetFailure("Cannot activate prepared Main firmware");
       return;
     }
+    main_boot_partition_prepared = true;
+  }
+  if (main_update_required && wireless_update_required) {
+    const WirelessUpdateResult wireless_result =
+        UpdateWirelessFirmware(manifest, false, false, payload_verified);
+    if (wireless_result != WirelessUpdateResult::kCompleted &&
+        wireless_result != WirelessUpdateResult::kNotRequired) {
+      if (main_boot_partition_prepared) {
+        ClearPendingUpdate();
+        RestoreRunningBootPartition();
+      }
+      return;
+    }
+  }
+  if (main_update_required) {
     SetStage(FirmwareUpdateStage::kRestarting,
         "Restarting into the new firmware", 100);
     vTaskDelay(pdMS_TO_TICKS(kRestartDelayMs));
@@ -4109,7 +4147,7 @@ void RunInstallTask() {
   }
   if (wireless_update_required) {
     const WirelessUpdateResult wireless_result =
-        UpdateWirelessFirmware(manifest, false, true);
+        UpdateWirelessFirmware(manifest, false, true, payload_verified);
     if (wireless_result != WirelessUpdateResult::kNotRequired) {
       return;
     }
@@ -4137,7 +4175,7 @@ void InstallTask(void* context) {
       !application->PrepareForFirmwareInstallation()) {
     SetFailure("Cannot prepare screen and storage for installation");
   } else {
-    RunInstallTask();
+    RunInstallTask(true);
     application->RestoreAfterFirmwareInstallation();
   }
   FinishWorker();
@@ -4507,8 +4545,16 @@ bool FirmwareUpdateManager::StartUpdate(bool reuse_cache) {
     UnlockManager();
     return false;
   }
+  const bool has_cached_component = State().snapshot.main_cached ||
+      State().snapshot.wireless_cached;
+  const bool all_required_components_cached = has_cached_component &&
+      (!State().snapshot.main_update_available || State().snapshot.main_cached) &&
+      (!State().snapshot.wireless_update_available ||
+          State().snapshot.wireless_cached);
   BeginFirmwareTask();
   State().reuse_cache = reuse_cache;
+  State().install_after_cache_validation =
+      reuse_cache && all_required_components_cached;
   State().worker_running = true;
   State().snapshot.busy = true;
   State().snapshot.stage = State().snapshot.wireless_update_available
