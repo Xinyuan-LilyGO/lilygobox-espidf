@@ -325,6 +325,13 @@ void AddFirmwareTaskInfo(cJSON* message) {
   cJSON_AddStringToObject(message, "message", snapshot.message);
   cJSON_AddBoolToObject(message, "mainCached", snapshot.main_cached);
   cJSON_AddBoolToObject(message, "wirelessCached", snapshot.wireless_cached);
+  cJSON_AddBoolToObject(message, "integrityFailed",
+      snapshot.failure_component != FirmwareUpdateFailureComponent::kNone);
+  cJSON_AddBoolToObject(message, "manualUpdateRequired", snapshot.manual_update_required);
+  cJSON_AddStringToObject(message, "failedComponent",
+      snapshot.failure_component == FirmwareUpdateFailureComponent::kMain
+          ? "main" : snapshot.failure_component == FirmwareUpdateFailureComponent::kWireless
+          ? "wireless" : "");
   cJSON_AddStringToObject(message, "mainVersion", snapshot.main_target_version);
   cJSON_AddStringToObject(message, "wirelessVersion", snapshot.wireless_target_version);
 }
@@ -469,6 +476,13 @@ void SendFirmwareUpdateStatus(void* context) {
     cJSON_AddNumberToObject(message, "totalBytes", snapshot.total_bytes);
     cJSON_AddBoolToObject(message, "busy", snapshot.busy);
     cJSON_AddStringToObject(message, "message", snapshot.message);
+    cJSON_AddBoolToObject(message, "integrityFailed",
+        snapshot.failure_component != FirmwareUpdateFailureComponent::kNone);
+    cJSON_AddBoolToObject(message, "manualUpdateRequired", snapshot.manual_update_required);
+    cJSON_AddStringToObject(message, "failedComponent",
+        snapshot.failure_component == FirmwareUpdateFailureComponent::kMain
+            ? "main" : snapshot.failure_component == FirmwareUpdateFailureComponent::kWireless
+            ? "wireless" : "");
   }
   char* payload = cJSON_PrintUnformatted(message);
   cJSON_Delete(message);

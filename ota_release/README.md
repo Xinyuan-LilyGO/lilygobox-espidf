@@ -13,38 +13,46 @@ variants are targets inside that manifest, not separate manifest endpoints.
 
 | Configuration | Stable manifest |
 | --- | --- |
-| `devices/t-display-p4.json` | `lilygobox_t-display-p4_ota-manifest_stable_v2.json` |
-| `devices/t-display-p4-air.json` | `lilygobox_t-display-p4-air_ota-manifest_stable_v2.json` |
+| `devices/t-display-p4.json` | `lilygobox-t-display-p4-ota-manifest-stable-v2.json` |
+| `devices/t-display-p4-air.json` | `lilygobox-t-display-p4-air-ota-manifest-stable-v2.json` |
 
 The P4 configuration contains both V1.0 and V2.0. Air currently contains only its
 existing V1.0 target. Add future board versions or incompatible chip series to
 the same product configuration only when their actual supported BINs exist.
 Never substitute another board's firmware or expand compatibility in JSON alone.
 
-Firmware assets retain their hardware version and chip series:
+Firmware assets retain their hardware version and chip series. The v2 asset
+name is independent of the software release version; the version remains in
+the manifest and the versioned GitHub Release tag:
 
 ```text
-lilygobox_t-display-p4-v1.0_esp32p4-v1.0_v1.1.3.bin
-lilygobox_t-display-p4-v2.0_esp32p4-v1.0_v1.1.3.bin
-lilygobox_t-display-p4-air-v1.0_esp32p4-v1.0_v1.1.3.bin
-lilygobox_t-display-p4-air-v1.0_esp32c5-v1.0_v2.12.3.bin
+lilygobox-t-display-p4-v1.0-esp32p4-v1.0.bin
+lilygobox-t-display-p4-v2.0-esp32p4-v1.0.bin
+lilygobox-t-display-p4-air-v1.0-esp32p4-v1.0.bin
+lilygobox-t-display-p4-air-v1.0-esp32c5-v1.0.bin
 ```
 
-Underscores separate groups; hyphens remain within product names. Internal IDs use
-`<product>-v<board-version>_<chip>-v<chip-label>`, for example
-`t-display-p4-v2.0_esp32p4-v1.0`. New asset names are
-`lilygobox_<file-id>_v<firmware-version>.bin`, retaining the chip label's `.0`.
+Internal IDs use `<product>-v<board-version>-<chip>-v<chip-label>`, for example
+`t-display-p4-v2.0-esp32p4-v1.0`. New v2 asset names are
+`lilygobox-<file-id>.bin`, retaining the chip label's `.0`. The manifest
+continues to carry each component's software version, byte size and SHA-256;
+the GitHub Release tag remains versioned (for example, `v1.1.3`). v1 bridge
+assets keep their existing versioned legacy names.
 Labels do not replace compatibility ranges or BIN header checks. Product, chip
 and owning board must agree with the configuration. Shared cross-board files
 retain one owning ID and appear once in `files`; other targets reference it.
 
-The generator accepts legacy `device-v<board>-<chip>-rev<chip-label>` CLI IDs and
-previous v2 manifests. Inheritance converts references while preserving published
-BIN names and URLs. Legacy v1 bridge manifests retain old IDs and asset names;
-v1 schemas remain unchanged so factory firmware can still read them.
-New v2 IDs contain underscores and require device firmware with the updated ID
-validator. Devices with older parsers must keep using manifests with the original
-IDs until migrated; do not directly replace their online entry with new IDs.
+The generator uses canonical IDs from the device configuration and inherits
+unchanged components from the previous v2 manifest. Legacy v1 bridge manifests retain old IDs and
+asset names, and v1 schemas remain unchanged so factory firmware can still read
+them.
+New v2 device configs use one `downloadUrlTemplate` string, and generated v2
+manifests use one `downloadUrl` string per firmware asset. Device firmware tries
+that URL first and constructs the `gh-proxy.com` fallback at runtime only after
+a network failure. The published v1 bridge keeps its `downloadUrls` array.
+New v2 IDs use hyphens only. Devices with older parsers use the one-time v1 bridge; the new
+firmware accepts only v2 product manifests. Do not directly replace the old
+online entry until those devices have received the bridge.
 
 ## Contract and matching
 
@@ -64,8 +72,8 @@ IDs until migrated; do not directly replace their online entry with new IDs.
   `X.Y.Z-beta.N`. Each component must match its release channel.
 
 For example, incompatible ESP32-P4 1.x and 2.x on Air V1.0 use two targets in
-one Air manifest, referencing separate `t-display-p4-air-v1.0_esp32p4-v1.0` and
-`t-display-p4-air-v1.0_esp32p4-v2.0` files. The real BIN header must cover every
+one Air manifest, referencing separate `t-display-p4-air-v1.0-esp32p4-v1.0` and
+`t-display-p4-air-v1.0-esp32p4-v2.0` files. The real BIN header must cover every
 advertised range endpoint. Current local P4 images support 0.0 through 1.99,
 not 2.0 or 3.0.
 
@@ -114,17 +122,17 @@ lilygobox-t-display-p4-ota-manifest-stable-v1.json
 ```
 
 This retains protocol `1.0` and exact `revision` matching. It includes only V1
-files. Old firmware rejects underscores in BIN names, so the generator produces
-identical-content aliases with historical hyphen names. Upload all listed aliases
+files. The generator preserves the historical v1 BIN names. Upload all listed files
 and both manifests for that bridge release. Keep the bridge manifest unchanged
 after publication, together with its version release and all referenced legacy
 BINs. Devices still on old firmware can upgrade to the bridge, then read the v2
 product endpoint. Later publications omit `--legacy-manifest` and update only v2.
 Bridge generation requires actual BINs for every V1 migration component, not
 only inherited metadata, so historical-name assets are guaranteed to be generated.
-Do not replace the historical endpoint with v2 JSON.
-New firmware also reads legacy persisted pending manifests. V2 and Air have no
-legacy endpoint under the current publishing policy.
+Do not replace the historical endpoint with v2 JSON. After the bridge update,
+new firmware uses only the v2 product endpoint. The internal
+`lilygobox#localOtaStateV1` record is a LAN recovery record, not support for a
+v1 online manifest. V2 and Air have no legacy endpoint under the current policy.
 
 To upgrade installed 1.1.2, compile a higher embedded version, such as 1.1.3,
 including v2 parsing, product endpoints and `lilygobox#localOtaStateV1` recovery.
@@ -138,19 +146,19 @@ The first P4 publication requires all four components. This example also creates
 the one-time bridge; omit `--legacy-manifest` for later publications:
 
 ```powershell
-python .\generate_manifest.py --config .\devices\t-display-p4.json --channel stable --legacy-manifest --firmware-file "t-display-p4-v1.0_esp32p4-v1.0=.\input\t_display_p4_v1\lilygobox-espidf.bin" --firmware-file "t-display-p4-v1.0_esp32c6-v0.0=.\input\t_display_p4_v1\network_adapter.bin" --firmware-file "t-display-p4-v2.0_esp32p4-v1.0=.\input\t_display_p4_v2\lilygobox-espidf.bin" --firmware-file "t-display-p4-v2.0_esp32c5-v1.0=.\input\t_display_p4_v2\network_adapter.bin" --note "Release notes"
+python .\generate_manifest.py --config .\devices\t-display-p4.json --channel stable --legacy-manifest --firmware-file "t-display-p4-v1.0-esp32p4-v1.0=.\input\t_display_p4_v1\lilygobox-espidf.bin" --firmware-file "t-display-p4-v1.0-esp32c6-v0.0=.\input\t_display_p4_v1\network_adapter.bin" --firmware-file "t-display-p4-v2.0-esp32p4-v1.0=.\input\t_display_p4_v2\lilygobox-espidf.bin" --firmware-file "t-display-p4-v2.0-esp32c5-v1.0=.\input\t_display_p4_v2\network_adapter.bin" --note "Release notes"
 ```
 
 First Air publication:
 
 ```powershell
-python .\generate_manifest.py --config .\devices\t-display-p4-air.json --channel stable --firmware-file "t-display-p4-air-v1.0_esp32p4-v1.0=.\input\t_display_p4_air\lilygobox-espidf.bin" --firmware-file "t-display-p4-air-v1.0_esp32c5-v1.0=.\input\t_display_p4_air\network_adapter.bin" --note "Release notes"
+python .\generate_manifest.py --config .\devices\t-display-p4-air.json --channel stable --firmware-file "t-display-p4-air-v1.0-esp32p4-v1.0=.\input\t_display_p4_air\lilygobox-espidf.bin" --firmware-file "t-display-p4-air-v1.0-esp32c5-v1.0=.\input\t_display_p4_air\network_adapter.bin" --note "Release notes"
 ```
 
 Update only the P4 V2 main component while retaining V1 and wireless metadata:
 
 ```powershell
-python .\generate_manifest.py --config .\devices\t-display-p4.json --channel stable --firmware-file "t-display-p4-v2.0_esp32p4-v1.0=.\input\t_display_p4_v2\lilygobox-espidf.bin" --previous-manifest ".\output\t-display-p4\stable\v1.1.3\lilygobox_t-display-p4_ota-manifest_stable_v2.json" --note "Update V2 main firmware"
+python .\generate_manifest.py --config .\devices\t-display-p4.json --channel stable --firmware-file "t-display-p4-v2.0-esp32p4-v1.0=.\input\t_display_p4_v2\lilygobox-espidf.bin" --previous-manifest ".\output\t-display-p4\stable\v1.1.3\lilygobox-t-display-p4-ota-manifest-stable-v2.json" --note "Update V2 main firmware"
 ```
 
 - Release version defaults to the highest updated main embedded version.
@@ -178,13 +186,13 @@ contain only v2 manifests and their new-name BINs.
 ```text
 output/
 ├─ t-display-p4/stable/v1.1.3/
-│  ├─ lilygobox_t-display-p4_ota-manifest_stable_v2.json
+│  ├─ lilygobox-t-display-p4-ota-manifest-stable-v2.json
 │  ├─ lilygobox-t-display-p4-ota-manifest-stable-v1.json
-│  ├─ lilygobox_t-display-p4-v1.0_esp32p4-v1.0_v1.1.3.bin
-│  ├─ lilygobox_t-display-p4-v2.0_esp32p4-v1.0_v1.1.3.bin
+│  ├─ lilygobox-t-display-p4-v1.0-esp32p4-v1.0.bin
+│  ├─ lilygobox-t-display-p4-v2.0-esp32p4-v1.0.bin
 │  └─ Wireless BINs and historical V1 aliases
 └─ t-display-p4-air/stable/v1.1.3/
-   ├─ lilygobox_t-display-p4-air_ota-manifest_stable_v2.json
+   ├─ lilygobox-t-display-p4-air-ota-manifest-stable-v2.json
    └─ Air main and wireless BINs
 ```
 

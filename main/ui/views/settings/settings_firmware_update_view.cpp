@@ -13,6 +13,7 @@
 #include "ui/animation/transition_animation.h"
 #include "ui/input/press_cancel.h"
 #include "ui/resources/fonts/icon_assets.h"
+#include "ui/views/settings/settings_basic_view_common.h"
 #include "ui/views/settings/settings_view_internal.h"
 #include "ui/widgets/brand_icon.h"
 
@@ -129,6 +130,9 @@ void ClearFirmwareUpdateReferences(SettingsViewState* state) {
     state->firmware_update_refresh_timer = nullptr;
   }
   state->firmware_update_page = nullptr;
+  // 提示框是更新页面的子对象，页面销毁时同步失效，避免保留悬空指针。
+  state->firmware_update_failure_prompt = {};
+  state->firmware_update_failure_sequence = 0;
   state->firmware_update_body = nullptr;
   state->firmware_update_current_page = nullptr;
   state->firmware_update_new_page = nullptr;
@@ -622,8 +626,11 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
       button_enabled = true;
     }
   } else {
-    button_enabled = !snapshot.busy && snapshot.device_supported && !paused;
-    if (cancelling) {
+    button_enabled = !snapshot.busy && snapshot.device_supported && !paused &&
+        !manual_update_required;
+    if (manual_update_required) {
+      std::snprintf(button_text, sizeof(button_text), "Manual update required");
+    } else if (cancelling) {
       std::snprintf(button_text, sizeof(button_text), "Cancelling...");
     } else if (processing) {
       switch (snapshot.operation) {
@@ -688,8 +695,8 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
           break;
         case app::FirmwareUpdateStage::kFailed:
           std::snprintf(button_text, sizeof(button_text),
-              snapshot.main_cached || snapshot.wireless_cached
-                  ? "Use downloaded firmware" : "Retry download");
+              snapshot.failure_component != app::FirmwareUpdateFailureComponent::kNone
+                  ? "Download again" : "Retry");
           break;
         case app::FirmwareUpdateStage::kUpToDate:
         case app::FirmwareUpdateStage::kIdle:
@@ -728,14 +735,8 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
 
   const bool show_cancel =
       !current_page_active && (downloading || paused || ready);
-  const bool offer_cache = !current_page_active && !snapshot.busy && !ready &&
-      !paused && !snapshot.local_update && snapshot.update_available &&
-      (snapshot.main_cached || snapshot.wireless_cached);
-  SetFirmwareObjectVisible(state->firmware_update_pause_button, offer_cache);
-  if (offer_cache) {
-    lv_label_set_text(state->firmware_update_pause_button_label, "Download again");
-    lv_obj_remove_state(state->firmware_update_pause_button, LV_STATE_DISABLED);
-  }
+  // 有效缓存只提供复用入口；重新下载只在实际校验失败后作为恢复操作出现。
+  SetFirmwareObjectVisible(state->firmware_update_pause_button, false);
   SetFirmwareObjectVisible(state->firmware_update_cancel_button, show_cancel);
   lv_label_set_text(state->firmware_update_cancel_button_label,
       ready || processing ? "Cancel current update"
@@ -749,9 +750,8 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
   }
   const int primary_width =
       lv_obj_get_width(state->firmware_update_download_button);
-  if (show_cancel || offer_cache) {
-    lv_obj_t* secondary_button = offer_cache ? state->firmware_update_pause_button
-                                           : state->firmware_update_cancel_button;
+  if (show_cancel) {
+    lv_obj_t* secondary_button = state->firmware_update_cancel_button;
     lv_obj_set_size(secondary_button, primary_width,
         kUpdateButtonHeight);
     lv_obj_set_style_radius(secondary_button,
@@ -766,8 +766,42 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
         -kUpdateButtonBottom);
   }
   lv_obj_align(state->firmware_update_page_indicator, LV_ALIGN_BOTTOM_MID, 0,
-      show_cancel || offer_cache ? -kUpdatePageIndicatorStackedBottom
+      show_cancel ? -kUpdatePageIndicatorStackedBottom
                   : -kUpdatePageIndicatorBottom);
+
+  if (IsPromptDialogVisible(&state->firmware_update_failure_prompt) &&
+      (snapshot.local_update || snapshot.busy ||
+          snapshot.stage != app::FirmwareUpdateStage::kFailed ||
+          snapshot.failure_sequence != state->firmware_update_failure_sequence)) {
+    ClosePromptDialog(&state->firmware_update_failure_prompt);
+    return;
+  }
+  if (!snapshot.local_update && !snapshot.busy &&
+      snapshot.stage == app::FirmwareUpdateStage::kFailed &&
+      snapshot.failure_component != app::FirmwareUpdateFailureComponent::kNone &&
+      snapshot.failure_sequence != state->firmware_update_failure_sequence &&
+      !IsPromptDialogVisible(&state->firmware_update_failure_prompt)) {
+    auto config = MakeSettingsTextPromptConfig(state);
+    config.title = "Firmware verification failed";
+    config.subtitle = snapshot.message;
+    config.cancel_text = "Close";
+    config.confirm_text = "Download again";
+    config.callback_context = state;
+    config.confirm_callback = [](void* context) {
+      auto* current = static_cast<SettingsViewState*>(context);
+      const auto latest = GetFirmwareUpdateSnapshot();
+      if (!latest.busy && !latest.local_update &&
+          latest.stage == app::FirmwareUpdateStage::kFailed &&
+          latest.failure_sequence == current->firmware_update_failure_sequence) {
+        // 重新检查缓存，其他已通过校验的组件继续复用。
+        app::FirmwareUpdateManager::Instance().StartUpdate();
+      }
+    };
+    if (ShowPromptDialog(state->firmware_update_page,
+            &state->firmware_update_failure_prompt, config) != nullptr) {
+      state->firmware_update_failure_sequence = snapshot.failure_sequence;
+    }
+  }
 }
 
 /**
@@ -847,10 +881,7 @@ void FirmwareUpdatePauseClickedEventCallback(lv_event_t* event) {
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   app::FirmwareUpdateManager& manager = app::FirmwareUpdateManager::Instance();
   const app::FirmwareUpdateSnapshot snapshot = GetFirmwareUpdateSnapshot();
-  if (!snapshot.busy && !snapshot.local_update && snapshot.update_available &&
-      (snapshot.main_cached || snapshot.wireless_cached)) {
-    manager.StartUpdate(false);
-  } else if (snapshot.stage == app::FirmwareUpdateStage::kPaused) {
+  if (snapshot.stage == app::FirmwareUpdateStage::kPaused) {
     manager.Resume();
   } else {
     manager.Pause();

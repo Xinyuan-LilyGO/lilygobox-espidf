@@ -79,7 +79,6 @@ constexpr char kCurrentDeviceId[] = "";
 constexpr char kCurrentDeviceVersion[] = "";
 #endif
 constexpr char kManifestKind[] = "lilygobox#otaManifest";
-constexpr char kLegacyManifestVersion[] = "1.0";
 constexpr char kCurrentManifestVersion[] = "2.0";
 constexpr char kUpdatePublisherId[] = "lilygo";
 constexpr char kApplicationDirectory[] = "/littlefs/lilygobox";
@@ -116,7 +115,8 @@ constexpr char kCurrentWirelessChipRevision[] = "0.0";
 constexpr char kCurrentMainChipModel[] = "esp32p4";
 constexpr int kFirmwareHttpTimeoutMs = 15000;
 constexpr int kHttpBufferSize = 4096;
-constexpr size_t kMaximumFirmwareDownloadSourceCount = 4;
+// v2 uses the GitHub source first and one runtime proxy fallback.
+constexpr size_t kMaximumFirmwareDownloadSourceCount = 2;
 constexpr size_t kMaximumFirmwareDownloadUrlLength = 384;
 constexpr size_t kMaximumFirmwareTargetCount = 32;
 constexpr size_t kMaximumFirmwareFileCount = 64;
@@ -162,31 +162,31 @@ constexpr const char* ManifestGithubUrl(ReleaseChannel channel) {
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
       return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
              "releases/download/ota-alpha/"
-             "lilygobox_t-display-p4-air_ota-manifest_alpha_v2.json";
+             "lilygobox-t-display-p4-air-ota-manifest-alpha-v2.json";
 #else
       return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
              "releases/download/ota-alpha/"
-             "lilygobox_t-display-p4_ota-manifest_alpha_v2.json";
+             "lilygobox-t-display-p4-ota-manifest-alpha-v2.json";
 #endif
     case ReleaseChannel::kBeta:
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
       return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
              "releases/download/ota-beta/"
-             "lilygobox_t-display-p4-air_ota-manifest_beta_v2.json";
+             "lilygobox-t-display-p4-air-ota-manifest-beta-v2.json";
 #else
       return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
              "releases/download/ota-beta/"
-             "lilygobox_t-display-p4_ota-manifest_beta_v2.json";
+             "lilygobox-t-display-p4-ota-manifest-beta-v2.json";
 #endif
     case ReleaseChannel::kStable:
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
       return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
              "releases/download/ota-stable/"
-             "lilygobox_t-display-p4-air_ota-manifest_stable_v2.json";
+             "lilygobox-t-display-p4-air-ota-manifest-stable-v2.json";
 #else
       return "https://github.com/Xinyuan-LilyGO/lilygobox-espidf/"
              "releases/download/ota-stable/"
-             "lilygobox_t-display-p4_ota-manifest_stable_v2.json";
+             "lilygobox-t-display-p4-ota-manifest-stable-v2.json";
 #endif
   }
   return "";
@@ -203,31 +203,31 @@ constexpr const char* ManifestProxyUrl(ReleaseChannel channel) {
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
       return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
              "lilygobox-espidf/releases/download/ota-alpha/"
-             "lilygobox_t-display-p4-air_ota-manifest_alpha_v2.json";
+             "lilygobox-t-display-p4-air-ota-manifest-alpha-v2.json";
 #else
       return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
              "lilygobox-espidf/releases/download/ota-alpha/"
-             "lilygobox_t-display-p4_ota-manifest_alpha_v2.json";
+             "lilygobox-t-display-p4-ota-manifest-alpha-v2.json";
 #endif
     case ReleaseChannel::kBeta:
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
       return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
              "lilygobox-espidf/releases/download/ota-beta/"
-             "lilygobox_t-display-p4-air_ota-manifest_beta_v2.json";
+             "lilygobox-t-display-p4-air-ota-manifest-beta-v2.json";
 #else
       return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
              "lilygobox-espidf/releases/download/ota-beta/"
-             "lilygobox_t-display-p4_ota-manifest_beta_v2.json";
+             "lilygobox-t-display-p4-ota-manifest-beta-v2.json";
 #endif
     case ReleaseChannel::kStable:
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
       return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
              "lilygobox-espidf/releases/download/ota-stable/"
-             "lilygobox_t-display-p4-air_ota-manifest_stable_v2.json";
+             "lilygobox-t-display-p4-air-ota-manifest-stable-v2.json";
 #else
       return "https://gh-proxy.com/https://github.com/Xinyuan-LilyGO/"
              "lilygobox-espidf/releases/download/ota-stable/"
-             "lilygobox_t-display-p4_ota-manifest_stable_v2.json";
+             "lilygobox-t-display-p4-ota-manifest-stable-v2.json";
 #endif
   }
   return "";
@@ -450,6 +450,7 @@ void BeginFirmwareTask() {
       static_cast<unsigned long>(random[3]));
   State().snapshot.cancelled = false;
   State().snapshot.operation = FirmwareUpdateOperation::kNone;
+  State().snapshot.failure_component = FirmwareUpdateFailureComponent::kNone;
 }
 
 /**
@@ -557,7 +558,9 @@ void RestartAfterScreenOff() {
  * @param manual_update_required 是否需要提示用户执行手动更新
  */
 void SetStage(FirmwareUpdateStage stage, const char* message,
-    int progress_percent = 0, bool manual_update_required = false) {
+    int progress_percent = 0, bool manual_update_required = false,
+    FirmwareUpdateFailureComponent failure_component =
+        FirmwareUpdateFailureComponent::kNone) {
   if (!LockManager()) {
     return;
   }
@@ -569,6 +572,15 @@ void SetStage(FirmwareUpdateStage stage, const char* message,
         ? State().manifest.main_size_bytes : State().manifest.wireless_size_bytes;
   }
   State().snapshot.stage = stage;
+  State().snapshot.failure_component = failure_component;
+  if (stage == FirmwareUpdateStage::kFailed) {
+    ++State().snapshot.failure_sequence;
+    if (failure_component == FirmwareUpdateFailureComponent::kMain) {
+      State().snapshot.main_cached = false;
+    } else if (failure_component == FirmwareUpdateFailureComponent::kWireless) {
+      State().snapshot.wireless_cached = false;
+    }
+  }
   State().snapshot.operation = FirmwareUpdateOperation::kNone;
   State().snapshot.busy = IsBusyStage(stage);
   State().snapshot.progress_percent = std::clamp(progress_percent, 0, 100);
@@ -607,8 +619,11 @@ void SetFirmwareUpdateOperation(FirmwareUpdateOperation operation, const char* m
  * @param message 面向界面的失败原因
  * @param manual_update_required 是否需要提示用户执行手动更新
  */
-void SetFailure(const char* message, bool manual_update_required = false) {
-  SetStage(FirmwareUpdateStage::kFailed, message, 0, manual_update_required);
+void SetFailure(const char* message, bool manual_update_required = false,
+    FirmwareUpdateFailureComponent failure_component =
+        FirmwareUpdateFailureComponent::kNone) {
+  SetStage(FirmwareUpdateStage::kFailed, message, 0, manual_update_required,
+      failure_component);
   LogMessage(LogLevel::kError, __FILE__, __LINE__,
       "Firmware update failed: %s\n", message == nullptr ? "unknown" : message);
 }
@@ -1291,14 +1306,14 @@ bool ReadRequiredJsonString(const cJSON* object, const char* name,
 }
 
 /**
- * @brief 从 JSON 对象读取按优先级排列的 HTTPS 固件下载地址
- * @param object JSON 对象
+ * @brief 从 v2 JSON 文件对象读取单个 HTTPS 固件下载地址
+ * @param object JSON 文件对象
  * @param name 字段名
  * @param destinations 下载地址输出缓冲区
- * @param count 实际下载地址数量
- * @return 地址数组非空、数量受限且没有重复项返回 true
+ * @param count 成功时设置为 1
+ * @return 地址有效且可容纳返回 true
  */
-bool ReadRequiredFirmwareUrls(const cJSON* object, const char* name,
+bool ReadRequiredFirmwareUrl(const cJSON* object, const char* name,
     char destinations[kMaximumFirmwareDownloadSourceCount]
                      [kMaximumFirmwareDownloadUrlLength],
     size_t* count) {
@@ -1306,31 +1321,15 @@ bool ReadRequiredFirmwareUrls(const cJSON* object, const char* name,
       count == nullptr) {
     return false;
   }
-  const cJSON* urls = cJSON_GetObjectItemCaseSensitive(object, name);
-  if (!cJSON_IsArray(urls)) {
+  const cJSON* url = cJSON_GetObjectItemCaseSensitive(object, name);
+  if (!cJSON_IsString(url) || url->valuestring == nullptr ||
+      !IsHttpsUrl(url->valuestring) ||
+      std::strlen(url->valuestring) >= kMaximumFirmwareDownloadUrlLength) {
     return false;
   }
-  const int url_count = cJSON_GetArraySize(urls);
-  if (url_count <= 0 ||
-      url_count > static_cast<int>(kMaximumFirmwareDownloadSourceCount)) {
-    return false;
-  }
-  for (int index = 0; index < url_count; ++index) {
-    const cJSON* item = cJSON_GetArrayItem(urls, index);
-    if (!cJSON_IsString(item) || item->valuestring == nullptr ||
-        !IsHttpsUrl(item->valuestring) ||
-        std::strlen(item->valuestring) >= kMaximumFirmwareDownloadUrlLength) {
-      return false;
-    }
-    for (int previous = 0; previous < index; ++previous) {
-      if (std::strcmp(destinations[previous], item->valuestring) == 0) {
-        return false;
-      }
-    }
-    CopyText(destinations[index], kMaximumFirmwareDownloadUrlLength,
-        item->valuestring);
-  }
-  *count = static_cast<size_t>(url_count);
+  CopyText(destinations[0], kMaximumFirmwareDownloadUrlLength,
+      url->valuestring);
+  *count = 1;
   return true;
 }
 
@@ -1424,7 +1423,7 @@ bool IsFirmwareFileId(const char* text) {
   for (const char* cursor = text; *cursor != '\0'; ++cursor) {
     const bool valid = (*cursor >= 'a' && *cursor <= 'z') ||
                        (*cursor >= '0' && *cursor <= '9') || *cursor == '-' ||
-                       *cursor == '.' || *cursor == '_';
+                       *cursor == '.';
     if (!valid) {
       return false;
     }
@@ -1444,7 +1443,7 @@ bool IsFirmwareFilename(const char* text) {
   for (const char* cursor = text; *cursor != '\0'; ++cursor) {
     const bool valid = (*cursor >= 'a' && *cursor <= 'z') ||
                        (*cursor >= '0' && *cursor <= '9') || *cursor == '-' ||
-                       *cursor == '.' || *cursor == '_';
+                       *cursor == '.';
     if (!valid) {
       return false;
     }
@@ -1463,14 +1462,13 @@ bool UrlEndsWithFilename(const char* url, const char* filename) {
 }
 
 /**
- * @brief 按清单协议校验芯片修订条件，兼容旧版精确匹配记录
+ * @brief 按 v2 清单芯片修订范围校验当前修订号
  * @param chip 清单中的芯片条件
  * @param current_revision 当前芯片修订号
- * @param range_matching 是否使用 v2 清单的闭区间匹配
  * @return 条件无效、不匹配或匹配
  */
 TargetMatchResult MatchChipRevision(const cJSON* chip,
-    const char* current_revision, bool range_matching) {
+    const char* current_revision) {
   const cJSON* revision = cJSON_GetObjectItemCaseSensitive(chip, "revision");
   const cJSON* minimum = cJSON_GetObjectItemCaseSensitive(chip, "minRevision");
   const cJSON* maximum = cJSON_GetObjectItemCaseSensitive(chip, "maxRevision");
@@ -1480,22 +1478,12 @@ TargetMatchResult MatchChipRevision(const cJSON* chip,
   if (!ParseMajorMinorVersion(current_revision, actual)) {
     return TargetMatchResult::kInvalid;
   }
-  if (range_matching) {
-    if (revision != nullptr || !cJSON_IsString(minimum) ||
-        minimum->valuestring == nullptr || !cJSON_IsString(maximum) ||
-        maximum->valuestring == nullptr ||
-        !ParseMajorMinorVersion(minimum->valuestring, lower) ||
-        !ParseMajorMinorVersion(maximum->valuestring, upper)) {
-      return TargetMatchResult::kInvalid;
-    }
-  } else {
-    if (minimum != nullptr || maximum != nullptr || !cJSON_IsString(revision) ||
-        revision->valuestring == nullptr ||
-        !ParseMajorMinorVersion(revision->valuestring, lower)) {
-      return TargetMatchResult::kInvalid;
-    }
-    upper[0] = lower[0];
-    upper[1] = lower[1];
+  if (revision != nullptr || !cJSON_IsString(minimum) ||
+      minimum->valuestring == nullptr || !cJSON_IsString(maximum) ||
+      maximum->valuestring == nullptr ||
+      !ParseMajorMinorVersion(minimum->valuestring, lower) ||
+      !ParseMajorMinorVersion(maximum->valuestring, upper)) {
+    return TargetMatchResult::kInvalid;
   }
   const uint32_t* revisions[] = {actual, lower, upper};
   for (const auto* parts : revisions) {
@@ -1517,13 +1505,12 @@ TargetMatchResult MatchChipRevision(const cJSON* chip,
  * @brief 校验目标条件并判断是否匹配当前设备
  * @param target targets 数组中的一个目标
  * @param main_revision 当前主芯片完整修订版本
- * @param range_matching 是否使用 v2 清单的芯片范围条件
  * @param main_file_id 匹配目标引用的主固件文件 ID
  * @param wireless_file_id 匹配目标引用的无线固件文件 ID
  * @return 目标无效、不匹配或匹配
  */
 TargetMatchResult MatchFirmwareTarget(const cJSON* target,
-    const char* main_revision, bool range_matching, const char** main_file_id,
+    const char* main_revision, const char** main_file_id,
     const char** wireless_file_id) {
   if (!cJSON_IsObject(target) || main_revision == nullptr ||
       main_file_id == nullptr || wireless_file_id == nullptr) {
@@ -1581,9 +1568,9 @@ TargetMatchResult MatchFirmwareTarget(const cJSON* target,
     return TargetMatchResult::kInvalid;
   }
   const TargetMatchResult main_match =
-      MatchChipRevision(main_chip, main_revision, range_matching);
+      MatchChipRevision(main_chip, main_revision);
   const TargetMatchResult wireless_match = MatchChipRevision(
-      wireless_chip, kCurrentWirelessChipRevision, range_matching);
+      wireless_chip, kCurrentWirelessChipRevision);
   if (main_match == TargetMatchResult::kInvalid ||
       wireless_match == TargetMatchResult::kInvalid) {
     return TargetMatchResult::kInvalid;
@@ -1639,7 +1626,7 @@ bool ReadFirmwareFileMetadata(const cJSON* firmware_files, const char* file_id,
           file, "projectName", project_name, sizeof(project_name)) ||
       !ReadRequiredJsonString(file, "version", version, version_size) ||
       !ReadRequiredJsonString(file, "fileName", filename, sizeof(filename)) ||
-      !ReadRequiredFirmwareUrls(file, "downloadUrls", urls, url_count) ||
+      !ReadRequiredFirmwareUrl(file, "downloadUrl", urls, url_count) ||
       !ReadRequiredJsonSize(file, "sizeBytes", size_bytes) ||
       !ReadRequiredJsonString(hashes, "sha256", sha256, sha256_size) ||
       std::strcmp(chip, expected_chip) != 0 ||
@@ -1651,6 +1638,18 @@ bool ReadFirmwareFileMetadata(const cJSON* firmware_files, const char* file_id,
   for (size_t index = 0; index < *url_count; ++index) {
     if (!UrlEndsWithFilename(urls[index], filename)) {
       return false;
+    }
+  }
+  // 保留原始 URL；只为 GitHub 增加代理，不包装局域网或其他站点地址。
+  constexpr const char* github_prefix = "https://github.com/";
+  if (std::strncmp(urls[0], github_prefix, std::strlen(github_prefix)) == 0) {
+    constexpr const char* proxy_prefix = "https://gh-proxy.com/";
+    const size_t prefix_length = std::strlen(proxy_prefix);
+    const size_t source_length = std::strlen(urls[0]);
+    if (prefix_length + source_length < kMaximumFirmwareDownloadUrlLength) {
+      std::memcpy(urls[1], proxy_prefix, prefix_length);
+      std::memcpy(urls[1] + prefix_length, urls[0], source_length + 1);
+      *url_count = 2;
     }
   }
   return true;
@@ -1691,10 +1690,7 @@ ManifestParseResult ParseManifest(
       manifest_version->valuestring == nullptr) {
     return ManifestParseResult::kInvalid;
   }
-  const bool range_matching =
-      std::strcmp(manifest_version->valuestring, kCurrentManifestVersion) == 0;
-  if (!range_matching &&
-      std::strcmp(manifest_version->valuestring, kLegacyManifestVersion) != 0) {
+  if (std::strcmp(manifest_version->valuestring, kCurrentManifestVersion) != 0) {
     return ManifestParseResult::kUnsupportedVersion;
   }
   if (!cJSON_IsObject(release) || !cJSON_IsArray(targets) ||
@@ -1742,7 +1738,7 @@ ManifestParseResult ParseManifest(
     const char* candidate_main_file_id = nullptr;
     const char* candidate_wireless_file_id = nullptr;
     const TargetMatchResult match_result = MatchFirmwareTarget(target,
-        main_revision, range_matching, &candidate_main_file_id,
+        main_revision, &candidate_main_file_id,
         &candidate_wireless_file_id);
     if (match_result == TargetMatchResult::kInvalid) {
       return ManifestParseResult::kInvalid;
@@ -1960,8 +1956,7 @@ bool ParseCurrentReleaseNotes(const char* text, FirmwareReleaseManifest* manifes
   if (!equals(root.get(), "kind", kManifestKind) ||
       !equals(release, "publisherId", kUpdatePublisherId) ||
       !equals(release, "deviceId", kCurrentDeviceId)) return false;
-  const bool range_matching = equals(root.get(), "manifestVersion", kCurrentManifestVersion);
-  if (!range_matching && !equals(root.get(), "manifestVersion", kLegacyManifestVersion)) return false;
+  if (!equals(root.get(), "manifestVersion", kCurrentManifestVersion)) return false;
   const cJSON* targets = cJSON_GetObjectItemCaseSensitive(root.get(), "targets");
   const cJSON* files = cJSON_GetObjectItemCaseSensitive(root.get(), "files");
   const cJSON* notes = cJSON_GetObjectItemCaseSensitive(root.get(), "releaseNotes");
@@ -1978,7 +1973,7 @@ bool ParseCurrentReleaseNotes(const char* text, FirmwareReleaseManifest* manifes
   cJSON_ArrayForEach(target, targets) {
     const char* main_id = nullptr;
     const char* wireless_id = nullptr;
-    if (MatchFirmwareTarget(target, hardware.main_revision, range_matching,
+    if (MatchFirmwareTarget(target, hardware.main_revision,
             &main_id, &wireless_id) != TargetMatchResult::kMatch) continue;
     if (matched) return false;
     matched = true;
@@ -3144,12 +3139,8 @@ FirmwareDownloadResult DownloadWirelessFirmware(
     }
     if (!image_valid) {
       std::remove(kWirelessFirmwareTempPath);
-      if (source_index + 1 < manifest.wireless_url_count && IsNetworkReady()) {
-        LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-            "Retry invalid Wireless firmware through next source\n");
-        continue;
-      }
-      SetFailure("Downloaded Wireless firmware invalid");
+      SetFailure("Downloaded Wireless firmware invalid", false,
+          FirmwareUpdateFailureComponent::kWireless);
       return FirmwareDownloadResult::kFailed;
     }
     std::remove(kWirelessFirmwarePath);
@@ -3406,7 +3397,8 @@ WirelessUpdateResult UpdateWirelessFirmware(
     return WirelessUpdateResult::kNotRequired;
   }
   if (!InspectWirelessFirmware(kWirelessFirmwarePath, manifest)) {
-    SetFailure("Stored Wireless firmware invalid");
+    SetFailure("Stored Wireless firmware invalid", false,
+        FirmwareUpdateFailureComponent::kWireless);
     return WirelessUpdateResult::kFailed;
   }
   std::unique_ptr<FILE, decltype(&std::fclose)> file(
@@ -3734,13 +3726,11 @@ MainUpdateResult UpdateMainFirmware(const FirmwareReleaseManifest& manifest,
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
           "Main firmware verification failed: source=%u result=%s\n",
           static_cast<unsigned>(source_index + 1), esp_err_to_name(result));
-      if (source_index + 1 < manifest.main_url_count && IsNetworkReady()) {
-        continue;
-      }
       if (!keep_marker_on_failure) {
         ClearPendingUpdate();
       }
-      SetFailure("Main firmware image or SHA-256 verification failed");
+      SetFailure("Main firmware image or SHA-256 verification failed", false,
+          FirmwareUpdateFailureComponent::kMain);
       return MainUpdateResult::kFailed;
     }
     LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
@@ -3930,6 +3920,14 @@ void RunUpdateTask() {
     return;
   }
 
+  bool expected_main_cache = false;
+  bool expected_wireless_cache = false;
+  if (LockManager()) {
+    // 仅将当前远程清单已经确认的缓存作为承诺，局域网另按提供的地址恢复。
+    expected_main_cache = !State().local_main_source && State().snapshot.main_cached;
+    expected_wireless_cache = !State().local_main_source && State().snapshot.wireless_cached;
+    UnlockManager();
+  }
   if (State().reuse_cache && main_update_required) {
     SetFirmwareUpdateOperation(FirmwareUpdateOperation::kVerifyingMain,
         "Checking cached Main firmware");
@@ -3937,6 +3935,13 @@ void RunUpdateTask() {
   const bool main_cached = !main_update_required ||
       (State().reuse_cache && InspectMainFirmwareCache(manifest));
   if (HandlePendingDownloadInterruption()) return;
+  if (State().reuse_cache && !main_cached &&
+      (expected_main_cache || manifest.main_url_count == 0)) {
+    SetFailure("Cached Main firmware failed verification", false,
+        FirmwareUpdateFailureComponent::kMain);
+    FinishWorker();
+    return;
+  }
   if (State().reuse_cache && wireless_update_required) {
     SetFirmwareUpdateOperation(FirmwareUpdateOperation::kVerifyingWireless,
         "Checking cached Wireless firmware");
@@ -3944,6 +3949,19 @@ void RunUpdateTask() {
   const bool wireless_cached = !wireless_update_required ||
       (State().reuse_cache && InspectWirelessFirmware(kWirelessFirmwarePath, manifest));
   if (HandlePendingDownloadInterruption()) return;
+  if (State().reuse_cache && !wireless_cached &&
+      (expected_wireless_cache || manifest.wireless_url_count == 0)) {
+    std::remove(kWirelessFirmwarePath);
+    SetFailure("Cached Wireless firmware failed verification", false,
+        FirmwareUpdateFailureComponent::kWireless);
+    FinishWorker();
+    return;
+  }
+  if (LockManager()) {
+    State().snapshot.main_cached = main_update_required && main_cached;
+    State().snapshot.wireless_cached = wireless_update_required && wireless_cached;
+    UnlockManager();
+  }
   const bool needs_network = !main_cached || !wireless_cached;
   if (needs_network && !IsNetworkReady()) {
     SetFailure("Wi-Fi is not connected");
@@ -4044,10 +4062,12 @@ void RunInstallTask() {
       !InspectWirelessFirmware(kWirelessFirmwarePath, manifest)) {
     std::remove(kWirelessFirmwarePath);
     if (std::strcmp(manifest.release_channel, "local") == 0) {
-      SetFailure("Prepared local Wireless firmware is unavailable");
+      SetFailure("Prepared local Wireless firmware is unavailable", false,
+          FirmwareUpdateFailureComponent::kWireless);
       return;
     }
-    SetFailure("Prepared Wireless firmware is unavailable");
+    SetFailure("Prepared Wireless firmware is unavailable", false,
+        FirmwareUpdateFailureComponent::kWireless);
     return;
   }
   const esp_partition_t* prepared_main_partition = nullptr;
@@ -4060,7 +4080,8 @@ void RunInstallTask() {
             prepared_main_partition, &staged_app) == ESP_OK &&
         ValidateMainFirmwareImage(staged_app, manifest);
     if (!image_valid) {
-      SetFailure("Prepared Main firmware is unavailable");
+      SetFailure("Prepared Main firmware is unavailable", false,
+          FirmwareUpdateFailureComponent::kMain);
       return;
     }
   }

@@ -202,6 +202,8 @@ struct SettingsViewState {
   lv_obj_t* firmware_update_cancel_button = nullptr;
   lv_obj_t* firmware_update_cancel_button_label = nullptr;
   lv_obj_t* firmware_update_spinner = nullptr;
+  PromptDialogState firmware_update_failure_prompt = {};
+  uint32_t firmware_update_failure_sequence = 0;
   lv_obj_t* firmware_update_log_page = nullptr;
   lv_obj_t* firmware_update_log_body = nullptr;
   SettingsTextEditPageState text_edit_page;

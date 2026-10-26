@@ -42,6 +42,10 @@ SUPPORTED_ESP_CHIP_IDS = {
     "esp32c6": 13,
     "esp32p4": 18,
 }
+LEGACY_DOWNLOAD_URL_TEMPLATES = (
+    "https://github.com/{repository}/releases/download/{release}/{filename}",
+    "https://gh-proxy.com/https://github.com/{repository}/releases/download/{release}/{filename}",
+)
 SEMANTIC_VERSION_PATTERN = re.compile(
     r"^(?P<major>0|[1-9][0-9]*)\."
     r"(?P<minor>0|[1-9][0-9]*)\."
@@ -477,6 +481,31 @@ def build_download_urls(
     return urls
 
 
+def download_url_templates(config: dict[str, Any]) -> list[str]:
+    """将 v2 单模板字段或 v1 多模板字段规范化为内部列表。"""
+    value = (
+        config.get("downloadUrlTemplate")
+        if config.get("manifestVersion") == "2.0"
+        else config.get("downloadUrlTemplates")
+    )
+    return [value] if isinstance(value, str) else value
+
+
+def manifest_download_addresses(
+    config: dict[str, Any],
+    repository: str,
+    release_tag: str,
+    filename: str,
+) -> dict[str, Any]:
+    """v2 写入单个地址；历史 v1 清单继续写 URL 数组。"""
+    urls = build_download_urls(
+        download_url_templates(config), repository, release_tag, filename
+    )
+    if config["manifestVersion"] == "2.0":
+        return {"downloadUrl": urls[0]}
+    return {"downloadUrls": urls}
+
+
 def validate_project_name(file_id: str, project_name: Any) -> str:
     """校验 ESP-IDF 应用描述中的项目名。"""
     if not isinstance(project_name, str):
@@ -545,22 +574,11 @@ def targets_overlap(first: dict[str, Any], second: dict[str, Any]) -> bool:
     return True
 
 
-def canonical_file_id(file_id: str, device_id: str) -> str:
-    """将旧版内部文件 ID 转换为包含产品标识的新版 ID。"""
-    match = re.fullmatch(
-        r"device-v([0-9]+\.[0-9]+)-(esp32p4|esp32c5|esp32c6)-rev([0-9]+\.[0-9]+)",
-        file_id,
-    )
-    if match is None:
-        return file_id
-    hardware, chip, revision = match.groups()
-    return f"{device_id}-v{hardware}_{chip}-v{revision}"
-
-
 def legacy_file_id(file_id: str) -> str:
     """恢复旧设备可读取的文件 ID 和历史资产命名组成部分。"""
     match = re.fullmatch(
-        r".+-v([0-9]+\.[0-9]+)_(esp32p4|esp32c5|esp32c6)-v([0-9]+\.[0-9]+)",
+        r".+-v([0-9]+\.[0-9]+)-(esp32p4|esp32c5|esp32c6)"
+        r"-v([0-9]+\.[0-9]+)",
         file_id,
     )
     if match is None:
@@ -569,39 +587,12 @@ def legacy_file_id(file_id: str) -> str:
     return f"device-v{hardware}-{chip}-rev{revision}"
 
 
-def normalize_manifest_file_ids(
-    manifest: dict[str, Any], device_id: str
-) -> dict[str, Any]:
-    """兼容继承旧 ID 的 v2 清单，同时保留已发布文件的名称和地址。"""
-    if manifest.get("manifestVersion") != "2.0":
-        return manifest
-    result = copy.deepcopy(manifest)
-    files = result.get("files")
-    if isinstance(files, dict):
-        renamed = {
-            canonical_file_id(key, device_id): value
-            for key, value in files.items()
-        }
-        if len(renamed) != len(files):
-            raise ValueError("上一版清单的新旧文件 ID 映射发生冲突")
-        result["files"] = renamed
-    targets = result.get("targets")
-    if isinstance(targets, list):
-        for target in targets:
-            if (isinstance(target, dict)
-                    and isinstance(target.get("components"), dict)):
-                target["components"] = {
-                    role: (canonical_file_id(key, device_id)
-                           if isinstance(key, str) else key)
-                    for role, key in target["components"].items()
-                }
-    return result
-
-
 def legacy_config(config: dict[str, Any]) -> dict[str, Any]:
     """构造仅供 P4 V1 旧固件迁移使用的精确匹配配置。"""
     result = copy.deepcopy(config)
     result["manifestVersion"] = "1.0"
+    result.pop("downloadUrlTemplate", None)
+    result["downloadUrlTemplates"] = list(LEGACY_DOWNLOAD_URL_TEMPLATES)
     result["targets"] = result.pop("legacyTargets")
     referenced = {file_id for target in result["targets"]
                   for file_id in target["components"].values()}
@@ -643,10 +634,17 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("deviceId 最多只能包含 31 个字符")
     if not REPOSITORY_PATTERN.fullmatch(config["repository"]):
         raise ValueError("repository 必须使用 owner/repository 格式")
-    templates = config.get("downloadUrlTemplates")
+    if manifest_version == "2.0":
+        template = config.get("downloadUrlTemplate")
+        if not isinstance(template, str) or "downloadUrlTemplates" in config:
+            raise ValueError("downloadUrlTemplate 必须是单个 URL 模板")
+        templates = [template]
+    else:
+        templates = config.get("downloadUrlTemplates")
+    maximum_sources = 1 if manifest_version == "2.0" else MAX_DOWNLOAD_SOURCE_COUNT
     if (
         not isinstance(templates, list)
-        or not 1 <= len(templates) <= MAX_DOWNLOAD_SOURCE_COUNT
+        or not 1 <= len(templates) <= maximum_sources
         or any(
             not isinstance(template, str)
             or "{release}" not in template
@@ -655,8 +653,7 @@ def validate_config(config: dict[str, Any]) -> None:
         )
     ):
         raise ValueError(
-            f"downloadUrlTemplates 必须包含 1 至 "
-            f"{MAX_DOWNLOAD_SOURCE_COUNT} 个使用 release 和 filename 的模板"
+            f"下载地址模板必须包含 1 至 {maximum_sources} 个使用 release 和 filename 的 URL"
         )
     build_download_urls(
         templates,
@@ -664,6 +661,8 @@ def validate_config(config: dict[str, Any]) -> None:
         "v1.0.0",
         "firmware.bin",
     )
+    if manifest_version == "2.0" and not templates[0].startswith("https://github.com/"):
+        raise ValueError("v2 下载地址模板必须使用 GitHub 原始地址")
 
     firmware_files = config.get("files")
     if (
@@ -817,9 +816,9 @@ def firmware_product_name(config: dict[str, Any], file_id: str) -> tuple[str, st
                 if file_id in target["components"].values()}
     match = re.fullmatch(
         re.escape(config["deviceId"])
-        + r"-v([0-9]+\.[0-9]+)_(esp32p4|esp32c5|esp32c6)"
+        + r"-v([0-9]+\.[0-9]+)-(esp32p4|esp32c5|esp32c6)"
         + r"-v([0-9]+\.[0-9]+)",
-        canonical_file_id(file_id, config["deviceId"]),
+        file_id,
     )
     if match:
         hardware, chip, revision = match.groups()
@@ -841,8 +840,8 @@ def build_manifest_filename(config: dict[str, Any], channel: str) -> str:
     major_version = config["manifestVersion"].split(".", 1)[0]
     if config["manifestVersion"] == "2.0":
         return (
-            f"lilygobox_{device_release_name(config)}_ota-manifest_"
-            f"{channel}_v{major_version}.json"
+            f"lilygobox-{device_release_name(config)}-ota-manifest-"
+            f"{channel}-v{major_version}.json"
         )
     return (
         f"lilygobox-{device_release_name(config)}-ota-manifest-"
@@ -853,7 +852,7 @@ def build_manifest_filename(config: dict[str, Any], channel: str) -> str:
 def build_firmware_filename(
     config: dict[str, Any], file_id: str, version: str
 ) -> str:
-    """根据设备、固件文件 ID 和版本生成唯一固件资产文件名。"""
+    """Build versioned legacy names or v2 names keyed by hardware identity."""
     if config["manifestVersion"] == "1.0":
         filename = (
             f"lilygobox-{config['deviceId']}-"
@@ -861,7 +860,7 @@ def build_firmware_filename(
         )
     else:
         product, chip_label = firmware_product_name(config, file_id)
-        filename = f"lilygobox_{product}_{chip_label}_v{version}.bin"
+        filename = f"lilygobox-{product}-{chip_label}.bin"
     if len(filename) > MAX_FIRMWARE_FILENAME_LENGTH:
         raise ValueError(f"固件文件名过长：{filename}")
     return filename
@@ -873,15 +872,24 @@ def validate_manifest_firmware_file(
     config: dict[str, Any],
 ) -> dict[str, Any]:
     """校验上一版 Manifest 中可继承的一个固件文件。"""
-    if not isinstance(value, dict) or set(value) != {
+    if not isinstance(value, dict):
+        raise ValueError(f"固件文件 {file_id} 的字段不完整")
+    required_fields = {
         "chip",
         "projectName",
         "version",
         "fileName",
-        "downloadUrls",
         "sizeBytes",
         "hashes",
-    }:
+    }
+    address_field = (
+        "downloadUrl" if config["manifestVersion"] == "2.0" else "downloadUrls"
+    )
+    accepted_fields = {frozenset(required_fields | {address_field})}
+    if config["manifestVersion"] == "2.0":
+        # 开发版此前输出过数组；只读入旧预览，生成时一律收敛为单个 URL。
+        accepted_fields.add(frozenset(required_fields | {"downloadUrls"}))
+    if frozenset(value) not in accepted_fields:
         raise ValueError(f"固件文件 {file_id} 的字段不完整")
     file_config = config["files"][file_id]
     if (
@@ -899,21 +907,20 @@ def validate_manifest_firmware_file(
         f"lilygobox-{config['deviceId']}-"
         f"{legacy_file_id(file_id)}-v{version}.bin"
     )
-    accepted_filenames = {expected_filename, historical_filename}
-    if config["manifestVersion"] == "2.0":
-        product, chip_label = firmware_product_name(config, file_id)
-        previous_chip_label = re.sub(r"-v([0-9]+)\.0$", r"-v\1", chip_label)
-        accepted_filenames.add(
-            f"lilygobox_{product}_{previous_chip_label}_v{version}.bin"
-        )
+    accepted_filenames = {expected_filename}
+    if config["manifestVersion"] == "1.0":
+        accepted_filenames.add(historical_filename)
     if filename not in accepted_filenames:
         raise ValueError(f"固件文件 {file_id}.fileName 无效")
-    urls = value["downloadUrls"]
-    if (
-        not isinstance(urls, list)
-        or not 1 <= len(urls) <= MAX_DOWNLOAD_SOURCE_COUNT
-    ):
-        raise ValueError(f"固件文件 {file_id}.downloadUrls 数量无效")
+    if config["manifestVersion"] == "2.0":
+        if isinstance(value.get("downloadUrl"), str):
+            urls = [value["downloadUrl"]]
+        else:
+            urls = value.get("downloadUrls")
+    else:
+        urls = value.get("downloadUrls")
+    if not isinstance(urls, list) or not 1 <= len(urls) <= MAX_DOWNLOAD_SOURCE_COUNT:
+        raise ValueError(f"固件文件 {file_id} 下载地址数量无效")
     validated_urls: list[str] = []
     for url in urls:
         if not is_supported_download_url(url) or not url.endswith(filename):
@@ -950,11 +957,8 @@ def validate_manifest_firmware_file(
         "projectName": file_config["projectName"],
         "version": version,
         "fileName": filename,
-        "downloadUrls": build_download_urls(
-            config["downloadUrlTemplates"],
-            config["repository"],
-            source_release,
-            filename,
+        **manifest_download_addresses(
+            config, config["repository"], source_release, filename
         ),
         "sizeBytes": size_bytes,
         "hashes": {"sha256": hashes["sha256"].lower()},
@@ -965,7 +969,6 @@ def validate_previous_manifest(
     manifest: dict[str, Any], config: dict[str, Any]
 ) -> dict[str, dict[str, Any]]:
     """校验上一版清单并提取可继承的固件文件。"""
-    manifest = normalize_manifest_file_ids(manifest, config["deviceId"])
     if manifest.get("kind") != MANIFEST_KIND:
         raise ValueError("上一版清单 kind 不受支持")
     if manifest.get("manifestVersion") != config["manifestVersion"]:
@@ -1098,11 +1101,8 @@ def copy_and_describe_firmware_file(
         "projectName": file_config["projectName"],
         "version": version,
         "fileName": filename,
-        "downloadUrls": build_download_urls(
-            config["downloadUrlTemplates"],
-            config["repository"],
-            release_tag,
-            filename,
+        **manifest_download_addresses(
+            config, config["repository"], release_tag, filename
         ),
         "sizeBytes": size_bytes,
         "hashes": {"sha256": calculate_sha256(destination)},
@@ -1118,13 +1118,17 @@ def clear_generated_files(
     manifest_names = {build_manifest_filename(config, channel)}
     if config["manifestVersion"] == "2.0":
         manifest_names.add(
-            f"lilygobox-{device_release_name(config)}-ota-manifest-{channel}-v2.json"
+            f"lilygobox_{device_release_name(config)}_ota-manifest_"
+            f"{channel}_v{config['manifestVersion'].split('.', 1)[0]}.json"
         )
     if "legacyTargets" in config:
         manifest_names.add(build_manifest_filename(legacy_config(config), channel))
-    firmware_prefixes = (f"lilygobox_{config['deviceId']}-v",)
+    firmware_prefixes = (
+        f"lilygobox-{config['deviceId']}-v",
+        f"lilygobox_{config['deviceId']}-v",
+    )
     if config["manifestVersion"] == "1.0" or "legacyTargets" in config:
-        firmware_prefixes += (f"lilygobox-{config['deviceId']}-",)
+        firmware_prefixes += (f"lilygobox-{config['deviceId']}-device-v",)
     for path in output_directory.iterdir():
         generated_firmware = (
             path.is_file()
@@ -1210,8 +1214,6 @@ def main() -> int:
 
         file_updates: dict[str, tuple[str, Path]] = {}
         for file_id, declared_version, path in args.firmware_file:
-            if config["manifestVersion"] == "2.0":
-                file_id = canonical_file_id(file_id, config["deviceId"])
             if file_id not in config["files"]:
                 raise ValueError(f"不支持固件文件：{file_id}")
             if file_id in file_updates:
@@ -1380,18 +1382,27 @@ def main() -> int:
             }
             for file_id, metadata in legacy_manifest["files"].items():
                 current_name = metadata["fileName"]
+                current_url = metadata.get("downloadUrl")
+                if not isinstance(current_url, str):
+                    current_urls = metadata.get("downloadUrls")
+                    current_url = (
+                        current_urls[0]
+                        if isinstance(current_urls, list) and current_urls
+                        else None
+                    )
                 legacy_name = build_firmware_filename(
                     previous_config, file_id, metadata["version"]
                 )
                 source_release = extract_release_tag(
-                    metadata["downloadUrls"][0], config["repository"], current_name
+                    current_url, config["repository"], current_name
                 )
                 metadata["fileName"] = legacy_name
+                metadata.pop("downloadUrl", None)
                 metadata["downloadUrls"] = build_download_urls(
-                    config["downloadUrlTemplates"], config["repository"],
+                    list(LEGACY_DOWNLOAD_URL_TEMPLATES), config["repository"],
                     source_release, legacy_name,
                 )
-                current_file_id = canonical_file_id(file_id, config["deviceId"])
+                current_file_id = file_id
                 if current_file_id in file_updates and current_name != legacy_name:
                     legacy_binary = output_directory / legacy_name
                     shutil.copyfile(output_directory / current_name, legacy_binary)

@@ -22,8 +22,8 @@
         }
       },
       "components": {
-        "main": "t-display-p4-v1.0_esp32p4-v1.0",
-        "wireless": "t-display-p4-v1.0_esp32c6-v0.0"
+        "main": "t-display-p4-v1.0-esp32p4-v1.0",
+        "wireless": "t-display-p4-v1.0-esp32c6-v0.0"
       }
     },
     {
@@ -43,33 +43,30 @@
         }
       },
       "components": {
-        "main": "t-display-p4-v2.0_esp32p4-v1.0",
-        "wireless": "t-display-p4-v2.0_esp32c5-v1.0"
+        "main": "t-display-p4-v2.0-esp32p4-v1.0",
+        "wireless": "t-display-p4-v2.0-esp32c5-v1.0"
       }
     }
   ],
   "files": {
-    "t-display-p4-v1.0_esp32p4-v1.0": {
+    "t-display-p4-v1.0-esp32p4-v1.0": {
       "chip": "esp32p4",
       "projectName": "lilygobox-espidf"
     },
-    "t-display-p4-v1.0_esp32c6-v0.0": {
+    "t-display-p4-v1.0-esp32c6-v0.0": {
       "chip": "esp32c6",
       "projectName": "network_adapter"
     },
-    "t-display-p4-v2.0_esp32p4-v1.0": {
+    "t-display-p4-v2.0-esp32p4-v1.0": {
       "chip": "esp32p4",
       "projectName": "lilygobox-espidf"
     },
-    "t-display-p4-v2.0_esp32c5-v1.0": {
+    "t-display-p4-v2.0-esp32c5-v1.0": {
       "chip": "esp32c5",
       "projectName": "network_adapter"
     }
   },
-  "downloadUrlTemplates": [
-    "https://github.com/{repository}/releases/download/{release}/{filename}",
-    "https://gh-proxy.com/https://github.com/{repository}/releases/download/{release}/{filename}"
-  ],
+  "downloadUrlTemplate": "https://github.com/{repository}/releases/download/{release}/{filename}",
   "legacyTargets": [
     {
       "compatibility": {
@@ -86,8 +83,8 @@
         }
       },
       "components": {
-        "main": "t-display-p4-v1.0_esp32p4-v1.0",
-        "wireless": "t-display-p4-v1.0_esp32c6-v0.0"
+        "main": "t-display-p4-v1.0-esp32p4-v1.0",
+        "wireless": "t-display-p4-v1.0-esp32c6-v0.0"
       }
     },
     {
@@ -105,8 +102,8 @@
         }
       },
       "components": {
-        "main": "t-display-p4-v1.0_esp32p4-v1.0",
-        "wireless": "t-display-p4-v1.0_esp32c6-v0.0"
+        "main": "t-display-p4-v1.0-esp32p4-v1.0",
+        "wireless": "t-display-p4-v1.0-esp32c6-v0.0"
       }
     }
   ]

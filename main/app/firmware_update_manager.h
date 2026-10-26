@@ -8,6 +8,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 
 namespace lilygo_box {
@@ -55,7 +56,17 @@ enum class FirmwareUpdateOperation {
   kPreparingInstall,
 };
 
+// 校验失败的组件单独上报，界面不依赖错误文本判断是否需要重新下载。
+enum class FirmwareUpdateFailureComponent {
+  kNone,
+  kMain,
+  kWireless,
+};
+
 struct FirmwareUpdateSnapshot {
+  FirmwareUpdateFailureComponent failure_component =
+      FirmwareUpdateFailureComponent::kNone;
+  uint32_t failure_sequence = 0;
   char task_id[33] = {};
   bool main_cached = false;
   bool wireless_cached = false;
