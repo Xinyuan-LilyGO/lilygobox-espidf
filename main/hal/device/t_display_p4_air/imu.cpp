@@ -21,6 +21,7 @@ namespace {
 
 constexpr float kRadiansToDegrees = 57.2957795F;
 constexpr float kDegreesToRadians = 0.0174532925F;
+constexpr float kImuHeadingOffsetDegrees = -90.0F;
 constexpr float kBhi260apGyroscopeScale = 2000.0F / 32768.0F;
 constexpr float kBhi260apAccelerometerScale = 1.0F / 4096.0F;
 constexpr float kBhi260apSampleRateHz = 100.0F;
@@ -79,7 +80,7 @@ bool TDisplayP4AirDevice::SetImuEnabled(bool enabled) {
           BHY2_SENSOR_ID_GYRO_PASS, 0.0F, kBhi260apReportLatencyMs);
     }
     result &= driver_.SetBhi260apSleep(true);
-    result &= driver_.SetQmc6310nSleep(true);
+    result &= driver_.SetQmc6309Sleep(true);
     imu_.configured = false;
     imu_.acceleration_ready = false;
     imu_.angular_velocity_ready = false;
@@ -90,27 +91,27 @@ bool TDisplayP4AirDevice::SetImuEnabled(bool enabled) {
   }
 
   if (imu_enabled_.load() && imu_.configured && driver_.IsBhi260apReady() &&
-      driver_.IsQmc6310nReady() && driver_.chip().bhi260ap != nullptr &&
-      driver_.chip().qmc6310n != nullptr) {
+      driver_.IsQmc6309Ready() && driver_.chip().bhi260ap != nullptr &&
+      driver_.chip().qmc6309 != nullptr) {
     xSemaphoreGive(imu_.mutex);
     return true;
   }
 
   uint32_t elapsed_ms = 0;
   while (driver_.chip().bhi260ap != nullptr &&
-         driver_.chip().qmc6310n != nullptr &&
-         (!driver_.IsBhi260apReady() || !driver_.IsQmc6310nReady()) &&
+         driver_.chip().qmc6309 != nullptr &&
+         (!driver_.IsBhi260apReady() || !driver_.IsQmc6309Ready()) &&
          elapsed_ms < kImuHardwareReadyTimeoutMs) {
     vTaskDelay(pdMS_TO_TICKS(kImuHardwareReadyPollMs));
     elapsed_ms += kImuHardwareReadyPollMs;
   }
-  if (!driver_.IsBhi260apReady() || !driver_.IsQmc6310nReady() ||
+  if (!driver_.IsBhi260apReady() || !driver_.IsQmc6309Ready() ||
       driver_.chip().bhi260ap == nullptr ||
-      driver_.chip().qmc6310n == nullptr) {
+      driver_.chip().qmc6309 == nullptr) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Enable IMU failed: BHI260AP ready=%u, QMC6310N ready=%u\n",
+        "Enable IMU failed: BHI260AP ready=%u, QMC6309 ready=%u\n",
         static_cast<unsigned int>(driver_.IsBhi260apReady()),
-        static_cast<unsigned int>(driver_.IsQmc6310nReady()));
+        static_cast<unsigned int>(driver_.IsQmc6309Ready()));
     xSemaphoreGive(imu_.mutex);
     return false;
   }
@@ -122,10 +123,10 @@ bool TDisplayP4AirDevice::SetImuEnabled(bool enabled) {
         "Enable IMU failed: wake BHI260AP failed\n");
   }
   if (result) {
-    result = driver_.SetQmc6310nSleep(false);
+    result = driver_.SetQmc6309Sleep(false);
     if (!result) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Enable IMU failed: wake QMC6310N failed\n");
+          "Enable IMU failed: wake QMC6309 failed\n");
     }
   }
   if (result) {
@@ -179,7 +180,7 @@ bool TDisplayP4AirDevice::SetImuEnabled(bool enabled) {
     bhi260ap.ConfigureSensor(BHY2_SENSOR_ID_ACC_PASS, 0.0F, kBhi260apReportLatencyMs);
     bhi260ap.ConfigureSensor(BHY2_SENSOR_ID_GYRO_PASS, 0.0F, kBhi260apReportLatencyMs);
     driver_.SetBhi260apSleep(true);
-    driver_.SetQmc6310nSleep(true);
+    driver_.SetQmc6309Sleep(true);
   }
   xSemaphoreGive(imu_.mutex);
   return result;
@@ -195,13 +196,13 @@ bool TDisplayP4AirDevice::ReadImuStatus(ImuStatus* status) {
   if (!imu_enabled_.load() || !imu_.configured) {
     return false;
   }
-  if (!driver_.IsBhi260apReady() || !driver_.IsQmc6310nReady() ||
+  if (!driver_.IsBhi260apReady() || !driver_.IsQmc6309Ready() ||
       driver_.chip().bhi260ap == nullptr ||
-      driver_.chip().qmc6310n == nullptr) {
+      driver_.chip().qmc6309 == nullptr) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Read IMU status failed: BHI260AP ready=%u, QMC6310N ready=%u\n",
+        "Read IMU status failed: BHI260AP ready=%u, QMC6309 ready=%u\n",
         static_cast<unsigned int>(driver_.IsBhi260apReady()),
-        static_cast<unsigned int>(driver_.IsQmc6310nReady()));
+        static_cast<unsigned int>(driver_.IsQmc6309Ready()));
     return false;
   }
   if (imu_.mutex == nullptr ||
@@ -220,7 +221,7 @@ bool TDisplayP4AirDevice::ReadImuStatus(ImuStatus* status) {
   }
   MagnetometerData magnetic_data;
   const bool magnetic_sample_ready =
-      driver_.chip().qmc6310n->readData(magnetic_data) && !magnetic_data.overflow;
+      driver_.chip().qmc6309->readData(magnetic_data) && !magnetic_data.overflow;
   if (magnetic_sample_ready) {
     imu_.magnetic_field[0] = magnetic_data.magnetic_field.x;
     imu_.magnetic_field[1] = magnetic_data.magnetic_field.y;
@@ -229,7 +230,7 @@ bool TDisplayP4AirDevice::ReadImuStatus(ImuStatus* status) {
   } else if (!imu_.magnetic_field_ready) {
     result = false;
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Read IMU status failed: QMC6310N has no valid data\n");
+        "Read IMU status failed: QMC6309 has no valid data\n");
   }
 
   if (!result || !imu_.acceleration_ready || !imu_.magnetic_field_ready) {
@@ -285,7 +286,7 @@ bool TDisplayP4AirDevice::ReadImuStatus(ImuStatus* status) {
 }
 
 float TDisplayP4AirDevice::ConvertImuHeading(float yaw_deg) const {
-  float heading = std::fmod(yaw_deg, 360.0F);
+  float heading = std::fmod(yaw_deg + kImuHeadingOffsetDegrees, 360.0F);
   if (heading < 0.0F) {
     heading += 360.0F;
   }

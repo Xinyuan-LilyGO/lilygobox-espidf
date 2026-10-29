@@ -61,7 +61,7 @@ bool TDisplayP4AirDevice::InitializeVolumeButtons() {
       tool_->SetGpioMode(gpio::button::kEsp32p4Boot,
           cpp_bus_driver::PlatformHal::GpioMode::kInput,
           cpp_bus_driver::PlatformHal::GpioStatus::kPullup) &&
-      tool_->SetGpioMode(gpio::button::kKey1,
+      tool_->SetGpioMode(gpio::button::kKey,
           cpp_bus_driver::PlatformHal::GpioMode::kInput,
           cpp_bus_driver::PlatformHal::GpioStatus::kPullup);
   return volume_buttons_initialized_;
@@ -121,7 +121,7 @@ bool TDisplayP4AirDevice::ConfigureDeepSleepGpioIsolation() {
   // 不会被这里的隔离配置破坏；重启路径只依赖定时唤醒，无需保留电源键输入。
   // 电源使能脚有外部下拉，进入睡眠高阻态后由外部电阻保持关闭，无需 GPIO hold。
   // 这里只切断外设 3.3V，不保证仍由电池或 VBUS 供电的 AXP517 本体完全掉电。
-  return driver_.SetPower3v3Enabled(false);
+  return driver_.Set3v3PowerEnabled(false);
 }
 
 bool TDisplayP4AirDevice::ConfigurePowerOffWakeSources() {
@@ -216,7 +216,7 @@ bool TDisplayP4AirDevice::ReadVolumeDownButtonPressed(bool* pressed) {
   }
 
   // KEY1 音量减按键使用上拉输入，按下时把 GPIO 拉低。
-  *pressed = !tool_->GpioRead(gpio::button::kKey1);
+  *pressed = !tool_->GpioRead(gpio::button::kKey);
   return true;
 }
 
@@ -602,7 +602,7 @@ bool TDisplayP4AirDevice::EnterDeviceSleep(bool deep_sleep) {
   }
   if (!deep_sleep) {
     touch_gesture_wake_enabled_ =
-        driver_.IsHi8561TouchReady() &&
+        driver_.IsTouchReady() && driver_.chip().hi8561_touch != nullptr &&
         driver_.chip().hi8561_touch->SetGestureWakeEnabled(true);
     const bool screen_slept = driver_.SetScreenSleep(true);
     if (!screen_slept && touch_gesture_wake_enabled_) {

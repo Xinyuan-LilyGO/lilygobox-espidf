@@ -49,6 +49,7 @@ class TDisplayP4AirDevice final : public ScreenProvider,
                                   public InfraredProvider,
                                   public NfcProvider,
                                   public RadioProvider,
+                                  public RtcProvider,
                                   public WifiProvider,
                                   public StorageProvider,
                                   private audio::PcmOutput {
@@ -153,39 +154,39 @@ class TDisplayP4AirDevice final : public ScreenProvider,
       uint8_t gain, bool auto_brake) override;
 
   /**
-   * @brief 播放 ES8389 扬声器音频提示
+   * @brief 播放 ES8390 扬声器音频提示
    * @param bytes_written 实际写入 I2S 的字节数输出地址
    * @return 播放成功返回 true，否则返回 false
    */
   bool PlaySpeakerTone(size_t* bytes_written) override;
 
   /**
-   * @brief 创建后台任务播放 ES8389 扬声器音频
+   * @brief 创建后台任务播放 ES8390 扬声器音频
    * @return 任务创建成功返回 true，否则返回 false
    */
   bool StartSpeakerTone() override;
 
   /**
-   * @brief 创建后台任务循环播放 ES8389 扬声器音频预览
+   * @brief 创建后台任务循环播放 ES8390 扬声器音频预览
    * @return 任务创建成功或已经在播放返回 true，否则返回 false
    */
   bool StartSpeakerToneLoop() override;
 
   /**
-   * @brief 停止后台循环播放 ES8389 扬声器音频预览
+   * @brief 停止后台循环播放 ES8390 扬声器音频预览
    * @return 停止命令发送成功返回 true，否则返回 false
    */
   bool StopSpeakerToneLoop() override;
 
   /**
-   * @brief 设置 ES8389 扬声器播放音量百分比
+   * @brief 设置 ES8390 扬声器播放音量百分比
    * @param percent 音量百分比，范围 0~100
    * @return 设置成功返回 true，否则返回 false
    */
   bool SetSpeakerVolumePercent(int percent) override;
 
   /**
-   * @brief 读取 ES8389 扬声器播放状态
+   * @brief 读取 ES8390 扬声器播放状态
    * @param status 播放状态输出地址
    * @return 读取成功返回 true，否则返回 false
    */
@@ -232,26 +233,26 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   bool ReadAudioFileStatus(AudioFilePlaybackStatus* status) override;
 
   /**
-   * @brief 创建后台任务读取 ES8389 麦克风采样数据
+   * @brief 创建后台任务读取 ES8390 麦克风采样数据
    * @return 任务创建成功返回 true，否则返回 false
    */
   bool StartMicrophone() override;
 
   /**
-   * @brief 停止 ES8389 麦克风采样并关闭 ADC PCM 到 DAC 的实时转送
+   * @brief 停止 ES8390 麦克风采样并关闭 ADC PCM 到 DAC 的实时转送
    * @return 停止命令发送成功返回 true，否则返回 false
    */
   bool StopMicrophone() override;
 
   /**
-   * @brief 设置是否将 ES8389 麦克风 ADC PCM 数据实时转送到 DAC
+   * @brief 设置是否将 ES8390 麦克风 ADC PCM 数据实时转送到 DAC
    * @param enable true 表示打开实时转送，false 表示关闭实时转送
    * @return 设置成功返回 true，否则返回 false
    */
   bool SetAudioAdcToDac(bool enable) override;
 
   /**
-   * @brief 读取 ES8389 麦克风状态
+   * @brief 读取 ES8390 麦克风状态
    * @param status 麦克风状态输出地址
    * @return 读取成功返回 true，否则返回 false
    */
@@ -476,6 +477,20 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   bool SetBatteryCapacityMah(int capacity_mah) override;
 
   /**
+   * @brief 读取 ESP32-P4 片内 RTC 系统时钟状态
+   * @param status RTC 状态输出地址
+   * @return 读取到有效系统时间返回 true，否则返回 false
+   */
+  bool ReadRtcStatus(RtcStatus* status) override;
+
+  /**
+   * @brief 将 UTC Unix 时间写入 ESP32-P4 系统时钟
+   * @param unix_time UTC Unix 时间戳
+   * @return 写入成功返回 true，否则返回 false
+   */
+  bool WriteRtcUnixTime(int64_t unix_time) override;
+
+  /**
    * @brief 设置 AXP517 Type-C Source 反向供电状态
    * @param enabled true 允许反向供电，false 保持受电角色
    * @return 设置成功返回 true，否则返回 false
@@ -496,27 +511,27 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   bool ReadExternalPowerPresent(bool* present) override;
 
   /**
-   * @brief 读取板载 LR1121 支持的射频协议、频段和负载能力
+   * @brief 读取板载 LR2021 支持的射频协议、频段和负载能力
    * @param capabilities 射频能力输出地址
    * @return 能力信息读取成功时返回 true
    */
   bool ReadRadioCapabilities(RadioCapabilities* capabilities) override;
 
   /**
-   * @brief 配置板载 LR1121 并启动指定射频会话的连续接收
+   * @brief 配置板载 LR2021 并启动指定射频会话的连续接收
    * @param config 待激活的射频配置
    * @return 配置成功且连续接收已启动时返回 true
    */
   bool ActivateRadio(const RadioConfig& config) override;
 
   /**
-   * @brief 停止当前射频会话并将板载 LR1121 切换到待机状态
-   * @return 停止成功或 LR1121 无需处理时返回 true
+   * @brief 停止当前射频会话并将板载 LR2021 切换到待机状态
+   * @return 停止成功或 LR2021 无需处理时返回 true
    */
   bool DeactivateRadio() override;
 
   /**
-   * @brief 使用板载 LR1121 启动一条可关联异步事件的射频发送
+   * @brief 使用板载 LR2021 启动一条可关联异步事件的射频发送
    * @param data 待发送数据
    * @param size 数据长度
    * @param request_token 调用方提供的发送请求唯一序号
@@ -526,21 +541,21 @@ class TDisplayP4AirDevice final : public ScreenProvider,
       const uint8_t* data, size_t size, uint64_t request_token) override;
 
   /**
-   * @brief 非阻塞轮询板载 LR1121 的收发和芯片错误事件
+   * @brief 非阻塞轮询板载 LR2021 的收发和芯片错误事件
    * @param event 射频事件输出地址，无事件时类型保持为 kNone
    * @return 轮询及必要的硬件状态处理成功时返回 true
    */
   bool PollRadioEvent(RadioEvent* event) override;
 
   /**
-   * @brief 读取板载 LR1121 的会话、硬件和发送状态
+   * @brief 读取板载 LR2021 的会话、硬件和发送状态
    * @param status 射频状态输出地址
    * @return 状态读取成功时返回 true
    */
   bool ReadRadioStatus(RadioStatus* status) override;
 
   /**
-   * @brief 启动或停止 BHI260AP 与 QMC6310N 姿态传感器
+   * @brief 启动或停止 BHI260AP 与 QMC6309 姿态传感器
    * @param enabled true 启动传感器，false 停止传感器
    * @return 状态切换成功或目标状态已经满足返回 true
    */
@@ -876,13 +891,13 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   bool WaitForPausedAudioFile();
 
   /**
-   * @brief 根据扬声器和麦克风的实际占用情况选择 ES8389 工作模式
+   * @brief 根据扬声器和麦克风的实际占用情况选择 ES8390 工作模式
    * @return 工作模式更新成功返回 true，否则返回 false
    */
   bool UpdateAudioCodecOperatingMode();
 
   /**
-   * @brief 根据 MP3 流参数配置 ES8389 PCM 输出
+   * @brief 根据 MP3 流参数配置 ES8390 PCM 输出
    * @param sample_rate_hz 采样率
    * @param channel_count 声道数
    * @param bits_per_sample 采样位宽
@@ -905,7 +920,7 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   bool TakeSeekRequest(uint32_t* position_ms) override;
 
   /**
-   * @brief 向 ES8389 写入解码后的 PCM 数据
+   * @brief 向 ES8390 写入解码后的 PCM 数据
    * @param data PCM 数据地址
    * @param size PCM 数据字节数
    * @return 完整写入返回 true，否则返回 false
@@ -1197,9 +1212,9 @@ class TDisplayP4AirDevice final : public ScreenProvider,
     std::atomic<bool> seek_requested{false};
     // MP3 文件待定位的播放时间，单位毫秒
     std::atomic<uint32_t> seek_position_ms{0};
-    // 当前 ES8389 输出采样率
+    // 当前 ES8390 输出采样率
     std::atomic<uint32_t> sample_rate_hz{44100};
-    // 当前扬声器音量百分比，ES8389 重新唤醒后用于恢复用户设置。
+    // 当前扬声器音量百分比，ES8390 重新唤醒后用于恢复用户设置。
     std::atomic<int> volume_percent{100};
     // 当前 MP3 文件绝对路径
     char audio_file_path[512] = {};
@@ -1417,12 +1432,9 @@ class TDisplayP4AirDevice final : public ScreenProvider,
     int64_t transmit_deadline_us = 0;
     // 当前激活配置的 LoRa 调制和数据包参数。
     LoraRadioConfig lora_config;
-    // 最近一次成功执行的 LR1121 Sub-GHz 镜像校准区间。
-    uint16_t calibrated_image_minimum_mhz = 0;
-    uint16_t calibrated_image_maximum_mhz = 0;
-    // LR1121 是否处于连续接收或发送会话。
+    // LR2021 是否处于连续接收或发送会话。
     bool active = false;
-    // LR1121 是否正在执行发送命令。
+    // LR2021 是否正在执行发送命令。
     bool transmitting = false;
     // 最近一次芯片操作是否需要重新激活配置。
     bool chip_error = false;
@@ -1447,7 +1459,7 @@ class TDisplayP4AirDevice final : public ScreenProvider,
     // 最近一次 BHI260AP 三轴角速度，单位 deg/s。
     float angular_velocity[3] = {};
     bool angular_velocity_ready = false;
-    // 最近一次 QMC6310N 三轴磁场读数。
+    // 最近一次 QMC6309 三轴磁场读数。
     float magnetic_field[3] = {};
     // 是否已经取得有效加速度样本。
     bool acceleration_ready = false;
@@ -1541,6 +1553,7 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   bool touch_interrupt_line_active_ = false;
   // 轻度熄屏期间是否启用了触摸固件双击唤醒。
   bool touch_gesture_wake_enabled_ = false;
+  int rm69a10_brightness_percent_ = 0;
   // 扬声器播放状态，供 UI 和后台播放任务共享
   SpeakerState speaker_;
   // 振动播放状态，供 UI 和后台播放任务共享
@@ -1557,7 +1570,7 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   RadioState radio_;
   // OTG 角色与反向供电硬件状态。
   OtgState otg_;
-  // BHI260AP 与 QMC6310N 组合姿态状态。
+  // BHI260AP 与 QMC6309 组合姿态状态。
   ImuState imu_;
   // Air 板 ST25R3916 后台轮询状态。
   NfcState nfc_;

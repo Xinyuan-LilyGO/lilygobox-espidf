@@ -79,7 +79,7 @@ bool TDisplayP4AirDevice::PlaySpeakerTone(size_t* bytes_written) {
     const size_t write_size =
         std::min(kSpeakerPlaybackChunkBytes, audio_size - total_written);
     const int write_result =
-        esp_codec_dev_write(driver_.es8389_output_codec_dev(),
+        esp_codec_dev_write(driver_.es8390_output_codec_dev(),
             const_cast<uint8_t*>(audio_data + total_written),
             static_cast<int>(write_size));
     const size_t written = write_result == ESP_CODEC_DEV_OK ? write_size : 0;
@@ -213,16 +213,16 @@ bool TDisplayP4AirDevice::SetSpeakerVolumePercent(int percent) {
     return true;
   }
 
-  if (!driver_.IsEs8389Ready() && !driver_.InitEs8389()) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "ES8389 init failed\n");
+  if (!driver_.IsEs8390Ready() && !driver_.InitEs8390()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "ES8390 init failed\n");
     return false;
   }
-  if (!driver_.SetEs8389OperatingMode(
-          TDisplayP4AirBoardDriver::Es8389OperatingMode::kActive)) {
+  if (!driver_.SetEs8390OperatingMode(
+          TDisplayP4AirBoardDriver::Es8390OperatingMode::kActive)) {
     return false;
   }
   const bool result =
-      esp_codec_dev_set_out_vol(driver_.es8389_output_codec_dev(),
+      esp_codec_dev_set_out_vol(driver_.es8390_output_codec_dev(),
           clamped_percent) == ESP_CODEC_DEV_OK;
   if (result) {
     speaker_.volume_percent.store(clamped_percent);
@@ -528,13 +528,13 @@ bool TDisplayP4AirDevice::UpdateAudioCodecOperatingMode() {
   const bool audio_active =
       speaker_.running.load() || microphone_.running.load();
   const auto mode = audio_active
-                        ? TDisplayP4AirBoardDriver::Es8389OperatingMode::kActive
-                        : TDisplayP4AirBoardDriver::Es8389OperatingMode::kSleep;
-  if (!driver_.SetEs8389OperatingMode(mode)) {
+                        ? TDisplayP4AirBoardDriver::Es8390OperatingMode::kActive
+                        : TDisplayP4AirBoardDriver::Es8390OperatingMode::kSleep;
+  if (!driver_.SetEs8390OperatingMode(mode)) {
     return false;
   }
   return !audio_active ||
-         esp_codec_dev_set_out_vol(driver_.es8389_output_codec_dev(),
+         esp_codec_dev_set_out_vol(driver_.es8390_output_codec_dev(),
              speaker_.volume_percent.load()) == ESP_CODEC_DEV_OK;
 }
 
@@ -544,13 +544,13 @@ bool TDisplayP4AirDevice::Configure(
       bits_per_sample != kSpeakerPlaybackBitsPerSample) {
     return false;
   }
-  if (!driver_.IsEs8389Ready() && !driver_.InitEs8389()) {
+  if (!driver_.IsEs8390Ready() && !driver_.InitEs8390()) {
     return false;
   }
   if (!UpdateAudioCodecOperatingMode()) {
     return false;
   }
-  esp_codec_dev_handle_t output = driver_.es8389_output_codec_dev();
+  esp_codec_dev_handle_t output = driver_.es8390_output_codec_dev();
   if (output == nullptr) {
     return false;
   }
@@ -566,7 +566,7 @@ bool TDisplayP4AirDevice::Configure(
                              : ESP_CODEC_DEV_MAKE_CHANNEL_MASK(0) |
                                    ESP_CODEC_DEV_MAKE_CHANNEL_MASK(1)),
       .sample_rate = sample_rate_hz,
-      .mclk_multiple = device::es8389::kMclkMultiple,
+      .mclk_multiple = device::es8390::kMclkMultiple,
   };
   if (esp_codec_dev_close(output) != ESP_CODEC_DEV_OK ||
       esp_codec_dev_open(output, &sample_info) != ESP_CODEC_DEV_OK) {
@@ -599,8 +599,8 @@ bool TDisplayP4AirDevice::Write(const uint8_t* data, size_t size) {
   if (data == nullptr || size == 0) {
     return false;
   }
-  if (!driver_.IsEs8389Ready() ||
-      driver_.es8389_output_codec_dev() == nullptr) {
+  if (!driver_.IsEs8390Ready() ||
+      driver_.es8390_output_codec_dev() == nullptr) {
     return false;
   }
   size_t total_written = 0;
@@ -611,7 +611,7 @@ bool TDisplayP4AirDevice::Write(const uint8_t* data, size_t size) {
     const size_t write_size =
         std::min(kSpeakerPlaybackChunkBytes, size - total_written);
     const int write_result =
-        esp_codec_dev_write(driver_.es8389_output_codec_dev(),
+        esp_codec_dev_write(driver_.es8390_output_codec_dev(),
             const_cast<uint8_t*>(data + total_written),
             static_cast<int>(write_size));
     const size_t written = write_result == ESP_CODEC_DEV_OK ? write_size : 0;
@@ -664,7 +664,7 @@ bool TDisplayP4AirDevice::StopMicrophone() {
   microphone_.stop_requested.store(true);
   microphone_.level_percent.store(0);
   microphone_.peak_sample.store(0);
-  if (!driver_.IsEs8389Ready()) {
+  if (!driver_.IsEs8390Ready()) {
     microphone_.adc_to_dac_enabled.store(false);
     ReleaseAuxiliaryAudioOutput(AuxiliaryAudioOutput::kMicrophoneLoopback);
     return true;
@@ -692,7 +692,7 @@ bool TDisplayP4AirDevice::SetAudioAdcToDac(bool enable) {
   }
 
   const bool previous_enabled = microphone_.adc_to_dac_enabled.exchange(enable);
-  const bool codec_ready = driver_.IsEs8389Ready() || driver_.InitEs8389();
+  const bool codec_ready = driver_.IsEs8390Ready() || driver_.InitEs8390();
   if (!UpdateAudioCodecOperatingMode() || !codec_ready) {
     microphone_.adc_to_dac_enabled.store(previous_enabled);
     if (enable) {
@@ -734,7 +734,7 @@ void TDisplayP4AirDevice::RunMicrophoneCaptureTask() {
   std::array<int16_t, kMicrophoneReadSampleCount> samples = {};
   while (!microphone_.stop_requested.load()) {
     const size_t requested_bytes = samples.size() * sizeof(samples[0]);
-    const int read_result = esp_codec_dev_read(driver_.es8389_input_codec_dev(),
+    const int read_result = esp_codec_dev_read(driver_.es8390_input_codec_dev(),
         samples.data(), static_cast<int>(requested_bytes));
     const size_t read_bytes =
         read_result == ESP_CODEC_DEV_OK ? requested_bytes : 0;
@@ -777,7 +777,7 @@ void TDisplayP4AirDevice::RunMicrophoneCaptureTask() {
                microphone_.adc_to_dac_enabled.load() &&
                !microphone_.stop_requested.load()) {
           const int write_result =
-              esp_codec_dev_write(driver_.es8389_output_codec_dev(),
+              esp_codec_dev_write(driver_.es8390_output_codec_dev(),
                   const_cast<uint8_t*>(pcm_data + written_bytes),
                   static_cast<int>(read_bytes - written_bytes));
           const size_t written =

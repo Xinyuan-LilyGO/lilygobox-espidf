@@ -41,6 +41,9 @@ constexpr CitTestEntry kCitTestEntries[] = {
     {.id = "ethernet",
         .name = "Ethernet Test",
         .status = CitTestStatus::kPending},
+#endif
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4) || \
+    defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4_AIR)
     {.id = "rtc", .name = "RTC Test", .status = CitTestStatus::kPending},
 #endif
     {.id = "wifi",

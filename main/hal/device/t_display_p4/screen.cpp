@@ -27,7 +27,6 @@ constexpr uint32_t kBacklightDutyScale = 1000;
 constexpr uint32_t kScreenBrightnessFadeUpdateMs = 10;
 constexpr uint32_t kTouchReadDiagnosticIntervalMs = 1000;
 constexpr uint8_t kTouchBusErrorRecoveryThreshold = 3;
-constexpr uint8_t kRm69a10BrightnessMax = UINT8_MAX;
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
 constexpr int kTouchInterruptGpio = gpio::hi8561::kTouchInt;
 #else
@@ -54,11 +53,6 @@ cpp_bus_driver::Pwm::DutyCycle ScreenBrightnessPercentToHi8561DutyCycle(
     int clamped_percent) {
   return device_utils::ScreenBrightnessPercentToDutyCycle(
       clamped_percent, kBacklightDutyScale);
-}
-
-uint8_t ScreenBrightnessPercentToRm69a10Value(int clamped_percent) {
-  return static_cast<uint8_t>(
-      clamped_percent * kRm69a10BrightnessMax / device_utils::kMaximumPercent);
 }
 
 }  // namespace
@@ -500,7 +494,7 @@ bool TDisplayP4Device::SetScreenBrightnessPercent(int percent) {
     case device::ScreenType::kRm69a10:
       if (driver_.IsScreenReady()) {
         const uint8_t brightness =
-            ScreenBrightnessPercentToRm69a10Value(clamped_percent);
+            device_utils::PercentToUint8Value(clamped_percent, UINT8_MAX);
         const bool result = driver_.chip().rm69a10->SetBrightness(brightness);
         if (result) {
           rm69a10_brightness_percent_ = clamped_percent;
@@ -552,7 +546,7 @@ bool TDisplayP4Device::FadeScreenBrightnessPercent(
               start_percent +
               (clamped_percent - start_percent) * step / step_count;
           const uint8_t brightness =
-              ScreenBrightnessPercentToRm69a10Value(brightness_percent);
+              device_utils::PercentToUint8Value(brightness_percent, UINT8_MAX);
           if (!driver_.chip().rm69a10->SetBrightness(brightness)) {
             return false;
           }

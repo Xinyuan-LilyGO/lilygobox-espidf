@@ -7,6 +7,7 @@
  */
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 
 #include "base/logger.h"
@@ -23,6 +24,7 @@ namespace gpio = lilygo_device_driver::t_display_p4_air::gpio;
 namespace {
 
 constexpr uint32_t kSy7200aDutyScale = 1000;
+constexpr uint32_t kScreenBrightnessFadeUpdateMs = 10;
 
 /**
  * @brief 判断触摸控制器是否可用
@@ -30,7 +32,7 @@ constexpr uint32_t kSy7200aDutyScale = 1000;
  * @return 触摸控制器可用返回 true
  */
 bool IsTouchReady(const TDisplayP4AirBoardDriver& driver) {
-  return driver.IsHi8561TouchReady();
+  return driver.IsTouchReady();
 }
 
 cpp_bus_driver::Pwm::DutyCycle ScreenBrightnessPercentToHi8561DutyCycle(
@@ -145,6 +147,9 @@ bool TDisplayP4AirDevice::WriteScreenPixels(
     case device::ScreenType::kHi8561:
       return driver_.chip().hi8561->SendColorStreamCoordinate(
           x_start, y_start, x_end, y_end, pixels);
+    case device::ScreenType::kRm69a10:
+      return driver_.chip().rm69a10->SendColorStreamCoordinate(
+          x_start, y_start, x_end, y_end, pixels);
     default:
       break;
   }
@@ -162,28 +167,56 @@ bool TDisplayP4AirDevice::ReadScreenTouch(TouchPoint* point) {
   }
 
   // 亮屏轮询会顺带消费通知，避免休眠时误把旧中断当成新的手势。
-  ConsumeTouchInterrupt();
+  const bool touch_interrupt_received = ConsumeTouchInterrupt();
 
   cpp_bus_driver::TouchFrame frame;
-  const cpp_bus_driver::TouchReadStatus read_status =
-      driver_.chip().hi8561_touch->ReadPrimaryTouch(&frame);
+  cpp_bus_driver::TouchReadStatus read_status =
+      cpp_bus_driver::TouchReadStatus::kInvalidData;
+  switch (driver_.screen_type()) {
+    case device::ScreenType::kHi8561:
+      read_status = driver_.chip().hi8561_touch->ReadPrimaryTouch(&frame);
+      break;
+    case device::ScreenType::kRm69a10:
+      read_status = driver_.chip().gt9895->ReadPrimaryTouch(&frame);
+      break;
+    default:
+      return false;
+  }
   if (read_status == cpp_bus_driver::TouchReadStatus::kSuccess ||
       read_status == cpp_bus_driver::TouchReadStatus::kNoData) {
     point->report_sequence = frame.sequence;
     point->report_sequence_valid = true;
   }
-  if (frame.gesture ==
-      static_cast<uint8_t>(cpp_bus_driver::Hi8561Touch::Gesture::kDoubleTap)) {
+  const bool firmware_double_tap =
+      (driver_.screen_type() == device::ScreenType::kHi8561 &&
+          frame.gesture == static_cast<uint8_t>(
+                               cpp_bus_driver::Hi8561Touch::Gesture::kDoubleTap)) ||
+      (driver_.screen_type() == device::ScreenType::kRm69a10 &&
+          frame.gesture == static_cast<uint8_t>(
+                               cpp_bus_driver::Gt9895::Gesture::kDoubleTap));
+  if (firmware_double_tap) {
     point->x = -1;
     point->y = -1;
     point->gesture = TouchGesture::kDoubleTap;
     return true;
   }
+  const bool hardware_edge_hint =
+      frame.edge_touch ||
+      (driver_.screen_type() == device::ScreenType::kRm69a10 &&
+          touch_interrupt_received &&
+          (read_status == cpp_bus_driver::TouchReadStatus::kNoData ||
+              (read_status == cpp_bus_driver::TouchReadStatus::kSuccess &&
+                  frame.contact_count == 0)));
   if (read_status != cpp_bus_driver::TouchReadStatus::kSuccess) {
-    return false;
+    if (read_status != cpp_bus_driver::TouchReadStatus::kNoData ||
+        !hardware_edge_hint) {
+      return false;
+    }
+    device_utils::SetHardwareEdgeTouchPoint(point);
+    return true;
   }
   if (frame.contact_count == 0) {
-    if (!frame.edge_touch) {
+    if (!hardware_edge_hint) {
       return false;
     }
     device_utils::SetHardwareEdgeTouchPoint(point);
@@ -214,13 +247,30 @@ bool TDisplayP4AirDevice::ReadScreenTouchPoints(
   }
 
   // 亮屏轮询会顺带消费通知，避免休眠时误把旧中断当成新的手势。
-  ConsumeTouchInterrupt();
+  const bool touch_interrupt_received = ConsumeTouchInterrupt();
 
   cpp_bus_driver::TouchFrame frame;
-  const cpp_bus_driver::TouchReadStatus read_status =
-      driver_.chip().hi8561_touch->ReadTouchFrame(&frame);
+  cpp_bus_driver::TouchReadStatus read_status =
+      cpp_bus_driver::TouchReadStatus::kInvalidData;
+  switch (driver_.screen_type()) {
+    case device::ScreenType::kHi8561:
+      read_status = driver_.chip().hi8561_touch->ReadTouchFrame(&frame);
+      break;
+    case device::ScreenType::kRm69a10:
+      read_status = driver_.chip().gt9895->ReadTouchFrame(&frame);
+      break;
+    default:
+      return false;
+  }
   if (read_status != cpp_bus_driver::TouchReadStatus::kSuccess) {
-    return false;
+    if (read_status != cpp_bus_driver::TouchReadStatus::kNoData ||
+        driver_.screen_type() != device::ScreenType::kRm69a10 ||
+        !touch_interrupt_received) {
+      return false;
+    }
+    device_utils::SetHardwareEdgeTouchPoint(&points[0]);
+    *point_count = 1;
+    return true;
   }
   const size_t count = std::min<size_t>(max_points, frame.contact_count);
   for (size_t i = 0; i < count; ++i) {
@@ -241,10 +291,15 @@ bool TDisplayP4AirDevice::ReadScreenTouchPoints(
 }
 
 bool TDisplayP4AirDevice::SupportsHardwareEdgeTouchHint(
-    int /*display_rotation_angle*/) const {
-  // HI8561 会在物理上下左右四边上报专用边缘触摸标记，因此所有
-  // 软件旋转方向都允许用硬件提示提前武装边缘返回手势。
-  return true;
+    int display_rotation_angle) const {
+  switch (driver_.screen_type()) {
+    case device::ScreenType::kHi8561:
+      return true;
+    case device::ScreenType::kRm69a10:
+      return display_rotation_angle == 0 || display_rotation_angle == 180;
+    default:
+      return false;
+  }
 }
 
 bool TDisplayP4AirDevice::SupportsTouchInterrupt() const {
@@ -277,12 +332,19 @@ bool TDisplayP4AirDevice::RequiresContinuousSleepingTouchPolling() const {
 }
 
 bool TDisplayP4AirDevice::RefreshTouchWakeConfiguration() {
-  if (!driver_.IsHi8561TouchReady() || driver_.chip().hi8561_touch == nullptr) {
-    return false;
+  bool refreshed = false;
+  switch (driver_.screen_type()) {
+    case device::ScreenType::kHi8561:
+      refreshed = driver_.chip().hi8561_touch != nullptr &&
+                  driver_.chip().hi8561_touch->SetGestureWakeEnabled(true);
+      break;
+    case device::ScreenType::kRm69a10:
+      refreshed = driver_.chip().gt9895 != nullptr &&
+                  driver_.chip().gt9895->EnterGestureMode();
+      break;
+    default:
+      return false;
   }
-
-  const bool refreshed =
-      driver_.chip().hi8561_touch->SetGestureWakeEnabled(true);
   if (refreshed) {
     touch_gesture_wake_enabled_ = true;
   }
@@ -297,10 +359,22 @@ bool TDisplayP4AirDevice::SetScreenBrightnessPercent(int percent) {
   const int clamped_percent = device_utils::ClampPercent(percent);
   switch (driver_.screen_type()) {
     case device::ScreenType::kHi8561:
-      if (driver_.IsSy7200aReady()) {
+      if (driver_.IsScreenBacklightReady() &&
+          driver_.chip().sy7200a != nullptr) {
         const cpp_bus_driver::Pwm::DutyCycle duty =
             ScreenBrightnessPercentToHi8561DutyCycle(clamped_percent);
         return driver_.chip().sy7200a->SetDuty(duty);
+      }
+      break;
+    case device::ScreenType::kRm69a10:
+      if (driver_.IsScreenReady() && driver_.chip().rm69a10 != nullptr) {
+        const uint8_t brightness =
+            device_utils::PercentToUint8Value(clamped_percent, UINT8_MAX);
+        const bool result = driver_.chip().rm69a10->SetBrightness(brightness);
+        if (result) {
+          rm69a10_brightness_percent_ = clamped_percent;
+        }
+        return result;
       }
       break;
     default:
@@ -322,13 +396,40 @@ bool TDisplayP4AirDevice::FadeScreenBrightnessPercent(
 
   switch (driver_.screen_type()) {
     case device::ScreenType::kHi8561:
-      if (driver_.IsSy7200aReady()) {
+      if (driver_.IsScreenBacklightReady() &&
+          driver_.chip().sy7200a != nullptr) {
         const cpp_bus_driver::Pwm::DutyCycle target_duty =
             ScreenBrightnessPercentToHi8561DutyCycle(clamped_percent);
         if (driver_.chip().sy7200a->FadeTo(target_duty, duration_ms,
                 cpp_bus_driver::Pwm::FadeMode::kWaitForCompletion)) {
           return true;
         }
+      }
+      break;
+    case device::ScreenType::kRm69a10:
+      if (driver_.IsScreenReady() && driver_.chip().rm69a10 != nullptr) {
+        const int start_percent = rm69a10_brightness_percent_;
+        const int brightness_delta = std::abs(clamped_percent - start_percent);
+        if (brightness_delta == 0) {
+          return true;
+        }
+        const int duration_step_count =
+            static_cast<int>(duration_ms / kScreenBrightnessFadeUpdateMs);
+        const int step_count =
+            std::max(1, std::min(brightness_delta, duration_step_count));
+        for (int step = 1; step <= step_count; ++step) {
+          const int brightness_percent =
+              start_percent +
+              (clamped_percent - start_percent) * step / step_count;
+          if (!driver_.chip().rm69a10->SetBrightness(
+                  device_utils::PercentToUint8Value(brightness_percent, UINT8_MAX))) {
+            return false;
+          }
+          rm69a10_brightness_percent_ = brightness_percent;
+          vTaskDelay(pdMS_TO_TICKS(
+              std::max<uint32_t>(1, duration_ms / step_count)));
+        }
+        return true;
       }
       break;
     default:
