@@ -852,7 +852,7 @@ def build_manifest_filename(config: dict[str, Any], channel: str) -> str:
 def build_firmware_filename(
     config: dict[str, Any], file_id: str, version: str
 ) -> str:
-    """Build versioned legacy names or v2 names keyed by hardware identity."""
+    """Build firmware names from hardware identity and component version."""
     if config["manifestVersion"] == "1.0":
         filename = (
             f"lilygobox-{config['deviceId']}-"
@@ -860,7 +860,7 @@ def build_firmware_filename(
         )
     else:
         product, chip_label = firmware_product_name(config, file_id)
-        filename = f"lilygobox-{product}-{chip_label}.bin"
+        filename = f"lilygobox-{product}-{chip_label}-v{version}.bin"
     if len(filename) > MAX_FIRMWARE_FILENAME_LENGTH:
         raise ValueError(f"固件文件名过长：{filename}")
     return filename

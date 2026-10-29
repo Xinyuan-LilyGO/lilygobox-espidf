@@ -21,20 +21,18 @@ existing V1.0 target. Add future board versions or incompatible chip series to
 the same product configuration only when their actual supported BINs exist.
 Never substitute another board's firmware or expand compatibility in JSON alone.
 
-Firmware assets retain their hardware version and chip series. The v2 asset
-name is independent of the software release version; the version remains in
-the manifest and the versioned GitHub Release tag:
+Firmware assets include the hardware version, chip series and component software version. The manifest records each component version independently:
 
 ```text
-lilygobox-t-display-p4-v1.0-esp32p4-v1.0.bin
-lilygobox-t-display-p4-v2.0-esp32p4-v1.0.bin
-lilygobox-t-display-p4-air-v1.0-esp32p4-v1.0.bin
-lilygobox-t-display-p4-air-v1.0-esp32c5-v1.0.bin
+lilygobox-t-display-p4-v1.0-esp32p4-v1.0-v1.1.3.bin
+lilygobox-t-display-p4-v2.0-esp32p4-v1.0-v1.1.3.bin
+lilygobox-t-display-p4-air-v1.0-esp32p4-v1.0-v1.1.3.bin
+lilygobox-t-display-p4-air-v1.0-esp32c5-v1.0-v2.12.3.bin
 ```
 
 Internal IDs use `<product>-v<board-version>-<chip>-v<chip-label>`, for example
 `t-display-p4-v2.0-esp32p4-v1.0`. New v2 asset names are
-`lilygobox-<file-id>.bin`, retaining the chip label's `.0`. The manifest
+`lilygobox-<file-id>-v<component-version>.bin`, retaining the chip label's `.0`. The manifest
 continues to carry each component's software version, byte size and SHA-256;
 the GitHub Release tag remains versioned (for example, `v1.1.3`). v1 bridge
 assets keep their existing versioned legacy names.
@@ -188,8 +186,8 @@ output/
 ├─ t-display-p4/stable/v1.1.3/
 │  ├─ lilygobox-t-display-p4-ota-manifest-stable-v2.json
 │  ├─ lilygobox-t-display-p4-ota-manifest-stable-v1.json
-│  ├─ lilygobox-t-display-p4-v1.0-esp32p4-v1.0.bin
-│  ├─ lilygobox-t-display-p4-v2.0-esp32p4-v1.0.bin
+│  ├─ lilygobox-t-display-p4-v1.0-esp32p4-v1.0-v1.1.3.bin
+│  ├─ lilygobox-t-display-p4-v2.0-esp32p4-v1.0-v1.1.3.bin
 │  └─ Wireless BINs and historical V1 aliases
 └─ t-display-p4-air/stable/v1.1.3/
    ├─ lilygobox-t-display-p4-air-ota-manifest-stable-v2.json

@@ -16,16 +16,16 @@
 
 P4 配置同时包含 V1.0 和 V2.0；Air 目前只包含已有的 V1.0 目标。只有在存在对应且实际支持的 BIN 时，才能将未来的板子版本或不兼容芯片系列加入同一产品配置。不得用其他板型的固件代替，也不能只修改 JSON 来扩大兼容范围。
 
-固件资产名保留板子硬件版本和芯片系列。v2 资产名不包含软件版本；软件版本记录在清单和带版本号的 GitHub Release 标签中：
+固件资产名包含板子硬件版本、芯片系列和组件软件版本。清单分别记录每个组件的软件版本：
 
 ```text
-lilygobox-t-display-p4-v1.0-esp32p4-v1.0.bin
-lilygobox-t-display-p4-v2.0-esp32p4-v1.0.bin
-lilygobox-t-display-p4-air-v1.0-esp32p4-v1.0.bin
-lilygobox-t-display-p4-air-v1.0-esp32c5-v1.0.bin
+lilygobox-t-display-p4-v1.0-esp32p4-v1.0-v1.1.3.bin
+lilygobox-t-display-p4-v2.0-esp32p4-v1.0-v1.1.3.bin
+lilygobox-t-display-p4-air-v1.0-esp32p4-v1.0-v1.1.3.bin
+lilygobox-t-display-p4-air-v1.0-esp32c5-v1.0-v2.12.3.bin
 ```
 
-内部文件 ID 格式为 `<产品>-v<板子版本>-<芯片>-v<芯片标识>`，例如 `t-display-p4-v2.0-esp32p4-v1.0`。新的 v2 资产名为 `lilygobox-<文件ID>.bin`，芯片标识中的 `.0` 必须保留。清单继续记录每个组件的软件版本、文件大小和 SHA-256；GitHub Release 标签仍带版本号，例如 `v1.1.3`。v1 中转资产继续使用原有的带版本旧名称。
+内部文件 ID 格式为 `<产品>-v<板子版本>-<芯片>-v<芯片标识>`，例如 `t-display-p4-v2.0-esp32p4-v1.0`。新的 v2 资产名为 `lilygobox-<文件ID>-v<组件版本>.bin`，芯片标识中的 `.0` 必须保留。清单继续记录每个组件的软件版本、文件大小和 SHA-256；GitHub Release 标签仍带版本号，例如 `v1.1.3`。v1 中转资产继续使用原有的带版本旧名称。
 
 芯片标识不能替代清单兼容范围或 BIN 镜像头校验。产品、芯片和所属板子必须与配置一致。跨板共用固件时，在 `files` 中保留一个所属文件 ID，其他目标引用同一个文件。
 
@@ -122,8 +122,8 @@ output/
 ├─ t-display-p4/stable/v1.1.3/
 │  ├─ lilygobox-t-display-p4-ota-manifest-stable-v2.json
 │  ├─ lilygobox-t-display-p4-ota-manifest-stable-v1.json
-│  ├─ lilygobox-t-display-p4-v1.0-esp32p4-v1.0.bin
-│  ├─ lilygobox-t-display-p4-v2.0-esp32p4-v1.0.bin
+│  ├─ lilygobox-t-display-p4-v1.0-esp32p4-v1.0-v1.1.3.bin
+│  ├─ lilygobox-t-display-p4-v2.0-esp32p4-v1.0-v1.1.3.bin
 │  └─ 无线 BIN 和 V1 历史名称别名
 └─ t-display-p4-air/stable/v1.1.3/
    ├─ lilygobox-t-display-p4-air-ota-manifest-stable-v2.json
