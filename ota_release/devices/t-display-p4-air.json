@@ -11,8 +11,8 @@
         "chips": {
           "main": {
             "model": "esp32p4",
-            "minRevision": "0.0",
-            "maxRevision": "1.99"
+            "minRevision": "3.1",
+            "maxRevision": "3.99"
           },
           "wireless": {
             "model": "esp32c5",
@@ -22,13 +22,13 @@
         }
       },
       "components": {
-        "main": "t-display-p4-air-v1.0-esp32p4-v1.0",
+        "main": "t-display-p4-air-v1.0-esp32p4-v3.1",
         "wireless": "t-display-p4-air-v1.0-esp32c5-v1.0"
       }
     }
   ],
   "files": {
-    "t-display-p4-air-v1.0-esp32p4-v1.0": {
+    "t-display-p4-air-v1.0-esp32p4-v3.1": {
       "chip": "esp32p4",
       "projectName": "lilygobox-espidf"
     },

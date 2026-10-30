@@ -81,6 +81,7 @@ struct FirmwareUpdateSnapshot {
   bool busy = false;
   bool manifest_available = false;
   bool current_release_notes_available = false;
+  bool latest_version_confirmed = false;
   bool update_available = false;
   bool manual_update_required = false;
   bool main_update_available = false;

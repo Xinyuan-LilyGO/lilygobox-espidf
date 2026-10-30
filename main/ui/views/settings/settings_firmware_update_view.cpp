@@ -545,7 +545,9 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
       state->firmware_update_status_version_label, current_version);
 
   SetFirmwareObjectVisible(state->firmware_update_spinner, scanning);
-  SetFirmwareObjectVisible(state->firmware_update_status_log_button, true);
+  SetFirmwareObjectVisible(state->firmware_update_status_log_button,
+      snapshot.stage == app::FirmwareUpdateStage::kUpToDate &&
+          snapshot.latest_version_confirmed && !snapshot.local_update);
   SetFirmwareObjectVisible(state->firmware_update_scan_message_label, true);
   SetFirmwareObjectVisible(state->firmware_update_scan_hint_label, true);
   if (scanning) {
@@ -913,6 +915,9 @@ void FirmwareCurrentLogClickedEventCallback(lv_event_t* event) {
   }
   auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
   if (state == nullptr) return;
+  const auto snapshot = GetFirmwareUpdateSnapshot();
+  if (snapshot.stage != app::FirmwareUpdateStage::kUpToDate ||
+      !snapshot.latest_version_confirmed || snapshot.local_update) return;
   ShowFirmwareUpdateLogPage(state);
 }
 

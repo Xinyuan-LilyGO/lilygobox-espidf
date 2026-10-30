@@ -2,7 +2,7 @@
  * @Description: LilygoBox 主固件与无线固件组合 OTA 更新实现
  * @Author: LILYGO_L
  * @Date: 2026-07-20 00:00:00
- * @LastEditTime: 2026-09-02 17:51:04
+ * @LastEditTime: 2026-10-29 16:35:20
  * @License: GPL 3.0
  */
 #include "app/firmware_update_manager.h"
@@ -2266,57 +2266,18 @@ bool DownloadManifestFromUrl(const char* url, char* buffer, uint32_t timeout_ms,
 }
 
 /**
- * @brief 根据标准清单地址构造指定发布版本的历史清单地址
- * @param latest_url 当前频道的标准清单地址
- * @param release_version 不含可选 v 前缀的发布版本
- * @param destination 历史清单地址输出缓冲区
- * @param destination_size 输出缓冲区长度
- * @return 地址构造成功返回 true，否则返回 false
- */
-bool BuildHistoricalManifestUrl(const char* latest_url,
-    const char* release_version, char* destination, size_t destination_size) {
-  const char* normalized_version = NormalizeDeviceVersion(release_version);
-  if (latest_url == nullptr || normalized_version == nullptr ||
-      destination == nullptr || destination_size == 0 ||
-      !ParseSemanticVersion(normalized_version, nullptr)) {
-    return false;
-  }
-  const char* extension = std::strrchr(latest_url, '.');
-  if (extension == nullptr || std::strcmp(extension, ".json") != 0) {
-    return false;
-  }
-  const size_t prefix_length = static_cast<size_t>(extension - latest_url);
-  if (prefix_length > static_cast<size_t>(std::numeric_limits<int>::max())) {
-    return false;
-  }
-  const int written =
-      std::snprintf(destination, destination_size, "%.*s-v%s.json",
-          static_cast<int>(prefix_length), latest_url, normalized_version);
-  return written > 0 && static_cast<size_t>(written) < destination_size;
-}
-
-/**
- * @brief 按配置顺序尝试下载并解析最新或指定版本的固件清单
+ * @brief 按配置顺序下载并解析当前频道的固件清单
  * @param manifest 清单解析结果
- * @param release_version 指定历史版本；为空时下载当前频道最新清单
- * @return 下载和解析成功返回 true；最新清单还要求持久化成功
+ * @return 下载、解析和持久化成功返回 true
  */
-bool DownloadManifest(
-    FirmwareReleaseManifest* manifest, const char* release_version) {
+bool DownloadManifest(FirmwareReleaseManifest* manifest) {
   if (manifest == nullptr) {
     return false;
   }
-  const bool historical_manifest =
-      release_version != nullptr && release_version[0] != '\0';
   auto buffer = std::unique_ptr<char[]>(
       new (std::nothrow) char[kManifestMaximumSize + 1]());
   if (buffer == nullptr) {
-    if (!historical_manifest) {
-      SetFailure("Insufficient memory for update information");
-    } else {
-      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Allocate historical firmware manifest buffer failed\n");
-    }
+    SetFailure("Insufficient memory for update information");
     return false;
   }
   ManifestDownloadContext context;
@@ -2330,20 +2291,7 @@ bool DownloadManifest(
     if (source.url[0] == '\0') {
       continue;
     }
-    char resolved_url[kMaximumFirmwareDownloadUrlLength] = {};
-    const char* manifest_url = source.url;
-    if (historical_manifest) {
-      if (!BuildHistoricalManifestUrl(source.url, release_version, resolved_url,
-              sizeof(resolved_url))) {
-        LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-            "Build historical firmware manifest URL failed: "
-            "version=v%s source=%s\n",
-            NormalizeDeviceVersion(release_version), source.name);
-        continue;
-      }
-      manifest_url = resolved_url;
-    }
-    downloaded = DownloadManifestFromUrl(manifest_url, buffer.get(),
+    downloaded = DownloadManifestFromUrl(source.url, buffer.get(),
         source.timeout_ms, &context, &result, &status_code);
     if (downloaded) {
       break;
@@ -2365,12 +2313,6 @@ bool DownloadManifest(
         kManifestDownloadSources[source_index + 1].name);
   }
   if (!downloaded) {
-    if (historical_manifest) {
-      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Historical firmware manifest unavailable (version: v%s)\n",
-          NormalizeDeviceVersion(release_version));
-      return false;
-    }
     const bool needs_internet_recheck =
         !context.server_connected || context.request_sent;
     if (status_code == 0 && !context.overflow && needs_internet_recheck) {
@@ -2390,14 +2332,6 @@ bool DownloadManifest(
   const ManifestParseResult parse_result =
       ParseManifest(buffer.get(), manifest);
   if (parse_result != ManifestParseResult::kSuccess) {
-    if (historical_manifest) {
-      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Historical firmware manifest is invalid "
-          "(version: v%s, result: %u)\n",
-          NormalizeDeviceVersion(release_version),
-          static_cast<unsigned>(parse_result));
-      return false;
-    }
     if (parse_result == ManifestParseResult::kUnsupportedVersion) {
       SetFailure("Manual firmware update required", true);
     } else if (parse_result == ManifestParseResult::kUnsupportedHardware) {
@@ -2407,19 +2341,9 @@ bool DownloadManifest(
     }
     return false;
   }
-  if (!historical_manifest && !SaveManifest(buffer.get())) {
+  if (!SaveManifest(buffer.get())) {
     SetFailure("Cannot save update information");
     return false;
-  }
-  if (historical_manifest && manifest->note_count > 0) {
-    char main_current[32] = {};
-    if (ReadCurrentMainVersion(main_current, sizeof(main_current)) &&
-        std::strcmp(manifest->main_version, main_current) == 0 &&
-        !SaveManifest(buffer.get(), kInstalledManifestPath,
-            kInstalledManifestTempPath)) {
-      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Save current firmware release notes failed\n");
-    }
   }
   return true;
 }
@@ -3820,7 +3744,7 @@ void RunCheckTask() {
   FirmwareReleaseManifest& manifest = *manifest_storage;
   char main_current[32] = {};
   char wireless_current[32] = {};
-  if (!DownloadManifest(&manifest, nullptr)) {
+  if (!DownloadManifest(&manifest)) {
     bool manual_update_required = false;
     if (LockManager()) {
       manual_update_required = State().snapshot.manual_update_required;
@@ -3851,31 +3775,21 @@ void RunCheckTask() {
       }
       current_release_notes_available = current_manifest_storage != nullptr;
     }
-    if (!current_release_notes_available &&
-        current_manifest_storage != nullptr &&
-        DownloadManifest(current_manifest_storage.get(), main_current)) {
-      current_release_notes_available =
-          std::strcmp(current_manifest_storage->main_version, main_current) ==
-              0 &&
-          current_manifest_storage->note_count > 0;
-      if (!current_release_notes_available) {
-        if (std::strcmp(current_manifest_storage->main_version, main_current) !=
-            0) {
-          LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-              "Historical firmware manifest version mismatch "
-              "(installed: %s, manifest: %s)\n",
-              main_current, current_manifest_storage->main_version);
-        } else {
-          LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-              "Historical firmware manifest has no release notes "
-              "(version: v%s)\n",
-              main_current);
-        }
-      }
-    }
     if (ApplyManifestSnapshot(manifest, main_current, wireless_current, true,
         current_release_notes_available ? current_manifest_storage.get()
                                         : nullptr, true)) {
+      bool main_valid = false;
+      bool wireless_valid = false;
+      const int main_comparison = CompareSemanticVersions(
+          main_current, manifest.main_version, &main_valid);
+      const int wireless_comparison = CompareSemanticVersions(
+          wireless_current, manifest.wireless_version, &wireless_valid);
+      if (LockManager()) {
+        // 仅成功读取在线清单并确认两个组件均一致时允许查看当前版本日志。
+        State().snapshot.latest_version_confirmed = main_valid && wireless_valid &&
+            main_comparison == 0 && wireless_comparison == 0;
+        UnlockManager();
+      }
       RefreshFirmwareCache(manifest);
     }
   }
@@ -4511,6 +4425,7 @@ bool FirmwareUpdateManager::RequestCheck() {
   State().snapshot.stage = FirmwareUpdateStage::kChecking;
   State().snapshot.busy = true;
   State().snapshot.manifest_available = false;
+  State().snapshot.latest_version_confirmed = false;
   State().snapshot.update_available = false;
   State().snapshot.main_update_available = false;
   State().snapshot.wireless_update_available = false;
