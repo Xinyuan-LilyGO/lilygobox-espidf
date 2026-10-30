@@ -6,7 +6,7 @@ This tool generates GitHub Releases assets and OTA manifests from device configu
 
 ## Firmware and compatibility
 
-V2 firmware assets are named `lilygobox-<file-id>-v<component-version>.bin`; the chip revision in a file ID identifies the lowest revision supported by that firmware. Versions, sizes, and SHA-256 hashes come from the actual BINs. Do not expand compatibility merely by editing a configuration or manifest. Incompatible ranges need separate targets and corresponding firmware; compatible firmware can be referenced by multiple targets.
+Main firmware assets are named `lilygobox-<product>-<chip>-v<component-version>.bin`. Wireless firmware uses the same product-independent name in v1 and v2 manifests: `lilygobox-<chip-and-revision>-v<component-version>.bin`; chip model and revision remain part of compatibility matching. The chip revision in a file ID identifies the lowest revision supported by that firmware. Versions, sizes, and SHA-256 hashes come from the actual BINs. Do not expand compatibility merely by editing a configuration or manifest. Incompatible ranges need separate targets and corresponding firmware; compatible firmware can be referenced by multiple targets.
 
 Devices select exactly one target using the board version and the models and revision ranges of the main and wireless chips, then verify the image header, project name, version, size, and SHA-256. Flutter LAN updates use the same information. When an older device does not report chip information, it can match only if the candidate targets reference the same component files.
 

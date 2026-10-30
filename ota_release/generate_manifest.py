@@ -854,13 +854,30 @@ def build_firmware_filename(
 ) -> str:
     """Build firmware names from hardware identity and component version."""
     if config["manifestVersion"] == "1.0":
-        filename = (
-            f"lilygobox-{config['deviceId']}-"
-            f"{legacy_file_id(file_id)}-v{version}.bin"
-        )
+        if config["files"][file_id]["projectName"] == "network_adapter":
+            legacy_match = re.fullmatch(
+                r"(?:device|.+)-v[0-9]+\.[0-9]+-"
+                r"(esp32p4|esp32c5|esp32c6)-rev([0-9]+\.[0-9]+)",
+                file_id,
+            )
+            if legacy_match is not None:
+                chip_label = (
+                    f"{legacy_match.group(1)}-v{legacy_match.group(2)}"
+                )
+            else:
+                _, chip_label = firmware_product_name(config, file_id)
+            filename = f"lilygobox-{chip_label}-v{version}.bin"
+        else:
+            filename = (
+                f"lilygobox-{config['deviceId']}-"
+                f"{legacy_file_id(file_id)}-v{version}.bin"
+            )
     else:
         product, chip_label = firmware_product_name(config, file_id)
-        filename = f"lilygobox-{product}-{chip_label}-v{version}.bin"
+        if config["files"][file_id]["projectName"] == "network_adapter":
+            filename = f"lilygobox-{chip_label}-v{version}.bin"
+        else:
+            filename = f"lilygobox-{product}-{chip_label}-v{version}.bin"
     if len(filename) > MAX_FIRMWARE_FILENAME_LENGTH:
         raise ValueError(f"固件文件名过长：{filename}")
     return filename
@@ -1111,6 +1128,9 @@ def clear_generated_files(
     firmware_prefixes = (
         f"lilygobox-{config['deviceId']}-v",
         f"lilygobox_{config['deviceId']}-v",
+        "lilygobox-esp32c5-v",
+        "lilygobox-esp32c6-v",
+        "lilygobox-network_adapter-",
     )
     if config["manifestVersion"] == "1.0" or "legacyTargets" in config:
         firmware_prefixes += (f"lilygobox-{config['deviceId']}-device-v",)
@@ -1383,8 +1403,15 @@ def main() -> int:
                     list(LEGACY_DOWNLOAD_URL_TEMPLATES), config["repository"],
                     source_release, legacy_name,
                 )
-                current_file_id = file_id
-                if current_file_id in file_updates and current_name != legacy_name:
+                current_file_id = next(
+                    (
+                        updated_file_id
+                        for updated_file_id in file_updates
+                        if legacy_file_id(updated_file_id) == file_id
+                    ),
+                    None,
+                )
+                if current_file_id is not None and current_name != legacy_name:
                     legacy_binary = output_directory / legacy_name
                     shutil.copyfile(output_directory / current_name, legacy_binary)
                     upload_files.append(legacy_binary)

@@ -1,0 +1,81 @@
+{
+  "kind": "lilygobox#otaDeviceConfig",
+  "manifestVersion": "2.0",
+  "publisherId": "lilygo",
+  "deviceId": "t-display-p4",
+  "repository": "Xinyuan-LilyGO/lilygobox-espidf",
+  "targets": [
+    {
+      "compatibility": {
+        "deviceVersion": "1.0",
+        "chips": {
+          "main": {
+            "model": "esp32p4",
+            "minRevision": "0.0",
+            "maxRevision": "1.99"
+          },
+          "wireless": {
+            "model": "esp32c6",
+            "minRevision": "0.0",
+            "maxRevision": "0.0"
+          }
+        }
+      },
+      "components": {
+        "main": "t-display-p4-v1.0-esp32p4-v1.0",
+        "wireless": "t-display-p4-v1.0-esp32c6-v0.0"
+      }
+    }
+  ],
+  "files": {
+    "t-display-p4-v1.0-esp32p4-v1.0": {
+      "chip": "esp32p4",
+      "projectName": "lilygobox-espidf"
+    },
+    "t-display-p4-v1.0-esp32c6-v0.0": {
+      "chip": "esp32c6",
+      "projectName": "network_adapter"
+    }
+  },
+  "downloadUrlTemplate": "https://github.com/{repository}/releases/download/{release}/{filename}",
+  "legacyTargets": [
+    {
+      "compatibility": {
+        "deviceVersion": "1.0",
+        "chips": {
+          "main": {
+            "model": "esp32p4",
+            "revision": "1.0"
+          },
+          "wireless": {
+            "model": "esp32c6",
+            "revision": "0.0"
+          }
+        }
+      },
+      "components": {
+        "main": "t-display-p4-v1.0-esp32p4-v1.0",
+        "wireless": "t-display-p4-v1.0-esp32c6-v0.0"
+      }
+    },
+    {
+      "compatibility": {
+        "deviceVersion": "1.0",
+        "chips": {
+          "main": {
+            "model": "esp32p4",
+            "revision": "1.3"
+          },
+          "wireless": {
+            "model": "esp32c6",
+            "revision": "0.0"
+          }
+        }
+      },
+      "components": {
+        "main": "t-display-p4-v1.0-esp32p4-v1.0",
+        "wireless": "t-display-p4-v1.0-esp32c6-v0.0"
+      }
+    }
+  ]
+}
