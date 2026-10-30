@@ -192,8 +192,6 @@ struct SettingsViewState {
   lv_obj_t* firmware_update_wireless_chip_label = nullptr;
   lv_obj_t* firmware_update_wireless_version_label = nullptr;
   lv_obj_t* firmware_update_components_divider = nullptr;
-  lv_obj_t* firmware_update_notes_title = nullptr;
-  lv_obj_t* firmware_update_notes_label = nullptr;
   lv_obj_t* firmware_update_download_button = nullptr;
   lv_obj_t* firmware_update_progress_fill = nullptr;
   lv_obj_t* firmware_update_download_button_label = nullptr;

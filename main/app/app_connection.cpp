@@ -730,30 +730,14 @@ esp_err_t WebSocketHandler(httpd_req_t* request) {
       const char* wireless_sha256 = StringField(input, "wirelessSha256");
       const cJSON* main_size = cJSON_GetObjectItemCaseSensitive(input, "mainSize");
       const cJSON* wireless_size = cJSON_GetObjectItemCaseSensitive(input, "wirelessSize");
-      const cJSON* release_notes = cJSON_GetObjectItemCaseSensitive(input, "releaseNotes");
-      const char* notes[kFirmwareUpdateNoteCapacity] = {};
-      const int note_count = release_notes == nullptr ? 0 : cJSON_GetArraySize(release_notes);
-      bool notes_valid = release_notes == nullptr ||
-          (cJSON_IsArray(release_notes) && note_count <= static_cast<int>(kFirmwareUpdateNoteCapacity));
-      if (notes_valid) {
-        for (int index = 0; index < note_count; ++index) {
-          const cJSON* note = cJSON_GetArrayItem(release_notes, index);
-          if (!cJSON_IsString(note) || note->valuestring == nullptr) {
-            notes_valid = false;
-            break;
-          }
-          notes[index] = note->valuestring;
-        }
-      }
-      const bool accepted = notes_valid && g_local_update_session_id == 0 &&
+      const bool accepted = g_local_update_session_id == 0 &&
           cJSON_IsNumber(main_size) && cJSON_IsNumber(wireless_size) &&
           main_size->valueint > 0 && wireless_size->valueint > 0 &&
           FirmwareUpdateManager::Instance().StartLocalUpdate(
               main_url, wireless_url, main_version, wireless_version,
               static_cast<size_t>(main_size->valueint), static_cast<size_t>(wireless_size->valueint),
               main_sha256, wireless_sha256,
-              !cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(input, "reuseCache")),
-              notes, static_cast<size_t>(note_count));
+              !cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(input, "reuseCache")));
       if (accepted) g_local_update_session_id = session->session_id;
       reply = Message(accepted ? "firmware.local.started"
                                : "firmware.local.rejected");

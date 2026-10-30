@@ -270,8 +270,6 @@ struct FirmwareReleaseManifest {
   size_t wireless_url_count = 0;
   size_t wireless_size_bytes = 0;
   char wireless_sha256[kSha256TextLength + 1] = {};
-  char notes[kFirmwareUpdateNoteCapacity][128] = {};
-  size_t note_count = 0;
 };
 
 /**
@@ -1790,26 +1788,6 @@ ManifestParseResult ParseManifest(
     return ManifestParseResult::kInvalid;
   }
 
-  const cJSON* notes =
-      cJSON_GetObjectItemCaseSensitive(root.get(), "releaseNotes");
-  if (!cJSON_IsArray(notes)) {
-    return ManifestParseResult::kInvalid;
-  }
-  if (cJSON_GetArraySize(notes) >
-      static_cast<int>(kFirmwareUpdateNoteCapacity)) {
-    return ManifestParseResult::kInvalid;
-  }
-  const cJSON* note = nullptr;
-  cJSON_ArrayForEach(note, notes) {
-    if (!cJSON_IsString(note) || note->valuestring == nullptr ||
-        note->valuestring[0] == '\0' ||
-        std::strlen(note->valuestring) >= sizeof(parsed.notes[0])) {
-      return ManifestParseResult::kInvalid;
-    }
-    CopyText(parsed.notes[parsed.note_count], sizeof(parsed.notes[0]),
-        note->valuestring);
-    ++parsed.note_count;
-  }
   return ManifestParseResult::kSuccess;
 }
 
@@ -1867,11 +1845,6 @@ bool SaveLocalManifest(const FirmwareReleaseManifest& manifest) {
   cJSON_AddStringToObject(root.get(), "wirelessSha256", manifest.wireless_sha256);
   cJSON_AddNumberToObject(root.get(), "mainSize", manifest.main_size_bytes);
   cJSON_AddNumberToObject(root.get(), "wirelessSize", manifest.wireless_size_bytes);
-  cJSON* notes = cJSON_AddArrayToObject(root.get(), "releaseNotes");
-  if (notes == nullptr) return false;
-  for (size_t index = 0; index < manifest.note_count; ++index) {
-    if (!cJSON_AddItemToArray(notes, cJSON_CreateString(manifest.notes[index]))) return false;
-  }
   char* text = cJSON_PrintUnformatted(root.get());
   if (text == nullptr) return false;
   const bool saved = SaveManifest(text);
@@ -1918,91 +1891,6 @@ bool LoadLocalManifest(const char* text, FirmwareReleaseManifest* manifest) {
   CopyText(manifest->device_id, sizeof(manifest->device_id), kCurrentDeviceId);
   CopyText(manifest->release_version, sizeof(manifest->release_version), manifest->main_version);
   CopyText(manifest->release_channel, sizeof(manifest->release_channel), "local");
-  const cJSON* notes = cJSON_GetObjectItemCaseSensitive(root.get(), "releaseNotes");
-  if (notes != nullptr) {
-    if (!cJSON_IsArray(notes) || cJSON_GetArraySize(notes) >
-        static_cast<int>(kFirmwareUpdateNoteCapacity)) return false;
-    const cJSON* note = nullptr;
-    cJSON_ArrayForEach(note, notes) {
-      if (!cJSON_IsString(note) || note->valuestring == nullptr ||
-          note->valuestring[0] == '\0' ||
-          std::strlen(note->valuestring) >= sizeof(manifest->notes[0])) return false;
-      CopyText(manifest->notes[manifest->note_count], sizeof(manifest->notes[0]), note->valuestring);
-      ++manifest->note_count;
-    }
-  }
-  return true;
-}
-
-/**
- * @brief 仅解析本地当前版本日志，不将展示数据用于下载、安装或镜像校验
- * @param text 本地清单 JSON 文本
- * @param manifest 仅用于展示的日志与版本信息
- * @return 设备和当前主固件匹配且日志有效时返回 true
- */
-bool ParseCurrentReleaseNotes(const char* text, FirmwareReleaseManifest* manifest) {
-  std::unique_ptr<cJSON, decltype(&cJSON_Delete)> root(
-      cJSON_Parse(text), &cJSON_Delete);
-  if (root == nullptr || manifest == nullptr) return false;
-  if (LoadLocalManifest(text, manifest)) {
-    char main_current[32] = {};
-    return ReadCurrentMainVersion(main_current, sizeof(main_current)) &&
-        std::strcmp(manifest->main_version, main_current) == 0 && manifest->note_count > 0;
-  }
-  const auto equals = [](const cJSON* object, const char* key, const char* value) {
-    const cJSON* item = cJSON_GetObjectItemCaseSensitive(object, key);
-    return cJSON_IsString(item) && item->valuestring != nullptr &&
-        std::strcmp(item->valuestring, value) == 0;
-  };
-  const cJSON* release = cJSON_GetObjectItemCaseSensitive(root.get(), "release");
-  if (!equals(root.get(), "kind", kManifestKind) ||
-      !equals(release, "publisherId", kUpdatePublisherId) ||
-      !equals(release, "deviceId", kCurrentDeviceId)) return false;
-  if (!equals(root.get(), "manifestVersion", kCurrentManifestVersion)) return false;
-  const cJSON* targets = cJSON_GetObjectItemCaseSensitive(root.get(), "targets");
-  const cJSON* files = cJSON_GetObjectItemCaseSensitive(root.get(), "files");
-  const cJSON* notes = cJSON_GetObjectItemCaseSensitive(root.get(), "releaseNotes");
-  if (!cJSON_IsArray(targets) || !cJSON_IsObject(files) || !cJSON_IsArray(notes) ||
-      cJSON_GetArraySize(targets) <= 0 ||
-      cJSON_GetArraySize(targets) > static_cast<int>(kMaximumFirmwareTargetCount) ||
-      cJSON_GetArraySize(notes) <= 0 ||
-      cJSON_GetArraySize(notes) > static_cast<int>(kFirmwareUpdateNoteCapacity)) return false;
-  const FirmwareHardwareInfo hardware = FirmwareUpdateManager::ReadHardwareInfo();
-  const cJSON* main_file = nullptr;
-  const cJSON* wireless_file = nullptr;
-  bool matched = false;
-  const cJSON* target = nullptr;
-  cJSON_ArrayForEach(target, targets) {
-    const char* main_id = nullptr;
-    const char* wireless_id = nullptr;
-    if (MatchFirmwareTarget(target, hardware.main_revision,
-            &main_id, &wireless_id) != TargetMatchResult::kMatch) continue;
-    if (matched) return false;
-    matched = true;
-    main_file = cJSON_GetObjectItemCaseSensitive(files, main_id);
-    wireless_file = cJSON_GetObjectItemCaseSensitive(files, wireless_id);
-  }
-  char main_current[32] = {};
-  if (!ReadCurrentMainVersion(main_current, sizeof(main_current)) ||
-      !equals(main_file, "version", main_current) ||
-      !equals(main_file, "chip", kCurrentMainChipModel) ||
-      !equals(main_file, "projectName", kMainFirmwareProjectName)) return false;
-  *manifest = {};
-  CopyText(manifest->main_version, sizeof(manifest->main_version), main_current);
-  CopyText(manifest->device_id, sizeof(manifest->device_id), kCurrentDeviceId);
-  CopyReleaseVersion(manifest->release_version, sizeof(manifest->release_version), main_current);
-  ReadRequiredJsonString(root.get(), "channel", manifest->release_channel, sizeof(manifest->release_channel));
-  ReadRequiredJsonString(root.get(), "publishTime", manifest->publish_time, sizeof(manifest->publish_time));
-  ReadRequiredJsonString(wireless_file, "version", manifest->wireless_version, sizeof(manifest->wireless_version));
-  ReadRequiredJsonSize(main_file, "sizeBytes", &manifest->main_size_bytes);
-  ReadRequiredJsonSize(wireless_file, "sizeBytes", &manifest->wireless_size_bytes);
-  const cJSON* note = nullptr;
-  cJSON_ArrayForEach(note, notes) {
-    if (!cJSON_IsString(note) || note->valuestring == nullptr ||
-        note->valuestring[0] == '\0') return false;
-    CopyText(manifest->notes[manifest->note_count], sizeof(manifest->notes[0]), note->valuestring);
-    ++manifest->note_count;
-  }
   return true;
 }
 
@@ -2010,11 +1898,9 @@ bool ParseCurrentReleaseNotes(const char* text, FirmwareReleaseManifest* manifes
  * @brief 从 LittleFS 指定路径读取并解析固件清单
  * @param path 固件清单路径
  * @param manifest 清单解析结果
- * @param notes_only 是否仅供当前版本日志展示，禁止用于安装
  * @return 读取并解析成功返回 true，否则返回 false
  */
-bool LoadManifestFile(const char* path, FirmwareReleaseManifest* manifest,
-    bool notes_only = false) {
+bool LoadManifestFile(const char* path, FirmwareReleaseManifest* manifest) {
   std::unique_ptr<FILE, decltype(&std::fclose)> file(
       std::fopen(path, "rb"), &std::fclose);
   if (file == nullptr || std::fseek(file.get(), 0, SEEK_END) != 0) {
@@ -2033,14 +1919,6 @@ bool LoadManifestFile(const char* path, FirmwareReleaseManifest* manifest,
     return false;
   }
   text[static_cast<size_t>(file_size)] = '\0';
-  if (notes_only) {
-    const bool available = ParseCurrentReleaseNotes(text.get(), manifest);
-    LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-        "Current release notes: path=%s available=%s count=%u\n", path,
-        available ? "yes" : "no",
-        static_cast<unsigned>(available ? manifest->note_count : 0));
-    return available;
-  }
   if (LoadLocalManifest(text.get(), manifest)) {
     return true;
   }
@@ -2109,18 +1987,6 @@ bool SaveInstalledManifest() {
   if (!EnsureOtaMetadataDirectory()) {
     return false;
   }
-  auto saved_manifest = AllocateFirmwareReleaseManifest();
-  if (saved_manifest != nullptr && LoadSavedManifest(saved_manifest.get()) &&
-      saved_manifest->note_count == 0) {
-    char main_version[32] = {};
-    CopyText(main_version, sizeof(main_version), saved_manifest->main_version);
-    if (LoadInstalledManifest(saved_manifest.get()) &&
-        std::strcmp(saved_manifest->main_version, main_version) == 0 &&
-        saved_manifest->note_count > 0) {
-      return true;
-    }
-  }
-  saved_manifest.reset();
   std::unique_ptr<FILE, decltype(&std::fclose)> source(
       std::fopen(kSavedManifestPath, "rb"), &std::fclose);
   std::remove(kInstalledManifestTempPath);
@@ -2155,24 +2021,6 @@ bool SaveInstalledManifest() {
     return false;
   }
   return true;
-}
-
-/**
- * @brief 在线检查覆盖缓存前保留当前已安装版本的日志
- */
-void PreserveInstalledManifestBeforeCheck() {
-  auto saved_manifest = AllocateFirmwareReleaseManifest();
-  char main_current[32] = {};
-  if (saved_manifest == nullptr || !LoadSavedManifest(saved_manifest.get()) ||
-      !ReadCurrentMainVersion(main_current, sizeof(main_current)) ||
-      std::strcmp(saved_manifest->main_version, main_current) != 0 ||
-      saved_manifest->note_count == 0) {
-    return;
-  }
-  if (!SaveInstalledManifest()) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Preserve installed firmware release notes failed\n");
-  }
 }
 
 /**
@@ -2371,75 +2219,6 @@ void FormatFirmwareSize(
 }
 
 /**
- * @brief 读取与当前主固件匹配且包含日志的本地清单，优先使用已安装记录
- * @param main_current 当前主固件版本
- * @param manifest 清单输出地址
- * @return 找到有效的当前版本日志返回 true，否则返回 false
- */
-bool LoadCurrentReleaseManifest(const char* main_current,
-    FirmwareReleaseManifest* manifest) {
-  if (main_current == nullptr || main_current[0] == '\0' || manifest == nullptr) {
-    return false;
-  }
-  const auto matches = [main_current](const FirmwareReleaseManifest& candidate) {
-    return std::strcmp(candidate.main_version, main_current) == 0 &&
-        candidate.note_count > 0;
-  };
-  return (LoadManifestFile(kInstalledManifestPath, manifest, true) && matches(*manifest)) ||
-      (LoadManifestFile(kSavedManifestPath, manifest, true) && matches(*manifest));
-}
-
-/**
- * @brief 在持有管理器锁时复制当前版本日志，不改变在线检查和更新任务状态
- * @param manifest 与当前主固件匹配且包含日志的清单
- */
-void CopyCurrentReleaseSnapshot(const FirmwareReleaseManifest& manifest) {
-  CopyText(State().snapshot.current_release_version,
-      sizeof(State().snapshot.current_release_version),
-      manifest.release_version);
-  CopyText(State().snapshot.current_release_channel,
-      sizeof(State().snapshot.current_release_channel),
-      manifest.release_channel);
-  CopyText(State().snapshot.current_publish_time,
-      sizeof(State().snapshot.current_publish_time),
-      manifest.publish_time);
-  FormatFirmwareSize(manifest.main_size_bytes + manifest.wireless_size_bytes,
-      State().snapshot.current_package_size,
-      sizeof(State().snapshot.current_package_size));
-  FormatFirmwareSize(manifest.main_size_bytes,
-      State().snapshot.current_main_size,
-      sizeof(State().snapshot.current_main_size));
-  FormatFirmwareSize(manifest.wireless_size_bytes,
-      State().snapshot.current_wireless_size,
-      sizeof(State().snapshot.current_wireless_size));
-  for (size_t index = 0; index < kFirmwareUpdateNoteCapacity; ++index) {
-    CopyText(State().snapshot.current_notes[index],
-        sizeof(State().snapshot.current_notes[index]),
-        manifest.notes[index]);
-  }
-  State().snapshot.current_note_count = manifest.note_count;
-  State().snapshot.current_release_notes_available =
-      manifest.note_count > 0;
-}
-
-/**
- * @brief 从本地清单恢复当前版本日志，读取失败时保留已加载的日志
- * @param main_current 当前主固件版本
- * @return 找到有效的当前版本日志并恢复成功返回 true，否则返回 false
- */
-bool RestoreInstalledManifestSnapshot(const char* main_current) {
-  auto installed_manifest = AllocateFirmwareReleaseManifest();
-  if (installed_manifest == nullptr ||
-      !LoadCurrentReleaseManifest(main_current, installed_manifest.get()) ||
-      !LockManager()) {
-    return false;
-  }
-  CopyCurrentReleaseSnapshot(*installed_manifest);
-  UnlockManager();
-  return true;
-}
-
-/**
  * @brief 使用清单和当前版本刷新界面状态
  * @param manifest 已验证的固件清单
  * @param main_current 当前主固件版本
@@ -2451,8 +2230,6 @@ bool RestoreInstalledManifestSnapshot(const char* main_current) {
  */
 bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
     const char* main_current, const char* wireless_current,
-    bool save_as_installed = false,
-    const FirmwareReleaseManifest* current_manifest = nullptr,
     bool check_cache = false) {
   bool main_version_valid = false;
   bool wireless_version_valid = false;
@@ -2469,25 +2246,6 @@ bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
   const size_t package_size_bytes =
       (main_update_available ? manifest.main_size_bytes : 0) +
       (wireless_update_available ? manifest.wireless_size_bytes : 0);
-  std::unique_ptr<FirmwareReleaseManifest> installed_manifest_storage;
-  const FirmwareReleaseManifest* installed_manifest = nullptr;
-  if (current_manifest != nullptr && current_manifest->note_count > 0 &&
-      std::strcmp(current_manifest->main_version, main_current) == 0) {
-    installed_manifest = current_manifest;
-  } else if (manifest.note_count > 0 &&
-             std::strcmp(manifest.main_version, main_current) == 0) {
-    installed_manifest = &manifest;
-    if (save_as_installed && !SaveInstalledManifest()) {
-      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Save installed firmware release notes failed\n");
-    }
-  } else {
-    installed_manifest_storage = AllocateFirmwareReleaseManifest();
-    if (installed_manifest_storage != nullptr &&
-        LoadCurrentReleaseManifest(main_current, installed_manifest_storage.get())) {
-      installed_manifest = installed_manifest_storage.get();
-    }
-  }
   if (!LockManager()) {
     return false;
   }
@@ -2504,9 +2262,6 @@ bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
       sizeof(State().snapshot.release_channel), manifest.release_channel);
   CopyText(State().snapshot.publish_time, sizeof(State().snapshot.publish_time),
       manifest.publish_time);
-  if (installed_manifest != nullptr) {
-    CopyCurrentReleaseSnapshot(*installed_manifest);
-  }
   FormatFirmwareSize(package_size_bytes, State().snapshot.package_size,
       sizeof(State().snapshot.package_size));
   FormatFirmwareSize(manifest.main_size_bytes, State().snapshot.main_size,
@@ -2515,6 +2270,14 @@ bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
       State().snapshot.wireless_size, sizeof(State().snapshot.wireless_size));
   CopyText(State().snapshot.main_current_version,
       sizeof(State().snapshot.main_current_version), main_current);
+  CopyReleaseVersion(State().snapshot.current_release_version,
+      sizeof(State().snapshot.current_release_version), main_current);
+  CopyText(State().snapshot.current_release_channel,
+      sizeof(State().snapshot.current_release_channel),
+      update_available ? "" : manifest.release_channel);
+  CopyText(State().snapshot.current_publish_time,
+      sizeof(State().snapshot.current_publish_time),
+      update_available ? "" : manifest.publish_time);
   CopyText(State().snapshot.main_target_version,
       sizeof(State().snapshot.main_target_version), manifest.main_version);
   CopyText(State().snapshot.wireless_current_version,
@@ -2522,11 +2285,6 @@ bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
   CopyText(State().snapshot.wireless_target_version,
       sizeof(State().snapshot.wireless_target_version),
       manifest.wireless_version);
-  State().snapshot.note_count = manifest.note_count;
-  for (size_t index = 0; index < kFirmwareUpdateNoteCapacity; ++index) {
-    CopyText(State().snapshot.notes[index],
-        sizeof(State().snapshot.notes[index]), manifest.notes[index]);
-  }
   State().snapshot.stage = check_cache ? FirmwareUpdateStage::kChecking : update_available
                                ? FirmwareUpdateStage::kUpdateAvailable
                                : FirmwareUpdateStage::kUpToDate;
@@ -2540,7 +2298,7 @@ bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
 }
 
 /**
- * @brief 在线检查失败时恢复本地已安装版本及日志
+ * @brief 在线检查失败时恢复本地已安装版本信息
  * @param failure_message 页面显示的检查失败原因
  * @return 本地记录与当前固件一致并恢复成功返回 true，否则返回 false
  */
@@ -2595,8 +2353,7 @@ void ApplyPendingManifestSnapshot(const FirmwareReleaseManifest& manifest) {
       sizeof(State().snapshot.main_current_version), main_current);
   CopyReleaseVersion(State().snapshot.current_release_version,
       sizeof(State().snapshot.current_release_version), main_current);
-  CopyText(State().snapshot.current_release_channel,
-      sizeof(State().snapshot.current_release_channel), kCurrentReleaseChannel);
+  State().snapshot.current_release_channel[0] = '\0';
   State().snapshot.current_publish_time[0] = '\0';
   State().snapshot.current_main_size[0] = '\0';
   State().snapshot.current_wireless_size[0] = '\0';
@@ -2605,11 +2362,6 @@ void ApplyPendingManifestSnapshot(const FirmwareReleaseManifest& manifest) {
   CopyText(State().snapshot.wireless_target_version,
       sizeof(State().snapshot.wireless_target_version),
       manifest.wireless_version);
-  State().snapshot.note_count = manifest.note_count;
-  for (size_t index = 0; index < kFirmwareUpdateNoteCapacity; ++index) {
-    CopyText(State().snapshot.notes[index],
-        sizeof(State().snapshot.notes[index]), manifest.notes[index]);
-  }
   UnlockManager();
 }
 
@@ -3714,11 +3466,6 @@ MainUpdateResult UpdateMainFirmware(const FirmwareReleaseManifest& manifest,
  * @brief 执行一次最新固件检查流程
  */
 void RunCheckTask() {
-  PreserveInstalledManifestBeforeCheck();
-  char installed_main[32] = {};
-  if (ReadCurrentMainVersion(installed_main, sizeof(installed_main))) {
-    RestoreInstalledManifestSnapshot(installed_main);
-  }
   if (!IsNetworkReady()) {
     if (!ApplyInstalledManifestFallback("Wi-Fi is not connected")) {
       SetFailure("Wi-Fi is not connected");
@@ -3760,24 +3507,7 @@ void RunCheckTask() {
       !ReadCurrentWirelessVersion(wireless_current, sizeof(wireless_current))) {
     SetFailure("Installed versions unavailable");
   } else {
-    auto current_manifest_storage = AllocateFirmwareReleaseManifest();
-    bool current_release_notes_available =
-        current_manifest_storage != nullptr &&
-        LoadCurrentReleaseManifest(main_current, current_manifest_storage.get());
-    if (!current_release_notes_available &&
-        std::strcmp(manifest.main_version, main_current) == 0 &&
-        manifest.note_count > 0) {
-      if (current_manifest_storage == nullptr) {
-        current_manifest_storage = AllocateFirmwareReleaseManifest();
-      }
-      if (current_manifest_storage != nullptr) {
-        *current_manifest_storage = manifest;
-      }
-      current_release_notes_available = current_manifest_storage != nullptr;
-    }
-    if (ApplyManifestSnapshot(manifest, main_current, wireless_current, true,
-        current_release_notes_available ? current_manifest_storage.get()
-                                        : nullptr, true)) {
+    if (ApplyManifestSnapshot(manifest, main_current, wireless_current)) {
       bool main_valid = false;
       bool wireless_valid = false;
       const int main_comparison = CompareSemanticVersions(
@@ -3785,7 +3515,7 @@ void RunCheckTask() {
       const int wireless_comparison = CompareSemanticVersions(
           wireless_current, manifest.wireless_version, &wireless_valid);
       if (LockManager()) {
-        // 仅成功读取在线清单并确认两个组件均一致时允许查看当前版本日志。
+        // 仅成功读取在线清单并确认两个组件均一致时允许查看当前版本信息。
         State().snapshot.latest_version_confirmed = main_valid && wireless_valid &&
             main_comparison == 0 && wireless_comparison == 0;
         UnlockManager();
@@ -4388,11 +4118,6 @@ bool FirmwareUpdateManager::Initialize(
   }
   CopyText(State().snapshot.wireless_current_version,
       sizeof(State().snapshot.wireless_current_version), wireless_version);
-  if (!RestoreInstalledManifestSnapshot(
-          State().snapshot.main_current_version)) {
-    LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-        "Installed firmware release information is unavailable\n");
-  }
   if (!HasPendingUpdate()) {
     ConfirmRunningMainFirmware();
     return true;
@@ -4547,14 +4272,7 @@ bool FirmwareUpdateManager::StartLocalMainUpdate(
 bool FirmwareUpdateManager::StartLocalUpdate(
     const char* main_url, const char* wireless_url, const char* main_version,
     const char* wireless_version, size_t main_size, size_t wireless_size,
-    const char* main_sha256, const char* wireless_sha256, bool reuse_cache,
-    const char* const* release_notes, size_t note_count) {
-  if (note_count > kFirmwareUpdateNoteCapacity ||
-      (note_count > 0 && release_notes == nullptr)) return false;
-  for (size_t index = 0; index < note_count; ++index) {
-    if (release_notes[index] == nullptr || release_notes[index][0] == '\0' ||
-        std::strlen(release_notes[index]) >= sizeof(FirmwareUpdateSnapshot{}.notes[0])) return false;
-  }
+    const char* main_sha256, const char* wireless_sha256, bool reuse_cache) {
   if (impl_ == nullptr || g_active_firmware_update_state != &impl_->state ||
       main_url == nullptr || wireless_url == nullptr || main_version == nullptr ||
       wireless_version == nullptr || main_sha256 == nullptr ||
@@ -4606,10 +4324,6 @@ bool FirmwareUpdateManager::StartLocalUpdate(
   std::snprintf(manifest.wireless_sha256, sizeof(manifest.wireless_sha256), "%s", wireless_sha256);
   manifest.wireless_url_count = wireless_required && wireless_url[0] != '\0' ? 1 : 0;
   manifest.wireless_size_bytes = wireless_size;
-  manifest.note_count = note_count;
-  for (size_t index = 0; index < note_count; ++index) {
-    CopyText(manifest.notes[index], sizeof(manifest.notes[index]), release_notes[index]);
-  }
   BeginFirmwareTask();
   State().reuse_cache = reuse_cache;
   State().manifest = manifest; State().manifest_valid = true;

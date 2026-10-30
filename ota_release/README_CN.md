@@ -24,12 +24,10 @@ python .\generate_manifest.py `
   --channel stable `
   --firmware-file "<文件ID>=<固件BIN路径>" `
   --firmware-file "<另一个文件ID>=<固件BIN路径>" `
-  --note "更新说明"
 ```
 
 首次生成或目标兼容条件发生变化时，须提供配置所需的全部 BIN。只更新部分组件时，可通过 `--previous-manifest <上一版v2清单路径>` 继承未变更组件；发布版本和更新的组件版本必须递增，通道必须一致。此选项仅供生成器读取本地清单，不表示设备会请求历史清单。
 
-发布版本默认取本次更新的主固件中最高的内嵌版本；仅更新无线固件时必须指定 `--release`。显式指定的版本不得低于本次更新的主固件版本。`--channel` 支持 `alpha`、`beta`、`stable`；`--note` 最多指定三次，每条为 1～127 字节的 UTF-8 文本。可用 `--output-root` 指定输出目录，`--force` 替换所选生成模式的已有资产。完整参数请运行 `python .\generate_manifest.py --help`。
 
 ## 旧设备迁移
 

@@ -2,7 +2,7 @@
  * @Description: 设置固件更新界面与组合 OTA 状态交互
  * @Author: LILYGO_L
  * @Date: 2026-07-19 00:00:00
- * @LastEditTime: 2026-10-04 16:04:41
+ * @LastEditTime: 2026-10-30 10:42:30
  * @License: GPL 3.0
  */
 #include <algorithm>
@@ -23,7 +23,7 @@ namespace {
 constexpr int kUpdateBottomAreaHeight = 204;
 constexpr int kUpdateHeadingTop = 14;
 constexpr int kUpdateCardTop = 82;
-constexpr int kUpdateCardHeight = 690;
+constexpr int kUpdateCardHeight = 470;
 constexpr int kUpdateCardSide = 26;
 constexpr int kUpdateCardPadding = 34;
 constexpr int kUpdateBrandTop = 34;
@@ -42,9 +42,6 @@ constexpr int kUpdateComponentGap = 12;
 constexpr int kUpdateComponentIconLeft = 18;
 constexpr int kUpdateComponentTextLeft = 62;
 constexpr int kUpdateComponentVersionWidth = 190;
-constexpr int kUpdateSecondDividerTop = 438;
-constexpr int kUpdateWhatsNewTitleTop = 472;
-constexpr int kUpdateWhatsNewTop = 518;
 constexpr int kUpdateButtonWidth = 500;
 constexpr int kUpdateButtonHeight = 76;
 constexpr int kUpdateButtonBottom = 24;
@@ -70,6 +67,7 @@ constexpr int kUpdatePageIndicatorStackedBottom =
 constexpr int kUpdatePageDotSize = 12;
 constexpr uint32_t kUpdateBetaChannelColor = 0xF5A623;
 constexpr uint32_t kUpdateAlphaChannelColor = 0xFF3B30;
+constexpr char kInstalledFirmwareLabel[] = "Installed firmware";
 
 /**
  * @brief 获取当前固件更新状态快照
@@ -158,8 +156,6 @@ void ClearFirmwareUpdateReferences(SettingsViewState* state) {
   state->firmware_update_wireless_chip_label = nullptr;
   state->firmware_update_wireless_version_label = nullptr;
   state->firmware_update_components_divider = nullptr;
-  state->firmware_update_notes_title = nullptr;
-  state->firmware_update_notes_label = nullptr;
   state->firmware_update_download_button = nullptr;
   state->firmware_update_progress_fill = nullptr;
   state->firmware_update_download_button_label = nullptr;
@@ -317,52 +313,6 @@ void SetFirmwareObjectVisible(lv_obj_t* object, bool visible) {
   }
 }
 
-/**
- * @brief 将固件版本日志格式化为多行列表
- * @param notes 日志条目数组
- * @param note_count 日志条目数量
- * @param empty_text 没有日志时显示的文本
- * @param output 输出缓冲区
- * @param output_size 输出缓冲区长度
- */
-void FormatFirmwareNotesText(const char notes[][128], size_t note_count,
-    const char* empty_text, char* output, size_t output_size) {
-  if (output == nullptr || output_size == 0) {
-    return;
-  }
-  if (note_count == 0) {
-    std::snprintf(output, output_size, "%s", empty_text);
-    return;
-  }
-  size_t used = 0;
-  for (size_t index = 0; index < note_count; ++index) {
-    const int written = std::snprintf(output + used, output_size - used,
-        "%s• %s", index == 0 ? "" : "\n", notes[index]);
-    if (written < 0 || static_cast<size_t>(written) >= output_size - used) {
-      break;
-    }
-    used += static_cast<size_t>(written);
-  }
-}
-
-/**
- * @brief 按换行后的更新日志实际高度调整固件卡片
- * @param card 固件信息卡片
- * @param notes_label 更新日志标签
- * @param notes_top 更新日志标签顶部坐标
- */
-void FitFirmwareCardToNotes(
-    lv_obj_t* card, lv_obj_t* notes_label, int notes_top) {
-  if (card == nullptr || notes_label == nullptr) {
-    return;
-  }
-  lv_obj_set_height(notes_label, LV_SIZE_CONTENT);
-  lv_obj_update_layout(notes_label);
-  const int notes_height =
-      std::max(1, static_cast<int>(lv_obj_get_height(notes_label)));
-  lv_obj_set_height(card, notes_top + notes_height + kUpdateCardPadding);
-}
-
 void UpdateFirmwareComponentLayout(
     SettingsViewState* state, const app::FirmwareUpdateSnapshot& snapshot) {
   if (state == nullptr || state->firmware_update_card == nullptr) {
@@ -378,7 +328,6 @@ void UpdateFirmwareComponentLayout(
   SetFirmwareObjectVisible(state->firmware_update_wireless_row, show_wireless);
   SetFirmwareObjectVisible(
       state->firmware_update_components_divider, component_count > 0);
-
   int next_y = kUpdateComponentsTop;
   if (show_main) {
     lv_obj_set_y(state->firmware_update_main_row, next_y);
@@ -386,28 +335,10 @@ void UpdateFirmwareComponentLayout(
   }
   if (show_wireless) {
     lv_obj_set_y(state->firmware_update_wireless_row, next_y);
-    next_y += kUpdateComponentHeight + kUpdateComponentGap;
   }
-  if (component_count == 0) {
-    lv_obj_set_y(state->firmware_update_notes_title, kUpdateComponentsTitleTop);
-    lv_obj_set_y(state->firmware_update_notes_label, kUpdateComponentsTop);
-    FitFirmwareCardToNotes(state->firmware_update_card,
-        state->firmware_update_notes_label, kUpdateComponentsTop);
-    return;
-  }
-
-  lv_obj_set_y(state->firmware_update_components_divider, next_y);
-  lv_obj_set_y(state->firmware_update_notes_title, next_y + 34);
-  const int notes_top = next_y + 80;
-  lv_obj_set_y(state->firmware_update_notes_label, notes_top);
-  FitFirmwareCardToNotes(state->firmware_update_card,
-      state->firmware_update_notes_label, notes_top);
+  lv_obj_set_height(state->firmware_update_card, kUpdateCardHeight);
 }
 
-/**
- * @brief 根据后台快照刷新固件更新页面
- * @param state 设置页面状态
- */
 void RefreshFirmwareUpdateView(SettingsViewState* state) {
   if (state == nullptr || state->firmware_update_page == nullptr ||
       state->firmware_update_body == nullptr ||
@@ -467,9 +398,7 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
                state->firmware_update_main_chip_label != nullptr &&
                state->firmware_update_main_version_label != nullptr &&
                state->firmware_update_wireless_chip_label != nullptr &&
-               state->firmware_update_wireless_version_label != nullptr &&
-               state->firmware_update_notes_title != nullptr &&
-               state->firmware_update_notes_label != nullptr;
+               state->firmware_update_wireless_version_label != nullptr;
 
   if (card_ready) {
     lv_obj_remove_flag(
@@ -505,12 +434,6 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
     FormatFirmwareChipText(
         "ESP32-C6", snapshot.wireless_size, chip_text, sizeof(chip_text));
     lv_label_set_text(state->firmware_update_wireless_chip_label, chip_text);
-    lv_label_set_text(state->firmware_update_notes_title, "What's new");
-
-    char notes_text[420] = {};
-    FormatFirmwareNotesText(snapshot.notes, snapshot.note_count,
-        "No release notes were provided.", notes_text, sizeof(notes_text));
-    lv_label_set_text(state->firmware_update_notes_label, notes_text);
     UpdateFirmwareComponentLayout(state, snapshot);
   } else {
     lv_obj_add_flag(state->firmware_update_heading_label, LV_OBJ_FLAG_HIDDEN);
@@ -547,7 +470,7 @@ void RefreshFirmwareUpdateView(SettingsViewState* state) {
   SetFirmwareObjectVisible(state->firmware_update_spinner, scanning);
   SetFirmwareObjectVisible(state->firmware_update_status_log_button,
       snapshot.stage == app::FirmwareUpdateStage::kUpToDate &&
-          snapshot.latest_version_confirmed && !snapshot.local_update);
+          !snapshot.local_update);
   SetFirmwareObjectVisible(state->firmware_update_scan_message_label, true);
   SetFirmwareObjectVisible(state->firmware_update_scan_hint_label, true);
   if (scanning) {
@@ -917,7 +840,7 @@ void FirmwareCurrentLogClickedEventCallback(lv_event_t* event) {
   if (state == nullptr) return;
   const auto snapshot = GetFirmwareUpdateSnapshot();
   if (snapshot.stage != app::FirmwareUpdateStage::kUpToDate ||
-      !snapshot.latest_version_confirmed || snapshot.local_update) return;
+      snapshot.local_update) return;
   ShowFirmwareUpdateLogPage(state);
 }
 
@@ -1080,8 +1003,6 @@ bool CreateFirmwareUpdateCard(
     state->firmware_update_wireless_chip_label = nullptr;
     state->firmware_update_wireless_version_label = nullptr;
     state->firmware_update_components_divider = nullptr;
-    state->firmware_update_notes_title = nullptr;
-    state->firmware_update_notes_label = nullptr;
     return false;
   };
   lv_obj_remove_flag(card, LV_OBJ_FLAG_CLICKABLE);
@@ -1154,34 +1075,6 @@ bool CreateFirmwareUpdateCard(
     return discard_card();
   }
 
-  lv_obj_t* second_divider = CreateDivider(card, component_width);
-  if (second_divider == nullptr) {
-    return discard_card();
-  }
-  state->firmware_update_components_divider = second_divider;
-  lv_obj_set_pos(second_divider, kUpdateCardPadding, kUpdateSecondDividerTop);
-
-  lv_obj_t* whats_new_title = CreateLabel(card, "What's new",
-      lv_color_hex(SettingsThemeColors().on_surface), Font28());
-  if (whats_new_title == nullptr) {
-    return discard_card();
-  }
-  state->firmware_update_notes_title = whats_new_title;
-  lv_obj_align(whats_new_title, LV_ALIGN_TOP_LEFT, kUpdateCardPadding,
-      kUpdateWhatsNewTitleTop);
-
-  lv_obj_t* notes =
-      CreateLabel(card, "Release notes will appear after checking.",
-          lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
-  if (notes == nullptr) {
-    return discard_card();
-  }
-  lv_obj_set_width(notes, card_width - 2 * kUpdateCardPadding);
-  lv_label_set_long_mode(notes, LV_LABEL_LONG_WRAP);
-  lv_obj_set_style_text_line_space(notes, 12, LV_PART_MAIN);
-  lv_obj_align(
-      notes, LV_ALIGN_TOP_LEFT, kUpdateCardPadding, kUpdateWhatsNewTop);
-  state->firmware_update_notes_label = notes;
   return true;
 }
 
@@ -1375,7 +1268,7 @@ bool CreateFirmwareUpdateBody(
       LV_EVENT_CLICKED, state);
   lv_obj_add_flag(log_button, LV_OBJ_FLAG_HIDDEN);
 
-  lv_obj_t* log_label = CreateLabel(log_button, "Current version update log",
+  lv_obj_t* log_label = CreateLabel(log_button, kInstalledFirmwareLabel,
       lv_color_hex(SettingsThemeColors().on_surface_variant), Font24());
   lv_obj_t* log_arrow = CreateLabel(log_button, icon::kChevronRight,
       lv_color_hex(SettingsThemeColors().on_surface_variant),
@@ -1533,8 +1426,8 @@ lv_obj_t* CreateCurrentFirmwareLogCard(lv_obj_t* body, int x, int y, int width,
     return discard_card();
   }
   const int release_version_width =
-      std::max(1, width - 2 * kUpdateCardPadding - kUpdateReleaseMetadataWidth -
-                      kUpdateReleaseMetadataGap);
+      std::max(1, width - 2 * kUpdateCardPadding -
+                      kUpdateReleaseMetadataWidth - kUpdateReleaseMetadataGap);
   lv_obj_set_width(version, release_version_width);
   lv_label_set_long_mode(version, LV_LABEL_LONG_DOT);
   lv_obj_set_pos(version, kUpdateCardPadding, kUpdateVersionTop);
@@ -1593,42 +1486,20 @@ lv_obj_t* CreateCurrentFirmwareLogCard(lv_obj_t* body, int x, int y, int width,
     return discard_card();
   }
 
-  lv_obj_t* second_divider = CreateDivider(card, component_width);
-  lv_obj_t* whats_new_title = CreateLabel(card, "What's new",
-      lv_color_hex(SettingsThemeColors().on_surface), Font28());
-  if (second_divider == nullptr || whats_new_title == nullptr) {
-    return discard_card();
-  }
-  lv_obj_set_pos(second_divider, kUpdateCardPadding, kUpdateSecondDividerTop);
-  lv_obj_set_pos(whats_new_title, kUpdateCardPadding, kUpdateWhatsNewTitleTop);
-
-  char notes_text[420] = {};
-  FormatFirmwareNotesText(snapshot.current_notes, snapshot.current_note_count,
-      "No local release notes for this version. Check online to retrieve them.", notes_text,
-      sizeof(notes_text));
-  lv_obj_t* notes = CreateLabel(card, notes_text,
-      lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
-  if (notes == nullptr) {
-    return discard_card();
-  }
-  lv_obj_set_width(notes, component_width);
-  lv_label_set_long_mode(notes, LV_LABEL_LONG_WRAP);
-  lv_obj_set_style_text_line_space(notes, 12, LV_PART_MAIN);
-  lv_obj_set_pos(notes, kUpdateCardPadding, kUpdateWhatsNewTop);
-  FitFirmwareCardToNotes(card, notes, kUpdateWhatsNewTop);
+  lv_obj_set_height(card, kUpdateCardHeight);
   return card;
 }
 
 /**
- * @brief 创建固件版本日志页面顶部导航栏
- * @param page 日志页面
+ * @brief 创建已安装固件信息页面顶部导航栏
+ * @param page 信息页面
  * @param state 设置页面状态
  * @param width 页面宽度
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateFirmwareUpdateLogHeader(
     lv_obj_t* page, SettingsViewState* state, int width) {
-  lv_obj_t* title = CreateLabel(page, "Current version update log",
+  lv_obj_t* title = CreateLabel(page, kInstalledFirmwareLabel,
       lv_color_hex(SettingsThemeColors().on_surface), Font32());
   if (title == nullptr) {
     return false;
@@ -1651,8 +1522,8 @@ bool CreateFirmwareUpdateLogHeader(
 }
 
 /**
- * @brief 创建固件版本日志页面内容
- * @param page 日志页面
+ * @brief 创建已安装固件信息页面内容
+ * @param page 信息页面
  * @param state 设置页面状态
  * @param width 页面宽度
  * @param height 页面高度

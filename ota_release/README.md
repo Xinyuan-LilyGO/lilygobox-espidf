@@ -24,12 +24,10 @@ python .\generate_manifest.py `
   --channel stable `
   --firmware-file "<file-id>=<firmware-BIN-path>" `
   --firmware-file "<another-file-id>=<firmware-BIN-path>" `
-  --note "Release notes"
 ```
 
 For the first generation or when target compatibility changes, provide all BINs required by the configuration. To update only some components, use `--previous-manifest <previous-v2-manifest-path>` to inherit unchanged components; the release version and changed component versions must increase, and the channel must match. This option reads a local manifest for generation; it does not cause devices to request historical manifests.
 
-The release version defaults to the highest embedded version among updated main firmware BINs; wireless-only updates require `--release`. An explicit release version cannot be lower than an updated main firmware version. `--channel` accepts `alpha`, `beta`, or `stable`; specify `--note` up to three times, with 1–127 UTF-8 bytes per note. Use `--output-root` to select an output directory and `--force` to replace existing assets for the selected generation mode. Run `python .\generate_manifest.py --help` for all options.
 
 ## Legacy device migration
 

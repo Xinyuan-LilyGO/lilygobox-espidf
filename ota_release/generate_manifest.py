@@ -1055,21 +1055,6 @@ def validate_previous_manifest(
     return inherited
 
 
-def validate_notes(notes: list[str]) -> list[str]:
-    """限制设备界面能够显示的更新说明数量和 UTF-8 长度。"""
-    if len(notes) > 3:
-        raise ValueError("更新说明最多只能提供三条")
-    validated: list[str] = []
-    for note in notes:
-        text = note.strip()
-        if not text or len(text.encode("utf-8")) >= 128:
-            raise ValueError(
-                "每条更新说明必须是 1 至 127 个 UTF-8 字节"
-            )
-        validated.append(text)
-    return validated
-
-
 def copy_and_describe_firmware_file(
     source: Path,
     destination: Path,
@@ -1173,9 +1158,6 @@ def build_argument_parser(default_config: Path) -> argparse.ArgumentParser:
         "--legacy-manifest",
         action="store_true",
         help="额外生成 P4 V1 一次性中转清单及旧名称 BIN，需提供全部迁移组件 BIN",
-    )
-    parser.add_argument(
-        "--note", action="append", default=[], help="更新说明，最多三条"
     )
     parser.add_argument(
         "--config",
@@ -1364,7 +1346,6 @@ def main() -> int:
         validate_main_component_versions(
             manifest["files"], config, args.channel
         )
-        manifest["releaseNotes"] = validate_notes(args.note)
 
         manifest_path = output_directory / build_manifest_filename(
             config, args.channel

@@ -21,7 +21,6 @@ class WifiProvider;
 
 namespace lilygo_box::app {
 
-inline constexpr size_t kFirmwareUpdateNoteCapacity = 3;
 
 /**
  * @brief 当前设备用于固件目标匹配的芯片信息，无线修订号来自板级配置
@@ -80,7 +79,6 @@ struct FirmwareUpdateSnapshot {
   bool device_supported = false;
   bool busy = false;
   bool manifest_available = false;
-  bool current_release_notes_available = false;
   bool latest_version_confirmed = false;
   bool update_available = false;
   bool manual_update_required = false;
@@ -102,10 +100,6 @@ struct FirmwareUpdateSnapshot {
   char main_target_version[32] = {};
   char wireless_current_version[32] = {};
   char wireless_target_version[32] = {};
-  char notes[kFirmwareUpdateNoteCapacity][128] = {};
-  size_t note_count = 0;
-  char current_notes[kFirmwareUpdateNoteCapacity][128] = {};
-  size_t current_note_count = 0;
   char message[128] = {};
 };
 
@@ -182,17 +176,13 @@ class FirmwareUpdateManager final {
    * @param main_sha256 主固件 SHA-256
    * @param wireless_sha256 无线固件 SHA-256
    * @param reuse_cache 是否允许复用完整校验通过的已下载固件
-   * @param release_notes 目标版本更新说明，仅用于日志展示
-   * @param note_count 更新说明条目数量
    * @return 更新任务启动成功返回 true
    */
   bool StartLocalUpdate(const char* main_url, const char* wireless_url,
                         const char* main_version, const char* wireless_version,
                         size_t main_size, size_t wireless_size,
                         const char* main_sha256, const char* wireless_sha256,
-                        bool reuse_cache = true,
-                        const char* const* release_notes = nullptr,
-                        size_t note_count = 0);
+                        bool reuse_cache = true);
 
   /**
    * @brief 暂停当前固件下载任务
