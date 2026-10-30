@@ -1376,6 +1376,9 @@ def main() -> int:
             legacy_manifest = copy.deepcopy(manifest)
             legacy_manifest["manifestVersion"] = "1.0"
             legacy_manifest["targets"] = previous_config["targets"]
+            legacy_manifest["releaseNotes"] = [
+                "Final v1 bridge release. Future updates use the v2 manifest."
+            ]
             legacy_manifest["files"] = {
                 legacy_file_id(file_id): metadata
                 for file_id, metadata in legacy_manifest["files"].items()
