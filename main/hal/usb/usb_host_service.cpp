@@ -29,9 +29,11 @@ std::atomic<bool> stopping{false};
     !CONFIG_USB_HOST_HUBS_SUPPORTED
 #error "P4 V2 Ethernet requires USB Host hubs and enumeration filter callback"
 #endif
+#endif
 
+#if CONFIG_USB_HOST_ENABLE_ENUM_FILTER_CALLBACK
 /**
- * @brief 为 RTL8152B 选择 ECM 配置，其他 USB 设备使用默认配置
+ * @brief 允许普通 USB 设备枚举，并为 P4 V2 的 RTL8152B 选择 ECM 配置
  * @param descriptor USB 设备描述符
  * @param value 选中的配置编号输出地址
  * @return 配置可用返回 true，否则返回 false
@@ -40,15 +42,18 @@ bool SelectConfiguration(const usb_device_desc_t* descriptor, uint8_t* value) {
   if (descriptor == nullptr || value == nullptr) {
     return false;
   }
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4) && \
+    defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
   if (descriptor->idVendor == 0x0BDA && descriptor->idProduct == 0x8152) {
     // RTL8152B 配置 1 是厂商协议，配置 2 才是 CDC-ECM。
     if (descriptor->bNumConfigurations < 2) {
       return false;
     }
     *value = 2;
-  } else {
-    *value = 1;
+    return true;
   }
+#endif
+  *value = 1;
   return true;
 }
 #endif
@@ -97,8 +102,8 @@ esp_err_t Acquire() {
     }
     usb_host_config_t config = {};
     config.intr_flags = ESP_INTR_FLAG_LEVEL1;
-#if defined(CONFIG_LILYGO_DEVICE_DRIVER_T_DISPLAY_P4) && \
-    defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+#if CONFIG_USB_HOST_ENABLE_ENUM_FILTER_CALLBACK
+    // ESP-IDF 启用枚举过滤后，空回调会拒绝所有设备；V1 和 Air 也必须注册。
     config.enum_filter_cb = SelectConfiguration;
 #endif
     const esp_err_t result = usb_host_install(&config);
