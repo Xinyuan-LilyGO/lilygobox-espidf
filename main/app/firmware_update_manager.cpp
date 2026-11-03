@@ -2286,6 +2286,82 @@ void FormatFirmwareSize(
   }
 }
 
+bool ReadRunningMainFirmwareSize(size_t* size_bytes) {
+  if (size_bytes == nullptr) {
+    return false;
+  }
+  const esp_partition_t* partition = esp_ota_get_running_partition();
+  if (partition == nullptr) {
+    return false;
+  }
+  esp_partition_pos_t position = {};
+  position.offset = partition->address;
+  position.size = partition->size;
+  esp_image_metadata_t metadata = {};
+  if (esp_image_get_metadata(&position, &metadata) != ESP_OK ||
+      metadata.image_len == 0) {
+    return false;
+  }
+  *size_bytes = metadata.image_len;
+  return true;
+}
+
+void ApplyCurrentFirmwareSizes(const char* main_current,
+    const char* wireless_current,
+    const FirmwareReleaseManifest* known_manifest = nullptr) {
+  size_t main_size_bytes = 0;
+  size_t wireless_size_bytes = 0;
+  auto installed_manifest = AllocateFirmwareReleaseManifest();
+  const bool has_installed_manifest = installed_manifest != nullptr &&
+      LoadInstalledManifest(installed_manifest.get());
+  if (known_manifest != nullptr && main_current != nullptr &&
+      std::strcmp(known_manifest->main_version, main_current) == 0) {
+    main_size_bytes = known_manifest->main_size_bytes;
+  }
+  if (wireless_current != nullptr && known_manifest != nullptr &&
+      std::strcmp(known_manifest->wireless_version, wireless_current) == 0) {
+    wireless_size_bytes = known_manifest->wireless_size_bytes;
+  }
+  if (has_installed_manifest) {
+    if (main_size_bytes == 0 && main_current != nullptr &&
+        std::strcmp(installed_manifest->main_version, main_current) == 0) {
+      main_size_bytes = installed_manifest->main_size_bytes;
+    }
+    if (wireless_size_bytes == 0 && wireless_current != nullptr &&
+        std::strcmp(installed_manifest->wireless_version, wireless_current) == 0) {
+      wireless_size_bytes = installed_manifest->wireless_size_bytes;
+    }
+  }
+  if (main_size_bytes == 0) {
+    ReadRunningMainFirmwareSize(&main_size_bytes);
+  }
+
+  char main_size[24] = {};
+  char wireless_size[24] = {};
+  char package_size[24] = {};
+  if (main_size_bytes > 0) {
+    FormatFirmwareSize(main_size_bytes, main_size, sizeof(main_size));
+  }
+  if (wireless_size_bytes > 0) {
+    FormatFirmwareSize(wireless_size_bytes, wireless_size,
+        sizeof(wireless_size));
+  }
+  if (main_size_bytes > 0 && wireless_size_bytes > 0) {
+    FormatFirmwareSize(main_size_bytes + wireless_size_bytes, package_size,
+        sizeof(package_size));
+  }
+  if (!LockManager()) {
+    return;
+  }
+  CopyText(State().snapshot.current_main_size,
+      sizeof(State().snapshot.current_main_size), main_size);
+  CopyText(State().snapshot.current_wireless_size,
+      sizeof(State().snapshot.current_wireless_size), wireless_size);
+  CopyText(State().snapshot.current_package_size,
+      sizeof(State().snapshot.current_package_size), package_size);
+  UnlockManager();
+}
+
 /**
  * @brief 使用清单和当前版本刷新界面状态
  * @param manifest 已验证的固件清单
@@ -2362,6 +2438,7 @@ bool ApplyManifestSnapshot(const FirmwareReleaseManifest& manifest,
       check_cache ? "Checking downloaded firmware" :
       update_available ? "New version available" : "Firmware is up to date");
   UnlockManager();
+  ApplyCurrentFirmwareSizes(main_current, wireless_current, &manifest);
   return true;
 }
 
@@ -2431,6 +2508,7 @@ void ApplyPendingManifestSnapshot(const FirmwareReleaseManifest& manifest) {
       sizeof(State().snapshot.wireless_target_version),
       manifest.wireless_version);
   UnlockManager();
+  ApplyCurrentFirmwareSizes(main_current, nullptr, &manifest);
 }
 
 /**
@@ -4186,6 +4264,8 @@ bool FirmwareUpdateManager::Initialize(
   }
   CopyText(State().snapshot.wireless_current_version,
       sizeof(State().snapshot.wireless_current_version), wireless_version);
+  ApplyCurrentFirmwareSizes(State().snapshot.main_current_version,
+      wireless_version);
   if (!HasPendingUpdate()) {
     return true;
   }
