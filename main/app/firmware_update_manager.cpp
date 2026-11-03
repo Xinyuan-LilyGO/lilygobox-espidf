@@ -116,7 +116,7 @@ constexpr char kCurrentMainChipModel[] = "esp32p4";
 constexpr int kFirmwareHttpTimeoutMs = 15000;
 constexpr int kHttpBufferSize = 4096;
 // v2 uses the GitHub source first and one runtime proxy fallback.
-constexpr size_t kMaximumFirmwareDownloadSourceCount = 2;
+constexpr size_t kMaximumFirmwareDownloadSourceCount = 4;
 constexpr size_t kMaximumFirmwareDownloadUrlLength = 384;
 constexpr size_t kMaximumFirmwareTargetCount = 32;
 constexpr size_t kMaximumFirmwareFileCount = 64;
@@ -802,6 +802,9 @@ void ConfirmRunningMainFirmware() {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Mark running Main firmware valid failed: %s\n",
         esp_err_to_name(result));
+  } else {
+    LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+        "Running Main firmware confirmed after application initialization\n");
   }
 #endif
 }
@@ -1333,6 +1336,39 @@ bool ReadRequiredFirmwareUrl(const cJSON* object, const char* name,
   return true;
 }
 
+// v1 清单保留原始备用源顺序；v2 仍使用单 URL 加自动代理的规则。
+bool ReadLegacyFirmwareUrls(const cJSON* object,
+    char destinations[kMaximumFirmwareDownloadSourceCount]
+                    [kMaximumFirmwareDownloadUrlLength],
+    size_t* count) {
+  const cJSON* urls = cJSON_GetObjectItemCaseSensitive(object, "downloadUrls");
+  if (!cJSON_IsArray(urls) || count == nullptr) {
+    return false;
+  }
+  const int url_count = cJSON_GetArraySize(urls);
+  if (url_count < 1 ||
+      url_count > static_cast<int>(kMaximumFirmwareDownloadSourceCount)) {
+    return false;
+  }
+  for (int index = 0; index < url_count; ++index) {
+    const cJSON* url = cJSON_GetArrayItem(urls, index);
+    if (!cJSON_IsString(url) || url->valuestring == nullptr ||
+        !IsHttpsUrl(url->valuestring) ||
+        std::strlen(url->valuestring) >= kMaximumFirmwareDownloadUrlLength) {
+      return false;
+    }
+    for (int previous = 0; previous < index; ++previous) {
+      if (std::strcmp(destinations[previous], url->valuestring) == 0) {
+        return false;
+      }
+    }
+    CopyText(destinations[index], kMaximumFirmwareDownloadUrlLength,
+        url->valuestring);
+  }
+  *count = static_cast<size_t>(url_count);
+  return true;
+}
+
 /**
  * @brief 校验使用 UTC 和秒精度的 RFC 3339 发布时间
  * @param text 发布时间文本
@@ -1462,13 +1498,13 @@ bool UrlEndsWithFilename(const char* url, const char* filename) {
 }
 
 /**
- * @brief 按 v2 清单芯片修订范围校验当前修订号
+ * @brief 按清单版本校验 v1 精确修订号或 v2 修订范围
  * @param chip 清单中的芯片条件
  * @param current_revision 当前芯片修订号
  * @return 条件无效、不匹配或匹配
  */
 TargetMatchResult MatchChipRevision(const cJSON* chip,
-    const char* current_revision) {
+    const char* current_revision, bool legacy_manifest) {
   const cJSON* revision = cJSON_GetObjectItemCaseSensitive(chip, "revision");
   const cJSON* minimum = cJSON_GetObjectItemCaseSensitive(chip, "minRevision");
   const cJSON* maximum = cJSON_GetObjectItemCaseSensitive(chip, "maxRevision");
@@ -1477,6 +1513,15 @@ TargetMatchResult MatchChipRevision(const cJSON* chip,
   uint32_t upper[2] = {};
   if (!ParseMajorMinorVersion(current_revision, actual)) {
     return TargetMatchResult::kInvalid;
+  }
+  if (legacy_manifest) {
+    if (!cJSON_IsString(revision) || revision->valuestring == nullptr ||
+        minimum != nullptr || maximum != nullptr ||
+        !ParseMajorMinorVersion(revision->valuestring, lower)) {
+      return TargetMatchResult::kInvalid;
+    }
+    return actual[0] == lower[0] && actual[1] == lower[1]
+               ? TargetMatchResult::kMatch : TargetMatchResult::kNoMatch;
   }
   if (revision != nullptr || !cJSON_IsString(minimum) ||
       minimum->valuestring == nullptr || !cJSON_IsString(maximum) ||
@@ -1511,7 +1556,7 @@ TargetMatchResult MatchChipRevision(const cJSON* chip,
  */
 TargetMatchResult MatchFirmwareTarget(const cJSON* target,
     const char* main_revision, const char** main_file_id,
-    const char** wireless_file_id) {
+    const char** wireless_file_id, bool legacy_manifest) {
   if (!cJSON_IsObject(target) || main_revision == nullptr ||
       main_file_id == nullptr || wireless_file_id == nullptr) {
     return TargetMatchResult::kInvalid;
@@ -1568,9 +1613,9 @@ TargetMatchResult MatchFirmwareTarget(const cJSON* target,
     return TargetMatchResult::kInvalid;
   }
   const TargetMatchResult main_match =
-      MatchChipRevision(main_chip, main_revision);
+      MatchChipRevision(main_chip, main_revision, legacy_manifest);
   const TargetMatchResult wireless_match = MatchChipRevision(
-      wireless_chip, kCurrentWirelessChipRevision);
+      wireless_chip, kCurrentWirelessChipRevision, legacy_manifest);
   if (main_match == TargetMatchResult::kInvalid ||
       wireless_match == TargetMatchResult::kInvalid) {
     return TargetMatchResult::kInvalid;
@@ -1608,7 +1653,8 @@ bool ReadFirmwareFileMetadata(const cJSON* firmware_files, const char* file_id,
     size_t version_size,
     char urls[kMaximumFirmwareDownloadSourceCount]
              [kMaximumFirmwareDownloadUrlLength],
-    size_t* url_count, size_t* size_bytes, char* sha256, size_t sha256_size) {
+    size_t* url_count, size_t* size_bytes, char* sha256, size_t sha256_size,
+    bool legacy_manifest) {
   if (!cJSON_IsObject(firmware_files) || !IsFirmwareFileId(file_id) ||
       expected_chip == nullptr || expected_project_name == nullptr) {
     return false;
@@ -1626,7 +1672,9 @@ bool ReadFirmwareFileMetadata(const cJSON* firmware_files, const char* file_id,
           file, "projectName", project_name, sizeof(project_name)) ||
       !ReadRequiredJsonString(file, "version", version, version_size) ||
       !ReadRequiredJsonString(file, "fileName", filename, sizeof(filename)) ||
-      !ReadRequiredFirmwareUrl(file, "downloadUrl", urls, url_count) ||
+      !(legacy_manifest ? ReadLegacyFirmwareUrls(file, urls, url_count)
+                        : ReadRequiredFirmwareUrl(
+                              file, "downloadUrl", urls, url_count)) ||
       !ReadRequiredJsonSize(file, "sizeBytes", size_bytes) ||
       !ReadRequiredJsonString(hashes, "sha256", sha256, sha256_size) ||
       std::strcmp(chip, expected_chip) != 0 ||
@@ -1642,7 +1690,8 @@ bool ReadFirmwareFileMetadata(const cJSON* firmware_files, const char* file_id,
   }
   // 保留原始 URL；只为 GitHub 增加代理，不包装局域网或其他站点地址。
   constexpr const char* github_prefix = "https://github.com/";
-  if (std::strncmp(urls[0], github_prefix, std::strlen(github_prefix)) == 0) {
+  if (*url_count == 1 &&
+      std::strncmp(urls[0], github_prefix, std::strlen(github_prefix)) == 0) {
     constexpr const char* proxy_prefix = "https://gh-proxy.com/";
     const size_t prefix_length = std::strlen(proxy_prefix);
     const size_t source_length = std::strlen(urls[0]);
@@ -1690,7 +1739,10 @@ ManifestParseResult ParseManifest(
       manifest_version->valuestring == nullptr) {
     return ManifestParseResult::kInvalid;
   }
-  if (std::strcmp(manifest_version->valuestring, kCurrentManifestVersion) != 0) {
+  const bool legacy_manifest =
+      std::strcmp(manifest_version->valuestring, "1.0") == 0;
+  if (!legacy_manifest &&
+      std::strcmp(manifest_version->valuestring, kCurrentManifestVersion) != 0) {
     return ManifestParseResult::kUnsupportedVersion;
   }
   if (!cJSON_IsObject(release) || !cJSON_IsArray(targets) ||
@@ -1739,7 +1791,7 @@ ManifestParseResult ParseManifest(
     const char* candidate_wireless_file_id = nullptr;
     const TargetMatchResult match_result = MatchFirmwareTarget(target,
         main_revision, &candidate_main_file_id,
-        &candidate_wireless_file_id);
+        &candidate_wireless_file_id, legacy_manifest);
     if (match_result == TargetMatchResult::kInvalid) {
       return ManifestParseResult::kInvalid;
     }
@@ -1774,18 +1826,34 @@ ManifestParseResult ParseManifest(
           kCurrentMainChipModel, kMainFirmwareProjectName, parsed.main_version,
           sizeof(parsed.main_version), parsed.main_urls, &parsed.main_url_count,
           &parsed.main_size_bytes, parsed.main_sha256,
-          sizeof(parsed.main_sha256)) ||
+          sizeof(parsed.main_sha256), legacy_manifest) ||
       !ReadFirmwareFileMetadata(firmware_files, wireless_file_id,
           kCurrentWirelessChipModel, kWirelessFirmwareProjectName,
           parsed.wireless_version, sizeof(parsed.wireless_version),
           parsed.wireless_urls, &parsed.wireless_url_count,
           &parsed.wireless_size_bytes, parsed.wireless_sha256,
-          sizeof(parsed.wireless_sha256))) {
+          sizeof(parsed.wireless_sha256), legacy_manifest)) {
     return ManifestParseResult::kInvalid;
   }
   if (!IsSemanticVersionForReleaseChannel(
           parsed.main_version, kReleaseChannel)) {
     return ManifestParseResult::kInvalid;
+  }
+
+  if (legacy_manifest) {
+    const cJSON* notes =
+        cJSON_GetObjectItemCaseSensitive(root.get(), "releaseNotes");
+    if (!cJSON_IsArray(notes) || cJSON_GetArraySize(notes) > 3) {
+      return ManifestParseResult::kInvalid;
+    }
+    const cJSON* note = nullptr;
+    cJSON_ArrayForEach(note, notes) {
+      if (!cJSON_IsString(note) || note->valuestring == nullptr ||
+          note->valuestring[0] == '\0' ||
+          std::strlen(note->valuestring) > 127) {
+        return ManifestParseResult::kInvalid;
+      }
+    }
   }
 
   return ManifestParseResult::kSuccess;
@@ -3839,7 +3907,7 @@ void RunResumeTask() {
   FirmwareReleaseManifest& manifest = *manifest_storage;
   if (!LoadSavedManifest(&manifest)) {
     /**
-     * @brief 保留更新标记和已校验镜像，读取失败时继续保留回滚及后续恢复依据
+     * @brief 保留更新标记和已校验镜像，读取失败时允许后续重试恢复
      */
     struct stat manifest_info = {};
     const bool exists = stat(kSavedManifestPath, &manifest_info) == 0;
@@ -3947,8 +4015,6 @@ void RunResumeTask() {
       return;
     }
   }
-  // 新主固件只有在无线固件本地镜像可恢复时才取消 bootloader 回滚保护。
-  ConfirmRunningMainFirmware();
   if (wireless_update_required) {
     const WirelessUpdateResult wireless_result =
         UpdateWirelessFirmware(manifest, true, true);
@@ -4106,8 +4172,10 @@ bool FirmwareUpdateManager::Initialize(
   CopyReleaseVersion(State().snapshot.current_release_version,
       sizeof(State().snapshot.current_release_version),
       State().snapshot.main_current_version);
+  // Application 已完成设备与存储初始化。主应用启动确认与组合更新恢复分开，
+  // 避免旧清单、断网或无线 RPC 失败让正常启动的应用一直处于待确认状态。
+  ConfirmRunningMainFirmware();
   if (!State().snapshot.device_supported) {
-    ConfirmRunningMainFirmware();
     return true;
   }
   char wireless_version[32] = {};
@@ -4119,7 +4187,6 @@ bool FirmwareUpdateManager::Initialize(
   CopyText(State().snapshot.wireless_current_version,
       sizeof(State().snapshot.wireless_current_version), wireless_version);
   if (!HasPendingUpdate()) {
-    ConfirmRunningMainFirmware();
     return true;
   }
   if (LockManager()) {
