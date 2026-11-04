@@ -78,7 +78,7 @@ class TDisplayP4Device final : public ScreenProvider,
   bool SupportsOtgWhileCharging() const override { return true; }
 
   /**
-   * @brief 更新 Type-C 角色与 RBFET，保持 Type-A 使用的共用 Boost
+   * @brief 更新 Type-C 角色与 RBFET，不改变独立控制的 Type-A 供电
    * @return 状态更新成功返回 true，否则返回 false
    */
   bool UpdateOtgPowerState() override;

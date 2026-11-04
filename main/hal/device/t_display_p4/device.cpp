@@ -47,12 +47,6 @@ bool TDisplayP4Device::InitDevice() {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "Init failed\n");
   }
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
-  // Type-A 供电由 XL9535 IO10 控制，必须先配置输出方向和 Boost 参数。
-  if (!driver_.InitUsbHostPower()) {
-    LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Initialize USB host power failed\n");
-    return false;
-  }
   otg_enabled_ = false;
   type_c_source_role_enabled_ = false;
   type_c_output_enabled_ = false;

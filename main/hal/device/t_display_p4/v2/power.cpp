@@ -2,7 +2,7 @@
  * @Description: T-Display-P4 V2 电源、实体按键与关机充电实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-09-02 17:53:38
+ * @LastEditTime: 2026-11-04 15:40:58
  * @License: GPL 3.0
  */
 #include <cstdint>
@@ -47,10 +47,10 @@ bool TDisplayP4Device::SetOtgPowerEnabled(bool enabled) {
   } else if (driver_.IsAxp517Ready() && driver_.IsXl9535Ready() &&
              driver_.chip().axp517 != nullptr &&
              driver_.chip().xl9535 != nullptr) {
-    // IO10 和 Boost 维持 Type-A 供电；Type-C 只单独切换 RBFET。
+    // Type-A 由 XL9535 独立控制；Boost 保留给 Type-C 反向供电路径。
     result = driver_.chip().axp517->SetVbusDetectEnable(true) &&
              driver_.chip().axp517->SetBoostEnable(true) &&
-             driver_.chip().xl9535->GpioWrite(gpio::xl9535::kUsbHostPowerEn, 1);
+             driver_.SetTypeAUsbPowerEnabled(true);
     if (result) {
       otg_enabled_ = true;
       result = UpdateOtgPowerStateLocked();
@@ -130,8 +130,7 @@ bool TDisplayP4Device::DisableOtgPowerLocked() {
     }
   }
   if (driver_.IsXl9535Ready() && driver_.chip().xl9535 != nullptr) {
-    result &=
-        driver_.chip().xl9535->GpioWrite(gpio::xl9535::kUsbHostPowerEn, 0);
+    result &= driver_.SetTypeAUsbPowerEnabled(false);
   }
   if (driver_.IsAxp517Ready() && driver_.chip().axp517 != nullptr) {
     result &= driver_.chip().axp517->SetBoostEnable(ethernet_power_enabled_);
@@ -272,7 +271,7 @@ bool TDisplayP4Device::ConfigureDeepSleepGpioIsolation() {
   // 不会被这里的隔离配置破坏；重启路径只依赖定时唤醒，无需保留电源键输入。
   // 电源使能脚有外部下拉，进入睡眠高阻态后由外部电阻保持关闭，无需 GPIO hold。
   // 这里只切断外设 3.3V，不保证仍由电池或 VBUS 供电的 AXP517 本体完全掉电。
-  return driver_.SetPower3v3Enabled(false);
+  return driver_.Set3v3PowerEnabled(false);
 }
 
 bool TDisplayP4Device::ConfigurePowerOffWakeSources() {
