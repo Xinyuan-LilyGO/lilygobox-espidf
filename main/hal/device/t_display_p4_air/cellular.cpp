@@ -28,7 +28,7 @@ constexpr uint32_t kCellularCommandTimeoutMs = 2000;
 constexpr uint32_t kCellularStatusPollMs = 2000;
 constexpr uint32_t kCellularNetworkTimePollMs = 10000;
 constexpr uint32_t kCellularSimStartupDelayMs = 3000;
-constexpr uint32_t kCellularTaskStopTimeoutMs = 12000;
+constexpr uint32_t kCellularTaskStopTimeoutMs = 20000;
 
 /**
  * @brief 删除字符串首尾的 ASCII 空白字符
@@ -239,6 +239,118 @@ bool ParseCellularSignal(
   }
   *signal_quality = quality;
   *rssi_dbm = quality >= 0 && quality <= 31 ? -113 + quality * 2 : 0;
+  return true;
+}
+
+/**
+ * @brief 解析 Nordic LTE CESQ 返回的 RSRP/RSRQ 编码
+ * @param response AT+CESQ 完整响应
+ * @param status RSRP/RSRQ 测量结果输出地址
+ * @return 解析成功返回 true，否则返回 false
+ */
+bool ParseCellularRadioMetrics(
+    const std::string& response, CellularStatus* status) {
+  std::string value;
+  if (status == nullptr ||
+      !ExtractAtPrefixedValue(response, "+CESQ:", &value)) {
+    return false;
+  }
+
+  int rxlev = 0;
+  int ber = 0;
+  int rscp = 0;
+  int ecno = 0;
+  int rsrq_index = 255;
+  int rsrp_index = 255;
+  if (std::sscanf(value.c_str(), "%d,%d,%d,%d,%d,%d", &rxlev, &ber, &rscp,
+          &ecno, &rsrq_index, &rsrp_index) != 6) {
+    return false;
+  }
+
+  // 负索引使用 Nordic 的扩展换算规则；255 表示不可用，不能当作测量值。
+  status->rsrp_index = rsrp_index;
+  status->rsrp_valid = rsrp_index >= -17 && rsrp_index <= 97;
+  if (status->rsrp_valid) {
+    status->rsrp_dbm = rsrp_index < 0 ? rsrp_index - 140 : rsrp_index - 141;
+  }
+  status->rsrq_index = rsrq_index;
+  status->rsrq_valid = rsrq_index >= -30 && rsrq_index <= 46;
+  if (status->rsrq_valid) {
+    status->rsrq_db = rsrq_index < 0 ? (rsrq_index - 39) * 0.5f
+        : (rsrq_index < 35 ? (rsrq_index - 40) * 0.5f
+                           : (rsrq_index - 41) * 0.5f);
+  }
+  return true;
+}
+
+/**
+ * @brief 从 AT%XMONITOR 响应中提取当前小区和 PLMN 信息
+ * @param response AT%XMONITOR 完整响应
+ * @param status 小区和 PLMN 信息输出地址
+ * @return 解析成功返回 true，否则返回 false
+ */
+bool ParseCellularMonitor(const std::string& response,
+    CellularStatus* status) {
+  if (status == nullptr) {
+    return false;
+  }
+  std::string line;
+  if (!ExtractAtPrefixedValue(response, "%XMONITOR:", &line)) {
+    return false;
+  }
+  std::array<std::string, 20> fields = {};
+  size_t field_count = 0;
+  std::string field;
+  bool quoted = false;
+  for (char character : line) {
+    if (character == '"') {
+      quoted = !quoted;
+    } else if (character == ',' && !quoted) {
+      if (field_count >= fields.size()) {
+        return false;
+      }
+      fields[field_count++] = TrimAsciiWhitespace(field);
+      field.clear();
+    } else {
+      field.push_back(character);
+    }
+  }
+  if (field_count >= fields.size()) {
+    return false;
+  }
+  fields[field_count++] = TrimAsciiWhitespace(field);
+  if (quoted || field_count < 10 ||
+      (fields[0] != "1" && fields[0] != "5")) {
+    return false;
+  }
+
+  const auto parse_int = [&fields, field_count](size_t index, int* output) {
+    if (index >= field_count || output == nullptr || fields[index].empty()) {
+      return false;
+    }
+    int parsed = 0;
+    for (unsigned char digit : fields[index]) {
+      if (digit < '0' || digit > '9' || parsed > 1000000) {
+        return false;
+      }
+      parsed = parsed * 10 + digit - '0';
+    }
+    *output = parsed;
+    return true;
+  };
+
+  // 字段顺序：注册状态、运营商全名/简称、PLMN、TAC、制式、频段、
+  // 小区 ID、物理小区 ID、EARFCN、RSRP、SNR 等。
+  device_utils::CopyString(status->plmn, sizeof(status->plmn), fields[3]);
+  device_utils::CopyString(status->tac, sizeof(status->tac), fields[4]);
+  device_utils::CopyString(status->cell_id, sizeof(status->cell_id), fields[7]);
+  parse_int(5, &status->access_technology);
+  parse_int(6, &status->band);
+  int physical_cell_id = -1;
+  if (parse_int(8, &physical_cell_id) && physical_cell_id <= 503) {
+    status->physical_cell_id = physical_cell_id;
+  }
+  parse_int(9, &status->earfcn);
   return true;
 }
 
@@ -607,7 +719,21 @@ void TDisplayP4AirDevice::RunCellularTask() {
       snapshot.sim_state = sim_state;
 
       const bool sim_ready = snapshot.sim_state == CellularSimState::kReady;
+      // 每轮轮询先清空测量值，避免查询失败时页面继续显示上一次结果。
+      snapshot.signal_quality_valid = false;
+      snapshot.rsrp_valid = false;
+      snapshot.rsrq_valid = false;
+      snapshot.rsrp_index = 255;
+      snapshot.rsrq_index = 255;
+      snapshot.plmn[0] = '\0';
+      snapshot.tac[0] = '\0';
+      snapshot.cell_id[0] = '\0';
+      snapshot.band = 0;
+      snapshot.earfcn = -1;
+      snapshot.physical_cell_id = -1;
+      snapshot.access_technology = -1;
       if (!sim_ready) {
+        snapshot.imsi[0] = '\0';
         snapshot.registration = CellularRegistrationState::kUnknown;
         snapshot.signal_quality = 99;
         snapshot.rssi_dbm = 0;
@@ -621,6 +747,22 @@ void TDisplayP4AirDevice::RunCellularTask() {
         network_time_error_reported = false;
       }
 
+      // CPIN 报告 READY 后才能读取 UICC 身份；若 SIM 尚未启动完成或命令失败，
+      // 则在后续轮询中继续尝试。
+      if (sim_ready && snapshot.imsi[0] == '\0' &&
+          !cellular_.stop_requested.load()) {
+        response.clear();
+        const int previous_error = snapshot.last_error;
+        if (send_command("AT+CIMI", &response)) {
+          std::string imsi;
+          if (ExtractAtNumericLine(response, &imsi) &&
+              imsi.size() >= 5 && imsi.size() <= 15) {
+            device_utils::CopyString(
+                snapshot.imsi, sizeof(snapshot.imsi), imsi);
+          }
+        }
+        snapshot.last_error = previous_error;
+      }
       if (sim_ready && !cellular_.stop_requested.load()) {
         response.clear();
         CellularRegistrationState registration =
@@ -646,6 +788,15 @@ void TDisplayP4AirDevice::RunCellularTask() {
         }
         snapshot.registration = registration;
       }
+      if (sim_ready && IsCellularRegistered(snapshot.registration) &&
+          !cellular_.stop_requested.load()) {
+        response.clear();
+        const int previous_error = snapshot.last_error;
+        if (send_command("AT%XMONITOR", &response)) {
+          ParseCellularMonitor(response, &snapshot);
+        }
+        snapshot.last_error = previous_error;
+      }
       if (sim_ready && !cellular_.stop_requested.load()) {
         response.clear();
         int signal_quality = 99;
@@ -662,7 +813,18 @@ void TDisplayP4AirDevice::RunCellularTask() {
         }
         signal_error_reported = !signal_status_valid;
         snapshot.signal_quality = signal_quality;
+        snapshot.signal_quality_valid =
+            signal_status_valid && signal_quality >= 0 && signal_quality <= 31;
         snapshot.rssi_dbm = rssi_dbm;
+      }
+      if (sim_ready && !cellular_.stop_requested.load()) {
+        response.clear();
+        const int previous_error = snapshot.last_error;
+        const bool metrics_command_ok = send_command("AT+CESQ", &response);
+        if (metrics_command_ok) {
+          ParseCellularRadioMetrics(response, &snapshot);
+        }
+        snapshot.last_error = previous_error;
       }
       if (sim_ready && !cellular_.stop_requested.load()) {
         response.clear();

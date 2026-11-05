@@ -2,7 +2,7 @@
  * @Description: 整机测试列表、测试流程与结果交互页面实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-09-02 17:54:29
+ * @LastEditTime: 2026-11-05 16:47:36
  * @License: GPL 3.0
  */
 #include "ui/views/cit_view.h"
@@ -2344,7 +2344,7 @@ void RefreshPeripheralTestData(
   if (state == nullptr || state->test_data_label == nullptr) {
     return;
   }
-  char text[768] = {};
+  char text[1536] = {};
   if (IsEntryId(entry, "nfc")) {
     if (state->keyboard_expansion != nullptr &&
         !IsKeyboardExpansionNfcReady(state)) {
@@ -2433,24 +2433,112 @@ void RefreshPeripheralTestData(
     const bool status_valid =
         state->cellular != nullptr &&
         state->cellular->ReadCellularStatus(&cellular_status);
+    const char* imsi =
+        cellular_status.imsi[0] == '\0' ? "-" : cellular_status.imsi;
+    char rsrp_text[24] = {};
+    char rsrq_text[24] = {};
+    char csq_text[32] = {};
+    char band_text[16] = {};
+    char earfcn_text[16] = {};
+    char physical_cell_id_text[16] = {};
+    const char* radio_mode = cellular_status.access_technology == 7 ? "LTE-M"
+        : (cellular_status.access_technology == 9 ? "NB-IoT" : "-");
+    if (cellular_status.rsrp_valid) {
+      std::snprintf(rsrp_text, sizeof(rsrp_text), "%d dBm",
+          cellular_status.rsrp_dbm);
+      if (cellular_status.rsrp_index == -17) {
+        std::snprintf(rsrp_text, sizeof(rsrp_text), "< -156 dBm");
+      } else if (cellular_status.rsrp_index == 0) {
+        std::snprintf(rsrp_text, sizeof(rsrp_text), "< -140 dBm");
+      } else if (cellular_status.rsrp_index == 97) {
+        std::snprintf(rsrp_text, sizeof(rsrp_text), ">= -44 dBm");
+      }
+    } else {
+      std::snprintf(rsrp_text, sizeof(rsrp_text), "unknown");
+    }
+    if (cellular_status.rsrq_valid) {
+      std::snprintf(rsrq_text, sizeof(rsrq_text), "%.1f dB",
+          static_cast<double>(cellular_status.rsrq_db));
+      if (cellular_status.rsrq_index == -30) {
+        std::snprintf(rsrq_text, sizeof(rsrq_text), "< -34.5 dB");
+      } else if (cellular_status.rsrq_index == 0) {
+        std::snprintf(rsrq_text, sizeof(rsrq_text), "< -19.5 dB");
+      } else if (cellular_status.rsrq_index == 34) {
+        std::snprintf(rsrq_text, sizeof(rsrq_text), ">= -3 dB");
+      } else if (cellular_status.rsrq_index == 46) {
+        std::snprintf(rsrq_text, sizeof(rsrq_text), ">= 2.5 dB");
+      }
+    } else {
+      std::snprintf(rsrq_text, sizeof(rsrq_text), "unknown");
+    }
+    if (cellular_status.signal_quality_valid) {
+      std::snprintf(csq_text, sizeof(csq_text), "%d",
+          cellular_status.signal_quality);
+    } else {
+      std::snprintf(csq_text, sizeof(csq_text), "unknown");
+    }
+    if (cellular_status.band > 0) {
+      std::snprintf(band_text, sizeof(band_text), "%d",
+          cellular_status.band);
+    } else {
+      std::snprintf(band_text, sizeof(band_text), "-");
+    }
+    if (cellular_status.earfcn >= 0) {
+      std::snprintf(earfcn_text, sizeof(earfcn_text), "%d",
+          cellular_status.earfcn);
+    } else {
+      std::snprintf(earfcn_text, sizeof(earfcn_text), "-");
+    }
+    if (cellular_status.physical_cell_id >= 0) {
+      std::snprintf(physical_cell_id_text, sizeof(physical_cell_id_text), "%d",
+          cellular_status.physical_cell_id);
+    } else {
+      std::snprintf(physical_cell_id_text, sizeof(physical_cell_id_text), "-");
+    }
+    // 分类之间留空行，组内缩进；字段名与值同行，超宽时由标签自动换行。
     std::snprintf(text, sizeof(text),
-        "cellular test:\nstatus: %s\nstage: %s\npower: %s\n"
-        "SIM: %s\nnetwork: %s\nsignal: %d dBm (CSQ %d)\n"
-        "operator: %s\nnetwork time: %s\nmodel: %s\nIMEI: %s\n"
-        "firmware: %s\nerror: %d",
+        "cellular test:\nstatus: %s\nstage: %s\npower: %s\n\n"
+        "SIM / network:\n"
+        "     SIM: %s\n"
+        "     IMSI: %s\n"
+        "     registration: %s\n"
+        "     operator: %s\n"
+        "     PLMN: %s\n\n"
+        "radio:\n"
+        "     mode: %s\n"
+        "     RSRP: %s\n"
+        "     RSRQ: %s\n"
+        "     CSQ: %s\n\n"
+        "serving cell:\n"
+        "     Band: %s\n"
+        "     EARFCN: %s\n"
+        "     PCI: %s\n"
+        "     TAC (hex): %s\n"
+        "     Cell ID (hex): %s\n\n"
+        "modem:\n"
+        "     model: %s\n"
+        "     IMEI: %s\n"
+        "     firmware: %s\n\n"
+        "network time: %s\n\n"
+        "error: %d",
         status_valid ? "ready" : "read failed",
         CellularTestStageText(cellular_status),
         cellular_status.powered ? "on" : "starting",
         CellularSimStateText(cellular_status.sim_state),
+        imsi,
         CellularRegistrationText(cellular_status.registration),
-        cellular_status.rssi_dbm, cellular_status.signal_quality,
         cellular_status.operator_name[0] == '\0'
             ? "-"
             : cellular_status.operator_name,
-        cellular_status.network_time_ready ? cellular_status.network_time : "-",
+        cellular_status.plmn[0] == '\0' ? "-" : cellular_status.plmn,
+        radio_mode, rsrp_text, rsrq_text, csq_text,
+        band_text, earfcn_text, physical_cell_id_text,
+        cellular_status.tac[0] == '\0' ? "-" : cellular_status.tac,
+        cellular_status.cell_id[0] == '\0' ? "-" : cellular_status.cell_id,
         cellular_status.model[0] == '\0' ? "-" : cellular_status.model,
         cellular_status.imei[0] == '\0' ? "-" : cellular_status.imei,
         cellular_status.firmware[0] == '\0' ? "-" : cellular_status.firmware,
+        cellular_status.network_time_ready ? cellular_status.network_time : "-",
         cellular_status.last_error);
   }
   lv_label_set_text(state->test_data_label, text);

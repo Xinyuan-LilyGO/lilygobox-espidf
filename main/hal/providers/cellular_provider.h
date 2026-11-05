@@ -17,6 +17,10 @@ inline constexpr size_t kCellularImeiCapacity = 24;
 inline constexpr size_t kCellularFirmwareCapacity = 96;
 inline constexpr size_t kCellularOperatorCapacity = 40;
 inline constexpr size_t kCellularNetworkTimeCapacity = 40;
+inline constexpr size_t kCellularIdentityCapacity = 24;
+inline constexpr size_t kCellularPlmnCapacity = 8;
+inline constexpr size_t kCellularTacCapacity = 8;
+inline constexpr size_t kCellularCellIdCapacity = 12;
 
 // 由 3GPP CPIN 状态归一化后的 SIM 卡状态。
 enum class CellularSimState : uint8_t {
@@ -53,7 +57,26 @@ struct CellularStatus {
   CellularRegistrationState registration = CellularRegistrationState::kUnknown;
   // AT+CSQ 原始信号质量，99 表示未知。
   int signal_quality = 99;
-  // 由 CSQ 换算的接收信号强度，未知时为 0。
+  // AT+CSQ 不提供有效值时为 false；不要把 99 显示成 0 dBm。
+  bool signal_quality_valid = false;
+  // nRF91 AT+CESQ 解码后的 LTE RSRP/RSRQ。
+  bool rsrp_valid = false;
+  int rsrp_index = 255;
+  int rsrp_dbm = 0;
+  bool rsrq_valid = false;
+  int rsrq_index = 255;
+  float rsrq_db = 0.0f;
+  // SIM 身份，由 AT+CIMI 读取。
+  char imsi[kCellularIdentityCapacity] = {};
+  // AT%XMONITOR 当前小区信息；-1 表示没有有效值。
+  char plmn[kCellularPlmnCapacity] = {};
+  char tac[kCellularTacCapacity] = {};
+  char cell_id[kCellularCellIdCapacity] = {};
+  int band = 0;
+  int earfcn = -1;
+  int physical_cell_id = -1;
+  int access_technology = -1;
+  // 保留旧 UI/调用方兼容；只有 CSQ 有效时才填写。
   int rssi_dbm = 0;
   // 模块型号。
   char model[kCellularModelCapacity] = {};
