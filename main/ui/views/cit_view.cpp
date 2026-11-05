@@ -2768,34 +2768,66 @@ void RefreshActiveTestData(CitViewState* state) {
   if (IsEntryId(*entry, "battery_management")) {
     const hal::BatteryManagementStatus& battery_management =
         state->diagnostics.battery_management;
+    const char* input_mode = "unavailable";
+    switch (battery_management.input_mode) {
+      case hal::ChargeInputMode::kDisconnected:
+        input_mode = "not connected";
+        break;
+      case hal::ChargeInputMode::kStandard:
+        input_mode = "standard";
+        break;
+      case hal::ChargeInputMode::kNegotiating:
+        input_mode = "negotiating";
+        break;
+      case hal::ChargeInputMode::kPd:
+        input_mode = "PD";
+        break;
+      case hal::ChargeInputMode::kPps:
+        input_mode = "PPS";
+        break;
+      case hal::ChargeInputMode::kFailed:
+        input_mode = "PD failed";
+        break;
+      case hal::ChargeInputMode::kUnavailable:
+        break;
+    }
     size_t used = 0;
     AppendFormatted(text, sizeof(text), &used,
         "battery management test data:\nstatus: %s\npack: %s\ncharging: %s\n"
-        "full: %s\nempty: %s\n"
-        "\n"
-        "voltage: %d mV\ncurrent: %d mA\n"
-        "\n"
-        "charge: %d%%\nhealth: %d%%\n",
+        "full: %s\nempty: %s\ncharge input: %s\n",
         battery_management.ready ? "ready" : "not ready",
         battery_management.pack_present ? "present" : "none",
         battery_management.charging ? "yes" : "no",
         battery_management.full_charged ? "yes" : "no",
         battery_management.full_discharged ? "yes" : "no",
-        battery_management.voltage_mv, battery_management.current_ma,
+        input_mode);
+    if (battery_management.input_mode == hal::ChargeInputMode::kPd ||
+        battery_management.input_mode == hal::ChargeInputMode::kPps) {
+      AppendFormatted(text, sizeof(text), &used,
+          "contract: %d mV / %d mA\n",
+          battery_management.contract_voltage_mv,
+          battery_management.contract_current_ma);
+    }
+    AppendFormatted(text, sizeof(text), &used,
+        "\n"
+        "voltage: %d mV\ncurrent: %d mA\n",
+        battery_management.voltage_mv, battery_management.current_ma);
+    AppendFormatted(text, sizeof(text), &used,
+        "\ncharge: %d%%\nhealth: %d%%\n",
         battery_management.charge_percent, battery_management.health_percent);
     if (battery_management.capabilities.average_measurements) {
       AppendFormatted(text, sizeof(text), &used,
-          "average current: %d mA\naverage power: %d mW\n",
+          "\naverage current: %d mA\naverage power: %d mW\n",
           battery_management.average_current_ma,
           battery_management.average_power_mw);
     }
     if (battery_management.capabilities.cycle_count) {
-      AppendFormatted(text, sizeof(text), &used, "cycle count: %d\n",
+      AppendFormatted(text, sizeof(text), &used, "\ncycle count: %d\n",
           battery_management.cycle_count);
     }
     if (battery_management.capabilities.capacity) {
       AppendFormatted(text, sizeof(text), &used,
-          "capacity:\n"
+          "\ncapacity:\n"
           "     remaining: %d mAh\n"
           "     full: %d mAh\n"
           "     design: %d mAh\n",
@@ -2805,7 +2837,7 @@ void RefreshActiveTestData(CitViewState* state) {
     }
     if (battery_management.capabilities.remaining_time) {
       AppendFormatted(text, sizeof(text), &used,
-          "time:\n"
+          "\ntime:\n"
           "     empty: %d min\n"
           "     full: %d min\n",
           battery_management.time_to_empty_min,
@@ -2824,6 +2856,7 @@ void RefreshActiveTestData(CitViewState* state) {
           battery_management.chip_temperature_c);
     }
     AppendFormatted(text, sizeof(text), &used,
+        "\n"
         "temperature:\n"
         "     pack: %s C\n"
         "     chip: %s C",

@@ -251,6 +251,7 @@ struct SettingsViewState {
   lv_obj_t* battery_overview_fill = nullptr;
   lv_obj_t* battery_overview_time_label = nullptr;
   lv_obj_t* battery_overview_status_icon_label = nullptr;
+  lv_obj_t* battery_overview_fast_status_icon_label = nullptr;
   lv_obj_t* battery_overview_status_label = nullptr;
   lv_obj_t* battery_health_value_label = nullptr;
   lv_obj_t* battery_cycle_value_label = nullptr;

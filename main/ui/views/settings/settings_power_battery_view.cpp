@@ -31,12 +31,14 @@ constexpr int kBatteryCardRadius = 40;
 constexpr int kBatteryFillRadius = 0;
 constexpr int kBatteryMainTextTop = 42;
 constexpr int kBatteryStatusTextTop = 128;
-constexpr int kBatteryStatusIconLeft = kBatteryCardInnerPadding;
+constexpr int kBatteryStatusIconLeft = kBatteryCardInnerPadding - 8;
 constexpr int kBatteryStatusIconTop = kBatteryStatusTextTop - 2;
-constexpr int kBatteryStatusChargingTextLeft = kBatteryCardInnerPadding + 32;
+constexpr int kBatteryStatusChargingTextLeft = kBatteryCardInnerPadding + 24;
+constexpr int kBatteryStatusFastChargingTextLeft =
+    kBatteryStatusChargingTextLeft - 2;
+constexpr int kBatteryFastStatusIconZoom = 197;
 constexpr int kBatteryLowThresholdPercent = 20;
-constexpr uint32_t kBatteryNormalColor = 0x35D66B;
-constexpr uint32_t kBatteryChargingColor = 0x27C769;
+constexpr uint32_t kBatteryFillColor = 0x27C769;
 constexpr uint32_t kBatteryLowColor = 0xFF3B30;
 constexpr uint32_t kBatteryRestColor = 0xB8EFC8;
 constexpr uint32_t kBatteryLowRestColor = 0xF6B2AE;
@@ -48,14 +50,11 @@ constexpr uint32_t kBatteryTextColor = 0xFFFFFF;
  * @param charging 是否正在充电
  * @return 填充颜色
  */
-uint32_t BatteryOverviewFillColor(int percent, bool charging) {
+uint32_t BatteryOverviewFillColor(int percent) {
   if (percent >= 0 && percent < kBatteryLowThresholdPercent) {
     return kBatteryLowColor;
   }
-  if (charging) {
-    return kBatteryChargingColor;
-  }
-  return kBatteryNormalColor;
+  return kBatteryFillColor;
 }
 
 /**
@@ -200,7 +199,7 @@ void UpdateBatteryOverview(
   }
   lv_obj_set_width(state->battery_overview_fill, fill_width);
   lv_obj_set_style_bg_color(state->battery_overview_fill,
-      lv_color_hex(BatteryOverviewFillColor(percent, status.charging)),
+      lv_color_hex(BatteryOverviewFillColor(percent)),
       LV_PART_MAIN);
 
   if (status.capabilities.remaining_time) {
@@ -221,11 +220,43 @@ void UpdateBatteryOverview(
     if (status.charging && !status.full_charged) {
       lv_obj_clear_flag(
           state->battery_overview_status_icon_label, LV_OBJ_FLAG_HIDDEN);
+      const bool fast_charging =
+          status.input_mode == hal::ChargeInputMode::kPd ||
+          status.input_mode == hal::ChargeInputMode::kPps;
+      lv_obj_set_style_transform_zoom(state->battery_overview_status_icon_label,
+          fast_charging ? kBatteryFastStatusIconZoom : LV_ZOOM_NONE,
+          LV_PART_MAIN);
+      lv_obj_set_pos(state->battery_overview_status_icon_label,
+          fast_charging ? kBatteryStatusIconLeft + 4
+                        : kBatteryStatusIconLeft,
+          fast_charging ? kBatteryStatusIconTop - 2
+                        : kBatteryStatusIconTop);
+      if (state->battery_overview_fast_status_icon_label != nullptr) {
+        lv_obj_set_pos(state->battery_overview_fast_status_icon_label,
+            fast_charging ? kBatteryStatusIconLeft + 3
+                          : kBatteryStatusIconLeft - 1,
+            fast_charging ? kBatteryStatusIconTop + 6
+                          : kBatteryStatusIconTop + 3);
+        if (fast_charging) {
+          lv_obj_clear_flag(
+              state->battery_overview_fast_status_icon_label,
+              LV_OBJ_FLAG_HIDDEN);
+        } else {
+          lv_obj_add_flag(state->battery_overview_fast_status_icon_label,
+              LV_OBJ_FLAG_HIDDEN);
+        }
+      }
       lv_obj_set_x(
-          state->battery_overview_status_label, kBatteryStatusChargingTextLeft);
+          state->battery_overview_status_label,
+          fast_charging ? kBatteryStatusFastChargingTextLeft
+                        : kBatteryStatusChargingTextLeft);
     } else {
       lv_obj_add_flag(
           state->battery_overview_status_icon_label, LV_OBJ_FLAG_HIDDEN);
+      if (state->battery_overview_fast_status_icon_label != nullptr) {
+        lv_obj_add_flag(state->battery_overview_fast_status_icon_label,
+            LV_OBJ_FLAG_HIDDEN);
+      }
       lv_obj_set_x(
           state->battery_overview_status_label, kBatteryCardInnerPadding);
     }
@@ -310,6 +341,7 @@ void BatteryPageDeleteEventCallback(lv_event_t* event) {
   state->battery_overview_fill = nullptr;
   state->battery_overview_time_label = nullptr;
   state->battery_overview_status_icon_label = nullptr;
+  state->battery_overview_fast_status_icon_label = nullptr;
   state->battery_overview_status_label = nullptr;
   state->battery_health_value_label = nullptr;
   state->battery_cycle_value_label = nullptr;
@@ -607,7 +639,7 @@ bool CreateBatteryOverviewCard(
       LV_PART_MAIN);
 
   lv_obj_t* fill = CreateBox(card, card_width, kBatteryCardHeight,
-      BatteryOverviewFillColor(percent, status.charging), LV_OPA_COVER,
+      BatteryOverviewFillColor(percent), LV_OPA_COVER,
       kBatteryFillRadius);
   if (fill == nullptr) {
     return false;
@@ -633,6 +665,18 @@ bool CreateBatteryOverviewCard(
   lv_obj_set_pos(
       status_icon_label, kBatteryStatusIconLeft, kBatteryStatusIconTop);
   state->battery_overview_status_icon_label = status_icon_label;
+
+  lv_obj_t* fast_status_icon_label = CreateLabel(
+      card, icon::kBolt, lv_color_hex(kBatteryTextColor), MaterialIconFont32());
+  if (fast_status_icon_label == nullptr) {
+    return false;
+  }
+  lv_obj_set_style_transform_zoom(
+      fast_status_icon_label, kBatteryFastStatusIconZoom, LV_PART_MAIN);
+  lv_obj_set_pos(fast_status_icon_label, kBatteryStatusIconLeft - 1,
+      kBatteryStatusIconTop + 4);
+  lv_obj_add_flag(fast_status_icon_label, LV_OBJ_FLAG_HIDDEN);
+  state->battery_overview_fast_status_icon_label = fast_status_icon_label;
 
   lv_obj_t* status_label = CreateLabel(card, "Available time | Battery --%",
       lv_color_hex(kBatteryTextColor), Font24());

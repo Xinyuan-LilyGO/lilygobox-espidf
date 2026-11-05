@@ -25,6 +25,14 @@ constexpr int kStatusBarIconGap = -10;
 constexpr int kStatusBarBatteryPercentGap = 4;
 constexpr int kStatusBarBatteryBoltOffsetX = -1;
 constexpr int kStatusBarBatteryBoltOffsetY = 0;
+constexpr int kStatusBarBatteryBoltControlSize = 32;
+constexpr int kStatusBarBatteryBoltZoom = 139;
+constexpr int kStatusBarBatteryFastBoltControlOffsetX = 7;
+constexpr int kStatusBarBatteryFastBoltControlOffsetY = 6;
+constexpr int kStatusBarBatteryBoltUpperOffsetX = 0;
+constexpr int kStatusBarBatteryBoltUpperOffsetY = -3;
+constexpr int kStatusBarBatteryBoltLowerOffsetX = -1;
+constexpr int kStatusBarBatteryBoltLowerOffsetY = 3;
 constexpr int kStatusBarBatteryFillMaxWidth = 32;
 constexpr int kStatusBarBatteryFillHeight = 16;
 constexpr int kStatusBarBatteryFillOffsetX = 5;
@@ -334,18 +342,49 @@ bool StatusBar::Init(lv_obj_t* parent, int width) {
   lv_obj_move_to_index(
       battery_management_fill_, lv_obj_get_index(battery_management_label_));
 
-  battery_management_bolt_label_ = CreateLabel(object_, icon::kBolt,
-      lv_color_hex(text_color_hex_), MaterialFillIconFont22());
+  battery_management_bolt_control_ = lv_obj_create(object_);
+  if (battery_management_bolt_control_ == nullptr) {
+    lv_obj_delete(object_);
+    object_ = nullptr;
+    return false;
+  }
+  MakeTransparent(battery_management_bolt_control_);
+  lv_obj_remove_flag(battery_management_bolt_control_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(battery_management_bolt_control_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(battery_management_bolt_control_,
+      kStatusBarBatteryBoltControlSize, kStatusBarBatteryBoltControlSize);
+  lv_obj_align_to(battery_management_bolt_control_, battery_management_label_,
+      LV_ALIGN_CENTER, kStatusBarBatteryBoltOffsetX,
+      kStatusBarBatteryBoltOffsetY);
+
+  battery_management_bolt_label_ = CreateLabel(battery_management_bolt_control_,
+      icon::kBolt, lv_color_hex(text_color_hex_), MaterialFillIconFont22());
   if (battery_management_bolt_label_ == nullptr) {
     lv_obj_delete(object_);
     object_ = nullptr;
     return false;
   }
+  lv_obj_set_style_transform_zoom(
+      battery_management_bolt_label_, LV_ZOOM_NONE, LV_PART_MAIN);
+  lv_obj_align(battery_management_bolt_label_, LV_ALIGN_CENTER, 0, 0);
   lv_obj_add_flag(battery_management_bolt_label_, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_align_to(battery_management_bolt_label_, battery_management_label_,
-      LV_ALIGN_CENTER, kStatusBarBatteryBoltOffsetX,
-      kStatusBarBatteryBoltOffsetY);
-  lv_obj_move_to_index(battery_management_bolt_label_, -1);
+
+  battery_management_fast_bolt_label_ = CreateLabel(
+      battery_management_bolt_control_, icon::kBolt,
+      lv_color_hex(text_color_hex_), MaterialFillIconFont32());
+  if (battery_management_fast_bolt_label_ == nullptr) {
+    lv_obj_delete(object_);
+    object_ = nullptr;
+    return false;
+  }
+  lv_obj_set_style_transform_zoom(battery_management_fast_bolt_label_,
+      kStatusBarBatteryBoltZoom, LV_PART_MAIN);
+  lv_obj_align(battery_management_fast_bolt_label_, LV_ALIGN_CENTER,
+      kStatusBarBatteryBoltLowerOffsetX,
+      kStatusBarBatteryBoltLowerOffsetY);
+  lv_obj_add_flag(battery_management_fast_bolt_label_, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(battery_management_bolt_control_, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_move_to_index(battery_management_bolt_control_, -1);
 
   wifi_label_ = CreateLabel(object_, icon::kSignalWifi4Bar,
       lv_color_hex(text_color_hex_), MaterialFillIconFont32());
@@ -390,7 +429,8 @@ void StatusBar::SetTimeText(const char* text) {
   lv_label_set_text(time_label_, time_text_);
 }
 
-void StatusBar::SetBatteryStatus(int percent, bool charging) {
+void StatusBar::SetBatteryStatus(
+    int percent, bool charging, bool fast_charging) {
   if (battery_management_label_ == nullptr ||
       battery_management_percent_label_ == nullptr) {
     return;
@@ -403,6 +443,8 @@ void StatusBar::SetBatteryStatus(int percent, bool charging) {
       std::strncmp(battery_management_percent_text_, percent_text,
           sizeof(battery_management_percent_text_)) != 0;
   const bool charging_changed = battery_management_charging_ != charging;
+  const bool fast_charging_changed =
+      battery_management_fast_charging_ != fast_charging;
   battery_management_percent_ = clamped_percent;
   if (percent_changed) {
     std::strncpy(battery_management_percent_text_, percent_text,
@@ -415,26 +457,55 @@ void StatusBar::SetBatteryStatus(int percent, bool charging) {
   if (charging_changed) {
     battery_management_charging_ = charging;
   }
+  if (fast_charging_changed) {
+    battery_management_fast_charging_ = fast_charging;
+  }
 
   const uint32_t battery_color =
       BatteryFillColor(clamped_percent, charging, text_color_hex_);
   lv_obj_set_style_text_color(
       battery_management_label_, lv_color_hex(text_color_hex_), LV_PART_MAIN);
   if (battery_management_bolt_label_ != nullptr) {
-    if (charging) {
-      lv_obj_remove_flag(battery_management_bolt_label_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(battery_management_bolt_label_, LV_OBJ_FLAG_HIDDEN);
+    const bool show_fast_charge = fast_charging && charging;
+    lv_obj_set_style_text_font(battery_management_bolt_label_,
+        show_fast_charge ? MaterialFillIconFont32() : MaterialFillIconFont22(),
+        LV_PART_MAIN);
+    lv_obj_set_style_transform_zoom(battery_management_bolt_label_,
+        show_fast_charge ? kStatusBarBatteryBoltZoom : LV_ZOOM_NONE,
+        LV_PART_MAIN);
+    lv_obj_align(battery_management_bolt_label_, LV_ALIGN_CENTER,
+        show_fast_charge ? kStatusBarBatteryBoltUpperOffsetX : 0,
+        show_fast_charge ? kStatusBarBatteryBoltUpperOffsetY : 0);
+  }
+  if (battery_management_fast_bolt_label_ != nullptr) {
+    if (fast_charging && charging) {
+      lv_obj_remove_flag(
+          battery_management_fast_bolt_label_, LV_OBJ_FLAG_HIDDEN);
     } else {
-      lv_obj_add_flag(battery_management_bolt_label_, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(
+          battery_management_fast_bolt_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+  if (battery_management_bolt_control_ != nullptr) {
+    if (charging) {
+      lv_obj_remove_flag(battery_management_bolt_control_, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(battery_management_bolt_control_, LV_OBJ_FLAG_HIDDEN);
     }
   }
 
   lv_obj_align_to(battery_management_label_, battery_management_percent_label_,
       LV_ALIGN_OUT_LEFT_MID, -kStatusBarBatteryPercentGap, 0);
-  if (battery_management_bolt_label_ != nullptr) {
-    lv_obj_align_to(battery_management_bolt_label_, battery_management_label_,
-        LV_ALIGN_CENTER, kStatusBarBatteryBoltOffsetX,
-        kStatusBarBatteryBoltOffsetY);
-    lv_obj_move_to_index(battery_management_bolt_label_, -1);
+  if (battery_management_bolt_control_ != nullptr) {
+    const bool show_fast_charge = fast_charging && charging;
+    lv_obj_align_to(battery_management_bolt_control_,
+        battery_management_label_, LV_ALIGN_CENTER,
+        show_fast_charge ? kStatusBarBatteryFastBoltControlOffsetX
+                         : kStatusBarBatteryBoltOffsetX,
+        show_fast_charge ? kStatusBarBatteryFastBoltControlOffsetY
+                         : kStatusBarBatteryBoltOffsetY);
+    lv_obj_move_to_index(battery_management_bolt_control_, -1);
   }
   UpdateBatteryFill(battery_management_fill_, battery_management_label_,
       clamped_percent, battery_color);
@@ -445,8 +516,8 @@ void StatusBar::SetBatteryStatus(int percent, bool charging) {
   if (battery_management_label_ != nullptr) {
     lv_obj_move_to_index(battery_management_label_, -1);
   }
-  if (battery_management_bolt_label_ != nullptr) {
-    lv_obj_move_to_index(battery_management_bolt_label_, -1);
+  if (battery_management_bolt_control_ != nullptr) {
+    lv_obj_move_to_index(battery_management_bolt_control_, -1);
   }
   AlignConnectivityIcons(
       keyboard_expansion_label_, app_connection_label_, wifi_label_,
@@ -550,6 +621,10 @@ void StatusBar::SetTextColor(lv_color_t color) {
   if (battery_management_bolt_label_ != nullptr) {
     lv_obj_set_style_text_color(
         battery_management_bolt_label_, color, LV_PART_MAIN);
+  }
+  if (battery_management_fast_bolt_label_ != nullptr) {
+    lv_obj_set_style_text_color(
+        battery_management_fast_bolt_label_, color, LV_PART_MAIN);
   }
   if (battery_management_percent_label_ != nullptr) {
     lv_obj_set_style_text_color(

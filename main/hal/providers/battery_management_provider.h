@@ -7,6 +7,8 @@
  */
 #pragma once
 
+#include <cstdint>
+
 namespace lilygo_box::hal {
 
 // 电池管理芯片功能支持情况。
@@ -19,6 +21,17 @@ struct BatteryManagementCapabilities {
   bool remaining_time = false;
   // 是否支持循环次数。
   bool cycle_count = false;
+};
+
+// 当前充电输入协议与协商状态。
+enum class ChargeInputMode : uint8_t {
+  kUnavailable,
+  kDisconnected,
+  kStandard,
+  kNegotiating,
+  kPd,
+  kPps,
+  kFailed,
 };
 
 // 电池管理芯片读取到的电池包、容量、电流和温度状态。
@@ -63,6 +76,12 @@ struct BatteryManagementStatus {
   float pack_temperature_c = 0.0F;
   // 电池管理芯片温度，单位为摄氏度。
   float chip_temperature_c = 0.0F;
+  // 当前充电输入模式；PD/PPS 合同仅适用于支持自动协商的板型。
+  ChargeInputMode input_mode = ChargeInputMode::kUnavailable;
+  // 最近一次 PD/PPS 合同电压，单位为 mV。
+  int contract_voltage_mv = 0;
+  // 最近一次 PD/PPS 合同电流，单位为 mA。
+  int contract_current_ma = 0;
 };
 
 // 当前设备支持的电池额定容量范围。

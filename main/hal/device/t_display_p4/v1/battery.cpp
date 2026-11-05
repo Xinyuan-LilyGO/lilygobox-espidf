@@ -69,6 +69,8 @@ bool TDisplayP4Device::ReadBatteryManagementStatus(
                      (current_ma == 0 && (fully_charged || idle_or_charging));
   status->full_charged = fully_charged;
   status->full_discharged = status_read && battery_status.flag.full_discharged;
+  status->input_mode = status->charging ? ChargeInputMode::kStandard
+                                        : ChargeInputMode::kDisconnected;
   return true;
 }
 

@@ -17,6 +17,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "hal/device/t_display_p4/device.h"
+#include "hal/device/t_display_p4/v2/fast_charge.h"
 
 namespace lilygo_box::hal {
 namespace gpio = lilygo_device_driver::t_display_p4::gpio;
@@ -497,6 +498,12 @@ PowerOffAction TDisplayP4Device::RequestPowerOffInternal(
         "Clear AXP517 IRQ flags before power off failed\n");
   }
 
+  if (!p4_v2_fast_charge::Stop()) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Stop AXP517 PD/PPS negotiation before power off failed\n");
+    return PowerOffAction::kFailed;
+  }
+
   if (prepare_device_services && !PrepareForPowerOff()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Prepare P4 V2 device for power off failed\n");
@@ -516,6 +523,10 @@ PowerOffAction TDisplayP4Device::RequestPowerOffInternal(
   }
 
   if (prepare_device_services && external_power_present) {
+    if (!p4_v2_fast_charge::Start()) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Restart AXP517 PD/PPS negotiation for charging screen failed\n");
+    }
     g_power_off_rtc_magic = kPowerOffRtcMagic;
     g_power_off_charging_screen_pending = false;
     return PowerOffAction::kShowChargingScreen;

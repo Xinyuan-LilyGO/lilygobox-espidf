@@ -82,6 +82,8 @@ bool TDisplayP4AirDevice::ReadBatteryManagementStatus(
   if (!axp517.GetStatus(power_status)) {
     return false;
   }
+  status->input_mode = power_status.vbus_good ? ChargeInputMode::kStandard
+                                              : ChargeInputMode::kDisconnected;
   status->pack_present = power_status.battery_present;
   if (!status->pack_present) {
     battery_charge_filter_.Update(

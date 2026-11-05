@@ -10,6 +10,9 @@
 #include <memory>
 
 #include "base/logger.h"
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+#include "hal/device/t_display_p4/v2/fast_charge.h"
+#endif
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -50,6 +53,11 @@ bool TDisplayP4Device::InitDevice() {
   otg_enabled_ = false;
   type_c_source_role_enabled_ = false;
   type_c_output_enabled_ = false;
+  if (!p4_v2_fast_charge::Start()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Start AXP517 PD/PPS negotiation service failed; "
+        "using default charging input\n");
+  }
   if (!InitializePowerButton() || !InitializeVolumeButtons()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Initialize V2 physical buttons failed\n");
@@ -186,7 +194,17 @@ bool TDisplayP4Device::EnterDeviceSleep(bool deep_sleep) {
         "Prepare device for power off failed\n");
     return false;
   }
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+  if (!p4_v2_fast_charge::Stop()) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Stop AXP517 PD/PPS negotiation before deep sleep failed\n");
+    return false;
+  }
+#endif
   if (!driver_.PrepareDriversForPowerOff()) {
+#if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
+    p4_v2_fast_charge::Start();
+#endif
     return false;
   }
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)

@@ -11,6 +11,7 @@
 #include <limits>
 
 #include "hal/device/t_display_p4/device.h"
+#include "hal/device/t_display_p4/v2/fast_charge.h"
 
 namespace lilygo_box::hal {
 namespace {
@@ -81,6 +82,35 @@ bool TDisplayP4Device::ReadBatteryManagementStatus(
   cpp_bus_driver::Axp517::Status power_status;
   if (!axp517.GetStatus(power_status)) {
     return false;
+  }
+  status->input_mode = power_status.vbus_good ? ChargeInputMode::kStandard
+                                              : ChargeInputMode::kDisconnected;
+  p4_v2_fast_charge::Snapshot fast_charge;
+  if (p4_v2_fast_charge::ReadSnapshot(&fast_charge)) {
+    using State = p4_v2_fast_charge::Snapshot::State;
+    switch (fast_charge.state) {
+      case State::kDisconnected:
+        status->input_mode = ChargeInputMode::kDisconnected;
+        break;
+      case State::kNegotiating:
+        status->input_mode = ChargeInputMode::kNegotiating;
+        break;
+      case State::kPd:
+        status->input_mode = ChargeInputMode::kPd;
+        status->contract_voltage_mv = fast_charge.voltage_mv;
+        status->contract_current_ma = fast_charge.current_ma;
+        break;
+      case State::kPps:
+        status->input_mode = ChargeInputMode::kPps;
+        status->contract_voltage_mv = fast_charge.voltage_mv;
+        status->contract_current_ma = fast_charge.current_ma;
+        break;
+      case State::kFailed:
+        status->input_mode = ChargeInputMode::kFailed;
+        break;
+      case State::kUnavailable:
+        break;
+    }
   }
   status->pack_present = power_status.battery_present;
   if (!status->pack_present) {

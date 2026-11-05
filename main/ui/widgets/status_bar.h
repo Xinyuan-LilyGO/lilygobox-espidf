@@ -30,11 +30,12 @@ class StatusBar final {
   void SetTimeText(const char* text);
 
   /**
-   * @brief 设置状态栏电池电量和充电状态
+   * @brief 设置状态栏电池电量、普通充电和快充状态
    * @param percent 电池百分比
    * @param charging 是否正在充电
+   * @param fast_charging 是否正在通过已建立的 PD/PPS 合同充电
    */
-  void SetBatteryStatus(int percent, bool charging);
+  void SetBatteryStatus(int percent, bool charging, bool fast_charging);
 
   /**
    * @brief 设置状态栏 WiFi 连接、互联网访问和信号强度状态
@@ -87,7 +88,9 @@ class StatusBar final {
   lv_obj_t* wifi_label_ = nullptr;
   lv_obj_t* battery_management_label_ = nullptr;
   lv_obj_t* battery_management_fill_ = nullptr;
+  lv_obj_t* battery_management_bolt_control_ = nullptr;
   lv_obj_t* battery_management_bolt_label_ = nullptr;
+  lv_obj_t* battery_management_fast_bolt_label_ = nullptr;
   lv_obj_t* battery_management_percent_label_ = nullptr;
   uint32_t text_color_hex_ = 0;
   int battery_management_percent_ = -1;
@@ -95,6 +98,7 @@ class StatusBar final {
   char time_text_[6] = "09:15";
   char battery_management_percent_text_[8] = "--%";
   bool battery_management_charging_ = false;
+  bool battery_management_fast_charging_ = false;
   bool keyboard_expansion_connected_ = false;
   bool app_connected_ = false;
   bool wifi_connected_ = false;

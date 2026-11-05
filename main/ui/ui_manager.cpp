@@ -2187,7 +2187,12 @@ void UiManager::UpdateClockLabels(const hal::RtcStatus& status) {
 
 void UiManager::UpdateBatteryStatus(
     const hal::BatteryManagementStatus& status) {
-  status_bar_.SetBatteryStatus(status.charge_percent, status.charging);
+  const bool fast_charging =
+      !status.full_charged &&
+      (status.input_mode == hal::ChargeInputMode::kPd ||
+          status.input_mode == hal::ChargeInputMode::kPps);
+  status_bar_.SetBatteryStatus(
+      status.charge_percent, status.charging, fast_charging);
   if (battery_management_status_callback_) {
     battery_management_status_callback_(status);
   }
