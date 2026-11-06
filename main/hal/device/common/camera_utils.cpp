@@ -2,7 +2,7 @@
  * @Description: 摄像头预览公共参数与生命周期辅助实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-08-28 00:00:00
+ * @LastEditTime: 2026-11-06 11:04:07
  * @License: GPL 3.0
  */
 #include "hal/device/common/camera_utils.h"
@@ -46,13 +46,13 @@ bool IsRetryableIoError(int error) {
 
 bool IsRetryableVideoError(esp_err_t error) {
   return error == ESP_FAIL || error == ESP_ERR_NOT_FOUND ||
-         error == ESP_ERR_TIMEOUT;
+         error == ESP_ERR_TIMEOUT || error == ESP_ERR_INVALID_STATE;
 }
 
 int NormalizePreviewRotationAngle(int angle) {
   angle %= 360;
   if (angle < 0) {
-    angle += 360;
+    angle += 360; 
   }
   switch (angle) {
     case 90:
