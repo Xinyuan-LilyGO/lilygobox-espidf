@@ -22,7 +22,8 @@ namespace lilygo_box::hal {
 namespace gpio = lilygo_device_driver::t_display_p4::gpio;
 namespace {
 
-constexpr int16_t kLr2021UnavailableRssiDbm = -255;
+// 将不高于 -150 dBm 的异常 RSSI 标记为无效，保留消息和 SNR。
+constexpr int16_t kLr2021InvalidRssiThresholdDbm = -150;
 
 
 }  // namespace
@@ -583,10 +584,10 @@ bool TDisplayP4Device::PollRadioState(RadioState* state, RadioEvent* event) {
     if (read_ok && result) {
       event->type = RadioEventType::kPacketReceived;
       event->payload_size = packet_status.packet_length_bytes;
-      event->rssi_valid = packet_status.rssi_pkt_in_dbm !=
-                          kLr2021UnavailableRssiDbm;
       event->rssi_quarter_dbm = packet_status.rssi_pkt_in_dbm * 4 -
           static_cast<int16_t>(packet_status.rssi_pkt_half_dbm_count) * 2;
+      event->rssi_valid = event->rssi_quarter_dbm >
+                          kLr2021InvalidRssiThresholdDbm * 4;
       event->snr_valid = true;
       event->snr_quarter_db = packet_status.snr_pkt_raw;
     }
