@@ -119,12 +119,9 @@ bool BuildConfig(const LoraRadioConfig& source, uint8_t payload_size,
       return false;
     }
     const bool low_band = source.frequency_hz < 700000000U;
-    const int8_t maximum = low_band ? 20 : 22;
-    if (source.output_power_dbm > maximum) {
-      return false;
-    }
+    const int8_t maximum_table_power = low_band ? 20 : 22;
     const int8_t power_index =
-        std::clamp<int8_t>(source.output_power_dbm, 10, maximum);
+        std::clamp<int8_t>(source.output_power_dbm, 10, maximum_table_power);
     const auto& power = low_band ? kPa490[20 - power_index]
                                  : kPa915[22 - power_index];
     pa = {.pa_sel = LR20XX_RADIO_COMMON_PA_SEL_LF,
@@ -132,7 +129,9 @@ bool BuildConfig(const LoraRadioConfig& source, uint8_t payload_size,
           .pa_lf_duty_cycle = power.pa_duty_cycle,
           .pa_lf_slices = power.pa_lf_slices,
           .pa_hf_duty_cycle = 16};
-    output_power_half_dbm = source.output_power_dbm < 10
+    // 表外功率沿用最近表项的 PA 参数，并直接设置请求功率，与 P4 V1 保持一致。
+    output_power_half_dbm = source.output_power_dbm < 10 ||
+                                   source.output_power_dbm > maximum_table_power
                                 ? static_cast<int8_t>(source.output_power_dbm * 2)
                                 : power.half_power;
   }
