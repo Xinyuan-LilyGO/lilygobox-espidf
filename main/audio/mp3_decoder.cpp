@@ -7,15 +7,21 @@
 #include "audio/mp3_decoder.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <new>
 
 #include "audio/mp3_metadata.h"
 #include "base/logger.h"
 #include "esp_audio_dec.h"
 #include "esp_audio_dec_default.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/ringbuf.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 
 namespace lilygo_box::audio {
 namespace {
@@ -25,6 +31,131 @@ constexpr size_t kPcmBufferSize = 16 * 1024;
 constexpr size_t kMaxMp3FrameSize = 1441;
 constexpr size_t kSeekFrameSearchRadius = 8 * 1024;
 constexpr uint8_t kPcmBitsPerSample = 16;
+
+/**
+ * @brief 用独立输出任务消费 PCM 环形缓冲，隔离读盘和解码抖动
+ */
+class BufferedPcmOutput {
+ public:
+  explicit BufferedPcmOutput(PcmOutput* output) : output_(output) {}
+
+  ~BufferedPcmOutput() {
+    if (buffer_ != nullptr) vRingbufferDelete(buffer_);
+    if (finished_ != nullptr) vSemaphoreDelete(finished_);
+  }
+
+  bool Start() {
+    send_buffer_.reset(new (std::nothrow) uint8_t[4096 + 8]);
+    buffer_ = xRingbufferCreate(64 * 1024, RINGBUF_TYPE_NOSPLIT);
+    finished_ = xSemaphoreCreateBinary();
+    if (send_buffer_ == nullptr || buffer_ == nullptr || finished_ == nullptr) {
+      return false;
+    }
+    return xTaskCreate(TaskEntry, "mp3_output", 4096, this, 6, nullptr) == pdPASS;
+  }
+
+  bool Ready() const { return !stopped_.load() && !failed_.load(); }
+
+  /**
+   * @brief 丢弃定位前的待播放数据，已提交给硬件的数据由驱动继续消费
+   */
+  void Seek(uint32_t position_ms) {
+    generation_.fetch_add(1);
+    output_->UpdateProgress(position_ms);
+  }
+
+  bool Write(const uint8_t* data, size_t size, uint32_t position_ms) {
+    // 每块最多 4 KB，限制暂停或定位时已经交给输出任务的旧数据量。
+    const uint32_t generation = generation_.load();
+    std::memcpy(send_buffer_.get(), &generation, 4);
+    std::memcpy(send_buffer_.get() + 4, &position_ms, 4);
+    while (size > 0) {
+      const size_t bytes = std::min<size_t>(size, 4096);
+      std::memcpy(send_buffer_.get() + 8, data, bytes);
+      while (!xRingbufferSend(buffer_, send_buffer_.get(), bytes + 8,
+          pdMS_TO_TICKS(10))) {
+        if (!Ready()) return false;
+      }
+      if (!Ready()) return false;
+      data += bytes;
+      size -= bytes;
+    }
+    return true;
+  }
+
+  /**
+   * @brief 正常结束时播放完队列，异常结束时丢弃剩余队列并等待任务退出
+   */
+  void Finish(bool drain) {
+    discard_.store(!drain);
+    producer_finished_.store(true);
+    xSemaphoreTake(finished_, portMAX_DELAY);
+  }
+
+  bool Failed() const { return failed_.load(); }
+  bool Stopped() const { return stopped_.load(); }
+
+ private:
+  static void TaskEntry(void* context) {
+    auto* self = static_cast<BufferedPcmOutput*>(context);
+    self->Run();
+    // 发出完成信号后不再访问播放对象，允许调用方释放缓冲。
+    xSemaphoreGive(self->finished_);
+    vTaskDelete(nullptr);
+  }
+
+  void Run() {
+    // 启动前先积累约 16 KB PCM；短文件结束时立即开始消费。
+    while (!producer_finished_.load() &&
+           xRingbufferGetCurFreeSize(buffer_) > 48 * 1024) {
+      if (!output_->WaitUntilReady()) {
+        stopped_.store(true);
+        return;
+      }
+      vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    while (!discard_.load()) {
+      if (!output_->WaitUntilReady()) {
+        stopped_.store(true);
+        break;
+      }
+      size_t size = 0;
+      auto* packet = static_cast<uint8_t*>(
+          xRingbufferReceive(buffer_, &size, pdMS_TO_TICKS(10)));
+      if (packet == nullptr) {
+        if (producer_finished_.load()) break;
+      } else {
+        uint32_t generation = 0;
+        uint32_t position_ms = 0;
+        std::memcpy(&generation, packet, 4);
+        std::memcpy(&position_ms, packet + 4, 4);
+        bool write_ok = true;
+        if (generation == generation_.load() && !discard_.load()) {
+          write_ok = output_->Write(packet + 8, size - 8);
+          if (write_ok && generation == generation_.load()) {
+            output_->UpdateProgress(position_ms);
+          }
+        }
+        vRingbufferReturnItem(buffer_, packet);
+        if (!write_ok) {
+          if (output_->WaitUntilReady()) failed_.store(true);
+          else stopped_.store(true);
+          break;
+        }
+      }
+    }
+  }
+
+  PcmOutput* output_;
+  RingbufHandle_t buffer_ = nullptr;
+  SemaphoreHandle_t finished_ = nullptr;
+  std::unique_ptr<uint8_t[]> send_buffer_;
+  std::atomic<uint32_t> generation_{0};
+  std::atomic<bool> producer_finished_{false};
+  std::atomic<bool> discard_{false};
+  std::atomic<bool> stopped_{false};
+  std::atomic<bool> failed_{false};
+};
 
 /**
  * @brief 解析 MP3 帧头并计算完整帧长度
@@ -365,6 +496,15 @@ Mp3PlaybackResult PlayMp3File(const char* path, PcmOutput* output) {
   auto stereo_buffer = metadata.channel_count == 1
                            ? std::make_unique<int16_t[]>(kPcmBufferSize)
                            : nullptr;
+  BufferedPcmOutput buffered_output(output);
+  if (!buffered_output.Start()) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Unable to start buffered MP3 output\n");
+    esp_audio_dec_close(decoder);
+    esp_audio_dec_unregister_default();
+    fclose(file);
+    return Mp3PlaybackResult::kOutputFailed;
+  }
   size_t remaining_bytes = 0;
   uint64_t decoded_pcm_bytes = 0;
   uint64_t position_pcm_bytes = 0;
@@ -373,8 +513,9 @@ Mp3PlaybackResult PlayMp3File(const char* path, PcmOutput* output) {
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__, "MP3 playback started\n");
 
   while (true) {
-    if (!output->WaitUntilReady()) {
-      playback_result = Mp3PlaybackResult::kStopped;
+    if (!buffered_output.Ready()) {
+      playback_result = buffered_output.Failed()
+          ? Mp3PlaybackResult::kOutputFailed : Mp3PlaybackResult::kStopped;
       break;
     }
     const size_t read_bytes = fread(read_buffer.get() + remaining_bytes, 1,
@@ -392,8 +533,9 @@ Mp3PlaybackResult PlayMp3File(const char* path, PcmOutput* output) {
     };
     bool seek_applied = false;
     while (input.len > 0) {
-      if (!output->WaitUntilReady()) {
-        playback_result = Mp3PlaybackResult::kStopped;
+      if (!buffered_output.Ready()) {
+        playback_result = buffered_output.Failed()
+            ? Mp3PlaybackResult::kOutputFailed : Mp3PlaybackResult::kStopped;
         break;
       }
       uint32_t seek_position_ms = 0;
@@ -404,7 +546,7 @@ Mp3PlaybackResult PlayMp3File(const char* path, PcmOutput* output) {
           base_position_ms = std::min(seek_position_ms, metadata.duration_ms);
           position_pcm_bytes = 0;
           remaining_bytes = 0;
-          output->UpdateProgress(base_position_ms);
+          buffered_output.Seek(base_position_ms);
           seek_applied = true;
           LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
               "MP3 seek completed: position=%u ms, offset=%u\n",
@@ -445,17 +587,17 @@ Mp3PlaybackResult PlayMp3File(const char* path, PcmOutput* output) {
         output_data = reinterpret_cast<const uint8_t*>(stereo_buffer.get());
         output_size = sample_count * 2 * sizeof(int16_t);
       }
-      if (output_size > 0 && !output->Write(output_data, output_size)) {
-        playback_result = output->WaitUntilReady()
-                              ? Mp3PlaybackResult::kOutputFailed
-                              : Mp3PlaybackResult::kStopped;
+      const bool write_ok = output_size == 0 ||
+          buffered_output.Write(output_data, output_size,
+              CalculatePositionMs(base_position_ms,
+                  position_pcm_bytes + output_frame.decoded_size, metadata));
+      if (!write_ok) {
+        playback_result = buffered_output.Stopped()
+            ? Mp3PlaybackResult::kStopped : Mp3PlaybackResult::kOutputFailed;
         break;
       }
       decoded_pcm_bytes += output_frame.decoded_size;
       position_pcm_bytes += output_frame.decoded_size;
-      const uint32_t elapsed_ms =
-          CalculatePositionMs(base_position_ms, position_pcm_bytes, metadata);
-      output->UpdateProgress(elapsed_ms);
       if (input.consumed == 0) {
         break;
       }
@@ -478,6 +620,9 @@ Mp3PlaybackResult PlayMp3File(const char* path, PcmOutput* output) {
     }
   }
 
+  buffered_output.Finish(playback_result == Mp3PlaybackResult::kCompleted);
+  if (buffered_output.Failed()) playback_result = Mp3PlaybackResult::kOutputFailed;
+  else if (buffered_output.Stopped()) playback_result = Mp3PlaybackResult::kStopped;
   fclose(file);
   esp_audio_dec_close(decoder);
   esp_audio_dec_unregister_default();
