@@ -19,13 +19,6 @@
 
 namespace lilygo_box::hal {
 namespace gpio = lilygo_device_driver::t_display_p4_air::gpio;
-namespace {
-
-constexpr int16_t kLr2021UnavailableRssiDbm = -255;
-
-
-}  // namespace
-
 // 读取 Air 板载 LR2021 支持的频段、协议和负载上限。
 
 bool TDisplayP4AirDevice::ReadRadioCapabilities(RadioCapabilities* capabilities) {
@@ -170,8 +163,9 @@ bool TDisplayP4AirDevice::PollRadioEvent(RadioEvent* event) {
     if (read_ok && result) {
       event->type = RadioEventType::kPacketReceived;
       event->payload_size = packet_status.packet_length_bytes;
-      event->rssi_valid = packet_status.rssi_pkt_in_dbm != kLr2021UnavailableRssiDbm;
       event->rssi_quarter_dbm = packet_status.rssi_pkt_in_dbm * 4 - static_cast<int16_t>(packet_status.rssi_pkt_half_dbm_count) * 2;
+      event->rssi_valid = event->rssi_quarter_dbm >
+                          kRadioInvalidRssiThresholdQuarterDbm;
       event->snr_valid = true; event->snr_quarter_db = packet_status.snr_pkt_raw;
     }
   } else if (!radio_.transmitting) result = result && lr2021_utils::StartReceive(radio, radio_.lora_config);

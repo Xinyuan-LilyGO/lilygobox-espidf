@@ -16,6 +16,8 @@ namespace lilygo_box::hal {
 inline constexpr size_t kRadioPayloadCapacity = 255;
 inline constexpr size_t kRadioCapabilityCapacity = 8;
 inline constexpr size_t kRadioFrequencyBandCapacity = 3;
+// 所有板子的射频接收统一将不高于 -150 dBm 的 RSSI 标记为无效。
+inline constexpr int16_t kRadioInvalidRssiThresholdQuarterDbm = -150 * 4;
 
 enum class RadioLinkState {
   kInactive,
