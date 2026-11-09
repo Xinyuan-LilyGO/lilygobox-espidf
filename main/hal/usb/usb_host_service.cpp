@@ -1,7 +1,8 @@
 /*
  * @Description: MSC 与 ECM 共用的 USB Host 生命周期实现
  * @Author: LILYGO_L
- * @License: GPL 3.0
+ * @Date: 2026-09-22 17:25:57
+ * @LastEditTime: 2026-11-09 10:11:19
  */
 #include "hal/usb/usb_host_service.h"
 

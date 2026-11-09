@@ -2,8 +2,7 @@
  * @Description: 可复用 LVGL 屏幕键盘创建与绑定接口
  * @Author: LILYGO_L
  * @Date: 2026-05-18 12:08:00
- * @LastEditTime: 2026-09-02 17:54:56
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

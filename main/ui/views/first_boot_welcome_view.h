@@ -2,8 +2,7 @@
  * @Description: Material 风格首次开机欢迎页接口
  * @Author: LILYGO_L
  * @Date: 2026-07-15 00:00:00
- * @LastEditTime: 2026-07-15 00:00:00
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

@@ -2,8 +2,7 @@
  * @Description: GPS 时间、定位状态与模块控制接口
  * @Author: LILYGO_L
  * @Date: 2026-05-14 00:20:00
- * @LastEditTime: 2026-05-14 00:20:00
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

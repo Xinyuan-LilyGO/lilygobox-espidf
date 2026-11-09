@@ -2,8 +2,7 @@
  * @Description: 管理 LilygoBox 应用的局域网连接验证、设备确认及心跳状态。
  * @Author: LILYGO_L
  * @Date: 2026-10-04 19:00:00
- * @LastEditTime: 2026-10-06 13:38:15
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

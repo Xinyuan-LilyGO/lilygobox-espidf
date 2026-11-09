@@ -2,8 +2,7 @@
  * @Description: Radio 射频控制应用页面实现
  * @Author: LILYGO_L
  * @Date: 2026-07-12 00:00:00
- * @LastEditTime: 2026-09-02 17:54:44
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "ui/views/radio_view.h"
 

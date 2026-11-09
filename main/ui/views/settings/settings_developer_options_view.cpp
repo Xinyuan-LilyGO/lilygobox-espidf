@@ -2,8 +2,7 @@
  * @Description: 设置开发者选项页面
  * @Author: LILYGO_L
  * @Date: 2026-09-23 00:00:00
- * @LastEditTime: 2026-09-23 17:49:58
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "app/storage/developer_storage.h"
 #include "ui/input/press_cancel.h"

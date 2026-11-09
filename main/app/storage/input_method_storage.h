@@ -2,8 +2,7 @@
  * @Description: Input method preference storage
  * @Author: LILYGO_L
  * @Date: 2026-08-20 00:00:00
- * @LastEditTime: 2026-09-02 17:51:29
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

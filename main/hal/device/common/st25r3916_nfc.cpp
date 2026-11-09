@@ -2,8 +2,7 @@
  * @Description: ST25R3916 NFC 发现与卡片状态公共辅助实现
  * @Author: LILYGO_L
  * @Date: 2026-08-21 00:00:00
- * @LastEditTime: 2026-09-02 17:52:48
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "hal/device/common/st25r3916_nfc.h"
 

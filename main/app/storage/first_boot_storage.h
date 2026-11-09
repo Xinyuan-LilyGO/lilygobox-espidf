@@ -2,8 +2,7 @@
  * @Description: 首次开机欢迎页完成标志存储接口
  * @Author: LILYGO_L
  * @Date: 2026-07-15 00:00:00
- * @LastEditTime: 2026-07-16 22:35:14
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

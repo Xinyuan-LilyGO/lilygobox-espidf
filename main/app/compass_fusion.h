@@ -2,8 +2,7 @@
  * @Description: 指南针九轴姿态融合，使用四元数积分与重力/磁北修正
  * @Author: LILYGO_L
  * @Date: 2026-09-29 00:00:00
- * @LastEditTime: 2026-09-29 00:00:00
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

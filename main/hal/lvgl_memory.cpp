@@ -2,8 +2,7 @@
  * @Description: ESP32-P4 的 LVGL 内存分配适配，避免界面对象使用 RTC RAM。
  * @Author: LILYGO_L
  * @Date: 2026-10-07 00:00:00
- * @LastEditTime: 2026-10-13 12:00:00
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include <cstddef>
 

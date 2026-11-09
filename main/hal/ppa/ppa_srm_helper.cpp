@@ -2,8 +2,7 @@
  * @Description: PPA scale/rotate/mirror helper
  * @Author: LILYGO_L
  * @Date: 2026-07-02 00:00:00
- * @LastEditTime: 2026-09-02 17:52:30
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "hal/ppa/ppa_srm_helper.h"
 

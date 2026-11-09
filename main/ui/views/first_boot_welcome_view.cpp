@@ -2,8 +2,7 @@
  * @Description: Material 风格首次开机欢迎页实现
  * @Author: LILYGO_L
  * @Date: 2026-07-15 00:00:00
- * @LastEditTime: 2026-10-04 15:24:25
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "ui/views/first_boot_welcome_view.h"
 

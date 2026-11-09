@@ -2,8 +2,7 @@
  * @Description: 系统应用初始化、任务调度与电源状态管理实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-10-13 12:00:00
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "app/application.h"
 #include "app/device_identity.h"

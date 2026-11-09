@@ -2,8 +2,7 @@
  * @Description: App-level WiFi control helpers
  * @Author: LILYGO_L
  * @Date: 2026-06-25 00:00:00
- * @LastEditTime: 2026-09-02 17:51:16
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "app/wifi_manager.h"
 

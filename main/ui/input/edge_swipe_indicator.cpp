@@ -2,8 +2,7 @@
  * @Description: 全局边缘滑动指示器实现
  * @Author: LILYGO_L
  * @Date: 2026-05-12 22:15:00
- * @LastEditTime: 2026-09-02 17:54:21
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "ui/input/edge_swipe_indicator.h"
 

@@ -2,8 +2,7 @@
  * @Description: 当前设备芯片、内存、软件与外设信息采集实现
  * @Author: LILYGO_L
  * @Date: 2026-05-19 23:20:00
- * @LastEditTime: 2026-09-02 17:51:01
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "app/device_info_snapshot.h"
 

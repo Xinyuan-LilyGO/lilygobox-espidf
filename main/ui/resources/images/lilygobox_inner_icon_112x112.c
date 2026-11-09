@@ -2,8 +2,7 @@
  * @Description: lilygobox_inner_icon_112x112 的 112×112 像素 LVGL 图像资源
  * @Author: LILYGO_L
  * @Date: 2026-07-15 23:10:12
- * @LastEditTime: 2026-10-04 13:48:34
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "lvgl.h"
 

@@ -2,8 +2,7 @@
  * @Description: 声音偏好存储，内部维护内存缓存
  * @Author: LILYGO_L
  * @Date: 2026-06-25 00:00:00
- * @LastEditTime: 2026-07-16 22:35:14
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

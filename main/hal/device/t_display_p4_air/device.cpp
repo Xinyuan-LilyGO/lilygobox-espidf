@@ -2,8 +2,7 @@
  * @Description: T-Display-P4-Air 板级初始化与设备信息实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-09-02 17:53:26
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "hal/device/t_display_p4_air/device.h"
 

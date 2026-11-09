@@ -2,8 +2,7 @@
  * @Description: System status runtime cache
  * @Author: LILYGO_L
  * @Date: 2026-06-24 00:00:00
- * @LastEditTime: 2026-09-02 17:51:13
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "app/system_status_cache.h"
 

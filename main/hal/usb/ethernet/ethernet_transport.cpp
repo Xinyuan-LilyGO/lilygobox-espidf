@@ -1,7 +1,8 @@
 /*
  * @Description: RTL8152B USB 传输筛选与 CDC 生命周期实现
  * @Author: LILYGO_L
- * @License: GPL 3.0
+ * @Date: 2026-09-22 17:25:57
+ * @LastEditTime: 2026-11-09 10:11:18
  */
 #include "ethernet_transport.h"
 

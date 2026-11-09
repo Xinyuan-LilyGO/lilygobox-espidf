@@ -2,8 +2,7 @@
  * @Description: SD 卡 MP3 曲库扫描与曲目信息实现
  * @Author: LILYGO_L
  * @Date: 2026-07-14 22:55:00
- * @LastEditTime: 2026-09-02 17:51:07
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "app/music_library.h"
 

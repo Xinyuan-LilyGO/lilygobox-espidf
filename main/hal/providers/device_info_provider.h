@@ -2,8 +2,7 @@
  * @Description: 设备型号、芯片与硬件基础信息接口
  * @Author: LILYGO_L
  * @Date: 2026-05-19 22:35:00
- * @LastEditTime: 2026-05-19 22:35:00
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

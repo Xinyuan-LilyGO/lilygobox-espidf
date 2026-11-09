@@ -2,8 +2,7 @@
  * @Description: 桌面控制命令与设备状态快照，不在网络任务中执行硬件操作。
  * @Author: LILYGO_L
  * @Date: 2026-10-12 00:00:00
- * @LastEditTime: 2026-10-12 00:00:00
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

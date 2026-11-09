@@ -2,8 +2,7 @@
  * @Description: 红外 NEC 协议收发与状态 Provider 接口
  * @Author: LILYGO_L
  * @Date: 2026-07-30 00:00:00
- * @LastEditTime: 2026-07-30 18:00:00
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

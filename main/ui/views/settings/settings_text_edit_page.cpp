@@ -2,8 +2,7 @@
  * @Description: Reusable settings single-line text edit page implementation
  * @Author: LILYGO_L
  * @Date: 2026-09-01 00:00:00
- * @LastEditTime: 2026-09-02 17:56:50
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "ui/views/settings/settings_text_edit_page.h"
 

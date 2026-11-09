@@ -2,8 +2,7 @@
  * @Description: 应用日志等级过滤与格式化输出实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-05-10 13:27:05
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "base/logger.h"
 

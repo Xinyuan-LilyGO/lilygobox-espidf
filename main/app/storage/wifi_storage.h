@@ -2,8 +2,7 @@
  * @Description: WLAN 偏好缓存与实时 NVS 持久化
  * @Author: LILYGO_L
  * @Date: 2026-06-23 00:00:00
- * @LastEditTime: 2026-07-16 22:36:38
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

@@ -2,8 +2,7 @@
  * @Description: T-Display-P4 以太网硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-09-02 17:52:59
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include <cstdint>
 

@@ -2,8 +2,7 @@
  * @Description: 音乐源文件夹偏好存储接口
  * @Author: LILYGO_L
  * @Date: 2026-07-14 23:25:00
- * @LastEditTime: 2026-09-02 17:51:34
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

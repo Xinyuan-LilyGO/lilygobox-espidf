@@ -2,8 +2,7 @@
  * @Description: T-Display-P4 V2 LR2021 射频 Provider 实现
  * @Author: LILYGO_L
  * @Date: 2026-09-16 00:00:00
- * @LastEditTime: 2026-09-16 00:00:00
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "hal/device/t_display_p4/device.h"
 #include "hal/device/t_display_p4/keyboard_expansion.h"

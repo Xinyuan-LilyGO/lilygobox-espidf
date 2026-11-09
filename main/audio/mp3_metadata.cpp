@@ -2,8 +2,7 @@
  * @Description: MP3 文件元数据与音频流参数读取实现
  * @Author: LILYGO_L
  * @Date: 2026-07-14 22:45:00
- * @LastEditTime: 2026-09-02 17:52:05
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "audio/mp3_metadata.h"
 

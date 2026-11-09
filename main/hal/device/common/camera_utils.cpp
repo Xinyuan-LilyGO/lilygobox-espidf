@@ -2,8 +2,7 @@
  * @Description: 摄像头预览公共参数与生命周期辅助实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-06 11:04:07
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "hal/device/common/camera_utils.h"
 

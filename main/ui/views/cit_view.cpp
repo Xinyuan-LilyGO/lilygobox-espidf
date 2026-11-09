@@ -2,8 +2,7 @@
  * @Description: 整机测试列表、测试流程与结果交互页面实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-11-05 16:47:36
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "ui/views/cit_view.h"
 

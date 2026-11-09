@@ -1,7 +1,8 @@
 /*
  * @Description: T-Display-P4 V2 USB 以太网及共用 Boost 供电实现
  * @Author: LILYGO_L
- * @License: GPL 3.0
+ * @Date: 2026-09-22 17:25:57
+ * @LastEditTime: 2026-11-09 10:11:18
  */
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"

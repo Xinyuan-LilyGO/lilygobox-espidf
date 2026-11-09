@@ -2,8 +2,7 @@
  * @Description: 使用电流死区稳定 AXP517 充电状态，过滤低电流波动。
  * @Author: LILYGO_L
  * @Date: 2026-10-14 00:00:00
- * @LastEditTime: 2026-10-14 00:00:00
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

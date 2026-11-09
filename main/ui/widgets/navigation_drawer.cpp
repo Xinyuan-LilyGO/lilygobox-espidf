@@ -2,8 +2,7 @@
  * @Description: 公共导航抽屉控件
  * @Author: LILYGO_L
  * @Date: 2026-07-11 00:00:00
- * @LastEditTime: 2026-09-02 17:54:50
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "ui/widgets/navigation_drawer.h"
 

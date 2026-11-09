@@ -2,8 +2,7 @@
  * @Description: LittleFS 内部存储挂载与容量查询接口
  * @Author: LILYGO_L
  * @Date: 2026-07-17 15:20:00
- * @LastEditTime: 2026-07-18 00:00:00
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

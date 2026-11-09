@@ -3,8 +3,7 @@
  * 保存设备身份。
  * @Author: LILYGO_L
  * @Date: 2026-10-06 16:00:00
- * @LastEditTime: 2026-10-06 16:00:00
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "app/connection_tls.h"
 

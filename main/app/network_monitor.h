@@ -1,7 +1,8 @@
 /*
  * @Description: 应用层网络可用性监控接口
  * @Author: LILYGO_L
- * @License: GPL 3.0
+ * @Date: 2026-07-22 23:38:08
+ * @LastEditTime: 2026-11-09 10:11:17
  */
 #pragma once
 

@@ -2,8 +2,7 @@
  * @Description: Settings view shared helpers
  * @Author: LILYGO_L
  * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-09-02 17:56:53
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include <cstring>
 

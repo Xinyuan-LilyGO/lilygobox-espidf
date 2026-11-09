@@ -2,8 +2,7 @@
  * @Description: NVS 缓存与持久化内部协调接口
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
- * @LastEditTime: 2026-10-06 09:16:32
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

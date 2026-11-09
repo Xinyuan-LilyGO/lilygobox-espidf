@@ -2,8 +2,7 @@
  * @Description: LR2021 LoRa 配置与收发通用辅助接口
  * @Author: LILYGO_L
  * @Date: 2026-10-28 00:00:00
- * @LastEditTime: 2026-10-28 00:00:00
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

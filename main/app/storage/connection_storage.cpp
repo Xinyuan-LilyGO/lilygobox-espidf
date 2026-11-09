@@ -3,8 +3,7 @@
  * NVS 与 TLV 存储协调器。
  * @Author: LILYGO_L
  * @Date: 2026-10-06 09:01:38
- * @LastEditTime: 2026-10-06 10:37:39
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "app/storage/connection_storage.h"
 

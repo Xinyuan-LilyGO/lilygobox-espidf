@@ -2,8 +2,7 @@
  * @Description: 关机菜单覆盖层创建与交互接口
  * @Author: LILYGO_L
  * @Date: 2026-07-07 11:18:34
- * @LastEditTime: 2026-09-02 17:54:42
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

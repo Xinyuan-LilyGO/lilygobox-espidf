@@ -2,8 +2,7 @@
  * @Description: NVS 长期配置 TLV 编解码公共接口
  * @Author: LILYGO_L
  * @Date: 2026-07-22 00:00:00
- * @LastEditTime: 2026-10-06 09:16:32
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

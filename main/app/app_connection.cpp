@@ -2,8 +2,7 @@
  * @Description: 提供持续局域网发现、首次授权、可信重连和跨线程安全的连接状态。
  * @Author: LILYGO_L
  * @Date: 2026-10-04 19:00:00
- * @LastEditTime: 2026-10-13 12:00:00
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "app/app_connection.h"
 

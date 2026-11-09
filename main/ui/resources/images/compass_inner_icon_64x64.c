@@ -2,8 +2,7 @@
  * @Description: compass_inner_icon_64x64 的 64×64 像素 LVGL 图像资源
  * @Author: LILYGO_L
  * @Date: 2026-09-28 16:58:19
- * @LastEditTime: 2026-09-29 14:14:27
- * @License: GPL 3.0
+ * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "lvgl.h"
 
