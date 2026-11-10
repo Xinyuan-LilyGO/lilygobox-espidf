@@ -2,7 +2,7 @@
  * @Description: 提供持续局域网发现、首次授权、可信重连和跨线程安全的连接状态。
  * @Author: LILYGO_L
  * @Date: 2026-10-04 19:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-10 10:26:41
  */
 #include "app/app_connection.h"
 
@@ -20,6 +20,7 @@
 #include "base/logger.h"
 #include "cJSON.h"
 #include "esp_app_desc.h"
+#include "esp_heap_caps.h"
 #include "esp_http_server.h"
 #include "esp_mac.h"
 #include "esp_random.h"
@@ -1058,6 +1059,10 @@ void ConnectionTask(void*) {
     if (network_ready && server == nullptr) {
       httpd_ssl_config_t tls = HTTPD_SSL_CONFIG_DEFAULT();
       auto& config = tls.httpd;
+#if CONFIG_SPIRAM
+      // HTTPS 的 10 KB 任务栈使用 PSRAM，保留内部连续内存供以太网和 SDIO DMA 使用。
+      config.task_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+#endif
       tls.port_secure = kWebSocketPort;
       tls.tls_handshake_timeout_ms = 3000;
       config.ctrl_port = 18465;
@@ -1067,16 +1072,24 @@ void ConnectionTask(void*) {
       config.recv_wait_timeout = 2;
       config.send_wait_timeout = 2;
       config.close_fn = SocketClosed;
-      if (ConfigureConnectionTls(&tls) &&
-          httpd_ssl_start(&server, &tls) == ESP_OK) {
-        httpd_uri_t endpoint = {};
-        endpoint.uri = "/api/v1/ws";
-        endpoint.method = HTTP_GET;
-        endpoint.handler = WebSocketHandler;
-        endpoint.is_websocket = true;
-        if (httpd_register_uri_handler(server, &endpoint) != ESP_OK) {
-          httpd_ssl_stop(server);
-          server = nullptr;
+      if (ConfigureConnectionTls(&tls)) {
+        const esp_err_t result = httpd_ssl_start(&server, &tls);
+        if (result == ESP_OK) {
+          httpd_uri_t endpoint = {};
+          endpoint.uri = "/api/v1/ws";
+          endpoint.method = HTTP_GET;
+          endpoint.handler = WebSocketHandler;
+          endpoint.is_websocket = true;
+          if (httpd_register_uri_handler(server, &endpoint) != ESP_OK) {
+            httpd_ssl_stop(server);
+            server = nullptr;
+          }
+        } else if (result == ESP_ERR_HTTPD_TASK) {
+          // SDK 在任务创建失败时没有输出原因，仅补充这一条缺失的错误。
+          LogMessage(LogLevel::kError, __FILE__, __LINE__,
+              "HTTPS service task creation failed: %s (stack=%u bytes, caps=0x%X)\n",
+              esp_err_to_name(result), static_cast<unsigned>(config.stack_size),
+              static_cast<unsigned>(config.task_caps));
         }
       }
       if (server != nullptr) {

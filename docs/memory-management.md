@@ -55,6 +55,10 @@ SDK、标准容器、驱动、TLS 及尚未接入的分配不包含在模块计�
 
 任务栈占用需要单独检查，不能根据堆剩余容量判断栈是否足够；上述临时缓冲移入堆后才会计入 `General` 的模块统计。
 
+ESP-Hosted 任务栈通过 `CONFIG_ESP_HOSTED_DFLT_TASK_FROM_SPIRAM=y` 放入 PSRAM；启用 PSRAM 的设备上，应用连接 HTTPS 服务也通过 `httpd_config_t::task_caps` 将默认 10 KB 任务栈放入 PSRAM，栈大小和任务优先级保持不变。这些任务栈不包含在公共工具的模块统计中。以太网 DMA、SDIO DMA 和任务控制块仍按 SDK 的能力要求分配，避免音乐、WLAN、以太网和桌面连接同时运行时争用内部连续内存。
+
+ESP-IDF 5.5.4 的 HTTP 服务在任务创建失败后没有关闭已经创建的监听及控制 socket，首次可能只显示 HTTPS 服务启动后退出，后续持续报 `listen (112)`（地址已占用）。应用补充记录原本没有日志的 `ESP_ERR_HTTPD_TASK`，不要仅根据后续的地址占用错误判断为端口冲突。更新固件并重启后，验证各功能不同开启顺序下仍能看到 `Local discovery and encrypted WebSocket ready`，并实际完成桌面连接和心跳；编译通过不能替代该实机验证。
+
 ## 按需读取统计
 
 ```cpp
