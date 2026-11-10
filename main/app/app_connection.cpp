@@ -2,7 +2,7 @@
  * @Description: 提供持续局域网发现、首次授权、可信重连和跨线程安全的连接状态。
  * @Author: LILYGO_L
  * @Date: 2026-10-04 19:00:00
- * @LastEditTime: 2026-11-10 10:26:41
+ * @LastEditTime: 2026-11-10 11:10:57
  */
 #include "app/app_connection.h"
 
@@ -71,6 +71,7 @@ struct AppSession {
   char challenge[65] = {};
   bool authenticating = false;
   bool authenticated = false;
+  bool identity_pending = false;
   bool new_pairing = false;
   bool close_requested = false;
   bool disconnect_requested = false;
@@ -870,20 +871,11 @@ esp_err_t WebSocketHandler(httpd_req_t* request) {
         reply = Message("disconnected");
         rejected = true;
       } else {
-        // 旧授权只有在密钥认证成功后才补记安装标识，不能凭名称或 hello 直接绑定。
-        if (g_preferences.clients[index].client_id[0] == '\0' &&
+        // 密钥认证成功后交给内部 RAM 栈任务补记旧授权，HTTPS 回调不写 NVS。
+        session->identity_pending =
+            g_preferences.clients[index].client_id[0] == '\0' &&
             IsAppClientId(session->client_id) &&
-            ClientCredentialIndex(session->client_id) == g_preferences.count) {
-          auto updated = g_preferences;
-          std::snprintf(updated.clients[index].client_id,
-              sizeof(updated.clients[index].client_id), "%s", session->client_id);
-          if (UpdateConnectionPreferences(updated)) {
-            g_preferences = updated;
-          } else {
-            LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-                "Save app installation identity failed\n");
-          }
-        }
+            ClientCredentialIndex(session->client_id) == g_preferences.count;
         if (auto* paused = PausedApp(session->credential_id)) paused[0] = '\0';
         session->authenticated = true;
         session->until = NowMs() + kConfirmMs;
@@ -1132,6 +1124,24 @@ void ConnectionTask(void*) {
       }
       SelectCandidate();
       for (auto& session : g_sessions) {
+        if (session.fd >= 0 && session.authenticated && session.identity_pending) {
+          session.identity_pending = false;
+          const size_t index = CredentialIndex(session.credential_id);
+          // 延迟期间授权可能已被删除或绑定，持锁重新检查后再保存。
+          if (index < g_preferences.count &&
+              g_preferences.clients[index].client_id[0] == '\0' &&
+              ClientCredentialIndex(session.client_id) == g_preferences.count) {
+            auto updated = g_preferences;
+            std::snprintf(updated.clients[index].client_id,
+                sizeof(updated.clients[index].client_id), "%s", session.client_id);
+            if (UpdateConnectionPreferences(updated)) {
+              g_preferences = updated;
+            } else {
+              LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+                  "Save app installation identity failed\n");
+            }
+          }
+        }
         if (session.fd >= 0 && session.disconnect_requested &&
             !session.close_requested)
           notify_disconnect = true;

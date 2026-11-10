@@ -2,7 +2,7 @@
  * @Description: LilygoBox 主固件与无线固件组合 OTA 更新实现
  * @Author: LILYGO_L
  * @Date: 2026-07-20 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-10 11:10:57
  */
 #include "app/firmware_update_manager.h"
 
@@ -135,6 +135,7 @@ constexpr uint32_t kWirelessReadyTimeoutMs = 15 * 1000;
 constexpr uint32_t kFirmwareDownloadTimeoutMs = 10 * 60 * 1000;
 constexpr uint32_t kInternetValidationTimeoutMs = 32 * 1000;
 constexpr uint32_t kWorkerTaskStackBytes = 16 * 1024;
+constexpr uint32_t kCancelTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kWorkerTaskPriority = 5;
 // 同步镜像校验低于界面任务优先级，避免持续计算阻塞触摸和界面刷新。
 constexpr UBaseType_t kVerificationTaskPriority = tskIDLE_PRIORITY;
@@ -3121,6 +3122,12 @@ bool CancelPreparedFirmware(bool finish_worker) {
   return cancelled;
 }
 
+// 分区查询和清理可能关闭 Flash 缓存，必须由内部 RAM 栈任务执行。
+void CancelTask(void*) {
+  CancelPreparedFirmware(true);
+  vTaskDelete(nullptr);
+}
+
 /**
  * @brief 在两个固件处理阶段之间立即响应暂停或取消请求
  * @return 已处理传输控制请求返回 true，否则返回 false
@@ -4577,13 +4584,31 @@ bool FirmwareUpdateManager::CancelUpdate(bool local_only, const char* task_id) {
     State().worker_running = true;
     State().cancel_requested = true;
     State().snapshot.busy = true;
+    CopyText(State().snapshot.message, sizeof(State().snapshot.message),
+        "Cancelling update");
   }
   UnlockManager();
   if (downloading) {
     CloseActiveHttpClient();
   }
   if (prepared) {
-    return CancelPreparedFirmware(true);
+    // xTaskCreate 的任务栈位于内部 RAM，避免沿用 HTTPS 回调的 PSRAM 栈。
+    if (xTaskCreate(CancelTask, "ota_cancel", kCancelTaskStackBytes, nullptr,
+            kWorkerTaskPriority, nullptr) == pdPASS) {
+      return true;
+    }
+    if (LockManager()) {
+      State().worker_running = false;
+      State().cancel_requested = false;
+      State().snapshot.busy = false;
+      CopyText(State().snapshot.message, sizeof(State().snapshot.message),
+          "Cannot create cancellation task; retry cancellation");
+      UnlockManager();
+    }
+    // 尚未清理固件，保留暂停或待安装阶段，允许用户重试取消。
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Cannot create firmware cancellation task\n");
+    return false;
   }
   return downloading;
 }

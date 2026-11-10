@@ -57,6 +57,8 @@ SDK、标准容器、驱动、TLS 及尚未接入的分配不包含在模块计�
 
 ESP-Hosted 任务栈通过 `CONFIG_ESP_HOSTED_DFLT_TASK_FROM_SPIRAM=y` 放入 PSRAM；启用 PSRAM 的设备上，应用连接 HTTPS 服务也通过 `httpd_config_t::task_caps` 将默认 10 KB 任务栈放入 PSRAM，栈大小和任务优先级保持不变。这些任务栈不包含在公共工具的模块统计中。以太网 DMA、SDIO DMA 和任务控制块仍按 SDK 的能力要求分配，避免音乐、WLAN、以太网和桌面连接同时运行时争用内部连续内存。
 
+PSRAM 栈不能执行要求关闭 Flash 缓存的操作，否则会触发 `esp_task_stack_is_sane_cache_disabled()` 断言。HTTPS/WebSocket 回调只提交 OTA 取消请求：下载中由已有 OTA 任务处理；暂停或待安装时临时创建 6 KB 内部 RAM 栈的清理任务，恢复当前启动分区并删除更新标记和缓存，完成后释放任务。取消接口返回成功仅表示请求已接受，实际结果通过更新状态查询；任务创建失败时保留原阶段和固件缓存，返回失败并允许重试。旧连接凭证补记安装标识的 NVS 写入也由已有的内部 RAM 栈连接任务执行，认证回调只标记待保存状态，写入前重新检查授权是否仍然有效且未绑定。
+
 ESP-IDF 5.5.4 的 HTTP 服务在任务创建失败后没有关闭已经创建的监听及控制 socket，首次可能只显示 HTTPS 服务启动后退出，后续持续报 `listen (112)`（地址已占用）。应用补充记录原本没有日志的 `ESP_ERR_HTTPD_TASK`，不要仅根据后续的地址占用错误判断为端口冲突。更新固件并重启后，验证各功能不同开启顺序下仍能看到 `Local discovery and encrypted WebSocket ready`，并实际完成桌面连接和心跳；编译通过不能替代该实机验证。
 
 ## 按需读取统计
