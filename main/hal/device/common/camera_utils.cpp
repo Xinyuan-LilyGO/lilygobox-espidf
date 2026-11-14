@@ -2,7 +2,7 @@
  * @Description: 摄像头预览公共参数与生命周期辅助实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-12 18:06:44
  */
 #include "hal/device/common/camera_utils.h"
 
@@ -19,13 +19,13 @@ uint32_t StartupElapsedMs(TickType_t start_tick) {
       (xTaskGetTickCount() - start_tick) * portTICK_PERIOD_MS);
 }
 
-bool StartupTimedOut(TickType_t start_tick) {
-  return StartupElapsedMs(start_tick) >= kStartupTimeoutMs;
+bool StartupTimedOut(TickType_t start_tick, uint32_t timeout_ms) {
+  return StartupElapsedMs(start_tick) >= timeout_ms;
 }
 
-uint32_t StartupRemainingMs(TickType_t start_tick) {
+uint32_t StartupRemainingMs(TickType_t start_tick, uint32_t timeout_ms) {
   const uint32_t elapsed_ms = StartupElapsedMs(start_tick);
-  return elapsed_ms < kStartupTimeoutMs ? kStartupTimeoutMs - elapsed_ms : 0;
+  return elapsed_ms < timeout_ms ? timeout_ms - elapsed_ms : 0;
 }
 
 bool IsRetryableIoError(int error) {

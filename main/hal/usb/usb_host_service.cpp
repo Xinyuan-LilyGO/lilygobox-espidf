@@ -2,7 +2,7 @@
  * @Description: MSC 与 ECM 共用的 USB Host 生命周期实现
  * @Author: LILYGO_L
  * @Date: 2026-09-22 17:25:57
- * @LastEditTime: 2026-11-09 10:11:19
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "hal/usb/usb_host_service.h"
 
@@ -11,6 +11,7 @@
 #include <mutex>
 
 #include "base/logger.h"
+#include "base/task.h"
 #include "esp_intr_alloc.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -98,7 +99,7 @@ esp_err_t Acquire() {
   if (!installed.load()) {
     // 先预留事件任务，避免 Host 安装后因内存不足留下无人处理的实例。
     TaskHandle_t task = nullptr;
-    if (xTaskCreate(HostTask, "usb_host", 4096, nullptr, 5, &task) != pdPASS) {
+    if (tasks::CreateInternal(HostTask, "usb_host", 4096, nullptr, 5, &task) != pdPASS) {
       return ESP_ERR_NO_MEM;
     }
     usb_host_config_t config = {};

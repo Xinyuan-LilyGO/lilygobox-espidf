@@ -2,7 +2,7 @@
  * @Description: Radio 配置列表与按芯片激活状态持久化实现
  * @Author: LILYGO_L
  * @Date: 2026-07-16 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "app/storage/radio_storage.h"
 
@@ -17,6 +17,7 @@
 #include "app/storage/storage_internal.h"
 #include "app/storage/tlv_storage.h"
 #include "base/logger.h"
+#include "base/memory.h"
 #include "esp_err.h"
 #include "nvs.h"
 
@@ -1028,8 +1029,7 @@ void InitRadioCache(
     radio::ChipMask supported_chips, radio::ChipType primary_chip) {
   g_supported_radio_chips = supported_chips;
   g_primary_radio_chip = primary_chip;
-  auto preferences =
-      std::unique_ptr<RadioPreferences>(new (std::nothrow) RadioPreferences());
+  auto preferences = memory::MakePsramObject<RadioPreferences>();
   if (preferences == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Allocate Radio profile initialization buffer failed\n");
@@ -1059,8 +1059,7 @@ void InitRadioCache(
   } else if (open_result != ESP_ERR_NVS_NOT_FOUND) {
     LogRadioStorageError("open", open_result);
   }
-  auto normalized_preferences = std::unique_ptr<RadioPreferences>(
-      new (std::nothrow) RadioPreferences(*preferences));
+  auto normalized_preferences = memory::MakePsramObject<RadioPreferences>(*preferences);
   if (normalized_preferences == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Allocate normalized Radio profile buffer failed\n");
@@ -1090,8 +1089,7 @@ bool GetRadioPreferences(RadioPreferences* preferences) {
 }
 
 bool UpdateRadioPreferences(const RadioPreferences& preferences) {
-  auto normalized = std::unique_ptr<RadioPreferences>(
-      new (std::nothrow) RadioPreferences(preferences));
+  auto normalized = memory::MakePsramObject<RadioPreferences>(preferences);
   if (normalized == nullptr) {
     return false;
   }
@@ -1104,8 +1102,7 @@ StorageStageResult StageRadioStorage(nvs_handle_t handle) {
   if (!g_radio_profiles_cache.BeginFlush(&preferences)) {
     return StorageStageResult::kClean;
   }
-  auto buffer = std::unique_ptr<uint8_t[]>(
-      new (std::nothrow) uint8_t[kRadioProfilesTlvCapacity]);
+  auto buffer = memory::MakeBuffer<uint8_t>(kRadioProfilesTlvCapacity);
   if (buffer == nullptr) {
     return StorageStageResult::kFailed;
   }

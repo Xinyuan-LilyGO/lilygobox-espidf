@@ -2,7 +2,7 @@
  * @Description: Radio 射频控制应用页面实现
  * @Author: LILYGO_L
  * @Date: 2026-07-12 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "ui/views/radio_view.h"
 
@@ -24,6 +24,7 @@
 #include "app/storage/radio_storage.h"
 #include "app/system_status_cache.h"
 #include "base/logger.h"
+#include "base/task.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal/providers/radio/radio_provider.h"
@@ -1389,7 +1390,6 @@ void RadioShutdownTaskEntry(void* context) {
           "Radio power down on view close failed\n");
     }
   }
-  vTaskDelete(nullptr);
 }
 
 /**
@@ -1422,9 +1422,9 @@ void RadioViewDeleteEventCallback(lv_event_t* event) {
         .pending_command = state->radio_command_job,
     };
     if (shutdown_job == nullptr ||
-        xTaskCreate(RadioShutdownTaskEntry, "radio_shutdown",
+        tasks::CreateDetached(RadioShutdownTaskEntry, "radio_shutdown",
             kRadioCommandTaskStackBytes, shutdown_job,
-            kRadioCommandTaskPriority, nullptr) != pdPASS) {
+            kRadioCommandTaskPriority) != pdPASS) {
       delete shutdown_job;
       state->config.radio->DeactivateRadio();
     }
@@ -2476,7 +2476,6 @@ const char* RadioFailureReasonText(hal::RadioFailureReason reason) {
 void RadioCommandTaskEntry(void* context) {
   auto* shared_job = static_cast<std::shared_ptr<RadioCommandJob>*>(context);
   if (shared_job == nullptr) {
-    vTaskDelete(nullptr);
     return;
   }
   std::shared_ptr<RadioCommandJob> job = *shared_job;
@@ -2524,7 +2523,6 @@ void RadioCommandTaskEntry(void* context) {
   }
   job->completed.store(true, std::memory_order_release);
   job.reset();
-  vTaskDelete(nullptr);
 }
 
 /**
@@ -2542,9 +2540,8 @@ bool StartRadioCommand(
   state->radio_command_job = job;
   auto* task_context = new (std::nothrow) std::shared_ptr<RadioCommandJob>(job);
   if (task_context != nullptr &&
-      xTaskCreate(RadioCommandTaskEntry, "radio_cmd",
-          kRadioCommandTaskStackBytes, task_context, kRadioCommandTaskPriority,
-          nullptr) == pdPASS) {
+      tasks::CreateDetached(RadioCommandTaskEntry, "radio_cmd",
+          kRadioCommandTaskStackBytes, task_context, kRadioCommandTaskPriority) == pdPASS) {
     return true;
   }
   delete task_context;

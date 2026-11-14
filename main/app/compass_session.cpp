@@ -2,7 +2,7 @@
  * @Description: 指南针磁北方位、三轴校准与后台设备采集实现
  * @Author: LILYGO_L
  * @Date: 2026-09-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "app/compass_session.h"
 
@@ -15,6 +15,7 @@
 
 #include "app/sensor_session_lock.h"
 #include "base/logger.h"
+#include "base/task.h"
 #include "esp_timer.h"
 #include "freertos/task.h"
 
@@ -317,7 +318,7 @@ bool CompassSession::Start() {
   if (snapshots_ == nullptr || stopped_ == nullptr) {
     return false;
   }
-  task_started_ = xTaskCreate(TaskEntry, "compass", 8 * 1024, this,
+  task_started_ = tasks::CreateInternal(TaskEntry, "compass", 8 * 1024, this,
                       tskIDLE_PRIORITY + 1, nullptr) == pdPASS;
   return task_started_;
 }

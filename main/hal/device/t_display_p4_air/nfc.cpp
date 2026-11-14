@@ -2,14 +2,16 @@
  * @Description: T-Display-P4-Air ST25R3916 NFC 硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include <algorithm>
+
 #include <array>
 #include <cstdint>
 #include <cstring>
 
 #include "base/logger.h"
+#include "base/task.h"
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -127,7 +129,7 @@ bool TDisplayP4AirDevice::SetNfcPollingEnabled(bool enabled) {
 
   nfc_.stop_requested.store(false);
   nfc_.task_active.store(true);
-  const BaseType_t task_result = xTaskCreate(NfcPollingTaskEntry, "nfc_poll",
+  const BaseType_t task_result = tasks::CreateInternal(NfcPollingTaskEntry, "nfc_poll",
       kNfcPollingTaskStackBytes, this, kNfcPollingTaskPriority, nullptr);
   if (task_result != pdPASS) {
     nfc_.task_active.store(false);

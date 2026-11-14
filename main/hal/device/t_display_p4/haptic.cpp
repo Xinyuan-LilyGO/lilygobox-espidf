@@ -2,12 +2,13 @@
  * @Description: T-Display-P4 振动硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include <algorithm>
 #include <cstdint>
 
 #include "base/logger.h"
+#include "base/task.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal/device/t_display_p4/device.h"
@@ -60,9 +61,8 @@ bool TDisplayP4Device::PlayHapticWaveform(uint8_t waveform_sequence_number,
     return true;
   }
 
-  const BaseType_t result = xTaskCreate(HapticPlaybackTaskEntry, "haptic_play",
-      kHapticPlaybackTaskStackBytes, this, kHapticPlaybackTaskPriority,
-      nullptr);
+  const BaseType_t result = tasks::CreateDetached(HapticPlaybackTaskEntry, "haptic_play",
+      kHapticPlaybackTaskStackBytes, this, kHapticPlaybackTaskPriority);
   if (result != pdPASS) {
     haptic_.running.store(false);
     return false;
@@ -75,7 +75,6 @@ void TDisplayP4Device::HapticPlaybackTaskEntry(void* context) {
   if (self != nullptr) {
     self->RunHapticPlaybackTask();
   }
-  vTaskDelete(nullptr);
 }
 
 void TDisplayP4Device::RunHapticPlaybackTask() {

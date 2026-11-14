@@ -2,7 +2,7 @@
  * @Description: T-Display-P4-Air GNSS 硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include <algorithm>
 #include <array>
@@ -14,6 +14,7 @@
 #include <string>
 
 #include "base/logger.h"
+#include "base/memory.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -166,8 +167,7 @@ bool TDisplayP4AirDevice::ReadGpsStatus(GpsStatus* status) {
 
   const size_t buffer_length =
       std::min(rx_buffer_length, kGpsMaxReadBufferBytes);
-  std::unique_ptr<uint8_t[]> buffer(
-      new (std::nothrow) uint8_t[buffer_length + 1]);
+  auto buffer = memory::MakeBuffer<uint8_t>(buffer_length + 1);
   if (buffer == nullptr) {
     xSemaphoreGive(nrf9151_mutex_);
     return false;

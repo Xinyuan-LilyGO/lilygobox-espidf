@@ -2,7 +2,7 @@
  * @Description: T-Display-P4 WiFi 协处理器实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 13:43:08
  */
 #include <algorithm>
 #include <atomic>
@@ -13,9 +13,11 @@
 #include <new>
 
 #include "base/logger.h"
+#include "base/task.h"
 #include "base/memory.h"
 #include "esp_err.h"
 #include "esp_event.h"
+#include "esp_heap_caps.h"
 #include "esp_hosted.h"
 #include "esp_hosted_transport_config.h"
 #include "esp_netif.h"
@@ -25,6 +27,7 @@
 #include "esp_wifi_default.h"
 #include "esp_wifi_remote.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
 #include "freertos/task.h"
 #include "hal/device/common/device_utils.h"
 #include "hal/device/common/wifi_utils.h"
@@ -39,6 +42,11 @@ constexpr uint32_t kWifiScanTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kWifiScanTaskPriority = 3;
 constexpr uint32_t kWifiConnectTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kWifiConnectTaskPriority = 3;
+#if defined(CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM)
+constexpr auto kWifiStackRegion = tasks::StackRegion::kPsram;
+#else
+constexpr auto kWifiStackRegion = tasks::StackRegion::kInternal;
+#endif
 constexpr uint32_t kWifiHardwareReadyTimeoutMs = 8000;
 constexpr uint32_t kWifiHardwareReadyPollMs = 50;
 constexpr uint32_t kWifiCoprocessorBootDelayMs = 500;
@@ -93,6 +101,57 @@ esp_err_t SetWifiCoprocessorResetLevel(void* user_data, bool level) {
     return ESP_ERR_INVALID_ARG;
   }
   return SetWifiCoprocessorPowerEnabled(*driver, level) ? ESP_OK : ESP_FAIL;
+}
+
+/**
+ * @brief 记录 WiFi 失败阶段、错误码和内存状态
+ * @param stage 失败阶段
+ * @param error ESP-IDF 错误码
+ */
+void LogWifiOperationFailure(const char* stage, esp_err_t error) {
+  LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+      "WiFi %s failed: %s (%#X), internal free/largest=%lu/%lu bytes, "
+      "PSRAM free/largest=%lu/%lu bytes\n",
+      stage, esp_err_to_name(error), static_cast<unsigned>(error),
+      static_cast<unsigned long>(heap_caps_get_free_size(
+          MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+      static_cast<unsigned long>(heap_caps_get_largest_free_block(
+          MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+      static_cast<unsigned long>(heap_caps_get_free_size(
+          MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)),
+      static_cast<unsigned long>(heap_caps_get_largest_free_block(
+          MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+}
+
+/**
+ * @brief 创建或唤醒重复使用的 WiFi 请求任务
+ * @param handle 保存任务句柄；任务与设备实例同寿命，空闲时阻塞等待通知
+ * @param mutex 保护任务首次创建，复用扫描缓存互斥锁
+ * @param entry 任务入口
+ * @param name 任务名称
+ * @param stack_bytes 任务栈大小，单位为字节
+ * @param priority 任务优先级
+ * @param context 设备实例
+ * @return 请求成功提交返回 pdPASS，否则返回 pdFAIL
+ */
+BaseType_t StartWifiRequestTask(TaskHandle_t& handle, SemaphoreHandle_t mutex,
+    TaskFunction_t entry, const char* name, uint32_t stack_bytes,
+    UBaseType_t priority, void* context) {
+  if (mutex == nullptr || xSemaphoreTake(mutex, portMAX_DELAY) != pdTRUE) {
+    LogWifiOperationFailure(name, ESP_ERR_INVALID_STATE);
+    return pdFAIL;
+  }
+  BaseType_t result = pdPASS;
+  if (handle == nullptr) {
+    result = tasks::CreateManaged(entry, name, stack_bytes, context, priority,
+        &handle, kWifiStackRegion);
+  }
+  if (result == pdPASS) {
+    xTaskNotifyGive(handle);
+  }
+  xSemaphoreGive(mutex);
+  // 创建失败的具体内存诊断已经由公共任务入口记录。
+  return result;
 }
 
 }  // namespace
@@ -220,8 +279,9 @@ bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
 
   wifi_.start_failed.store(false);
   wifi_.last_error.store(ESP_OK);
-  const BaseType_t result = xTaskCreate(WifiInitTaskEntry, "wifi_init",
-      kWifiInitTaskStackBytes, this, kWifiInitTaskPriority, nullptr);
+  const BaseType_t result = StartWifiRequestTask(wifi_.init_task_handle,
+      wifi_.scan_results_mutex, WifiInitTaskEntry, "wifi_init",
+      kWifiInitTaskStackBytes, kWifiInitTaskPriority, this);
   if (result != pdPASS) {
     SetWifiFailure(ESP_ERR_NO_MEM);
     SetWifiCoprocessorPowerEnabled(driver_, false);
@@ -244,8 +304,9 @@ bool TDisplayP4Device::StartWifiScan() {
   wifi_.scan_failed.store(false);
   wifi_.last_error.store(ESP_OK);
   wifi_.scan_running.store(true);
-  const BaseType_t result = xTaskCreate(WifiScanTaskEntry, "wifi_scan",
-      kWifiScanTaskStackBytes, this, kWifiScanTaskPriority, nullptr);
+  const BaseType_t result = StartWifiRequestTask(wifi_.scan_task_handle,
+      wifi_.scan_results_mutex, WifiScanTaskEntry, "wifi_scan",
+      kWifiScanTaskStackBytes, kWifiScanTaskPriority, this);
   if (result != pdPASS) {
     wifi_.scan_task_running.store(false);
     wifi_.scan_running.store(false);
@@ -302,8 +363,9 @@ bool TDisplayP4Device::ConnectWifi(const char* ssid, const char* password) {
   std::snprintf(wifi_.connect_password, sizeof(wifi_.connect_password), "%s",
       password == nullptr ? "" : password);
   wifi_.connect_cancel_requested.store(false);
-  const BaseType_t result = xTaskCreate(WifiConnectTaskEntry, "wifi_connect",
-      kWifiConnectTaskStackBytes, this, kWifiConnectTaskPriority, nullptr);
+  const BaseType_t result = StartWifiRequestTask(wifi_.connect_task_handle,
+      wifi_.scan_results_mutex, WifiConnectTaskEntry, "wifi_connect",
+      kWifiConnectTaskStackBytes, kWifiConnectTaskPriority, this);
   if (result != pdPASS) {
     wifi_.connect_task_running.store(false);
     SetWifiFailure(ESP_ERR_NO_MEM);
@@ -552,12 +614,44 @@ void TDisplayP4Device::RefreshWifiSignal() {
   portEXIT_CRITICAL(&wifi_.link_cache_lock);
 }
 
+bool TDisplayP4Device::ReclaimIdleWifiTasks(void* context) {
+  auto* self = static_cast<TDisplayP4Device*>(context);
+  if (self == nullptr || self->wifi_.scan_results_mutex == nullptr ||
+      xSemaphoreTake(self->wifi_.scan_results_mutex, 0) != pdTRUE) {
+    return false;
+  }
+  size_t reclaimed = 0;
+  const auto release = [&](TaskHandle_t& handle, std::atomic<bool>& idle) {
+    // 与创建/唤醒使用同一互斥锁；只有确实阻塞在空闲等待中的任务才可删除。
+    // 运行中的 RPC 也可能阻塞，因此不能只看 eBlocked 或业务完成标志。
+    if (handle != nullptr && handle != xTaskGetCurrentTaskHandle() &&
+        idle.load(std::memory_order_acquire) && eTaskGetState(handle) == eBlocked) {
+      tasks::DeleteManaged(handle);
+      handle = nullptr;
+      idle.store(false, std::memory_order_release);
+      ++reclaimed;
+    }
+  };
+  release(self->wifi_.init_task_handle, self->wifi_.init_worker_idle);
+  release(self->wifi_.scan_task_handle, self->wifi_.scan_worker_idle);
+  release(self->wifi_.connect_task_handle, self->wifi_.connect_worker_idle);
+  xSemaphoreGive(self->wifi_.scan_results_mutex);
+  // 回收路径不格式化日志，避免日志缓冲又申请内存。
+  return reclaimed != 0;
+}
+
 void TDisplayP4Device::WifiInitTaskEntry(void* context) {
   auto* self = static_cast<TDisplayP4Device*>(context);
-  if (self != nullptr) {
+  for (;;) {
+    self->wifi_.init_worker_idle.store(true, std::memory_order_release);
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    self->wifi_.init_worker_idle.store(false, std::memory_order_release);
+    if (self->wifi_.stop_requested.load()) {
+      self->wifi_.init_task_running.store(false);
+      continue;
+    }
     self->RunWifiInitTask();
   }
-  vTaskDelete(nullptr);
 }
 
 void TDisplayP4Device::RunWifiInitTask() {
@@ -572,10 +666,7 @@ void TDisplayP4Device::RunWifiInitTask() {
 
   const int result = InitializeWifiStack();
   if (result != ESP_OK) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "WiFi init failed: %s (%#X)\n",
-        esp_err_to_name(static_cast<esp_err_t>(result)),
-        static_cast<unsigned>(result));
+    LogWifiOperationFailure("initialize", static_cast<esp_err_t>(result));
     wifi_.init_task_running.store(false);
     SetWifiEnabled(false);
     SetWifiFailure(result);
@@ -601,24 +692,40 @@ void TDisplayP4Device::RunWifiInitTask() {
 
 void TDisplayP4Device::WifiScanTaskEntry(void* context) {
   auto* self = static_cast<TDisplayP4Device*>(context);
-  if (self != nullptr) {
+  for (;;) {
+    self->wifi_.scan_worker_idle.store(true, std::memory_order_release);
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    self->wifi_.scan_worker_idle.store(false, std::memory_order_release);
+    if (self->wifi_.stop_requested.load()) {
+      self->wifi_.scan_running.store(false);
+      self->wifi_.scan_task_running.store(false);
+      continue;
+    }
     self->RunWifiScanTask();
   }
-  vTaskDelete(nullptr);
 }
 
 void TDisplayP4Device::WifiConnectTaskEntry(void* context) {
   auto* self = static_cast<TDisplayP4Device*>(context);
-  if (self != nullptr) {
+  for (;;) {
+    self->wifi_.connect_worker_idle.store(true, std::memory_order_release);
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    self->wifi_.connect_worker_idle.store(false, std::memory_order_release);
+    if (self->wifi_.stop_requested.load() ||
+        self->wifi_.connect_cancel_requested.load()) {
+      self->wifi_.connect_task_running.store(false);
+      continue;
+    }
     self->RunWifiConnectTask();
   }
-  vTaskDelete(nullptr);
 }
 
 void TDisplayP4Device::RunWifiScanTask() {
   if (!wifi_.running.load()) {
     const int prepare_result = PrepareWifiStation();
     if (prepare_result != ESP_OK) {
+      LogWifiOperationFailure("scan prepare",
+          static_cast<esp_err_t>(prepare_result));
       wifi_.scan_failed.store(true);
       wifi_.last_error.store(prepare_result);
       wifi_.scan_network_count.store(0);
@@ -637,20 +744,35 @@ void TDisplayP4Device::RunWifiScanTask() {
     return;
   }
 
-  // hosted STA 在关联热点期间可能暂时拒绝扫描，等待连接状态稳定后重试。
+  // 关联热点或 RPC/内存短暂繁忙时延迟重试，使用实际耗时限制总等待。
   esp_err_t scan_result = ESP_ERR_WIFI_STATE;
-  uint32_t retry_elapsed_ms = 0;
+  const TickType_t retry_start_tick = xTaskGetTickCount();
+  uint32_t attempts = 0;
   while (!wifi_.stop_requested.load()) {
+    if (attempts > 0 && static_cast<uint32_t>(
+            (xTaskGetTickCount() - retry_start_tick) * portTICK_PERIOD_MS) >=
+            kWifiScanTimeoutMs) {
+      break;
+    }
+    ++attempts;
     scan_result = esp_wifi_scan_start(nullptr, false);
     if (scan_result == ESP_OK) {
       return;
     }
-    if (scan_result != ESP_ERR_WIFI_STATE ||
-        retry_elapsed_ms >= kWifiScanTimeoutMs) {
+    const uint32_t elapsed_ms = static_cast<uint32_t>(
+        (xTaskGetTickCount() - retry_start_tick) * portTICK_PERIOD_MS);
+    const bool retryable = scan_result == ESP_ERR_WIFI_STATE ||
+                           scan_result == ESP_ERR_NO_MEM ||
+                           scan_result == ESP_ERR_TIMEOUT ||
+                           scan_result == ESP_ERR_WIFI_TIMEOUT;
+    if (!retryable || elapsed_ms >= kWifiScanTimeoutMs) {
       break;
     }
-    vTaskDelay(pdMS_TO_TICKS(kWifiScanStateRetryIntervalMs));
-    retry_elapsed_ms += kWifiScanStateRetryIntervalMs;
+    if (attempts == 1) {
+      LogWifiOperationFailure("scan start; retrying", scan_result);
+    }
+    vTaskDelay(pdMS_TO_TICKS(std::min(kWifiScanStateRetryIntervalMs,
+        kWifiScanTimeoutMs - elapsed_ms)));
   }
 
   if (wifi_.stop_requested.load()) {
@@ -661,6 +783,8 @@ void TDisplayP4Device::RunWifiScanTask() {
     return;
   }
 
+  LogWifiOperationFailure("scan start; retry budget exhausted or fatal error",
+      scan_result);
   wifi_.scan_failed.store(true);
   wifi_.last_error.store(scan_result);
   wifi_.scan_network_count.store(0);
@@ -905,6 +1029,7 @@ void TDisplayP4Device::CopyWifiScanResultsFromDriver() {
   uint16_t available_count = 0;
   esp_err_t result = esp_wifi_scan_get_ap_num(&available_count);
   if (result != ESP_OK) {
+    LogWifiOperationFailure("scan result count", result);
     esp_wifi_clear_ap_list();
     wifi_.scan_failed.store(true);
     wifi_.last_error.store(result);
@@ -931,6 +1056,7 @@ void TDisplayP4Device::CopyWifiScanResultsFromDriver() {
           memory::Policy::kPsram, memory::Module::kRadio)),
       release_buffer);
   if (records == nullptr || networks == nullptr) {
+    LogWifiOperationFailure("scan result allocation", ESP_ERR_NO_MEM);
     esp_wifi_clear_ap_list();
     wifi_.scan_failed.store(true);
     wifi_.last_error.store(ESP_ERR_NO_MEM);
@@ -942,6 +1068,7 @@ void TDisplayP4Device::CopyWifiScanResultsFromDriver() {
   if (record_count > 0) {
     result = esp_wifi_scan_get_ap_records(&record_count, records.get());
     if (result != ESP_OK) {
+      LogWifiOperationFailure("scan result records", result);
       esp_wifi_clear_ap_list();
       wifi_.scan_failed.store(true);
       wifi_.last_error.store(result);
@@ -1183,7 +1310,7 @@ void TDisplayP4Device::ScheduleRtcSync(int64_t unix_time) {
     return;
   }
   wifi_time_test_.rtc_sync_unix_time.store(unix_time);
-  const BaseType_t result = xTaskCreate(RtcSyncTaskEntry, "rtc_sync",
+  const BaseType_t result = tasks::CreateInternal(RtcSyncTaskEntry, "rtc_sync",
       kRtcSyncTaskStackBytes, this, kRtcSyncTaskPriority, nullptr);
   if (result != pdPASS) {
     wifi_time_test_.rtc_sync_task_running.store(false);

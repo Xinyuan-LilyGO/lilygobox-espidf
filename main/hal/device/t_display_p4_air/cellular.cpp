@@ -2,9 +2,10 @@
  * @Description: T-Display-P4-Air 蜂窝网络硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include <algorithm>
+
 #include <array>
 #include <cctype>
 #include <cstdint>
@@ -13,6 +14,7 @@
 #include <string>
 
 #include "base/logger.h"
+#include "base/task.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal/device/common/device_utils.h"
@@ -471,7 +473,7 @@ bool TDisplayP4AirDevice::SetCellularEnabled(bool enabled) {
 
   cellular_.stop_requested.store(false);
   cellular_.task_active.store(true);
-  const BaseType_t task_result = xTaskCreate(CellularTaskEntry, "cellular",
+  const BaseType_t task_result = tasks::CreateInternal(CellularTaskEntry, "cellular",
       kCellularTaskStackBytes, this, kCellularTaskPriority, nullptr);
   if (task_result != pdPASS) {
     cellular_.task_active.store(false);

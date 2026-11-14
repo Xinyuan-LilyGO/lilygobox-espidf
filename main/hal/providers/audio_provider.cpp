@@ -2,7 +2,7 @@
  * @Description: 共用后台音量调节，避免 UI 等待音频锁、I2C 和 I2S。
  * @Author: LILYGO_L
  * @Date: 2026-10-12 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "hal/providers/audio_provider.h"
 
@@ -10,6 +10,7 @@
 #include <mutex>
 
 #include "base/logger.h"
+#include "base/task.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -100,7 +101,7 @@ bool AudioProvider::RequestSpeakerVolumePercent(int percent, bool preview,
   if (g_volume_requests == nullptr) {
     auto queue = xQueueCreate(1, sizeof(VolumeRequest));
     if (queue == nullptr) return false;
-    if (xTaskCreate(VolumeControlTask, "volume_control", 4096, queue, 3,
+    if (tasks::CreateInternal(VolumeControlTask, "volume_control", 4096, queue, 3,
             nullptr) != pdPASS) {
       vQueueDelete(queue);
       return false;

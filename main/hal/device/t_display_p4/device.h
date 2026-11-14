@@ -2,7 +2,7 @@
  * @Description: T-Display-P4 设备及硬件 Provider 适配接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 13:43:08
  */
 #pragma once
 
@@ -1158,11 +1158,18 @@ class TDisplayP4Device final : public ScreenProvider,
   void RunCameraPreviewTask();
 
   /**
-   * @brief 在共享启动超时内等待摄像头传感器在 SCCB/I2C 总线上响应
+   * @brief 在共享启动预算内先关闭摄像头供电，再上电并等待稳定
    * @param startup_tick 摄像头启动流程开始时的系统节拍
-   * @return 传感器在超时前就绪返回 true，否则返回 false
+   * @return 供电准备结果及失败恢复策略
    */
-  bool WaitForCameraSensorReady(TickType_t startup_tick);
+  CameraStartupAttemptResult PowerOnCameraForStartup(TickType_t startup_tick);
+
+  /**
+   * @brief 限时探测摄像头 SCCB/I2C 响应，为断电重试保留启动预算
+   * @param startup_tick 摄像头启动流程开始时的系统节拍
+   * @return 就绪、需要断电重试或停止初始化
+   */
+  CameraStartupAttemptResult WaitForCameraSensorReady(TickType_t startup_tick);
 
   /**
    * @brief 在共享总超时内初始化 ESP-IDF camera video 设备
@@ -1242,6 +1249,9 @@ class TDisplayP4Device final : public ScreenProvider,
    * @param context 设备对象指针
    */
   static void WifiInitTaskEntry(void* context);
+
+  // 只回收已完成业务且阻塞等待通知的 WiFi 工作任务，连接驱动保持运行。
+  static bool ReclaimIdleWifiTasks(void* context);
 
   /**
    * @brief hosted WiFi 扫描任务入口
@@ -1472,7 +1482,9 @@ class TDisplayP4Device final : public ScreenProvider,
     esp_cam_sensor_format_t sensor_format{};
     // 摄像头预览资源是否已经初始化
     std::atomic<bool> initialized{false};
-    // 在创建任务前置位，确保停止预览时也会等待尚未开始运行的任务退出
+    // 任务结束后保留句柄，由停止或下次启动的调用方回收栈和控制块。
+    TaskHandle_t task_handle = nullptr;
+    // 创建前置位，入口完成清理后复位；停止时等待该标志再删除任务。
     std::atomic<bool> task_active{false};
     // 摄像头预览任务是否正在运行
     std::atomic<bool> running{false};
@@ -1554,6 +1566,13 @@ class TDisplayP4Device final : public ScreenProvider,
     uint32_t link_generation = 0;
     // esp_hosted 桥接组件是否已经初始化完成
     std::atomic<bool> hosted_bridge_initialized{false};
+    // 请求任务按需创建后复用；空闲时等待通知，避免反复分配任务栈。
+    std::atomic<bool> init_worker_idle{false};
+    std::atomic<bool> scan_worker_idle{false};
+    std::atomic<bool> connect_worker_idle{false};
+    TaskHandle_t init_task_handle = nullptr;
+    TaskHandle_t scan_task_handle = nullptr;
+    TaskHandle_t connect_task_handle = nullptr;
     // hosted WiFi 初始化任务是否正在运行
     std::atomic<bool> init_task_running{false};
     // hosted WiFi 驱动是否已经初始化完成

@@ -2,9 +2,11 @@
  * @Description: MP3 文件元数据与音频流参数读取实现
  * @Author: LILYGO_L
  * @Date: 2026-07-14 22:45:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "audio/mp3_metadata.h"
+
+#include "base/memory.h"
 
 #include <algorithm>
 #include <array>
@@ -296,8 +298,7 @@ uint32_t ReadVbrDurationMs(
     return 0;
   }
 
-  std::unique_ptr<uint8_t[]> frame(
-      new (std::nothrow) uint8_t[kVbrHeaderSearchSize]);
+  auto frame = memory::MakeBuffer<uint8_t>(kVbrHeaderSearchSize);
   if (frame == nullptr) {
     return 0;
   }

@@ -2,13 +2,15 @@
  * @Description: T-Display-P4 键盘扩展硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include <atomic>
+
 #include <cstddef>
 #include <cstdint>
 
 #include "base/logger.h"
+#include "base/task.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal/device/t_display_p4/device.h"
@@ -468,7 +470,7 @@ bool TDisplayP4Device::StartKeyboardExpansionScan() {
   keyboard_expansion_.consecutive_read_failures.store(0);
   keyboard_expansion_.state.store(KeyboardExpansionState::kScanning);
 
-  if (xTaskCreate(KeyboardExpansionScanTaskEntry, "KeyboardExpScan",
+  if (tasks::CreateInternal(KeyboardExpansionScanTaskEntry, "KeyboardExpScan",
           kKeyboardExpansionTaskStackBytes, this,
           kKeyboardExpansionTaskPriority, nullptr) != pdPASS) {
     keyboard_expansion_.task_running.store(false);

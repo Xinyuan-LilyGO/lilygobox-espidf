@@ -51,6 +51,8 @@ bool Deinit(bool delete_bus = true) override;
 
 普通说明优先使用 `//`，包括数组元素、特殊取值、位域含义和局部处理原因；多行普通说明也可以连续使用 `//`。不要把普通代码说明都写成 Doxygen 块。
 
+只有一句简短说明的注释使用 `// 说明内容`，不要写成单行 `/** @brief 说明内容 */`；包含参数、返回值或接口使用约束的多行 Doxygen 注释继续保留。
+
 ```cpp
 const uint8_t write_data[] = {
     0x1F,  // 电源控制寄存器地址

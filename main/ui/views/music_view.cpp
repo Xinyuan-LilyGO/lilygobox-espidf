@@ -2,7 +2,7 @@
  * @Description: 音乐应用视图
  * @Author: LILYGO_L
  * @Date: 2026-07-08 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "ui/views/music_view.h"
 
@@ -25,6 +25,7 @@
 #include "app/music_library.h"
 #include "app/storage/music_storage.h"
 #include "base/logger.h"
+#include "base/task.h"
 #include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -2312,14 +2313,12 @@ bool RenderMusicLibrary(MusicViewState* state) {
 void MusicLibraryScanTaskEntry(void* context) {
   auto* shared_job = static_cast<std::shared_ptr<MusicScanJob>*>(context);
   if (shared_job == nullptr) {
-    vTaskDelete(nullptr);
     return;
   }
   std::shared_ptr<MusicScanJob> job = *shared_job;
   delete shared_job;
   job->success = app::ScanMusicLibrary(job->source_paths, &job->tracks);
   job->completed.store(true, std::memory_order_release);
-  vTaskDelete(nullptr);
 }
 
 void FinishMusicLibraryScan(MusicPlaybackSession* session) {
@@ -2412,16 +2411,20 @@ bool StartMusicLibraryScan(MusicViewState* state) {
 
   auto* task_context = new (std::nothrow) std::shared_ptr<MusicScanJob>(job);
   if (task_context != nullptr &&
-      xTaskCreate(MusicLibraryScanTaskEntry, "music_scan",
-          kMusicScanTaskStackBytes, task_context, kMusicScanTaskPriority,
-          nullptr) == pdPASS) {
+      tasks::CreateDetached(MusicLibraryScanTaskEntry, "music_scan",
+          kMusicScanTaskStackBytes, task_context, kMusicScanTaskPriority) == pdPASS) {
     return true;
   }
   delete task_context;
-  job->success = app::ScanMusicLibrary(job->source_paths, &job->tracks);
+  // 保留已有曲库与播放状态，避免在 UI 线程同步扫描或清空已有结果。
+  job->success = false;
   job->completed.store(true, std::memory_order_release);
-  FinishMusicLibraryScan(session);
-  return true;
+  session->scan_job.reset();
+  session->library_initialized = true;
+  LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+      "Music scan task unavailable; keeping the existing library\n");
+  RenderMusicLibrary(state);
+  return false;
 }
 
 /**

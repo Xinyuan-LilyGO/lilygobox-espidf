@@ -2,9 +2,11 @@
  * @Description: NVS 与 LittleFS 即时持久化统一管理实现
  * @Author: LILYGO_L
  * @Date: 2026-07-03 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "app/storage/storage.h"
+
+#include "base/memory.h"
 
 #include <array>
 #include <atomic>
@@ -32,6 +34,7 @@
 #include "app/storage/storage_internal.h"
 #include "app/storage/wifi_storage.h"
 #include "base/logger.h"
+#include "base/task.h"
 #include "esp_err.h"
 #include "esp_partition.h"
 #include "esp_system.h"
@@ -299,7 +302,7 @@ bool StartLittleFsStorageTask() {
     return true;
   }
   TaskHandle_t task = nullptr;
-  const BaseType_t result = xTaskCreate(LittleFsStorageTaskEntry,
+  const BaseType_t result = tasks::CreateInternal(LittleFsStorageTaskEntry,
       "littlefs_save", kLittleFsStorageTaskStackBytes, nullptr,
       kLittleFsStorageTaskPriority, &task);
   if (result != pdPASS || task == nullptr) {
@@ -322,8 +325,7 @@ void InitRadioChatCache() {
     return;
   }
 
-  auto preferences =
-      std::unique_ptr<RadioPreferences>(new (std::nothrow) RadioPreferences{});
+  auto preferences = memory::MakePsramObject<RadioPreferences>();
   if (preferences == nullptr || !GetRadioPreferences(preferences.get())) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Read Radio preferences for chat cache failed\n");

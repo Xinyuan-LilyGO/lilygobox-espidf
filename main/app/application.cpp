@@ -2,9 +2,10 @@
  * @Description: 系统应用初始化、任务调度与电源状态管理实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "app/application.h"
+
 #include "app/device_identity.h"
 
 #include <algorithm>
@@ -29,6 +30,7 @@
 #include "app/storage/storage.h"
 #include "app/wifi_manager.h"
 #include "base/logger.h"
+#include "base/task.h"
 #include "driver/uart.h"
 #include "esp_err.h"
 #include "esp_ota_ops.h"
@@ -793,7 +795,7 @@ bool Application::Init() {
   lvgl_port_.Unlock();
 
   if (device_provider_context_.wifi != nullptr) {
-    const BaseType_t task_result = xTaskCreate(StartupWifiAutoConnectTaskEntry,
+    const BaseType_t task_result = tasks::CreateInternal(StartupWifiAutoConnectTaskEntry,
         "wifi_auto", kStartupWifiAutoConnectTaskStackBytes, this,
         kStartupWifiAutoConnectTaskPriority, nullptr);
     if (task_result != pdPASS) {
@@ -819,7 +821,7 @@ bool Application::Init() {
   }
 
   const BaseType_t screen_lock_task_result =
-      xTaskCreate(ScreenLockTaskEntry, "screen_lock", kScreenLockTaskStackBytes,
+      tasks::CreateInternal(ScreenLockTaskEntry, "screen_lock", kScreenLockTaskStackBytes,
           this, kScreenLockTaskPriority, nullptr);
   if (screen_lock_task_result != pdPASS) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
@@ -829,7 +831,7 @@ bool Application::Init() {
   bool power_button_pressed = false;
   if (screen_lock_task_result == pdPASS &&
       device->ReadPowerButtonPressed(&power_button_pressed)) {
-    const BaseType_t power_button_task_result = xTaskCreate(
+    const BaseType_t power_button_task_result = tasks::CreateInternal(
         PowerButtonTaskEntry, "power_button", kPowerButtonTaskStackBytes, this,
         kPowerButtonTaskPriority, nullptr);
     if (power_button_task_result != pdPASS) {
@@ -843,7 +845,7 @@ bool Application::Init() {
   if (screen_lock_task_result == pdPASS &&
       device->ReadVolumeUpButtonPressed(&volume_up_pressed) &&
       device->ReadVolumeDownButtonPressed(&volume_down_pressed)) {
-    const BaseType_t volume_button_task_result = xTaskCreate(
+    const BaseType_t volume_button_task_result = tasks::CreateInternal(
         VolumeButtonTaskEntry, "volume_button", kVolumeButtonTaskStackBytes,
         this, kVolumeButtonTaskPriority, nullptr);
     if (volume_button_task_result != pdPASS) {

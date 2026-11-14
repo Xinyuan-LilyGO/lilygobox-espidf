@@ -2,7 +2,7 @@
  * @Description: 摄像头预览公共参数与生命周期辅助接口
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-12 18:06:44
  */
 #pragma once
 
@@ -35,16 +35,20 @@ uint32_t StartupElapsedMs(TickType_t start_tick);
 /**
  * @brief 判断摄像头启动流程是否已经达到总超时
  * @param start_tick 启动流程开始时的系统节拍
+ * @param timeout_ms 启动流程总时限，单位为毫秒
  * @return 达到总超时返回 true，否则返回 false
  */
-bool StartupTimedOut(TickType_t start_tick);
+bool StartupTimedOut(TickType_t start_tick,
+    uint32_t timeout_ms = kStartupTimeoutMs);
 
 /**
  * @brief 获取摄像头启动流程剩余时间
  * @param start_tick 启动流程开始时的系统节拍
+ * @param timeout_ms 启动流程总时限，单位为毫秒
  * @return 剩余时间，单位为毫秒
  */
-uint32_t StartupRemainingMs(TickType_t start_tick);
+uint32_t StartupRemainingMs(TickType_t start_tick,
+    uint32_t timeout_ms = kStartupTimeoutMs);
 
 /**
  * @brief 判断系统错误是否可能由摄像头瞬时硬件状态引起

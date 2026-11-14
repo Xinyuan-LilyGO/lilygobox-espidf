@@ -2,9 +2,11 @@
  * @Description: 应用层网络可用性监控实现
  * @Author: LILYGO_L
  * @Date: 2026-07-22 23:38:08
- * @LastEditTime: 2026-11-09 10:11:17
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "app/network_monitor.h"
+
+#include "base/task.h"
 
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -39,7 +41,7 @@ bool NetworkMonitor::Initialize(hal::WifiProvider* wifi) {
   if (!initialized_.compare_exchange_strong(expected, true)) {
     return true;
   }
-  const BaseType_t result = xTaskCreate(TaskEntry, "network_monitor",
+  const BaseType_t result = tasks::CreateInternal(TaskEntry, "network_monitor",
       kTaskStackBytes, this, kTaskPriority, nullptr);
   if (result != pdPASS) {
     initialized_.store(false);

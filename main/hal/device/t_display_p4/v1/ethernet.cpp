@@ -2,11 +2,12 @@
  * @Description: T-Display-P4 以太网硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include <cstdint>
 
 #include "base/logger.h"
+#include "base/task.h"
 #include "esp_err.h"
 #include "esp_eth.h"
 #include "esp_eth_mac.h"
@@ -65,8 +66,8 @@ bool TDisplayP4Device::SetEthernetEnabled(bool enabled) {
 
   ethernet_.start_failed.store(false);
   ethernet_.last_error.store(ESP_OK);
-  const BaseType_t result = xTaskCreate(EthernetInitTaskEntry, "ethernet",
-      kEthernetInitTaskStackBytes, this, kEthernetInitTaskPriority, nullptr);
+  const BaseType_t result = tasks::CreateDetached(EthernetInitTaskEntry, "ethernet",
+      kEthernetInitTaskStackBytes, this, kEthernetInitTaskPriority);
   if (result != pdPASS) {
     SetEthernetFailure(ESP_ERR_NO_MEM);
     driver_.SetEthernetPowerEnabled(false);
@@ -100,7 +101,6 @@ void TDisplayP4Device::EthernetInitTaskEntry(void* context) {
   if (self != nullptr) {
     self->RunEthernetInitTask();
   }
-  vTaskDelete(nullptr);
 }
 
 void TDisplayP4Device::RunEthernetInitTask() {

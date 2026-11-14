@@ -2,7 +2,7 @@
  * @Description: LVGL 显示刷新、触摸读取与任务循环实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "hal/lvgl_port.h"
 
@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "base/logger.h"
+#include "base/task.h"
 #include "draw/lv_draw_buf.h"
 #include "draw/sw/lv_draw_sw_utils.h"
 #include "esp_err.h"
@@ -202,7 +203,7 @@ bool LvglPort::PauseForSystemRestart() {
 }
 
 bool LvglPort::Start() {
-  const BaseType_t result = xTaskCreate(TaskEntry, "lvgl", kLvglTaskStackBytes,
+  const BaseType_t result = tasks::CreateInternal(TaskEntry, "lvgl", kLvglTaskStackBytes,
       this, kLvglTaskPriority, &task_handle_);
   return result == pdPASS;
 }
@@ -909,10 +910,6 @@ void* LvglPort::EnsureRotationBuffer(size_t size) {
   const size_t aligned_size = AlignUp(size, alignment);
   rotation_buffer_ = heap_caps_aligned_alloc(
       alignment, aligned_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (rotation_buffer_ == nullptr) {
-    rotation_buffer_ =
-        heap_caps_aligned_alloc(alignment, aligned_size, MALLOC_CAP_8BIT);
-  }
   if (rotation_buffer_ == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "LVGL rotation buffer allocation failed (%u bytes)\n",

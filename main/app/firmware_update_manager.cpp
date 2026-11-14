@@ -2,7 +2,7 @@
  * @Description: LilygoBox 主固件与无线固件组合 OTA 更新实现
  * @Author: LILYGO_L
  * @Date: 2026-07-20 00:00:00
- * @LastEditTime: 2026-11-10 11:10:57
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "app/firmware_update_manager.h"
 
@@ -25,6 +25,8 @@
 #include "app/release_channel.h"
 #include "app/storage/littlefs_storage.h"
 #include "base/logger.h"
+#include "base/task.h"
+#include "base/memory.h"
 #include "cJSON.h"
 #include "esp_app_desc.h"
 #include "esp_app_format.h"
@@ -276,9 +278,8 @@ struct FirmwareReleaseManifest {
  * @brief 在堆上创建固件发布清单
  * @return 创建成功时返回独占指针，内存不足时返回空指针
  */
-std::unique_ptr<FirmwareReleaseManifest> AllocateFirmwareReleaseManifest() {
-  return std::unique_ptr<FirmwareReleaseManifest>(
-      new (std::nothrow) FirmwareReleaseManifest());
+memory::Object<FirmwareReleaseManifest> AllocateFirmwareReleaseManifest() {
+  return memory::MakePsramObject<FirmwareReleaseManifest>();
 }
 
 struct ManifestDownloadContext {
@@ -1979,8 +1980,8 @@ bool LoadManifestFile(const char* path, FirmwareReleaseManifest* manifest) {
     return false;
   }
   std::rewind(file.get());
-  auto text = std::unique_ptr<char[]>(
-      new (std::nothrow) char[static_cast<size_t>(file_size) + 1]());
+  auto text = memory::MakeBuffer<char>(static_cast<size_t>(file_size) + 1, memory::Policy::kPsram,
+      memory::Module::kGeneral, true);
   if (text == nullptr ||
       std::fread(text.get(), 1, static_cast<size_t>(file_size), file.get()) !=
           static_cast<size_t>(file_size)) {
@@ -2190,8 +2191,8 @@ bool DownloadManifest(FirmwareReleaseManifest* manifest) {
   if (manifest == nullptr) {
     return false;
   }
-  auto buffer = std::unique_ptr<char[]>(
-      new (std::nothrow) char[kManifestMaximumSize + 1]());
+  auto buffer = memory::MakeBuffer<char>(kManifestMaximumSize + 1, memory::Policy::kPsram,
+      memory::Module::kGeneral, true);
   if (buffer == nullptr) {
     SetFailure("Insufficient memory for update information");
     return false;
@@ -2594,8 +2595,8 @@ bool VerifyFileIntegrity(FILE* file, size_t file_size, size_t expected_size,
       !IsSha256Text(expected_sha256) || std::fseek(file, 0, SEEK_SET) != 0) {
     return false;
   }
-  auto buffer = std::unique_ptr<uint8_t[]>(
-      new (std::nothrow) uint8_t[kHashReadChunkSize]());
+  auto buffer = memory::MakeBuffer<uint8_t>(kHashReadChunkSize, memory::Policy::kPsram,
+      memory::Module::kGeneral, true);
   if (buffer == nullptr) {
     return false;
   }
@@ -2639,8 +2640,8 @@ bool VerifyPartitionIntegrity(const esp_partition_t* partition,
       !IsSha256Text(expected_sha256)) {
     return false;
   }
-  auto buffer = std::unique_ptr<uint8_t[]>(
-      new (std::nothrow) uint8_t[kHashReadChunkSize]());
+  auto buffer = memory::MakeBuffer<uint8_t>(kHashReadChunkSize, memory::Policy::kPsram,
+      memory::Module::kGeneral, true);
   if (buffer == nullptr) {
     return false;
   }
@@ -3242,8 +3243,8 @@ WirelessUpdateResult UpdateWirelessFirmware(
     SetFailure("Cannot prepare Wireless firmware update");
     return WirelessUpdateResult::kFailed;
   }
-  auto chunk = std::unique_ptr<uint8_t[]>(
-      new (std::nothrow) uint8_t[kWirelessFirmwareChunkSize]());
+  auto chunk = memory::MakeBuffer<uint8_t>(kWirelessFirmwareChunkSize, memory::Policy::kPsram,
+      memory::Module::kGeneral, true);
   if (chunk == nullptr) {
     if (!keep_marker_on_failure) {
       ClearPendingUpdate();
@@ -4135,7 +4136,7 @@ void ResumeTask(void* context) {
  * @return 创建成功返回 true，否则返回 false
  */
 bool CreateWorker(TaskFunction_t task, const char* name) {
-  const BaseType_t result = xTaskCreate(
+  const BaseType_t result = tasks::CreateInternal(
       task, name, kWorkerTaskStackBytes, nullptr, kWorkerTaskPriority, nullptr);
   if (result == pdPASS) {
     return true;
@@ -4593,7 +4594,7 @@ bool FirmwareUpdateManager::CancelUpdate(bool local_only, const char* task_id) {
   }
   if (prepared) {
     // xTaskCreate 的任务栈位于内部 RAM，避免沿用 HTTPS 回调的 PSRAM 栈。
-    if (xTaskCreate(CancelTask, "ota_cancel", kCancelTaskStackBytes, nullptr,
+    if (tasks::CreateInternal(CancelTask, "ota_cancel", kCancelTaskStackBytes, nullptr,
             kWorkerTaskPriority, nullptr) == pdPASS) {
       return true;
     }

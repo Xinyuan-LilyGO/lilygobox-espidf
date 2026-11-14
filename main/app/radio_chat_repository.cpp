@@ -2,7 +2,7 @@
  * @Description: Radio 聊天热缓存、会话摘要与 LittleFS 日志仓库实现
  * @Author: LILYGO_L
  * @Date: 2026-07-17 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "app/radio_chat_repository.h"
 
@@ -452,7 +452,7 @@ bool RadioChatRepository::InitializeCache() {
     capacity_ = kRadioChatGlobalCapacity;
   } else {
     entries_ = static_cast<Entry*>(memory::AllocateZeroed(kFallbackGlobalCapacity,
-        sizeof(Entry), memory::Policy::kFastInternal, memory::Module::kRadio));
+        sizeof(Entry), memory::Policy::kPsram, memory::Module::kRadio));
     capacity_ = entries_ == nullptr ? 0 : kFallbackGlobalCapacity;
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Radio chat PSRAM allocation failed, capacity=%u\n",
@@ -460,7 +460,7 @@ bool RadioChatRepository::InitializeCache() {
   }
   profile_states_ =
       static_cast<ProfileState*>(memory::AllocateZeroed(kRadioProfileCapacity,
-          sizeof(ProfileState), memory::Policy::kFastInternal, memory::Module::kRadio));
+          sizeof(ProfileState), memory::Policy::kPsram, memory::Module::kRadio));
   if (entries_ == nullptr || profile_states_ == nullptr) {
     memory::Free(entries_, memory::Module::kRadio);
     memory::Free(profile_states_, memory::Module::kRadio);
@@ -931,8 +931,7 @@ bool RadioChatRepository::EnsureStorageDirectory() {
 
 bool RadioChatRepository::LoadLog(
     const uint32_t* profile_ids, size_t profile_count) {
-  auto buffer = std::unique_ptr<ChatLogReadBuffer>(
-      new (std::nothrow) ChatLogReadBuffer{});
+  auto buffer = memory::MakePsramObject<ChatLogReadBuffer>();
   if (buffer == nullptr || !BuildLogPath(buffer->path, sizeof(buffer->path))) {
     return false;
   }

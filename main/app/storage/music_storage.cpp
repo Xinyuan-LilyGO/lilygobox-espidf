@@ -2,7 +2,7 @@
  * @Description: 音乐源文件夹偏好存储实现
  * @Author: LILYGO_L
  * @Date: 2026-07-14 23:25:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "app/storage/music_storage.h"
 
@@ -15,6 +15,7 @@
 #include "app/storage/storage_internal.h"
 #include "app/storage/tlv_storage.h"
 #include "base/logger.h"
+#include "base/memory.h"
 #include "esp_err.h"
 #include "nvs.h"
 
@@ -128,8 +129,7 @@ void LogMusicStorageError(const char* operation, esp_err_t error) {
 }  // namespace
 
 void InitMusicCache() {
-  auto loaded = std::unique_ptr<MusicSourcePreferences>(
-      new (std::nothrow) MusicSourcePreferences());
+  auto loaded = memory::MakePsramObject<MusicSourcePreferences>();
   if (loaded == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Allocate music source initialization buffer failed\n");
@@ -178,8 +178,7 @@ bool GetMusicSourcePreferences(MusicSourcePreferences* preferences) {
 }
 
 bool UpdateMusicSourcePreferences(const MusicSourcePreferences& preferences) {
-  auto normalized = std::unique_ptr<MusicSourcePreferences>(
-      new (std::nothrow) MusicSourcePreferences(preferences));
+  auto normalized = memory::MakePsramObject<MusicSourcePreferences>(preferences);
   if (normalized == nullptr) {
     return false;
   }
@@ -192,8 +191,7 @@ StorageStageResult StageMusicStorage(nvs_handle_t handle) {
   if (!g_music_sources_cache.BeginFlush(&preferences)) {
     return StorageStageResult::kClean;
   }
-  auto buffer = std::unique_ptr<uint8_t[]>(
-      new (std::nothrow) uint8_t[kMusicSourcesTlvCapacity]);
+  auto buffer = memory::MakeBuffer<uint8_t>(kMusicSourcesTlvCapacity);
   if (buffer == nullptr) {
     return StorageStageResult::kFailed;
   }

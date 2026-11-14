@@ -2,7 +2,7 @@
  * @Description: T-Display-P4 V2 USB 以太网异步管理实现
  * @Author: LILYGO_L
  * @Date: 2026-09-22 17:25:57
- * @LastEditTime: 2026-11-09 10:11:19
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "hal/usb/ethernet/usb_ethernet_manager.h"
 
@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "base/logger.h"
+#include "base/task.h"
 #include "esp_event.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
@@ -495,7 +496,7 @@ bool UsbEthernetManager::SetEnabled(bool enabled) {
     state_->status.init_task_running = true;
   }
   state_->active.store(true);
-  if (xTaskCreate(EthernetTask, "usb_ethernet", 6144, state_.get(), 4,
+  if (tasks::CreateInternal(EthernetTask, "usb_ethernet", 6144, state_.get(), 4,
           nullptr) != pdPASS) {
     state_->active.store(false);
     state_->requested.store(false);

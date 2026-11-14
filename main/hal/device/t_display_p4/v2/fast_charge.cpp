@@ -4,6 +4,7 @@
 #include <memory>
 
 #include "base/logger.h"
+#include "base/task.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -114,7 +115,7 @@ bool Start() {
   xSemaphoreGive(service.mutex);
   xSemaphoreTake(service.stopped, 0);
   service.stop_requested.store(false);
-  if (xTaskCreate(Run, "p4_pd_sink", 6144, &service,
+  if (tasks::CreateInternal(Run, "p4_pd_sink", 6144, &service,
           tskIDLE_PRIORITY + 3, &service.task) != pdPASS) {
     service.task = nullptr;
     return false;

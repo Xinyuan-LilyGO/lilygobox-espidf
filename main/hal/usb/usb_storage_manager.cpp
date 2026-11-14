@@ -2,7 +2,7 @@
  * @Description: USB Host MSC 存储管理器
  * @Author: LILYGO_L
  * @Date: 2026-07-23 18:36:47
- * @LastEditTime: 2026-11-09 10:11:19
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "hal/usb/usb_storage_manager.h"
 
@@ -14,6 +14,7 @@
 #include <utility>
 
 #include "base/logger.h"
+#include "base/task.h"
 #include "esp_err.h"
 #include "esp_intr_alloc.h"
 #include "esp_vfs_fat.h"
@@ -407,7 +408,7 @@ bool UsbStorageManager::Start() {
   state_->start_failed.store(false);
   state_->start_requested.store(true);
   const BaseType_t result =
-      xTaskCreate(UsbStorageTaskEntry, "usb_storage", kUsbStorageTaskStackBytes,
+      tasks::CreateInternal(UsbStorageTaskEntry, "usb_storage", kUsbStorageTaskStackBytes,
           state_.get(), kUsbStorageTaskPriority, nullptr);
   if (result != pdPASS) {
     state_->start_requested.store(false);

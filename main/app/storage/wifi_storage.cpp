@@ -2,7 +2,7 @@
  * @Description: WLAN 偏好存储实现
  * @Author: LILYGO_L
  * @Date: 2026-06-23 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "app/storage/wifi_storage.h"
 
@@ -16,6 +16,7 @@
 #include "app/storage/storage_internal.h"
 #include "app/storage/tlv_storage.h"
 #include "base/logger.h"
+#include "base/memory.h"
 #include "esp_err.h"
 #include "nvs.h"
 
@@ -356,8 +357,7 @@ bool UpdateWifiSavedNetworks(const WifiSavedNetwork* networks, size_t count) {
   if (networks == nullptr && count > 0) {
     return false;
   }
-  auto normalized = std::unique_ptr<WifiSavedNetworks>(
-      new (std::nothrow) WifiSavedNetworks());
+  auto normalized = memory::MakePsramObject<WifiSavedNetworks>();
   if (normalized == nullptr) {
     return false;
   }
@@ -371,8 +371,7 @@ bool GetWifiSavedNetworks(
     return false;
   }
   *count = 0;
-  auto stored = std::unique_ptr<WifiSavedNetworks>(
-      new (std::nothrow) WifiSavedNetworks());
+  auto stored = memory::MakePsramObject<WifiSavedNetworks>();
   if (stored == nullptr || !g_wifi_saved_networks_cache.Read(stored.get())) {
     return false;
   }
@@ -388,8 +387,7 @@ void InitWifiCache() {
   WifiPreferences preferences;
   char legacy_auto_connect_ssid[hal::kWifiSsidMaxLength + 1] = {};
   bool auto_connect_migration_required = false;
-  auto saved_networks = std::unique_ptr<WifiSavedNetworks>(
-      new (std::nothrow) WifiSavedNetworks());
+  auto saved_networks = memory::MakePsramObject<WifiSavedNetworks>();
   if (saved_networks == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Allocate WLAN saved network initialization buffer failed\n");
@@ -522,8 +520,7 @@ StorageStageResult StageWifiSavedNetworksStorage(nvs_handle_t handle) {
   if (!g_wifi_saved_networks_cache.BeginFlush(&networks)) {
     return StorageStageResult::kClean;
   }
-  auto buffer = std::unique_ptr<uint8_t[]>(
-      new (std::nothrow) uint8_t[kWifiSavedNetworksTlvCapacity]);
+  auto buffer = memory::MakeBuffer<uint8_t>(kWifiSavedNetworksTlvCapacity);
   if (buffer == nullptr) {
     return StorageStageResult::kFailed;
   }

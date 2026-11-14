@@ -2,7 +2,7 @@
  * @Description: T-Display-P4 V2 ES8389 音频硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 13:40:29
  */
 #include <unistd.h>
 
@@ -15,6 +15,7 @@
 
 #include "audio/new_notification_010_c2_b16_s44100.h"
 #include "base/logger.h"
+#include "base/task.h"
 #include "esp_codec_dev.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -153,7 +154,7 @@ bool TDisplayP4Device::StartSpeakerTone() {
   speaker_.paused.store(false);
   speaker_.playback_kind.store(SpeakerState::PlaybackKind::kTone);
 
-  const BaseType_t result = xTaskCreate(SpeakerPlaybackTaskEntry,
+  const BaseType_t result = tasks::CreateInternal(SpeakerPlaybackTaskEntry,
       "speaker_play", kSpeakerPlaybackTaskStackBytes, this,
       kSpeakerPlaybackTaskPriority, nullptr);
   if (result != pdPASS) {
@@ -198,7 +199,7 @@ bool TDisplayP4Device::StartSpeakerToneLoop() {
   speaker_.paused.store(false);
   speaker_.playback_kind.store(SpeakerState::PlaybackKind::kToneLoop);
 
-  const BaseType_t result = xTaskCreate(SpeakerPlaybackTaskEntry,
+  const BaseType_t result = tasks::CreateInternal(SpeakerPlaybackTaskEntry,
       "speaker_loop", kSpeakerPlaybackTaskStackBytes, this,
       kSpeakerPlaybackTaskPriority, nullptr);
   if (result != pdPASS) {
@@ -313,9 +314,8 @@ bool TDisplayP4Device::StartAudioFile(const char* path, uint32_t duration_ms) {
   speaker_.file_state.store(AudioFilePlaybackState::kPlaying);
   speaker_.playback_kind.store(SpeakerState::PlaybackKind::kAudioFile);
 
-  const BaseType_t result = xTaskCreate(SpeakerPlaybackTaskEntry, "audio_file",
-      kAudioFilePlaybackTaskStackBytes, this, kSpeakerPlaybackTaskPriority,
-      nullptr);
+  const BaseType_t result = tasks::CreateInternal(SpeakerPlaybackTaskEntry, "audio_file",
+      kAudioFilePlaybackTaskStackBytes, this, kSpeakerPlaybackTaskPriority, nullptr);
   if (result != pdPASS) {
     speaker_.running.store(false);
     speaker_.file_state.store(AudioFilePlaybackState::kError);
@@ -462,7 +462,7 @@ bool TDisplayP4Device::StartPausedAudioSpeakerTone(bool loop_enabled) {
   speaker_.bytes_written.store(0);
   speaker_.total_bytes.store(sizeof(c2_b16_s44100));
 
-  const BaseType_t result = xTaskCreate(PausedAudioSpeakerToneTaskEntry,
+  const BaseType_t result = tasks::CreateInternal(PausedAudioSpeakerToneTaskEntry,
       "speaker_overlay", kSpeakerPlaybackTaskStackBytes, this,
       kSpeakerPlaybackTaskPriority, nullptr);
   if (result != pdPASS) {
@@ -695,7 +695,7 @@ bool TDisplayP4Device::StartMicrophone() {
     return false;
   }
 
-  const BaseType_t result = xTaskCreate(MicrophoneCaptureTaskEntry,
+  const BaseType_t result = tasks::CreateInternal(MicrophoneCaptureTaskEntry,
       "mic_capture", kMicrophoneCaptureTaskStackBytes, this,
       kMicrophoneCaptureTaskPriority, nullptr);
   if (result != pdPASS) {

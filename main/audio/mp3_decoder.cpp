@@ -2,7 +2,7 @@
  * @Description: MP3 流式解码与 PCM 输出实现
  * @Author: LILYGO_L
  * @Date: 2026-07-14 22:50:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 14:11:10
  */
 #include "audio/mp3_decoder.h"
 
@@ -16,8 +16,11 @@
 
 #include "audio/mp3_metadata.h"
 #include "base/logger.h"
+#include "base/memory.h"
+#include "base/task.h"
 #include "esp_audio_dec.h"
 #include "esp_audio_dec_default.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/ringbuf.h"
 #include "freertos/semphr.h"
@@ -37,7 +40,9 @@ constexpr uint8_t kPcmBitsPerSample = 16;
  */
 class BufferedPcmOutput {
  public:
-  explicit BufferedPcmOutput(PcmOutput* output) : output_(output) {}
+  BufferedPcmOutput(PcmOutput* output, const void* read_buffer,
+      const void* pcm_buffer)
+      : output_(output), read_buffer_(read_buffer), pcm_buffer_(pcm_buffer) {}
 
   ~BufferedPcmOutput() {
     if (buffer_ != nullptr) vRingbufferDelete(buffer_);
@@ -45,13 +50,15 @@ class BufferedPcmOutput {
   }
 
   bool Start() {
+    // 沿用播放正常版本的 SDK 分配顺序，控制结构与数据区由队列分别管理。
     send_buffer_.reset(new (std::nothrow) uint8_t[4096 + 8]);
     buffer_ = xRingbufferCreate(64 * 1024, RINGBUF_TYPE_NOSPLIT);
     finished_ = xSemaphoreCreateBinary();
     if (send_buffer_ == nullptr || buffer_ == nullptr || finished_ == nullptr) {
       return false;
     }
-    return xTaskCreate(TaskEntry, "mp3_output", 4096, this, 6, nullptr) == pdPASS;
+    return tasks::CreateInternal(
+        TaskEntry, "mp3_output", 4096, this, 6, nullptr) == pdPASS;
   }
 
   bool Ready() const { return !stopped_.load() && !failed_.load(); }
@@ -64,6 +71,14 @@ class BufferedPcmOutput {
     output_->UpdateProgress(position_ms);
   }
 
+  void RecordRead(int64_t elapsed_us) {
+    read_max_us_ = std::max(read_max_us_, elapsed_us);
+  }
+
+  void RecordDecode(int64_t elapsed_us) {
+    decode_max_us_ = std::max(decode_max_us_, elapsed_us);
+  }
+
   bool Write(const uint8_t* data, size_t size, uint32_t position_ms) {
     // 每块最多 4 KB，限制暂停或定位时已经交给输出任务的旧数据量。
     const uint32_t generation = generation_.load();
@@ -72,13 +87,21 @@ class BufferedPcmOutput {
     while (size > 0) {
       const size_t bytes = std::min<size_t>(size, 4096);
       std::memcpy(send_buffer_.get() + 8, data, bytes);
+      const int64_t queue_start_us = esp_timer_get_time();
       while (!xRingbufferSend(buffer_, send_buffer_.get(), bytes + 8,
           pdMS_TO_TICKS(10))) {
         if (!Ready()) return false;
       }
+      queue_max_us_ = std::max(
+          queue_max_us_, esp_timer_get_time() - queue_start_us);
       if (!Ready()) return false;
       data += bytes;
       size -= bytes;
+    }
+    // 优先补足预缓冲再输出日志；持续缺数据时也要保留诊断信息。
+    if (xRingbufferGetCurFreeSize(buffer_) <= 48 * 1024 ||
+        queue_timeouts_.load(std::memory_order_relaxed) >= 100) {
+      ReportTiming();
     }
     return true;
   }
@@ -105,6 +128,10 @@ class BufferedPcmOutput {
   }
 
   void Run() {
+    uint8_t stack_marker = 0;
+    output_stack_.store(&stack_marker, std::memory_order_relaxed);
+    int64_t last_write_end_us = 0;
+    uint32_t last_generation = generation_.load();
     // 启动前先积累约 16 KB PCM；短文件结束时立即开始消费。
     while (!producer_finished_.load() &&
            xRingbufferGetCurFreeSize(buffer_) > 48 * 1024) {
@@ -115,15 +142,24 @@ class BufferedPcmOutput {
       vTaskDelay(pdMS_TO_TICKS(5));
     }
     while (!discard_.load()) {
+      const int64_t ready_start_us = esp_timer_get_time();
       if (!output_->WaitUntilReady()) {
         stopped_.store(true);
         break;
       }
+      // 用户暂停和主动定位后的等待不计为调度停顿。
+      const uint32_t current_generation = generation_.load();
+      if (esp_timer_get_time() - ready_start_us > 10000 ||
+          current_generation != last_generation) {
+        last_write_end_us = 0;
+      }
+      last_generation = current_generation;
       size_t size = 0;
       auto* packet = static_cast<uint8_t*>(
           xRingbufferReceive(buffer_, &size, pdMS_TO_TICKS(10)));
       if (packet == nullptr) {
         if (producer_finished_.load()) break;
+        queue_timeouts_.fetch_add(1, std::memory_order_relaxed);
       } else {
         uint32_t generation = 0;
         uint32_t position_ms = 0;
@@ -131,7 +167,15 @@ class BufferedPcmOutput {
         std::memcpy(&position_ms, packet + 4, 4);
         bool write_ok = true;
         if (generation == generation_.load() && !discard_.load()) {
+          const int64_t write_start_us = esp_timer_get_time();
+          if (last_write_end_us != 0 &&
+              write_start_us - last_write_end_us > 40000) {
+            output_gaps_.fetch_add(1, std::memory_order_relaxed);
+            RecordPeak(gap_max_us_, write_start_us - last_write_end_us);
+          }
           write_ok = output_->Write(packet + 8, size - 8);
+          last_write_end_us = esp_timer_get_time();
+          RecordPeak(write_max_us_, last_write_end_us - write_start_us);
           if (write_ok && generation == generation_.load()) {
             output_->UpdateProgress(position_ms);
           }
@@ -146,7 +190,53 @@ class BufferedPcmOutput {
     }
   }
 
+  // 输出任务只累计原子计数；读卡、解码、发送耗时和日志均由生产任务处理。
+  static void RecordPeak(std::atomic<uint32_t>& peak, int64_t elapsed_us) {
+    const uint32_t value = static_cast<uint32_t>(
+        std::min<int64_t>(elapsed_us, UINT32_MAX));
+    // 每个峰值只有输出任务写入，生产任务仅交换清零。
+    uint32_t previous = peak.load(std::memory_order_relaxed);
+    while (previous < value && !peak.compare_exchange_weak(
+        previous, value, std::memory_order_relaxed)) {}
+  }
+
+  void ReportTiming() {
+    if (queue_timeouts_.load(std::memory_order_relaxed) == 0 &&
+        output_gaps_.load(std::memory_order_relaxed) == 0) return;
+    const int64_t now_us = esp_timer_get_time();
+    if (now_us < next_report_us_) return;
+    next_report_us_ = now_us + 5000000;
+    const uint32_t timeouts = queue_timeouts_.exchange(0);
+    const uint32_t gaps = output_gaps_.exchange(0);
+    const uint32_t write_us = write_max_us_.exchange(0);
+    const uint32_t gap_us = gap_max_us_.exchange(0);
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "MP3 timing: queue_timeouts=%u output_gaps=%u "
+        "max_us(read/decode/queue/write/gap)=%llu/%llu/%llu/%u/%u "
+        "buffers(read/pcm/send/ring)=%p/%p/%p/%p stacks(producer/output)=%p/%p\n",
+        static_cast<unsigned int>(timeouts), static_cast<unsigned int>(gaps),
+        static_cast<unsigned long long>(read_max_us_),
+        static_cast<unsigned long long>(decode_max_us_),
+        static_cast<unsigned long long>(queue_max_us_),
+        static_cast<unsigned int>(write_us), static_cast<unsigned int>(gap_us),
+        read_buffer_, pcm_buffer_, send_buffer_.get(), buffer_,
+        static_cast<const void*>(this),
+        output_stack_.load(std::memory_order_relaxed));
+    read_max_us_ = decode_max_us_ = queue_max_us_ = 0;
+  }
+
   PcmOutput* output_;
+  const void* read_buffer_;
+  const void* pcm_buffer_;
+  int64_t read_max_us_ = 0;
+  int64_t decode_max_us_ = 0;
+  int64_t queue_max_us_ = 0;
+  int64_t next_report_us_ = 0;
+  std::atomic<const void*> output_stack_{nullptr};
+  std::atomic<uint32_t> queue_timeouts_{0};
+  std::atomic<uint32_t> output_gaps_{0};
+  std::atomic<uint32_t> write_max_us_{0};
+  std::atomic<uint32_t> gap_max_us_{0};
   RingbufHandle_t buffer_ = nullptr;
   SemaphoreHandle_t finished_ = nullptr;
   std::unique_ptr<uint8_t[]> send_buffer_;
@@ -261,7 +351,11 @@ bool FindSeekFrame(FILE* file, size_t file_size, size_t audio_offset,
   }
 
   const size_t search_size = search_end - clamped_search_start;
-  auto search_buffer = std::make_unique<uint8_t[]>(search_size);
+  auto search_buffer = memory::MakeBuffer<uint8_t>(search_size);
+  if (search_buffer == nullptr) {
+    if (original_offset >= 0) fseek(file, original_offset, SEEK_SET);
+    return false;
+  }
   const size_t bytes_read = fread(search_buffer.get(), 1, search_size, file);
   bool found_before_estimate = false;
   size_t frame_before_estimate = 0;
@@ -444,7 +538,6 @@ Mp3PlaybackResult PlayMp3File(const char* path, PcmOutput* output) {
         "Unable to read MP3 stream metadata: %s\n", path);
     return Mp3PlaybackResult::kInvalidStream;
   }
-  LogMp3Input(path, metadata);
   if (!output->Configure(
           metadata.sample_rate_hz, metadata.channel_count, kPcmBitsPerSample)) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
@@ -491,12 +584,24 @@ Mp3PlaybackResult PlayMp3File(const char* path, PcmOutput* output) {
     return Mp3PlaybackResult::kDecoderFailed;
   }
 
-  auto read_buffer = std::make_unique<uint8_t[]>(kReadBufferSize);
-  auto pcm_buffer = std::make_unique<uint8_t[]>(kPcmBufferSize);
-  auto stereo_buffer = metadata.channel_count == 1
-                           ? std::make_unique<int16_t[]>(kPcmBufferSize)
-                           : nullptr;
-  BufferedPcmOutput buffered_output(output);
+  // 实时缓冲恢复原 SDK 默认分配策略；保留不抛异常的失败检查。
+  std::unique_ptr<uint8_t[]> read_buffer(
+      new (std::nothrow) uint8_t[kReadBufferSize]);
+  std::unique_ptr<uint8_t[]> pcm_buffer(
+      new (std::nothrow) uint8_t[kPcmBufferSize]);
+  std::unique_ptr<int16_t[]> stereo_buffer(metadata.channel_count == 1
+      ? new (std::nothrow) int16_t[kPcmBufferSize] : nullptr);
+  if (read_buffer == nullptr || pcm_buffer == nullptr ||
+      (metadata.channel_count == 1 && stereo_buffer == nullptr)) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "MP3 playback buffers unavailable\n");
+    esp_audio_dec_close(decoder);
+    esp_audio_dec_unregister_default();
+    fclose(file);
+    return Mp3PlaybackResult::kDecoderFailed;
+  }
+  BufferedPcmOutput buffered_output(
+      output, read_buffer.get(), pcm_buffer.get());
   if (!buffered_output.Start()) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Unable to start buffered MP3 output\n");
@@ -510,6 +615,8 @@ Mp3PlaybackResult PlayMp3File(const char* path, PcmOutput* output) {
   uint64_t position_pcm_bytes = 0;
   uint32_t base_position_ms = 0;
   Mp3PlaybackResult playback_result = Mp3PlaybackResult::kCompleted;
+  // 文件和播放资源都准备完成后才输出输入信息，避免启动失败时反复打印。
+  LogMp3Input(path, metadata);
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__, "MP3 playback started\n");
 
   while (true) {
@@ -518,8 +625,10 @@ Mp3PlaybackResult PlayMp3File(const char* path, PcmOutput* output) {
           ? Mp3PlaybackResult::kOutputFailed : Mp3PlaybackResult::kStopped;
       break;
     }
+    const int64_t read_start_us = esp_timer_get_time();
     const size_t read_bytes = fread(read_buffer.get() + remaining_bytes, 1,
         kReadBufferSize - remaining_bytes, file);
+    buffered_output.RecordRead(esp_timer_get_time() - read_start_us);
     const size_t total_bytes = remaining_bytes + read_bytes;
     if (total_bytes == 0) {
       break;
@@ -564,8 +673,10 @@ Mp3PlaybackResult PlayMp3File(const char* path, PcmOutput* output) {
           .needed_size = 0,
           .decoded_size = 0,
       };
+      const int64_t decode_start_us = esp_timer_get_time();
       const esp_audio_err_t result =
           esp_audio_dec_process(decoder, &input, &output_frame);
+      buffered_output.RecordDecode(esp_timer_get_time() - decode_start_us);
       if (result != ESP_AUDIO_ERR_OK) {
         if (result == ESP_AUDIO_ERR_FAIL) {
           LogMessage(LogLevel::kError, __FILE__, __LINE__,

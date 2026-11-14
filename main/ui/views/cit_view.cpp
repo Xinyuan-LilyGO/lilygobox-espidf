@@ -2,7 +2,7 @@
  * @Description: 整机测试列表、测试流程与结果交互页面实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "ui/views/cit_view.h"
 
@@ -29,6 +29,7 @@
 #include "app/system_status_cache.h"
 #include "app/wifi_manager.h"
 #include "base/logger.h"
+#include "base/task.h"
 #include "esp_err.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -439,7 +440,6 @@ bool WaitForPredecessor(const std::shared_ptr<ImuSession>& session) {
 void ImuSessionTaskEntry(void* context) {
   auto* shared_session = static_cast<std::shared_ptr<ImuSession>*>(context);
   if (shared_session == nullptr) {
-    vTaskDelete(nullptr);
     return;
   }
 
@@ -455,7 +455,6 @@ void ImuSessionTaskEntry(void* context) {
       }
     }
     session.reset();
-    vTaskDelete(nullptr);
     return;
   }
 
@@ -506,7 +505,6 @@ void ImuSessionTaskEntry(void* context) {
   session->completed.store(true, std::memory_order_release);
   xEventGroupSetBits(session->events, kImuCompletedBit);
   session.reset();
-  vTaskDelete(nullptr);
 }
 
 /**
@@ -532,8 +530,8 @@ std::shared_ptr<ImuSession> StartImuSession(hal::ImuProvider* provider,
   auto* task_context = new (std::nothrow) std::shared_ptr<ImuSession>(session);
   if (session->sample_queue != nullptr && session->events != nullptr &&
       task_context != nullptr &&
-      xTaskCreate(ImuSessionTaskEntry, "cit_imu", kImuWorkerTaskStackBytes,
-          task_context, kImuWorkerTaskPriority, nullptr) == pdPASS) {
+      tasks::CreateDetached(ImuSessionTaskEntry, "cit_imu", kImuWorkerTaskStackBytes,
+          task_context, kImuWorkerTaskPriority) == pdPASS) {
     return session;
   }
 
@@ -565,7 +563,6 @@ bool WaitForGpsPredecessor(const std::shared_ptr<GpsSession>& session) {
 void GpsSessionTaskEntry(void* context) {
   auto* shared_session = static_cast<std::shared_ptr<GpsSession>*>(context);
   if (shared_session == nullptr) {
-    vTaskDelete(nullptr);
     return;
   }
 
@@ -581,7 +578,6 @@ void GpsSessionTaskEntry(void* context) {
       }
     }
     session.reset();
-    vTaskDelete(nullptr);
     return;
   }
 
@@ -613,7 +609,6 @@ void GpsSessionTaskEntry(void* context) {
   session->completed.store(true, std::memory_order_release);
   xEventGroupSetBits(session->events, kGpsCompletedBit);
   session.reset();
-  vTaskDelete(nullptr);
 }
 
 /**
@@ -639,8 +634,8 @@ std::shared_ptr<GpsSession> StartGpsSession(hal::GpsProvider* provider,
   auto* task_context = new (std::nothrow) std::shared_ptr<GpsSession>(session);
   if (session->sample_queue != nullptr && session->events != nullptr &&
       task_context != nullptr &&
-      xTaskCreate(GpsSessionTaskEntry, "cit_gps", kGpsWorkerTaskStackBytes,
-          task_context, kGpsWorkerTaskPriority, nullptr) == pdPASS) {
+      tasks::CreateDetached(GpsSessionTaskEntry, "cit_gps", kGpsWorkerTaskStackBytes,
+          task_context, kGpsWorkerTaskPriority) == pdPASS) {
     return session;
   }
 

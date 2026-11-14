@@ -2,7 +2,7 @@
  * @Description: 提供持续局域网发现、首次授权、可信重连和跨线程安全的连接状态。
  * @Author: LILYGO_L
  * @Date: 2026-10-04 19:00:00
- * @LastEditTime: 2026-11-10 11:10:57
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "app/app_connection.h"
 
@@ -18,6 +18,7 @@
 #include "app/storage/connection_storage.h"
 #include "app/storage/display_storage.h"
 #include "base/logger.h"
+#include "base/task.h"
 #include "cJSON.h"
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
@@ -1224,7 +1225,7 @@ bool InitializeAppConnection(hal::WifiProvider* wifi,
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
       "Device=%s auto-connect=%d paired=%d\n", g_status.device_id,
       g_preferences.enabled, g_preferences.count != 0);
-  g_initialized = xTaskCreate(ConnectionTask, "app_connection", 10240, nullptr,
+  g_initialized = tasks::CreateInternal(ConnectionTask, "app_connection", 10240, nullptr,
                       3, nullptr) == pdPASS;
   return g_initialized;
 }

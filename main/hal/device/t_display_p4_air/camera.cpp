@@ -2,9 +2,10 @@
  * @Description: T-Display-P4-Air 摄像头预览硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include <fcntl.h>
+
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -18,6 +19,7 @@
 #include "app/diagnostics/camera_error.h"
 #include "app/storage/display_storage.h"
 #include "base/logger.h"
+#include "base/task.h"
 #include "driver/i2c_master.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
@@ -82,7 +84,7 @@ bool TDisplayP4AirDevice::StartCameraPreview() {
   camera_preview_.startup_in_progress.store(false);
   camera_preview_.stop_requested.store(false);
   camera_preview_.task_active.store(true);
-  const BaseType_t result = xTaskCreate(CameraPreviewTaskEntry,
+  const BaseType_t result = tasks::CreateInternal(CameraPreviewTaskEntry,
       "camera_preview", kCameraPreviewTaskStackBytes, this,
       kCameraPreviewTaskPriority, nullptr);
   if (result != pdPASS) {

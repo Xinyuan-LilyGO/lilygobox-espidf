@@ -2,9 +2,10 @@
  * @Description: T-Display-P4-Air WiFi 协处理器实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include <algorithm>
+
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
@@ -13,6 +14,7 @@
 #include <new>
 
 #include "base/logger.h"
+#include "base/task.h"
 #include "base/memory.h"
 #include "esp_err.h"
 #include "esp_event.h"
@@ -207,7 +209,7 @@ bool TDisplayP4AirDevice::SetWifiEnabled(bool enabled) {
 
   wifi_.start_failed.store(false);
   wifi_.last_error.store(ESP_OK);
-  const BaseType_t result = xTaskCreate(WifiInitTaskEntry, "wifi_init",
+  const BaseType_t result = tasks::CreateInternal(WifiInitTaskEntry, "wifi_init",
       kWifiInitTaskStackBytes, this, kWifiInitTaskPriority, nullptr);
   if (result != pdPASS) {
     wifi_.init_task_running.store(false);
@@ -241,7 +243,7 @@ bool TDisplayP4AirDevice::StartWifiScan() {
   wifi_.scan_failed.store(false);
   wifi_.last_error.store(ESP_OK);
   wifi_.scan_running.store(true);
-  const BaseType_t result = xTaskCreate(WifiScanTaskEntry, "wifi_scan",
+  const BaseType_t result = tasks::CreateInternal(WifiScanTaskEntry, "wifi_scan",
       kWifiScanTaskStackBytes, this, kWifiScanTaskPriority, nullptr);
   if (result != pdPASS) {
     wifi_.scan_task_running.store(false);
@@ -299,7 +301,7 @@ bool TDisplayP4AirDevice::ConnectWifi(const char* ssid, const char* password) {
   std::snprintf(wifi_.connect_password, sizeof(wifi_.connect_password), "%s",
       password == nullptr ? "" : password);
   wifi_.connect_cancel_requested.store(false);
-  const BaseType_t result = xTaskCreate(WifiConnectTaskEntry, "wifi_connect",
+  const BaseType_t result = tasks::CreateInternal(WifiConnectTaskEntry, "wifi_connect",
       kWifiConnectTaskStackBytes, this, kWifiConnectTaskPriority, nullptr);
   if (result != pdPASS) {
     wifi_.connect_task_running.store(false);

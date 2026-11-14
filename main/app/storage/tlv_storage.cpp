@@ -2,7 +2,7 @@
  * @Description: NVS 长期配置 TLV 编解码公共实现
  * @Author: LILYGO_L
  * @Date: 2026-07-22 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "app/storage/tlv_storage.h"
 
@@ -292,7 +292,7 @@ TlvLoadResult LoadTlvBuffer(nvs_handle_t handle, const char* key,
     return TlvLoadResult::kInvalid;
   }
 
-  auto data = std::unique_ptr<uint8_t[]>(new (std::nothrow) uint8_t[size]);
+  auto data = memory::MakeBuffer<uint8_t>(size);
   if (data == nullptr) {
     if (nvs_error != nullptr) {
       *nvs_error = ESP_ERR_NO_MEM;

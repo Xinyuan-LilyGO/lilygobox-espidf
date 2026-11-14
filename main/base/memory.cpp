@@ -2,11 +2,12 @@
  * @Description: 统一内存分配策略、轻量模块计数和按需堆信息采集。
  * @Author: LILYGO_L
  * @Date: 2026-10-07 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 13:43:08
  */
 #include "base/memory.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <cstring>
 #include <limits>
@@ -32,6 +33,9 @@ static_assert(sizeof(kModuleNames) / sizeof(kModuleNames[0]) == kModuleCount);
 
 portMUX_TYPE g_stats_lock = portMUX_INITIALIZER_UNLOCKED;
 std::array<ModuleStats, kModuleCount> g_stats{};
+struct ReclaimEntry { Reclaimer callback = nullptr; void* context = nullptr; };
+std::array<ReclaimEntry, 8> g_reclaimers{};
+std::atomic_flag g_reclaiming = ATOMIC_FLAG_INIT;
 
 struct Capabilities {
   uint32_t first;
@@ -53,6 +57,10 @@ Capabilities SelectCapabilities(size_t size, Policy policy) {
     case Policy::kInternalDma:
       return {kDmaCaps, 0};
     case Policy::kBalanced: {
+      // 普通大块不能在 PSRAM 紧张时退回内部堆，保留连续 DMA/任务内存。
+      if (size > std::min<size_t>(4096, CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL)) {
+        return {kPsramCaps, 0};
+      }
       // 小型 UI 对象也不能耗尽内部堆：TLS AES 描述符和 SDIO 接收
       // 必须使用内部 DMA 内存。余量不足时只使用 PSRAM，不回退内部堆。
       constexpr size_t kInternalHeadroom =
@@ -62,9 +70,7 @@ Capabilities SelectCapabilities(size_t size, Policy policy) {
           size > free_internal - kInternalHeadroom) {
         return {kPsramCaps, 0};
       }
-      return size <= CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL
-                 ? Capabilities{kFastCaps, kPsramCaps}
-                 : Capabilities{kPsramCaps, kFastCaps};
+      return {kFastCaps, kPsramCaps};
     }
   }
   // 未知策略拒绝分配，不悄悄退回系统默认 malloc。
@@ -122,9 +128,13 @@ void RecordFailure(Module module, size_t size, Policy policy) {
   if ((count & (count - 1)) == 0) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
                "Memory allocation failed: module=%s bytes=%zu policy=%u "
-               "failures=%lu\n",
+               "failures=%lu internal free/largest=%zu/%zu PSRAM free/largest=%zu/%zu\n",
                kModuleNames[index], size, static_cast<unsigned>(policy),
-               static_cast<unsigned long>(count));
+               static_cast<unsigned long>(count),
+               heap_caps_get_free_size(kFastCaps),
+               heap_caps_get_largest_free_block(kFastCaps),
+               heap_caps_get_free_size(kPsramCaps),
+               heap_caps_get_largest_free_block(kPsramCaps));
   }
 }
 
@@ -155,6 +165,42 @@ void LogHeap(const char* name, const HeapStats& stats) {
 
 }  // namespace
 
+bool RegisterReclaimer(Reclaimer reclaimer, void* context) {
+  if (reclaimer == nullptr) return false;
+  bool registered = false;
+  portENTER_CRITICAL(&g_stats_lock);
+  for (auto& entry : g_reclaimers) {
+    if (entry.callback == reclaimer && entry.context == context) {
+      registered = true;
+      break;
+    }
+    if (entry.callback == nullptr) {
+      entry = {reclaimer, context};
+      registered = true;
+      break;
+    }
+  }
+  portEXIT_CRITICAL(&g_stats_lock);
+  return registered;
+}
+
+bool TryReclaim() {
+  if (g_reclaiming.test_and_set(std::memory_order_acquire)) return false;
+  std::array<ReclaimEntry, 8> entries;
+  portENTER_CRITICAL(&g_stats_lock);
+  entries = g_reclaimers;
+  portEXIT_CRITICAL(&g_stats_lock);
+  bool reclaimed = false;
+  // 不持有统计锁执行回调，允许回收器通过 Free 扣除统计。
+  for (const auto& entry : entries) {
+    if (entry.callback != nullptr) {
+      reclaimed = entry.callback(entry.context) || reclaimed;
+    }
+  }
+  g_reclaiming.clear(std::memory_order_release);
+  return reclaimed;
+}
+
 void* Allocate(size_t size, Policy policy, Module module) {
   ModuleIndex(module);
   if (size == 0) return nullptr;
@@ -164,6 +210,12 @@ void* Allocate(size_t size, Policy policy, Module module) {
     pointer = heap_caps_malloc_prefer(size, 2, caps.first, caps.fallback);
   } else if (caps.first != 0) {
     pointer = heap_caps_malloc(size, caps.first);
+  }
+  if (pointer == nullptr && caps.first != 0 && TryReclaim()) {
+    // 回收后重新按原能力申请一次，不改变区域约束，也不无限重试。
+    pointer = caps.fallback != 0
+        ? heap_caps_malloc_prefer(size, 2, caps.first, caps.fallback)
+        : heap_caps_malloc(size, caps.first);
   }
   if (pointer == nullptr) {
     RecordFailure(module, size, policy);
@@ -200,6 +252,11 @@ void* Reallocate(void* pointer, size_t size, Policy policy, Module module) {
         heap_caps_realloc_prefer(pointer, size, 2, caps.first, caps.fallback);
   } else if (caps.first != 0) {
     resized = heap_caps_realloc(pointer, size, caps.first);
+  }
+  if (resized == nullptr && caps.first != 0 && TryReclaim()) {
+    resized = caps.fallback != 0
+        ? heap_caps_realloc_prefer(pointer, size, 2, caps.first, caps.fallback)
+        : heap_caps_realloc(pointer, size, caps.first);
   }
   if (resized == nullptr) {
     RecordFailure(module, size, policy);

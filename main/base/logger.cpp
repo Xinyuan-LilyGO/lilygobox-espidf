@@ -2,7 +2,7 @@
  * @Description: 应用日志等级过滤与格式化输出实现
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "base/logger.h"
 
@@ -10,6 +10,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <memory>
+#include <new>
 
 #include "sdkconfig.h"
 
@@ -85,7 +86,15 @@ void LogMessage(LogLevel level, const char* file_name, size_t line_number,
 
   va_list args;
   va_start(args, format);
-  auto buffer = std::make_unique<char[]>(kMaxLogBufferSize);
+  std::unique_ptr<char[]> buffer(new (std::nothrow) char[kMaxLogBufferSize]);
+  if (buffer == nullptr) {
+    // 内存不足时仍输出原始错误，避免诊断日志自身触发分配异常。
+    printf("[lilygo_box log][%s]->[%s][%u line]: ", LogLevelName(level),
+        file_name, static_cast<unsigned int>(line_number));
+    vprintf(format, args);
+    va_end(args);
+    return;
+  }
   snprintf(buffer.get(), kMaxLogBufferSize,
       "[lilygo_box log][%s]->[%s][%u line]: %s", LogLevelName(level), file_name,
       static_cast<unsigned int>(line_number), format);

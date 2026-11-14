@@ -2,7 +2,7 @@
  * @Description: NVS 长期配置 TLV 编解码公共接口
  * @Author: LILYGO_L
  * @Date: 2026-07-22 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #pragma once
 
@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <memory>
 
+#include "base/memory.h"
 #include "esp_err.h"
 #include "nvs.h"
 
@@ -52,7 +53,7 @@ enum class TlvLoadResult : uint8_t {
 
 // 从 NVS 读取 TLV 时使用的临时拥有型缓冲区。
 struct TlvBuffer {
-  std::unique_ptr<uint8_t[]> data;
+  memory::Buffer<uint8_t> data;
   size_t size = 0;
 };
 

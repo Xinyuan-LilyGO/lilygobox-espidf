@@ -2,7 +2,7 @@
  * @Description: T-Display-P4 GNSS 硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 12:24:24
  */
 #include <algorithm>
 #include <cstddef>
@@ -12,6 +12,7 @@
 #include <new>
 
 #include "base/logger.h"
+#include "base/memory.h"
 #include "hal/device/common/gnss_utils.h"
 #include "hal/device/t_display_p4/device.h"
 
@@ -104,8 +105,7 @@ bool TDisplayP4Device::ReadGpsStatus(GpsStatus* status) {
 
   const size_t buffer_length =
       std::min(rx_buffer_length, kGpsMaxReadBufferBytes);
-  std::unique_ptr<uint8_t[]> buffer(
-      new (std::nothrow) uint8_t[buffer_length + 1]);
+  auto buffer = memory::MakeBuffer<uint8_t>(buffer_length + 1);
   if (buffer == nullptr) {
     return false;
   }

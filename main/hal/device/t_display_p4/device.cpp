@@ -2,13 +2,14 @@
  * @Description: T-Display-P4 板级初始化与电源生命周期实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-13 13:43:08
  */
 #include "hal/device/t_display_p4/device.h"
 
 #include <memory>
 
 #include "base/logger.h"
+#include "base/memory.h"
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
 #include "hal/device/t_display_p4/v2/fast_charge.h"
 #endif
@@ -41,6 +42,10 @@ bool TDisplayP4Device::InitDevice() {
       nfc_.mutex == nullptr) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Create T-Display-P4 synchronization resources failed\n");
+    return false;
+  }
+  // 设备实例与应用同寿命，回收入口在启动阶段注册，不增加后台轮询。
+  if (!memory::RegisterReclaimer(ReclaimIdleWifiTasks, this)) {
     return false;
   }
   const bool result =
