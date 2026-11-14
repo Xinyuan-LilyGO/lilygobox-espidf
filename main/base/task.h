@@ -1,8 +1,5 @@
 /*
  * @Description: 按用途创建任务，统一诊断分配失败并回收临时任务。
- * @Author: LILYGO_L
- * @Date: 2026-11-13 12:10:17
- * @LastEditTime: 2026-11-13 12:24:24
  */
 #pragma once
 

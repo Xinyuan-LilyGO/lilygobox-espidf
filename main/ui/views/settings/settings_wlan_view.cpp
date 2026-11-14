@@ -1,8 +1,5 @@
 /*
  * @Description: 展示 WLAN 设置、网络连接与已保存凭证管理。
- * @Author: LILYGO_L
- * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include <algorithm>
 #include <cstdio>

@@ -1,8 +1,5 @@
 /**
  * @Description: 显示偏好缓存与实时 NVS 持久化
- * @Author: LILYGO_L
- * @Date: 2026-06-25 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

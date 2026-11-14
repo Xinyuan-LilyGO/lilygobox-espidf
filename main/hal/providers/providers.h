@@ -1,8 +1,5 @@
 /*
  * @Description: 硬件 Provider 接口统一聚合入口
- * @Author: LILYGO_L
- * @Date: 2026-05-16 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

@@ -1,8 +1,5 @@
 /*
  * @Description: 关机菜单覆盖层布局与交互实现
- * @Author: LILYGO_L
- * @Date: 2026-07-07 11:18:34
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "ui/views/power_menu_view.h"
 

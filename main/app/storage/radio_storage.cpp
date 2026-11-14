@@ -1,8 +1,5 @@
 /*
  * @Description: Radio 配置列表与按芯片激活状态持久化实现
- * @Author: LILYGO_L
- * @Date: 2026-07-16 00:00:00
- * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "app/storage/radio_storage.h"
 

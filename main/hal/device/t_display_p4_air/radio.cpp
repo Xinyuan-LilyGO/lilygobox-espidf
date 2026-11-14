@@ -1,8 +1,5 @@
 /*
  * @Description: T-Display-P4-Air LR2021 射频 Provider 实现
- * @Author: LILYGO_L
- * @Date: 2026-09-16 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "hal/device/t_display_p4_air/device.h"
 

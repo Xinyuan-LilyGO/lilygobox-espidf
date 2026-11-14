@@ -1,8 +1,5 @@
 /*
  * @Description: ESP32 系统 RTC 时钟读写公共实现
- * @Author: LILYGO_L
- * @Date: 2026-10-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "hal/device/common/rtc_utils.h"
 

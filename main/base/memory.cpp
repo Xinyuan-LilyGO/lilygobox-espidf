@@ -1,8 +1,5 @@
 /*
  * @Description: 统一内存分配策略、轻量模块计数和按需堆信息采集。
- * @Author: LILYGO_L
- * @Date: 2026-10-07 00:00:00
- * @LastEditTime: 2026-11-13 13:43:08
  */
 #include "base/memory.h"
 

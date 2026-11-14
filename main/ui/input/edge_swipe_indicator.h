@@ -1,8 +1,5 @@
 /*
  * @Description: 全局边缘滑动指示器接口
- * @Author: LILYGO_L
- * @Date: 2026-08-24 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

@@ -1,8 +1,5 @@
 /*
  * @Description: 系统时间、网络与电池状态栏显示实现
- * @Author: LILYGO_L
- * @Date: 2026-05-12 01:08:42
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "ui/widgets/status_bar.h"
 

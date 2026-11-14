@@ -1,8 +1,5 @@
 /*
  * @Description: Material 风格指南针罗盘、定位卡片与校准界面
- * @Author: LILYGO_L
- * @Date: 2026-09-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "ui/views/compass_view.h"
 

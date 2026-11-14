@@ -1,8 +1,5 @@
 /*
  * @Description: NVS 长期配置 TLV 编解码公共接口
- * @Author: LILYGO_L
- * @Date: 2026-07-22 00:00:00
- * @LastEditTime: 2026-11-13 12:24:24
  */
 #pragma once
 

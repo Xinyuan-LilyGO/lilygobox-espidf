@@ -1,8 +1,5 @@
 /*
  * @Description: Battery capacity preference storage implementation
- * @Author: LILYGO_L
- * @Date: 2026-09-01 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "app/storage/battery_storage.h"
 

@@ -1,8 +1,5 @@
 /*
  * @Description: T-Display-P4-Air AXP517 电池管理实现
- * @Author: LILYGO_L
- * @Date: 2026-09-01 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include <algorithm>
 #include <cmath>

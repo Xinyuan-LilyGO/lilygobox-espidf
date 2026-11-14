@@ -1,8 +1,5 @@
 /*
  * @Description: 音乐源文件夹偏好存储实现
- * @Author: LILYGO_L
- * @Date: 2026-07-14 23:25:00
- * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "app/storage/music_storage.h"
 

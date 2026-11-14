@@ -1,8 +1,5 @@
 /*
  * @Description: LVGL 显示、触摸与任务端口管理接口
- * @Author: LILYGO_L
- * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

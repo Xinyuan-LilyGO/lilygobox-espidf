@@ -1,8 +1,5 @@
 /*
  * @Description: T-Display-P4 V2 电源、实体按键与关机充电实现
- * @Author: LILYGO_L
- * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include <cstdint>
 

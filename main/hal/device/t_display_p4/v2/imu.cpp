@@ -1,8 +1,5 @@
 /*
  * @Description: T-Display-P4 V2 BHI260AP 与 QMC6309 姿态实现
- * @Author: LILYGO_L
- * @Date: 2026-09-16 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include <cmath>
 #include <mutex>

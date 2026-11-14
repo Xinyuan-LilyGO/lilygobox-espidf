@@ -1,8 +1,5 @@
 /*
  * @Description: T-Display-P4 键盘扩展 ST25R3916 NFC Provider 实现
- * @Author: LILYGO_L
- * @Date: 2026-08-21 00:00:00
- * @LastEditTime: 2026-11-13 12:24:24
  */
 #include <algorithm>
 

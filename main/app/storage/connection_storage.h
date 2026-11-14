@@ -1,8 +1,5 @@
 /*
  * @Description: 应用自动连接和授权凭据的持久化接口。
- * @Author: LILYGO_L
- * @Date: 2026-10-06 09:01:38
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

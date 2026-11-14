@@ -1,8 +1,5 @@
 /*
  * @Description: 根据构建配置创建设备 Provider 上下文
- * @Author: LILYGO_L
- * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "hal/device_provider_factory.h"
 

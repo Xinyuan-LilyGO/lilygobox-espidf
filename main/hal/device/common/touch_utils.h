@@ -1,8 +1,5 @@
 /*
  * @Description: P4 V1/V2 与 Air 的触摸读取与手势处理公共接口
- * @Author: LILYGO_L
- * @Date: 2026-11-14 10:53:16
- * @LastEditTime: 2026-11-14 10:53:16
  */
 #pragma once
 #include <cstddef>

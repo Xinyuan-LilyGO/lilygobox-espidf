@@ -1,8 +1,5 @@
 /*
  * @Description: Radio 射频控制应用页面实现
- * @Author: LILYGO_L
- * @Date: 2026-07-12 00:00:00
- * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "ui/views/radio_view.h"
 

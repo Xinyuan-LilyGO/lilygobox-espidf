@@ -1,8 +1,5 @@
 /*
  * @Description: 系统音量快捷浮层实现
- * @Author: LILYGO_L
- * @Date: 2026-08-17 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "ui/widgets/volume_overlay.h"
 

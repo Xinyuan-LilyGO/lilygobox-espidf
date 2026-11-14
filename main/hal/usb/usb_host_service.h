@@ -1,8 +1,5 @@
 /*
  * @Description: MSC 与 ECM 共用的 USB Host 生命周期接口
- * @Author: LILYGO_L
- * @Date: 2026-09-22 17:25:57
- * @LastEditTime: 2026-11-09 10:11:19
  */
 #pragma once
 

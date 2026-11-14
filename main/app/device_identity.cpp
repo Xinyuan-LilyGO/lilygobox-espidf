@@ -1,8 +1,5 @@
 /*
  * @Description: 设备名称校验、存储与读取实现
- * @Author: LILYGO_L
- * @Date: 2026-05-18 12:08:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "app/device_identity.h"
 

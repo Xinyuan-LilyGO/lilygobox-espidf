@@ -1,8 +1,5 @@
 /*
  * @Description: Material Symbols 图标 UTF-8 编码常量
- * @Author: LILYGO_L
- * @Date: 2026-05-10 15:02:12
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

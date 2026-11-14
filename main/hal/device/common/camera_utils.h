@@ -1,8 +1,5 @@
 /*
  * @Description: 摄像头预览公共参数与生命周期辅助接口
- * @Author: LILYGO_L
- * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-12 18:06:44
  */
 #pragma once
 

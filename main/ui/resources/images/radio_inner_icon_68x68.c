@@ -1,8 +1,5 @@
 /*
  * @Description: 射频应用 68×68 像素 LVGL 图标资源
- * @Author: LILYGO_L
- * @Date: 2026-05-11 00:54:36
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "lvgl.h"
 

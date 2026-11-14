@@ -1,8 +1,5 @@
 /**
  * @Description: WLAN 偏好存储实现
- * @Author: LILYGO_L
- * @Date: 2026-06-23 00:00:00
- * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "app/storage/wifi_storage.h"
 

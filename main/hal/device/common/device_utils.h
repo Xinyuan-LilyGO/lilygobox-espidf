@@ -1,8 +1,5 @@
 /*
  * @Description: 设备 Provider 通用数据转换辅助接口
- * @Author: LILYGO_L
- * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

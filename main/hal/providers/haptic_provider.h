@@ -1,8 +1,5 @@
 /*
  * @Description: 振动反馈播放与强度控制接口
- * @Author: LILYGO_L
- * @Date: 2026-05-14 00:20:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

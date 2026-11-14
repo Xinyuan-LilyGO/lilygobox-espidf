@@ -1,8 +1,5 @@
 /*
  * @Description: Radio Provider 芯片与协议公共类型
- * @Author: LILYGO_L
- * @Date: 2026-07-16 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

@@ -1,9 +1,6 @@
 /*
  * @Description: 保存应用自动连接开关和最多五个按优先级排列的已授权应用，复用
  * NVS 与 TLV 存储协调器。
- * @Author: LILYGO_L
- * @Date: 2026-10-06 09:01:38
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "app/storage/connection_storage.h"
 

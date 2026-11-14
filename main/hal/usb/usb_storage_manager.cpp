@@ -1,8 +1,5 @@
 /*
  * @Description: USB Host MSC 存储管理器
- * @Author: LILYGO_L
- * @Date: 2026-07-23 18:36:47
- * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "hal/usb/usb_storage_manager.h"
 

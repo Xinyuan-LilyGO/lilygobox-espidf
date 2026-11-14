@@ -1,8 +1,5 @@
 /*
  * @Description: WiFi Provider 公共数据转换辅助实现
- * @Author: LILYGO_L
- * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "hal/device/common/wifi_utils.h"
 

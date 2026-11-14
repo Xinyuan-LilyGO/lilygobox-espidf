@@ -1,8 +1,5 @@
 /*
  * @Description: Shared in-page status prompt widget
- * @Author: LILYGO_L
- * @Date: 2026-08-22 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

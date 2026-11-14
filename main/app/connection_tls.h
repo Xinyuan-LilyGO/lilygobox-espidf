@@ -1,8 +1,5 @@
 /*
  * @Description: 为应用连接提供每台设备独立且持久保存的 TLS 证书。
- * @Author: LILYGO_L
- * @Date: 2026-10-06 16:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

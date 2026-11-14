@@ -1,8 +1,5 @@
 /*
  * @Description: Keyboard expansion preference storage implementation
- * @Author: LILYGO_L
- * @Date: 2026-08-20 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "app/storage/keyboard_expansion_storage.h"
 

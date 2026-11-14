@@ -1,8 +1,5 @@
 /*
  * @Description: 指南针磁北方位、三轴校准与后台设备采集实现
- * @Author: LILYGO_L
- * @Date: 2026-09-28 00:00:00
- * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "app/compass_session.h"
 

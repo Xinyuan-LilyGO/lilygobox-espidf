@@ -1,8 +1,5 @@
 /*
  * @Description: 系统电源状态持久化实现
- * @Author: LILYGO_L
- * @Date: 2026-08-14 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "app/storage/power_state_storage.h"
 

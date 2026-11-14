@@ -1,8 +1,5 @@
 /*
  * @Description: 应用页面路由、创建与占位页面实现
- * @Author: LILYGO_L
- * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "ui/app_view_factory.h"
 

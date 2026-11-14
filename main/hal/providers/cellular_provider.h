@@ -1,8 +1,5 @@
 /*
  * @Description: 蜂窝调制解调器控制、状态与 AT 指令 Provider 接口
- * @Author: LILYGO_L
- * @Date: 2026-07-30 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

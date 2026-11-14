@@ -1,8 +1,5 @@
 /*
  * @Description: T-Display-P4-Air 电源与 OTG 硬件实现
- * @Author: LILYGO_L
- * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-14 10:29:45
  */
 #include <cstdint>
 

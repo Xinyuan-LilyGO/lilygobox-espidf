@@ -1,8 +1,5 @@
 /*
  * @Description: P4 V1/V2 与 Air 的触摸读取与手势处理公共实现
- * @Author: LILYGO_L
- * @Date: 2026-11-14 10:53:16
- * @LastEditTime: 2026-11-14 19:27:53
  */
 #include "hal/device/common/touch_utils.h"
 

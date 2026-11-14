@@ -1,8 +1,5 @@
 /*
  * @Description: T-Display-P4 V2 USB 以太网异步管理实现
- * @Author: LILYGO_L
- * @Date: 2026-09-22 17:25:57
- * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "hal/usb/ethernet/usb_ethernet_manager.h"
 

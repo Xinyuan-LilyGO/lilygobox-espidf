@@ -1,8 +1,5 @@
 /*
  * @Description: 系统应用生命周期与启动协调接口
- * @Author: LILYGO_L
- * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

@@ -1,8 +1,5 @@
 /*
  * @Description: LittleFS、SD 卡与 USB 存储只读文件浏览页面
- * @Author: LILYGO_L
- * @Date: 2026-07-09 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "ui/views/files_view.h"
 

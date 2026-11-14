@@ -1,8 +1,5 @@
 /*
  * @Description: P4 V1/V2 与 Air 的屏幕显示与亮度公共实现
- * @Author: LILYGO_L
- * @Date: 2026-11-14 10:41:03
- * @LastEditTime: 2026-11-14 10:53:16
  */
 #include "hal/device/common/screen_utils.h"
 

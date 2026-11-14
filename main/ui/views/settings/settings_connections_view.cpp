@@ -1,8 +1,5 @@
 /*
  * @Description: 展示应用连接状态、自动连接、授权管理和拖动优先级排序。
- * @Author: LILYGO_L
- * @Date: 2026-10-04 18:37:01
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include <algorithm>
 #include <cstdio>

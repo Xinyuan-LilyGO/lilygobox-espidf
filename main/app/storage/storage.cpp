@@ -1,8 +1,5 @@
 /*
  * @Description: NVS 与 LittleFS 即时持久化统一管理实现
- * @Author: LILYGO_L
- * @Date: 2026-07-03 00:00:00
- * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "app/storage/storage.h"
 

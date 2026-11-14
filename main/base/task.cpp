@@ -1,8 +1,5 @@
 /*
  * @Description: 集中创建内部或 PSRAM 栈任务，使用预分配服务安全回收临时任务。
- * @Author: LILYGO_L
- * @Date: 2026-11-13 12:10:17
- * @LastEditTime: 2026-11-13 13:51:05
  */
 #include "base/task.h"
 

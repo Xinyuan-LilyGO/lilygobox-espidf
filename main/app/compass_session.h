@@ -1,8 +1,5 @@
 /*
  * @Description: 指南针后台采样、磁场校准与状态快照接口
- * @Author: LILYGO_L
- * @Date: 2026-09-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

@@ -1,8 +1,5 @@
 /*
  * @Description: T-Display-P4-Air 显示、触摸与背光实现
- * @Author: LILYGO_L
- * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-14 10:41:03
  */
 #include <atomic>
 #include <cstdint>

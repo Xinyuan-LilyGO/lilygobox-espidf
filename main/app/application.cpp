@@ -1,8 +1,5 @@
 /*
  * @Description: 系统应用初始化、任务调度与电源状态管理实现
- * @Author: LILYGO_L
- * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "app/application.h"
 

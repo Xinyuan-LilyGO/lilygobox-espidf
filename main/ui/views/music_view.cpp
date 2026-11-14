@@ -1,8 +1,5 @@
 ﻿/*
  * @Description: 音乐应用视图
- * @Author: LILYGO_L
- * @Date: 2026-07-08 00:00:00
- * @LastEditTime: 2026-11-13 12:24:24
  */
 #include "ui/views/music_view.h"
 

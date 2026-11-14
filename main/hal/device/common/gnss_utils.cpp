@@ -1,8 +1,5 @@
 /*
  * @Description: GNSS 流式解析结果与应用状态转换实现
- * @Author: LILYGO_L
- * @Date: 2026-09-16 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "hal/device/common/gnss_utils.h"
 

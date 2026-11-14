@@ -1,8 +1,5 @@
 /*
  * @Description: 指南针校准参数 TLV 编解码与 NVS 缓存
- * @Author: LILYGO_L
- * @Date: 2026-09-29 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "app/storage/compass_storage.h"
 

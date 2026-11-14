@@ -1,8 +1,5 @@
 /*
  * @Description: 指南针四元数姿态积分及加速度/磁场互补修正
- * @Author: LILYGO_L
- * @Date: 2026-09-29 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include "app/compass_fusion.h"
 

@@ -1,8 +1,5 @@
 /*
  * @Description: Radio 射频状态、配置与收发 Provider 接口
- * @Author: LILYGO_L
- * @Date: 2026-07-16 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #pragma once
 

@@ -1,8 +1,5 @@
 /*
  * @Description: 按用途选择内存区域，并提供已接入模块用量和系统堆快照。
- * @Author: LILYGO_L
- * @Date: 2026-10-07 00:00:00
- * @LastEditTime: 2026-11-13 13:51:05
  */
 #pragma once
 

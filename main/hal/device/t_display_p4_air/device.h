@@ -1,8 +1,5 @@
 /*
  * @Description: T-Display-P4-Air 设备及硬件 Provider 适配接口
- * @Author: LILYGO_L
- * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-11-14 10:29:45
  */
 #pragma once
 

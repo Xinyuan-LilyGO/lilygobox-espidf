@@ -713,36 +713,14 @@ function cArray(bytes) {
   return lines.join("\n");
 }
 
-function localTimestamp() {
-  const now = new Date();
-  const pad = (value) => String(value).padStart(2, "0");
-  return [
-    now.getFullYear(),
-    "-",
-    pad(now.getMonth() + 1),
-    "-",
-    pad(now.getDate()),
-    " ",
-    pad(now.getHours()),
-    ":",
-    pad(now.getMinutes()),
-    ":",
-    pad(now.getSeconds()),
-  ].join("");
-}
-
 function writeC(output, name, pixels, width, height) {
   const bytes = [];
   for (const pixel of pixels) {
     bytes.push(pixel.b, pixel.g, pixel.r, pixel.a);
   }
-  const stamp = localTimestamp();
   const description = `${name} 的 ${width}×${height} 像素 LVGL 图像资源`;
   const source = `/*
  * @Description: ${description}
- * @Author: LILYGO_L
- * @Date: ${stamp}
- * @LastEditTime: ${stamp}
  * @License: GPL 3.0
  */
 #include "lvgl.h"

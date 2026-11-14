@@ -1,8 +1,5 @@
 /*
  * @Description: T-Display-P4 摄像头预览硬件实现
- * @Author: LILYGO_L
- * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-13 12:24:24
  */
 #include <fcntl.h>
 #include <sys/ioctl.h>

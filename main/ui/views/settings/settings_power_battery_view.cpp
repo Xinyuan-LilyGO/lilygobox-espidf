@@ -1,8 +1,5 @@
 /*
  * @Description: Settings power saving and battery page
- * @Author: LILYGO_L
- * @Date: 2026-05-23 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
  */
 #include <algorithm>
 #include <cerrno>
