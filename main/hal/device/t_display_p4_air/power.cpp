@@ -2,7 +2,7 @@
  * @Description: T-Display-P4-Air 电源与 OTG 硬件实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-14 10:29:45
  */
 #include <cstdint>
 
@@ -600,12 +600,15 @@ bool TDisplayP4AirDevice::EnterDeviceSleep(bool deep_sleep) {
     return false;
   }
   if (!deep_sleep) {
-    touch_gesture_wake_enabled_ =
-        driver_.IsTouchReady() && driver_.chip().hi8561_touch != nullptr &&
-        driver_.chip().hi8561_touch->SetGestureWakeEnabled(true);
+    consecutive_touch_bus_errors_ = 0;
+    touch_gesture_wake_enabled_ = SetTouchGestureWakeEnabled(true);
+    if (!touch_gesture_wake_enabled_) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Enable sleeping touch gesture failed; polling and retry required\n");
+    }
     const bool screen_slept = driver_.SetScreenSleep(true);
     if (!screen_slept && touch_gesture_wake_enabled_) {
-      driver_.chip().hi8561_touch->SetGestureWakeEnabled(false);
+      SetTouchGestureWakeEnabled(false);
       touch_gesture_wake_enabled_ = false;
     }
     return screen_slept;
@@ -634,13 +637,13 @@ bool TDisplayP4AirDevice::ExitDeviceSleep(bool deep_sleep) {
         "Wake device from chip sleep failed\n");
     return false;
   }
-  if (touch_gesture_wake_enabled_) {
-    if (!driver_.chip().hi8561_touch->SetGestureWakeEnabled(false)) {
-      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Disable HI8561 touch gesture wake failed\n");
-    }
-    touch_gesture_wake_enabled_ = false;
-  }
+  // 每次亮屏都退出实际触摸芯片的手势模式，软件标志失效时也必须恢复坐标上报。
+  const bool gesture_disabled = SetTouchGestureWakeEnabled(false);
+  LogMessage(gesture_disabled ? LogLevel::kDebug : LogLevel::kWarning,
+      __FILE__, __LINE__, "Exit touch gesture wake mode: %s\n",
+      gesture_disabled ? "success" : "failed");
+  touch_gesture_wake_enabled_ = false;
+  consecutive_touch_bus_errors_ = 0;
   return WaitForScreenReady();
 }
 

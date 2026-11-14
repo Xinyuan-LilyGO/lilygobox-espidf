@@ -2,7 +2,7 @@
  * @Description: T-Display-P4-Air 设备及硬件 Provider 适配接口
  * @Author: LILYGO_L
  * @Date: 2026-05-10 13:27:05
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-14 10:29:45
  */
 #pragma once
 
@@ -736,6 +736,9 @@ class TDisplayP4AirDevice final : public ScreenProvider,
    * @return 初始化成功返回 true，否则返回 false
    */
   bool InitializeTouchInterrupt();
+
+  // 按实际屏幕类型切换触摸固件手势模式，亮屏时恢复普通坐标上报。
+  bool SetTouchGestureWakeEnabled(bool enabled);
 
   /**
    * @brief 配置 Air 板上唯一的物理电源键 GPIO 输入
@@ -1552,6 +1555,9 @@ class TDisplayP4AirDevice final : public ScreenProvider,
   bool touch_interrupt_line_active_ = false;
   // 轻度熄屏期间是否启用了触摸固件双击唤醒。
   bool touch_gesture_wake_enabled_ = false;
+  // 触摸读取诊断限频和连续通信失败计数，与 P4 共用恢复规则。
+  uint32_t last_touch_read_diagnostic_ms_ = 0;
+  uint8_t consecutive_touch_bus_errors_ = 0;
   int rm69a10_brightness_percent_ = 0;
   // 扬声器播放状态，供 UI 和后台播放任务共享
   SpeakerState speaker_;

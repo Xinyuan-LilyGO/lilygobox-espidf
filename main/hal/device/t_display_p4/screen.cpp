@@ -2,19 +2,16 @@
  * @Description: T-Display-P4 显示、触摸与背光实现
  * @Author: LILYGO_L
  * @Date: 2026-08-28 00:00:00
- * @LastEditTime: 2026-11-09 10:05:08
+ * @LastEditTime: 2026-11-14 10:41:03
  */
-#include <algorithm>
 #include <atomic>
-#include <cmath>
 #include <cstdint>
 
 #include "base/logger.h"
-#include "esp_err.h"
-#include "esp_lcd_mipi_dsi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "hal/device/common/device_utils.h"
+#include "hal/device/common/screen_utils.h"
+#include "hal/device/common/touch_utils.h"
 #include "hal/device/t_display_p4/device.h"
 
 namespace lilygo_box::hal {
@@ -22,10 +19,7 @@ namespace device = lilygo_device_driver::t_display_p4::device;
 namespace gpio = lilygo_device_driver::t_display_p4::gpio;
 namespace {
 
-constexpr uint32_t kBacklightDutyScale = 1000;
-constexpr uint32_t kScreenBrightnessFadeUpdateMs = 10;
 constexpr uint32_t kTouchReadDiagnosticIntervalMs = 1000;
-constexpr uint8_t kTouchBusErrorRecoveryThreshold = 3;
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_DEVICE_VERSION_V2)
 constexpr int kTouchInterruptGpio = gpio::hi8561::kTouchInt;
 #else
@@ -43,15 +37,51 @@ cpp_bus_driver::Pwm* GetScreenBacklight(
   return driver.IsScreenBacklightReady() ? driver.chip().sy7200a.get()
                                          : nullptr;
 #else
-  return driver.IsScreenBacklightReady() ? driver.chip().pt4103.get()
-                                         : nullptr;
+  return driver.IsScreenBacklightReady() ? driver.chip().pt4103.get() : nullptr;
 #endif
 }
 
-cpp_bus_driver::Pwm::DutyCycle ScreenBrightnessPercentToHi8561DutyCycle(
-    int clamped_percent) {
-  return device_utils::ScreenBrightnessPercentToDutyCycle(
-      clamped_percent, kBacklightDutyScale);
+// 将板级驱动映射为公共接口使用的实际芯片。
+screen_utils::Hardware GetScreenHardware(
+    const lilygo_device_driver::TDisplayP4Driver& driver) {
+  screen_utils::Hardware hardware;
+  using Type = decltype(driver.screen_type());
+  switch (driver.screen_type()) {
+    case Type::kHi8561:
+      hardware.type = screen_utils::Hardware::Type::kHi8561;
+      break;
+    case Type::kRm69a10:
+      hardware.type = screen_utils::Hardware::Type::kRm69a10;
+      break;
+    default:
+      break;
+  }
+  hardware.ready = driver.IsScreenReady();
+  hardware.hi8561 = driver.chip().hi8561.get();
+  hardware.rm69a10 = driver.chip().rm69a10.get();
+  const auto bus = driver.bus().screen_mipi_bus;
+  hardware.panel = bus != nullptr ? bus->device_handle() : nullptr;
+  return hardware;
+}
+
+touch_utils::Hardware GetTouchHardware(
+    const lilygo_device_driver::TDisplayP4Driver& driver) {
+  touch_utils::Hardware hardware;
+  using Type = decltype(driver.screen_type());
+  switch (driver.screen_type()) {
+    case Type::kHi8561:
+      hardware.type = touch_utils::Hardware::Type::kHi8561;
+      break;
+    case Type::kRm69a10:
+      hardware.type = touch_utils::Hardware::Type::kGt9895;
+      break;
+    default:
+      break;
+  }
+  hardware.ready = driver.IsTouchReady();
+  hardware.hi8561_touch = driver.chip().hi8561_touch.get();
+  hardware.gt9895 = driver.chip().gt9895.get();
+  return hardware;
 }
 
 }  // namespace
@@ -99,306 +129,60 @@ void TDisplayP4Device::TouchInterruptHandler(void* context) {
 
 bool TDisplayP4Device::RegisterScreenDisplayCallbacks(
     const ScreenProviderDisplayCallbacks& callbacks) {
-  if (!driver_.IsScreenReady()) {
-    LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "Screen is not ready for display callback registration\n");
-    return false;
-  }
-
-  display_callbacks_ = callbacks;
-
-  esp_lcd_dpi_panel_event_callbacks_t panel_callbacks = {
-      .on_color_trans_done = [](esp_lcd_panel_handle_t,
-                                 esp_lcd_dpi_panel_event_data_t*,
-                                 void* user_context) -> bool {
-        const auto* display_callbacks =
-            static_cast<const ScreenProviderDisplayCallbacks*>(user_context);
-        if (display_callbacks != nullptr &&
-            display_callbacks->flush_ready_callback != nullptr) {
-          display_callbacks->flush_ready_callback(
-              display_callbacks->callback_context);
-        }
-        return false;
-      },
-      .on_refresh_done = [](esp_lcd_panel_handle_t,
-                             esp_lcd_dpi_panel_event_data_t*,
-                             void* user_context) -> bool {
-        const auto* display_callbacks =
-            static_cast<const ScreenProviderDisplayCallbacks*>(user_context);
-        if (display_callbacks != nullptr &&
-            display_callbacks->refresh_done_callback != nullptr) {
-          display_callbacks->refresh_done_callback(
-              display_callbacks->callback_context);
-        }
-        return false;
-      },
-  };
-
-  const auto screen_bus = driver_.bus().screen_mipi_bus;
-  if (screen_bus == nullptr) {
-    LogMessage(
-        LogLevel::kError, __FILE__, __LINE__, "Screen MIPI bus is empty\n");
-    return false;
-  }
-
-  esp_lcd_panel_handle_t panel = screen_bus->device_handle();
-  if (panel == nullptr) {
-    LogMessage(
-        LogLevel::kError, __FILE__, __LINE__, "Screen panel handle is empty\n");
-    return false;
-  }
-
-  const int result = esp_lcd_dpi_panel_register_event_callbacks(
-      panel, &panel_callbacks, &display_callbacks_);
-  if (result != 0) {
-    LogMessage(LogLevel::kError, __FILE__, __LINE__,
-        "esp_lcd_dpi_panel_register_event_callbacks failed: %s (%#X)\n",
-        esp_err_to_name(static_cast<esp_err_t>(result)),
-        static_cast<unsigned>(result));
-    return false;
-  }
-  return true;
+  return screen_utils::RegisterDisplayCallbacks(
+      GetScreenHardware(driver_), callbacks, &display_callbacks_);
 }
 
 bool TDisplayP4Device::WriteScreenPixels(
     int x_start, int y_start, int x_end, int y_end, const void* pixels) {
-  if (!driver_.IsScreenReady()) {
-    return false;
-  }
-
-  switch (driver_.screen_type()) {
-    case device::ScreenType::kHi8561:
-      return driver_.chip().hi8561->SendColorStreamCoordinate(
-          x_start, y_start, x_end, y_end, pixels);
-    case device::ScreenType::kRm69a10:
-      return driver_.chip().rm69a10->SendColorStreamCoordinate(
-          x_start, y_start, x_end, y_end, pixels);
-    default:
-      break;
-  }
-  return false;
+  return screen_utils::WritePixels(
+      GetScreenHardware(driver_), x_start, y_start, x_end, y_end, pixels);
 }
 
 bool TDisplayP4Device::ReadScreenTouch(TouchPoint* point) {
-  if (point == nullptr) {
-    return false;
-  }
+  if (point == nullptr) return false;
   *point = TouchPoint();
-
+  if (!driver_.IsTouchReady()) return false;
+  // 只有板级入口消费中断；V1 同时清除 XL9535 汇总锁存。
+  const bool interrupt_received = ConsumeTouchInterrupt();
+  cpp_bus_driver::TouchFrame frame;
+  const auto status =
+      touch_utils::ReadTouchFrame(GetTouchHardware(driver_), &frame, true);
+  touch_utils::UpdateTouchRecovery(
+      status, &consecutive_touch_bus_errors_, &touch_gesture_wake_enabled_);
   const uint32_t now_ms =
       static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
-  const bool log_diagnostics = ShouldLog(LogLevel::kDebug) &&
-      now_ms - last_touch_read_diagnostic_ms_ >= kTouchReadDiagnosticIntervalMs;
-  if (log_diagnostics) {
+  if (ShouldLog(LogLevel::kDebug) && now_ms - last_touch_read_diagnostic_ms_ >=
+                                         kTouchReadDiagnosticIntervalMs) {
     last_touch_read_diagnostic_ms_ = now_ms;
+    touch_utils::LogTouchRead(status, frame, kTouchInterruptGpio,
+        tool_ != nullptr && !tool_->GpioRead(kTouchInterruptGpio),
+        touch_interrupt_initialized_, touch_gesture_wake_enabled_);
   }
-  if (!driver_.IsTouchReady()) {
-    if (log_diagnostics) {
-      LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
-          "Touch read skipped (driver not ready)\n");
-    }
-    return false;
-  }
-
-  // 亮屏轮询也需要消费中断；V1 同时清除 XL9535 的汇总中断锁存。
-  const bool touch_interrupt_received = ConsumeTouchInterrupt();
-
-  cpp_bus_driver::TouchFrame frame;
-  cpp_bus_driver::TouchReadStatus read_status =
-      cpp_bus_driver::TouchReadStatus::kInvalidData;
-  switch (driver_.screen_type()) {
-    case device::ScreenType::kHi8561:
-      read_status = driver_.chip().hi8561_touch->ReadPrimaryTouch(&frame);
-      break;
-    case device::ScreenType::kRm69a10:
-      read_status = driver_.chip().gt9895->ReadPrimaryTouch(&frame);
-      break;
-    default:
-      return false;
-  }
-  if (read_status == cpp_bus_driver::TouchReadStatus::kBusError) {
-    if (consecutive_touch_bus_errors_ < kTouchBusErrorRecoveryThreshold) {
-      ++consecutive_touch_bus_errors_;
-    }
-    if (touch_gesture_wake_enabled_ &&
-        consecutive_touch_bus_errors_ >= kTouchBusErrorRecoveryThreshold) {
-      // 仅明确的连续通信失败触发恢复，空报告、固定序号及 INT 低电平
-      // 本身都不代表手势配置失效。
-      touch_gesture_wake_enabled_ = false;
-      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Touch wake recovery requested after %u consecutive bus read errors\n",
-          static_cast<unsigned int>(consecutive_touch_bus_errors_));
-    }
-  } else {
-    consecutive_touch_bus_errors_ = 0;
-  }
-  if (log_diagnostics) {
-    const char* status_name = "invalid data";
-    switch (read_status) {
-      case cpp_bus_driver::TouchReadStatus::kSuccess:
-        status_name = "success";
-        break;
-      case cpp_bus_driver::TouchReadStatus::kNoData:
-        status_name = "no data";
-        break;
-      case cpp_bus_driver::TouchReadStatus::kBusError:
-        status_name = "bus error";
-        break;
-      case cpp_bus_driver::TouchReadStatus::kInvalidData:
-        break;
-    }
-    const bool interrupt_low =
-        tool_ != nullptr && !tool_->GpioRead(kTouchInterruptGpio);
-    LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
-        "Touch read result (status: %s, sequence: %u, gesture: 0X%02X, "
-        "contacts: %u, INT GPIO: %d, INT low: %s, interrupt registered: %s, "
-        "gesture wake configured: %s)\n",
-        status_name, static_cast<unsigned int>(frame.sequence),
-        static_cast<unsigned int>(frame.gesture),
-        static_cast<unsigned int>(frame.contact_count), kTouchInterruptGpio,
-        interrupt_low ? "yes" : "no",
-        touch_interrupt_initialized_ ? "yes" : "no",
-        touch_gesture_wake_enabled_ ? "yes" : "no");
-  }
-  if (read_status == cpp_bus_driver::TouchReadStatus::kSuccess ||
-      read_status == cpp_bus_driver::TouchReadStatus::kNoData) {
-    point->report_sequence = frame.sequence;
-    point->report_sequence_valid = true;
-  }
-
-  const bool firmware_double_tap =
-      (driver_.screen_type() == device::ScreenType::kHi8561 &&
-          frame.gesture ==
-              static_cast<uint8_t>(
-                  cpp_bus_driver::Hi8561Touch::Gesture::kDoubleTap)) ||
-      (driver_.screen_type() == device::ScreenType::kRm69a10 &&
-          frame.gesture == static_cast<uint8_t>(
-                               cpp_bus_driver::Gt9895::Gesture::kDoubleTap));
-  if (firmware_double_tap) {
-    point->x = -1;
-    point->y = -1;
-    point->gesture = TouchGesture::kDoubleTap;
-    return true;
-  }
-  // GT9895 在物理左右边缘可能先产生硬件中断而暂不提供有效坐标。
-  // 该中断只作为应用层边缘手势候选提示，不能单独触发返回操作。
-  // GT9895 的 INT 是通用触摸通知，不能把每次中断都解释为边缘触摸。
-  // 只有收到中断但固件暂时没有提供坐标时，才将其作为边缘候选提示；
-  // 普通有效坐标必须继续交给 LVGL，否则屏幕边缘控件会全部失效。
-  const bool hardware_edge_hint =
-      frame.edge_touch ||
-      (driver_.screen_type() == device::ScreenType::kRm69a10 &&
-          touch_interrupt_received &&
-          (read_status == cpp_bus_driver::TouchReadStatus::kNoData ||
-              (read_status == cpp_bus_driver::TouchReadStatus::kSuccess &&
-                  frame.contact_count == 0)));
-  if (read_status != cpp_bus_driver::TouchReadStatus::kSuccess) {
-    if (!hardware_edge_hint ||
-        read_status != cpp_bus_driver::TouchReadStatus::kNoData) {
-      return false;
-    }
-    device_utils::SetHardwareEdgeTouchPoint(point);
-    return true;
-  }
-  if (frame.contact_count == 0) {
-    if (!hardware_edge_hint) {
-      return false;
-    }
-    device_utils::SetHardwareEdgeTouchPoint(point);
-    return true;
-  }
-
-  const cpp_bus_driver::TouchContact& contact = frame.contacts[0];
-  point->id = contact.id;
-  point->x = contact.x;
-  point->y = contact.y;
-  point->pressure =
-      static_cast<uint8_t>(std::min<uint16_t>(contact.pressure, UINT8_MAX));
-  point->edge_touch_flag = frame.edge_touch;
-  return true;
+  return touch_utils::DecodePrimaryTouch(status, frame,
+      (GetTouchHardware(driver_).type == touch_utils::Hardware::Type::kGt9895),
+      interrupt_received, point);
 }
 
 bool TDisplayP4Device::ReadScreenTouchPoints(
     TouchPoint* points, size_t max_points, size_t* point_count) {
-  if (point_count != nullptr) {
-    *point_count = 0;
-  }
-  if (points == nullptr || max_points == 0 || point_count == nullptr) {
+  if (point_count != nullptr) *point_count = 0;
+  if (points == nullptr || max_points == 0 || point_count == nullptr ||
+      !driver_.IsTouchReady())
     return false;
-  }
-
-  if (!driver_.IsTouchReady()) {
-    return false;
-  }
-
-  // 亮屏轮询也需要清除 XL9535 的汇总中断锁存，确保后续边沿可继续上报。
-  const bool touch_interrupt_received = ConsumeTouchInterrupt();
-
+  const bool interrupt_received = ConsumeTouchInterrupt();
   cpp_bus_driver::TouchFrame frame;
-  cpp_bus_driver::TouchReadStatus read_status =
-      cpp_bus_driver::TouchReadStatus::kInvalidData;
-  switch (driver_.screen_type()) {
-    case device::ScreenType::kHi8561:
-      read_status = driver_.chip().hi8561_touch->ReadTouchFrame(&frame);
-      break;
-    case device::ScreenType::kRm69a10:
-      read_status = driver_.chip().gt9895->ReadTouchFrame(&frame);
-      break;
-    default:
-      return false;
-  }
-
-  // GT9895 的通用触摸中断只有在缺少有效坐标时才可作为边缘候选提示。
-  // 有效触摸不能携带这个提示，避免全局手势抢占边缘页面控件。
-  const bool hardware_edge_hint =
-      frame.edge_touch ||
-      (driver_.screen_type() == device::ScreenType::kRm69a10 &&
-          touch_interrupt_received &&
-          (read_status == cpp_bus_driver::TouchReadStatus::kNoData ||
-              (read_status == cpp_bus_driver::TouchReadStatus::kSuccess &&
-                  frame.contact_count == 0)));
-  if (read_status != cpp_bus_driver::TouchReadStatus::kSuccess) {
-    if (!hardware_edge_hint ||
-        read_status != cpp_bus_driver::TouchReadStatus::kNoData) {
-      return false;
-    }
-    device_utils::SetHardwareEdgeTouchPoint(&points[0]);
-    *point_count = 1;
-    return true;
-  }
-  const size_t count = std::min<size_t>(max_points, frame.contact_count);
-  for (size_t i = 0; i < count; ++i) {
-    const cpp_bus_driver::TouchContact& contact = frame.contacts[i];
-    points[i].id = contact.id;
-    points[i].x = contact.x;
-    points[i].y = contact.y;
-    points[i].pressure =
-        static_cast<uint8_t>(std::min<uint16_t>(contact.pressure, UINT8_MAX));
-    points[i].edge_touch_flag = frame.edge_touch;
-  }
-  *point_count = count;
-  if (*point_count == 0 && hardware_edge_hint) {
-    device_utils::SetHardwareEdgeTouchPoint(&points[0]);
-    *point_count = 1;
-  }
-  return *point_count > 0;
+  const auto status =
+      touch_utils::ReadTouchFrame(GetTouchHardware(driver_), &frame, false);
+  return touch_utils::DecodeTouchPoints(status, frame,
+      (GetTouchHardware(driver_).type == touch_utils::Hardware::Type::kGt9895),
+      interrupt_received, points, max_points, point_count);
 }
 
 bool TDisplayP4Device::SupportsHardwareEdgeTouchHint(
     int display_rotation_angle) const {
-  switch (driver_.screen_type()) {
-    case device::ScreenType::kHi8561:
-      // HI8561 会在物理上下左右四边上报专用边缘触摸标记，
-      // 因此软件旋转到任意方向时都可将其作为手势候选提示。
-      return true;
-    case device::ScreenType::kRm69a10:
-      // GT9895 当前固件只在物理左右边缘存在坐标抑制。0°/180°
-      // 竖屏时应用的返回边缘与其重合；90°/270° 横屏时应用左右边
-      // 对应物理上下边，不得使用这个提示，否则普通中断可能被误判。
-      return display_rotation_angle == 0 || display_rotation_angle == 180;
-    default:
-      return false;
-  }
+  return touch_utils::SupportsHardwareEdgeTouchHint(
+      GetTouchHardware(driver_), display_rotation_angle);
 }
 
 bool TDisplayP4Device::SupportsTouchInterrupt() const {
@@ -440,134 +224,38 @@ bool TDisplayP4Device::ConsumeTouchInterrupt(bool* edge_received) {
 }
 
 bool TDisplayP4Device::RequiresContinuousSleepingTouchPolling() const {
-  switch (driver_.screen_type()) {
-    case device::ScreenType::kHi8561:
-    case device::ScreenType::kRm69a10:
-      return !touch_gesture_wake_enabled_;
-    default:
-      return false;
-  }
+  return touch_utils::RequiresSleepingTouchPolling(
+      GetTouchHardware(driver_), touch_gesture_wake_enabled_);
 }
 
 bool TDisplayP4Device::RefreshTouchWakeConfiguration() {
-  const bool refreshed = SetTouchGestureWakeEnabled(true);
-  // 刷新失败后不能继续假定固件手势有效，恢复连续读取作为软件识别后备。
-  touch_gesture_wake_enabled_ = refreshed;
-  if (refreshed) {
-    consecutive_touch_bus_errors_ = 0;
-  }
-  return refreshed;
+  return touch_utils::RefreshTouchWakeConfiguration(GetTouchHardware(driver_),
+      &touch_gesture_wake_enabled_, &consecutive_touch_bus_errors_);
 }
 
 bool TDisplayP4Device::SetTouchGestureWakeEnabled(bool enabled) {
-  switch (driver_.screen_type()) {
-    case device::ScreenType::kHi8561:
-      return driver_.IsTouchReady() &&
-             driver_.chip().hi8561_touch != nullptr &&
-             driver_.chip().hi8561_touch->SetGestureWakeEnabled(enabled);
-    case device::ScreenType::kRm69a10:
-      if (!driver_.IsTouchReady() || driver_.chip().gt9895 == nullptr) {
-        return false;
-      }
-      return enabled ? driver_.chip().gt9895->EnterGestureMode()
-                     : driver_.chip().gt9895->ExitGestureMode();
-    default:
-      return false;
-  }
+  return touch_utils::SetTouchGestureWakeEnabled(
+      GetTouchHardware(driver_), enabled);
 }
 
 bool TDisplayP4Device::SetScreenBrightnessPercent(int percent) {
-  if (!WaitForScreenReady()) {
-    return false;
-  }
-
-  const int clamped_percent = device_utils::ClampPercent(percent);
-  switch (driver_.screen_type()) {
-    case device::ScreenType::kHi8561:
-      if (auto* backlight = GetScreenBacklight(driver_); backlight != nullptr) {
-        const cpp_bus_driver::Pwm::DutyCycle duty =
-            ScreenBrightnessPercentToHi8561DutyCycle(clamped_percent);
-        return backlight->SetDuty(duty);
-      }
-      break;
-    case device::ScreenType::kRm69a10:
-      if (driver_.IsScreenReady()) {
-        const uint8_t brightness =
-            device_utils::PercentToUint8Value(clamped_percent, UINT8_MAX);
-        const bool result = driver_.chip().rm69a10->SetBrightness(brightness);
-        if (result) {
-          rm69a10_brightness_percent_ = clamped_percent;
-        }
-        return result;
-      }
-      break;
-    default:
-      break;
-  }
-  return false;
+  if (!WaitForScreenReady()) return false;
+  return screen_utils::SetBrightness(GetScreenHardware(driver_),
+      GetScreenBacklight(driver_), percent, &rm69a10_brightness_percent_);
 }
 
 bool TDisplayP4Device::FadeScreenBrightnessPercent(
     int target_percent, uint32_t duration_ms) {
-  if (!WaitForScreenReady()) {
-    return false;
-  }
-
-  const int clamped_percent = device_utils::ClampPercent(target_percent);
-  if (duration_ms == 0) {
-    return SetScreenBrightnessPercent(clamped_percent);
-  }
-
-  switch (driver_.screen_type()) {
-    case device::ScreenType::kHi8561:
-      if (auto* backlight = GetScreenBacklight(driver_); backlight != nullptr) {
-        const cpp_bus_driver::Pwm::DutyCycle target_duty =
-            ScreenBrightnessPercentToHi8561DutyCycle(clamped_percent);
-        if (backlight->FadeTo(target_duty, duration_ms,
-                cpp_bus_driver::Pwm::FadeMode::kWaitForCompletion)) {
-          return true;
-        }
-      }
-      break;
-    case device::ScreenType::kRm69a10:
-      if (driver_.IsScreenReady()) {
-        const int start_percent = rm69a10_brightness_percent_;
-        const int brightness_delta = std::abs(clamped_percent - start_percent);
-        if (brightness_delta == 0) {
-          return true;
-        }
-        const int duration_step_count =
-            static_cast<int>(duration_ms / kScreenBrightnessFadeUpdateMs);
-        const int step_count =
-            std::max(1, std::min(brightness_delta, duration_step_count));
-        for (int step = 1; step <= step_count; ++step) {
-          const int brightness_percent =
-              start_percent +
-              (clamped_percent - start_percent) * step / step_count;
-          const uint8_t brightness =
-              device_utils::PercentToUint8Value(brightness_percent, UINT8_MAX);
-          if (!driver_.chip().rm69a10->SetBrightness(brightness)) {
-            return false;
-          }
-          rm69a10_brightness_percent_ = brightness_percent;
-          vTaskDelay(
-              pdMS_TO_TICKS(std::max<uint32_t>(1, duration_ms / step_count)));
-        }
-        return true;
-      }
-      break;
-    default:
-      break;
-  }
-  return false;
+  if (!WaitForScreenReady()) return false;
+  return screen_utils::FadeBrightness(GetScreenHardware(driver_),
+      GetScreenBacklight(driver_), target_percent, duration_ms,
+      &rm69a10_brightness_percent_);
 }
 
 bool TDisplayP4Device::WaitForScreenReady() {
   for (int elapsed_ms = 0; elapsed_ms < kScreenReadyTimeoutMs;
       elapsed_ms += kScreenReadyPollMs) {
-    if (driver_.IsScreenReady()) {
-      return true;
-    }
+    if (driver_.IsScreenReady()) return true;
     vTaskDelay(pdMS_TO_TICKS(kScreenReadyPollMs));
   }
   return driver_.IsScreenReady();
@@ -576,9 +264,7 @@ bool TDisplayP4Device::WaitForScreenReady() {
 bool TDisplayP4Device::WaitForTouchReady() {
   for (int elapsed_ms = 0; elapsed_ms < kScreenReadyTimeoutMs;
       elapsed_ms += kScreenReadyPollMs) {
-    if (driver_.IsTouchReady()) {
-      return true;
-    }
+    if (driver_.IsTouchReady()) return true;
     vTaskDelay(pdMS_TO_TICKS(kScreenReadyPollMs));
   }
   return driver_.IsTouchReady();
